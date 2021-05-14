@@ -835,8 +835,6 @@ class NegativeBinomial(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, alpha, beta, validate_args=None):
-        self.alpha = alpha
-        self.beta = beta
         self.alpha, self.beta = promote_shapes(alpha, beta)
         batch_shape = lax.broadcast_shapes(jnp.shape(alpha), jnp.shape(beta))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -874,9 +872,7 @@ class NegativeBinomial2(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, mu, phi, validate_args=None):
-        self.mu = mu
-        self.phi = phi
-        self.mu, self.scale = promote_shapes(mu, phi)
+        self.mu, self.phi = promote_shapes(mu, phi)
         batch_shape = lax.broadcast_shapes(jnp.shape(mu), jnp.shape(phi))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
@@ -890,7 +886,7 @@ class NegativeBinomial2(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        ll = gammaln(value + self.alpha) - gammaln(self.alpha) - gammaln(value + 1.0)
+        ll = gammaln(value + self.phi) - gammaln(self.phi) - gammaln(value + 1.0)
         ll += value * jnp.log(self.mu / (self.mu + self.phi))
         ll += self.phi * jnp.log(self.mu / (self.mu + self.phi))
         return ll
@@ -902,6 +898,54 @@ class NegativeBinomial2(Distribution):
     @property
     def variance(self):
         return self.mu + self.mu ** 2 / self.phi
+
+    def cdf(self, value):
+        bt = betainc(self.phi, value + 1.0, self.phi / (self.mu + self.phi))
+        return bt
+
+
+class ZeroInflatedNegativeBinomial(Distribution):
+    arg_constraints = {"theta": constraints.unit_interval,
+                       "mu": constraints.positive,
+                       "phi": constraints.positive}
+    support = constraints.nonnegative_integer
+
+    def __init__(self, theta, mu, phi, validate_args=None):
+        self.theta, self.mu, self.phi = promote_shapes(theta, mu, phi)
+        batch_shape = lax.broadcast_shapes(jnp.shape(theta), jnp.shape(mu), jnp.shape(phi))
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+        self._nb = NegativeBinomial2(mu, phi, validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        beta = self.mu / self.phi
+        gam = random.gamma(key, self.mu, beta)
+        return random.poisson(key, gam, shape=sample_shape + self.batch_shape)
+
+    @validate_sample
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        where_y_is_0 = jnp.equal(value, 0)
+        ll_zeros = jnp.log(1. - self.theta) + self._nb(0)
+        ll_zeros = jnp.hstack([
+            jnp.repeat(np.log(self.theta), len(value)).reshape(-1, 1),
+            ll_zeros.reshape(-1, 1)]
+        )
+        ll_zeros = logsumexp(a=ll_zeros, axis=1)
+        ll_nonzero = np.log(1. - self.theta) + self._nb.log_prob(value)
+        ll = np.where(where_y_is_0, ll_zeros, ll_nonzero)
+        return ll
+
+    @property
+    def mean(self):
+        return (1.0 - self.theta) * self.mu
+
+    @property
+    def variance(self):
+        return (1.0 - self.theta) * \
+               self.mu * \
+               (1.0 + self.theta * self.mu + self.mu / self.phi)
 
     def cdf(self, value):
         bt = betainc(self.phi, value + 1.0, self.phi / (self.mu + self.phi))
