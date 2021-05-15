@@ -36,7 +36,7 @@ from jax.nn import softmax, softplus
 import jax.numpy as jnp
 from jax.ops import index_add
 import jax.random as random
-from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy, digamma
+from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -830,8 +830,7 @@ def Geometric(probs=None, logits=None, validate_args=None):
 
 
 class NegativeBinomial(Distribution):
-    arg_constraints = {"alpha": constraints.positive,
-                       "beta": constraints.positive}
+    arg_constraints = {"alpha": constraints.positive, "beta": constraints.positive}
     support = constraints.nonnegative_integer
 
     def __init__(self, alpha, beta, validate_args=None):
@@ -841,13 +840,12 @@ class NegativeBinomial(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        gam = random.gamma(key, self.alpha, 1.0 / self.beta)
-        return random.poisson(key, gam, shape=sample_shape + self.batch_shape)
+        shape = sample_shape + self.batch_shape
+        gam = random.gamma(key, self.alpha, shape=shape) / self.beta
+        return random.poisson(key, gam, shape=shape)
 
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         ll = gammaln(value + self.alpha) - gammaln(self.alpha) - gammaln(value + 1.0)
         ll += self.alpha * jnp.log(self.beta / (self.beta + 1.0))
         ll += value * jnp.log(1 / (self.beta + 1.0))
@@ -867,8 +865,7 @@ class NegativeBinomial(Distribution):
 
 
 class NegativeBinomial2(Distribution):
-    arg_constraints = {"mu": constraints.positive,
-                       "phi": constraints.positive}
+    arg_constraints = {"mu": constraints.positive, "phi": constraints.positive}
     support = constraints.nonnegative_integer
 
     def __init__(self, mu, phi, validate_args=None):
@@ -878,14 +875,12 @@ class NegativeBinomial2(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        beta = self.mu / self.phi
-        gam = random.gamma(key, self.mu, beta)
-        return random.poisson(key, gam, shape=sample_shape + self.batch_shape)
+        shape = sample_shape + self.batch_shape
+        gam = random.gamma(key, self.phi, shape=shape) * (self.mu / self.phi)
+        return random.poisson(key, gam, shape=shape)
 
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         ll = gammaln(value + self.phi) - gammaln(self.phi) - gammaln(value + 1.0)
         ll += value * jnp.log(self.mu / (self.mu + self.phi))
         ll += self.phi * jnp.log(self.mu / (self.mu + self.phi))
@@ -897,7 +892,7 @@ class NegativeBinomial2(Distribution):
 
     @property
     def variance(self):
-        return self.mu + self.mu ** 2 / self.phi
+        return self.mu + (self.mu ** 2) / self.phi
 
     def cdf(self, value):
         bt = betainc(self.phi, value + 1.0, self.phi / (self.mu + self.phi))
@@ -905,36 +900,38 @@ class NegativeBinomial2(Distribution):
 
 
 class ZeroInflatedNegativeBinomial(Distribution):
-    arg_constraints = {"theta": constraints.unit_interval,
-                       "mu": constraints.positive,
-                       "phi": constraints.positive}
+    arg_constraints = {
+        "theta": constraints.unit_interval,
+        "mu": constraints.positive,
+        "phi": constraints.positive,
+    }
     support = constraints.nonnegative_integer
 
     def __init__(self, theta, mu, phi, validate_args=None):
         self.theta, self.mu, self.phi = promote_shapes(theta, mu, phi)
-        batch_shape = lax.broadcast_shapes(jnp.shape(theta), jnp.shape(mu), jnp.shape(phi))
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(theta), jnp.shape(mu), jnp.shape(phi)
+        )
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
-        self._nb = NegativeBinomial2(mu, phi, validate_args)
+        self._nb = NegativeBinomial2(mu, phi)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        beta = self.mu / self.phi
-        gam = random.gamma(key, self.mu, beta)
-        return random.poisson(key, gam, shape=sample_shape + self.batch_shape)
+        shape = sample_shape + self.batch_shape
+        mix = random.gamma(key, self.phi, shape=shape) * (self.mu / self.phi)
+        pos_rvs = random.poisson(key, mix, shape=shape)
+        is_inflated = random.uniform(key, shape=shape)
+        return pos_rvs * jnp.where(is_inflated < self.theta, 0.0, 1.0)
 
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         where_y_is_0 = jnp.equal(value, 0)
-        ll_zeros = jnp.log(1. - self.theta) + self._nb(0)
-        ll_zeros = jnp.hstack([
-            jnp.repeat(np.log(self.theta), len(value)).reshape(-1, 1),
-            ll_zeros.reshape(-1, 1)]
+        ll_zeros = jnp.array(
+            [jnp.log(self.theta), jnp.log(1.0 - self.theta) + self._nb.log_prob(0.0)]
         )
-        ll_zeros = logsumexp(a=ll_zeros, axis=1)
-        ll_nonzero = np.log(1. - self.theta) + self._nb.log_prob(value)
-        ll = np.where(where_y_is_0, ll_zeros, ll_nonzero)
+        ll_zeros = logsumexp(ll_zeros)
+        ll_nonzero = jnp.log(1.0 - self.theta) + self._nb.log_prob(value)
+        ll = jnp.where(where_y_is_0, ll_zeros, ll_nonzero)
         return ll
 
     @property
@@ -943,9 +940,11 @@ class ZeroInflatedNegativeBinomial(Distribution):
 
     @property
     def variance(self):
-        return (1.0 - self.theta) * \
-               self.mu * \
-               (1.0 + self.theta * self.mu + self.mu / self.phi)
+        return (
+            (1.0 - self.theta)
+            * self.mu
+            * (1.0 + self.theta * self.mu + self.mu / self.phi)
+        )
 
     def cdf(self, value):
         bt = betainc(self.phi, value + 1.0, self.phi / (self.mu + self.phi))
