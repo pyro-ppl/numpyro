@@ -1,13 +1,18 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from jax import lax, random
+from jax import lax, nn, random
 import jax.numpy as jnp
-from jax.scipy.special import betaln, gammaln
+from jax.scipy.special import betainc, betaln, gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
-from numpyro.distributions.discrete import BinomialProbs, MultinomialProbs, Poisson
+from numpyro.distributions.discrete import (
+    BinomialProbs,
+    MultinomialProbs,
+    Poisson,
+    ZeroInflatedDistribution,
+)
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample
 
@@ -209,3 +214,72 @@ class GammaPoisson(Distribution):
     @property
     def variance(self):
         return self.concentration / jnp.square(self.rate) * (1 + self.rate)
+
+    def cdf(self, value):
+        bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
+        return bt
+
+
+class NegativeBinomialProbs(GammaPoisson):
+    arg_constraints = {
+        "total_count": constraints.positive,
+        "probs": constraints.unit_interval,
+    }
+    support = constraints.nonnegative_integer
+
+    def __init__(self, total_count, probs, validate_args=None):
+        self.total_count, self.probs = promote_shapes(total_count, probs)
+        concentration = total_count
+        rate = 1.0 / probs - 1.0
+        super().__init__(concentration, rate, validate_args=validate_args)
+
+
+class NegativeBinomialLogits(GammaPoisson):
+    arg_constraints = {
+        "total_count": constraints.positive,
+        "logits": constraints.real,
+    }
+    support = constraints.nonnegative_integer
+
+    def __init__(self, total_count, logits, validate_args=None):
+        self.total_count, self.logits = promote_shapes(total_count, logits)
+        concentration = total_count
+        rate = jnp.exp(-logits)
+        super().__init__(concentration, rate, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value):
+        post_value = self.total_count + value
+        return (
+            -betaln(self.concentration, value + 1)
+            - jnp.log(post_value)
+            + self.concentration * (-self.logits)
+            - post_value * jnp.log1p(nn.softplus(-self.logits))
+        )
+
+
+class NegativeBinomial2(GammaPoisson):
+    """
+    Another parameterization of GammaPoisson with `rate` is replaced by `mean`.
+    """
+
+    arg_constraints = {
+        "mean": constraints.positive,
+        "concentration": constraints.positive,
+    }
+    support = constraints.nonnegative_integer
+
+    def __init__(self, mean, concentration, validate_args=None):
+        rate = concentration / mean
+        super().__init__(concentration, rate, validate_args=validate_args)
+
+
+def ZeroInflatedNegativeBinomial2(
+    mean, concentration, *, gate=None, gate_logits=None, validate_args=None
+):
+    return ZeroInflatedDistribution(
+        NegativeBinomial2(mean, concentration, validate_args=validate_args),
+        gate=gate,
+        gate_logits=gate_logits,
+        validate_args=validate_args,
+    )

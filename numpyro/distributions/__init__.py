@@ -5,6 +5,10 @@ from numpyro.distributions.conjugate import (
     BetaBinomial,
     DirichletMultinomial,
     GammaPoisson,
+    NegativeBinomial2,
+    NegativeBinomialLogits,
+    NegativeBinomialProbs,
+    ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
     LKJ,
@@ -50,13 +54,10 @@ from numpyro.distributions.discrete import (
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
-    NegativeBinomial,
-    NegativeBinomial2,
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
     ZeroInflatedDistribution,
-    ZeroInflatedNegativeBinomial,
     ZeroInflatedPoisson,
 )
 from numpyro.distributions.distribution import (
@@ -133,7 +134,8 @@ __all__ = [
     "MultivariateNormal",
     "LowRankMultivariateNormal",
     "Normal",
-    "NegativeBinomial",
+    "NegativeBinomialProbs",
+    "NegativeBinomialLogits",
     "NegativeBinomial2",
     "OrderedLogistic",
     "Pareto",
@@ -155,5 +157,5 @@ __all__ = [
     "Weibull",
     "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
-    "ZeroInflatedNegativeBinomial",
+    "ZeroInflatedNegativeBinomial2",
 ]

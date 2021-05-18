@@ -1436,7 +1436,7 @@ class Weibull(Distribution):
     support = constraints.real
     reparametrized_params = ["scale", "concentration"]
 
-    def __init__(self, scale=0.0, concentration=1.0, validate_args=None):
+    def __init__(self, scale, concentration, validate_args=None):
         self.concentration, self.scale = promote_shapes(concentration, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -1452,9 +1452,10 @@ class Weibull(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        ll = jnp.log(self.concentration / self.scale)
-        ll += (self.concentration - 1) * jnp.log(value / self.scale)
-        ll -= (value / self.scale) ** self.concentration
+        logs = jnp.log(self.scale)
+        ll = jnp.log(self.concentration) - logs
+        ll += (self.concentration - 1) * (jnp.log(value) - logs)
+        ll -= jnp.power(value / self.scale, self.concentration)
         return ll
 
     def cdf(self, value):
@@ -1462,52 +1463,40 @@ class Weibull(Distribution):
 
     @property
     def mean(self):
-        return jnp.broadcast_to(
-            self.scale * jnp.exp(gammaln(1.0 + 1.0 / self.concentration)),
-            self.batch_shape,
-        )
+        return self.scale * jnp.exp(gammaln(1.0 + 1.0 / self.concentration))
 
     @property
     def variance(self):
-        return jnp.broadcast_to(
-            self.scale ** 2
-            * (
-                jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
-                - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
-            ),
-            self.batch_shape,
+        return self.scale ** 2 * (
+            jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
+            - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
 
 
-class BetaProportion(Distribution):
+class BetaProportion(Beta):
+    """
+    The BetaProportion distribution is a reparameterization of the conventional
+    Beta distribution in terms of a the variate mean and a
+    precision parameter.
+
+    **Reference:**
+     `Beta regression for modelling rates and proportion`, Ferrari Silvia, and
+      Francisco Cribari-Neto. Journal of Applied Statistics  31.7 (2004): 799-815.
+    """
+
     arg_constraints = {
-        "mu": constraints.unit_interval,
-        "kappa": constraints.positive,
+        "mean": constraints.unit_interval,
+        "concentration": constraints.positive,
     }
-    reparametrized_params = ["mu", "kappa"]
+    reparametrized_params = ["mean", "concentration"]
     support = constraints.unit_interval
 
-    def __init__(self, mu, kappa, validate_args=None):
-        self.mu, self.kappa = promote_shapes(mu, kappa)
-        batch_shape = lax.broadcast_shapes(jnp.shape(mu), jnp.shape(kappa))
-        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
-        self._beta = Beta(self.mu * self.kappa, (1.0 - self.mu) * self.kappa)
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        return self._beta.sample(key, sample_shape)
-
-    @validate_sample
-    def log_prob(self, value):
-        return self._beta.log_prob(value)
-
-    @property
-    def mean(self):
-        return self._beta.mean
-
-    @property
-    def variance(self):
-        return self._beta.variance
-
-    def cdf(self, value):
-        return self._beta.cdf(value)
+    def __init__(self, mean, concentration, validate_args=None):
+        self.concentration = jnp.broadcast_to(
+            concentration, lax.broadcast_shapes(jnp.shape(concentration))
+        )
+        super().__init__(
+            mean * concentration,
+            (1.0 - mean) * concentration,
+            validate_args=validate_args,
+        )
