@@ -249,12 +249,10 @@ class NegativeBinomialLogits(GammaPoisson):
 
     @validate_sample
     def log_prob(self, value):
-        post_value = self.total_count + value
-        return (
-            -betaln(self.concentration, value + 1)
-            - jnp.log(post_value)
-            + self.concentration * (-self.logits)
-            - post_value * jnp.log1p(nn.softplus(-self.logits))
+        return -(
+            self.total_count * nn.softplus(self.logits)
+            + value * nn.softplus(-self.logits)
+            + _log_beta_1(self.total_count, value)
         )
 
 
