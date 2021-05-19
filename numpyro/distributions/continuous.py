@@ -1433,7 +1433,7 @@ class Weibull(Distribution):
         "scale": constraints.positive,
         "concentration": constraints.positive,
     }
-    support = constraints.real
+    support = constraints.positive
     reparametrized_params = ["scale", "concentration"]
 
     def __init__(self, scale, concentration, validate_args=None):
