@@ -1452,10 +1452,10 @@ class Weibull(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        logs = jnp.log(self.scale)
-        ll = jnp.log(self.concentration) - logs
-        ll += (self.concentration - 1) * (jnp.log(value) - logs)
-        ll -= jnp.power(value / self.scale, self.concentration)
+        ll = -jnp.power(value / self.scale, self.concentration)
+        ll += jnp.log(self.concentration)
+        ll += (self.concentration - 1.0) * jnp.log(value)
+        ll -= self.concentration * jnp.log(self.scale)
         return ll
 
     def cdf(self, value):
