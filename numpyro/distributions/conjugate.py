@@ -220,6 +220,15 @@ class GammaPoisson(Distribution):
         return bt
 
 
+def NegativeBinomial(total_count, probs=None, logits=None, validate_args=None):
+    if probs is not None:
+        return NegativeBinomialProbs(total_count, probs, validate_args=validate_args)
+    elif logits is not None:
+        return NegativeBinomialLogits(total_count, logits, validate_args=validate_args)
+    else:
+        raise ValueError("One of `probs` or `logits` must be specified.")
+
+
 class NegativeBinomialProbs(GammaPoisson):
     arg_constraints = {
         "total_count": constraints.positive,

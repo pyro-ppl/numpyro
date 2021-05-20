@@ -169,9 +169,9 @@ CONTINUOUS = [
     T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1.0, jnp.array([2.0, 2.0])),
     T(dist.Beta, 1.0, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
-    T(dist.BetaProportion, 0.2, 1.1),
-    T(dist.BetaProportion, 0.7, jnp.array([0.4, 1.0])),
-    T(dist.BetaProportion, 0.8, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.BetaProportion, 0.2, 10.0),
+    T(dist.BetaProportion, 0.51, jnp.array([2.0, 1.0])),
+    T(dist.BetaProportion, 0.5, jnp.array([[4.0, 4.0], [2.0, 2.0]])),
     T(dist.Chi2, 2.0),
     T(dist.Chi2, jnp.array([0.3, 1.3])),
     T(dist.Cauchy, 0.0, 1.0),
@@ -661,7 +661,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
-        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02)
+        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02, atol=0.03)
 
 
 @pytest.mark.parametrize(
@@ -729,7 +729,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 
     expected = log_likelihood(*params)
     actual = jax.jit(log_likelihood)(*params)
-    assert_allclose(actual, expected, atol=1e-5)
+    assert_allclose(actual, expected, atol=2e-5)
 
 
 @pytest.mark.parametrize(
@@ -853,6 +853,8 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.xfail("incorrect submanifold scaling")
 
     num_samples = 10000
+    if "BetaProportion" in jax_dist.__name__:
+        num_samples = 20000
     rng_key = random.PRNGKey(0)
     d = jax_dist(*params)
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
