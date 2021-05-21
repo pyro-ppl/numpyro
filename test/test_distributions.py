@@ -113,6 +113,7 @@ _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
     dist.Beta: lambda con1, con0: osp.beta(con1, con0),
+    dist.BetaProportion: lambda mu, kappa: osp.beta(mu * kappa, (1 - mu) * kappa),
     dist.BinomialProbs: lambda probs, total_count: osp.binom(n=total_count, p=probs),
     dist.BinomialLogits: lambda logits, total_count: osp.binom(
         n=total_count, p=_to_probs_bernoulli(logits)
@@ -149,6 +150,10 @@ _DIST_MAP = {
     dist.VonMises: lambda loc, conc: osp.vonmises(
         loc=np.array(loc, dtype=np.float64), kappa=np.array(conc, dtype=np.float64)
     ),
+    dist.Weibull: lambda scale, conc: osp.weibull_min(
+        c=conc,
+        scale=scale,
+    ),
     _TruncatedNormal: _truncnorm_to_scipy,
 }
 
@@ -164,6 +169,9 @@ CONTINUOUS = [
     T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1.0, jnp.array([2.0, 2.0])),
     T(dist.Beta, 1.0, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.BetaProportion, 0.2, 10.0),
+    T(dist.BetaProportion, 0.51, jnp.array([2.0, 1.0])),
+    T(dist.BetaProportion, 0.5, jnp.array([[4.0, 4.0], [2.0, 2.0]])),
     T(dist.Chi2, 2.0),
     T(dist.Chi2, jnp.array([0.3, 1.3])),
     T(dist.Cauchy, 0.0, 1.0),
@@ -301,6 +309,9 @@ CONTINUOUS = [
     T(dist.Uniform, 0.0, 2.0),
     T(dist.Uniform, 1.0, jnp.array([2.0, 3.0])),
     T(dist.Uniform, jnp.array([0.0, 0.0]), jnp.array([[2.0], [3.0]])),
+    T(dist.Weibull, 0.2, 1.1),
+    T(dist.Weibull, 2.8, jnp.array([2.0, 2.0])),
+    T(dist.Weibull, 1.8, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
 ]
 
 DIRECTIONAL = [
@@ -346,6 +357,25 @@ DISCRETE = [
     T(dist.MultinomialProbs, jnp.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, jnp.array([0.2, 0.7, 0.1]), jnp.array([5, 8])),
     T(dist.MultinomialLogits, jnp.array([-1.0, 3.0]), jnp.array([[5], [8]])),
+    T(dist.NegativeBinomialProbs, 10, 0.2),
+    T(dist.NegativeBinomialProbs, 10, jnp.array([0.2, 0.6])),
+    T(dist.NegativeBinomialProbs, jnp.array([4.2, 10.7, 2.1]), 0.2),
+    T(
+        dist.NegativeBinomialProbs,
+        jnp.array([4.2, 10.7, 2.1]),
+        jnp.array([0.2, 0.6, 0.5]),
+    ),
+    T(dist.NegativeBinomialLogits, 10, -2.1),
+    T(dist.NegativeBinomialLogits, 10, jnp.array([-5.2, 2.1])),
+    T(dist.NegativeBinomialLogits, jnp.array([4.2, 10.7, 2.1]), -5.2),
+    T(
+        dist.NegativeBinomialLogits,
+        jnp.array([4.2, 7.7, 2.1]),
+        jnp.array([4.2, 0.7, 2.1]),
+    ),
+    T(dist.NegativeBinomial2, 0.3, 10),
+    T(dist.NegativeBinomial2, jnp.array([10.2, 7, 31]), 10),
+    T(dist.NegativeBinomial2, jnp.array([10.2, 7, 31]), jnp.array([10.2, 20.7, 2.1])),
     T(dist.OrderedLogistic, -2, jnp.array([-10.0, 4.0, 9.0])),
     T(dist.OrderedLogistic, jnp.array([-4, 3, 4, 5]), jnp.array([-1.5])),
     T(dist.Poisson, 2.0),
@@ -631,7 +661,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
-        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02)
+        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02, atol=0.03)
 
 
 @pytest.mark.parametrize(
@@ -699,7 +729,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 
     expected = log_likelihood(*params)
     actual = jax.jit(log_likelihood)(*params)
-    assert_allclose(actual, expected, atol=1e-5)
+    assert_allclose(actual, expected, atol=2e-5)
 
 
 @pytest.mark.parametrize(
@@ -823,6 +853,8 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.xfail("incorrect submanifold scaling")
 
     num_samples = 10000
+    if "BetaProportion" in jax_dist.__name__:
+        num_samples = 20000
     rng_key = random.PRNGKey(0)
     d = jax_dist(*params)
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
