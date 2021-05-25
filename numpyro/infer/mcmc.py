@@ -234,6 +234,7 @@ class MCMC(object):
     def __init__(
         self,
         sampler,
+        *,
         num_warmup,
         num_samples,
         num_chains=1,
