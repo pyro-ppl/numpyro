@@ -91,8 +91,8 @@ def main(args):
     nuts_kernel = NUTS(neutra_model)
     mcmc = MCMC(
         nuts_kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )

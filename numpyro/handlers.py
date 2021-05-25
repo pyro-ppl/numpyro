@@ -47,7 +47,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
    >>> num_warmup, num_samples = 1000, 1000
-   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
    >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP

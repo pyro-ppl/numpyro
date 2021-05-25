@@ -92,9 +92,9 @@ def run_inference(dept, male, applications, admit, rng_key, args):
     kernel = NUTS(glmm)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
-        args.num_chains,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
+        num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(rng_key, dept, male, applications, admit)

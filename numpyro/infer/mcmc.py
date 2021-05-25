@@ -440,7 +440,7 @@ class MCMC(object):
 
             .. code-block:: python
 
-                mcmc = MCMC(NUTS(model), 100, 100)
+                mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
                 mcmc.run(random.PRNGKey(0))
                 first_100_samples = mcmc.get_samples()
                 mcmc.post_warmup_state = mcmc.last_state
@@ -467,7 +467,7 @@ class MCMC(object):
         extra_fields=(),
         collect_warmup=False,
         init_params=None,
-        **kwargs
+        **kwargs,
     ):
         """
         Run the MCMC warmup adaptation phase. After this call, `self.warmup_state` will be set
