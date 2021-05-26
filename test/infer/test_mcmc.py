@@ -840,11 +840,12 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
     assert_allclose(actual_samples, expected_samples)
 
     # test for reproducible
-    if num_chains == 1:
+    if num_chains > 1:
         mcmc = MCMC(
             NUTS(model),
             num_warmup=10,
             num_samples=num_samples,
+            num_chains=1,
             progress_bar=progress_bar,
         )
         rng_key = random.split(rng_key)[0]
