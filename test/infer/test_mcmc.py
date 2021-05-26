@@ -448,7 +448,9 @@ def test_mcmc_progbar():
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.warmup(random.PRNGKey(2), data)
     mcmc.run(random.PRNGKey(3), data)
-    mcmc1 = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False)
+    mcmc1 = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
