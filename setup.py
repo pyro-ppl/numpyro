@@ -39,9 +39,8 @@ setup(
     extras_require={
         "doc": [
             "ipython",  # sphinx needs this to render codes
-            "jinja2<3.0.0",
-            "nbsphinx",
-            "sphinx<4.0.0",
+            "nbsphinx>=0.8.5",
+            "sphinx",
             "sphinx_rtd_theme",
             "sphinx-gallery",
         ],
