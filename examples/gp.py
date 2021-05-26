@@ -85,8 +85,8 @@ def run_inference(model, args, rng_key, X, Y):
     kernel = NUTS(model, init_strategy=init_strategy)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         thinning=args.thinning,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
