@@ -8,10 +8,7 @@ import sys
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 blacklist = ["/build/", "/dist/", "/pyro_api.egg"]
-file_types = [
-    ("*.py", "# {}"),
-    ("*.cpp", "// {}"),
-]
+file_types = [("*.py", "# {}"), ("*.cpp", "// {}")]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--check", action="store_true")
@@ -69,7 +66,7 @@ for basename, comment in file_types:
         with open(filename, "w") as f:
             f.write("".join(lines))
 
-        print("updated {}".format(filename[len(root) + 1:]))
+        print("updated {}".format(filename[len(root) + 1 :]))
 
 if dirty:
     print("The following files need license headers:\n{}".format("\n".join(dirty)))

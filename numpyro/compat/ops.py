@@ -15,23 +15,24 @@ randn = np.random.randn
 # of using *sizes. e.g. ops.ones(2, 3) as well as ops.ones((2, 3)) can
 # be used to initialize an array of ones with shape (2, 3).
 
+
 def ones(*sizes, **kwargs):
     if len(sizes) == 0:
-        raise ValueError('Positional `size` argument not provided.')
+        raise ValueError("Positional `size` argument not provided.")
     elif len(sizes) == 1:
         if isinstance(sizes[0], (tuple, list)):
             sizes = sizes[0]
     if not np.all([isinstance(s, int) for s in sizes]):
-        raise ValueError('Invalid data type for `size` provided.')
+        raise ValueError("Invalid data type for `size` provided.")
     return jnp.ones(sizes, **kwargs)
 
 
 def zeros(*sizes, **kwargs):
     if len(sizes) == 0:
-        raise ValueError('Positional `size` argument not provided.')
+        raise ValueError("Positional `size` argument not provided.")
     elif len(sizes) == 1:
         if isinstance(sizes[0], (tuple, list)):
             sizes = sizes[0]
     if not np.all([isinstance(s, int) for s in sizes]):
-        raise ValueError('Invalid data type for `size` provided.')
+        raise ValueError("Invalid data type for `size` provided.")
     return jnp.ones(sizes, **kwargs)

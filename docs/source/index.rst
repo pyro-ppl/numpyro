@@ -27,6 +27,7 @@ NumPyro documentation
    examples/vae
    examples/funnel
    examples/stochastic_volatility
+   tutorials/model_rendering
 
 .. nbgallery::
    :maxdepth: 1
@@ -51,9 +52,12 @@ NumPyro documentation
    examples/sparse_regression
    examples/proportion_test
    examples/ucbadmit
+   examples/hmcecs
    examples/hmm
    examples/ode
    examples/neutra
+   examples/covtype
+   examples/thompson_sampling
 
 
 Indices and tables

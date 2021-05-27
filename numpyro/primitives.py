@@ -6,8 +6,8 @@ from contextlib import ExitStack, contextmanager
 import functools
 import warnings
 
+import jax
 from jax import lax, ops, random
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 
 import numpyro
@@ -15,7 +15,7 @@ from numpyro.util import identity
 
 _PYRO_STACK = []
 
-CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
+CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
 def apply_stack(msg):
@@ -26,18 +26,18 @@ def apply_stack(msg):
         # it prevents any Messengers above it on the stack from being applied.
         if msg.get("stop"):
             break
-    if msg['value'] is None:
-        if msg['type'] == 'sample':
-            msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
-                                                           sample_intermediates=True,
-                                                           **msg['kwargs'])
+    if msg["value"] is None:
+        if msg["type"] == "sample":
+            msg["value"], msg["intermediates"] = msg["fn"](
+                *msg["args"], sample_intermediates=True, **msg["kwargs"]
+            )
         else:
-            msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
+            msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
     # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer - 1:]:
+    for handler in _PYRO_STACK[-pointer - 1 :]:
         handler.postprocess_message(msg)
     return msg
 
@@ -45,8 +45,10 @@ def apply_stack(msg):
 class Messenger(object):
     def __init__(self, fn=None):
         if fn is not None and not callable(fn):
-            raise ValueError("Expected `fn` to be a Python callable object; "
-                             "instead found type(fn) = {}.".format(type(fn)))
+            raise ValueError(
+                "Expected `fn` to be a Python callable object; "
+                "instead found type(fn) = {}.".format(type(fn))
+            )
         self.fn = fn
         functools.update_wrapper(self, fn, updated=[])
 
@@ -76,11 +78,32 @@ class Messenger(object):
         pass
 
     def __call__(self, *args, **kwargs):
+        if self.fn is None:
+            # Assume self is being used as a decorator.
+            assert len(args) == 1 and not kwargs
+            self.fn = args[0]
+            return self
         with self:
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
+def _masked_observe(name, fn, obs, obs_mask, **kwargs):
+    # Split into two auxiliary sample sites.
+    with numpyro.handlers.mask(mask=obs_mask):
+        observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
+    with numpyro.handlers.mask(mask=(obs_mask ^ True)):
+        unobserved = sample(f"{name}_unobserved", fn, **kwargs)
+
+    # Interleave observed and unobserved events.
+    shape = jnp.shape(obs_mask) + (1,) * fn.event_dim
+    batch_mask = jnp.reshape(obs_mask, shape)
+    value = jnp.where(batch_mask, observed, unobserved)
+    return deterministic(name, value)
+
+
+def sample(
+    name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_mask=None
+):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -101,30 +124,40 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
         for inference algorithms. For example, if `fn` is a discrete distribution,
         setting `infer={'enumerate': 'parallel'}` to tell MCMC marginalize
         this discrete latent site.
+    :param numpy.ndarray obs_mask: Optional boolean array mask of shape
+        broadcastable with ``fn.batch_shape``. If provided, events with
+        mask=True will be conditioned on ``obs`` and remaining events will be
+        imputed by sampling. This introduces a latent sample site named ``name
+        + "_unobserved"`` which should be used by guides.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
         return fn(rng_key=rng_key, sample_shape=sample_shape)
 
+    if obs_mask is not None:
+        return _masked_observe(
+            name, fn, obs, obs_mask, rng_key=rng_key, sample_shape=(), infer=infer
+        )
+
     # Otherwise, we initialize a message...
     initial_msg = {
-        'type': 'sample',
-        'name': name,
-        'fn': fn,
-        'args': (),
-        'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
-        'value': obs,
-        'scale': None,
-        'is_observed': obs is not None,
-        'intermediates': [],
-        'cond_indep_stack': [],
-        'infer': {} if infer is None else infer,
+        "type": "sample",
+        "name": name,
+        "fn": fn,
+        "args": (),
+        "kwargs": {"rng_key": rng_key, "sample_shape": sample_shape},
+        "value": obs,
+        "scale": None,
+        "is_observed": obs is not None,
+        "intermediates": [],
+        "cond_indep_stack": [],
+        "infer": {} if infer is None else infer,
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]
 
 
 def param(name, init_value=None, **kwargs):
@@ -154,31 +187,34 @@ def param(name, init_value=None, **kwargs):
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        assert not callable(init_value), \
-            "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
+        assert not callable(
+            init_value
+        ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
 
     if callable(init_value):
+
         def fn(init_fn, *args, **kwargs):
             return init_fn(prng_key())
+
     else:
         fn = identity
 
     # Otherwise, we initialize a message...
     initial_msg = {
-        'type': 'param',
-        'name': name,
-        'fn': fn,
-        'args': (init_value,),
-        'kwargs': kwargs,
-        'value': None,
-        'scale': None,
-        'cond_indep_stack': [],
+        "type": "param",
+        "name": name,
+        "fn": fn,
+        "args": (init_value,),
+        "kwargs": kwargs,
+        "value": None,
+        "scale": None,
+        "cond_indep_stack": [],
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]
 
 
 def deterministic(name, value):
@@ -195,15 +231,54 @@ def deterministic(name, value):
     if not _PYRO_STACK:
         return value
 
-    initial_msg = {
-        'type': 'deterministic',
-        'name': name,
-        'value': value,
-    }
+    initial_msg = {"type": "deterministic", "name": name, "value": value}
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]
+
+
+def _inspect():
+    """
+    EXPERIMENTAL Inspect the Pyro stack.
+
+    .. warning:: The format of the returned message may change at any time and
+        does not guarantee backwards compatibility.
+
+    :returns: A message with mask effects applied.
+    :rtype: dict
+    """
+    # NB: this is different from Pyro that in Pyro, all effects applied.
+    # Here, we only apply mask effect handler.
+    msg = {
+        "type": "inspect",
+        "fn": lambda: True,
+        "args": (),
+        "kwargs": {},
+        "value": None,
+        "mask": None,
+    }
+    apply_stack(msg)
+    return msg
+
+
+def get_mask():
+    """
+    Records the effects of enclosing ``handlers.mask`` handlers.
+    This is useful for avoiding expensive ``numpyro.factor()`` computations during
+    prediction, when the log density need not be computed, e.g.::
+
+        def model():
+            # ...
+            if numpyro.get_mask() is not False:
+                log_density = my_expensive_computation()
+                numpyro.factor("foo", log_density)
+            # ...
+
+    :returns: The mask.
+    :rtype: None, bool, or numpy.ndarray
+    """
+    return _inspect()["mask"]
 
 
 def module(name, nn, input_shape=None):
@@ -221,12 +296,12 @@ def module(name, nn, input_shape=None):
         as an input and returns the neural network transformed output
         array.
     """
-    module_key = name + '$params'
+    module_key = name + "$params"
     nn_init, nn_apply = nn
     nn_params = param(module_key)
     if nn_params is None:
         if input_shape is None:
-            raise ValueError('Valid value for `input_shape` needed to initialize.')
+            raise ValueError("Valid value for `input_shape` needed to initialize.")
         rng_key = prng_key()
         _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
@@ -235,7 +310,7 @@ def module(name, nn, input_shape=None):
 
 def _subsample_fn(size, subsample_size, rng_key=None):
     assert rng_key is not None, "Missing random key to generate subsample indices."
-    if xla_bridge.get_backend().platform == 'cpu':
+    if jax.default_backend() == "cpu":
         # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
         rng_keys = random.split(rng_key, subsample_size)
 
@@ -243,7 +318,17 @@ def _subsample_fn(size, subsample_size, rng_key=None):
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
-            val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
+            val = ops.index_update(
+                val,
+                ops.index[
+                    [i, j],
+                ],
+                val[
+                    ops.index[
+                        [j, i],
+                    ]
+                ],
+            )
             return val, None
 
         val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
@@ -279,11 +364,13 @@ class plate(Messenger):
 
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
+        assert size > 0, "size of plate should be positive"
         self.size = size
         if dim is not None and dim >= 0:
-            raise ValueError('dim arg must be negative.')
+            raise ValueError("dim arg must be negative.")
         self.dim, self._indices = self._subsample(
-            self.name, self.size, subsample_size, dim)
+            self.name, self.size, subsample_size, dim
+        )
         self.subsample_size = self._indices.shape[0]
         super(plate, self).__init__()
 
@@ -291,25 +378,30 @@ class plate(Messenger):
     @staticmethod
     def _subsample(name, size, subsample_size, dim):
         msg = {
-            'type': 'plate',
-            'fn': _subsample_fn,
-            'name': name,
-            'args': (size, subsample_size),
-            'kwargs': {'rng_key': None},
-            'value': (None
-                      if (subsample_size is not None and size != subsample_size)
-                      else jnp.arange(size)),
-            'scale': 1.0,
-            'cond_indep_stack': [],
+            "type": "plate",
+            "fn": _subsample_fn,
+            "name": name,
+            "args": (size, subsample_size),
+            "kwargs": {"rng_key": None},
+            "value": (
+                None
+                if (subsample_size is not None and size != subsample_size)
+                else jnp.arange(size)
+            ),
+            "scale": 1.0,
+            "cond_indep_stack": [],
         }
         apply_stack(msg)
-        subsample = msg['value']
-        subsample_size = msg['args'][1]
+        subsample = msg["value"]
+        subsample_size = msg["args"][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
-            warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
-                subsample_size, len(subsample)) +
-                          " Did you accidentally use different subsample_size in the model and guide?")
-        cond_indep_stack = msg['cond_indep_stack']
+            warnings.warn(
+                "subsample_size does not match len(subsample), {} vs {}.".format(
+                    subsample_size, len(subsample)
+                )
+                + " Did you accidentally use different subsample_size in the model and guide?"
+            )
+        cond_indep_stack = msg["cond_indep_stack"]
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
             new_dim = -1
@@ -333,30 +425,36 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
-        if msg['type'] not in ('param', 'sample', 'plate'):
-            if msg['type'] == 'control_flow':
-                raise NotImplementedError('Cannot use control flow primitive under a `plate` primitive.'
-                                          ' Please move those `plate` statements into the control flow'
-                                          ' body function. See `scan` documentation for more information.')
+        if msg["type"] not in ("param", "sample", "plate"):
+            if msg["type"] == "control_flow":
+                raise NotImplementedError(
+                    "Cannot use control flow primitive under a `plate` primitive."
+                    " Please move those `plate` statements into the control flow"
+                    " body function. See `scan` documentation for more information."
+                )
             return
 
-        cond_indep_stack = msg['cond_indep_stack']
+        cond_indep_stack = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        if msg['type'] == 'sample':
+        if msg["type"] == "sample":
             expected_shape = self._get_batch_shape(cond_indep_stack)
-            dist_batch_shape = msg['fn'].batch_shape
-            if 'sample_shape' in msg['kwargs']:
-                dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
-                msg['kwargs']['sample_shape'] = ()
+            dist_batch_shape = msg["fn"].batch_shape
+            if "sample_shape" in msg["kwargs"]:
+                dist_batch_shape = msg["kwargs"]["sample_shape"] + dist_batch_shape
+                msg["kwargs"]["sample_shape"] = ()
             overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
             trailing_shape = expected_shape[overlap_idx:]
-            broadcast_shape = lax.broadcast_shapes(trailing_shape, tuple(dist_batch_shape))
+            broadcast_shape = lax.broadcast_shapes(
+                trailing_shape, tuple(dist_batch_shape)
+            )
             batch_shape = expected_shape[:overlap_idx] + broadcast_shape
-            msg['fn'] = msg['fn'].expand(batch_shape)
+            msg["fn"] = msg["fn"].expand(batch_shape)
         if self.size != self.subsample_size:
-            scale = 1. if msg['scale'] is None else msg['scale']
-            msg['scale'] = scale * (self.size / self.subsample_size if self.subsample_size else 1)
+            scale = 1.0 if msg["scale"] is None else msg["scale"]
+            msg["scale"] = scale * (
+                self.size / self.subsample_size if self.subsample_size else 1
+            )
 
     def postprocess_message(self, msg):
         if msg["type"] in ("subsample", "param") and self.dim is not None:
@@ -368,12 +466,18 @@ class plate(Messenger):
                 if len(shape) >= -dim and shape[dim] != 1:
                     if shape[dim] != self.size:
                         if msg["type"] == "param":
-                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
+                            statement = "numpyro.param({}, ..., event_dim={})".format(
+                                msg["name"], event_dim
+                            )
                         else:
-                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
+                            statement = "numpyro.subsample(..., event_dim={})".format(
+                                event_dim
+                            )
                         raise ValueError(
-                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
-                            .format(self.name, self.size, self.dim, statement, shape))
+                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}".format(
+                                self.name, self.size, self.dim, statement, shape
+                            )
+                        )
                     if self.subsample_size < self.size:
                         value = msg["value"]
                         new_value = jnp.take(value, self._indices, dim)
@@ -423,15 +527,15 @@ def prng_key():
         return
 
     initial_msg = {
-        'type': 'prng_key',
-        'fn': lambda rng_key: rng_key,
-        'args': (),
-        'kwargs': {'rng_key': None},
-        'value': None,
+        "type": "prng_key",
+        "fn": lambda rng_key: rng_key,
+        "args": (),
+        "kwargs": {"rng_key": None},
+        "value": None,
     }
 
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]
 
 
 def subsample(data, event_dim):
@@ -466,10 +570,10 @@ def subsample(data, event_dim):
 
     assert isinstance(event_dim, int) and event_dim >= 0
     initial_msg = {
-        'type': 'subsample',
-        'value': data,
-        'kwargs': {'event_dim': event_dim}
+        "type": "subsample",
+        "value": data,
+        "kwargs": {"event_dim": event_dim},
     }
 
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]

@@ -35,6 +35,10 @@ factor
 ------
 .. autofunction:: numpyro.primitives.factor
 
+get_mask
+--------
+.. autofunction:: numpyro.primitives.get_mask
+
 module
 ------
 .. autofunction:: numpyro.primitives.module
@@ -58,3 +62,7 @@ random_haiku_module
 scan
 ----
 .. autofunction:: numpyro.contrib.control_flow.scan
+
+cond
+----
+.. autofunction:: numpyro.contrib.control_flow.cond

@@ -15,15 +15,15 @@ from numpyro.util import fori_loop
 
 
 def model(data):
-    loc = numpyro.sample("loc", dist.Normal(0., 1.))
-    numpyro.sample("obs", dist.Normal(loc, 1.), obs=data)
+    loc = numpyro.sample("loc", dist.Normal(0.0, 1.0))
+    numpyro.sample("obs", dist.Normal(loc, 1.0), obs=data)
 
 
 # Define a guide (i.e. variational distribution) with a Normal
 # distribution over the latent random variable `loc`.
 def guide(data):
-    guide_loc = numpyro.param("guide_loc", 0.)
-    guide_scale = jnp.exp(numpyro.param("guide_scale_log", 0.))
+    guide_loc = numpyro.param("guide_loc", 0.0)
+    guide_scale = jnp.exp(numpyro.param("guide_scale_log", 0.0))
     numpyro.sample("loc", dist.Normal(guide_loc, guide_scale))
 
 
@@ -58,7 +58,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.5.0')
+    assert numpyro.__version__.startswith("0.6.0")
     parser = argparse.ArgumentParser(description="Mini Pyro demo")
     parser.add_argument("-f", "--full-pyro", action="store_true", default=False)
     parser.add_argument("-n", "--num-steps", default=1001, type=int)

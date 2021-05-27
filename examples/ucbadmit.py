@@ -70,73 +70,95 @@ from numpyro.infer import MCMC, NUTS, Predictive
 
 
 def glmm(dept, male, applications, admit=None):
-    v_mu = numpyro.sample('v_mu', dist.Normal(0, jnp.array([4., 1.])))
+    v_mu = numpyro.sample("v_mu", dist.Normal(0, jnp.array([4.0, 1.0])))
 
-    sigma = numpyro.sample('sigma', dist.HalfNormal(jnp.ones(2)))
-    L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2, concentration=2))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(jnp.ones(2)))
+    L_Rho = numpyro.sample("L_Rho", dist.LKJCholesky(2, concentration=2))
     scale_tril = sigma[..., jnp.newaxis] * L_Rho
     # non-centered parameterization
     num_dept = len(np.unique(dept))
-    z = numpyro.sample('z', dist.Normal(jnp.zeros((num_dept, 2)), 1))
+    z = numpyro.sample("z", dist.Normal(jnp.zeros((num_dept, 2)), 1))
     v = jnp.dot(scale_tril, z.T).T
 
     logits = v_mu[0] + v[dept, 0] + (v_mu[1] + v[dept, 1]) * male
     if admit is None:
         # we use a Delta site to record probs for predictive distribution
         probs = expit(logits)
-        numpyro.sample('probs', dist.Delta(probs), obs=probs)
-    numpyro.sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
+        numpyro.sample("probs", dist.Delta(probs), obs=probs)
+    numpyro.sample("admit", dist.Binomial(applications, logits=logits), obs=admit)
 
 
 def run_inference(dept, male, applications, admit, rng_key, args):
     kernel = NUTS(glmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains,
-                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        kernel,
+        args.num_warmup,
+        args.num_samples,
+        args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(rng_key, dept, male, applications, admit)
     return mcmc.get_samples()
 
 
 def print_results(header, preds, dept, male, probs):
-    columns = ['Dept', 'Male', 'ActualProb', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
-    header_format = '{:>10} {:>10} {:>10} {:>10} {:>10} {:>10}'
-    row_format = '{:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}'
+    columns = ["Dept", "Male", "ActualProb", "Pred(p25)", "Pred(p50)", "Pred(p75)"]
+    header_format = "{:>10} {:>10} {:>10} {:>10} {:>10} {:>10}"
+    row_format = "{:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}"
     quantiles = jnp.quantile(preds, jnp.array([0.25, 0.5, 0.75]), axis=0)
-    print('\n', header, '\n')
+    print("\n", header, "\n")
     print(header_format.format(*columns))
     for i in range(len(dept)):
-        print(row_format.format(dept[i], male[i], probs[i], *quantiles[:, i]), '\n')
+        print(row_format.format(dept[i], male[i], probs[i], *quantiles[:, i]), "\n")
 
 
 def main(args):
-    _, fetch_train = load_dataset(UCBADMIT, split='train', shuffle=False)
+    _, fetch_train = load_dataset(UCBADMIT, split="train", shuffle=False)
     dept, male, applications, admit = fetch_train()
     rng_key, rng_key_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng_key, args)
-    pred_probs = Predictive(glmm, zs)(rng_key_predict, dept, male, applications)['probs']
-    header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
+    pred_probs = Predictive(glmm, zs)(rng_key_predict, dept, male, applications)[
+        "probs"
+    ]
+    header = "=" * 30 + "glmm - TRAIN" + "=" * 30
     print_results(header, pred_probs, dept, male, admit / applications)
 
     # make plots
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     ax.plot(range(1, 13), admit / applications, "o", ms=7, label="actual rate")
-    ax.errorbar(range(1, 13), jnp.mean(pred_probs, 0), jnp.std(pred_probs, 0),
-                fmt="o", c="k", mfc="none", ms=7, elinewidth=1, label=r"mean $\pm$ std")
+    ax.errorbar(
+        range(1, 13),
+        jnp.mean(pred_probs, 0),
+        jnp.std(pred_probs, 0),
+        fmt="o",
+        c="k",
+        mfc="none",
+        ms=7,
+        elinewidth=1,
+        label=r"mean $\pm$ std",
+    )
     ax.plot(range(1, 13), jnp.percentile(pred_probs, 5, 0), "k+")
     ax.plot(range(1, 13), jnp.percentile(pred_probs, 95, 0), "k+")
-    ax.set(xlabel="cases", ylabel="admit rate", title="Posterior Predictive Check with 90% CI")
+    ax.set(
+        xlabel="cases",
+        ylabel="admit rate",
+        title="Posterior Predictive Check with 90% CI",
+    )
     ax.legend()
 
     plt.savefig("ucbadmit_plot.pdf")
 
 
-if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.5.0')
-    parser = argparse.ArgumentParser(description='UCBadmit gender discrimination using HMC')
-    parser.add_argument('-n', '--num-samples', nargs='?', default=2000, type=int)
-    parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
-    parser.add_argument('--num-chains', nargs='?', default=1, type=int)
-    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
+if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.6.0")
+    parser = argparse.ArgumentParser(
+        description="UCBadmit gender discrimination using HMC"
+    )
+    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
+    parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
+    parser.add_argument("--num-chains", nargs="?", default=1, type=int)
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
