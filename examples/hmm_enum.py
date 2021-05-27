@@ -326,9 +326,9 @@ def main(args):
     kernel = {"nuts": NUTS, "hmc": HMC}[args.kernel](model)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
-        args.num_chains,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
+        num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(rng_key, sequences, lengths, args=args)

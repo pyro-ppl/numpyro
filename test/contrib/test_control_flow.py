@@ -36,7 +36,7 @@ def test_scan():
     T = 10
     num_samples = 100
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 100, num_samples)
+    mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples)
     mcmc.run(random.PRNGKey(0), T=T)
     assert set(mcmc.get_samples()) == {"x", "y", "y2", "x_0", "y_0"}
     mcmc.print_summary()
