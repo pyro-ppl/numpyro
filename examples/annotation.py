@@ -46,6 +46,7 @@ from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.reparam import LocScaleReparam
+# TODO: use infer_discrete
 
 
 def get_data():
