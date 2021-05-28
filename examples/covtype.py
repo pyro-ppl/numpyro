@@ -192,7 +192,7 @@ def benchmark_hmc(args, features, labels):
         )
     else:
         raise ValueError("Invalid algorithm, either 'HMC', 'NUTS', or 'HMCECS'.")
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples)
     mcmc.run(rng_key, features, labels, subsample_size, extra_fields=("accept_prob",))
     print("Mean accept prob:", jnp.mean(mcmc.get_extra_fields()["accept_prob"]))
     mcmc.print_summary(exclude_deterministic=False)
