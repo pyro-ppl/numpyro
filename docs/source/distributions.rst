@@ -77,6 +77,15 @@ Beta
     :show-inheritance:
     :member-order: bysource
 
+BetaProportion
+--------------
+.. autoclass:: numpyro.distributions.continuous.BetaProportion
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Cauchy
 ------
 .. autoclass:: numpyro.distributions.continuous.Cauchy
@@ -253,6 +262,14 @@ Uniform
     :show-inheritance:
     :member-order: bysource
 
+Weibull
+-------
+.. autoclass:: numpyro.distributions.continuous.Weibull
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Discrete Distributions
 ======================
@@ -389,6 +406,34 @@ OrderedLogistic
     :show-inheritance:
     :member-order: bysource
 
+NegativeBinomial
+----------------
+.. autofunction:: numpyro.distributions.conjugate.NegativeBinomial
+
+NegativeBinomialLogits
+----------------------
+.. autoclass:: numpyro.distributions.conjugate.NegativeBinomialLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+NegativeBinomialProbs
+---------------------
+.. autoclass:: numpyro.distributions.conjugate.NegativeBinomialProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+NegativeBinomial2
+-----------------
+.. autoclass:: numpyro.distributions.conjugate.NegativeBinomial2
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Poisson
 -------
 .. autoclass:: numpyro.distributions.discrete.Poisson
@@ -405,6 +450,10 @@ PRNGIdentity
     :show-inheritance:
     :member-order: bysource
 
+ZeroInflatedDistribution
+------------------------
+.. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
+
 ZeroInflatedPoisson
 -------------------
 .. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson
@@ -412,6 +461,10 @@ ZeroInflatedPoisson
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+ZeroInflatedNegativeBinomial2
+-----------------------------
+.. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
 
 
 Directional Distributions

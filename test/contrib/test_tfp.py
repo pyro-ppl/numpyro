@@ -88,7 +88,7 @@ def test_logistic_regression():
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(2), labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
@@ -103,7 +103,7 @@ def test_logistic_regression():
 def test_beta_bernoulli():
     from numpyro.contrib.tfp import distributions as dist
 
-    warmup_steps, num_samples = (500, 2000)
+    num_warmup, num_samples = (500, 2000)
 
     def model(data):
         alpha = jnp.array([1.1, 1.1])
@@ -115,7 +115,7 @@ def test_beta_bernoulli():
     true_probs = jnp.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs)(rng_key=random.PRNGKey(1), sample_shape=(1000, 2))
     kernel = NUTS(model=model, trajectory_length=0.1)
-    mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(2), data)
     mcmc.print_summary()
     samples = mcmc.get_samples()
@@ -215,7 +215,7 @@ def test_unnormalized_normal_chain(kernel, kwargs, num_chains):
     kernel_class = getattr(mcmc, kernel)
 
     true_mean, true_std = 1.0, 0.5
-    warmup_steps, num_samples = (1000, 8000)
+    num_warmup, num_samples = (1000, 8000)
 
     def potential_fn(z):
         return 0.5 * ((z - true_mean) / true_std) ** 2
@@ -223,7 +223,11 @@ def test_unnormalized_normal_chain(kernel, kwargs, num_chains):
     init_params = jnp.array(0.0) if num_chains == 1 else jnp.array([0.0, 2.0])
     tfp_kernel = kernel_class(potential_fn=potential_fn, **kwargs)
     mcmc = MCMC(
-        tfp_kernel, warmup_steps, num_samples, num_chains=num_chains, progress_bar=False
+        tfp_kernel,
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=False,
     )
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()

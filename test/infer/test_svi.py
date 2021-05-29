@@ -4,6 +4,7 @@
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import jit, random, value_and_grad
 import jax.numpy as jnp
 from jax.test_util import check_close
@@ -41,7 +42,10 @@ def test_renyi_elbo(alpha):
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
-def test_beta_bernoulli(elbo):
+@pytest.mark.parametrize(
+    "optimizer", [optim.Adam(0.05), jax.experimental.optimizers.adam(0.05)]
+)
+def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
@@ -53,10 +57,9 @@ def test_beta_bernoulli(elbo):
         beta_q = numpyro.param("beta_q", 1.0, constraint=constraints.positive)
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    adam = optim.Adam(0.05)
-    svi = SVI(model, guide, adam, elbo)
+    svi = SVI(model, guide, optimizer, elbo)
     svi_state = svi.init(random.PRNGKey(1), data)
-    assert_allclose(adam.get_params(svi_state.optim_state)["alpha_q"], 0.0)
+    assert_allclose(svi.optim.get_params(svi_state.optim_state)["alpha_q"], 0.0)
 
     def body_fn(i, val):
         svi_state, _ = svi.update(val, data)

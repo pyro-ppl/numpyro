@@ -5,10 +5,15 @@ from numpyro.distributions.conjugate import (
     BetaBinomial,
     DirichletMultinomial,
     GammaPoisson,
+    NegativeBinomial2,
+    NegativeBinomialLogits,
+    NegativeBinomialProbs,
+    ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
+    BetaProportion,
     Cauchy,
     Chi2,
     Dirichlet,
@@ -30,6 +35,7 @@ from numpyro.distributions.continuous import (
     SoftLaplace,
     StudentT,
     Uniform,
+    Weibull,
 )
 from numpyro.distributions.directional import ProjectedNormal, VonMises
 from numpyro.distributions.discrete import (
@@ -51,6 +57,7 @@ from numpyro.distributions.discrete import (
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
+    ZeroInflatedDistribution,
     ZeroInflatedPoisson,
 )
 from numpyro.distributions.distribution import (
@@ -87,6 +94,7 @@ __all__ = [
     "BernoulliProbs",
     "Beta",
     "BetaBinomial",
+    "BetaProportion",
     "Binomial",
     "BinomialLogits",
     "BinomialProbs",
@@ -126,6 +134,9 @@ __all__ = [
     "MultivariateNormal",
     "LowRankMultivariateNormal",
     "Normal",
+    "NegativeBinomialProbs",
+    "NegativeBinomialLogits",
+    "NegativeBinomial2",
     "OrderedLogistic",
     "Pareto",
     "Poisson",
@@ -143,5 +154,8 @@ __all__ = [
     "Uniform",
     "Unit",
     "VonMises",
+    "Weibull",
+    "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
+    "ZeroInflatedNegativeBinomial2",
 ]

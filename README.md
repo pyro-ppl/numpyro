@@ -204,6 +204,11 @@ git clone https://github.com/pyro-ppl/numpyro.git
 pip install -e .[dev]  # contains additional dependencies for NumPyro development
 ```
 
+You can also install NumPyro with conda:
+```
+conda install -c conda-forge numpyro
+```
+
 ## Frequently Asked Questions
 
 1. Unlike in Pyro, `numpyro.sample('x', dist.Normal(0, 1))` does not work. Why?

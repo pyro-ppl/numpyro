@@ -82,7 +82,7 @@ class MCMC(object):
         self,
         kernel,
         num_samples,
-        warmup_steps=None,
+        num_warmup=None,
         initial_params=None,
         num_chains=1,
         hook_fn=None,
@@ -91,12 +91,12 @@ class MCMC(object):
         disable_validation=True,
         transforms=None,
     ):
-        if warmup_steps is None:
-            warmup_steps = num_samples
+        if num_warmup is None:
+            num_warmup = num_samples
         self._initial_params = initial_params
         self._mcmc = mcmc.MCMC(
             kernel,
-            warmup_steps,
+            num_warmup,
             num_samples,
             num_chains=num_chains,
             progress_bar=(not disable_progbar),

@@ -62,3 +62,7 @@ random_haiku_module
 scan
 ----
 .. autofunction:: numpyro.contrib.control_flow.scan
+
+cond
+----
+.. autofunction:: numpyro.contrib.control_flow.cond

@@ -169,7 +169,7 @@ def test_random_module__mcmc(backend, init):
         kwargs_name = "x"
 
     N, dim = 3000, 3
-    warmup_steps, num_samples = (1000, 1000)
+    num_warmup, num_samples = (1000, 1000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
@@ -191,7 +191,9 @@ def test_random_module__mcmc(backend, init):
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model=model)
-    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
     mcmc.run(random.PRNGKey(2), data, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
