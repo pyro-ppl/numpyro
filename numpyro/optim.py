@@ -74,8 +74,8 @@ class _NumPyroOptim(object):
         :param fn: objective function.
         :param state: current optimizer state.
         :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
-            where the first one is the output that we want to differentiate and the the
-            second one is auxiliary data.
+            where the first one is the output that we want to differentiate and the
+            second one is an auxiliary data.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
@@ -93,8 +93,8 @@ class _NumPyroOptim(object):
         :param fn: objective function.
         :param state: current optimizer state.
         :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
-            where the first one is the output that we want to differentiate and the the
-            second one is auxiliary data.
+            where the first one is the output that we want to differentiate and the
+            second one is an auxiliary data.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
@@ -286,8 +286,8 @@ class Minimize(_NumPyroOptim):
         :param fn: objective function.
         :param state: current optimizer state.
         :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
-            where the first one is the output that we want to differentiate and the the
-            second one is auxiliary data.
+            where the first one is the output that we want to differentiate and the
+            second one is an auxiliary data.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         if has_aux:

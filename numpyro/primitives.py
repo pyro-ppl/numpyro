@@ -181,6 +181,18 @@ def param(name, init_value=None, **kwargs):
         corresponding batch dimensions of the parameter will be correspondingly
         subsampled. If unspecified, all dimensions will be considered event
         dims and no subsampling will be performed.
+    :param dict infer: an optional dictionary containing additional information
+        for inference algorithms. For example, we can set ``infer={"mutable": True}``
+        to tell SVI that this `param` site stores a mutable value that can be changed
+        during model execution::
+
+            a = numpyro.param("a", {"value": 1.}, infer={"mutable": True})
+            a["value"] = 2.
+            assert numpyro.param("a")["value"] == 2.
+
+        This mutable param can be used to store and update information like
+        running mean/variance in a neural network batch normalization layer.
+
     :return: value for the parameter. Unless wrapped inside a
         handler like :class:`~numpyro.handlers.substitute`, this will simply
         return the initial value.

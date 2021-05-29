@@ -69,7 +69,9 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
         neural network.
     :param bool apply_rng: A flag to indicate if the returned callable requires
         a rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
-        to False, which means no rng argument is needed.
+        to False, which means no rng argument is needed. If this is True, the signature
+        of the returned callable ``nn = haiku_module(..., apply_rng=True)`` will be
+        ``nn(rng_key, x)`` (rather than ``nn(x)``).
     :param kwargs: optional keyword arguments to initialize flax neural network
         as an alternative to `input_shape`
     :return: a callable with bound parameters that takes an array
@@ -276,7 +278,9 @@ def random_haiku_module(
     :param tuple input_shape: shape of the input taken by the neural network.
     :param bool apply_rng: A flag to indicate if the returned callable requires
         a rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
-        to False, which means no rng argument is needed.
+        to False, which means no rng argument is needed. If this is True, the signature
+        of the returned callable ``nn = haiku_module(..., apply_rng=True)`` will be
+        ``nn(rng_key, x)`` (rather than ``nn(x)``).
     :param kwargs: optional keyword arguments to initialize flax neural network
         as an alternative to `input_shape`
     :returns: a sampled module

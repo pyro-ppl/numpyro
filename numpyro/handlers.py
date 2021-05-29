@@ -593,7 +593,7 @@ class scope(Messenger):
     """
     This handler prepend a prefix followed by a divider to the name of sample sites.
 
-    Example::
+    **Example**
 
     .. doctest::
 
