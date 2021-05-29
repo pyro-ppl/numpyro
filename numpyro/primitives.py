@@ -192,7 +192,7 @@ def param(name, init_value=None, **kwargs):
 
         This mutable param can be used to store and update information like
         running mean/variance in a neural network batch normalization layer.
-
+        Note that optimizers will skip optimizing those mutable parameters.
     :return: value for the parameter. Unless wrapped inside a
         handler like :class:`~numpyro.handlers.substitute`, this will simply
         return the initial value.
