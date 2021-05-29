@@ -346,7 +346,7 @@ class MultiFrameTensor(dict):
         Values are :class:`torch.Tensor`s.
         """
         for cond_indep_stack, value in items:
-            frames = frozenset(f for f in cond_indep_stack if f.vectorized)
+            frames = frozenset(f for f in cond_indep_stack)
             assert all(f.dim < 0 and -value.dim() <= f.dim for f in frames)
             if frames in self:
                 self[frames] = self[frames] + value
