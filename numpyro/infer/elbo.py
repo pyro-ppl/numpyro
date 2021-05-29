@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from operator import itemgetter
 import warnings
 
@@ -13,7 +13,7 @@ from jax.scipy.special import logsumexp
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
-from numpyro.infer.util import log_density
+from numpyro.infer.util import get_importance_trace, log_density
 
 
 class Trace_ELBO:
@@ -286,25 +286,86 @@ class RenyiELBO(Trace_ELBO):
 
 def _get_plate_stacks(trace):
     """
-    This builds a dict mapping site name to a set of plate stacks.  Each
+    This builds a dict mapping site name to a set of plate stacks. Each
     plate stack is a list of :class:`CondIndepStackFrame`s corresponding to
-    an :class:`plate`.  This information is used by :class:`Trace_ELBO` and
+    an :class:`plate`. This information is used by :class:`Trace_ELBO` and
     :class:`TraceGraph_ELBO`.
     """
-    return {name: [f for f in node["cond_indep_stack"]]
-            for name, node in trace.nodes.items()
-            if node["type"] == "sample"}
+    return {
+        name: [f for f in node["cond_indep_stack"]]
+        for name, node in trace.nodes.items()
+        if node["type"] == "sample"
+    }
 
 
-def _topological_sort(trace, reverse=False):
+class MultiFrameTensor(dict):
+    """
+    A container for sums of Tensors among different :class:`plate` contexts.
+    Used in :class:`~pyro.infer.tracegraph_elbo.TraceGraph_ELBO` to simplify
+    downstream cost computation logic.
+
+    Example::
+
+        downstream_cost = MultiFrameTensor()
+        for site in downstream_nodes:
+            downstream_cost.add((site["cond_indep_stack"], site["log_prob"]))
+        downstream_cost.add(*other_costs.items())  # add in bulk
+        summed = downstream_cost.sum_to(target_site["cond_indep_stack"])
+    """
+
+    def __init__(self, *items):
+        super().__init__()
+        self.add(*items)
+
+    def add(self, *items):
+        """
+        Add a collection of (cond_indep_stack, tensor) pairs. Keys are
+        ``cond_indep_stack``s, i.e. tuples of :class:`CondIndepStackFrame`s.
+        Values are :class:`torch.Tensor`s.
+        """
+        for cond_indep_stack, value in items:
+            frames = frozenset(f for f in cond_indep_stack)
+            assert all(f.dim < 0 and -jnp.ndim(value) <= f.dim for f in frames)
+            if frames in self:
+                self[frames] = self[frames] + value
+            else:
+                self[frames] = value
+
+    def sum_to(self, target_frames):
+        total = None
+        for frames, value in self.items():
+            for f in frames:
+                if f not in target_frames and jnp.shape(value)[f.dim] != 1:
+                    value = value.sum(f.dim, True)
+            while jnp.shape(value) and jnp.shape(value)[0] == 1:
+                value = value.squeeze(0)
+            total = value if total is None else total + value
+        return 0.0 if total is None else total
+
+    def __repr__(self):
+        return "%s(%s)" % (
+            type(self).__name__,
+            ",\n\t".join(["({}, ...)".format(frames) for frames in self]),
+        )
+
+
+def _identify_dense_edges(trace):
+    succ = defaultdict(set)
+    for name, node in trace.items():
+        if node["type"] == "sample":
+            for past_name, past_node in trace.items():
+                if past_node["type"] == "sample":
+                    if past_name == name:
+                        break
+                    # XXX: different from Pyro, we always add edge past_name -> name
+                    succ[past_name].add(name)
+    return succ
+
+
+def _topological_sort(succ, reverse=False):
     """
     Return a list of nodes (site names) in topologically sorted order.
-
-    :param dict trace:
-    :param bool reverse: Return the list in reverse order.
-    :return: list of topologically sorted nodes (site names).
     """
-    succ = OrderedDict()
 
     def dfs(site, visited):
         if site in visited:
@@ -320,64 +381,21 @@ def _topological_sort(trace, reverse=False):
     for s in succ:
         for node in dfs(s, visited):
             top_sorted.append(node)
-    return top_sorted if reverse else list(reversed(top_sorted)), succ
-
-
-class MultiFrameTensor(dict):
-    """
-    A container for sums of Tensors among different :class:`plate` contexts.
-    Used in :class:`~pyro.infer.tracegraph_elbo.TraceGraph_ELBO` to simplify
-    downstream cost computation logic.
-    Example::
-        downstream_cost = MultiFrameTensor()
-        for site in downstream_nodes:
-            downstream_cost.add((site["cond_indep_stack"], site["log_prob"]))
-        downstream_cost.add(*other_costs.items())  # add in bulk
-        summed = downstream_cost.sum_to(target_site["cond_indep_stack"])
-    """
-    def __init__(self, *items):
-        super().__init__()
-        self.add(*items)
-
-    def add(self, *items):
-        """
-        Add a collection of (cond_indep_stack, tensor) pairs. Keys are
-        ``cond_indep_stack``s, i.e. tuples of :class:`CondIndepStackFrame`s.
-        Values are :class:`torch.Tensor`s.
-        """
-        for cond_indep_stack, value in items:
-            frames = frozenset(f for f in cond_indep_stack)
-            assert all(f.dim < 0 and -value.dim() <= f.dim for f in frames)
-            if frames in self:
-                self[frames] = self[frames] + value
-            else:
-                self[frames] = value
-
-    def sum_to(self, target_frames):
-        total = None
-        for frames, value in self.items():
-            for f in frames:
-                if f not in target_frames and value.shape[f.dim] != 1:
-                    value = value.sum(f.dim, True)
-            while value.shape and value.shape[0] == 1:
-                value = value.squeeze(0)
-            total = value if total is None else total + value
-        return 0. if total is None else total
-
-    def __repr__(self):
-        return '%s(%s)' % (type(self).__name__, ",\n\t".join([
-            '({}, ...)'.format(frames) for frames in self]))
+    return top_sorted if reverse else list(reversed(top_sorted))
 
 
 def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
+    model_successors = _identify_dense_edges(model_trace)
+    guide_successors = _identify_dense_edges(guide_trace)
     # recursively compute downstream cost nodes for all sample sites in model and guide
     # (even though ultimately just need for non-reparameterizable sample sites)
     # 1. downstream costs used for rao-blackwellization
     # 2. model observe sites (as well as terms that arise from the model and guide having different
     # dependency structures) are taken care of via 'children_in_model' below
-    topo_sort_guide_nodes, successors = guide_trace.topological_sort(reverse=True)
-    topo_sort_guide_nodes = [x for x in topo_sort_guide_nodes
-                             if guide_trace.nodes[x]["type"] == "sample"]
+    topo_sort_guide_nodes = _topological_sort(guide_successors, reverse=True)
+    topo_sort_guide_nodes = [
+        x for x in topo_sort_guide_nodes if guide_trace[x]["type"] == "sample"
+    ]
     ordered_guide_nodes_dict = {n: i for i, n in enumerate(topo_sort_guide_nodes)}
 
     downstream_guide_cost_nodes = {}
@@ -385,13 +403,16 @@ def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
     stacks = _get_plate_stacks(model_trace)
 
     for node in topo_sort_guide_nodes:
-        downstream_costs[node] = MultiFrameTensor((stacks[node],
-                                                   model_trace[node]['log_prob'] -
-                                                   guide_trace[node]['log_prob']))
+        downstream_costs[node] = MultiFrameTensor(
+            (
+                stacks[node],
+                model_trace[node]["log_prob"] - guide_trace[node]["log_prob"],
+            )
+        )
         nodes_included_in_sum = set([node])
         downstream_guide_cost_nodes[node] = set([node])
         # make more efficient by ordering children appropriately (higher children first)
-        children = [(k, -ordered_guide_nodes_dict[k]) for k in successors(node)]
+        children = [(k, -ordered_guide_nodes_dict[k]) for k in guide_successors[node]]
         sorted_children = sorted(children, key=itemgetter(1))
         for child, _ in sorted_children:
             child_cost_nodes = downstream_guide_cost_nodes[child]
@@ -401,28 +422,102 @@ def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
                 # XXX nodes_included_in_sum logic could be more fine-grained, possibly leading
                 # to speed-ups in case there are many duplicates
                 nodes_included_in_sum.update(child_cost_nodes)
-        missing_downstream_costs = downstream_guide_cost_nodes[node] - nodes_included_in_sum
+        missing_downstream_costs = (
+            downstream_guide_cost_nodes[node] - nodes_included_in_sum
+        )
         # include terms we missed because we had to avoid duplicates
         for missing_node in missing_downstream_costs:
-            downstream_costs[node].add((stacks[missing_node],
-                                        model_trace[missing_node]['log_prob'] -
-                                        guide_trace[missing_node]['log_prob']))
+            downstream_costs[node].add(
+                (
+                    stacks[missing_node],
+                    model_trace[missing_node]["log_prob"]
+                    - guide_trace[missing_node]["log_prob"],
+                )
+            )
 
     # finish assembling complete downstream costs
     # (the above computation may be missing terms from model)
     for site in non_reparam_nodes:
         children_in_model = set()
         for node in downstream_guide_cost_nodes[site]:
-            children_in_model.update(model_trace.successors(node))
+            children_in_model.update(model_successors[node])
         # remove terms accounted for above
         children_in_model.difference_update(downstream_guide_cost_nodes[site])
         for child in children_in_model:
-            assert (model_trace[child]["type"] == "sample")
-            downstream_costs[site].add((stacks[child],
-                                        model_trace[child]['log_prob']))
+            assert model_trace[child]["type"] == "sample"
+            downstream_costs[site].add((stacks[child], model_trace[child]["log_prob"]))
             downstream_guide_cost_nodes[site].update([child])
 
     for k in non_reparam_nodes:
-        downstream_costs[k] = downstream_costs[k].sum_to(guide_trace[k]["cond_indep_stack"])
+        downstream_costs[k] = downstream_costs[k].sum_to(
+            guide_trace[k]["cond_indep_stack"]
+        )
 
     return downstream_costs, downstream_guide_cost_nodes
+
+
+class TraceGraph_ELBO:
+    def __init__(self, num_particles=1):
+        self.num_particles = num_particles
+
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
+        """
+
+        def single_particle_elbo(rng_key):
+            model_seed, guide_seed = random.split(rng_key)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            model_trace, guide_trace = get_importance_trace(
+                seeded_model, seeded_guide, args, kwargs, param_map
+            )
+
+            # XXX: different from Pyro, we don't support baseline_loss here
+            non_reparam_nodes = {
+                name
+                for name, site in guide_trace.items()
+                if site["type"] == "sample"
+                and (site["is_observed"] or not site["fn"].has_rsample)
+            }
+            if non_reparam_nodes:
+                downstream_costs, _ = _compute_downstream_costs(
+                    model_trace, guide_trace, non_reparam_nodes
+                )
+
+            elbo = 0.0
+            for site in model_trace.values():
+                if site["type"] == "sample":
+                    elbo = elbo + jnp.sum(site["log_prob"])
+            for name, site in guide_trace.values():
+                if site["type"] == "sample":
+                    log_prob_sum = jnp.sum(site["log_prob"])
+                    if name in non_reparam_nodes:
+                        surrogate = jnp.sum(
+                            site["log_prob"] * stop_gradient(downstream_costs[name])
+                        )
+                        log_prob_sum = (
+                            stop_gradient(log_prob_sum - surrogate) + surrogate
+                        )
+                    elbo = elbo - log_prob_sum
+
+            return elbo
+
+        # Return (-elbo) since by convention we do gradient descent on a loss and
+        # the ELBO is a lower bound that needs to be maximized.
+        if self.num_particles == 1:
+            return -single_particle_elbo(rng_key)
+        else:
+            rng_keys = random.split(rng_key, self.num_particles)
+            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
