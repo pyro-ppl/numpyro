@@ -73,8 +73,13 @@ class _stop_gradient_at_nonreparameterized(Messenger):
     """
     Stop gradient for samples at latent sample sites that has_rsample=False.
     """
+
     def postprocess_message(self, msg):
-        if msg["type"] == "sample" and (not msg["is_observed"]) and (not msg["fn"].has_rsample):
+        if (
+            msg["type"] == "sample"
+            and (not msg["is_observed"])
+            and (not msg["fn"].has_rsample)
+        ):
             msg["value"] = lax.stop_gradient(msg["value"])
 
 
