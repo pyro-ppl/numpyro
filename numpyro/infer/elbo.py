@@ -293,7 +293,7 @@ def _get_plate_stacks(trace):
     """
     return {
         name: [f for f in node["cond_indep_stack"]]
-        for name, node in trace.nodes.items()
+        for name, node in trace.items()
         if node["type"] == "sample"
     }
 
@@ -336,7 +336,7 @@ class MultiFrameTensor(dict):
         for frames, value in self.items():
             for f in frames:
                 if f not in target_frames and jnp.shape(value)[f.dim] != 1:
-                    value = value.sum(f.dim, True)
+                    value = value.sum(f.dim, keepdims=True)
             while jnp.shape(value) and jnp.shape(value)[0] == 1:
                 value = value.squeeze(0)
             total = value if total is None else total + value
@@ -350,7 +350,10 @@ class MultiFrameTensor(dict):
 
 
 def _identify_dense_edges(trace):
-    succ = defaultdict(set)
+    succ = {}
+    for name, node in trace.items():
+        if node["type"] == "sample":
+            succ[name] = set()
     for name, node in trace.items():
         if node["type"] == "sample":
             for past_name, past_node in trace.items():
@@ -500,7 +503,7 @@ class TraceGraph_ELBO:
             for site in model_trace.values():
                 if site["type"] == "sample":
                     elbo = elbo + jnp.sum(site["log_prob"])
-            for name, site in guide_trace.values():
+            for name, site in guide_trace.items():
                 if site["type"] == "sample":
                     log_prob_sum = jnp.sum(site["log_prob"])
                     if name in non_reparam_nodes:

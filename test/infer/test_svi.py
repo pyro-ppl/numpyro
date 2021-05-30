@@ -15,7 +15,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
+from numpyro.infer import SVI, RenyiELBO, Trace_ELBO, TraceGraph_ELBO
 from numpyro.util import fori_loop
 
 
@@ -232,3 +232,59 @@ def test_svi_discrete_latent():
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
     with pytest.warns(UserWarning, match="SVI does not support models with discrete"):
         svi.run(random.PRNGKey(0), 10)
+
+
+def test_normal_normal():
+    # normal-normal; known covariance
+    lam0 = jnp.array([0.1, 0.1])  # precision of prior
+    loc0 = jnp.array([0.0, 0.5])  # prior mean
+    # known precision of observation noise
+    lam = jnp.array([6.0, 4.0])
+    data = []
+    data.append(jnp.array([-0.1, 0.3]))
+    data.append(jnp.array([0.0, 0.4]))
+    data.append(jnp.array([0.2, 0.5]))
+    data.append(jnp.array([0.1, 0.7]))
+    n_data = len(data)
+    sum_data = data[0] + data[1] + data[2] + data[3]
+    analytic_lam_n = lam0 + n_data * lam
+    analytic_log_sig_n = -0.5 * jnp.log(analytic_lam_n)
+    analytic_loc_n = sum_data * (lam / analytic_lam_n) + loc0 * (lam0 / analytic_lam_n)
+
+    class Normal(dist.Normal):
+        reparametrized_params = []
+
+    def model():
+        with numpyro.plate("plate", 2):
+            loc_latent = numpyro.sample(
+                "loc_latent", Normal(loc0, jnp.power(lam0, -0.5))
+            )
+            for i, x in enumerate(data):
+                numpyro.sample(
+                    "obs_{}".format(i),
+                    dist.Normal(loc_latent, jnp.power(lam, -0.5)),
+                    obs=x,
+                )
+        return loc_latent
+
+    def guide():
+        loc_q = numpyro.param("loc_q", analytic_loc_n + jnp.array([0.334, 0.334]))
+        log_sig_q = numpyro.param(
+            "log_sig_q", analytic_log_sig_n + jnp.array([-0.29, -0.29])
+        )
+        sig_q = jnp.exp(log_sig_q)
+        with numpyro.plate("plate", 2):
+            loc_latent = numpyro.sample("loc_latent", Normal(loc_q, sig_q))
+        return loc_latent
+
+    adam = optim.Adam(step_size=0.0015, b1=0.97, b2=0.999)
+    svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
+    svi_result = svi.run(jax.random.PRNGKey(0), 5000)
+
+    loc_error = jnp.sum(jnp.power(analytic_loc_n - svi_result.params["loc_q"], 2.0))
+    log_sig_error = jnp.sum(
+        jnp.power(analytic_log_sig_n - svi_result.params["log_sig_q"], 2.0)
+    )
+
+    assert_allclose(loc_error, 0, atol=0.05)
+    assert_allclose(log_sig_error, 0, atol=0.05)

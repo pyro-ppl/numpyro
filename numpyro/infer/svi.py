@@ -288,7 +288,7 @@ class SVI(object):
             with tqdm.trange(1, num_steps + 1) as t:
                 batch = max(num_steps // 20, 1)
                 for i in t:
-                    svi_state, loss = jit(body_fn)(svi_state, None)
+                    svi_state, loss = body_fn(svi_state, None)
                     losses.append(loss)
                     if i % batch == 0:
                         if stable_update:
