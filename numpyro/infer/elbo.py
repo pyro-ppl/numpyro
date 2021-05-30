@@ -460,6 +460,27 @@ def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
 
 
 class TraceGraph_ELBO:
+    """
+    A TraceGraph implementation of ELBO-based SVI. The gradient estimator
+    is constructed along the lines of reference [1] specialized to the case
+    of the ELBO. It supports arbitrary dependency structure for the model
+    and guide as well as baselines for non-reparameterizable random variables.
+    Where possible, conditional dependency information as recorded in the
+    trace is used to reduce the variance of the gradient estimator.
+    In particular two kinds of conditional dependency information are
+    used to reduce variance:
+
+    - the sequential order of samples (z is sampled after y => y does not depend on z)
+    - :class:`~numpyro.plate` generators
+
+    References
+
+    [1] `Gradient Estimation Using Stochastic Computation Graphs`,
+        John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
+    [2] `Neural Variational Inference and Learning in Belief Networks`
+        Andriy Mnih, Karol Gregor
+    """
+
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 

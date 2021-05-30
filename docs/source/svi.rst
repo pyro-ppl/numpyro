@@ -25,6 +25,17 @@ Trace_ELBO
     :show-inheritance:
     :member-order: bysource
 
+
+TraceGraph_ELBO
+---------------
+
+.. autoclass:: numpyro.infer.elbo.TraceGraph_ELBO
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 TraceMeanField_ELBO
 -------------------
 
