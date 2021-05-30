@@ -143,69 +143,89 @@ def run_inference(model, at_bats, hits, rng_key, args):
         kernel = HMC(model)
     elif args.algo == "SA":
         kernel = SA(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
-                progress_bar=False if (
-                    "NUMPYRO_SPHINXBUILD" in os.environ or args.disable_progbar) else True)
+    mcmc = MCMC(
+        kernel,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False
+        if ("NUMPYRO_SPHINXBUILD" in os.environ or args.disable_progbar)
+        else True,
+    )
     mcmc.run(rng_key, at_bats, hits)
     return mcmc.get_samples()
 
 
 def predict(model, at_bats, hits, z, rng_key, player_names, train=True):
-    header = model.__name__ + (' - TRAIN' if train else ' - TEST')
-    predictions = Predictive(model, posterior_samples=z)(rng_key, at_bats)['obs']
-    print_results('=' * 30 + header + '=' * 30,
-                  predictions,
-                  player_names,
-                  at_bats,
-                  hits)
+    header = model.__name__ + (" - TRAIN" if train else " - TEST")
+    predictions = Predictive(model, posterior_samples=z)(rng_key, at_bats)["obs"]
+    print_results(
+        "=" * 30 + header + "=" * 30, predictions, player_names, at_bats, hits
+    )
     if not train:
-        post_loglik = log_likelihood(model, z, at_bats, hits)['obs']
+        post_loglik = log_likelihood(model, z, at_bats, hits)["obs"]
         # computes expected log predictive density at each data point
-        exp_log_density = logsumexp(post_loglik, axis=0) - jnp.log(jnp.shape(post_loglik)[0])
+        exp_log_density = logsumexp(post_loglik, axis=0) - jnp.log(
+            jnp.shape(post_loglik)[0]
+        )
         # reports log predictive density of all test points
-        print('\nLog pointwise predictive density: {:.2f}\n'.format(exp_log_density.sum()))
+        print(
+            "\nLog pointwise predictive density: {:.2f}\n".format(exp_log_density.sum())
+        )
 
 
 def print_results(header, preds, player_names, at_bats, hits):
-    columns = ['', 'At-bats', 'ActualHits', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
-    header_format = '{:>20} {:>10} {:>10} {:>10} {:>10} {:>10}'
-    row_format = '{:>20} {:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f}'
+    columns = ["", "At-bats", "ActualHits", "Pred(p25)", "Pred(p50)", "Pred(p75)"]
+    header_format = "{:>20} {:>10} {:>10} {:>10} {:>10} {:>10}"
+    row_format = "{:>20} {:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f}"
     quantiles = jnp.quantile(preds, jnp.array([0.25, 0.5, 0.75]), axis=0)
-    print('\n', header, '\n')
+    print("\n", header, "\n")
     print(header_format.format(*columns))
     for i, p in enumerate(player_names):
-        print(row_format.format(p, at_bats[i], hits[i], *quantiles[:, i]), '\n')
+        print(row_format.format(p, at_bats[i], hits[i], *quantiles[:, i]), "\n")
 
 
 def main(args):
-    _, fetch_train = load_dataset(BASEBALL, split='train', shuffle=False)
+    _, fetch_train = load_dataset(BASEBALL, split="train", shuffle=False)
     train, player_names = fetch_train()
-    _, fetch_test = load_dataset(BASEBALL, split='test', shuffle=False)
+    _, fetch_test = load_dataset(BASEBALL, split="test", shuffle=False)
     test, _ = fetch_test()
     at_bats, hits = train[:, 0], train[:, 1]
     season_at_bats, season_hits = test[:, 0], test[:, 1]
-    for i, model in enumerate((fully_pooled,
-                               not_pooled,
-                               partially_pooled,
-                               partially_pooled_with_logit,
-                               )):
+    for i, model in enumerate(
+        (fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)
+    ):
         rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
         zs = run_inference(model, at_bats, hits, rng_key, args)
         predict(model, at_bats, hits, zs, rng_key_predict, player_names)
-        predict(model, season_at_bats, season_hits, zs, rng_key_predict, player_names, train=False)
+        predict(
+            model,
+            season_at_bats,
+            season_hits,
+            zs,
+            rng_key_predict,
+            player_names,
+            train=False,
+        )
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.5.0')
+    assert numpyro.__version__.startswith("0.6.0")
     parser = argparse.ArgumentParser(description="Baseball batting average using MCMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)
-    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
-    parser.add_argument('--algo', default='NUTS', type=str,
-                        help='whether to run "HMC", "NUTS", or "SA"')
-    parser.add_argument('-dp', '--disable-progbar', action="store_true", default=False,
-                        help="whether to disable progress bar")
-    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)
+    parser.add_argument("--num-chains", nargs="?", default=1, type=int)
+    parser.add_argument(
+        "--algo", default="NUTS", type=str, help='whether to run "HMC", "NUTS", or "SA"'
+    )
+    parser.add_argument(
+        "-dp",
+        "--disable-progbar",
+        action="store_true",
+        default=False,
+        help="whether to disable progress bar",
+    )
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

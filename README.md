@@ -182,7 +182,7 @@ Pyro users will note that the API for model specification and inference is large
 
 ## Installation
 
-> **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) if you want to use GPUs on Windows.
+> **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) and [this forum post](https://forum.pyro.ai/t/numpyro-with-gpu-works-on-windows/2690) if you want to use GPUs on Windows.
 
 To install NumPyro with a CPU version of JAX, you can use pip:
 
@@ -194,7 +194,7 @@ To use NumPyro on the GPU, you will need to first [install](https://github.com/g
 
 To run NumPyro on Cloud TPUs, you can use pip to install NumPyro as above and setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
 
-> **Default Platform:** In contrast to JAX, which uses GPU as the default platform, we use CPU as the default platform. You can use [set_platform](http://num.pyro.ai/en/stable/utilities.html#set-platform) utility to switch to other platforms such as GPU or TPU at the beginning of your program.
+> **Default Platform:** JAX will use GPU by default if CUDA-supported `jaxlib` package is installed. You can use [set_platform](http://num.pyro.ai/en/stable/utilities.html#set-platform) utility `numpyro.set_platform("cpu")` to switch to CPU at the beginning of your program.
 
 You can also install NumPyro from source:
 
@@ -202,6 +202,11 @@ You can also install NumPyro from source:
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
 pip install -e .[dev]  # contains additional dependencies for NumPyro development
+```
+
+You can also install NumPyro with conda:
+```
+conda install -c conda-forge numpyro
 ```
 
 ## Frequently Asked Questions

@@ -8,8 +8,10 @@ try:
     from jaxns.plotting import plot_cornerplot, plot_diagnostics
     from jaxns.prior_transforms import ContinuousPrior, PriorChain
 except ImportError as e:
-    raise ImportError("To use this module, please install `jaxns` package. It can be"
-                      " installed with `pip install jaxns`") from e
+    raise ImportError(
+        "To use this module, please install `jaxns` package. It can be"
+        " installed with `pip install jaxns`"
+    ) from e
 
 from jax import nn, random
 import jax.numpy as jnp
@@ -17,10 +19,9 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.handlers import reparam, seed, trace
-from numpyro.infer.reparam import Reparam
 from numpyro.infer import Predictive
+from numpyro.infer.reparam import Reparam
 from numpyro.infer.util import _guess_max_plate_nesting, _validate_model, log_density
-
 
 __all__ = ["NestedSampler"]
 
@@ -43,7 +44,9 @@ def uniform_reparam_transform(d):
         outer_transform = dist.transforms.ComposeTransform(d.transforms)
         return lambda q: outer_transform(uniform_reparam_transform(d.base_dist)(q))
 
-    if isinstance(d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)):
+    if isinstance(
+        d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
+    ):
         return lambda q: uniform_reparam_transform(d.base_dist)(q)
 
     return d.icdf
@@ -92,14 +95,17 @@ class UniformReparam(Reparam):
 
     Most univariate distribution uses Inverse CDF for the reparameterization.
     """
+
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
         shape = fn.shape()
         fn, expand_shape, event_dim = self._unwrap(fn)
         transform = uniform_reparam_transform(fn)
 
-        x = numpyro.sample("{}_base".format(name),
-                           dist.Uniform(0, 1).expand(shape).to_event(event_dim).mask(False))
+        x = numpyro.sample(
+            "{}_base".format(name),
+            dist.Uniform(0, 1).expand(shape).to_event(event_dim).mask(False),
+        )
         # Simulate a numpyro.deterministic() site.
         return None, transform(x)
 
@@ -157,8 +163,18 @@ class NestedSampler:
         >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.93661342 1.95034876 2.86123884]
     """
-    def __init__(self, model, *, num_live_points=1000, max_samples=100000,
-                 sampler_name="slice", depth=3, num_slices=5, termination_frac=0.01):
+
+    def __init__(
+        self,
+        model,
+        *,
+        num_live_points=1000,
+        max_samples=100000,
+        sampler_name="slice",
+        depth=3,
+        num_slices=5,
+        termination_frac=0.01
+    ):
         self.model = model
         self.num_live_points = num_live_points
         self.max_samples = max_samples
@@ -181,16 +197,28 @@ class NestedSampler:
         rng_sampling, rng_predictive = random.split(rng_key)
         # reparam the model so that latent sites have Uniform(0, 1) priors
         prototype_trace = trace(seed(self.model, rng_key)).get_trace(*args, **kwargs)
-        param_names = [site["name"] for site in prototype_trace.values()
-                       if site["type"] == "sample" and not site["is_observed"]
-                       and site["infer"].get("enumerate", "") != "parallel"]
-        deterministics = [site["name"] for site in prototype_trace.values()
-                          if site["type"] == "deterministic"]
-        reparam_model = reparam(self.model, config={k: UniformReparam() for k in param_names})
+        param_names = [
+            site["name"]
+            for site in prototype_trace.values()
+            if site["type"] == "sample"
+            and not site["is_observed"]
+            and site["infer"].get("enumerate", "") != "parallel"
+        ]
+        deterministics = [
+            site["name"]
+            for site in prototype_trace.values()
+            if site["type"] == "deterministic"
+        ]
+        reparam_model = reparam(
+            self.model, config={k: UniformReparam() for k in param_names}
+        )
 
         # enable enumerate if needed
-        has_enum = any(site["type"] == "sample" and site["infer"].get("enumerate", "") == "parallel"
-                       for site in prototype_trace.values())
+        has_enum = any(
+            site["type"] == "sample"
+            and site["infer"].get("enumerate", "") == "parallel"
+            for site in prototype_trace.values()
+        )
         if has_enum:
             from numpyro.contrib.funsor import enum, log_density as log_density_
 
@@ -210,15 +238,21 @@ class NestedSampler:
             prior_chain.push(prior)
         # XXX: the `marginalised` keyword in jaxns can be used to get expectation of some
         # quantity over posterior samples; it can be helpful to expose it in this wrapper
-        ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
-                               sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
-                               max_samples=self.max_samples,
-                               num_live_points=self.num_live_points,
-                               collect_samples=True)
+        ns = OrigNestedSampler(
+            loglik_fn,
+            prior_chain,
+            sampler_name=self.sampler_name,
+            sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
+            max_samples=self.max_samples,
+            num_live_points=self.num_live_points,
+            collect_samples=True,
+        )
         results = ns(rng_sampling, termination_frac=self.termination_frac)
         # transform base samples back to original domains
         # TODO: optimize this logic to only transform the first num_samples samples
-        predictive = Predictive(reparam_model, results.samples, return_sites=param_names + deterministics)
+        predictive = Predictive(
+            reparam_model, results.samples, return_sites=param_names + deterministics
+        )
         samples = predictive(rng_predictive, *args, **kwargs)
         # replace base samples in jaxns results by transformed samples
         self._results = results._replace(samples=samples)
@@ -232,7 +266,9 @@ class NestedSampler:
         :return: a dict of posterior samples
         """
         if self._results is None:
-            raise RuntimeError("NestedSampler.run(...) method should be called first to obtain results.")
+            raise RuntimeError(
+                "NestedSampler.run(...) method should be called first to obtain results."
+            )
 
         samples, log_weights = self.get_weighted_samples()
         p = nn.softmax(log_weights)
@@ -244,17 +280,23 @@ class NestedSampler:
         Gets weighted samples and their corresponding log weights.
         """
         if self._results is None:
-            raise RuntimeError("NestedSampler.run(...) method should be called first to obtain results.")
+            raise RuntimeError(
+                "NestedSampler.run(...) method should be called first to obtain results."
+            )
 
         num_samples = self._results.num_samples
-        return {k: v[:num_samples] for k, v in self._results.samples.items()}, self._results.log_p[:num_samples]
+        return {
+            k: v[:num_samples] for k, v in self._results.samples.items()
+        }, self._results.log_p[:num_samples]
 
     def diagnostics(self):
         """
         Plot diagnostics of the run.
         """
         if self._results is None:
-            raise RuntimeError("NestedSampler.run(...) method should be called first to obtain results.")
+            raise RuntimeError(
+                "NestedSampler.run(...) method should be called first to obtain results."
+            )
 
         print("Number of weighted samples:", self._results.num_samples)
         print("Effective sample size:", round(self._results.ESS, 1))

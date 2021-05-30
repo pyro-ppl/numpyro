@@ -26,9 +26,9 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.contrib.nested_sampling import NestedSampler
-from numpyro.infer import DiscreteHMCGibbs, MCMC, NUTS
+import numpyro.distributions as dist
+from numpyro.infer import MCMC, NUTS, DiscreteHMCGibbs
 
 
 class GaussianShell(dist.Distribution):
@@ -39,18 +39,21 @@ class GaussianShell(dist.Distribution):
         super().__init__(batch_shape=loc.shape[:-1], event_shape=loc.shape[-1:])
 
     def sample(self, key, sample_shape=()):
-        return jnp.zeros(sample_shape + self.shape())  # a dummy sample to initialize the samplers
+        return jnp.zeros(
+            sample_shape + self.shape()
+        )  # a dummy sample to initialize the samplers
 
     def log_prob(self, value):
-        normalizer = (-0.5) * (jnp.log(2. * jnp.pi) + 2. * jnp.log(self.width))
+        normalizer = (-0.5) * (jnp.log(2.0 * jnp.pi) + 2.0 * jnp.log(self.width))
         d = jnp.linalg.norm(value - self.loc, axis=-1)
         return normalizer - 0.5 * ((d - self.radius) / self.width) ** 2
 
 
 def model(center1, center2, radius, width, enum=False):
-    z = numpyro.sample("z", dist.Bernoulli(0.5),
-                       infer={"enumerate": "parallel"} if enum else {})
-    x = numpyro.sample("x", dist.Uniform(-6., 6.).expand([2]).to_event(1))
+    z = numpyro.sample(
+        "z", dist.Bernoulli(0.5), infer={"enumerate": "parallel"} if enum else {}
+    )
+    x = numpyro.sample("x", dist.Uniform(-6.0, 6.0).expand([2]).to_event(1))
     center = jnp.stack([center1, center2])[z]
     numpyro.sample("shell", GaussianShell(center, radius, width), obs=x)
 
@@ -73,34 +76,51 @@ def run_inference(args, data):
 
 
 def main(args):
-    data = dict(radius=2.,
-                width=0.1,
-                center1=jnp.array([-3.5, 0.]),
-                center2=jnp.array([3.5, 0.]))
+    data = dict(
+        radius=2.0,
+        width=0.1,
+        center1=jnp.array([-3.5, 0.0]),
+        center2=jnp.array([3.5, 0.0]),
+    )
     ns_samples, mcmc_samples = run_inference(args, data)
 
     # plotting
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 8), constrained_layout=True)
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, sharex=True, figsize=(8, 8), constrained_layout=True
+    )
 
     ax1.plot(mcmc_samples[:, 0], mcmc_samples[:, 1], "ro", alpha=0.2)
-    ax1.set(xlim=(-6, 6), ylim=(-2.5, 2.5), ylabel='x[1]',
-            title='Gaussian-shell samples using NUTS')
+    ax1.set(
+        xlim=(-6, 6),
+        ylim=(-2.5, 2.5),
+        ylabel="x[1]",
+        title="Gaussian-shell samples using NUTS",
+    )
 
     ax2.plot(ns_samples[:, 0], ns_samples[:, 1], "ro", alpha=0.2)
-    ax2.set(xlim=(-6, 6), ylim=(-2.5, 2.5), xlabel='x[0]', ylabel='x[1]',
-            title='Gaussian-shell samples using Nested Sampler')
+    ax2.set(
+        xlim=(-6, 6),
+        ylim=(-2.5, 2.5),
+        xlabel="x[0]",
+        ylabel="x[1]",
+        title="Gaussian-shell samples using Nested Sampler",
+    )
 
-    plt.savefig('gaussian_shells_plot.pdf')
+    plt.savefig("gaussian_shells_plot.pdf")
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.5.0')
+    assert numpyro.__version__.startswith("0.5.0")
     parser = argparse.ArgumentParser(description="Nested sampler for Gaussian shells")
     parser.add_argument("-n", "--num-samples", nargs="?", default=10000, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
-    parser.add_argument("--enum", action="store_true", default=False,
-                        help="whether to enumerate over the discrete latent variable")
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
+    parser.add_argument(
+        "--enum",
+        action="store_true",
+        default=False,
+        help="whether to enumerate over the discrete latent variable",
+    )
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

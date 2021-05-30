@@ -11,10 +11,10 @@ from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 import numpyro
 
 __all__ = [
-    'flax_module',
-    'haiku_module',
-    'random_flax_module',
-    'random_haiku_module',
+    "flax_module",
+    "haiku_module",
+    "random_flax_module",
+    "random_haiku_module",
 ]
 
 
@@ -37,11 +37,13 @@ def flax_module(name, nn_module, *, input_shape=None, **kwargs):
     try:
         import flax  # noqa: F401
     except ImportError as e:
-        raise ImportError("Looking like you want to use flax to declare "
-                          "nn modules. This is an experimental feature. "
-                          "You need to install `flax` to be able to use this feature. "
-                          "It can be installed with `pip install flax`.") from e
-    module_key = name + '$params'
+        raise ImportError(
+            "Looking like you want to use flax to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install `flax` to be able to use this feature. "
+            "It can be installed with `pip install flax`."
+        ) from e
+    module_key = name + "$params"
     nn_params = numpyro.param(module_key)
     if nn_params is None:
         args = (jnp.ones(input_shape),) if input_shape is not None else ()
@@ -74,12 +76,14 @@ def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
     try:
         import haiku  # noqa: F401
     except ImportError as e:
-        raise ImportError("Looking like you want to use haiku to declare "
-                          "nn modules. This is an experimental feature. "
-                          "You need to install `haiku` to be able to use this feature. "
-                          "It can be installed with `pip install dm-haiku`.") from e
+        raise ImportError(
+            "Looking like you want to use haiku to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install `haiku` to be able to use this feature. "
+            "It can be installed with `pip install dm-haiku`."
+        ) from e
 
-    module_key = name + '$params'
+    module_key = name + "$params"
     nn_params = numpyro.param(module_key)
     if nn_params is None:
         args = (jnp.ones(input_shape),) if input_shape is not None else ()
@@ -100,10 +104,12 @@ def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
 # so that the optimizer can skip optimize this parameter, while
 # it still provides shape information for priors
 ParamShape = namedtuple("ParamShape", ["shape"])
-register_pytree_node(ParamShape, lambda x: ((None,), x.shape), lambda shape, x: ParamShape(shape))
+register_pytree_node(
+    ParamShape, lambda x: ((None,), x.shape), lambda shape, x: ParamShape(shape)
+)
 
 
-def _update_params(params, new_params, prior, prefix=''):
+def _update_params(params, new_params, prior, prefix=""):
     """
     A helper to recursively set prior to new_params.
     """
@@ -120,9 +126,11 @@ def _update_params(params, new_params, prior, prefix=''):
             else:
                 param_shape = jnp.shape(params[name])
                 params[name] = ParamShape(param_shape)
-            param_batch_shape = param_shape[:len(param_shape) - d.event_dim]
+            param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
             # XXX: here we set all dimensions of prior to event dimensions.
-            new_params[name] = numpyro.sample(flatten_name, d.expand(param_batch_shape).to_event())
+            new_params[name] = numpyro.sample(
+                flatten_name, d.expand(param_batch_shape).to_event()
+            )
 
 
 def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):

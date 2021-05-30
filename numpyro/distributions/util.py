@@ -2,20 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from functools import update_wrapper
+from functools import partial, update_wrapper
 import math
 
 import numpy as np
 
+import jax
 from jax import jit, lax, random, vmap
-from jax.dtypes import canonicalize_dtype
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from jax.util import partial
 
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
-_tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r', 'm', 'log_p', 'log1_p', 'log_h'])
+_tr_params = namedtuple(
+    "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
+)
 
 
 def _get_tr_params(n, p):
@@ -32,29 +32,34 @@ def _get_tr_params(n, p):
     m = jnp.floor((n + 1) * p).astype(n.dtype)
     log_p = jnp.log(p)
     log1_p = jnp.log1p(-p)
-    log_h = (m + 0.5) * (jnp.log((m + 1.) / (n - m + 1.)) + log1_p - log_p) + \
-            (stirling_approx_tail(m) + stirling_approx_tail(n - m))
+    log_h = (m + 0.5) * (jnp.log((m + 1.0) / (n - m + 1.0)) + log1_p - log_p) + (
+        stirling_approx_tail(m) + stirling_approx_tail(n - m)
+    )
     return _tr_params(c, b, a, alpha, u_r, v_r, m, log_p, log1_p, log_h)
 
 
 def stirling_approx_tail(k):
-    precomputed = jnp.array([
-        0.08106146679532726,
-        0.04134069595540929,
-        0.02767792568499834,
-        0.02079067210376509,
-        0.01664469118982119,
-        0.01387612882307075,
-        0.01189670994589177,
-        0.01041126526197209,
-        0.009255462182712733,
-        0.008330563433362871,
-    ])
+    precomputed = jnp.array(
+        [
+            0.08106146679532726,
+            0.04134069595540929,
+            0.02767792568499834,
+            0.02079067210376509,
+            0.01664469118982119,
+            0.01387612882307075,
+            0.01189670994589177,
+            0.01041126526197209,
+            0.009255462182712733,
+            0.008330563433362871,
+        ]
+    )
     kp1 = k + 1
     kp1sq = (k + 1) ** 2
-    return jnp.where(k < 10,
-                     precomputed[k],
-                     (1. / 12 - (1. / 360 - (1. / 1260) / kp1sq) / kp1sq) / kp1)
+    return jnp.where(
+        k < 10,
+        precomputed[k],
+        (1.0 / 12 - (1.0 / 360 - (1.0 / 1260) / kp1sq) / kp1sq) / kp1,
+    )
 
 
 def _binomial_btrs(key, p, n):
@@ -72,7 +77,9 @@ def _binomial_btrs(key, p, n):
         u = random.uniform(key_u)
         v = random.uniform(key_v)
         u = u - 0.5
-        k = jnp.floor((2 * tr_params.a / (0.5 - jnp.abs(u)) + tr_params.b) * u + tr_params.c).astype(n.dtype)
+        k = jnp.floor(
+            (2 * tr_params.a / (0.5 - jnp.abs(u)) + tr_params.b) * u + tr_params.c
+        ).astype(n.dtype)
         return k, key, u, v
 
     def _btrs_cond_fn(val):
@@ -84,24 +91,30 @@ def _binomial_btrs(key, p, n):
             log_p = tr_params.log_p
             log1_p = tr_params.log1_p
             # See: formula for log(f(k)) at bottom of Page 5.
-            log_f = (n + 1.) * jnp.log((n - m + 1.) / (n - k + 1.)) + \
-                    (k + 0.5) * (jnp.log((n - k + 1.) / (k + 1.)) + log_p - log1_p) + \
-                    (stirling_approx_tail(k) - stirling_approx_tail(n - k)) + tr_params.log_h
+            log_f = (
+                (n + 1.0) * jnp.log((n - m + 1.0) / (n - k + 1.0))
+                + (k + 0.5) * (jnp.log((n - k + 1.0) / (k + 1.0)) + log_p - log1_p)
+                + (stirling_approx_tail(k) - stirling_approx_tail(n - k))
+                + tr_params.log_h
+            )
             g = (tr_params.a / (0.5 - jnp.abs(u)) ** 2) + tr_params.b
             return jnp.log((v * tr_params.alpha) / g) <= log_f
 
         k, key, u, v = val
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
-        return lax.cond(early_accept | early_reject,
-                        (),
-                        lambda _: ~early_accept,
-                        (k, u, v),
-                        lambda x: ~accept_fn(*x))
+        return lax.cond(
+            early_accept | early_reject,
+            (),
+            lambda _: ~early_accept,
+            (k, u, v),
+            lambda x: ~accept_fn(*x),
+        )
 
     tr_params = _get_tr_params(n, p)
-    ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn,
-                         (-1, key, 1., 1.))  # use k=-1 initially so that cond_fn returns True
+    ret = lax.while_loop(
+        _btrs_cond_fn, _btrs_body_fn, (-1, key, 1.0, 1.0)
+    )  # use k=-1 initially so that cond_fn returns True
     return ret[0]
 
 
@@ -119,8 +132,7 @@ def _binomial_inversion(key, p, n):
         return geom_acc <= n
 
     log1_p = jnp.log1p(-p)
-    ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn,
-                         (-1, key, 0.))
+    ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
     return ret[0]
 
 
@@ -129,20 +141,24 @@ def _binomial_dispatch(key, p, n):
         is_le_mid = p <= 0.5
         pq = jnp.where(is_le_mid, p, 1 - p)
         mu = n * pq
-        k = lax.cond(mu < 10,
-                     (key, pq, n),
-                     lambda x: _binomial_inversion(*x),
-                     (key, pq, n),
-                     lambda x: _binomial_btrs(*x))
+        k = lax.cond(
+            mu < 10,
+            (key, pq, n),
+            lambda x: _binomial_inversion(*x),
+            (key, pq, n),
+            lambda x: _binomial_btrs(*x),
+        )
         return jnp.where(is_le_mid, k, n - k)
 
     # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
     cond0 = jnp.isfinite(p) & (n > 0) & (p > 0)
-    return lax.cond(cond0 & (p < 1),
-                    (key, p, n),
-                    lambda x: dispatch(*x),
-                    (),
-                    lambda _: jnp.where(cond0, n, 0))
+    return lax.cond(
+        cond0 & (p < 1),
+        (key, p, n),
+        lambda x: dispatch(*x),
+        (),
+        lambda _: jnp.where(cond0, n, 0),
+    )
 
 
 @partial(jit, static_argnums=(3,))
@@ -152,9 +168,8 @@ def _binomial(key, p, n, shape):
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
     key = random.split(key, jnp.size(p))
-    if xla_bridge.get_backend().platform == 'cpu':
-        ret = lax.map(lambda x: _binomial_dispatch(*x),
-                      (key, p, n))
+    if jax.default_backend() == "cpu":
+        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
     else:
         ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
     return jnp.reshape(ret, shape)
@@ -181,10 +196,16 @@ def categorical(key, p, shape=()):
 
 
 def _scatter_add_one(operand, indices, updates):
-    return lax.scatter_add(operand, indices, updates,
-                           lax.ScatterDimensionNumbers(update_window_dims=(),
-                                                       inserted_window_dims=(0,),
-                                                       scatter_dims_to_operand_dims=(0,)))
+    return lax.scatter_add(
+        operand,
+        indices,
+        updates,
+        lax.ScatterDimensionNumbers(
+            update_window_dims=(),
+            inserted_window_dims=(0,),
+            scatter_dims_to_operand_dims=(0,),
+        ),
+    )
 
 
 @partial(jit, static_argnums=(3, 4))
@@ -194,27 +215,41 @@ def _multinomial(key, p, n, n_max, shape=()):
         n = jnp.broadcast_to(n, broadcast_shape)
         p = jnp.broadcast_to(p, broadcast_shape + jnp.shape(p)[-1:])
     shape = shape or p.shape[:-1]
+    if n_max == 0:
+        return jnp.zeros(shape + p.shape[-1:], dtype=jnp.result_type(int))
     # get indices from categorical distribution then gather the result
     indices = categorical(key, p, (n_max,) + shape)
     # mask out values when counts is heterogeneous
     if jnp.ndim(n) > 0:
-        mask = promote_shapes(jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,))[0]
+        mask = promote_shapes(
+            jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,)
+        )[0]
         mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
-        excess = jnp.concatenate([jnp.expand_dims(n_max - n, -1), jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,))], -1)
+        excess = jnp.concatenate(
+            [
+                jnp.expand_dims(n_max - n, -1),
+                jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,)),
+            ],
+            -1,
+        )
     else:
         mask = 1
         excess = 0
     # NB: we transpose to move batch shape to the front
-    indices_2D = (jnp.reshape(indices * mask, (n_max, -1,))).T
-    samples_2D = vmap(_scatter_add_one, (0, 0, 0))(jnp.zeros((indices_2D.shape[0], p.shape[-1]),
-                                                             dtype=indices.dtype),
-                                                   jnp.expand_dims(indices_2D, axis=-1),
-                                                   jnp.ones(indices_2D.shape, dtype=indices.dtype))
+    indices_2D = (jnp.reshape(indices * mask, (n_max, -1))).T
+    samples_2D = vmap(_scatter_add_one, (0, 0, 0))(
+        jnp.zeros((indices_2D.shape[0], p.shape[-1]), dtype=indices.dtype),
+        jnp.expand_dims(indices_2D, axis=-1),
+        jnp.ones(indices_2D.shape, dtype=indices.dtype),
+    )
     return jnp.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
 def multinomial(key, p, n, shape=()):
-    n_max = int(jnp.max(n))
+    assert not isinstance(
+        n, jax.core.Tracer
+    ), "The total count parameter `n` should not be a jax abstract array."
+    n_max = int(np.max(jax.device_get(n)))
     return _multinomial(key, p, n, n_max, shape)
 
 
@@ -223,7 +258,9 @@ def cholesky_of_inverse(matrix):
     # which is more numerically stable.
     # Refer to:
     # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
-    tril_inv = jnp.swapaxes(jnp.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
+    tril_inv = jnp.swapaxes(
+        jnp.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1
+    )
     identity = jnp.broadcast_to(jnp.identity(matrix.shape[-1]), tril_inv.shape)
     return solve_triangular(tril_inv, identity, lower=True)
 
@@ -249,12 +286,10 @@ def promote_shapes(*args, shape=()):
     else:
         shapes = [jnp.shape(arg) for arg in args]
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
-        return [_reshape(arg, (1,) * (num_dims - len(s)) + s)
-                if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
-
-
-def get_dtype(x):
-    return canonicalize_dtype(lax.dtype(x))
+        return [
+            _reshape(arg, (1,) * (num_dims - len(s)) + s) if len(s) < num_dims else arg
+            for arg, s in zip(args, shapes)
+        ]
 
 
 def sum_rightmost(x, dim):
@@ -276,10 +311,16 @@ def vec_to_tril_matrix(t, diagonal=0):
     n = round((math.sqrt(1 + 8 * t.shape[-1]) - 1) / 2) - diagonal
     n2 = n * n
     idx = jnp.reshape(jnp.arange(n2), (n, n))[jnp.tril_indices(n, diagonal)]
-    x = lax.scatter_add(jnp.zeros(t.shape[:-1] + (n2,)), jnp.expand_dims(idx, axis=-1), t,
-                        lax.ScatterDimensionNumbers(update_window_dims=range(t.ndim - 1),
-                                                    inserted_window_dims=(t.ndim - 1,),
-                                                    scatter_dims_to_operand_dims=(t.ndim - 1,)))
+    x = lax.scatter_add(
+        jnp.zeros(t.shape[:-1] + (n2,)),
+        jnp.expand_dims(idx, axis=-1),
+        t,
+        lax.ScatterDimensionNumbers(
+            update_window_dims=range(t.ndim - 1),
+            inserted_window_dims=(t.ndim - 1,),
+            scatter_dims_to_operand_dims=(t.ndim - 1,),
+        ),
+    )
     return jnp.reshape(x, x.shape[:-1] + (n, n))
 
 
@@ -314,7 +355,9 @@ def cholesky_update(L, x, coef=1):
         return (b, w), (Dj_new, L_j)
 
     D, L = jnp.moveaxis(D, -1, 0), jnp.moveaxis(L, -1, 0)  # move scan dim to front
-    _, (D, L) = lax.scan(scan_fn, (jnp.ones(batch_shape), x), (jnp.arange(D.shape[0]), D, L))
+    _, (D, L) = lax.scan(
+        scan_fn, (jnp.ones(batch_shape), x), (jnp.arange(D.shape[0]), D, L)
+    )
     D, L = jnp.moveaxis(D, 0, -1), jnp.moveaxis(L, 0, -1)  # move scan dim back
     return L * jnp.sqrt(D)[..., None, :]
 
@@ -334,8 +377,9 @@ def signed_stick_breaking_tril(t):
 
     pad_width = [(0, 0)] * z.ndim
     pad_width[-1] = (1, 0)
-    z1m_cumprod_sqrt_shifted = jnp.pad(z1m_cumprod_sqrt[..., :-1], pad_width,
-                                       mode="constant", constant_values=1.)
+    z1m_cumprod_sqrt_shifted = jnp.pad(
+        z1m_cumprod_sqrt[..., :-1], pad_width, mode="constant", constant_values=1.0
+    )
     y = (r + jnp.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
     return y
 
@@ -351,8 +395,8 @@ def logmatmulexp(x, y):
 
 
 def clamp_probs(probs):
-    finfo = jnp.finfo(get_dtype(probs))
-    return jnp.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
+    finfo = jnp.finfo(jnp.result_type(probs))
+    return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
 
 
 def is_identically_zero(x):
@@ -378,21 +422,21 @@ def is_identically_one(x):
 
 
 def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
-    """ Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
+    """Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
 
-        *** References ***
-        [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
-            Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
+    *** References ***
+    [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
+        Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
 
 
-        :param key: random number generator key
-        :param concentration: concentration of distribution
-        :param shape: shape of samples
-        :param dtype: float precesions for choosing correct s cutfoff
-        :return: centered samples from von Mises
+    :param key: random number generator key
+    :param concentration: concentration of distribution
+    :param shape: shape of samples
+    :param dtype: float precesions for choosing correct s cutfoff
+    :return: centered samples from von Mises
     """
     shape = shape or jnp.shape(concentration)
-    dtype = canonicalize_dtype(dtype)
+    dtype = jnp.result_type(dtype)
     concentration = lax.convert_element_type(concentration, dtype)
     concentration = jnp.broadcast_to(concentration, shape)
     return _von_mises_centered(key, concentration, shape, dtype)
@@ -402,21 +446,23 @@ def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
 def _von_mises_centered(key, concentration, shape, dtype):
     # Cutoff from TensorFlow probability
     # (https://github.com/tensorflow/probability/blob/f051e03dd3cc847d31061803c2b31c564562a993/tensorflow_probability/python/distributions/von_mises.py#L567-L570)
-    s_cutoff_map = {jnp.dtype(jnp.float16): 1.8e-1,
-                    jnp.dtype(jnp.float32): 2e-2,
-                    jnp.dtype(jnp.float64): 1.2e-4}
+    s_cutoff_map = {
+        jnp.dtype(jnp.float16): 1.8e-1,
+        jnp.dtype(jnp.float32): 2e-2,
+        jnp.dtype(jnp.float64): 1.2e-4,
+    }
     s_cutoff = s_cutoff_map.get(dtype)
 
-    r = 1. + jnp.sqrt(1. + 4. * concentration ** 2)
-    rho = (r - jnp.sqrt(2. * r)) / (2. * concentration)
-    s_exact = (1. + rho ** 2) / (2. * rho)
+    r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration ** 2)
+    rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * concentration)
+    s_exact = (1.0 + rho ** 2) / (2.0 * rho)
 
-    s_approximate = 1. / concentration
+    s_approximate = 1.0 / concentration
 
     s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
 
     def cond_fn(*args):
-        """ check if all are done or reached max number of iterations """
+        """check if all are done or reached max number of iterations"""
         i, _, done, _, _ = args[0]
         return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
 
@@ -424,16 +470,22 @@ def _von_mises_centered(key, concentration, shape, dtype):
         i, key, done, _, w = args[0]
         uni_ukey, uni_vkey, key = random.split(key, 3)
 
-        u = random.uniform(key=uni_ukey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
+        u = random.uniform(
+            key=uni_ukey,
+            shape=shape,
+            dtype=concentration.dtype,
+            minval=-1.0,
+            maxval=1.0,
+        )
         z = jnp.cos(jnp.pi * u)
-        w = jnp.where(done, w, (1. + s * z) / (s + z))  # Update where not done
+        w = jnp.where(done, w, (1.0 + s * z) / (s + z))  # Update where not done
 
         y = concentration * (s - w)
         v = random.uniform(key=uni_vkey, shape=shape, dtype=concentration.dtype)
 
-        accept = (y * (2. - y) >= v) | (jnp.log(y / v) + 1. >= y)
+        accept = (y * (2.0 - y) >= v) | (jnp.log(y / v) + 1.0 >= y)
 
-        return i+1, key, accept | done, u, w
+        return i + 1, key, accept | done, u, w
 
     init_done = jnp.zeros(shape, dtype=bool)
     init_u = jnp.zeros(shape)
@@ -442,7 +494,7 @@ def _von_mises_centered(key, concentration, shape, dtype):
     _, _, done, u, w = lax.while_loop(
         cond_fun=cond_fn,
         body_fun=body_fn,
-        init_val=(jnp.array(0), key, init_done, init_u, init_w)
+        init_val=(jnp.array(0), key, init_done, init_u, init_w),
     )
 
     return jnp.sign(u) * jnp.arccos(w)
@@ -459,7 +511,7 @@ def scale_and_mask(x, scale=None, mask=None):
     if mask is None:
         return x
     else:
-        return jnp.where(mask, x, 0.)
+        return jnp.where(mask, x, 0.0)
 
 
 # TODO: use funsor implementation
@@ -496,7 +548,7 @@ def safe_normalize(x, *, p=2):
     x = x / jnp.clip(norm, a_min=jnp.finfo(x).tiny)
     # Avoid the singularity.
     mask = jnp.all(x == 0, axis=-1, keepdims=True)
-    x = jnp.where(mask, x.shape[-1] ** (-1/p), x)
+    x = jnp.where(mask, x.shape[-1] ** (-1 / p), x)
     return x
 
 
@@ -559,7 +611,7 @@ def validate_sample(log_prob_fn):
     def wrapper(self, *args, **kwargs):
         log_prob = log_prob_fn(self, *args, *kwargs)
         if self._validate_args:
-            value = kwargs['value'] if 'value' in kwargs else args[0]
+            value = kwargs["value"] if "value" in kwargs else args[0]
             mask = self._validate_sample(value)
             log_prob = jnp.where(mask, log_prob, -jnp.inf)
         return log_prob

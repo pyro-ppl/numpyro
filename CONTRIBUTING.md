@@ -12,14 +12,15 @@ To set up local development environment, install NumPyro from source:
 ```sh
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
-pip install -e .[dev]  # contains additional dependencies for NumPyro development
+pip install -e .[dev,test]  # contains additional dependencies for NumPyro development
 ```
 
 # Testing
 
 Before submitting a pull request, please autoformat code and ensure that unit tests pass locally
 ```sh
-make format            # runs isort
+make lint              # linting
+make format            # runs black and isort
 make test              # linting and unit tests
 make doctest           # test module's docstrings
 ```

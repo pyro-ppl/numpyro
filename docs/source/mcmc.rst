@@ -46,6 +46,12 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
+.. autoclass:: numpyro.infer.mixed_hmc.MixedHMC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autoclass:: numpyro.infer.hmc_gibbs.HMCECS
     :members:
     :undoc-members:
@@ -63,6 +69,8 @@ MCMC Kernels
 .. autofunction:: numpyro.infer.hmc.hmc.init_kernel
 
 .. autofunction:: numpyro.infer.hmc.hmc.sample_kernel
+
+.. autofunction:: numpyro.infer.hmc_gibbs.taylor_proxy
 
 .. autodata:: numpyro.infer.barker.BarkerMHState
 

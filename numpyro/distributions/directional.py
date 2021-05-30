@@ -10,16 +10,22 @@ from jax.scipy.special import erf, i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import is_prng_key, promote_shapes, safe_normalize, validate_sample, von_mises_centered
+from numpyro.distributions.util import (
+    is_prng_key,
+    promote_shapes,
+    safe_normalize,
+    validate_sample,
+    von_mises_centered,
+)
 
 
 class VonMises(Distribution):
-    arg_constraints = {'loc': constraints.real, 'concentration': constraints.positive}
-    reparametrized_params = ['loc']
+    arg_constraints = {"loc": constraints.real, "concentration": constraints.positive}
+    reparametrized_params = ["loc"]
     support = constraints.interval(-math.pi, math.pi)
 
     def __init__(self, loc, concentration, validate_args=None):
-        """  von Mises distribution for sampling directions.
+        """von Mises distribution for sampling directions.
 
         :param loc: center of distribution
         :param concentration: concentration of distribution
@@ -28,38 +34,45 @@ class VonMises(Distribution):
 
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(loc))
 
-        super(VonMises, self).__init__(batch_shape=batch_shape,
-                                       validate_args=validate_args)
+        super(VonMises, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
 
     def sample(self, key, sample_shape=()):
-        """ Generate sample from von Mises distribution
+        """Generate sample from von Mises distribution
 
         :param key: random number generator key
         :param sample_shape: shape of samples
         :return: samples from von Mises
         """
         assert is_prng_key(key)
-        samples = von_mises_centered(key, self.concentration, sample_shape + self.shape())
+        samples = von_mises_centered(
+            key, self.concentration, sample_shape + self.shape()
+        )
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
-        samples = (samples + jnp.pi) % (2. * jnp.pi) - jnp.pi
+        samples = (samples + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
 
         return samples
 
     @validate_sample
     def log_prob(self, value):
-        return -(jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))) + \
-            self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
+        return -(
+            jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
+        ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
     def mean(self):
-        """ Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi] """
-        return jnp.broadcast_to((self.loc + jnp.pi) % (2. * jnp.pi) - jnp.pi, self.batch_shape)
+        """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
+        return jnp.broadcast_to(
+            (self.loc + jnp.pi) % (2.0 * jnp.pi) - jnp.pi, self.batch_shape
+        )
 
     @property
     def variance(self):
-        """ Computes circular variance of distribution """
-        return jnp.broadcast_to(1. - i1e(self.concentration) / i0e(self.concentration),
-                                self.batch_shape)
+        """Computes circular variance of distribution"""
+        return jnp.broadcast_to(
+            1.0 - i1e(self.concentration) / i0e(self.concentration), self.batch_shape
+        )
 
 
 class ProjectedNormal(Distribution):
@@ -87,6 +100,7 @@ class ProjectedNormal(Distribution):
         Modeling and Bayesian Inference"
         https://projecteuclid.org/euclid.ba/1453211962
     """
+
     arg_constraints = {"concentration": constraints.real_vector}
     reparametrized_params = ["concentration"]
     support = constraints.sphere
@@ -119,8 +133,10 @@ class ProjectedNormal(Distribution):
         if self._validate_args:
             event_shape = value.shape[-1:]
             if event_shape != self.event_shape:
-                raise ValueError(f"Expected event shape {self.event_shape}, "
-                                 f"but got {event_shape}")
+                raise ValueError(
+                    f"Expected event shape {self.event_shape}, "
+                    f"but got {event_shape}"
+                )
             self._validate_sample(value)
         dim = int(self.concentration.shape[-1])
         if dim == 2:
@@ -154,8 +170,10 @@ def _projected_normal_log_prob_2(concentration, value):
     # This is the log of a definite integral, computed by mathematica:
     # Integrate[x/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = (t + Sqrt[2/Pi]/E^(t^2/2) + t Erf[t/Sqrt[2]])/2
-    para_part = jnp.log((jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5)
-                         + t * (1 + erf(t * 0.5 ** 0.5))) / 2)
+    para_part = jnp.log(
+        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5 ** 0.5)))
+        / 2
+    )
 
     return para_part + perp_part
 
@@ -175,7 +193,9 @@ def _projected_normal_log_prob_3(concentration, value):
     # This is the log of a definite integral, computed by mathematica:
     # Integrate[x^2/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = t/(E^(t^2/2) Sqrt[2 Pi]) + ((1 + t^2) (1 + Erf[t/Sqrt[2]]))/2
-    para_part = jnp.log(t * jnp.exp((-0.5) * t2) / (2 * math.pi) ** 0.5
-                        + (1 + t2) * (1 + erf(t * 0.5 ** 0.5)) / 2)
+    para_part = jnp.log(
+        t * jnp.exp((-0.5) * t2) / (2 * math.pi) ** 0.5
+        + (1 + t2) * (1 + erf(t * 0.5 ** 0.5)) / 2
+    )
 
     return para_part + perp_part

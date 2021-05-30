@@ -10,7 +10,7 @@ suited for working with NumPyro inference algorithms.
 from collections import namedtuple
 from typing import Callable, Tuple, TypeVar
 
-from jax import value_and_grad
+from jax import lax, value_and_grad
 from jax.experimental import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -18,19 +18,19 @@ from jax.scipy.optimize import minimize
 from jax.tree_util import register_pytree_node, tree_map
 
 __all__ = [
-    'Adam',
-    'Adagrad',
-    'ClippedAdam',
-    'Minimize',
-    'Momentum',
-    'RMSProp',
-    'RMSPropMomentum',
-    'SGD',
-    'SM3',
+    "Adam",
+    "Adagrad",
+    "ClippedAdam",
+    "Minimize",
+    "Momentum",
+    "RMSProp",
+    "RMSPropMomentum",
+    "SGD",
+    "SM3",
 ]
 
-_Params = TypeVar('_Params')
-_OptState = TypeVar('_OptState')
+_Params = TypeVar("_Params")
+_OptState = TypeVar("_OptState")
 _IterOptState = Tuple[int, _OptState]
 
 
@@ -77,6 +77,28 @@ class _NumPyroOptim(object):
         out, grads = value_and_grad(fn)(params)
         return out, self.update(grads, state)
 
+    def eval_and_stable_update(
+        self, fn: Callable, state: _IterOptState
+    ) -> _IterOptState:
+        """
+        Like :meth:`eval_and_update` but when the value of the objective function
+        or the gradients are not finite, we will not update the input `state`
+        and will set the objective output to `nan`.
+
+        :param fn: objective function.
+        :param state: current optimizer state.
+        :return: a pair of the output of objective function and the new optimizer state.
+        """
+        params = self.get_params(state)
+        out, grads = value_and_grad(fn)(params)
+        out, state = lax.cond(
+            jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
+            lambda _: (out, self.update(grads, state)),
+            lambda _: (jnp.nan, state),
+            None,
+        )
+        return out, state
+
     def get_params(self, state: _IterOptState) -> _Params:
         """
         Get current parameter values.
@@ -90,8 +112,9 @@ class _NumPyroOptim(object):
 
 def _add_doc(fn):
     def _wrapped(cls):
-        cls.__doc__ = 'Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`'\
-            .format(fn.__name__)
+        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`".format(
+            fn.__name__
+        )
         return cls
 
     return _wrapped
@@ -115,14 +138,17 @@ class ClippedAdam(_NumPyroOptim):
     `A Method for Stochastic Optimization`, Diederik P. Kingma, Jimmy Ba
     https://arxiv.org/abs/1412.6980
     """
-    def __init__(self, *args, clip_norm=10., **kwargs):
+
+    def __init__(self, *args, clip_norm=10.0, **kwargs):
         self.clip_norm = clip_norm
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
     def update(self, g, state):
         i, opt_state = state
         # clip norm
-        g = tree_map(lambda g_: jnp.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g)
+        g = tree_map(
+            lambda g_: jnp.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g
+        )
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
@@ -148,7 +174,9 @@ class RMSProp(_NumPyroOptim):
 @_add_doc(optimizers.rmsprop_momentum)
 class RMSPropMomentum(_NumPyroOptim):
     def __init__(self, *args, **kwargs):
-        super(RMSPropMomentum, self).__init__(optimizers.rmsprop_momentum, *args, **kwargs)
+        super(RMSPropMomentum, self).__init__(
+            optimizers.rmsprop_momentum, *args, **kwargs
+        )
 
 
 @_add_doc(optimizers.sgd)
@@ -172,7 +200,8 @@ _MinimizeState = namedtuple("MinimizeState", ["flat_params", "unravel_fn"])
 register_pytree_node(
     _MinimizeState,
     lambda state: ((state.flat_params,), (state.unravel_fn,)),
-    lambda data, xs: _MinimizeState(xs[0], data[0]))
+    lambda data, xs: _MinimizeState(xs[0], data[0]),
+)
 
 
 def _minimize_wrapper():
@@ -230,6 +259,7 @@ class Minimize(_NumPyroOptim):
         >>> assert_allclose(quantiles["a"], 2., atol=1e-3)
         >>> assert_allclose(quantiles["b"], 3., atol=1e-3)
     """
+
     def __init__(self, method="BFGS", **kwargs):
         super().__init__(_minimize_wrapper)
         self._method = method
@@ -237,8 +267,13 @@ class Minimize(_NumPyroOptim):
 
     def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
         i, (flat_params, unravel_fn) = state
-        results = minimize(lambda x: fn(unravel_fn(x)), flat_params, (),
-                           method=self._method, **self._kwargs)
+        results = minimize(
+            lambda x: fn(unravel_fn(x)),
+            flat_params,
+            (),
+            method=self._method,
+            **self._kwargs
+        )
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
         return out, state

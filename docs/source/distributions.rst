@@ -77,6 +77,15 @@ Beta
     :show-inheritance:
     :member-order: bysource
 
+BetaProportion
+--------------
+.. autoclass:: numpyro.distributions.continuous.BetaProportion
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Cauchy
 ------
 .. autoclass:: numpyro.distributions.continuous.Cauchy
@@ -205,14 +214,6 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
-LeftTruncatedDistribution
--------------------------
-.. autoclass:: numpyro.distributions.continuous.LeftTruncatedDistribution
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 LowRankMultivariateNormal
 -------------------------
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
@@ -237,9 +238,9 @@ Pareto
     :show-inheritance:
     :member-order: bysource
 
-RightTruncatedDistribution
---------------------------
-.. autoclass:: numpyro.distributions.continuous.RightTruncatedDistribution
+SoftLaplace
+-----------
+.. autoclass:: numpyro.distributions.continuous.SoftLaplace
     :members:
     :undoc-members:
     :show-inheritance:
@@ -253,45 +254,17 @@ StudentT
     :show-inheritance:
     :member-order: bysource
 
-TruncatedCauchy
----------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedCauchy
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TruncatedDistribution
----------------------
-.. autofunction:: numpyro.distributions.continuous.TruncatedDistribution
-
-TruncatedNormal
----------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TruncatedPolyaGamma
--------------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TwoSidedTruncatedDistribution
------------------------------
-.. autoclass:: numpyro.distributions.continuous.TwoSidedTruncatedDistribution
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 Uniform
 -------
 .. autoclass:: numpyro.distributions.continuous.Uniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Weibull
+-------
+.. autoclass:: numpyro.distributions.continuous.Weibull
     :members:
     :undoc-members:
     :show-inheritance:
@@ -433,6 +406,34 @@ OrderedLogistic
     :show-inheritance:
     :member-order: bysource
 
+NegativeBinomial
+----------------
+.. autofunction:: numpyro.distributions.conjugate.NegativeBinomial
+
+NegativeBinomialLogits
+----------------------
+.. autoclass:: numpyro.distributions.conjugate.NegativeBinomialLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+NegativeBinomialProbs
+---------------------
+.. autoclass:: numpyro.distributions.conjugate.NegativeBinomialProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+NegativeBinomial2
+-----------------
+.. autoclass:: numpyro.distributions.conjugate.NegativeBinomial2
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Poisson
 -------
 .. autoclass:: numpyro.distributions.discrete.Poisson
@@ -449,6 +450,10 @@ PRNGIdentity
     :show-inheritance:
     :member-order: bysource
 
+ZeroInflatedDistribution
+------------------------
+.. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
+
 ZeroInflatedPoisson
 -------------------
 .. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson
@@ -456,6 +461,10 @@ ZeroInflatedPoisson
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+ZeroInflatedNegativeBinomial2
+-----------------------------
+.. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
 
 
 Directional Distributions
@@ -472,6 +481,62 @@ ProjectedNormal
 VonMises
 --------
 .. autoclass:: numpyro.distributions.directional.VonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
+Truncated Distributions
+=======================
+
+LeftTruncatedDistribution
+-------------------------
+.. autoclass:: numpyro.distributions.truncated.LeftTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RightTruncatedDistribution
+--------------------------
+.. autoclass:: numpyro.distributions.truncated.RightTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedCauchy
+---------------
+.. autoclass:: numpyro.distributions.truncated.TruncatedCauchy
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedDistribution
+---------------------
+.. autofunction:: numpyro.distributions.truncated.TruncatedDistribution
+
+TruncatedNormal
+---------------
+.. autoclass:: numpyro.distributions.truncated.TruncatedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedPolyaGamma
+-------------------
+.. autoclass:: numpyro.distributions.truncated.TruncatedPolyaGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TwoSidedTruncatedDistribution
+-----------------------------
+.. autoclass:: numpyro.distributions.truncated.TwoSidedTruncatedDistribution
     :members:
     :undoc-members:
     :show-inheritance:
@@ -573,6 +638,14 @@ real
 real_vector
 -----------
 .. autodata:: numpyro.distributions.constraints.real_vector
+
+softplus_positive
+-----------------
+.. autodata:: numpyro.distributions.constraints.softplus_positive
+
+softplus_lower_cholesky
+-----------------------
+.. autodata:: numpyro.distributions.constraints.softplus_lower_cholesky
 
 simplex
 -------

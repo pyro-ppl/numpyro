@@ -27,6 +27,7 @@ NumPyro documentation
    examples/vae
    examples/funnel
    examples/stochastic_volatility
+   tutorials/model_rendering
 
 .. nbgallery::
    :maxdepth: 1
@@ -57,6 +58,7 @@ NumPyro documentation
    examples/ode
    examples/neutra
    examples/covtype
+   examples/thompson_sampling
 
 
 Indices and tables

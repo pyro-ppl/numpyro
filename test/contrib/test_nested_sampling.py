@@ -9,7 +9,7 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.nested_sampling import UniformReparam, NestedSampler
+from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
@@ -27,12 +27,16 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
-@pytest.mark.parametrize("batch_shape,base_batch_shape", [
-    ((), ()),
-    ((4,), (4,)),
-    ((2, 3), (2, 3)),
-    ((2, 3), ()),
-], ids=str)
+@pytest.mark.parametrize(
+    "batch_shape,base_batch_shape",
+    [
+        ((), ()),
+        ((4,), (4,)),
+        ((2, 3), (2, 3)),
+        ((2, 3), ()),
+    ],
+    ids=str,
+)
 @pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
 def test_log_normal(batch_shape, base_batch_shape, event_shape):
     shape = batch_shape + event_shape
@@ -43,7 +47,8 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
     def model():
         fn = dist.TransformedDistribution(
             dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
-            [AffineTransform(loc, scale), ExpTransform()]).expand(shape)
+            [AffineTransform(loc, scale), ExpTransform()],
+        ).expand(shape)
         if event_shape:
             fn = fn.to_event(len(event_shape)).expand_by([100000])
         with numpyro.plate_stack("plates", batch_shape):
@@ -62,17 +67,19 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
     assert_allclose(actual_moments, expected_moments, atol=0.05, rtol=0.01)
 
 
-@pytest.mark.parametrize('rho', [-0.7, 0.8])
+@pytest.mark.parametrize("rho", [-0.7, 0.8])
 def test_dense_mass(rho):
     true_cov = jnp.array([[10.0, rho], [rho, 0.1]])
 
     def model():
-        numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov))
+        numpyro.sample(
+            "x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov)
+        )
 
     ns = NestedSampler(model, num_live_points=10, max_samples=1000)
     ns.run(random.PRNGKey(0))
 
-    samples = ns.get_samples(random.PRNGKey(1), 1000)['x']
+    samples = ns.get_samples(random.PRNGKey(1), 1000)["x"]
     assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.50)
     assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.05)
     assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)
