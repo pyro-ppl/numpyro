@@ -76,11 +76,11 @@ def test_dense_mass(rho):
             "x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov)
         )
 
-    ns = NestedSampler(model, num_live_points=10, max_samples=1000)
+    ns = NestedSampler(model, num_live_points=100, max_samples=1000)
     ns.run(random.PRNGKey(0))
 
     samples = ns.get_samples(random.PRNGKey(1), 1000)["x"]
-    assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.50)
-    assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.05)
+    assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.5)
+    assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.1)
     assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)
     assert_allclose(jnp.var(samples, axis=0), jnp.array([10.0, 0.1]), rtol=0.20)

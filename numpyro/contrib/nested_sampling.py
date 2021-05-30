@@ -6,7 +6,8 @@ from functools import singledispatch
 try:
     from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
     from jaxns.plotting import plot_cornerplot, plot_diagnostics
-    from jaxns.prior_transforms import ContinuousPrior, PriorChain
+    from jaxns.prior_transforms.common import ContinuousPrior
+    from jaxns.prior_transforms.prior_chain import PriorChain
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
