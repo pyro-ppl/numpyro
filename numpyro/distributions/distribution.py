@@ -1064,7 +1064,7 @@ class Delta(Distribution):
         "v": constraints.dependent(is_discrete=False),
         "log_density": constraints.real,
     }
-    reparameterized_params = ["v", "log_density"]
+    reparametrized_params = ["v", "log_density"]
 
     def __init__(self, v=0.0, log_density=0.0, event_dim=0, validate_args=None):
         if event_dim > jnp.ndim(v):
