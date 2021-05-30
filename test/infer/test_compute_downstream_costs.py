@@ -18,7 +18,6 @@ from numpyro.infer.elbo import (
     _get_plate_stacks,
     _identify_dense_edges,
 )
-from numpyro.infer.util import get_importance_trace
 
 
 def _brute_force_compute_downstream_costs(

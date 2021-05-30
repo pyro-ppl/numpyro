@@ -17,7 +17,6 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
-from numpyro.primitives import Messenger
 from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
 __all__ = [
@@ -69,31 +68,15 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
-class _stop_gradient_at_nonreparameterized(Messenger):
-    """
-    Stop gradient for samples at latent sample sites that has_rsample=False.
-    """
-
-    def postprocess_message(self, msg):
-        if (
-            msg["type"] == "sample"
-            and (not msg["is_observed"])
-            and (not msg["fn"].has_rsample)
-        ):
-            msg["value"] = lax.stop_gradient(msg["value"])
-
-
 def get_importance_trace(model, guide, args, kwargs, params):
     """
     Returns traces from the guide and the model that is run against it.
     The returned traces also store the log probability at each site.
     """
     guide = substitute(guide, data=params)
-    with _stop_gradient_at_nonreparameterized():
-        guide_trace = trace(guide).get_trace(*args, **kwargs)
+    guide_trace = trace(guide).get_trace(*args, **kwargs)
     model = substitute(replay(model, guide_trace), data=params)
-    with _stop_gradient_at_nonreparameterized():
-        model_trace = trace(model).get_trace(*args, **kwargs)
+    model_trace = trace(model).get_trace(*args, **kwargs)
     for tr in (guide_trace, model_trace):
         for site in tr.values():
             if site["type"] == "sample":
