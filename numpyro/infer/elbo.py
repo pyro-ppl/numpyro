@@ -301,7 +301,7 @@ def _get_plate_stacks(trace):
 class MultiFrameTensor(dict):
     """
     A container for sums of Tensors among different :class:`plate` contexts.
-    Used in :class:`~pyro.infer.tracegraph_elbo.TraceGraph_ELBO` to simplify
+    Used in :class:`~numpyro.infer.elbo.TraceGraph_ELBO` to simplify
     downstream cost computation logic.
 
     Example::
@@ -532,7 +532,7 @@ class TraceGraph_ELBO:
                             site["log_prob"] * stop_gradient(downstream_costs[name])
                         )
                         log_prob_sum = (
-                            stop_gradient(log_prob_sum - surrogate) + surrogate
+                            stop_gradient(log_prob_sum + surrogate) - surrogate
                         )
                     elbo = elbo - log_prob_sum
 
