@@ -673,14 +673,8 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         (dist.Chi2, (1.0,)),
         (dist.Chi2, (0.1,)),
         (dist.Chi2, (10.0,)),
-        (
-            dist.Beta,
-            (1.0, 1.0),
-        ),
-        (
-            dist.StudentT,
-            (5.0, 2.0, 4.0),
-        ),
+        (dist.Beta, (1.0, 1.0)),
+        (dist.StudentT, (5.0, 2.0, 4.0)),
     ],
 )
 def test_pathwise_gradient(jax_dist, params):
