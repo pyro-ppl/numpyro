@@ -149,8 +149,9 @@ class AutoGuide(ABC):
             if site["type"] == "sample":
                 for frame in site["cond_indep_stack"]:
                     if frame.name in self._prototype_frames:
-                        assert frame == self._prototype_frames[frame.name], \
-                            f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
+                        assert (
+                            frame == self._prototype_frames[frame.name]
+                        ), f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
                     else:
                         self._prototype_frames[frame.name] = frame
             elif site["type"] == "plate":
