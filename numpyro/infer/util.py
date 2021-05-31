@@ -85,8 +85,10 @@ class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
 
 def get_importance_trace(model, guide, args, kwargs, params):
     """
-    Returns traces from the guide and the model that is run against it.
+    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
     The returned traces also store the log probability at each site.
+
+    .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
     """
     guide = substitute(guide, data=params)
     with _without_rsample_stop_gradient():
