@@ -109,6 +109,19 @@ class SparsePoisson(dist.Poisson):
         super().__init__(rate, is_sparse=True, validate_args=validate_args)
 
 
+class FoldedNormal(dist.FoldedDistribution):
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
+
+    def __init__(self, loc, scale, validate_args=None):
+        self.loc = loc
+        self.scale = scale
+        super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return dist.FoldedDistribution.tree_unflatten(aux_data, params)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -189,6 +202,8 @@ CONTINUOUS = [
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, jnp.array([0.0, 0.5]), jnp.array([1.0, 2.0])),
+    T(FoldedNormal, 2.0, 4.0),
+    T(FoldedNormal, jnp.array([2., 50.]), jnp.array([4., 100.])),
     T(dist.HalfCauchy, 1.0),
     T(dist.HalfCauchy, jnp.array([1.0, 2.0])),
     T(dist.HalfNormal, 1.0),
@@ -1102,6 +1117,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
+    if jax_dist is FoldedNormal:
+        pytest.skip("Folded distribution does not has mean/var implemented")
     if jax_dist in (
         _TruncatedNormal,
         dist.LeftTruncatedDistribution,

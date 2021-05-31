@@ -64,6 +64,7 @@ from numpyro.distributions.distribution import (
     Delta,
     Distribution,
     ExpandedDistribution,
+    FoldedDistribution,
     ImproperUniform,
     Independent,
     MaskedDistribution,

@@ -17,6 +17,14 @@ ExpandedDistribution
     :show-inheritance:
     :member-order: bysource
 
+FoldedDistribution
+------------------
+.. autoclass:: numpyro.distributions.distribution.FoldedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ImproperUniform
 ---------------
 .. autoclass:: numpyro.distributions.distribution.ImproperUniform
