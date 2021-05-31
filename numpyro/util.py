@@ -303,6 +303,9 @@ def fori_collect(
     # host_callback does not work yet with multi-GPU platforms
     # See: https://github.com/google/jax/issues/6447
     if num_chains > 1 and jax.default_backend() == "gpu":
+        warnings.warn(
+            "We will disable progress bar because it does not work yet on multi-GPUs platforms."
+        )
         progbar = False
 
     @cached_by(fori_collect, body_fun, transform)
