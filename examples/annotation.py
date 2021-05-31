@@ -314,10 +314,9 @@ def main(args):
     mcmc.print_summary()
 
     def infer_discrete_model(rng_key, samples):
-        rng_key, subkey = random.split(rng_key)
         conditioned_model = handlers.condition(model, data=samples)
         infer_discrete_model = infer_discrete(
-            config_enumerate(conditioned_model), rng_key=subkey
+            config_enumerate(conditioned_model), rng_key=rng_key
         )
         with handlers.trace() as tr:
             infer_discrete_model(*data)
