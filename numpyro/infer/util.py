@@ -72,8 +72,13 @@ class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
     """
     Stop gradient for samples at latent sample sites that has_rsample=False.
     """
+
     def postprocess_message(self, msg):
-        if msg["type"] == "sample" and (not msg["is_observed"]) and (not msg["fn"].has_rsample):
+        if (
+            msg["type"] == "sample"
+            and (not msg["is_observed"])
+            and (not msg["fn"].has_rsample)
+        ):
             msg["value"] = lax.stop_gradient(msg["value"])
             msg["intermediates"] = lax.stop_gradient(msg["intermediates"])
 
