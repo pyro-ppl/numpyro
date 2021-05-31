@@ -8,10 +8,10 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.control_flow.scan import scan
+from numpyro.contrib.control_flow import cond, scan
 import numpyro.distributions as dist
 from numpyro.handlers import seed, substitute, trace
-from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO
 from numpyro.infer.util import potential_energy
 
 
@@ -36,7 +36,7 @@ def test_scan():
     T = 10
     num_samples = 100
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 100, num_samples)
+    mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples)
     mcmc.run(random.PRNGKey(0), T=T)
     assert set(mcmc.get_samples()) == {"x", "y", "y2", "x_0", "y_0"}
     mcmc.print_summary()
@@ -112,3 +112,86 @@ def test_scan_constrain_reparam_compatible():
     actual_log_joint = potential_energy(fun_model, (T,), {}, fun_params)
     expected_log_joint = potential_energy(model, (T,), {}, params)
     assert_allclose(actual_log_joint, expected_log_joint)
+
+
+def test_scan_without_stack():
+    def multiply_and_add_repeatedly(K, c_in):
+        def iteration(c_prev, c_in):
+            c_next = jnp.dot(c_prev, K) + c_in
+            return c_next, (c_next,)
+
+        _, (ys,) = scan(iteration, init=jnp.asarray([1.0, 0.0]), xs=c_in)
+
+        return ys
+
+    result = multiply_and_add_repeatedly(
+        K=jnp.asarray([[0.7, 0.3], [0.3, 0.7]]), c_in=jnp.asarray([[1.0, 0.0]])
+    )
+
+    assert_allclose(
+        result,
+        [[1.7, 0.3]],
+    )
+
+
+def test_cond():
+    def model():
+        def true_fun(_):
+            x = numpyro.sample("x", dist.Normal(4.0))
+            numpyro.deterministic("z", x - 4.0)
+
+        def false_fun(_):
+            x = numpyro.sample("x", dist.Normal(0.0))
+            numpyro.deterministic("z", x)
+
+        cluster = numpyro.sample("cluster", dist.Normal())
+        cond(cluster > 0, true_fun, false_fun, None)
+
+    def guide():
+        m1 = numpyro.param("m1", 2.0)
+        s1 = numpyro.param("s1", 0.1, constraint=dist.constraints.positive)
+        m2 = numpyro.param("m2", 2.0)
+        s2 = numpyro.param("s2", 0.1, constraint=dist.constraints.positive)
+
+        def true_fun(_):
+            numpyro.sample("x", dist.Normal(m1, s1))
+
+        def false_fun(_):
+            numpyro.sample("x", dist.Normal(m2, s2))
+
+        cluster = numpyro.sample("cluster", dist.Normal())
+        cond(cluster > 0, true_fun, false_fun, None)
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
+    params, losses = svi.run(random.PRNGKey(0), num_steps=2500)
+
+    predictive = Predictive(
+        model,
+        guide=guide,
+        params=params,
+        num_samples=1000,
+        return_sites=["cluster", "x", "z"],
+    )
+    result = predictive(random.PRNGKey(0))
+
+    assert result["cluster"].shape == (1000,)
+    assert result["x"].shape == (1000,)
+    assert result["z"].shape == (1000,)
+
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=500,
+        num_samples=2500,
+        num_chains=4,
+        chain_method="sequential",
+    )
+    mcmc.run(random.PRNGKey(0))
+
+    x = mcmc.get_samples()["x"]
+    assert x.shape == (10_000,)
+    assert_allclose(
+        [x[x > 2.0].mean(), x[x > 2.0].std(), x[x < 2.0].mean(), x[x < 2.0].std()],
+        [4.01, 0.965, -0.01, 0.965],
+        atol=0.1,
+    )
+    assert_allclose([x.mean(), x.std()], [2.0, jnp.sqrt(5.0)], atol=0.5)

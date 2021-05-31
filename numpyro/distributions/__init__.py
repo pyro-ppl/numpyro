@@ -5,10 +5,15 @@ from numpyro.distributions.conjugate import (
     BetaBinomial,
     DirichletMultinomial,
     GammaPoisson,
+    NegativeBinomial2,
+    NegativeBinomialLogits,
+    NegativeBinomialProbs,
+    ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
+    BetaProportion,
     Cauchy,
     Chi2,
     Dirichlet,
@@ -20,7 +25,6 @@ from numpyro.distributions.continuous import (
     HalfNormal,
     InverseGamma,
     Laplace,
-    LeftTruncatedDistribution,
     LKJCholesky,
     Logistic,
     LogNormal,
@@ -28,15 +32,10 @@ from numpyro.distributions.continuous import (
     MultivariateNormal,
     Normal,
     Pareto,
-    RightTruncatedDistribution,
     SoftLaplace,
     StudentT,
-    TruncatedCauchy,
-    TruncatedDistribution,
-    TruncatedNormal,
-    TruncatedPolyaGamma,
-    TwoSidedTruncatedDistribution,
     Uniform,
+    Weibull,
 )
 from numpyro.distributions.directional import ProjectedNormal, VonMises
 from numpyro.distributions.discrete import (
@@ -58,6 +57,7 @@ from numpyro.distributions.discrete import (
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
+    ZeroInflatedDistribution,
     ZeroInflatedPoisson,
 )
 from numpyro.distributions.distribution import (
@@ -72,6 +72,15 @@ from numpyro.distributions.distribution import (
 )
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.transforms import biject_to
+from numpyro.distributions.truncated import (
+    LeftTruncatedDistribution,
+    RightTruncatedDistribution,
+    TruncatedCauchy,
+    TruncatedDistribution,
+    TruncatedNormal,
+    TruncatedPolyaGamma,
+    TwoSidedTruncatedDistribution,
+)
 
 from . import constraints, transforms
 
@@ -85,6 +94,7 @@ __all__ = [
     "BernoulliProbs",
     "Beta",
     "BetaBinomial",
+    "BetaProportion",
     "Binomial",
     "BinomialLogits",
     "BinomialProbs",
@@ -124,6 +134,9 @@ __all__ = [
     "MultivariateNormal",
     "LowRankMultivariateNormal",
     "Normal",
+    "NegativeBinomialProbs",
+    "NegativeBinomialLogits",
+    "NegativeBinomial2",
     "OrderedLogistic",
     "Pareto",
     "Poisson",
@@ -141,5 +154,8 @@ __all__ = [
     "Uniform",
     "Unit",
     "VonMises",
+    "Weibull",
+    "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
+    "ZeroInflatedNegativeBinomial2",
 ]

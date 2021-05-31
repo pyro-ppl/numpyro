@@ -393,7 +393,7 @@ def model2():
 @pytest.mark.parametrize("model", [model_zzxx, model2])
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_mcmc_model_side_enumeration(model, temperature):
-    mcmc = infer.MCMC(infer.NUTS(model), 0, 1)
+    mcmc = infer.MCMC(infer.NUTS(model), num_warmup=0, num_samples=1)
     mcmc.run(random.PRNGKey(0))
     mcmc_data = {
         k: v[0] for k, v in mcmc.get_samples().items() if k in ["loc", "scale"]

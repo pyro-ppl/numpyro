@@ -311,6 +311,7 @@ class SA(MCMCKernel):
                 init_strategy=self._init_strategy,
                 model_args=model_args,
                 model_kwargs=model_kwargs,
+                validate_grad=False,
             )
             init_params = init_params[0]
             # NB: init args is different from HMC

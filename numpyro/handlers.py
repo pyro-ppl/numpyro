@@ -47,7 +47,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
    >>> num_warmup, num_samples = 1000, 1000
-   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
    >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP
@@ -196,14 +196,19 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, guide_trace=None):
-        assert guide_trace is not None
-        self.guide_trace = guide_trace
+    def __init__(self, fn=None, trace=None, guide_trace=None):
+        if guide_trace is not None:
+            warnings.warn("`guide_trace` argument is deprecated. Please replace it by `trace`.",
+                          FutureWarning)
+        if guide_trace is not None:
+            trace = guide_trace
+        assert trace is not None
+        self.trace = trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg["type"] in ("sample", "plate") and msg["name"] in self.guide_trace:
-            msg["value"] = self.guide_trace[msg["name"]]["value"]
+        if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
+            msg["value"] = self.trace[msg["name"]]["value"]
 
 
 class block(Messenger):
@@ -597,16 +602,16 @@ class scope(Messenger):
 
     .. doctest::
 
-       >>> import numpyro
-       >>> import numpyro.distributions as dist
-       >>> from numpyro.handlers import scope, seed, trace
-       >>>
-       >>> def model():
-       ...     with scope(prefix="a"):
-       ...         with scope(prefix="b", divider="."):
-       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
-       ...
-       >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import scope, seed, trace
+        >>>
+        >>> def model():
+        ...     with scope(prefix="a"):
+        ...         with scope(prefix="b", divider="."):
+        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+        ...
+        >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names

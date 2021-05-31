@@ -86,7 +86,7 @@ class HMCGibbs(MCMCKernel):
         ...
         >>> hmc_kernel = NUTS(model)
         >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
-        >>> mcmc = MCMC(kernel, 100, 100, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=100, num_samples=100, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
 
@@ -386,7 +386,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
-        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
@@ -587,7 +587,7 @@ class HMCECS(HMCGibbs):
         ...
         >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
         >>> kernel = HMCECS(NUTS(model), num_blocks=10)
-        >>> mcmc = MCMC(kernel, 1000, 1000)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), data)
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.) < 0.1

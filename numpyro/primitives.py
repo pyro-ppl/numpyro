@@ -78,6 +78,11 @@ class Messenger(object):
         pass
 
     def __call__(self, *args, **kwargs):
+        if self.fn is None:
+            # Assume self is being used as a decorator.
+            assert len(args) == 1 and not kwargs
+            self.fn = args[0]
+            return self
         with self:
             return self.fn(*args, **kwargs)
 

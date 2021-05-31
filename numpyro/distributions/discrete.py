@@ -29,11 +29,13 @@ import warnings
 
 import numpy as np
 
+import jax
 from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
+from jax.ops import index_add
 import jax.random as random
-from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
+from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -73,7 +75,6 @@ class BernoulliProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -115,7 +116,6 @@ class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.boolean
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
@@ -168,7 +168,6 @@ class BinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -238,7 +237,6 @@ class BinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
     enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(self, logits, total_count=1, validate_args=None):
@@ -299,7 +297,6 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
 class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -350,7 +347,6 @@ class CategoricalProbs(Distribution):
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -456,8 +452,6 @@ class PRNGIdentity(Distribution):
     handler. Only `sample` method is supported.
     """
 
-    is_discrete = True
-
     def __init__(self):
         warnings.warn(
             "PRNGIdentity distribution is deprecated. To get a random "
@@ -478,7 +472,6 @@ class MultinomialProbs(Distribution):
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -536,7 +529,6 @@ class MultinomialLogits(Distribution):
         "logits": constraints.real_vector,
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -606,10 +598,10 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 class Poisson(Distribution):
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
-    def __init__(self, rate, validate_args=None):
+    def __init__(self, rate, *, is_sparse=False, validate_args=None):
         self.rate = rate
+        self.is_sparse = is_sparse
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -620,6 +612,23 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
+        value = jax.device_get(value)
+        if (
+            self.is_sparse
+            and not isinstance(value, jax.core.Tracer)
+            and jnp.size(value) > 1
+        ):
+            shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
+            rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            value = jnp.broadcast_to(value, shape).reshape(-1)
+            nonzero = value > 0
+            sparse_value = value[nonzero]
+            sparse_rate = rate[nonzero]
+            return index_add(
+                -rate,
+                nonzero,
+                jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
+            ).reshape(shape)
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
@@ -630,8 +639,98 @@ class Poisson(Distribution):
     def variance(self):
         return self.rate
 
+    def cdf(self, value):
+        k = jnp.floor(value) + 1
+        return gammaincc(k, self.rate)
 
-class ZeroInflatedPoisson(Distribution):
+
+class ZeroInflatedProbs(Distribution):
+    arg_constraints = {"gate": constraints.unit_interval}
+
+    def __init__(self, base_dist, gate, *, validate_args=None):
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate,) = promote_shapes(gate, shape=batch_shape)
+        assert base_dist.is_discrete
+        if base_dist.event_shape:
+            raise ValueError(
+                "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
+                    base_dist.event_shape
+                )
+            )
+        # XXX: we might need to promote parameters of base_dist but let's keep
+        # this simplified for now
+        self.base_dist = base_dist.expand(batch_shape)
+        super(ZeroInflatedProbs, self).__init__(
+            batch_shape, validate_args=validate_args
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        key_bern, key_base = random.split(key)
+        shape = sample_shape + self.batch_shape
+        mask = random.bernoulli(key_bern, self.gate, shape)
+        samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
+        return jnp.where(mask, 0, samples)
+
+    @validate_sample
+    def log_prob(self, value):
+        log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
+        return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
+
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
+    def support(self):
+        return self.base_dist.support
+
+    @lazy_property
+    def mean(self):
+        return (1 - self.gate) * self.base_dist.mean
+
+    @lazy_property
+    def variance(self):
+        return (1 - self.gate) * (
+            self.base_dist.mean ** 2 + self.base_dist.variance
+        ) - self.mean ** 2
+
+
+class ZeroInflatedLogits(ZeroInflatedProbs):
+    arg_constraints = {"gate_logits": constraints.real}
+
+    def __init__(self, base_dist, gate_logits, *, validate_args=None):
+        gate = _to_probs_bernoulli(gate_logits)
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
+        super().__init__(base_dist, gate, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value):
+        log_prob_minus_log_gate = -self.gate_logits + self.base_dist.log_prob(value)
+        log_gate = -softplus(-self.gate_logits)
+        log_prob = log_prob_minus_log_gate + log_gate
+        zero_log_prob = softplus(log_prob_minus_log_gate) + log_gate
+        return jnp.where(value == 0, zero_log_prob, log_prob)
+
+
+def ZeroInflatedDistribution(
+    base_dist, *, gate=None, gate_logits=None, validate_args=None
+):
+    """
+    Generic Zero Inflated distribution.
+
+    :param Distribution base_dist: the base distribution.
+    :param numpy.ndarray gate: probability of extra zeros given via a Bernoulli distribution.
+    :param numpy.ndarray gate_logits: logits of extra zeros given via a Bernoulli distribution.
+    """
+    if (gate is None) == (gate_logits is None):
+        raise ValueError(
+            "Either `gate` or `gate_logits` must be specified, but not both."
+        )
+    if gate is not None:
+        return ZeroInflatedProbs(base_dist, gate, validate_args=validate_args)
+    else:
+        return ZeroInflatedLogits(base_dist, gate_logits, validate_args=validate_args)
+
+
+class ZeroInflatedPoisson(ZeroInflatedProbs):
     """
     A Zero Inflated Poisson distribution.
 
@@ -641,47 +740,17 @@ class ZeroInflatedPoisson(Distribution):
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
+    # TODO: resolve inconsistent parameter order w.r.t. Pyro
+    # and support `gate_logits` argument
     def __init__(self, gate, rate=1.0, validate_args=None):
-        batch_shape = lax.broadcast_shapes(jnp.shape(gate), jnp.shape(rate))
-        self.gate, self.rate = promote_shapes(gate, rate)
-        super(ZeroInflatedPoisson, self).__init__(
-            batch_shape, validate_args=validate_args
-        )
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        key_bern, key_poisson = random.split(key)
-        shape = sample_shape + self.batch_shape
-        mask = random.bernoulli(key_bern, self.gate, shape)
-        samples = random.poisson(key_poisson, self.rate, shape)
-        return jnp.where(mask, 0, samples)
-
-    @validate_sample
-    def log_prob(self, value):
-        log_prob = (
-            jnp.log(self.rate) * value
-            - gammaln(value + 1)
-            + (jnp.log1p(-self.gate) - self.rate)
-        )
-        return jnp.where(
-            value == 0, jnp.logaddexp(jnp.log(self.gate), log_prob), log_prob
-        )
-
-    @lazy_property
-    def mean(self):
-        return (1 - self.gate) * self.rate
-
-    @lazy_property
-    def variance(self):
-        return (1 - self.gate) * self.rate * (1 + self.rate * self.gate)
+        _, self.rate = promote_shapes(gate, rate)
+        super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -718,7 +787,6 @@ class GeometricProbs(Distribution):
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         self.logits = logits

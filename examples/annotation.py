@@ -37,14 +37,16 @@ import os
 
 import numpy as np
 
-from jax import nn, random
+from jax import nn, random, vmap
 import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
+from numpyro.contrib.funsor import config_enumerate, infer_discrete
 from numpyro.contrib.indexing import Vindex
+from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.reparam import LocScaleReparam
 
 
@@ -304,13 +306,26 @@ def main(args):
 
     mcmc = MCMC(
         NUTS(model),
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(random.PRNGKey(0), *data)
-    mcmc.print_summary()
+    posterior_samples = mcmc.get_samples()
+
+    def infer_discrete_model(rng_key, samples):
+        rng_key, subkey = random.split(rng_key)
+        conditioned_model = handlers.condition(model, data=samples)
+        infer_discrete_model = infer_discrete(config_enumerate(conditioned_model),
+                                              rng_key=subkey)
+        predictive = Predictive(infer_discrete_model, num_samples=1, batch_ndims=0)
+        return predictive(rng_key, *data)
+
+    discrete_samples = vmap(infer_discrete_model)(
+        random.split(random.PRNGKey(1), args.num_samples), posterior_samples)
+    posterior_samples.update(discrete_samples)
+    print_summary(posterior_samples)
 
 
 if __name__ == "__main__":

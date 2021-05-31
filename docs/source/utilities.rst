@@ -94,6 +94,10 @@ Tensor Indexing
     :show-inheritance:
     :member-order: bysource
 
+Model inspection
+----------------
+.. autofunction:: numpyro.contrib.render.get_model_relations
+
 Visualization Utilities
 =======================
 

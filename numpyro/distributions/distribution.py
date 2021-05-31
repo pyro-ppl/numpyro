@@ -129,7 +129,6 @@ class Distribution(metaclass=DistributionMeta):
     arg_constraints = {}
     support = None
     has_enumerate_support = False
-    is_discrete = False
     reparametrized_params = []
     _validate_args = False
 
@@ -461,6 +460,10 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
+    @property
+    def is_discrete(self):
+        return self.support.is_discrete
+
 
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
@@ -517,10 +520,6 @@ class ExpandedDistribution(Distribution):
     @property
     def has_enumerate_support(self):
         return self.base_dist.has_enumerate_support
-
-    @property
-    def is_discrete(self):
-        return self.base_dist.is_discrete
 
     @property
     def has_rsample(self):
@@ -761,10 +760,6 @@ class Independent(Distribution):
         return self.base_dist.has_enumerate_support
 
     @property
-    def is_discrete(self):
-        return self.base_dist.is_discrete
-
-    @property
     def reparameterized_params(self):
         return self.base_dist.reparameterized_params
 
@@ -844,10 +839,6 @@ class MaskedDistribution(Distribution):
     @property
     def has_enumerate_support(self):
         return self.base_dist.has_enumerate_support
-
-    @property
-    def is_discrete(self):
-        return self.base_dist.is_discrete
 
     @property
     def has_rsample(self):
@@ -1066,7 +1057,6 @@ class Delta(Distribution):
         "log_density": constraints.real,
     }
     reparameterized_params = ["v", "log_density"]
-    is_discrete = True
 
     def __init__(self, v=0.0, log_density=0.0, event_dim=0, validate_args=None):
         if event_dim > jnp.ndim(v):
@@ -1085,7 +1075,7 @@ class Delta(Distribution):
             batch_shape, event_shape, validate_args=validate_args
         )
 
-    @constraints.dependent_property(is_discrete=True)
+    @constraints.dependent_property
     def support(self):
         return constraints.independent(constraints.real, self.event_dim)
 
