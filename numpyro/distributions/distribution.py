@@ -34,8 +34,8 @@ import warnings
 import numpy as np
 
 from jax import lax, tree_util
-from jax.scipy.special import logsumexp
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
@@ -1063,7 +1063,7 @@ class FoldedDistribution(TransformedDistribution):
     @validate_sample
     def log_prob(self, value):
         dim = max(len(self.batch_shape), jnp.ndim(value))
-        plus_minus = jnp.array([1., -1.]).reshape((2,) + (1,) * dim)
+        plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
 
     def tree_flatten(self):

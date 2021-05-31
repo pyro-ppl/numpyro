@@ -203,7 +203,7 @@ CONTINUOUS = [
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, jnp.array([0.0, 0.5]), jnp.array([1.0, 2.0])),
     T(FoldedNormal, 2.0, 4.0),
-    T(FoldedNormal, jnp.array([2., 50.]), jnp.array([4., 100.])),
+    T(FoldedNormal, jnp.array([2.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.HalfCauchy, 1.0),
     T(dist.HalfCauchy, jnp.array([1.0, 2.0])),
     T(dist.HalfNormal, 1.0),

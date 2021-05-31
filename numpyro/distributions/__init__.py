@@ -110,6 +110,7 @@ __all__ = [
     "Distribution",
     "Exponential",
     "ExpandedDistribution",
+    "FoldedDistribution",
     "Gamma",
     "GammaPoisson",
     "GaussianRandomWalk",
