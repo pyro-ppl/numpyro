@@ -198,8 +198,10 @@ class replay(Messenger):
 
     def __init__(self, fn=None, trace=None, guide_trace=None):
         if guide_trace is not None:
-            warnings.warn("`guide_trace` argument is deprecated. Please replace it by `trace`.",
-                          FutureWarning)
+            warnings.warn(
+                "`guide_trace` argument is deprecated. Please replace it by `trace`.",
+                FutureWarning,
+            )
         if guide_trace is not None:
             trace = guide_trace
         assert trace is not None

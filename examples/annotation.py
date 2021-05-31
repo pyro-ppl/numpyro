@@ -312,20 +312,36 @@ def main(args):
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(random.PRNGKey(0), *data)
-    posterior_samples = mcmc.get_samples()
+    mcmc.print_summary()
 
     def infer_discrete_model(rng_key, samples):
         rng_key, subkey = random.split(rng_key)
         conditioned_model = handlers.condition(model, data=samples)
-        infer_discrete_model = infer_discrete(config_enumerate(conditioned_model),
-                                              rng_key=subkey)
-        predictive = Predictive(infer_discrete_model, num_samples=1, batch_ndims=0)
-        return predictive(rng_key, *data)
+        infer_discrete_model = infer_discrete(
+            config_enumerate(conditioned_model), rng_key=subkey
+        )
+        with handlers.trace() as tr:
+            infer_discrete_model(*data)
 
+        return {
+            name: site["value"]
+            for name, site in tr.items()
+            if site["type"] == "sample" and site["infer"].get("enumerate") == "parallel"
+        }
+
+    posterior_samples = mcmc.get_samples()
     discrete_samples = vmap(infer_discrete_model)(
-        random.split(random.PRNGKey(1), args.num_samples), posterior_samples)
-    posterior_samples.update(discrete_samples)
-    print_summary(posterior_samples)
+        random.split(random.PRNGKey(1), args.num_samples), posterior_samples
+    )
+
+    item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
+        discrete_samples["c"].squeeze(-1)
+    )
+    print("Histogram of the predicted class of each item:")
+    row_format = "{:>10}" * 5
+    print(row_format.format("", *["c={}".format(i) for i in range(4)]))
+    for i, row in enumerate(item_class):
+        print(row_format.format(f"item[{i}]", *row))
 
 
 if __name__ == "__main__":
