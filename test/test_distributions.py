@@ -12,7 +12,7 @@ import pytest
 import scipy.stats as osp
 
 import jax
-from jax import grad, jacfwd, lax, vmap
+from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
