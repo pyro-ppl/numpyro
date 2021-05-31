@@ -68,15 +68,27 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
+class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
+    """
+    Stop gradient for samples at latent sample sites that has_rsample=False.
+    """
+    def postprocess_message(self, msg):
+        if msg["type"] == "sample" and (not msg["is_observed"]) and (not msg["fn"].has_rsample):
+            msg["value"] = lax.stop_gradient(msg["value"])
+            msg["intermediates"] = lax.stop_gradient(msg["intermediates"])
+
+
 def get_importance_trace(model, guide, args, kwargs, params):
     """
     Returns traces from the guide and the model that is run against it.
     The returned traces also store the log probability at each site.
     """
     guide = substitute(guide, data=params)
-    guide_trace = trace(guide).get_trace(*args, **kwargs)
+    with _without_rsample_stop_gradient():
+        guide_trace = trace(guide).get_trace(*args, **kwargs)
     model = substitute(replay(model, guide_trace), data=params)
-    model_trace = trace(model).get_trace(*args, **kwargs)
+    with _without_rsample_stop_gradient():
+        model_trace = trace(model).get_trace(*args, **kwargs)
     for tr in (guide_trace, model_trace):
         for site in tr.values():
             if site["type"] == "sample":

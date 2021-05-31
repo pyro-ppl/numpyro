@@ -298,16 +298,8 @@ class Distribution(metaclass=DistributionMeta):
         key = kwargs.pop("rng_key")
         sample_intermediates = kwargs.pop("sample_intermediates", False)
         if sample_intermediates:
-            if self.has_rsample:
-                return self.sample_with_intermediates(key, *args, **kwargs)
-            else:
-                return lax.stop_gradient(
-                    self.sample_with_intermediates(key, *args, **kwargs)
-                )
-        if self.has_rsample:
-            return self.sample(key, *args, **kwargs)
-        else:
-            return lax.stop_gradient(self.sample(key, *args, **kwargs))
+            return self.sample_with_intermediates(key, *args, **kwargs)
+        return self.sample(key, *args, **kwargs)
 
     def to_event(self, reinterpreted_batch_ndims=None):
         """
