@@ -44,9 +44,8 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.funsor import config_enumerate, infer_discrete
 from numpyro.contrib.indexing import Vindex
-from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer import MCMC, NUTS
 from numpyro.infer.reparam import LocScaleReparam
 
 
