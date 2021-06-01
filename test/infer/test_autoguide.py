@@ -482,3 +482,17 @@ def test_autoguide_deterministic(auto_class):
         predictive_samples["z"],
         atol=0.05,
     )
+
+
+@pytest.mark.parametrize("size,dim", [(10, -2), (5, -1)])
+def test_plate_inconsistent(size, dim):
+    def model():
+        with numpyro.plate("a", 10, dim=-1):
+            numpyro.sample("x", dist.Normal(0, 1))
+        with numpyro.plate("a", size, dim=dim):
+            numpyro.sample("y", dist.Normal(0, 1))
+
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(step_size=0.1), Trace_ELBO())
+    with pytest.raises(AssertionError, match="has inconsistent dim or size"):
+        svi.run(random.PRNGKey(0), 10)
