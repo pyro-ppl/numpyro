@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from abc import ABC, abstractmethod
 from collections import OrderedDict, namedtuple
 
 from jax import grad, jacfwd, random, value_and_grad, vmap
@@ -1349,3 +1350,61 @@ def parametric_draws(subposteriors, num_draws, diagonal=False, rng_key=None):
 
     _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
     return vmap(lambda x: unravel_fn(x))(samples_flat)
+
+
+class MassMatrix(ABC):
+    """
+    Base class for structured mass matrices.
+    """
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def solve(self, r):
+        """
+        Computes M^-1 @ r
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def sample(self, rng_key):
+        """
+        Draws a sample from MVN(0, M)
+        """
+        raise NotImplementedError
+
+    def kinetic_energy(self, r):
+        """
+        Computes 0.5 * r.T @ M^-1 @ r
+        """
+        return 0.5 * jnp.dot(r, self.solve(r))
+
+    def kinetic_energy_grad(self, r):
+        return self.solve(r)
+
+    def adapt_init(self):
+        pass
+
+    def adapt_update(self):
+        pass
+
+    def adapt_final(self):
+        pass
+
+
+class DiagonalMassMatrix(MassMatrix):
+    pass
+
+
+class DenseMassMatrix(MassMatrix):
+    pass
+
+
+class BlockMassMatrix(MassMatrix):
+    pass
+
+
+
+class LowRankMassMatrix(MassMatrix):
+    pass
+
