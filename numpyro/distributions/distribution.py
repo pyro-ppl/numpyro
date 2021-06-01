@@ -1053,6 +1053,13 @@ class TransformedDistribution(Distribution):
 
 
 class FoldedDistribution(TransformedDistribution):
+    """
+    Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``,
+    but additionally supports :meth:`log_prob` .
+
+    :param Distribution base_dist: A univariate distribution to reflect.
+    """
+
     support = constraints.positive
 
     def __init__(self, base_dist, validate_args=None):
