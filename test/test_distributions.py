@@ -6,6 +6,7 @@ from functools import partial
 import inspect
 import math
 import os
+import math
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -346,6 +347,13 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
     T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
+    T(dist.SineBivariateVonMises, jnp.array([0.]), jnp.array([0.]), jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),
+    T(dist.SineBivariateVonMises, jnp.array([3.003]), jnp.array([-1.343]),
+      jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),
+    T(dist.SineBivariateVonMises, jnp.array([-math.pi/3]), jnp.array(-1),
+      jnp.array(.4), jnp.array(10.), jnp.array(.9)),
+    T(dist.SineBivariateVonMises, jnp.array([math.pi - .2, 1.]), jnp.array([0.,1.]),
+      jnp.array([5., 5.]), jnp.array([7., .5]), None, jnp.array([.5, .1])),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, jnp.array([-1.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
