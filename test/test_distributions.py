@@ -348,8 +348,8 @@ CONTINUOUS = [
     T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
     T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
     T(dist.SineBivariateVonMises, jnp.array([0.]), jnp.array([0.]), jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),
-    T(dist.SineBivariateVonMises, jnp.array([3.003]), jnp.array([-1.343]),
-      jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),
+    T(dist.SineBivariateVonMises, jnp.array([3.003]), jnp.array([-1.343]),  # check test_gof, test_mean_var,
+      jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),  # check test_distribution_constraints
     T(dist.SineBivariateVonMises, jnp.array([-math.pi/3]), jnp.array(-1),
       jnp.array(.4), jnp.array(10.), jnp.array(.9)),
     T(dist.SineBivariateVonMises, jnp.array([math.pi - .2, 1.]), jnp.array([0.,1.]),
