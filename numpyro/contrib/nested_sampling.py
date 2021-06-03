@@ -172,7 +172,7 @@ class NestedSampler:
         num_live_points=1000,
         max_samples=100000,
         sampler_name="slice",
-        depth=3,
+        depth=5,
         num_slices=5,
         termination_frac=0.01
     ):
