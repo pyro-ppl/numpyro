@@ -75,7 +75,10 @@ class SineSkewed(Distribution):
         and :class:`~numpyro.distributions.Uniform` (-pi, pi).
     :param torch.tensor skewness: skewness of the distribution.
     """
-    arg_constraints = {'skewness': constraints.independent(constraints.interval(-1., 1.), 1)}
+
+    arg_constraints = {
+        "skewness": constraints.independent(constraints.interval(-1.0, 1.0), 1)
+    }
 
     support = constraints.independent(constraints.real, 1)
 
@@ -87,10 +90,24 @@ class SineSkewed(Distribution):
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def __repr__(self):
-        args_string = ', '.join(['{}: {}'.format(p, getattr(self, p)
-                                if getattr(self, p).numel() == 1
-                                else getattr(self, p).size()) for p in self.arg_constraints.keys()])
-        return self.__class__.__name__ + '(' + f'base_density: {str(self.base_dist)}, ' + args_string + ')'
+        args_string = ", ".join(
+            [
+                "{}: {}".format(
+                    p,
+                    getattr(self, p)
+                    if getattr(self, p).numel() == 1
+                    else getattr(self, p).size(),
+                )
+                for p in self.arg_constraints.keys()
+            ]
+        )
+        return (
+            self.__class__.__name__
+            + "("
+            + f"base_density: {str(self.base_dist)}, "
+            + args_string
+            + ")"
+        )
 
     def sample(self, key, sample_shape=()):
         base_key, skew_key = random.split(key)
@@ -99,9 +116,13 @@ class SineSkewed(Distribution):
         u = random.uniform(skew_key, sample_shape + self.batch_shape)
 
         # Section 2.3 step 3 in [1]
-        mask = u <= .5 + .5 * (self.skewness * jnp.sin((ys - bd.mean) % (2 * jnp.pi))).sum(-1)
+        mask = u <= 0.5 + 0.5 * (
+            self.skewness * jnp.sin((ys - bd.mean) % (2 * jnp.pi))
+        ).sum(-1)
         mask = mask[..., None]
-        samples = (jnp.where(mask, ys, -ys + 2 * bd.mean) + jnp.pi) % (2 * jnp.pi) - jnp.pi
+        samples = (jnp.where(mask, ys, -ys + 2 * bd.mean) + jnp.pi) % (
+            2 * jnp.pi
+        ) - jnp.pi
         return samples
 
     def log_prob(self, value):
@@ -111,7 +132,12 @@ class SineSkewed(Distribution):
             self.base_dist._validate_sample(value)
 
         # Eq. 2.1 in [1]
-        skew_prob = jnp.log(1 + (self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))).sum(-1))
+        skew_prob = jnp.log(
+            1
+            + (
+                self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))
+            ).sum(-1)
+        )
         return self.base_dist.log_prob(value) + skew_prob
 
     @property
@@ -156,8 +182,9 @@ class VonMises(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return -(jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))) + \
-            self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
+        return -(
+            jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
+        ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
     def mean(self):
