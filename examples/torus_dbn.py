@@ -171,7 +171,7 @@ def main(_argv):
     plot_rate = 5
     batch_size = 32
 
-    aas, ds, phis, psis, lengths = ProteinParser.parsef_jnp('data/TorusDBN/top500.txt')
+    aas, ds, phis, psis, lengths = ProteinParser.parsef_jnp('../notebooks/source/stein_vi/data/TorusDBN/top500.txt')
     max_length = lengths.max()
     blocked_model = block(torus_dbn, hide_fn=lambda site: site['type'] == 'sample' and site['name'].startswith('state'))
     guide = AutoDelta(blocked_model, init_strategy=init_to_sample)

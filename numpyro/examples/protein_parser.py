@@ -60,5 +60,5 @@ class ProteinParser(TextParsers, whitespace=r'[ \t]*'):
 
 
 if __name__ == '__main__':
-    aas, ds, phis, psis, lengths = ProteinParser.parsef_jnp('../../examples/stein_vi/data/TorusDBN/top500.txt')
+    aas, ds, phis, psis, lengths = ProteinParser.parsef_jnp('../../notebooks/source/stein_vi/data/TorusDBN/top500.txt')
     print(aas.shape[0])
