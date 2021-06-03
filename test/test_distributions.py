@@ -1,21 +1,22 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import namedtuple
+from functools import partial
 import inspect
 import math
 import os
-from collections import namedtuple
-from functools import partial
 
-import jax
-import jax.numpy as jnp
-import jax.random as random
 import numpy as np
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 import scipy.stats as osp
+
+import jax
 from jax import grad, lax, vmap
+import jax.numpy as jnp
+import jax.random as random
 from jax.scipy.special import expit, logsumexp
-from numpy.testing import assert_allclose, assert_array_equal
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
@@ -27,14 +28,14 @@ from numpyro.distributions.transforms import (
     PermuteTransform,
     PowerTransform,
     SoftplusTransform,
-    biject_to,
+    biject_to
 )
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
     signed_stick_breaking_tril,
     sum_rightmost,
-    vec_to_tril_matrix,
+    vec_to_tril_matrix
 )
 from numpyro.nn import AutoregressiveNN
 
@@ -87,15 +88,24 @@ _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class SineSkewedUniform(dist.SineSkewed):
-    def __init__(self, lower, upper, skewness, **kwargs):
+    def __init__(self, skewness, **kwargs):
+        lower, upper = (jnp.array([-math.pi, -math.pi]), jnp.array([math.pi, math.pi]))
         base_dist = dist.Uniform(lower, upper, **kwargs).to_event(lower.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
 
 class SineSkewedVonMises(dist.SineSkewed):
-    def __init__(self, von_loc, von_conc, skewness, **kwargs):
+    def __init__(self, skewness, **kwargs):
+        von_loc, von_conc = (jnp.array([0.]), jnp.array([1.]))
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
-        super().__init__(base_dist, skewness)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+class SineSkewedVonMisesBatched(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        von_loc, von_conc = (jnp.array([0., -1.234]), jnp.array([1., 10.]))
+        base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -349,24 +359,9 @@ DIRECTIONAL = [
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[-1.0, 2.0, 3.0]])),
-    T(
-        SineSkewedUniform,
-        jnp.array([-math.pi, -math.pi]),
-        jnp.array([math.pi, math.pi]),
-        jnp.array([-math.pi / 4, .1])
-    ),
-    T(
-        SineSkewedVonMises,
-        jnp.array([0.]),
-        jnp.array([1.]),
-        jnp.array([.342355])
-    ),
-    T(
-        SineSkewedVonMises,
-        jnp.array([0., -1.234]),
-        jnp.array([1., 10.]),
-        jnp.array([[.342355, -0.0001], [.91, .09]])
-    ),
+    T(SineSkewedUniform, jnp.array([-math.pi / 4, .1])),
+    T(SineSkewedVonMises, jnp.array([.342355])),
+    T(SineSkewedVonMisesBatched, jnp.array([[.342355, -0.0001], [.91, .09]])),
 ]
 
 DISCRETE = [
@@ -517,19 +512,11 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints.multinomial):
         n = size[-1]
-        return (multinomial(key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1)
+        return multinomial(key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
     elif constraint is constraints.corr_cholesky:
-        return (
-                signed_stick_breaking_tril(
-                    random.uniform(
-                        key,
-                        size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
-                        minval=-1,
-                        maxval=1,
-                    )
-                )
-                + 1e-2
-        )
+        return (signed_stick_breaking_tril(random.uniform(key,
+                                                          size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
+                                                          minval=-1, maxval=1, )) + 1e-2)
     elif constraint is constraints.corr_matrix:
         cholesky = 1e-2 + signed_stick_breaking_tril(
             random.uniform(
@@ -768,23 +755,13 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     rng_key = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
+    truncated_dists = (dist.LeftTruncatedDistribution, dist.RightTruncatedDistribution,
+                       dist.TwoSidedTruncatedDistribution)
     if sp_dist is None:
-        if isinstance(
-                jax_dist,
-                (
-                        dist.LeftTruncatedDistribution,
-                        dist.RightTruncatedDistribution,
-                        dist.TwoSidedTruncatedDistribution,
-                ),
-        ):
+        if isinstance(jax_dist, truncated_dists):
             if isinstance(params[0], dist.Distribution):
                 # new api
-                loc, scale, low, high = (
-                    params[0].loc,
-                    params[0].scale,
-                    params[1],
-                    params[2],
-                )
+                loc, scale, low, high = (params[0].loc, params[0].scale, params[1], params[2],)
                 if low is None:
                     low = -np.inf
                 if high is None:
@@ -1364,115 +1341,60 @@ def test_categorical_log_prob_grad():
         (constraints.boolean, jnp.array([True, False]), jnp.array([True, True])),
         (constraints.boolean, jnp.array([1, 1]), jnp.array([True, True])),
         (constraints.boolean, jnp.array([-1, 1]), jnp.array([False, True])),
-        (
-                constraints.corr_cholesky,
-                jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
-                jnp.array([True, False]),
-        ),  # NB: not lower_triangular
-        (
-                constraints.corr_cholesky,
-                jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
-                jnp.array([False, False]),
-        ),  # NB: not positive_diagonal & not unit_norm_row
-        (
-                constraints.corr_matrix,
-                jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
-                jnp.array([True, False]),
-        ),  # NB: not lower_triangular
-        (
-                constraints.corr_matrix,
-                jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
-                jnp.array([False, False]),
-        ),  # NB: not unit diagonal
+        (constraints.corr_cholesky, jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]), jnp.array([True, False]),
+         ),  # NB: not lower_triangular
+        (constraints.corr_cholesky, jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]), jnp.array([False, False]),
+         ),  # NB: not positive_diagonal & not unit_norm_row
+        (constraints.corr_matrix, jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]), jnp.array([True, False]),
+         ),  # NB: not lower_triangular
+        (constraints.corr_matrix, jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]), jnp.array([False, False]),
+         ),  # NB: not unit diagonal
         (constraints.greater_than(1), 3, True),
-        (
-                constraints.greater_than(1),
-                jnp.array([-1, 1, 5]),
-                jnp.array([False, False, True]),
-        ),
+        (constraints.greater_than(1), jnp.array([-1, 1, 5]), jnp.array([False, False, True])),
         (constraints.integer_interval(-3, 5), 0, True),
-        (
-                constraints.integer_interval(-3, 5),
-                jnp.array([-5, -3, 0, 1.1, 5, 7]),
-                jnp.array([False, True, True, False, True, False]),
-        ),
+        (constraints.integer_interval(-3, 5),
+         jnp.array([-5, -3, 0, 1.1, 5, 7]),
+         jnp.array([False, True, True, False, True, False]),
+         ),
         (constraints.interval(-3, 5), 0, True),
-        (
-                constraints.interval(-3, 5),
-                jnp.array([-5, -3, 0, 5, 7]),
-                jnp.array([False, True, True, True, False]),
-        ),
+        (constraints.interval(-3, 5), jnp.array([-5, -3, 0, 5, 7]), jnp.array([False, True, True, True, False])),
         (constraints.less_than(1), -2, True),
-        (
-                constraints.less_than(1),
-                jnp.array([-1, 1, 5]),
-                jnp.array([True, False, False]),
-        ),
+        (constraints.less_than(1), jnp.array([-1, 1, 5]), jnp.array([True, False, False])),
         (constraints.lower_cholesky, jnp.array([[1.0, 0.0], [-2.0, 0.1]]), True),
-        (
-                constraints.lower_cholesky,
-                jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
-                jnp.array([False, False]),
-        ),
+        (constraints.lower_cholesky,
+         jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
+         jnp.array([False, False]),
+         ),
         (constraints.nonnegative_integer, 3, True),
-        (
-                constraints.nonnegative_integer,
-                jnp.array([-1.0, 0.0, 5.0]),
-                jnp.array([False, True, True]),
-        ),
+        (constraints.nonnegative_integer, jnp.array([-1.0, 0.0, 5.0]), jnp.array([False, True, True]),
+         ),
         (constraints.positive, 3, True),
         (constraints.positive, jnp.array([-1, 0, 5]), jnp.array([False, False, True])),
         (constraints.positive_definite, jnp.array([[1.0, 0.3], [0.3, 1.0]]), True),
-        (
-                constraints.positive_definite,
-                jnp.array([[[2.0, 0.4], [0.3, 2.0]], [[1.0, 0.1], [0.1, 0.0]]]),
-                jnp.array([False, False]),
-        ),
+        (constraints.positive_definite,
+         jnp.array([[[2.0, 0.4], [0.3, 2.0]], [[1.0, 0.1], [0.1, 0.0]]]),
+         jnp.array([False, False]),
+         ),
         (constraints.positive_integer, 3, True),
-        (
-                constraints.positive_integer,
-                jnp.array([-1.0, 0.0, 5.0]),
-                jnp.array([False, False, True]),
-        ),
+        (constraints.positive_integer, jnp.array([-1.0, 0.0, 5.0]), jnp.array([False, False, True]),
+         ),
         (constraints.real, -1, True),
-        (
-                constraints.real,
-                jnp.array([jnp.inf, jnp.NINF, jnp.nan, jnp.pi]),
-                jnp.array([False, False, False, True]),
-        ),
+        (constraints.real, jnp.array([jnp.inf, jnp.NINF, jnp.nan, jnp.pi]), jnp.array([False, False, False, True])),
         (constraints.simplex, jnp.array([0.1, 0.3, 0.6]), True),
-        (
-                constraints.simplex,
-                jnp.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
-                jnp.array([True, False, False]),
-        ),
+        (constraints.simplex,
+         jnp.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
+         jnp.array([True, False, False]),
+         ),
         (constraints.softplus_positive, 3, True),
-        (
-                constraints.softplus_positive,
-                jnp.array([-1, 0, 5]),
-                jnp.array([False, False, True]),
-        ),
-        (
-                constraints.softplus_lower_cholesky,
-                jnp.array([[1.0, 0.0], [-2.0, 0.1]]),
-                True,
-        ),
-        (
-                constraints.softplus_lower_cholesky,
-                jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
-                jnp.array([False, False]),
-        ),
+        (constraints.softplus_positive, jnp.array([-1, 0, 5]), jnp.array([False, False, True])),
+        (constraints.softplus_lower_cholesky, jnp.array([[1.0, 0.0], [-2.0, 0.1]]), True),
+        (constraints.softplus_lower_cholesky,
+         jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
+         jnp.array([False, False]),
+         ),
         (constraints.unit_interval, 0.1, True),
-        (
-                constraints.unit_interval,
-                jnp.array([-5, 0, 0.5, 1, 7]),
-                jnp.array([False, True, True, True, False]),
-        ),
-        (
-                constraints.sphere,
-                jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
-                jnp.array([True, False]),
-        ),
+        (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]), jnp.array([False, True, True, True, False])),
+        (constraints.sphere, jnp.array([[1, 0, 0], [0.5, 0.5, 0]]), jnp.array([True, False])),
     ],
 )
 def test_constraints(constraint, x, expected):
@@ -1607,17 +1529,8 @@ def test_biject_to(constraint, shape):
 # NB: skip transforms which are tested in `test_biject_to`
 @pytest.mark.parametrize(
     "transform, event_shape",
-    [
-        (PermuteTransform(jnp.array([3, 0, 4, 1, 2])), (5,)),
-        (PowerTransform(2.0), ()),
-        (SoftplusTransform(), ()),
-        (
-                LowerCholeskyAffine(
-                    jnp.array([1.0, 2.0]), jnp.array([[0.6, 0.0], [1.5, 0.4]])
-                ),
-                (2,),
-        ),
-    ],
+    [(PermuteTransform(jnp.array([3, 0, 4, 1, 2])), (5,)), (PowerTransform(2.0), ()), (SoftplusTransform(), ()),
+     (LowerCholeskyAffine(jnp.array([1.0, 2.0]), jnp.array([[0.6, 0.0], [1.5, 0.4]])), (2,))],
 )
 @pytest.mark.parametrize("batch_shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_bijective_transforms(transform, event_shape, batch_shape):

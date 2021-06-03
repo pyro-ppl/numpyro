@@ -3,20 +3,14 @@
 
 import math
 
+from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax import lax
 from jax.scipy.special import erf, i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import (
-    is_prng_key,
-    promote_shapes,
-    safe_normalize,
-    validate_sample,
-    von_mises_centered,
-)
+from numpyro.distributions.util import is_prng_key, promote_shapes, safe_normalize, validate_sample, von_mises_centered
 
 
 class SineSkewed(Distribution):
@@ -88,8 +82,8 @@ class SineSkewed(Distribution):
 
     def __repr__(self):
         args_string = ', '.join(['{}: {}'.format(p, getattr(self, p)
-        if getattr(self, p).numel() == 1
-        else getattr(self, p).size()) for p in self.arg_constraints.keys()])
+                                if getattr(self, p).numel() == 1
+                                else getattr(self, p).size()) for p in self.arg_constraints.keys()])
         return self.__class__.__name__ + '(' + f'base_density: {str(self.base_dist)}, ' + args_string + ')'
 
     def sample(self, key, sample_shape=()):
@@ -156,9 +150,8 @@ class VonMises(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return -(
-                jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
-        ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
+        return -(jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))) + \
+            self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
     def mean(self):
