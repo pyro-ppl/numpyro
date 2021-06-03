@@ -4,9 +4,9 @@
 import warnings
 
 from numpyro.compat.util import UnsupportedAPIWarning
-from numpyro.primitives import module
-from numpyro.primitives import param as _param  # noqa: F401
-from numpyro.primitives import plate, sample
+
+from numpyro.primitives import module, plate, sample  # noqa: F401 isort:skip
+from numpyro.primitives import param as _param  # noqa: F401 isort:skip
 
 _PARAM_STORE = {}
 
