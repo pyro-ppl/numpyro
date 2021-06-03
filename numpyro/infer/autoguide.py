@@ -18,10 +18,7 @@ import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.flows import (
-    BlockNeuralAutoregressiveTransform,
-    InverseAutoregressiveTransform,
-)
+from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
 from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
@@ -29,13 +26,9 @@ from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
     UnpackTransform,
-    biject_to,
+    biject_to
 )
-from numpyro.distributions.util import (
-    cholesky_of_inverse,
-    periodic_repeat,
-    sum_rightmost,
-)
+from numpyro.distributions.util import cholesky_of_inverse, periodic_repeat, sum_rightmost
 from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.initialization import init_to_median, init_to_uniform
 from numpyro.infer.util import helpful_support_errors, initialize_model

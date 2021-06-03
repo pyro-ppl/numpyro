@@ -7,12 +7,7 @@ from jax.scipy.special import betainc, betaln, gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
-from numpyro.distributions.discrete import (
-    BinomialProbs,
-    MultinomialProbs,
-    Poisson,
-    ZeroInflatedDistribution,
-)
+from numpyro.distributions.discrete import BinomialProbs, MultinomialProbs, Poisson, ZeroInflatedDistribution
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample
 

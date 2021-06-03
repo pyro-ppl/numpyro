@@ -8,10 +8,12 @@ import numpy as np
 
 import jax
 import jax.numpy as jnp
-from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
+from tensorflow_probability.substrates.jax import bijectors as tfb
+from tensorflow_probability.substrates.jax import distributions as tfd
 
 import numpyro.distributions as numpyro_dist
-from numpyro.distributions import Distribution as NumPyroDistribution, constraints
+from numpyro.distributions import Distribution as NumPyroDistribution
+from numpyro.distributions import constraints
 from numpyro.distributions.transforms import Transform, biject_to
 from numpyro.util import not_jax_tracer
 

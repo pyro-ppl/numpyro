@@ -15,7 +15,7 @@ from numpyro.infer.hmc_util import (
     euclidean_kinetic_energy,
     find_reasonable_step_size,
     velocity_verlet,
-    warmup_adapter,
+    warmup_adapter
 )
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model

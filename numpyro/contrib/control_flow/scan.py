@@ -4,15 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import (
-    device_put,
-    lax,
-    random,
-    tree_flatten,
-    tree_map,
-    tree_multimap,
-    tree_unflatten,
-)
+from jax import device_put, lax, random, tree_flatten, tree_map, tree_multimap, tree_unflatten
 import jax.numpy as jnp
 
 from numpyro import handlers
@@ -115,12 +107,8 @@ def scan_enum(
     history=1,
     first_available_dim=None,
 ):
-    from numpyro.contrib.funsor import (
-        config_enumerate,
-        enum,
-        markov,
-        trace as packed_trace,
-    )
+    from numpyro.contrib.funsor import config_enumerate, enum, markov
+    from numpyro.contrib.funsor import trace as packed_trace
 
     # amount number of steps to unroll
     history = min(history, length)

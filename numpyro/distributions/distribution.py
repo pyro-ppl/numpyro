@@ -38,12 +38,7 @@ import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
-from numpyro.distributions.util import (
-    lazy_property,
-    promote_shapes,
-    sum_rightmost,
-    validate_sample,
-)
+from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
 
 from . import constraints
