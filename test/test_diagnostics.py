@@ -13,7 +13,7 @@ from numpyro.diagnostics import (
     effective_sample_size,
     gelman_rubin,
     hpdi,
-    split_gelman_rubin,
+    split_gelman_rubin
 )
 
 

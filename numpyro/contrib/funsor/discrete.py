@@ -7,7 +7,8 @@ import functools
 from jax import random
 
 import funsor
-from numpyro.contrib.funsor.enum_messenger import enum, trace as packed_trace
+from numpyro.contrib.funsor.enum_messenger import enum
+from numpyro.contrib.funsor.enum_messenger import trace as packed_trace
 from numpyro.contrib.funsor.infer_util import plate_to_enum_plate
 from numpyro.distributions.util import is_identically_one
 from numpyro.handlers import block, replay, seed, trace

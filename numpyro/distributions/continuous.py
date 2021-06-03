@@ -35,12 +35,7 @@ from jax.scipy.special import betainc, expit, gammaln, logit, multigammaln, ndtr
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.transforms import (
-    AffineTransform,
-    CorrMatrixCholeskyTransform,
-    ExpTransform,
-    PowerTransform,
-)
+from numpyro.distributions.transforms import AffineTransform, CorrMatrixCholeskyTransform, ExpTransform, PowerTransform
 from numpyro.distributions.util import (
     cholesky_of_inverse,
     is_prng_key,
@@ -49,7 +44,7 @@ from numpyro.distributions.util import (
     promote_shapes,
     signed_stick_breaking_tril,
     validate_sample,
-    vec_to_tril_matrix,
+    vec_to_tril_matrix
 )
 
 EULER_MASCHERONI = 0.5772156649015328606065120900824024310421

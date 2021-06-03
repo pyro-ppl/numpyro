@@ -9,8 +9,10 @@ from jax import lax
 import jax.numpy as jnp
 
 import funsor
-from numpyro.handlers import infer_config, trace as OrigTraceMessenger
-from numpyro.primitives import Messenger, apply_stack, plate as OrigPlateMessenger
+from numpyro.handlers import infer_config
+from numpyro.handlers import trace as OrigTraceMessenger
+from numpyro.primitives import Messenger, apply_stack
+from numpyro.primitives import plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
 
