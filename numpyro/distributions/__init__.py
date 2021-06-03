@@ -37,7 +37,7 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
 )
-from numpyro.distributions.directional import ProjectedNormal, VonMises
+from numpyro.distributions.directional import ProjectedNormal, VonMises, SineSkewed
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -145,6 +145,7 @@ __all__ = [
     "ProjectedNormal",
     "PRNGIdentity",
     "RightTruncatedDistribution",
+    "SineSkewed",
     "SoftLaplace",
     "StudentT",
     "TransformedDistribution",

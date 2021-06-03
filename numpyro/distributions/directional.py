@@ -28,27 +28,29 @@ class SineSkewed(Distribution):
     and the 2-torus is commonly associated with the donut shape.
     The Sine Skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
     For example with a von Mises distribution over a circle (1-torus), the Sine Skewed von Mises Distribution has one
-    skew parameter. The skewness parameters can be inferred using :class:`~pyro.infer.HMC` or :class:`~pyro.infer.NUTS`.
-    For example, the following will produce a uniform prior over skewness for the 2-torus,::
+    skew parameter. The skewness parameters can be inferred using :class:`~numpyro.infer.HMC` or
+    :class:`~numpyro.infer.NUTS`. For example, the following will produce a uniform prior over
+    skewness for the 2-torus,::
+
         def model(obs):
             # Sine priors
-            phi_loc = pyro.sample('phi_loc', VonMises(pi, 2.))
-            psi_loc = pyro.sample('psi_loc', VonMises(-pi / 2, 2.))
-            phi_conc = pyro.sample('phi_conc', Beta(halpha_phi, beta_prec_phi - halpha_phi))
-            psi_conc = pyro.sample('psi_conc', Beta(halpha_psi, beta_prec_psi - halpha_psi))
-            corr_scale = pyro.sample('corr_scale', Beta(2., 5.))
+            phi_loc = numpyro.sample('phi_loc', VonMises(pi, 2.))
+            psi_loc = numpyro.sample('psi_loc', VonMises(-pi / 2, 2.))
+            phi_conc = numpyro.sample('phi_conc', Beta(halpha_phi, beta_prec_phi - halpha_phi))
+            psi_conc = numpyro.sample('psi_conc', Beta(halpha_psi, beta_prec_psi - halpha_psi))
+            corr_scale = numpyro.sample('corr_scale', Beta(2., 5.))
             # SS prior
-            skew_phi = pyro.sample('skew_phi', Uniform(-1., 1.))
+            skew_phi = numpyro.sample('skew_phi', Uniform(-1., 1.))
             psi_bound = 1 - skew_phi.abs()
-            skew_psi = pyro.sample('skew_psi', Uniform(-1., 1.))
+            skew_psi = numpyro.sample('skew_psi', Uniform(-1., 1.))
             skewness = torch.stack((skew_phi, psi_bound * skew_psi), dim=-1)
             assert skewness.shape == (num_mix_comp, 2)
-            with pyro.plate('obs_plate'):
+            with numpyro.plate('obs_plate'):
                 sine = SineBivariateVonMises(phi_loc=phi_loc, psi_loc=psi_loc,
                                             phi_concentration=1000 * phi_conc,
                                             psi_concentration=1000 * psi_conc,
                                             weighted_correlation=corr_scale)
-                        return pyro.sample('phi_psi', SineSkewed(sine, skewness), obs=obs)
+                        return numpyro.sample('phi_psi', SineSkewed(sine, skewness), obs=obs)
     To ensure the skewing does not alter the normalization constant of the (Sine Bivaraite von Mises) base
     distribution the skewness parameters are constraint. The constraint requires the sum of the absolute values of
     skewness to be less than or equal to one.
@@ -68,9 +70,9 @@ class SineSkewed(Distribution):
       1. Sine-skewed toroidal distributions and their application in protein bioinformatics
          Ameijeiras-Alonso, J., Ley, C. (2019)
     :param torch.distributions.Distribution base_dist: base density on a d-dimensional torus. Supported base
-        distributions include: 1D :class:`~pyro.distributions.VonMises`,
-        :class:`~pyro.distributions.SineBivariateVonMises`, 1D :class:`~pyro.distributions.ProjectedNormal`, and
-        :class:`~pyro.distributions.Uniform` (-pi, pi).
+        distributions include: 1D :class:`~numpyro.distributions.VonMises`,
+        :class:`~numnumpyro.distributions.SineBivariateVonMises`, 1D :class:`~numpyro.distributions.ProjectedNormal`,
+        and :class:`~numpyro.distributions.Uniform` (-pi, pi).
     :param torch.tensor skewness: skewness of the distribution.
     """
     arg_constraints = {'skewness': constraints.independent(constraints.interval(-1., 1.), 1)}
@@ -83,10 +85,6 @@ class SineSkewed(Distribution):
         self.skewness = jnp.broadcast_to(skewness, batch_shape + event_shape)
         self.base_dist = base_dist.expand(batch_shape)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
-
-        if self._validate_args and base_dist.mean.device != skewness.device:
-            raise ValueError(f"base_density: {base_dist.__class__.__name__} and SineSkewed "
-                             f"must be on same device.")
 
     def __repr__(self):
         args_string = ', '.join(['{}: {}'.format(p, getattr(self, p)
@@ -109,10 +107,16 @@ class SineSkewed(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
+        if self.base_dist._validate_args:
+            self.base_dist._validate_sample(value)
 
         # Eq. 2.1 in [1]
         skew_prob = jnp.log(1 + (self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))).sum(-1))
         return self.base_dist.log_prob(value) + skew_prob
+
+    @property
+    def mean(self):
+        return self.base_dist.mean
 
 
 class VonMises(Distribution):

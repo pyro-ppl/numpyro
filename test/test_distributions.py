@@ -19,7 +19,6 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
-from numpyro.distributions.directional import SineSkewed
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -82,19 +81,21 @@ def _TruncatedNormal(loc, scale, low, high):
     return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
 
 
-def _SineSkewedUniform(lower, upper, skewness):
-    base_dist = dist.Uniform(lower, upper).to_event(lower.ndim)
-    return SineSkewed(base_dist, skewness)
-
-
-def _SineSkewedVonMises(von_loc, von_conc, skewness):
-    base_dist = dist.VonMises(von_loc, von_conc).to_event(von_loc.ndim)
-    return SineSkewed(base_dist, skewness)
-
-
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+class SineSkewedUniform(dist.SineSkewed):
+    def __init__(self, lower, upper, skewness, **kwargs):
+        base_dist = dist.Uniform(lower, upper, **kwargs).to_event(lower.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+class SineSkewedVonMises(dist.SineSkewed):
+    def __init__(self, von_loc, von_conc, skewness, **kwargs):
+        base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
+        super().__init__(base_dist, skewness)
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -299,24 +300,6 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
     T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
-    T(
-        _SineSkewedUniform,
-        jnp.array([-math.pi, -math.pi]),
-        jnp.array([math.pi, math.pi]),
-        jnp.array([-math.pi / 4, .1])
-    ),
-    T(
-        _SineSkewedVonMises,
-        jnp.array([0.]),
-        jnp.array([1.]),
-        jnp.array([.342355])
-    ),
-    T(
-        _SineSkewedVonMises,
-        jnp.array([0., -1.234]),
-        jnp.array([1., 10.]),
-        jnp.array([[.342355, -0.0001], [.91, .09]])
-    ),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, jnp.array([-1.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
@@ -366,6 +349,24 @@ DIRECTIONAL = [
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[-1.0, 2.0, 3.0]])),
+    T(
+        SineSkewedUniform,
+        jnp.array([-math.pi, -math.pi]),
+        jnp.array([math.pi, math.pi]),
+        jnp.array([-math.pi / 4, .1])
+    ),
+    T(
+        SineSkewedVonMises,
+        jnp.array([0.]),
+        jnp.array([1.]),
+        jnp.array([.342355])
+    ),
+    T(
+        SineSkewedVonMises,
+        jnp.array([0., -1.234]),
+        jnp.array([1., 10.]),
+        jnp.array([[.342355, -0.0001], [.91, .09]])
+    ),
 ]
 
 DISCRETE = [
@@ -516,12 +517,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints.multinomial):
         n = size[-1]
-        return (
-                multinomial(
-                    key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]
-                )
-                + 1
-        )
+        return (multinomial(key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1)
     elif constraint is constraints.corr_cholesky:
         return (
                 signed_stick_breaking_tril(
@@ -1133,6 +1129,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if 'SineSkewed' in jax_dist.__name__:
+        pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
             _TruncatedNormal,
             dist.LeftTruncatedDistribution,
@@ -1242,6 +1240,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
                 and dist_args[i] != "concentration"
         ):
             continue
+        if 'SineSkewed' in jax_dist.__name__ and dist_args[i] != 'skewness':
+            continue
         if (
                 jax_dist is dist.TwoSidedTruncatedDistribution
                 and dist_args[i] == "base_dist"
@@ -1268,7 +1268,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
-    if not dependent_constraint and jax_dist is not _ImproperWrapper:
+    if not dependent_constraint and (jax_dist is not _ImproperWrapper and 'SineSkewed' not in jax_dist.__name__):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
@@ -1574,11 +1574,7 @@ def test_biject_to(constraint, shape):
                 matrix = vec_to_tril_matrix(y, diagonal=-1)
                 if constraint is constraints.corr_matrix:
                     # fill the upper triangular part
-                    matrix = (
-                            matrix
-                            + jnp.swapaxes(matrix, -2, -1)
-                            + jnp.identity(matrix.shape[-1])
-                    )
+                    matrix = matrix + jnp.swapaxes(matrix, -2, -1) + jnp.identity(matrix.shape[-1])
                 return transform.inv(matrix)
 
             expected = np.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
@@ -1595,11 +1591,7 @@ def test_biject_to(constraint, shape):
                 matrix = vec_to_tril_matrix(y)
                 if constraint is constraints.positive_definite:
                     # fill the upper triangular part
-                    matrix = (
-                            matrix
-                            + jnp.swapaxes(matrix, -2, -1)
-                            - jnp.diag(jnp.diag(matrix))
-                    )
+                    matrix = matrix + jnp.swapaxes(matrix, -2, -1) - jnp.diag(jnp.diag(matrix))
                 return transform.inv(matrix)
 
             expected = np.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
@@ -1676,9 +1668,7 @@ def test_composed_transform(batch_shape):
     y = t(x)
     log_det = t.log_abs_det_jacobian(x, y)
     assert log_det.shape == batch_shape
-    expected_log_det = (
-            jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, y / 2) + jnp.log(2) * 9
-    )
+    expected_log_det = jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, y / 2) + jnp.log(2) * 9
     assert_allclose(log_det, expected_log_det)
 
 
@@ -1695,11 +1685,7 @@ def test_composed_transform_1(batch_shape):
     log_det = t.log_abs_det_jacobian(x, y)
     assert log_det.shape == batch_shape
     z = t2(x * 2)
-    expected_log_det = (
-            jnp.log(2) * 6
-            + t2.log_abs_det_jacobian(x * 2, z)
-            + t2.log_abs_det_jacobian(z, t2(z)).sum(-1)
-    )
+    expected_log_det = jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, z) + t2.log_abs_det_jacobian(z, t2(z)).sum(-1)
     assert_allclose(log_det, expected_log_det)
 
 
@@ -1879,10 +1865,7 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     assert samples.shape == sample_shape + new_batch_shape + jax_dist.event_shape
     assert expanded_dist.log_prob(samples).shape == sample_shape + new_batch_shape
     # test expand of expand
-    assert (
-            expanded_dist.expand((3,) + new_batch_shape).batch_shape
-            == (3,) + new_batch_shape
-    )
+    assert (expanded_dist.expand((3,) + new_batch_shape).batch_shape == (3,) + new_batch_shape)
     # test expand error
     if prepend_shape:
         with pytest.raises(ValueError, match="Cannot broadcast distribution of shape"):
