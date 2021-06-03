@@ -10,7 +10,13 @@ from jax.scipy.special import erf, i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import is_prng_key, promote_shapes, safe_normalize, validate_sample, von_mises_centered
+from numpyro.distributions.util import (
+    is_prng_key,
+    promote_shapes,
+    safe_normalize,
+    validate_sample,
+    von_mises_centered,
+)
 
 
 class SineSkewed(Distribution):

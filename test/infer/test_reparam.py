@@ -14,7 +14,12 @@ from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoIAFNormal
-from numpyro.infer.reparam import LocScaleReparam, NeuTraReparam, ProjectedNormalReparam, TransformReparam
+from numpyro.infer.reparam import (
+    LocScaleReparam,
+    NeuTraReparam,
+    ProjectedNormalReparam,
+    TransformReparam,
+)
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 

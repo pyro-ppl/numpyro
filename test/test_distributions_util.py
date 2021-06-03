@@ -20,7 +20,7 @@ from numpyro.distributions.util import (
     multinomial,
     safe_normalize,
     vec_to_tril_matrix,
-    von_mises_centered
+    von_mises_centered,
 )
 
 

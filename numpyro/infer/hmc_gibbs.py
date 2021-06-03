@@ -8,7 +8,17 @@ import warnings
 
 import numpy as np
 
-from jax import device_put, grad, hessian, jacfwd, jacobian, lax, ops, random, value_and_grad
+from jax import (
+    device_put,
+    grad,
+    hessian,
+    jacfwd,
+    jacobian,
+    lax,
+    ops,
+    random,
+    value_and_grad,
+)
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit

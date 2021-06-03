@@ -28,14 +28,14 @@ from numpyro.distributions.transforms import (
     PermuteTransform,
     PowerTransform,
     SoftplusTransform,
-    biject_to
+    biject_to,
 )
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
     signed_stick_breaking_tril,
     sum_rightmost,
-    vec_to_tril_matrix
+    vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
 
