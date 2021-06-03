@@ -1,10 +1,10 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 # From https://stackoverflow.com/a/53586826
 # TODO: Check licensing before including in Pyro repository
-def multiple_formatter(denominator=2, number=np.pi, latex='\pi'):
+def multiple_formatter(denominator=2, number=np.pi, latex="\pi"):
     def gcd(a, b):
         while b:
             a, b = b, a % b
@@ -17,26 +17,26 @@ def multiple_formatter(denominator=2, number=np.pi, latex='\pi'):
         (num, den) = (int(num / com), int(den / com))
         if den == 1:
             if num == 0:
-                return r'$0$'
+                return r"$0$"
             if num == 1:
-                return r'$%s$' % latex
+                return r"$%s$" % latex
             elif num == -1:
-                return r'$-%s$' % latex
+                return r"$-%s$" % latex
             else:
-                return r'$%s%s$' % (num, latex)
+                return r"$%s%s$" % (num, latex)
         else:
             if num == 1:
-                return r'$\frac{%s}{%s}$' % (latex, den)
+                return r"$\frac{%s}{%s}$" % (latex, den)
             elif num == -1:
-                return r'$-\frac{%s}{%s}$' % (latex, den)
+                return r"$-\frac{%s}{%s}$" % (latex, den)
             else:
-                return r'$\frac{%s%s}{%s}$' % (num, latex, den)
+                return r"$\frac{%s%s}{%s}$" % (num, latex, den)
 
     return _multiple_formatter
 
 
 class Multiple:
-    def __init__(self, denominator=2, number=np.pi, latex='\pi'):
+    def __init__(self, denominator=2, number=np.pi, latex="\pi"):
         self.denominator = denominator
         self.number = number
         self.latex = latex
@@ -45,4 +45,6 @@ class Multiple:
         return plt.MultipleLocator(self.number / self.denominator)
 
     def formatter(self):
-        return plt.FuncFormatter(multiple_formatter(self.denominator, self.number, self.latex))
+        return plt.FuncFormatter(
+            multiple_formatter(self.denominator, self.number, self.latex)
+        )

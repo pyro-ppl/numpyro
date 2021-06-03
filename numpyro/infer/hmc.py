@@ -148,8 +148,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.infer.hmc import hmc
-        >>> from numpyro.infer.util import initialize_model
-        >>> from numpyro.util import fori_collect
+        >>> from numpyro.infer.stein_utils import initialize_model
+        >>> from numpyro.stein_utils import fori_collect
 
         >>> true_coefs = jnp.array([1., 2., 3.])
         >>> data = random.normal(random.PRNGKey(2), (2000, 3))

@@ -14,28 +14,30 @@ from jax.tree_util import tree_map
 from numpyro import handlers
 from numpyro.contrib.einstein.kernels import SteinKernel
 from numpyro.contrib.einstein.reinit_guide import ReinitGuide
-from numpyro.contrib.einstein.utils import get_parameter_transform
+from numpyro.contrib.einstein.vi import VI
 from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution
 from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer import MCMC, NUTS
+from numpyro.infer.initialization import get_parameter_transform
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.util import ravel_pytree
 
 # TODO
 # Fix MCMC updates to work reasonably with optimizer
 
+VIState = namedtuple("CurrentState", ["optim_state", "rng_key"])
+
 
 # Lots of code based on SVI interface and commonalities should be refactored
-class Stein(object):
-    CurrentState = namedtuple("CurrentState", ["optim_state", "rng_key"])
-
+class Stein(VI):
     def __init__(
         self,
         model,
         guide: ReinitGuide,
         optim,
         loss,
+        init_strategy,  # TODO: factor in wrapped_guide with init
         kernel_fn: SteinKernel,
         num_particles: int = 10,
         loss_temperature: float = 1.0,
@@ -437,7 +439,7 @@ class Stein(object):
         self.particle_transform_fn = partial(transform_fn, particle_transforms)
         return Stein.CurrentState(self.optim.init(params), rng_key)
 
-    def get_params(self, state: CurrentState):
+    def get_params(self, state: VIState):
         """
         Gets values at `param` sites of the `model` and `guide`.
         :param state: current state of the optimizer.
@@ -445,7 +447,7 @@ class Stein(object):
         params = self.constrain_fn(self.optim.get_params(state.optim_state))
         return params
 
-    def update(self, state: CurrentState, *args, **kwargs):
+    def update(self, state: VIState, *args, **kwargs):
         """
         Take a single step of Stein (possibly on a batch / minibatch of data),
         using the optimizer.
