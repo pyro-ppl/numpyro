@@ -7,12 +7,12 @@ import warnings
 
 import numpy as np
 
-from jax import device_get, lax, random, value_and_grad
+from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
+from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
@@ -20,17 +20,19 @@ from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
 __all__ = [
-    'find_valid_initial_params',
-    'get_potential_fn',
-    'log_density',
-    'log_likelihood',
-    'potential_energy',
-    'initialize_model',
-    'Predictive',
+    "find_valid_initial_params",
+    "get_potential_fn",
+    "log_density",
+    "log_likelihood",
+    "potential_energy",
+    "initialize_model",
+    "Predictive",
 ]
 
-ModelInfo = namedtuple('ModelInfo', ['param_info', 'potential_fn', 'postprocess_fn', 'model_trace'])
-ParamInfo = namedtuple('ParamInfo', ['z', 'potential_energy', 'z_grad'])
+ModelInfo = namedtuple(
+    "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
+)
+ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
 
 
 def log_density(model, model_args, model_kwargs, params):
@@ -47,16 +49,16 @@ def log_density(model, model_args, model_kwargs, params):
     """
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = jnp.array(0.)
+    log_joint = jnp.zeros(())
     for site in model_trace.values():
-        if site['type'] == 'sample':
-            value = site['value']
-            intermediates = site['intermediates']
-            scale = site['scale']
+        if site["type"] == "sample":
+            value = site["value"]
+            intermediates = site["intermediates"]
+            scale = site["scale"]
             if intermediates:
-                log_prob = site['fn'].log_prob(value, intermediates)
+                log_prob = site["fn"].log_prob(value, intermediates)
             else:
-                log_prob = site['fn'].log_prob(value)
+                log_prob = site["fn"].log_prob(value)
 
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
@@ -80,8 +82,7 @@ def transform_fn(transforms, params, invert=False):
     """
     if invert:
         transforms = {k: v.inv for k, v in transforms.items()}
-    return {k: transforms[k](v) if k in transforms else v
-            for k, v in params.items()}
+    return {k: transforms[k](v) if k in transforms else v for k, v in params.items()}
 
 
 def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=False):
@@ -104,40 +105,55 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
     """
 
     def substitute_fn(site):
-        if site['name'] in params:
-            return biject_to(site['fn'].support)(params[site['name']])
+        if site["name"] in params:
+            if site["type"] == "sample":
+                return biject_to(site["fn"].support)(params[site["name"]])
+            else:
+                return params[site["name"]]
 
     substituted_model = substitute(model, substitute_fn=substitute_fn)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    return {k: v['value'] for k, v in model_trace.items() if (k in params) or
-            (return_deterministic and (v['type'] == 'deterministic'))}
+    return {
+        k: v["value"]
+        for k, v in model_trace.items()
+        if (k in params) or (return_deterministic and (v["type"] == "deterministic"))
+    }
 
 
 def _unconstrain_reparam(params, site):
-    name = site['name']
+    name = site["name"]
     if name in params:
         p = params[name]
-        support = site['fn'].support
-        if support in [real, real_vector]:
-            return p
+        support = site["fn"].support
         t = biject_to(support)
+        # in scan, we might only want to substitute an item at index i, rather than the whole sequence
+        i = site["infer"].get("_scan_current_index", None)
+        if i is not None:
+            event_dim_shift = t.codomain.event_dim - t.domain.event_dim
+            expected_unconstrained_dim = len(site["fn"].shape()) - event_dim_shift
+            # check if p has additional time dimension
+            if jnp.ndim(p) > expected_unconstrained_dim:
+                p = p[i]
+
+        if support in [constraints.real, constraints.real_vector]:
+            return p
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
-        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site['fn'].event_shape))
-        if site['scale'] is not None:
-            log_det = site['scale'] * log_det
-        numpyro.factor('_{}_log_det'.format(name), log_det)
+        log_det = sum_rightmost(
+            log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site["fn"].event_shape)
+        )
+        if site["scale"] is not None:
+            log_det = site["scale"] * log_det
+        numpyro.factor("_{}_log_det".format(name), log_det)
         return value
 
 
 def potential_energy(model, model_args, model_kwargs, params, enum=False):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
-    The `inv_transforms` is used to transform these unconstrained parameters to base values
-    of the corresponding priors in `model`. If a prior is a transformed distribution,
-    the corresponding base value lies in the support of base distribution. Otherwise,
-    the base value lies in the support of the distribution.
+    Under the hood, we will transform these unconstrained parameters to the values
+    belong to the supports of the corresponding priors in `model`.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
@@ -151,10 +167,14 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False):
     else:
         log_density_ = log_density
 
-    substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
+    substituted_model = substitute(
+        model, substitute_fn=partial(_unconstrain_reparam, params)
+    )
     # no param is needed for log_density computation because we already substitute
-    log_joint, model_trace = log_density_(substituted_model, model_args, model_kwargs, {})
-    return - log_joint
+    log_joint, model_trace = log_density_(
+        substituted_model, model_args, model_kwargs, {}
+    )
+    return -log_joint
 
 
 def _init_to_unconstrained_value(site=None, values={}):
@@ -162,12 +182,18 @@ def _init_to_unconstrained_value(site=None, values={}):
         return partial(_init_to_unconstrained_value, values=values)
 
 
-def find_valid_initial_params(rng_key, model,
-                              init_strategy=init_to_uniform,
-                              enum=False,
-                              model_args=(),
-                              model_kwargs=None,
-                              prototype_params=None):
+def find_valid_initial_params(
+    rng_key,
+    model,
+    *,
+    init_strategy=init_to_uniform,
+    enum=False,
+    model_args=(),
+    model_kwargs=None,
+    prototype_params=None,
+    forward_mode_differentiation=False,
+    validate_grad=True,
+):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
     valid unconstrained value for all the parameters. This function also returns
@@ -186,11 +212,17 @@ def find_valid_initial_params(rng_key, model,
     :param dict model_kwargs: kwargs provided to the model.
     :param dict prototype_params: an optional prototype parameters, which is used
         to define the shape for initial parameters.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. Defaults to False.
+    :param bool validate_grad: whether to validate gradient of the initial params.
+        Defaults to True.
     :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
         containing the initial params, their potential energy, and their gradients.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
+    init_strategy = (
+        init_strategy if isinstance(init_strategy, partial) else init_strategy()
+    )
     # handle those init strategies differently to save computation
     if init_strategy.func is init_to_uniform:
         radius = init_strategy.keywords.get("radius")
@@ -210,34 +242,64 @@ def find_valid_initial_params(rng_key, model,
         key, subkey = random.split(key)
 
         if radius is None or prototype_params is None:
+            # XXX: we don't want to apply enum to draw latent samples
+            model_ = model
+            if enum:
+                from numpyro.contrib.funsor import enum as enum_handler
+
+                if isinstance(model, substitute) and isinstance(model.fn, enum_handler):
+                    model_ = substitute(model.fn.fn, data=model.data)
+                elif isinstance(model, enum_handler):
+                    model_ = model.fn
+
             # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-            seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
+            seeded_model = substitute(seed(model_, subkey), substitute_fn=init_strategy)
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
-                if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
-                    constrained_values[k] = v['value']
-                    inv_transforms[k] = biject_to(v['fn'].support)
-            params = transform_fn(inv_transforms,
-                                  {k: v for k, v in constrained_values.items()},
-                                  invert=True)
+                if (
+                    v["type"] == "sample"
+                    and not v["is_observed"]
+                    and not v["fn"].is_discrete
+                ):
+                    constrained_values[k] = v["value"]
+                    inv_transforms[k] = biject_to(v["fn"].support)
+            params = transform_fn(
+                inv_transforms,
+                {k: v for k, v in constrained_values.items()},
+                invert=True,
+            )
         else:  # this branch doesn't require tracing the model
             params = {}
             for k, v in prototype_params.items():
                 if k in init_values:
                     params[k] = init_values[k]
                 else:
-                    params[k] = random.uniform(subkey, jnp.shape(v), minval=-radius, maxval=radius)
+                    params[k] = random.uniform(
+                        subkey, jnp.shape(v), minval=-radius, maxval=radius
+                    )
                     key, subkey = random.split(key)
 
-        potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
-        pe, z_grad = value_and_grad(potential_fn)(params)
-        z_grad_flat = ravel_pytree(z_grad)[0]
-        is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
+        potential_fn = partial(
+            potential_energy, model, model_args, model_kwargs, enum=enum
+        )
+        if validate_grad:
+            if forward_mode_differentiation:
+                pe = potential_fn(params)
+                z_grad = jacfwd(potential_fn)(params)
+            else:
+                pe, z_grad = value_and_grad(potential_fn)(params)
+            z_grad_flat = ravel_pytree(z_grad)[0]
+            is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
+        else:
+            pe = potential_fn(params)
+            is_valid = jnp.isfinite(pe)
+            z_grad = None
+
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
-        init_state = (0, rng_key, (prototype_params, 0., prototype_params), False)
+        init_state = (0, rng_key, (prototype_params, 0.0, prototype_params), False)
         if exit_early and not_jax_tracer(rng_key):
             # Early return if valid params found. This is only helpful for single chain,
             # where we can avoid compiling body_fn in while_loop.
@@ -248,12 +310,16 @@ def find_valid_initial_params(rng_key, model,
 
         # XXX: this requires compiling the model, so for multi-chain, we trace the model 2-times
         # even if the init_state is a valid result
-        _, _, (init_params, pe, z_grad), is_valid = while_loop(cond_fn, body_fn, init_state)
+        _, _, (init_params, pe, z_grad), is_valid = while_loop(
+            cond_fn, body_fn, init_state
+        )
         return (init_params, pe, z_grad), is_valid
 
     # Handle possible vectorization
     if rng_key.ndim == 1:
-        (init_params, pe, z_grad), is_valid = _find_valid_params(rng_key, exit_early=True)
+        (init_params, pe, z_grad), is_valid = _find_valid_params(
+            rng_key, exit_early=True
+        )
     else:
         (init_params, pe, z_grad), is_valid = lax.map(_find_valid_params, rng_key)
     return (init_params, pe, z_grad), is_valid
@@ -267,31 +333,41 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     replay_model = False
     has_enumerate_support = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
-            if v['fn'].is_discrete:
+        if v["type"] == "sample" and not v["is_observed"]:
+            if v["fn"].is_discrete:
                 has_enumerate_support = True
-                if not v['fn'].has_enumerate_support:
-                    raise RuntimeError("MCMC only supports continuous sites or discrete sites "
-                                       f"with enumerate support, but got {type(v['fn']).__name__}.")
+                if not v["fn"].has_enumerate_support:
+                    raise RuntimeError(
+                        "MCMC only supports continuous sites or discrete sites "
+                        f"with enumerate support, but got {type(v['fn']).__name__}."
+                    )
             else:
-                support = v['fn'].support
+                support = v["fn"].support
                 inv_transforms[k] = biject_to(support)
                 # XXX: the following code filters out most situations with dynamic supports
                 args = ()
-                if isinstance(support, _GreaterThan):
-                    args = ('lower_bound',)
-                elif isinstance(support, _Interval):
-                    args = ('lower_bound', 'upper_bound')
+                if isinstance(support, constraints._GreaterThan):
+                    args = ("lower_bound",)
+                elif isinstance(support, constraints._Interval):
+                    args = ("lower_bound", "upper_bound")
                 for arg in args:
                     if not isinstance(getattr(support, arg), (int, float)):
                         replay_model = True
-        elif v['type'] == 'deterministic':
+        elif v["type"] == "deterministic":
             replay_model = True
     return inv_transforms, replay_model, has_enumerate_support, model_trace
 
 
-def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
-                     dynamic_args=False, model_args=(), model_kwargs=None):
+def get_potential_fn(
+    model,
+    inv_transforms,
+    *,
+    enum=False,
+    replay_model=False,
+    dynamic_args=False,
+    model_args=(),
+    model_kwargs=None,
+):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
     function which, given unconstrained parameters, evaluates the potential
@@ -316,6 +392,7 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
         `deterministic` sites in the model.
     """
     if dynamic_args:
+
         def potential_fn(*args, **kwargs):
             return partial(potential_energy, model, args, kwargs, enum=enum)
 
@@ -323,16 +400,26 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
             if replay_model:
                 # XXX: we seed to sample discrete sites (but not collect them)
                 model_ = seed(model.fn, 0) if enum else model
-                return partial(constrain_fn, model_, args, kwargs, return_deterministic=True)
+                return partial(
+                    constrain_fn, model_, args, kwargs, return_deterministic=True
+                )
             else:
                 return partial(transform_fn, inv_transforms)
+
     else:
         model_kwargs = {} if model_kwargs is None else model_kwargs
-        potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
+        potential_fn = partial(
+            potential_energy, model, model_args, model_kwargs, enum=enum
+        )
         if replay_model:
             model_ = seed(model.fn, 0) if enum else model
-            postprocess_fn = partial(constrain_fn, model_, model_args, model_kwargs,
-                                     return_deterministic=True)
+            postprocess_fn = partial(
+                constrain_fn,
+                model_,
+                model_args,
+                model_kwargs,
+                return_deterministic=True,
+            )
         else:
             postprocess_fn = partial(transform_fn, inv_transforms)
 
@@ -345,13 +432,14 @@ def _guess_max_plate_nesting(model_trace):
     This optimistically assumes static model
     structure.
     """
-    sites = [site for site in model_trace.values()
-             if site["type"] == "sample"]
+    sites = [site for site in model_trace.values() if site["type"] == "sample"]
 
-    dims = [frame.dim
-            for site in sites
-            for frame in site["cond_indep_stack"]
-            if frame.dim is not None]
+    dims = [
+        frame.dim
+        for site in sites
+        for frame in site["cond_indep_stack"]
+        if frame.dim is not None
+    ]
     max_plate_nesting = -min(dims) if dims else 0
     return max_plate_nesting
 
@@ -359,23 +447,31 @@ def _guess_max_plate_nesting(model_trace):
 # TODO: follow pyro.util.check_site_shape logics for more complete validation
 def _validate_model(model_trace):
     # XXX: this validates plate statements under `enum`
-    sites = [site for site in model_trace.values()
-             if site["type"] == "sample"]
+    sites = [site for site in model_trace.values() if site["type"] == "sample"]
 
     for site in sites:
         batch_dims = len(site["fn"].batch_shape)
-        if site.get('_control_flow_done', False):
+        if site.get("_control_flow_done", False):
             batch_dims = batch_dims - 1  # remove time dimension under scan
         plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
-        assert plate_dims >= batch_dims, \
-            "Missing plate statement for batch dimensions at site {}".format(site["name"])
+        assert (
+            plate_dims >= batch_dims
+        ), "Missing plate statement for batch dimensions at site {}".format(
+            site["name"]
+        )
 
 
-def initialize_model(rng_key, model,
-                     init_strategy=init_to_uniform,
-                     dynamic_args=False,
-                     model_args=(),
-                     model_kwargs=None):
+def initialize_model(
+    rng_key,
+    model,
+    *,
+    init_strategy=init_to_uniform,
+    dynamic_args=False,
+    model_args=(),
+    model_kwargs=None,
+    forward_mode_differentiation=False,
+    validate_grad=True,
+):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
     and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
@@ -393,6 +489,15 @@ def initialize_model(rng_key, model,
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. By default, we use reverse mode but the forward
+        mode can be useful in some cases to improve the performance. In addition, some
+        control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+        only supports forward-mode differentiation. See
+        `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+        for more information.
+    :param bool validate_grad: whether to validate gradient of the initial params.
+        Defaults to True.
     :return: a namedtupe `ModelInfo` which contains the fields
         (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
         `param_info` is a namedtuple `ParamInfo` containing values from the prior
@@ -403,17 +508,31 @@ def initialize_model(rng_key, model,
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    substituted_model = substitute(seed(model, rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]),
-                                   substitute_fn=init_strategy)
-    inv_transforms, replay_model, has_enumerate_support, model_trace = _get_model_transforms(
-        substituted_model, model_args, model_kwargs)
+    substituted_model = substitute(
+        seed(model, rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]),
+        substitute_fn=init_strategy,
+    )
+    (
+        inv_transforms,
+        replay_model,
+        has_enumerate_support,
+        model_trace,
+    ) = _get_model_transforms(substituted_model, model_args, model_kwargs)
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
-    model = substitute(model, data={k: site["value"] for k, site in model_trace.items()
-                                    if site["type"] in ["param", "plate"]})
-    constrained_values = {k: v['value'] for k, v in model_trace.items()
-                          if v['type'] == 'sample' and not v['is_observed']
-                          and not v['fn'].is_discrete}
+    model = substitute(
+        model,
+        data={
+            k: site["value"]
+            for k, site in model_trace.items()
+            if site["type"] in ["param"]
+        },
+    )
+    constrained_values = {
+        k: v["value"]
+        for k, v in model_trace.items()
+        if v["type"] == "sample" and not v["is_observed"] and not v["fn"].is_discrete
+    }
 
     if has_enumerate_support:
         from numpyro.contrib.funsor import config_enumerate, enum
@@ -423,26 +542,42 @@ def initialize_model(rng_key, model,
             _validate_model(model_trace)
             model = enum(config_enumerate(model), -max_plate_nesting - 1)
 
-    potential_fn, postprocess_fn = get_potential_fn(model,
-                                                    inv_transforms,
-                                                    replay_model=replay_model,
-                                                    enum=has_enumerate_support,
-                                                    dynamic_args=dynamic_args,
-                                                    model_args=model_args,
-                                                    model_kwargs=model_kwargs)
+    potential_fn, postprocess_fn = get_potential_fn(
+        model,
+        inv_transforms,
+        replay_model=replay_model,
+        enum=has_enumerate_support,
+        dynamic_args=dynamic_args,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
+    )
 
-    init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
+    init_strategy = (
+        init_strategy if isinstance(init_strategy, partial) else init_strategy()
+    )
     if (init_strategy.func is init_to_value) and not replay_model:
         init_values = init_strategy.keywords.get("values")
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
-    (init_params, pe, grad), is_valid = find_valid_initial_params(rng_key, model,
-                                                                  init_strategy=init_strategy,
-                                                                  enum=has_enumerate_support,
-                                                                  model_args=model_args,
-                                                                  model_kwargs=model_kwargs,
-                                                                  prototype_params=prototype_params)
+    (init_params, pe, grad), is_valid = find_valid_initial_params(
+        rng_key,
+        substitute(
+            model,
+            data={
+                k: site["value"]
+                for k, site in model_trace.items()
+                if site["type"] in ["plate"]
+            },
+        ),
+        init_strategy=init_strategy,
+        enum=has_enumerate_support,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
+        prototype_params=prototype_params,
+        forward_mode_differentiation=forward_mode_differentiation,
+        validate_grad=validate_grad,
+    )
 
     if not_jax_tracer(is_valid):
         if device_get(~jnp.all(is_valid)):
@@ -451,43 +586,76 @@ def initialize_model(rng_key, model,
                 substituted_model(*model_args, **model_kwargs)
                 # validate values
                 for site in tr.values():
-                    if site['type'] == 'sample':
+                    if site["type"] == "sample":
                         with warnings.catch_warnings(record=True) as ws:
-                            site['fn']._validate_sample(site['value'])
+                            site["fn"]._validate_sample(site["value"])
                         if len(ws) > 0:
                             for w in ws:
                                 # at site information to the warning message
-                                w.message.args = ("Site {}: {}".format(site["name"], w.message.args[0]),) \
-                                    + w.message.args[1:]
-                                warnings.showwarning(w.message, w.category, w.filename, w.lineno,
-                                                     file=w.file, line=w.line)
-            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
+                                w.message.args = (
+                                    "Site {}: {}".format(
+                                        site["name"], w.message.args[0]
+                                    ),
+                                ) + w.message.args[1:]
+                                warnings.showwarning(
+                                    w.message,
+                                    w.category,
+                                    w.filename,
+                                    w.lineno,
+                                    file=w.file,
+                                    line=w.line,
+                                )
+            raise RuntimeError(
+                "Cannot find valid initial parameters. Please check your model again."
+            )
+    return ModelInfo(
+        ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace
+    )
 
 
-def _predictive(rng_key, model, posterior_samples, batch_shape, return_sites=None,
-                parallel=True, model_args=(), model_kwargs={}):
+def _predictive(
+    rng_key,
+    model,
+    posterior_samples,
+    batch_shape,
+    return_sites=None,
+    parallel=True,
+    model_args=(),
+    model_kwargs={},
+):
+    model = numpyro.handlers.mask(model, mask=False)
 
     def single_prediction(val):
         rng_key, samples = val
         model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(
-            *model_args, **model_kwargs)
+            *model_args, **model_kwargs
+        )
         if return_sites is not None:
-            if return_sites == '':
-                sites = {k for k, site in model_trace.items() if site['type'] != 'plate'}
+            if return_sites == "":
+                sites = {
+                    k for k, site in model_trace.items() if site["type"] != "plate"
+                }
             else:
                 sites = return_sites
         else:
-            sites = {k for k, site in model_trace.items()
-                     if (site['type'] == 'sample' and k not in samples) or (site['type'] == 'deterministic')}
-        return {name: site['value'] for name, site in model_trace.items() if name in sites}
+            sites = {
+                k
+                for k, site in model_trace.items()
+                if (site["type"] == "sample" and k not in samples)
+                or (site["type"] == "deterministic")
+            }
+        return {
+            name: site["value"] for name, site in model_trace.items() if name in sites
+        }
 
     num_samples = int(np.prod(batch_shape))
     if num_samples > 1:
         rng_key = random.split(rng_key, num_samples)
     rng_key = rng_key.reshape(batch_shape + (2,))
     chunk_size = num_samples if parallel else 1
-    return soft_vmap(single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size)
+    return soft_vmap(
+        single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size
+    )
 
 
 class Predictive(object):
@@ -523,31 +691,50 @@ class Predictive(object):
     :return: dict of samples from the predictive distribution.
     """
 
-    def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
-                 return_sites=None, parallel=False, batch_ndims=1):
+    def __init__(
+        self,
+        model,
+        posterior_samples=None,
+        guide=None,
+        params=None,
+        num_samples=None,
+        return_sites=None,
+        parallel=False,
+        batch_ndims=1,
+    ):
         if posterior_samples is None and num_samples is None:
-            raise ValueError("Either posterior_samples or num_samples must be specified.")
+            raise ValueError(
+                "Either posterior_samples or num_samples must be specified."
+            )
 
         posterior_samples = {} if posterior_samples is None else posterior_samples
 
         prototype_site = batch_shape = batch_size = None
         for name, sample in posterior_samples.items():
             if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
-                raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
-                                 f"should be the same, but got "
-                                 f"{sample.shape[:batch_ndims]} and {batch_shape}")
+                raise ValueError(
+                    f"Batch shapes at site {name} and {prototype_site} "
+                    f"should be the same, but got "
+                    f"{sample.shape[:batch_ndims]} and {batch_shape}"
+                )
             else:
                 prototype_site = name
                 batch_shape = sample.shape[:batch_ndims]
                 batch_size = int(np.prod(batch_shape))
                 if (num_samples is not None) and (num_samples != batch_size):
-                    warnings.warn("Sample's batch dimension size {} is different from the "
-                                  "provided {} num_samples argument. Defaulting to {}."
-                                  .format(batch_size, num_samples, batch_size), UserWarning)
+                    warnings.warn(
+                        "Sample's batch dimension size {} is different from the "
+                        "provided {} num_samples argument. Defaulting to {}.".format(
+                            batch_size, num_samples, batch_size
+                        ),
+                        UserWarning,
+                    )
                 num_samples = batch_size
 
         if num_samples is None:
-            raise ValueError("No sample sites in posterior samples to infer `num_samples`.")
+            raise ValueError(
+                "No sample sites in posterior samples to infer `num_samples`."
+            )
 
         if batch_shape is None:
             batch_shape = (1,) * (batch_ndims - 1) + (num_samples,)
@@ -580,16 +767,32 @@ class Predictive(object):
             rng_key, guide_rng_key = random.split(rng_key)
             # use return_sites='' as a special signal to return all sites
             guide = substitute(self.guide, self.params)
-            posterior_samples = _predictive(guide_rng_key, guide, posterior_samples,
-                                            self._batch_shape, return_sites='', parallel=self.parallel,
-                                            model_args=args, model_kwargs=kwargs)
+            posterior_samples = _predictive(
+                guide_rng_key,
+                guide,
+                posterior_samples,
+                self._batch_shape,
+                return_sites="",
+                parallel=self.parallel,
+                model_args=args,
+                model_kwargs=kwargs,
+            )
         model = substitute(self.model, self.params)
-        return _predictive(rng_key, model, posterior_samples, self._batch_shape,
-                           return_sites=self.return_sites, parallel=self.parallel,
-                           model_args=args, model_kwargs=kwargs)
+        return _predictive(
+            rng_key,
+            model,
+            posterior_samples,
+            self._batch_shape,
+            return_sites=self.return_sites,
+            parallel=self.parallel,
+            model_args=args,
+            model_kwargs=kwargs,
+        )
 
 
-def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs):
+def log_likelihood(
+    model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs
+):
     """
     (EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model,
     given samples of all latent variables.
@@ -612,17 +815,24 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
     """
 
     def single_loglik(samples):
-        substituted_model = substitute(model, samples) if isinstance(samples, dict) else model
+        substituted_model = (
+            substitute(model, samples) if isinstance(samples, dict) else model
+        )
         model_trace = trace(substituted_model).get_trace(*args, **kwargs)
-        return {name: site['fn'].log_prob(site['value']) for name, site in model_trace.items()
-                if site['type'] == 'sample' and site['is_observed']}
+        return {
+            name: site["fn"].log_prob(site["value"])
+            for name, site in model_trace.items()
+            if site["type"] == "sample" and site["is_observed"]
+        }
 
     prototype_site = batch_shape = None
     for name, sample in posterior_samples.items():
         if batch_shape is not None and jnp.shape(sample)[:batch_ndims] != batch_shape:
-            raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
-                             f"should be the same, but got "
-                             f"{sample.shape[:batch_ndims]} and {batch_shape}")
+            raise ValueError(
+                f"Batch shapes at site {name} and {prototype_site} "
+                f"should be the same, but got "
+                f"{sample.shape[:batch_ndims]} and {batch_shape}"
+            )
         else:
             prototype_site = name
             batch_shape = jnp.shape(sample)[:batch_ndims]

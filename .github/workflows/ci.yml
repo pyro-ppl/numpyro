@@ -24,7 +24,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        sudo apt install -y pandoc
+        sudo apt install -y pandoc gsfonts
         python -m pip install --upgrade pip
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
@@ -44,7 +44,37 @@ jobs:
         python -m doctest -v README.md
 
 
-  test:
+  test-modeling:
+
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        python-version: [3.6]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        sudo apt install -y graphviz
+        python -m pip install --upgrade pip
+        # Keep track of pyro-api master branch
+        pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install jaxlib
+        pip install jax
+        pip install .[dev,test]
+        pip freeze
+    - name: Test with pytest
+      run: |
+        pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/
+
+
+  test-inference:
 
     runs-on: ubuntu-latest
     needs: lint
@@ -70,14 +100,16 @@ jobs:
         pip freeze
     - name: Test with pytest
       run: |
-        pytest -vs -k "not test_example" --durations=100
+        pytest -vs --durations=20 test/infer/test_mcmc.py
+        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
     - name: Test x64
       run: |
-        JAX_ENABLE_X64=1 pytest -vs test/test_mcmc.py -k x64
+        JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
     - name: Test chains
       run: |
-        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k "chain or pmap or vmap"
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/infer/test_mcmc.py -k "chain or pmap or vmap"
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/contrib/test_tfp.py -k "chain"
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/infer/test_hmc_gibbs.py -k "chain"
 
 
   examples:
@@ -103,8 +135,5 @@ jobs:
         pip install .[dev,examples,test]
         pip freeze
     - name: Test with pytest
-      run: |
-        pytest -vs -k test_example
-    - name: Test chains
       run: |
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example

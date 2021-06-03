@@ -16,6 +16,12 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
+.. autoclass:: numpyro.infer.barker.BarkerMH
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autoclass:: numpyro.infer.hmc.HMC
     :members:
     :undoc-members:
@@ -23,6 +29,30 @@ MCMC Kernels
     :member-order: bysource
 
 .. autoclass:: numpyro.infer.hmc.NUTS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.infer.hmc_gibbs.HMCGibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.infer.hmc_gibbs.DiscreteHMCGibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.infer.mixed_hmc.MixedHMC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.infer.hmc_gibbs.HMCECS
     :members:
     :undoc-members:
     :show-inheritance:
@@ -40,7 +70,13 @@ MCMC Kernels
 
 .. autofunction:: numpyro.infer.hmc.hmc.sample_kernel
 
+.. autofunction:: numpyro.infer.hmc_gibbs.taylor_proxy
+
+.. autodata:: numpyro.infer.barker.BarkerMHState
+
 .. autodata:: numpyro.infer.hmc.HMCState
+
+.. autodata:: numpyro.infer.hmc_gibbs.HMCGibbsState
 
 .. autodata:: numpyro.infer.sa.SAState
 

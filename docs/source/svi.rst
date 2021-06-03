@@ -16,19 +16,28 @@ ELBO
     :show-inheritance:
     :member-order: bysource
 
-RenyiELBO
----------
+Trace_ELBO
+----------
 
-.. autoclass:: numpyro.infer.elbo.RenyiELBO
+.. autoclass:: numpyro.infer.elbo.Trace_ELBO
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-Trace_ELBO
-----------
+TraceMeanField_ELBO
+-------------------
 
-.. autoclass:: numpyro.infer.elbo.Trace_ELBO
+.. autoclass:: numpyro.infer.elbo.TraceMeanField_ELBO
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RenyiELBO
+---------
+
+.. autoclass:: numpyro.infer.elbo.RenyiELBO
     :members:
     :undoc-members:
     :show-inheritance:

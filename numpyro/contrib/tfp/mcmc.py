@@ -15,11 +15,10 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
 
-TFPKernelState = namedtuple('TFPKernelState', ['z', 'kernel_results', 'rng_key'])
+TFPKernelState = namedtuple("TFPKernelState", ["z", "kernel_results", "rng_key"])
 
 
 def _extract_kernel_functions(kernel):
-
     def init_fn(z, rng_key):
         z_flat, _ = ravel_pytree(z)
         results = kernel.bootstrap_results(z_flat)
@@ -28,24 +27,27 @@ def _extract_kernel_functions(kernel):
     def sample_fn(state, model_args=(), model_kwargs=None):
         rng_key, rng_key_transition = random.split(state.rng_key)
         z_flat, unravel_fn = ravel_pytree(state.z)
-        z_new_flat, results = kernel.one_step(z_flat, state.kernel_results, seed=rng_key_transition)
+        z_new_flat, results = kernel.one_step(
+            z_flat, state.kernel_results, seed=rng_key_transition
+        )
         return TFPKernelState(unravel_fn(z_new_flat), results, rng_key)
 
     return init_fn, sample_fn
 
 
 def _make_log_prob_fn(potential_fn, unravel_fn):
-
     def log_prob_fn(x):
         # we deal with batched x in case the kernel is ReplicaExchangeMC
         batch_shape = jnp.shape(x)[:-1]
         if batch_shape:
             flatten_result = vmap(lambda a: -potential_fn(unravel_fn(a)))(
-                jnp.reshape(x, (-1,) + jnp.shape(x)[-1:]))
-            return tree_map(lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]),
-                            flatten_result)
+                jnp.reshape(x, (-1,) + jnp.shape(x)[-1:])
+            )
+            return tree_map(
+                lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]), flatten_result
+            )
         else:
-            return - potential_fn(unravel_fn(x))
+            return -potential_fn(unravel_fn(x))
 
     return log_prob_fn
 
@@ -53,8 +55,9 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
 class _TFPKernelMeta(ABCMeta):
     def __getitem__(cls, kernel_class):
         assert issubclass(kernel_class, tfp.mcmc.TransitionKernel)
-        assert 'target_log_prob_fn' in inspect.getfullargspec(kernel_class).args, \
-            f"the first argument of {kernel_class} must be `target_log_prob_fn`"
+        assert (
+            "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args
+        ), f"the first argument of {kernel_class} must be `target_log_prob_fn`"
 
         _PyroKernel = type(kernel_class.__name__, (TFPKernel,), {})
         _PyroKernel.kernel_class = kernel_class
@@ -89,12 +92,18 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         See :ref:`init_strategy` section for available functions.
     :param kernel_kwargs: other arguments to be passed to TFP kernel constructor.
     """
+
     kernel_class = None
 
-    def __init__(self, model=None, potential_fn=None, init_strategy=init_to_uniform,
-                 **kernel_kwargs):
+    def __init__(
+        self,
+        model=None,
+        potential_fn=None,
+        init_strategy=init_to_uniform,
+        **kernel_kwargs,
+    ):
         if not (model is None) ^ (potential_fn is None):
-            raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+            raise ValueError("Only one of `model` or `potential_fn` must be specified.")
         self._model = model
         self._potential_fn = potential_fn
         self._kernel_kwargs = kernel_kwargs
@@ -112,13 +121,17 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
                 init_strategy=self._init_strategy,
                 dynamic_args=True,
                 model_args=model_args,
-                model_kwargs=model_kwargs)
+                model_kwargs=model_kwargs,
+            )
             init_params = init_params.z
             if self._init_fn is None:
                 _, unravel_fn = ravel_pytree(init_params)
                 kernel = self.kernel_class(
-                    _make_log_prob_fn(potential_fn(*model_args, **model_kwargs), unravel_fn),
-                    **self._kernel_kwargs)
+                    _make_log_prob_fn(
+                        potential_fn(*model_args, **model_kwargs), unravel_fn
+                    ),
+                    **self._kernel_kwargs,
+                )
                 # Uncalibrated... kernels have to used inside MetropolisHastings, see
                 # https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/UncalibratedLangevin
                 if self.kernel_class.__name__.startswith("Uncalibrated"):
@@ -128,8 +141,8 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         elif self._init_fn is None:
             _, unravel_fn = ravel_pytree(init_params)
             kernel = self.kernel_class(
-                _make_log_prob_fn(self._potential_fn, unravel_fn),
-                **self._kernel_kwargs)
+                _make_log_prob_fn(self._potential_fn, unravel_fn), **self._kernel_kwargs
+            )
             if self.kernel_class.__name__.startswith("Uncalibrated"):
                 kernel = tfp.mcmc.MetropolisHastings(kernel)
             self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
@@ -141,30 +154,38 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
 
     @property
     def sample_field(self):
-        return 'z'
+        return "z"
 
     @property
     def default_fields(self):
-        return ('z',)
+        return ("z",)
 
     def get_diagnostics_str(self, state):
         """
         Given the current `state`, returns the diagnostics string to
         be added to progress bar for diagnostics purpose.
         """
-        return ''
+        return ""
 
-    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+    def init(
+        self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
+    ):
         # non-vectorized
         if rng_key.ndim == 1:
             rng_key, rng_key_init_model = random.split(rng_key)
         # vectorized
         else:
-            rng_key, rng_key_init_model = jnp.swapaxes(vmap(random.split)(rng_key), 0, 1)
-        init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
+            rng_key, rng_key_init_model = jnp.swapaxes(
+                vmap(random.split)(rng_key), 0, 1
+            )
+        init_params = self._init_state(
+            rng_key_init_model, model_args, model_kwargs, init_params
+        )
         if self._potential_fn and init_params is None:
-            raise ValueError('Valid value of `init_params` must be provided with'
-                             ' `target_log_prob_fn`.')
+            raise ValueError(
+                "Valid value of `init_params` must be provided with"
+                " `target_log_prob_fn`."
+            )
 
         if rng_key.ndim == 1:
             init_state = self._init_fn(init_params, rng_key)
@@ -195,35 +216,40 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         return self._sample_fn(state, model_args, model_kwargs)
 
 
-__all__ = ['TFPKernel']
+__all__ = ["TFPKernel"]
 for _name, _Kernel in tfp.mcmc.__dict__.items():
     if not isinstance(_Kernel, type):
         continue
     if not issubclass(_Kernel, tfp.mcmc.TransitionKernel):
         continue
-    if 'target_log_prob_fn' not in inspect.getfullargspec(_Kernel).args:
+    if "target_log_prob_fn" not in inspect.getfullargspec(_Kernel).args:
         continue
 
     _PyroKernel = TFPKernel[_Kernel]
     _PyroKernel.__module__ = __name__
     locals()[_name] = _PyroKernel
 
-    _PyroKernel.__doc__ = '''
+    _PyroKernel.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/{}>`_
     with :class:`~numpyro.contrib.tfp.mcmc.TFPKernel`. The first argument `target_log_prob_fn`
     in TFP kernel construction is replaced by either `model` or `potential_fn`.
-    '''.format(_Kernel.__module__, _Kernel.__name__, _Kernel.__name__)
+    """.format(
+        _Kernel.__module__, _Kernel.__name__, _Kernel.__name__
+    )
 
     __all__.append(_name)
 
 
 # Create sphinx documentation.
-__doc__ = '\n\n'.join([
-
-    '''
+__doc__ = "\n\n".join(
+    [
+        """
     {0}
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.mcmc.{0}
-    '''.format(_name)
-    for _name in __all__[:1] + sorted(__all__[1:])
-])
+    """.format(
+            _name
+        )
+        for _name in __all__[:1] + sorted(__all__[1:])
+    ]
+)

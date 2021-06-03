@@ -47,7 +47,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
    >>> num_warmup, num_samples = 1000, 1000
-   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
    >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP
@@ -81,7 +81,7 @@ import warnings
 
 import numpy as np
 
-from jax import lax, random
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
@@ -90,19 +90,20 @@ from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
 __all__ = [
-    'block',
-    'collapse',
-    'condition',
-    'lift',
-    'mask',
-    'reparam',
-    'replay',
-    'scale',
-    'scope',
-    'seed',
-    'substitute',
-    'trace',
-    'do'
+    "block",
+    "collapse",
+    "condition",
+    "infer_config",
+    "lift",
+    "mask",
+    "reparam",
+    "replay",
+    "scale",
+    "scope",
+    "seed",
+    "substitute",
+    "trace",
+    "do",
 ]
 
 
@@ -135,19 +136,23 @@ class trace(Messenger):
                       'type': 'sample',
                       'value': DeviceArray(-0.20584235, dtype=float32)})])
     """
+
     def __enter__(self):
         super(trace, self).__enter__()
         self.trace = OrderedDict()
         return self.trace
 
     def postprocess_message(self, msg):
-        if 'name' not in msg:
+        if "name" not in msg:
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
             return
-        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
-            'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
-        self.trace[msg['name']] = msg.copy()
+        assert not (
+            msg["type"] == "sample" and msg["name"] in self.trace
+        ), "all sites must have unique names but got `{}` duplicated".format(
+            msg["name"]
+        )
+        self.trace[msg["name"]] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
         """
@@ -190,14 +195,15 @@ class replay(Messenger):
        -0.20584235
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
+
     def __init__(self, fn=None, guide_trace=None):
         assert guide_trace is not None
         self.guide_trace = guide_trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] in ('sample', 'plate') and msg['name'] in self.guide_trace:
-            msg['value'] = self.guide_trace[msg['name']]['value']
+        if msg["type"] in ("sample", "plate") and msg["name"] in self.guide_trace:
+            msg["value"] = self.guide_trace[msg["name"]]["value"]
 
 
 class block(Messenger):
@@ -233,18 +239,19 @@ class block(Messenger):
        >>> assert 'a' not in trace_block_a
        >>> assert 'b' in trace_block_a
     """
+
     def __init__(self, fn=None, hide_fn=None, hide=None):
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
-            self.hide_fn = lambda msg: msg.get('name') in hide
+            self.hide_fn = lambda msg: msg.get("name") in hide
         else:
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
     def process_message(self, msg):
         if self.hide_fn(msg):
-            msg['stop'] = True
+            msg["stop"] = True
 
 
 class collapse(trace):
@@ -254,12 +261,14 @@ class collapse(trace):
     fail. Code using the results of sample sites must be written to accept
     Funsors rather than Tensors. This requires ``funsor`` to be installed.
     """
+
     _coerce = None
 
     def __init__(self, *args, **kwargs):
         if collapse._coerce is None:
             import funsor
             from funsor.distribution import CoerceDistributionToFunsor
+
             funsor.set_backend("jax")
             collapse._coerce = CoerceDistributionToFunsor("jax")
         super().__init__(*args, **kwargs)
@@ -275,8 +284,9 @@ class collapse(trace):
                 msg["stop"] = True
 
     def __enter__(self):
-        self.preserved_plates = frozenset(h.name for h in _PYRO_STACK
-                                          if isinstance(h, plate))
+        self.preserved_plates = frozenset(
+            h.name for h in _PYRO_STACK if isinstance(h, plate)
+        )
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
@@ -349,31 +359,54 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
+
     def __init__(self, fn=None, data=None, condition_fn=None):
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
-            raise ValueError('Only one of `data` or `condition_fn` '
-                             'should be provided.')
+            raise ValueError(
+                "Only one of `data` or `condition_fn` " "should be provided."
+            )
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg['type'] != 'sample') or msg.get('_control_flow_done', False):
-            if msg['type'] == 'control_flow':
+        if (msg["type"] != "sample") or msg.get("_control_flow_done", False):
+            if msg["type"] == "control_flow":
                 if self.data is not None:
-                    msg['kwargs']['substitute_stack'].append(('condition', self.data))
+                    msg["kwargs"]["substitute_stack"].append(("condition", self.data))
                 if self.condition_fn is not None:
-                    msg['kwargs']['substitute_stack'].append(('condition', self.condition_fn))
+                    msg["kwargs"]["substitute_stack"].append(
+                        ("condition", self.condition_fn)
+                    )
             return
 
         if self.data is not None:
-            value = self.data.get(msg['name'])
+            value = self.data.get(msg["name"])
         else:
             value = self.condition_fn(msg)
 
         if value is not None:
-            msg['value'] = value
-            msg['is_observed'] = True
+            msg["value"] = value
+            msg["is_observed"] = True
+
+
+class infer_config(Messenger):
+    """
+    Given a callable `fn` that contains NumPyro primitive calls
+    and a callable `config_fn` taking a trace site and returning a dictionary,
+    updates the value of the infer kwarg at a sample site to config_fn(site).
+
+    :param fn: a stochastic function (callable containing NumPyro primitive calls)
+    :param config_fn: a callable taking a site and returning an infer dict
+    """
+
+    def __init__(self, fn=None, config_fn=None):
+        super().__init__(fn)
+        self.config_fn = config_fn
+
+    def process_message(self, msg):
+        if msg["type"] in ("sample",):
+            msg["infer"].update(self.config_fn(msg))
 
 
 class lift(Messenger):
@@ -425,9 +458,12 @@ class lift(Messenger):
             msg["type"] = "sample"
             msg["fn"] = fn
             msg["args"] = ()
-            msg["kwargs"] = {"rng_key": msg["kwargs"].get("rng_key", None),
-                             "sample_shape": msg["kwargs"].get("sample_shape", ())}
+            msg["kwargs"] = {
+                "rng_key": msg["kwargs"].get("rng_key", None),
+                "sample_shape": msg["kwargs"].get("sample_shape", ()),
+            }
             msg["intermediates"] = []
+            msg["infer"] = msg.get("infer", {})
         else:
             # otherwise leave as is
             return
@@ -450,17 +486,22 @@ class mask(Messenger):
     :param mask: a boolean or a boolean-valued array for masking elementwise log
         probability of sample sites (`True` includes a site, `False` excludes a site).
     """
+
     def __init__(self, fn=None, mask=True):
-        if lax.dtype(mask) != 'bool':
+        if jnp.result_type(mask) != "bool":
             raise ValueError("`mask` should be a bool array.")
         self.mask = mask
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] != 'sample':
+        if msg["type"] != "sample":
+            if msg["type"] == "inspect":
+                msg["mask"] = (
+                    self.mask if msg["mask"] is None else (self.mask & msg["mask"])
+                )
             return
 
-        msg['fn'] = msg['fn'].mask(self.mask)
+        msg["fn"] = msg["fn"].mask(self.mask)
 
 
 class reparam(Messenger):
@@ -486,6 +527,7 @@ class reparam(Messenger):
         :class:`~numpyro.infer.reparam.Reparam` or None.
     :type config: dict or callable
     """
+
     def __init__(self, fn=None, config=None):
         assert isinstance(config, dict) or callable(config)
         self.config = config
@@ -506,10 +548,10 @@ class reparam(Messenger):
 
         if value is not None:
             if new_fn is None:
-                msg['type'] = 'deterministic'
-                msg['value'] = value
+                msg["type"] = "deterministic"
+                msg["value"] = value
                 for key in list(msg.keys()):
-                    if key not in ('type', 'name', 'value'):
+                    if key not in ("type", "name", "value"):
                         del msg[key]
                 return
 
@@ -530,7 +572,8 @@ class scale(Messenger):
         of log probability.
     :type scale: float or numpy.ndarray
     """
-    def __init__(self, fn=None, scale=1.):
+
+    def __init__(self, fn=None, scale=1.0):
         if not_jax_tracer(scale):
             if np.any(np.less_equal(scale, 0)):
                 raise ValueError("'scale' argument should be positive.")
@@ -538,41 +581,46 @@ class scale(Messenger):
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] not in ('param', 'sample', 'plate'):
+        if msg["type"] not in ("param", "sample", "plate"):
             return
 
-        msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
+        msg["scale"] = (
+            self.scale if msg.get("scale") is None else self.scale * msg["scale"]
+        )
 
 
 class scope(Messenger):
     """
-    This handler prepend a prefix followed by a ``/`` to the name of sample sites.
+    This handler prepend a prefix followed by a divider to the name of sample sites.
 
     Example::
 
     .. doctest::
 
-       >>> import numpyro
-       >>> import numpyro.distributions as dist
-       >>> from numpyro.handlers import scope, seed, trace
-       >>>
-       >>> def model():
-       ...     with scope(prefix="a"):
-       ...         with scope(prefix="b"):
-       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
-       ...
-       >>> assert "a/b/x" in trace(seed(model, 0)).get_trace()
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import scope, seed, trace
+        >>>
+        >>> def model():
+        ...     with scope(prefix="a"):
+        ...         with scope(prefix="b", divider="."):
+        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+        ...
+        >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
+    :param str divider: a string to join the prefix and sample name; default to `'/'`
     """
-    def __init__(self, fn=None, prefix=''):
+
+    def __init__(self, fn=None, prefix="", divider="/"):
         self.prefix = prefix
+        self.divider = divider
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg.get('name'):
-            msg['name'] = f"{self.prefix}/{msg['name']}"
+        if msg.get("name"):
+            msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
 
 
 class seed(Messenger):
@@ -616,22 +664,32 @@ class seed(Messenger):
        >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
+
     def __init__(self, fn=None, rng_seed=None):
-        if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
+        if isinstance(rng_seed, int) or (
+            isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)
+        ):
             rng_seed = random.PRNGKey(rng_seed)
-        if not (isinstance(rng_seed, jnp.ndarray) and rng_seed.dtype == jnp.uint32 and rng_seed.shape == (2,)):
-            raise TypeError('Incorrect type for rng_seed: {}'.format(type(rng_seed)))
+        if not (
+            isinstance(rng_seed, jnp.ndarray)
+            and rng_seed.dtype == jnp.uint32
+            and rng_seed.shape == (2,)
+        ):
+            raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
         self.rng_key = rng_seed
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg['type'] == 'sample' and not msg['is_observed'] and
-                msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
-            # no need to create a new key when value is available
-            if msg['value'] is not None:
+        if (
+            msg["type"] == "sample"
+            and not msg["is_observed"]
+            and msg["kwargs"]["rng_key"] is None
+        ) or msg["type"] in ["prng_key", "plate", "control_flow"]:
+            if msg["value"] is not None:
+                # no need to create a new key when value is available
                 return
             self.rng_key, rng_key_sample = random.split(self.rng_key)
-            msg['kwargs']['rng_key'] = rng_key_sample
+            msg["kwargs"]["rng_key"] = rng_key_sample
 
 
 class substitute(Messenger):
@@ -669,30 +727,36 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
+
     def __init__(self, fn=None, data=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
-            raise ValueError('Only one of `data` or `substitute_fn` '
-                             'should be provided.')
+            raise ValueError(
+                "Only one of `data` or `substitute_fn` " "should be provided."
+            )
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg['type'] not in ('sample', 'param', 'plate')) or msg.get('_control_flow_done', False):
-            if msg['type'] == 'control_flow':
+        if (msg["type"] not in ("sample", "param", "plate")) or msg.get(
+            "_control_flow_done", False
+        ):
+            if msg["type"] == "control_flow":
                 if self.data is not None:
-                    msg['kwargs']['substitute_stack'].append(('substitute', self.data))
+                    msg["kwargs"]["substitute_stack"].append(("substitute", self.data))
                 if self.substitute_fn is not None:
-                    msg['kwargs']['substitute_stack'].append(('substitute', self.substitute_fn))
+                    msg["kwargs"]["substitute_stack"].append(
+                        ("substitute", self.substitute_fn)
+                    )
             return
 
         if self.data is not None:
-            value = self.data.get(msg['name'])
+            value = self.data.get(msg["name"])
         else:
             value = self.substitute_fn(msg)
 
         if value is not None:
-            msg['value'] = value
+            msg["value"] = value
 
 
 class do(Messenger):
@@ -738,29 +802,33 @@ class do(Messenger):
       >>> assert not exec_trace['z'].get('stop', None)
       >>> assert z_square == 1
     """
+
     def __init__(self, fn=None, data=None):
         self.data = data
         self._intervener_id = str(id(self))
         super(do, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] != 'sample':
+        if msg["type"] != "sample":
             return
-        if msg.get('_intervener_id', None) != self._intervener_id and \
-                self.data.get(msg['name']) is not None:
-            if msg.get('_intervener_id', None) is not None:
+        if (
+            msg.get("_intervener_id", None) != self._intervener_id
+            and self.data.get(msg["name"]) is not None
+        ):
+            if msg.get("_intervener_id", None) is not None:
                 warnings.warn(
                     "Attempting to intervene on variable {} multiple times,"
-                    "this is almost certainly incorrect behavior".format(msg['name']),
-                    RuntimeWarning)
-            msg['_intervener_id'] = self._intervener_id
+                    "this is almost certainly incorrect behavior".format(msg["name"]),
+                    RuntimeWarning,
+                )
+            msg["_intervener_id"] = self._intervener_id
 
             # split node, avoid reapplying self recursively to new node
             new_msg = msg.copy()
             apply_stack(new_msg)
 
-            intervention = self.data.get(msg['name'])
-            msg['name'] = msg['name'] + "__CF"  # mangle old name
-            msg['value'] = intervention
-            msg['is_observed'] = True
-            msg['stop'] = True
+            intervention = self.data.get(msg["name"])
+            msg["name"] = msg["name"] + "__CF"  # mangle old name
+            msg["value"] = intervention
+            msg["is_observed"] = True
+            msg["stop"] = True
