@@ -101,9 +101,9 @@ class SineSkewed(Distribution):
         u = random.uniform(skew_key, sample_shape + self.batch_shape)
 
         # Section 2.3 step 3 in [1]
-        mask = u <= .5 + .5 * (self.skewness * jnp.sin((ys - bd.mean) % (2 * pi))).sum(-1)
+        mask = u <= .5 + .5 * (self.skewness * jnp.sin((ys - bd.mean) % (2 * jnp.pi))).sum(-1)
         mask = mask[..., None]
-        samples = (jnp.where(mask, ys, -ys + 2 * bd.mean) + pi) % (2 * pi) - pi
+        samples = (jnp.where(mask, ys, -ys + 2 * bd.mean) + jnp.pi) % (2 * jnp.pi) - jnp.pi
         return samples
 
     def log_prob(self, value):
@@ -111,7 +111,7 @@ class SineSkewed(Distribution):
             self._validate_sample(value)
 
         # Eq. 2.1 in [1]
-        skew_prob = jnp.log(1 + (self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * pi))).sum(-1))
+        skew_prob = jnp.log(1 + (self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))).sum(-1))
         return self.base_dist.log_prob(value) + skew_prob
 
 
