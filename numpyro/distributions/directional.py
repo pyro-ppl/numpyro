@@ -131,7 +131,7 @@ class VonMises(Distribution):
 PhiMarginalState = namedtuple("PhiMarginalState", ['i', 'done', 'phi', 'key'])
 
 
-class Sine(Distribution):
+class SineBivariateVonMises(Distribution):
     r""" Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
     .. math::
         C^{-1}\exp(\kappa_1\cos(x-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
@@ -233,7 +233,7 @@ class Sine(Distribution):
         total = _numel(sample_shape)
         phi_den = log_I1(0, conc[1]).squeeze(0)
         phi_shape = (total, 2, _numel(self.batch_shape))
-        phi_state = Sine._phi_marginal(phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den)
+        phi_state = SineBivariateVonMises._phi_marginal(phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den)
 
         if not jnp.all(phi_state.done):
             raise ValueError("maximum number of iterations exceeded; "
@@ -281,7 +281,7 @@ class Sine(Distribution):
             return PhiMarginalState(i + 1, done | accepted, phi, key)
 
         def cond_fn(curr):
-            return jnp.bitwise_and(curr.i < Sine.max_sample_iter, jnp.logical_not(jnp.all(curr.done)))
+            return jnp.bitwise_and(curr.i < SineBivariateVonMises.max_sample_iter, jnp.logical_not(jnp.all(curr.done)))
 
         phi_state = while_loop(cond_fn, update_fn,
                                PhiMarginalState(i=jnp.array(0),
