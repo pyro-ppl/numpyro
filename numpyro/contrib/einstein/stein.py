@@ -37,7 +37,7 @@ class Stein(VI):
         guide: ReinitGuide,
         optim,
         loss,
-        init_strategy,  # TODO: factor in wrapped_guide with init
+        # init_strategy,  # TODO: factor in wrapped_guide with init
         kernel_fn: SteinKernel,
         num_particles: int = 10,
         loss_temperature: float = 1.0,

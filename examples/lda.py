@@ -10,13 +10,15 @@ from jax.experimental import stax
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.einstein import RBFKernel, Stein
+from numpyro.contrib.einstein import RBFKernel, Stein, WrappedGuide
 from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import Trace_ELBO
 from numpyro.infer.initialization import init_to_uniform, init_with_noise
 from numpyro.optim import Adam
+
+numpyro.set_platform('cpu')
 
 
 def lda(
@@ -121,11 +123,11 @@ def main(_argv):
     rng_key = jax.random.PRNGKey(8938)
     stein = Stein(
         lda,
-        lda_guide,
+        WrappedGuide(lda_guide),
         Adam(0.001),
         Trace_ELBO(),
         RBFKernel(),
-        init_strategy=init_with_noise(init_to_uniform()),
+        #init_strategy=init_with_noise(init_to_uniform()),
         num_particles=5,
         num_topics=20,
         num_words=num_words,
