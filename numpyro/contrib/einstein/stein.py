@@ -6,10 +6,11 @@ from functools import partial
 from typing import Callable
 
 import jax
-from jax import ops
 import jax.numpy as jnp
 import jax.random
+from jax import ops
 from jax.tree_util import tree_map
+
 
 from numpyro import handlers
 from numpyro.contrib.einstein.kernels import SteinKernel
@@ -32,27 +33,27 @@ VIState = namedtuple("CurrentState", ["optim_state", "rng_key"])
 # Lots of code based on SVI interface and commonalities should be refactored
 class Stein(VI):
     def __init__(
-        self,
-        model,
-        guide: ReinitGuide,
-        optim,
-        loss,
-        # init_strategy,  # TODO: factor in wrapped_guide with init
-        kernel_fn: SteinKernel,
-        num_particles: int = 10,
-        loss_temperature: float = 1.0,
-        repulsion_temperature: float = 1.0,
-        classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-        enum=True,
-        sp_mcmc_crit="infl",
-        sp_mode="local",
-        num_mcmc_particles: int = 0,
-        num_mcmc_warmup: int = 100,
-        num_mcmc_updates: int = 10,
-        sampler_fn=NUTS,
-        sampler_kwargs=None,
-        mcmc_kwargs=None,
-        **static_kwargs
+            self,
+            model,
+            guide: ReinitGuide,
+            optim,
+            loss,
+            # init_strategy,  # TODO: factor in wrapped_guide with init
+            kernel_fn: SteinKernel,
+            num_particles: int = 10,
+            loss_temperature: float = 1.0,
+            repulsion_temperature: float = 1.0,
+            classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
+            enum=True,
+            sp_mcmc_crit="infl",
+            sp_mode="local",
+            num_mcmc_particles: int = 0,
+            num_mcmc_warmup: int = 100,
+            num_mcmc_updates: int = 10,
+            sampler_fn=NUTS,
+            sampler_kwargs=None,
+            mcmc_kwargs=None,
+            **static_kwargs
     ):
         """
         Stein Variational Gradient Descent for Non-parametric Inference.
@@ -230,7 +231,7 @@ class Stein(VI):
             lambda y: jnp.sum(
                 jax.vmap(
                     lambda x: self.repulsion_temperature
-                    * self._kernel_grad(kernel, x, y)
+                              * self._kernel_grad(kernel, x, y)
                 )(tstein_particles),
                 axis=0,
             )
@@ -241,10 +242,10 @@ class Stein(VI):
             return (att_force + rep_force) @ reparam_jac
 
         particle_grads = (
-            jax.vmap(single_particle_grad)(
-                stein_particles, attractive_force, repulsive_force
-            )
-            / self.num_particles
+                jax.vmap(single_particle_grad)(
+                    stein_particles, attractive_force, repulsive_force
+                )
+                / self.num_particles
         )
 
         # 5. Decompose the monolithic particle forces back to concrete parameter values
@@ -255,14 +256,14 @@ class Stein(VI):
         return -jnp.mean(loss), res_grads
 
     def _score_sp_mcmc(
-        self,
-        rng_key,
-        subset_idxs,
-        stein_uparams,
-        sp_mcmc_subset_uparams,
-        classic_uparams,
-        *args,
-        **kwargs
+            self,
+            rng_key,
+            subset_idxs,
+            stein_uparams,
+            sp_mcmc_subset_uparams,
+            classic_uparams,
+            *args,
+            **kwargs
     ):
         if self.sp_mode == "local":
             _, ksd = self._svgd_loss_and_grads(
@@ -313,7 +314,7 @@ class Stein(VI):
         )
         stein_params = self.constrain_fn(stein_uparams)
         stein_subset_params = {
-            p: v[0 : self.num_mcmc_particles] for p, v in stein_params.items()
+            p: v[0: self.num_mcmc_particles] for p, v in stein_params.items()
         }
         mcmc.warmup(warmup_key, *args, init_params=stein_subset_params, **kwargs)
 
@@ -324,8 +325,8 @@ class Stein(VI):
         else:
             if self.sp_mcmc_crit == "rand":
                 idxs = jax.random.shuffle(choice_key, jnp.arange(self.num_particles))[
-                    : self.num_mcmc_particles
-                ]
+                       : self.num_mcmc_particles
+                       ]
             elif self.sp_mcmc_crit == "infl":
                 _, grads = self._svgd_loss_and_grads(
                     choice_key, unconstr_params, *args, **kwargs
@@ -475,3 +476,34 @@ class Stein(VI):
         )
         optim_state = self.optim.update(grads, optim_state)
         return Stein.CurrentState(optim_state, rng_key), loss_val
+
+    def evaluate(self, state, *args, **kwargs):
+        """
+        Take a single step of Stein (possibly on a batch / minibatch of data).
+        :param state: current state of Stein.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide.
+        :return: evaluate loss given the current parameter values (held within `state.optim_state`).
+        """
+        # we split to have the same seed as `update_fn` given a state
+        _, rng_key_eval = jax.random.split(state.rng_key)
+        params = self.optim.get_params(state.optim_state)
+        loss_val, _ = self._svgd_loss_and_grads(rng_key_eval, params,
+                                                *args, **kwargs, **self.static_kwargs)
+        return loss_val
+
+    def predict(self, state, *args, num_samples=1, **kwargs):
+        _, rng_key_predict = jax.random.split(state.rng_key)
+        params = self.get_params(state)
+        classic_params = {p: v for p, v in params.items() if
+                          p not in self.guide_param_names or self.classic_guide_params_fn(p)}
+        stein_params = {p: v for p, v in params.items() if p not in classic_params}
+        if num_samples == 1:
+            return jax.vmap(lambda sp: self._predict_model(rng_key_predict, {**sp, **classic_params}, *args, **kwargs)
+                            )(stein_params)
+        else:
+            return jax.vmap(lambda rk: jax.vmap(lambda sp: self._predict_model(rk, {**sp, **classic_params},
+                                                                               *args, **kwargs)
+                                                )(stein_params))(jax.random.split(rng_key_predict, num_samples))
+

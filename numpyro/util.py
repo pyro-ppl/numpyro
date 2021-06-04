@@ -1,24 +1,27 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict
-from contextlib import contextmanager
+import operator
 import os
 import random
 import re
 import warnings
-
-import numpy as np
-import tqdm
-from tqdm.auto import tqdm as tqdm_auto
+from collections import OrderedDict
+from collections import namedtuple
+from contextlib import contextmanager
+from functools import reduce
 
 import jax
+import jax.numpy as jnp
+import numpy as np
+import tqdm
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
+from jax.dtypes import canonicalize_dtype
 from jax.experimental import host_callback
 from jax.flatten_util import ravel_pytree
-import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
+from tqdm.auto import tqdm as tqdm_auto
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 
@@ -248,16 +251,16 @@ def progress_bar_factory(num_samples, num_chains):
 
 
 def fori_collect(
-    lower,
-    upper,
-    body_fun,
-    init_val,
-    transform=identity,
-    progbar=True,
-    return_last_val=False,
-    collection_size=None,
-    thinning=1,
-    **progbar_opts,
+        lower,
+        upper,
+        body_fun,
+        init_val,
+        transform=identity,
+        progbar=True,
+        return_last_val=False,
+        collection_size=None,
+        thinning=1,
+        **progbar_opts,
 ):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
@@ -403,3 +406,31 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
         lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'event_size', 'dtype'])
+
+
+def _ravel_list(*leaves, batch_dims):
+    leaves_metadata = tree_map(lambda l: pytree_metadata(
+        jnp.reshape(l, (*jnp.shape(l)[:batch_dims], -1)), jnp.shape(l),
+        reduce(operator.mul, jnp.shape(l)[batch_dims:], 1), canonicalize_dtype(lax.dtype(l))), leaves)
+    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.event_size for d in leaves_metadata)))
+
+    def unravel_list(arr):
+        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.event_size),
+                            m.shape[batch_dims:]).astype(m.dtype)
+                for i, m in enumerate(leaves_metadata)]
+
+    flat = jnp.concatenate([m.flat for m in leaves_metadata], axis=-1) if leaves_metadata else jnp.array([])
+    return flat, unravel_list
+
+
+def ravel_pytree(pytree, *, batch_dims=0):
+    leaves, treedef = tree_flatten(pytree)
+    flat, unravel_list = _ravel_list(*leaves, batch_dims=batch_dims)
+
+    def unravel_pytree(arr):
+        return tree_unflatten(treedef, unravel_list(arr))
+
+    return flat, unravel_pytree
