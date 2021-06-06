@@ -96,7 +96,7 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
     with_state = isinstance(nn_module, hk.TransformedWithState)
     nn_state = None
     if with_state:
-        nn_state = numpyro.param(name + "$state")
+        nn_state = numpyro.param(name + "$state", infer={"mutable": True})
         assert nn_state is None or isinstance(nn_state, dict)
 
     if nn_params is None:
