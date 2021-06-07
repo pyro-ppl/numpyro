@@ -82,7 +82,7 @@ from numpyro.distributions.truncated import (
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
 )
-
+from numpyro.distributions.mixture import NormalMixture
 from . import constraints, transforms
 
 __all__ = [
@@ -139,6 +139,7 @@ __all__ = [
     "NegativeBinomialProbs",
     "NegativeBinomialLogits",
     "NegativeBinomial2",
+    "NormalMixture",
     "OrderedLogistic",
     "Pareto",
     "Poisson",

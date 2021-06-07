@@ -11,15 +11,14 @@ import jax.random
 from jax import ops
 from jax.tree_util import tree_map
 
-
 from numpyro import handlers
+from numpyro.contrib.einstein import WrappedGuide
 from numpyro.contrib.einstein.kernels import SteinKernel
-from numpyro.contrib.einstein.reinit_guide import ReinitGuide
 from numpyro.contrib.einstein.vi import VI
 from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution
 from numpyro.distributions.transforms import IdentityTransform
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, init_to_uniform
 from numpyro.infer.initialization import get_parameter_transform
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.util import ravel_pytree
@@ -30,16 +29,46 @@ from numpyro.util import ravel_pytree
 VIState = namedtuple("CurrentState", ["optim_state", "rng_key"])
 
 
-# Lots of code based on SVI interface and commonalities should be refactored
 class Stein(VI):
+    """
+    Stein Variational Gradient Descent for Non-parametric Inference.
+    :param model: Python callable with Pyro primitives for the model.
+    :param guide: Python callable with Pyro primitives for the guide
+        (recognition network).
+    :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
+    :param kernel_fn: Function that produces a logarithm of the statistical kernel to use with Stein inference
+    :param num_particles: number of particles for Stein inference.
+        (More particles capture more of the posterior distribution)
+    :param loss_temperature: scaling of loss factor
+    :param repulsion_temperature: scaling of repulsive forces (Non-linear Stein)
+    :param enum: whether to apply automatic marginalization of discrete variables
+    :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
+                                   without Stein (E.g. parameters for large normal networks or other transformation)
+    :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand'
+                         for random (EXPERIMENTAL)
+    :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local'
+                    for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
+    :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC
+                               (should be a subset of number of Stein particles) (EXPERIMENTAL)
+    :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
+    :param num_mcmc_updates: Number of MCMC update steps at each iteration (EXPERIMENTAL)
+    :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
+    :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
+    :param mcmc_kwargs: Keyword arguments provided to the MCMC interface (EXPERIMENTAL)
+    :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
+        that remain constant during fitting.
+    """
+
     def __init__(
             self,
             model,
-            guide: ReinitGuide,
+            guide,
             optim,
             loss,
-            # init_strategy,  # TODO: factor in wrapped_guide with init
             kernel_fn: SteinKernel,
+            reinit_hide_fn=lambda site: site['name'].endswith('$params'),
+            init_strategy=init_to_uniform,
             num_particles: int = 10,
             loss_temperature: float = 1.0,
             repulsion_temperature: float = 1.0,
@@ -53,37 +82,9 @@ class Stein(VI):
             sampler_fn=NUTS,
             sampler_kwargs=None,
             mcmc_kwargs=None,
-            **static_kwargs
-    ):
-        """
-        Stein Variational Gradient Descent for Non-parametric Inference.
-        :param model: Python callable with Pyro primitives for the model.
-        :param guide: Python callable with Pyro primitives for the guide
-            (recognition network).
-        :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
-        :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
-        :param kernel_fn: Function that produces a logarithm of the statistical kernel to use with Stein inference
-        :param num_particles: number of particles for Stein inference.
-            (More particles capture more of the posterior distribution)
-        :param loss_temperature: scaling of loss factor
-        :param repulsion_temperature: scaling of repulsive forces (Non-linear Stein)
-        :param enum: whether to apply automatic marginalization of discrete variables
-        :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
-                                       without Stein (E.g. parameters for large normal networks or other transformation)
-        :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand'
-                             for random (EXPERIMENTAL)
-        :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local'
-                        for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
-        :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC
-                                   (should be a subset of number of Stein particles) (EXPERIMENTAL)
-        :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
-        :param num_mcmc_updates: Number of MCMC update steps at each iteration (EXPERIMENTAL)
-        :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
-        :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
-        :param mcmc_kwargs: Keyword arguments provided to the MCMC interface (EXPERIMENTAL)
-        :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
-            that remain constant during fitting.
-        """
+            **static_kwargs):
+
+        guide = WrappedGuide(guide, reinit_hide_fn=reinit_hide_fn, init_strategy=init_strategy)
         super().__init__(model, guide, optim, loss, name="Stein", **static_kwargs)
         assert sp_mcmc_crit == "infl" or sp_mcmc_crit == "rand"
         assert sp_mode == "local" or sp_mode == "global"
@@ -506,4 +507,3 @@ class Stein(VI):
             return jax.vmap(lambda rk: jax.vmap(lambda sp: self._predict_model(rk, {**sp, **classic_params},
                                                                                *args, **kwargs)
                                                 )(stein_params))(jax.random.split(rng_key_predict, num_samples))
-

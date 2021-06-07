@@ -1,19 +1,18 @@
 import sys
 
+import jax
+import jax.numpy as jnp
 import numpy as np
+from jax.experimental import stax
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.utils import shuffle
 
-import jax
-from jax.experimental import stax
-import jax.numpy as jnp
-
 import numpyro
-from numpyro.contrib.einstein import RBFKernel, Stein, WrappedGuide
+import numpyro.distributions as dist
+from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
-import numpyro.distributions as dist
 from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
 
@@ -21,20 +20,20 @@ numpyro.set_platform('cpu')
 
 
 def lda(
-    doc_words,
-    lengths,
-    num_topics=20,
-    num_words=100,
-    num_max_elements=10,
-    num_hidden=100,
+        doc_words,
+        lengths,
+        num_topics=20,
+        num_words=100,
+        num_max_elements=10,
+        num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs = (
-        numpyro.sample(
-            "topic_word_probs",
-            dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
-        )
-        + 1e-7
+            numpyro.sample(
+                "topic_word_probs",
+                dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
+            )
+            + 1e-7
     )
     element_plate = numpyro.plate("words", num_max_elements, dim=-1)
     with numpyro.plate("documents", num_docs, dim=-2):
@@ -53,12 +52,12 @@ def lda(
 
 
 def lda_guide(
-    doc_words,
-    lengths,
-    num_topics=20,
-    num_words=100,
-    num_max_elements=10,
-    num_hidden=100,
+        doc_words,
+        lengths,
+        num_topics=20,
+        num_words=100,
+        num_max_elements=10,
+        num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs_val = numpyro.param(
@@ -91,7 +90,7 @@ def make_batcher(data, batch_size=32):
         i = step % ds_count
         epoch = step // ds_count
         is_last = i == (ds_count - 1)
-        batch_values = data[i * batch_size : (i + 1) * batch_size].todense()
+        batch_values = data[i * batch_size: (i + 1) * batch_size].todense()
         res = [[] for _ in range(batch_size)]
         for idx1, idx2 in zip(*np.nonzero(batch_values)):
             res[idx1].append(idx2)
@@ -122,7 +121,7 @@ def main(_argv):
     rng_key = jax.random.PRNGKey(8938)
     stein = Stein(
         lda,
-        WrappedGuide(lda_guide),
+        lda_guide,
         Adam(0.001),
         Trace_ELBO(),
         RBFKernel(),
