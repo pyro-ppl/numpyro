@@ -15,7 +15,6 @@ from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import Trace_ELBO
-from numpyro.infer.initialization import init_to_uniform, init_with_noise
 from numpyro.optim import Adam
 
 numpyro.set_platform('cpu')
@@ -110,7 +109,7 @@ def make_batcher(data, batch_size=32):
 
 def main(_argv):
     newsgroups = fetch_20newsgroups()["data"]
-    num_words = 300
+    num_words = 100
     count_vectorizer = CountVectorizer(
         max_df=0.95,
         min_df=0.01,
@@ -119,7 +118,7 @@ def main(_argv):
         stop_words="english",
     )
     newsgroups_docs = count_vectorizer.fit_transform(newsgroups)
-    batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=1024)
+    batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=128)
     rng_key = jax.random.PRNGKey(8938)
     stein = Stein(
         lda,
@@ -127,7 +126,6 @@ def main(_argv):
         Adam(0.001),
         Trace_ELBO(),
         RBFKernel(),
-        #init_strategy=init_with_noise(init_to_uniform()),
         num_particles=5,
         num_topics=20,
         num_words=num_words,

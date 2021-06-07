@@ -65,7 +65,7 @@ class WrappedGuide(ReinitGuide):
         for name, site in guide_trace.items():
             if site["type"] == "param":
                 constraint = site["kwargs"].get("constraint", real)
-                param_val = biject_to(constraint)(init_params[name])
+                param_val = init_params[name]
                 params[name] = (name, param_val, constraint)
         self._init_params = {
             param: (val, constr) for param, val, constr in params.values()
