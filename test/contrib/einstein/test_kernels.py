@@ -3,10 +3,10 @@
 
 from collections import namedtuple
 
-from numpy.testing import assert_allclose
-import pytest
-
 import jax.numpy as jnp
+import numpy as np
+import pytest
+from numpy.testing import assert_allclose
 
 from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
@@ -18,6 +18,7 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
     RBFKernel,
 )
+from numpyro.contrib.einstein.utils import posdef, sqrth, sqrth_and_inv_sqrth
 
 jnp.set_printoptions(precision=100)
 T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
@@ -37,7 +38,7 @@ TEST_CASES = [
             "matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
         },
     ),
-    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 12.190277}),
+    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
     T(
         IMQKernel,
         lambda d: {},
@@ -74,7 +75,7 @@ TEST_CASES = [
                 [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
             )
         },
-    ),  # -hess = [[.02x_0^2 1] [1 .5x_1^2]]
+    ),
 ]
 
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
@@ -88,7 +89,7 @@ TEST_IDS = [t[0].__class__.__name__ for t in TEST_CASES]
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 def test_kernel_forward(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         return
@@ -97,3 +98,31 @@ def test_kernel_forward(
     value = kernel_fn(*tparticles)
 
     assert_allclose(value, kval[mode], atol=1e-9)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (2,), (3, 1)])
+def test_posdef(batch_shape):
+    dim = 4
+    x = np.random.normal(size=batch_shape + (dim, dim + 1))
+    m = x @ np.swapaxes(x, -2, -1)
+    assert_allclose(posdef(m), m, rtol=1e-5)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (2,), (3, 1)])
+def test_sqrth(batch_shape):
+    dim = 4
+    x = np.random.normal(size=batch_shape + (dim, dim + 1))
+    m = x @ np.swapaxes(x, -2, -1)
+    s = sqrth(m)
+    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (2,), (3, 1)])
+def test_sqrth_and_inv_sqrth(batch_shape):
+    dim = 4
+    x = np.random.normal(size=batch_shape + (dim, dim + 1))
+    m = x @ np.swapaxes(x, -2, -1)
+    s, i, si = sqrth_and_inv_sqrth(m)
+    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
+    assert_allclose(i, np.linalg.inv(m), rtol=1e-5)
+    assert_allclose(si @ np.swapaxes(si, -2, -1), i, rtol=1e-5)

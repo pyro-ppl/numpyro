@@ -5,13 +5,12 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Tuple
 
 import numpy as np
-import numpy.random as npr
-
+from jax import random
 import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-from numpyro.contrib.einstein.util import posdef, safe_norm, sqrth
+from numpyro.contrib.einstein.utils import safe_norm, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
 
 
@@ -53,6 +52,15 @@ class SteinKernel(ABC):
                  Modes: norm `(d,) (d,)-> ()`,  vector `(d,) (d,) -> (d)`, or matrix `(d,) (d,) -> (d,d)`
         """
         raise NotImplementedError
+
+    def init(self, rng_key, particles_shape):
+        """
+        Initializes the kernel
+        :param rng_key: a JAX PRNGKey to initialize the kernel
+        :param tuple particles_shape: shape of the input `particles` in :meth:`compute`
+        """
+        pass
+
 
 
 class RBFKernel(SteinKernel):
@@ -217,18 +225,30 @@ class RandomFeatureKernel(SteinKernel):
         self.bandwidth_factor = bandwidth_factor
         self._random_weights = None
         self._random_biases = None
+        self._bandwidth_subset_indices = None
 
     @property
     def mode(self):
         return self._mode
 
+    def init(self, rng_key, particles_shape):
+        rng_key, rng_weight, rng_bias = random.split(rng_key, 3)
+        self._random_weights = random.normal(rng_weight, shape=particles_shape)
+        self._random_biases = random.uniform(rng_bias, shape=particles_shape, maxval=(2 * np.pi))
+        if self.bandwidth_subset is not None:
+            self._bandwidth_subset_indices = random.choice(
+                rng_key, particles_shape[0], (self.bandwidth_subset,))
+
     def compute(self, particles, particle_info, loss_fn):
         if self._random_weights is None:
-            self._random_weights = jnp.array(npr.randn(*particles.shape))
-            self._random_biases = jnp.array(npr.rand(*particles.shape) * 2 * np.pi)
+            raise RuntimeError("The `.init` method should be called first to initialize the"
+                               " random weights, biases and subset indices.")
+        if particles.shape != self._random_weights.shape:
+            raise ValueError("Shapes of `particles` and the random weights are mismatched, got {}"
+                             " and {}.".format(particles.shape, self._random_weights.shape))
         factor = self.bandwidth_factor(particles.shape[0])
         if self.bandwidth_subset is not None:
-            particles = particles[npr.choice(particles.shape[0], self.bandwidth_subset)]
+            particles = particles[self._bandwidth_subset_indices]
         diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(
             particles, axis=1
         )  # N x N x D
@@ -351,8 +371,7 @@ class PrecondMatrixKernel(SteinKernel):
         if self.precond_mode == "const":
             qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
         qs_inv = jnp.linalg.inv(qs)
-        qs_sqrt = sqrth(qs)
-        qs_inv_sqrt = sqrth(qs_inv)
+        qs_sqrt, qs_inv, qs_inv_sqrt = sqrth_and_inv_sqrth(qs)
         inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
 
         def kernel(x, y):
@@ -361,18 +380,9 @@ class PrecondMatrixKernel(SteinKernel):
                 wys = jnp.array([1.0])
             else:
                 wxs = jax.nn.softmax(
-                    jax.vmap(
-                        lambda z, q_inv: dist.MultivariateNormal(
-                            z, posdef(q_inv)
-                        ).log_prob(x)
-                    )(particles, qs_inv)
+                    jax.vmap( lambda z, q_inv: dist.MultivariateNormal( z, q_inv ).log_prob(x))(particles, qs_inv)
                 )
-                wys = jax.nn.softmax(
-                    jax.vmap(
-                        lambda z, q_inv: dist.MultivariateNormal(
-                            z, posdef(q_inv)
-                        ).log_prob(y)
-                    )(particles, qs_inv)
+                wys = jax.nn.softmax( jax.vmap( lambda z, q_inv: dist.MultivariateNormal( z, q_inv).log_prob(y) )(particles, qs_inv)
                 )
             return jnp.sum(
                 jax.vmap(
