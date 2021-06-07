@@ -684,7 +684,12 @@ class seed(Messenger):
             msg["type"] == "sample"
             and not msg["is_observed"]
             and msg["kwargs"]["rng_key"] is None
-        ) or msg["type"] in ["prng_key", "plate", "control_flow", "param"]:  # TODO: filter for reinit!
+        ) or msg["type"] in [
+            "prng_key",
+            "plate",
+            "control_flow",
+            "param",
+        ]:  # TODO: filter for reinit!
             if msg["value"] is not None:
                 # no need to create a new key when value is available
                 return

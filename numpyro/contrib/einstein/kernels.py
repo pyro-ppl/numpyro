@@ -62,7 +62,6 @@ class SteinKernel(ABC):
         pass
 
 
-
 class RBFKernel(SteinKernel):
     """
     Calculates the Gaussian RBF kernel function, from [1],
@@ -214,7 +213,6 @@ class RandomFeatureKernel(SteinKernel):
         self,
         mode="norm",
         bandwidth_subset=None,
-        random_indices=None,
         bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n),
     ):
         assert bandwidth_subset is None or bandwidth_subset > 0
@@ -234,18 +232,25 @@ class RandomFeatureKernel(SteinKernel):
     def init(self, rng_key, particles_shape):
         rng_key, rng_weight, rng_bias = random.split(rng_key, 3)
         self._random_weights = random.normal(rng_weight, shape=particles_shape)
-        self._random_biases = random.uniform(rng_bias, shape=particles_shape, maxval=(2 * np.pi))
+        self._random_biases = random.uniform(
+            rng_bias, shape=particles_shape, maxval=(2 * np.pi)
+        )
         if self.bandwidth_subset is not None:
             self._bandwidth_subset_indices = random.choice(
-                rng_key, particles_shape[0], (self.bandwidth_subset,))
+                rng_key, particles_shape[0], (self.bandwidth_subset,)
+            )
 
     def compute(self, particles, particle_info, loss_fn):
         if self._random_weights is None:
-            raise RuntimeError("The `.init` method should be called first to initialize the"
-                               " random weights, biases and subset indices.")
+            raise RuntimeError(
+                "The `.init` method should be called first to initialize the"
+                " random weights, biases and subset indices."
+            )
         if particles.shape != self._random_weights.shape:
-            raise ValueError("Shapes of `particles` and the random weights are mismatched, got {}"
-                             " and {}.".format(particles.shape, self._random_weights.shape))
+            raise ValueError(
+                "Shapes of `particles` and the random weights are mismatched, got {}"
+                " and {}.".format(particles.shape, self._random_weights.shape)
+            )
         factor = self.bandwidth_factor(particles.shape[0])
         if self.bandwidth_subset is not None:
             particles = particles[self._bandwidth_subset_indices]
@@ -380,9 +385,14 @@ class PrecondMatrixKernel(SteinKernel):
                 wys = jnp.array([1.0])
             else:
                 wxs = jax.nn.softmax(
-                    jax.vmap( lambda z, q_inv: dist.MultivariateNormal( z, q_inv ).log_prob(x))(particles, qs_inv)
+                    jax.vmap(
+                        lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(x)
+                    )(particles, qs_inv)
                 )
-                wys = jax.nn.softmax( jax.vmap( lambda z, q_inv: dist.MultivariateNormal( z, q_inv).log_prob(y) )(particles, qs_inv)
+                wys = jax.nn.softmax(
+                    jax.vmap(
+                        lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(y)
+                    )(particles, qs_inv)
                 )
             return jnp.sum(
                 jax.vmap(

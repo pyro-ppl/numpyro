@@ -67,7 +67,7 @@ class Stein(VI):
             optim,
             loss,
             kernel_fn: SteinKernel,
-            reinit_hide_fn=lambda site: site['name'].endswith('$params'),
+            reinit_hide_fn=lambda site: site["name"].endswith("$params"),
             init_strategy=init_to_uniform,
             num_particles: int = 10,
             loss_temperature: float = 1.0,
@@ -82,9 +82,12 @@ class Stein(VI):
             sampler_fn=NUTS,
             sampler_kwargs=None,
             mcmc_kwargs=None,
-            **static_kwargs):
+            **static_kwargs
+    ):
 
-        guide = WrappedGuide(guide, reinit_hide_fn=reinit_hide_fn, init_strategy=init_strategy)
+        guide = WrappedGuide(
+            guide, reinit_hide_fn=reinit_hide_fn, init_strategy=init_strategy
+        )
         super().__init__(model, guide, optim, loss, name="Stein", **static_kwargs)
         assert sp_mcmc_crit == "infl" or sp_mcmc_crit == "rand"
         assert sp_mode == "local" or sp_mode == "global"
@@ -306,8 +309,8 @@ class Stein(VI):
         )
         mcmc = MCMC(
             sampler,
-            self.num_mcmc_warmup,
-            self.num_mcmc_updates,
+            num_warmup=self.num_mcmc_warmup,
+            num_samples=self.num_mcmc_updates,
             num_chains=self.num_mcmc_particles,
             progress_bar=False,
             chain_method="vectorized",
@@ -384,7 +387,7 @@ class Stein(VI):
             during the course of fitting).
         :return: initial :data:`CurrentState`
         """
-        rng_key, model_seed, guide_seed = jax.random.split(rng_key, 3)
+        rng_key, kernel_seed, model_seed, guide_seed = jax.random.split(rng_key, 4)
         model_init = handlers.seed(self.model, model_seed)
         guide_init = handlers.seed(self.guide, guide_seed)
         guide_trace = handlers.trace(guide_init).get_trace(
@@ -439,6 +442,11 @@ class Stein(VI):
         self.constrain_fn = partial(transform_fn, inv_transforms)
         self.uconstrain_fn = partial(transform_fn, transforms)
         self.particle_transform_fn = partial(transform_fn, particle_transforms)
+        stein_particles, _ = ravel_pytree({k: params[k] for k, site in guide_trace.items()
+                                           if site['type'] == 'param' and site['name'] in guide_init_params},
+                                          batch_dims=1)
+
+        self.kernel_fn.init(kernel_seed, stein_particles.shape)
         return Stein.CurrentState(self.optim.init(params), rng_key)
 
     def get_params(self, state: VIState):
@@ -490,20 +498,31 @@ class Stein(VI):
         # we split to have the same seed as `update_fn` given a state
         _, rng_key_eval = jax.random.split(state.rng_key)
         params = self.optim.get_params(state.optim_state)
-        loss_val, _ = self._svgd_loss_and_grads(rng_key_eval, params,
-                                                *args, **kwargs, **self.static_kwargs)
+        loss_val, _ = self._svgd_loss_and_grads(
+            rng_key_eval, params, *args, **kwargs, **self.static_kwargs
+        )
         return loss_val
 
     def predict(self, state, *args, num_samples=1, **kwargs):
         _, rng_key_predict = jax.random.split(state.rng_key)
         params = self.get_params(state)
-        classic_params = {p: v for p, v in params.items() if
-                          p not in self.guide_param_names or self.classic_guide_params_fn(p)}
+        classic_params = {
+            p: v
+            for p, v in params.items()
+            if p not in self.guide_param_names or self.classic_guide_params_fn(p)
+        }
         stein_params = {p: v for p, v in params.items() if p not in classic_params}
         if num_samples == 1:
-            return jax.vmap(lambda sp: self._predict_model(rng_key_predict, {**sp, **classic_params}, *args, **kwargs)
-                            )(stein_params)
+            return jax.vmap(
+                lambda sp: self._predict_model(
+                    rng_key_predict, {**sp, **classic_params}, *args, **kwargs
+                )
+            )(stein_params)
         else:
-            return jax.vmap(lambda rk: jax.vmap(lambda sp: self._predict_model(rk, {**sp, **classic_params},
-                                                                               *args, **kwargs)
-                                                )(stein_params))(jax.random.split(rng_key_predict, num_samples))
+            return jax.vmap(
+                lambda rk: jax.vmap(
+                    lambda sp: self._predict_model(
+                        rk, {**sp, **classic_params}, *args, **kwargs
+                    )
+                )(stein_params)
+            )(jax.random.split(rng_key_predict, num_samples))

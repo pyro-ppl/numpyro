@@ -251,16 +251,16 @@ def progress_bar_factory(num_samples, num_chains):
 
 
 def fori_collect(
-        lower,
-        upper,
-        body_fun,
-        init_val,
-        transform=identity,
-        progbar=True,
-        return_last_val=False,
-        collection_size=None,
-        thinning=1,
-        **progbar_opts,
+    lower,
+    upper,
+    body_fun,
+    init_val,
+    transform=identity,
+    progbar=True,
+    return_last_val=False,
+    collection_size=None,
+    thinning=1,
+    **progbar_opts,
 ):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
@@ -408,21 +408,39 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
 
 
-pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'event_size', 'dtype'])
+pytree_metadata = namedtuple(
+    "pytree_metadata", ["flat", "shape", "event_size", "dtype"]
+)
 
 
 def _ravel_list(*leaves, batch_dims):
-    leaves_metadata = tree_map(lambda l: pytree_metadata(
-        jnp.reshape(l, (*jnp.shape(l)[:batch_dims], -1)), jnp.shape(l),
-        reduce(operator.mul, jnp.shape(l)[batch_dims:], 1), canonicalize_dtype(lax.dtype(l))), leaves)
-    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.event_size for d in leaves_metadata)))
+    leaves_metadata = tree_map(
+        lambda l: pytree_metadata(
+            jnp.reshape(l, (*jnp.shape(l)[:batch_dims], -1)),
+            jnp.shape(l),
+            reduce(operator.mul, jnp.shape(l)[batch_dims:], 1),
+            canonicalize_dtype(lax.dtype(l)),
+        ),
+        leaves,
+    )
+    leaves_idx = jnp.cumsum(
+        jnp.array((0,) + tuple(d.event_size for d in leaves_metadata))
+    )
 
     def unravel_list(arr):
-        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.event_size),
-                            m.shape[batch_dims:]).astype(m.dtype)
-                for i, m in enumerate(leaves_metadata)]
+        return [
+            jnp.reshape(
+                lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.event_size),
+                m.shape[batch_dims:],
+            ).astype(m.dtype)
+            for i, m in enumerate(leaves_metadata)
+        ]
 
-    flat = jnp.concatenate([m.flat for m in leaves_metadata], axis=-1) if leaves_metadata else jnp.array([])
+    flat = (
+        jnp.concatenate([m.flat for m in leaves_metadata], axis=-1)
+        if leaves_metadata
+        else jnp.array([])
+    )
     return flat, unravel_list
 
 

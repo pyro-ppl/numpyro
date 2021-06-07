@@ -9,12 +9,20 @@ from numpyro.distributions.distribution import Distribution
 
 
 class NormalMixture(Distribution):
-    arg_constraints = {'weights': constraints.simplex, 'locs': constraints.real, 'scales': constraints.positive}
+    arg_constraints = {
+        "weights": constraints.simplex,
+        "locs": constraints.real,
+        "scales": constraints.positive,
+    }
     support = constraints.real
 
     def __init__(self, weights, locs, scales, validate_args=None):
-        batch_shape = lax.broadcast_shapes(jnp.shape(weights)[:-1], jnp.shape(locs)[:-1], jnp.shape(scales)[:-1])
-        self.mixture_shape = lax.broadcast_shapes(jnp.shape(weights)[-1:], jnp.shape(locs)[-1:], jnp.shape(scales)[-1:])
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(weights)[:-1], jnp.shape(locs)[:-1], jnp.shape(scales)[:-1]
+        )
+        self.mixture_shape = lax.broadcast_shapes(
+            jnp.shape(weights)[-1:], jnp.shape(locs)[-1:], jnp.shape(scales)[-1:]
+        )
         self.weights = jnp.broadcast_to(weights, batch_shape + self.mixture_shape)
         self.locs = jnp.broadcast_to(locs, batch_shape + self.mixture_shape)
         self.scales = jnp.broadcast_to(scales, batch_shape + self.mixture_shape)
@@ -23,8 +31,14 @@ class NormalMixture(Distribution):
     def sample(self, key, sample_shape=()):
         ps = Dirichlet(self.weights).sample(key, sample_shape=sample_shape)
         zs = jnp.expand_dims(Categorical(ps).sample(key), axis=-1)
-        locs = jnp.broadcast_to(self.locs, sample_shape + self.batch_shape + self.event_shape + self.mixture_shape)
-        scales = jnp.broadcast_to(self.scales, sample_shape + self.batch_shape + self.event_shape + self.mixture_shape)
+        locs = jnp.broadcast_to(
+            self.locs,
+            sample_shape + self.batch_shape + self.event_shape + self.mixture_shape,
+        )
+        scales = jnp.broadcast_to(
+            self.scales,
+            sample_shape + self.batch_shape + self.event_shape + self.mixture_shape,
+        )
         mlocs = jnp.squeeze(jnp.take_along_axis(locs, zs, axis=-1), axis=-1)
         mscales = jnp.squeeze(jnp.take_along_axis(scales, zs, axis=-1), axis=-1)
         return Normal(mlocs, mscales).sample(key)
