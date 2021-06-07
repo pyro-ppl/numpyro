@@ -11,6 +11,7 @@ import jax.numpy as jnp
 
 from numpyro.infer.hmc_util import (
     IntegratorState,
+    MassMatrix,
     build_tree,
     euclidean_kinetic_energy,
     find_reasonable_step_size,
@@ -82,6 +83,9 @@ def _get_num_steps(step_size, trajectory_length):
 
 
 def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
+    if isinstance(mass_matrix_sqrt, MassMatrix):
+        return mass_matrix_sqrt.sample(rng_key)
+
     if isinstance(mass_matrix_sqrt, dict):
         rng_keys = random.split(rng_key, len(mass_matrix_sqrt))
         r = {}

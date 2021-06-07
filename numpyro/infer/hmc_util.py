@@ -313,6 +313,7 @@ def find_reasonable_step_size(
     momentum_generator,
     init_step_size,
     inverse_mass_matrix,
+    mass_matrix_sqrt,
     z_info,
     rng_key,
 ):
@@ -330,6 +331,7 @@ def find_reasonable_step_size(
     :param momentum_generator: A generator to get a random momentum variable.
     :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
+    :param mass_matrix_sqrt: Square root of the mass matrix.
     :param IntegratorState z_info: The current integrator state.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
     :return: a reasonable value for step size.
@@ -355,7 +357,10 @@ def find_reasonable_step_size(
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        r = momentum_generator(z, inverse_mass_matrix, rng_key_momentum)
+        if isinstance(inverse_mass_matrix, MassMatrix):
+            r = momentum_generator(z, inverse_mass_matrix, rng_key_momentum)
+        else:
+            r = momentum_generator(z, mass_matrix_sqrt, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(
             step_size, inverse_mass_matrix, (z, r, potential_energy, z_grad)
         )
@@ -433,6 +438,12 @@ def build_adaptation_schedule(num_steps):
 
 
 def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
+    if issubclass(inverse_mass_matrix, MassMatrix):
+        inverse_mass_matrix = inverse_mass_matrix(z, dense_mass)
+        return inverse_mass_matrix, None, None
+    elif isinstance(inverse_mass_matrix, MassMatrix):
+        return inverse_mass_matrix, None, None
+
     if isinstance(dense_mass, list):
         if inverse_mass_matrix is None:
             inverse_mass_matrix = {}
@@ -567,15 +578,18 @@ def warmup_adapter(
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(
-                step_size, inverse_mass_matrix, z_info, rng_key_ss
+                step_size, inverse_mass_matrix, mass_matrix_sqrt, z_info, rng_key_ss
             )
         ss_state = ss_init(jnp.log(10 * step_size))
 
-        if isinstance(inverse_mass_matrix, dict):
-            size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+        if isinstance(inverse_mass_matrix, MassMatrix):
+            mm_state = inverse_mass_matrix.adapt_init()
         else:
-            size = inverse_mass_matrix.shape[-1]
-        mm_state = mm_init(size)
+            if isinstance(inverse_mass_matrix, dict):
+                size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+            else:
+                size = inverse_mass_matrix.shape[-1]
+            mm_state = mm_init(size)
 
         window_idx = jnp.array(0, dtype=jnp.result_type(int))
         return HMCAdaptState(
@@ -602,18 +616,22 @@ def warmup_adapter(
         ) = state
 
         if adapt_mass_matrix:
-            inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = mm_final(
-                mm_state, regularize=regularize_mass_matrix
-            )
-            if isinstance(inverse_mass_matrix, dict):
-                size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+            if isinstance(inverse_mass_matrix, MassMatrix):
+                inverse_mass_matrix = inverse_mass_matrix.adapt_final(mm_state, regularize=regularize_mass_matrix)
+                mm_state = inverse_mass_matrix.adapt_init()
             else:
-                size = inverse_mass_matrix.shape[-1]
-            mm_state = mm_init(size)
+                inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = mm_final(
+                    mm_state, regularize=regularize_mass_matrix
+                )
+                if isinstance(inverse_mass_matrix, dict):
+                    size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+                else:
+                    size = inverse_mass_matrix.shape[-1]
+                mm_state = mm_init(size)
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(
-                step_size, inverse_mass_matrix, z_info, rng_key_ss
+                step_size, inverse_mass_matrix, mass_matrix_sqrt, z_info, rng_key_ss
             )
             # NB: when step_size is large, say 1e38, jnp.log(10 * step_size) will be inf
             # and jnp.log(10) + jnp.log(step_size) will be finite
@@ -671,10 +689,17 @@ def warmup_adapter(
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
             z = z_info[0]
+
+            def update_mm_state(z, mm_state):
+                if isinstance(inverse_mass_matrix, MassMatrix):
+                    return inverse_mass_matrix.adapt_update(z, mm_state)
+                else:
+                    return mm_update(z, mm_state)
+
             mm_state = cond(
                 is_middle_window,
                 (z, mm_state),
-                lambda args: mm_update(*args),
+                update_mm_state,
                 mm_state,
                 identity,
             )
@@ -715,11 +740,19 @@ def _momentum_angle(inverse_mass_matrix, r_left, r_right, r_sum):
             right_angle = right_angle + right_a
         return left_angle, right_angle
 
+    if isinstance(inverse_mass_matrix, MassMatrix):
+        v_left = inverse_mass_matrix.velocity(r_left)
+        v_right = inverse_mass_matrix.velocity(r_right)
+        v_left, _ = ravel_pytree(v_left)
+        v_right, _ = ravel_pytree(v_right)
+
     r_left, _ = ravel_pytree(r_left)
     r_right, _ = ravel_pytree(r_right)
     r_sum, _ = ravel_pytree(r_sum)
 
-    if inverse_mass_matrix.ndim == 2:
+    if isinstance(inverse_mass_matrix, MassMatrix):
+        pass
+    elif inverse_mass_matrix.ndim == 2:
         v_left = jnp.matmul(inverse_mass_matrix, r_left)
         v_right = jnp.matmul(inverse_mass_matrix, r_right)
     elif inverse_mass_matrix.ndim == 1:
@@ -1184,6 +1217,9 @@ def build_tree(
 
 
 def euclidean_kinetic_energy(inverse_mass_matrix, r):
+    if isinstance(inverse_mass_matrix, MassMatrix):
+        return inverse_mass_matrix.kinetic_energy(r)
+
     if isinstance(inverse_mass_matrix, dict):
         ke = jnp.zeros(())
         for site_names, inverse_mm in inverse_mass_matrix.items():
@@ -1204,6 +1240,9 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
 
 
 def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
+    if isinstance(inverse_mass_matrix, MassMatrix):
+        return inverse_mass_matrix.kinetic_energy_grad(r)
+
     if isinstance(inverse_mass_matrix, dict):
         r_grad = {}
         for site_names, inverse_mm in inverse_mass_matrix.items():
