@@ -1399,16 +1399,15 @@ class MassMatrix(ABC):
         pass
 
     @abstractmethod
-    def solve(self, r):
+    def sample(self, rng_key):
         """
-        Computes M^-1 @ r
+        Draws a momemtum sample from MVN(0, M)
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def sample(self, rng_key):
+    def velocity(self, r):
         """
-        Draws a sample from MVN(0, M)
+        Computes M^-1 @ r
         """
         raise NotImplementedError
 
@@ -1416,10 +1415,10 @@ class MassMatrix(ABC):
         """
         Computes 0.5 * r.T @ M^-1 @ r
         """
-        return 0.5 * jnp.dot(r, self.solve(r))
+        return 0.5 * jnp.dot(r, self.velocity(r))
 
     def kinetic_energy_grad(self, r):
-        return self.solve(r)
+        return self.velocity(r)
 
     def adapt_init(self):
         pass
