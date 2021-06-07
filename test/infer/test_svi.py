@@ -234,7 +234,7 @@ def test_svi_discrete_latent():
         svi.run(random.PRNGKey(0), 10)
 
 
-def test_normal_normal():
+def test_tracegraph_normal_normal():
     # normal-normal; known covariance
     lam0 = jnp.array([0.1, 0.1])  # precision of prior
     loc0 = jnp.array([0.0, 0.5])  # prior mean
@@ -251,13 +251,13 @@ def test_normal_normal():
     analytic_log_sig_n = -0.5 * jnp.log(analytic_lam_n)
     analytic_loc_n = sum_data * (lam / analytic_lam_n) + loc0 * (lam0 / analytic_lam_n)
 
-    class Normal(dist.Normal):
+    class FakeNormal(dist.Normal):
         reparametrized_params = []
 
     def model():
         with numpyro.plate("plate", 2):
             loc_latent = numpyro.sample(
-                "loc_latent", Normal(loc0, jnp.power(lam0, -0.5))
+                "loc_latent", FakeNormal(loc0, jnp.power(lam0, -0.5))
             )
             for i, x in enumerate(data):
                 numpyro.sample(
@@ -274,7 +274,7 @@ def test_normal_normal():
         )
         sig_q = jnp.exp(log_sig_q)
         with numpyro.plate("plate", 2):
-            loc_latent = numpyro.sample("loc_latent", Normal(loc_q, sig_q))
+            loc_latent = numpyro.sample("loc_latent", FakeNormal(loc_q, sig_q))
         return loc_latent
 
     adam = optim.Adam(step_size=0.0015, b1=0.97, b2=0.999)
@@ -288,3 +288,90 @@ def test_normal_normal():
 
     assert_allclose(loc_error, 0, atol=0.05)
     assert_allclose(log_sig_error, 0, atol=0.05)
+
+
+def test_tracegraph_beta_bernoulli():
+    # bernoulli-beta model
+    # beta prior hyperparameter
+    alpha0 = 1.0
+    beta0 = 1.0  # beta prior hyperparameter
+    data = jnp.array([0.0, 1.0, 1.0, 1.0])
+    n_data = float(len(data))
+    data_sum = data.sum()
+    alpha_n = alpha0 + data_sum  # posterior alpha
+    beta_n = beta0 - data_sum + n_data  # posterior beta
+    log_alpha_n = jnp.log(alpha_n)
+    log_beta_n = jnp.log(beta_n)
+
+    class FakeBeta(dist.Beta):
+        reparametrized_params = []
+
+    def model():
+        p_latent = numpyro.sample("p_latent", FakeBeta(alpha0, beta0))
+        with numpyro.plate("data", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(p_latent), obs=data)
+        return p_latent
+
+    def guide():
+        alpha_q_log = numpyro.param("alpha_q_log", log_alpha_n + 0.17)
+        beta_q_log = numpyro.param("beta_q_log", log_beta_n - 0.143)
+        alpha_q, beta_q = jnp.exp(alpha_q_log), jnp.exp(beta_q_log)
+        p_latent = numpyro.sample("p_latent", FakeBeta(alpha_q, beta_q))
+        with numpyro.plate("data", len(data)):
+            pass
+        return p_latent
+
+    adam = optim.Adam(step_size=0.0007, b1=0.95, b2=0.999)
+    svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
+    svi_result = svi.run(jax.random.PRNGKey(0), 3000)
+
+    alpha_error = jnp.sum(
+        jnp.power(log_alpha_n - svi_result.params["alpha_q_log"], 2.0)
+    )
+    beta_error = jnp.sum(jnp.power(log_beta_n - svi_result.params["beta_q_log"], 2.0))
+
+    assert_allclose(alpha_error, 0, atol=0.03)
+    assert_allclose(beta_error, 0, atol=0.04)
+
+
+def test_tracegraph_gamma_exponential():
+    # exponential-gamma model
+    # gamma prior hyperparameter
+    alpha0 = 1.0
+    # gamma prior hyperparameter
+    beta0 = 1.0
+    n_data = 2
+    data = jnp.array([3.0, 2.0])  # two observations
+    alpha_n = alpha0 + n_data  # posterior alpha
+    beta_n = beta0 + data.sum()  # posterior beta
+    log_alpha_n = jnp.log(alpha_n)
+    log_beta_n = jnp.log(beta_n)
+
+    class FakeGamma(dist.Gamma):
+        reparametrized_params = []
+
+    def model():
+        lambda_latent = numpyro.sample("lambda_latent", FakeGamma(alpha0, beta0))
+        with numpyro.plate("data", len(data)):
+            numpyro.sample("obs", dist.Exponential(lambda_latent), obs=data)
+        return lambda_latent
+
+    def guide():
+        alpha_q_log = numpyro.param("alpha_q_log", log_alpha_n + 0.17)
+        beta_q_log = numpyro.param("beta_q_log", log_beta_n - 0.143)
+        alpha_q, beta_q = jnp.exp(alpha_q_log), jnp.exp(beta_q_log)
+        numpyro.sample("lambda_latent", FakeGamma(alpha_q, beta_q))
+        with numpyro.plate("data", len(data)):
+            pass
+
+    adam = optim.Adam(step_size=0.0007, b1=0.95, b2=0.999)
+    svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
+    svi_result = svi.run(jax.random.PRNGKey(0), 8000)
+
+    alpha_error = jnp.sum(
+        jnp.power(log_alpha_n - svi_result.params["alpha_q_log"], 2.0)
+    )
+    beta_error = jnp.sum(jnp.power(log_beta_n - svi_result.params["beta_q_log"], 2.0))
+
+    assert_allclose(alpha_error, 0, atol=0.04)
+    assert_allclose(beta_error, 0, atol=0.04)

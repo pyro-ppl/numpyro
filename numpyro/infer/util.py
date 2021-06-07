@@ -94,8 +94,7 @@ def get_importance_trace(model, guide, args, kwargs, params):
     with _without_rsample_stop_gradient():
         guide_trace = trace(guide).get_trace(*args, **kwargs)
     model = substitute(replay(model, guide_trace), data=params)
-    with _without_rsample_stop_gradient():
-        model_trace = trace(model).get_trace(*args, **kwargs)
+    model_trace = trace(model).get_trace(*args, **kwargs)
     for tr in (guide_trace, model_trace):
         for site in tr.values():
             if site["type"] == "sample":

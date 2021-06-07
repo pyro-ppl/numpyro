@@ -320,7 +320,7 @@ class MultiFrameTensor(dict):
         """
         Add a collection of (cond_indep_stack, tensor) pairs. Keys are
         ``cond_indep_stack``s, i.e. tuples of :class:`CondIndepStackFrame`s.
-        Values are :class:`torch.Tensor`s.
+        Values are :class:`numpy.ndarray`s.
         """
         for cond_indep_stack, value in items:
             frames = frozenset(f for f in cond_indep_stack)
@@ -463,7 +463,7 @@ class TraceGraph_ELBO:
     A TraceGraph implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
     of the ELBO. It supports arbitrary dependency structure for the model
-    and guide as well as baselines for non-reparameterizable random variables.
+    and guide.
     Where possible, conditional dependency information as recorded in the
     trace is used to reduce the variance of the gradient estimator.
     In particular two kinds of conditional dependency information are
@@ -476,8 +476,6 @@ class TraceGraph_ELBO:
 
     [1] `Gradient Estimation Using Stochastic Computation Graphs`,
         John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
-    [2] `Neural Variational Inference and Learning in Belief Networks`
-        Andriy Mnih, Karol Gregor
     """
 
     def __init__(self, num_particles=1):
@@ -512,7 +510,8 @@ class TraceGraph_ELBO:
                 name
                 for name, site in guide_trace.items()
                 if site["type"] == "sample"
-                and (site["is_observed"] or not site["fn"].has_rsample)
+                and (not site["is_observed"])
+                and (not site["fn"].has_rsample)
             }
             if non_reparam_nodes:
                 downstream_costs, _ = _compute_downstream_costs(
