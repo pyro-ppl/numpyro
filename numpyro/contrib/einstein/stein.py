@@ -409,7 +409,7 @@ class Stein(VI):
         guide_param_names = set()
         should_enum = False
         for site in model_trace.values():
-            if isinstance(site["fn"], Distribution) and site["fn"].is_discrete:
+            if "fn" in site and isinstance(site["fn"], Distribution) and site["fn"].is_discrete:
                 if site["fn"].has_enumerate_support and self.enum:
                     should_enum = True
                 else:

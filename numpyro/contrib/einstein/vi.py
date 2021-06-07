@@ -101,7 +101,7 @@ class VI:
                     callback.on_train_begin(train_info)
                 epoch_begin = True
                 for i in range(num_steps):
-                    epoch = 0
+                    epoch = 1000, 0
                     is_last = False
                     if batch_fun is not None:
                         batch_args, batch_kwargs, epoch, is_last = batch_fun(i)
