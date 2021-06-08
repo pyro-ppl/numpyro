@@ -59,12 +59,15 @@ def model(center1, center2, radius, width, enum=False):
 
 
 def run_inference(args, data):
+    print("=== Performing Nested Sampling ===")
     ns = NestedSampler(model)
     ns.run(random.PRNGKey(0), **data, enum=args.enum)
+    ns.print_summary()
     # samples obtained from nested sampler are weighted, so
     # we need to provide random key to resample from those weighted samples
     ns_samples = ns.get_samples(random.PRNGKey(1), num_samples=args.num_samples)
 
+    print("\n=== Performing MCMC Sampling ===")
     if args.enum:
         mcmc = MCMC(
             NUTS(model), num_warmup=args.num_warmup, num_samples=args.num_samples
@@ -76,6 +79,7 @@ def run_inference(args, data):
             num_samples=args.num_samples,
         )
     mcmc.run(random.PRNGKey(2), **data)
+    mcmc.print_summary()
     mcmc_samples = mcmc.get_samples()
 
     return ns_samples["x"], mcmc_samples["x"]

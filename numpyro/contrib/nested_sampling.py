@@ -15,6 +15,7 @@ try:
     from jaxns.plotting import plot_cornerplot, plot_diagnostics
     from jaxns.prior_transforms.common import ContinuousPrior
     from jaxns.prior_transforms.prior_chain import PriorChain, UniformBase
+    from jaxns.utils import summary
 
     config.update("jax_enable_x64", use_x64)
 except ImportError as e:
@@ -308,17 +309,24 @@ class NestedSampler:
         num_samples = self._results.num_samples
         return self._results.samples, self._results.log_p[:num_samples]
 
-    def diagnostics(self):
+    def print_summary(self):
         """
-        Print the number of weighted samples, the effective sample size, and plot diagnostics of
-        the result.
+        Print summary of the result. This is a wrapper of ``jaxns.utils.summary``.
         """
         if self._results is None:
             raise RuntimeError(
                 "NestedSampler.run(...) method should be called first to obtain results."
             )
+        summary(self._results)
 
-        print("Number of weighted samples:", self._results.num_samples)
-        print("Effective sample size:", round(self._results.ESS, 1))
+    def diagnostics(self):
+        """
+        Plot diagnostics of the result. This is a wrapper of ``jaxns.plotting.plot_diagnostics``
+        and ``jaxns.plotting.plot_cornerplot``.
+        """
+        if self._results is None:
+            raise RuntimeError(
+                "NestedSampler.run(...) method should be called first to obtain results."
+            )
         plot_diagnostics(self._results)
         plot_cornerplot(self._results)
