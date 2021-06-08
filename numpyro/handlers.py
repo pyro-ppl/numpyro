@@ -604,16 +604,16 @@ class scope(Messenger):
 
     .. doctest::
 
-        >>> import numpyro
-        >>> import numpyro.distributions as dist
-        >>> from numpyro.handlers import scope, seed, trace
-        >>>
-        >>> def model():
-        ...     with scope(prefix="a"):
-        ...         with scope(prefix="b", divider="."):
-        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
-        ...
-        >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import scope, seed, trace
+       >>>
+       >>> def model():
+       ...     with scope(prefix="a"):
+       ...         with scope(prefix="b", divider="."):
+       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+       ...
+       >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
@@ -710,6 +710,10 @@ class substitute(Messenger):
     If a `substitute_fn` is provided, then the value at the site is
     replaced by the value returned from the call to `substitute_fn`
     for the given site.
+
+    .. note:: This handler is mainly used for internal algorithms.
+        For conditioning a generative model on observed data, please
+        using the :class:`condition` handler.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict data: dictionary of `numpy.ndarray` values keyed by

@@ -1049,3 +1049,14 @@ def test_initial_inverse_mass_matrix_ndarray(dense_mass):
     assert set(inverse_mass_matrix.keys()) == {("x", "z")}
     expected_mm = jnp.diag(expected_mm) if dense_mass else expected_mm
     assert_allclose(inverse_mass_matrix[("x", "z")], expected_mm)
+
+
+def test_init_strategy_substituted_model():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.sample("y", dist.Normal(0, 1))
+
+    subs_model = numpyro.handlers.substitute(model, data={"x": 10.0})
+    mcmc = MCMC(NUTS(subs_model), num_warmup=10, num_samples=10)
+    with pytest.warns(UserWarning, match="skip initializing"):
+        mcmc.run(random.PRNGKey(1))

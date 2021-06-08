@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import warnings
 
 from jax import random
 import jax.numpy as jnp
@@ -25,6 +26,12 @@ def init_to_median(site=None, num_samples=15):
         and not site["is_observed"]
         and not site["fn"].is_discrete
     ):
+        if site["value"] is not None:
+            warnings.warn(
+                f"Site '{site['name']}' already stores a value - skip initializing this site."
+            )
+            return site["value"]
+
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
         try:
@@ -58,9 +65,14 @@ def init_to_uniform(site=None, radius=2):
         and not site["is_observed"]
         and not site["fn"].is_discrete
     ):
+        if site["value"] is not None:
+            warnings.warn(
+                f"Site '{site['name']}' already stores a value - skip initializing this site."
+            )
+            return site["value"]
+
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
-        rng_key, subkey = random.split(rng_key)
 
         transform = biject_to(site["fn"].support)
         unconstrained_shape = transform.inverse_shape(site["fn"].shape())
