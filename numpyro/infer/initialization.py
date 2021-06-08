@@ -4,7 +4,6 @@
 from functools import partial
 import warnings
 
-from jax import random
 import jax.numpy as jnp
 
 import numpyro.distributions as dist
