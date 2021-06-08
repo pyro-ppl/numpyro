@@ -3,19 +3,25 @@
 
 from functools import singledispatch
 
+from jax import config, nn, random
+import jax.numpy as jnp
+
+
 try:
+    # jaxns uses x64 by default so we need to monkeypatch it here
+    use_x64 = config.jax_enable_x64
+
     from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
     from jaxns.plotting import plot_cornerplot, plot_diagnostics
     from jaxns.prior_transforms.common import ContinuousPrior
     from jaxns.prior_transforms.prior_chain import PriorChain
+
+    config.update("jax_enable_x64", use_x64)
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
         " installed with `pip install jaxns`"
     ) from e
-
-from jax import nn, random
-import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
