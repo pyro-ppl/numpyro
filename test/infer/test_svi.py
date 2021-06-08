@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -375,3 +376,124 @@ def test_tracegraph_gamma_exponential():
 
     assert_allclose(alpha_error, 0, atol=0.04)
     assert_allclose(beta_error, 0, atol=0.04)
+
+
+@pytest.mark.parametrize(
+    "num_latents,num_steps,step_size,atol,difficulty",
+    [
+        (3, 5000, 0.003, 0.05, 0.6),
+        (5, 6000, 0.003, 0.05, 0.6),
+        (7, 8000, 0.003, 0.05, 0.6),
+    ],
+)
+def test_tracegraph_gaussian_chain(num_latents, num_steps, step_size, atol, difficulty):
+    loc0 = 0.2
+    data = jnp.array([-0.1, 0.03, 0.2, 0.1])
+    n_data = data.shape[0]
+    sum_data = data.sum()
+    N = num_latents
+    lambdas = [1.5 * (k + 1) / N for k in range(N + 1)]
+    lambdas = list(map(lambda x: jnp.array([x]), lambdas))
+    lambda_tilde_posts = [lambdas[0]]
+    for k in range(1, N):
+        lambda_tilde_k = (lambdas[k] * lambda_tilde_posts[k - 1]) / (
+            lambdas[k] + lambda_tilde_posts[k - 1]
+        )
+        lambda_tilde_posts.append(lambda_tilde_k)
+    lambda_posts = [
+        None
+    ]  # this is never used (just a way of shifting the indexing by 1)
+    for k in range(1, N):
+        lambda_k = lambdas[k] + lambda_tilde_posts[k - 1]
+        lambda_posts.append(lambda_k)
+    lambda_N_post = (n_data * lambdas[N]) + lambda_tilde_posts[N - 1]
+    lambda_posts.append(lambda_N_post)
+    target_kappas = [None]
+    target_kappas.extend([lambdas[k] / lambda_posts[k] for k in range(1, N)])
+    target_mus = [None]
+    target_mus.extend(
+        [loc0 * lambda_tilde_posts[k - 1] / lambda_posts[k] for k in range(1, N)]
+    )
+    target_loc_N = (
+        sum_data * lambdas[N] / lambda_N_post
+        + loc0 * lambda_tilde_posts[N - 1] / lambda_N_post
+    )
+    target_mus.append(target_loc_N)
+    np.random.seed(0)
+    while True:
+        mask = np.random.binomial(1, 0.3, (N,))
+        if mask.sum() < 0.4 * N and mask.sum() > 0.5:
+            which_nodes_reparam = mask
+            break
+
+    class FakeNormal(dist.Normal):
+        reparametrized_params = []
+
+    def model(difficulty=0.0):
+        next_mean = loc0
+        for k in range(1, N + 1):
+            latent_dist = dist.Normal(next_mean, jnp.power(lambdas[k - 1], -0.5))
+            loc_latent = numpyro.sample("loc_latent_{}".format(k), latent_dist)
+            next_mean = loc_latent
+
+        loc_N = next_mean
+        with numpyro.plate("data", data.shape[0]):
+            numpyro.sample(
+                "obs", dist.Normal(loc_N, jnp.power(lambdas[N], -0.5)), obs=data
+            )
+        return loc_N
+
+    def guide(difficulty=0.0):
+        previous_sample = None
+        for k in reversed(range(1, N + 1)):
+            loc_q = numpyro.param(
+                f"loc_q_{k}",
+                lambda key: target_mus[k]
+                + difficulty * (0.1 * random.normal(key) - 0.53),
+            )
+            log_sig_q = numpyro.param(
+                f"log_sig_q_{k}",
+                lambda key: -0.5 * jnp.log(lambda_posts[k])
+                + difficulty * (0.1 * random.normal(key) - 0.53),
+            )
+            sig_q = jnp.exp(log_sig_q)
+            kappa_q = None
+            if k != N:
+                kappa_q = numpyro.param(
+                    "kappa_q_%d" % k,
+                    lambda key: target_kappas[k]
+                    + difficulty * (0.1 * random.normal(key) - 0.53),
+                )
+            mean_function = loc_q if k == N else kappa_q * previous_sample + loc_q
+            node_flagged = True if which_nodes_reparam[k - 1] == 1.0 else False
+            Normal = dist.Normal if node_flagged else FakeNormal
+            loc_latent = numpyro.sample(f"loc_latent_{k}", Normal(mean_function, sig_q))
+            previous_sample = loc_latent
+        return previous_sample
+
+    adam = optim.Adam(step_size=step_size, b1=0.95, b2=0.999)
+    svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
+    svi_result = svi.run(jax.random.PRNGKey(0), num_steps, difficulty=difficulty)
+
+    kappa_errors, log_sig_errors, loc_errors = [], [], []
+    for k in range(1, N + 1):
+        if k != N:
+            kappa_error = jnp.sum(
+                jnp.power(svi_result.params[f"kappa_q_{k}"] - target_kappas[k], 2)
+            )
+            kappa_errors.append(kappa_error)
+
+        loc_errors.append(
+            jnp.sum(jnp.power(svi_result.params[f"loc_q_{k}"] - target_mus[k], 2))
+        )
+        log_sig_error = jnp.sum(
+            jnp.power(
+                svi_result.params[f"log_sig_q_{k}"] + 0.5 * jnp.log(lambda_posts[k]), 2
+            )
+        )
+        log_sig_errors.append(log_sig_error)
+
+    max_errors = (np.max(loc_errors), np.max(log_sig_errors), np.max(kappa_errors))
+
+    for i in range(3):
+        assert_allclose(max_errors[i], 0, atol=atol)
