@@ -292,7 +292,8 @@ class NestedSampler:
 
     def diagnostics(self):
         """
-        Plot diagnostics of the run.
+        Print the number of weighted samples, the effective sample size, and plot diagnostics of
+        the result.
         """
         if self._results is None:
             raise RuntimeError(
