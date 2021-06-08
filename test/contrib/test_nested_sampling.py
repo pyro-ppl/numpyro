@@ -43,6 +43,7 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
     base_shape = base_batch_shape + event_shape
     loc = np.random.rand(*base_shape) * 2 - 1
     scale = np.random.rand(*base_shape) + 0.5
+    num_samples = 1000000
 
     def model():
         fn = dist.TransformedDistribution(
@@ -50,17 +51,17 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
             [AffineTransform(loc, scale), ExpTransform()],
         ).expand(shape)
         if event_shape:
-            fn = fn.to_event(len(event_shape)).expand_by([100000])
+            fn = fn.to_event(len(event_shape)).expand_by([num_samples])
         with numpyro.plate_stack("plates", batch_shape):
-            with numpyro.plate("particles", 100000):
+            with numpyro.plate("particles", num_samples):
                 return numpyro.sample("x", fn)
 
     with numpyro.handlers.trace() as tr:
         value = numpyro.handlers.seed(model, 0)()
     expected_moments = get_moments(jnp.log(value))
 
-    with numpyro.handlers.reparam(config={"x": UniformReparam()}):
-        with numpyro.handlers.trace() as tr:
+    with numpyro.handlers.trace() as tr:
+        with numpyro.handlers.reparam(config={"x": UniformReparam()}):
             value = numpyro.handlers.seed(model, 0)()
     assert tr["x"]["type"] == "deterministic"
     actual_moments = get_moments(jnp.log(value))
@@ -76,7 +77,7 @@ def test_dense_mass(rho):
             "x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov)
         )
 
-    ns = NestedSampler(model, num_live_points=100, max_samples=1000)
+    ns = NestedSampler(model)
     ns.run(random.PRNGKey(0))
 
     samples = ns.get_samples(random.PRNGKey(1), 1000)["x"]

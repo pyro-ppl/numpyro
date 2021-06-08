@@ -109,10 +109,11 @@ class UniformReparam(Reparam):
         shape = fn.shape()
         fn, expand_shape, event_dim = self._unwrap(fn)
         transform = uniform_reparam_transform(fn)
+        tiny = jnp.finfo(jnp.result_type(float)).tiny
 
         x = numpyro.sample(
             "{}_base".format(name),
-            dist.Uniform(0, 1).expand(shape).to_event(event_dim).mask(False),
+            dist.Uniform(tiny, 1).expand(shape).to_event(event_dim).mask(False),
         )
         # Simulate a numpyro.deterministic() site.
         return None, transform(x)
