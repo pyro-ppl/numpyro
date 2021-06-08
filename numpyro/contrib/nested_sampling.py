@@ -4,7 +4,7 @@
 from functools import singledispatch
 import warnings
 
-from jax import config, nn, random
+from jax import config, nn, random, tree_util
 import jax.numpy as jnp
 
 try:
@@ -139,10 +139,11 @@ class NestedSampler:
     :param int max_samples: the maximum number of iterations and samples
     :param str sampler_name: either "slice" (default value) or "multi_ellipsoid"
     :param int depth: an integer which determines the maximum number of ellipsoids to
-        construct via hierarchical splitting (typical range: 3 - 9)
+        construct via hierarchical splitting (typical range: 3 - 9, default to 5)
     :param int num_slices: the number of slice sampling proposals at each sampling step
-        (typical range: 1 - 5)
+        (typical range: 1 - 5, default to 5)
     :param float termination_frac: termination condition (typical range: 0.001 - 0.01)
+        (default to 0.01).
 
     **Example**
 
@@ -263,9 +264,11 @@ class NestedSampler:
             )
             results = ns(rng_sampling, termination_frac=self.termination_frac)
         # transform base samples back to original domains
-        # TODO: optimize this logic to only transform the first num_samples samples
+        # Here we only transform the first valid num_samples samples
+        num_samples = results.num_samples
+        samples = tree_util.tree_map(lambda x: x[:num_samples], results.samples)
         predictive = Predictive(
-            reparam_model, results.samples, return_sites=param_names + deterministics
+            reparam_model, samples, return_sites=param_names + deterministics
         )
         samples = predictive(rng_predictive, *args, **kwargs)
         # replace base samples in jaxns results by transformed samples
@@ -299,9 +302,7 @@ class NestedSampler:
             )
 
         num_samples = self._results.num_samples
-        return {
-            k: v[:num_samples] for k, v in self._results.samples.items()
-        }, self._results.log_p[:num_samples]
+        return self._results.samples, self._results.log_p[:num_samples]
 
     def diagnostics(self):
         """
