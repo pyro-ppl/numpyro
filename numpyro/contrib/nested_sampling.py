@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import singledispatch
+import warnings
 
 from jax import config, nn, random
 import jax.numpy as jnp
-
 
 try:
     # jaxns uses x64 by default so we need to monkeypatch it here
@@ -14,7 +14,7 @@ try:
     from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
     from jaxns.plotting import plot_cornerplot, plot_diagnostics
     from jaxns.prior_transforms.common import ContinuousPrior
-    from jaxns.prior_transforms.prior_chain import PriorChain
+    from jaxns.prior_transforms.prior_chain import PriorChain, UniformBase
 
     config.update("jax_enable_x64", use_x64)
 except ImportError as e:
@@ -35,7 +35,8 @@ __all__ = ["NestedSampler"]
 
 class UniformPrior(ContinuousPrior):
     def __init__(self, name, shape):
-        super().__init__(name, shape, parents=[], tracked=True)
+        prior_base = UniformBase(shape, jnp.result_type(float))
+        super().__init__(name, shape, parents=[], tracked=True, prior_base=prior_base)
 
     def transform_U(self, U, **kwargs):
         return U
@@ -254,7 +255,13 @@ class NestedSampler:
             num_live_points=self.num_live_points,
             collect_samples=True,
         )
-        results = ns(rng_sampling, termination_frac=self.termination_frac)
+        # some places of jaxns uses float64 and raises some warnings if the default dtype is
+        # float32, so we suppress them here to avoid confusion
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message=".*will be truncated to dtype float32.*"
+            )
+            results = ns(rng_sampling, termination_frac=self.termination_frac)
         # transform base samples back to original domains
         # TODO: optimize this logic to only transform the first num_samples samples
         predictive = Predictive(
