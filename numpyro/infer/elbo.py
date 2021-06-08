@@ -287,7 +287,7 @@ def _get_plate_stacks(trace):
     """
     This builds a dict mapping site name to a set of plate stacks. Each
     plate stack is a list of :class:`CondIndepStackFrame`s corresponding to
-    an :class:`plate`. This information is used by :class:`Trace_ELBO` and
+    a :class:`plate`. This information is used by :class:`Trace_ELBO` and
     :class:`TraceGraph_ELBO`.
     """
     return {

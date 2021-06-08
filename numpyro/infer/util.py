@@ -70,7 +70,7 @@ def log_density(model, model_args, model_kwargs, params):
 
 class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
     """
-    Stop gradient for samples at latent sample sites that has_rsample=False.
+    Stop gradient for samples at latent sample sites for which has_rsample=False.
     """
 
     def postprocess_message(self, msg):
