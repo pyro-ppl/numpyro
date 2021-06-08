@@ -25,6 +25,7 @@ from numpyro.util import ravel_pytree
 
 # TODO
 # Fix MCMC updates to work reasonably with optimizer
+# Refactor Stein Point MCMC to compose
 
 VIState = namedtuple("CurrentState", ["optim_state", "rng_key"])
 
@@ -52,7 +53,7 @@ class Stein(VI):
     :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC
                                (should be a subset of number of Stein particles) (EXPERIMENTAL)
     :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
-    :param num_mcmc_updates: Number of MCMC update steps at each iteration (EXPERIMENTAL)
+    :param num_mcmc_samples: Number of MCMC update steps at each iteration (EXPERIMENTAL)
     :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
     :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
     :param mcmc_kwargs: Keyword arguments provided to the MCMC interface (EXPERIMENTAL)
@@ -78,7 +79,7 @@ class Stein(VI):
             sp_mode="local",
             num_mcmc_particles: int = 0,
             num_mcmc_warmup: int = 100,
-            num_mcmc_updates: int = 10,
+            num_mcmc_samples: int = 10,
             sampler_fn=NUTS,
             sampler_kwargs=None,
             mcmc_kwargs=None,
@@ -109,7 +110,7 @@ class Stein(VI):
         self.sp_mode = sp_mode
         self.num_mcmc_particles = num_mcmc_particles
         self.num_mcmc_warmup = num_mcmc_warmup
-        self.num_mcmc_updates = num_mcmc_updates
+        self.num_mcmc_updates = num_mcmc_samples
         self.sampler_fn = sampler_fn
         self.sampler_kwargs = sampler_kwargs or dict()
         self.mcmc_kwargs = mcmc_kwargs or dict()
