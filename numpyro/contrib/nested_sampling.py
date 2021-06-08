@@ -129,6 +129,9 @@ class NestedSampler:
     .. note:: To enumerate over a discrete latent variable, you can add the keyword
         `infer={"enumerate": "parallel"}` to the corresponding `sample` statement.
 
+    .. note:: `jaxns` uses double precision by default, so please consider enabling
+        x64 mode at the beginning of your NumPyro program ``numpyro.enable_x64()``.
+
     **References**
 
     1. *JAXNS: a high-performance nested sampling package based on JAX*,
