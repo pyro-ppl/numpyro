@@ -69,7 +69,7 @@ def regression():
 def test_init_strategy(kernel, auto_guide, init_strategy, problem):
     true_coefs, data, model = problem()
     stein = Stein(model, auto_guide(model), Adam(1e-1), Trace_ELBO(), kernel, init_strategy=init_strategy)
-    state, loss = stein.run(random.PRNGKey(0), 500, *data)
+    state, loss = stein.run(random.PRNGKey(0), 100, *data)
     stein.get_params(state)
 
 
@@ -120,7 +120,7 @@ def test_update():
 def test_init(kernel, auto_guide, init_strategy, problem):
     true_coefs, data, model = problem()
     stein = Stein(model, auto_guide(model), Adam(1e-1), Trace_ELBO(), kernel, init_strategy=init_strategy)
-    state = stein.run(random.PRNGKey(0), 1000, *data)
+    state = stein.init(random.PRNGKey(0), *data)
     stein.get_params(state)
 
 
