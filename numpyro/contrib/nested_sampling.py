@@ -8,7 +8,8 @@ from jax import config, nn, random, tree_util
 import jax.numpy as jnp
 
 try:
-    # jaxns uses x64 by default so we need to monkeypatch it here
+    # jaxns changes the default precision to double precision
+    # so here we undo that action
     use_x64 = config.jax_enable_x64
 
     from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
@@ -92,6 +93,7 @@ def _(d):
         # so this will raise an NotImplementedError for now.
         # We will need scipy.special.gammaincinv, which is not available yet in JAX
         # see issue: https://github.com/google/jax/issues/5350
+        # TODO: consider wrap jaxns GammaPrior transform implementation
         gammas = uniform_reparam_transform(gamma_dist)(q)
         return gammas / gammas.sum(-1, keepdims=True)
 
@@ -130,8 +132,8 @@ class NestedSampler:
     .. note:: To enumerate over a discrete latent variable, you can add the keyword
         `infer={"enumerate": "parallel"}` to the corresponding `sample` statement.
 
-    .. note:: `jaxns` uses double precision by default, so please consider enabling
-        x64 mode at the beginning of your NumPyro program ``numpyro.enable_x64()``.
+    .. note:: To improve the performance, please consider enabling x64 mode at the beginning
+        of your NumPyro program ``numpyro.enable_x64()``.
 
     **References**
 
@@ -270,6 +272,8 @@ class NestedSampler:
             results = ns(rng_sampling, termination_frac=self.termination_frac)
         # transform base samples back to original domains
         # Here we only transform the first valid num_samples samples
+        # NB: the number of weighted samples obtained from jaxns is results.num_samples
+        # and only the first num_samples values of results.samples are valid.
         num_samples = results.num_samples
         samples = tree_util.tree_map(lambda x: x[:num_samples], results.samples)
         predictive = Predictive(
@@ -311,7 +315,7 @@ class NestedSampler:
 
     def print_summary(self):
         """
-        Print summary of the result. This is a wrapper of ``jaxns.utils.summary``.
+        Print summary of the result. This is a wrapper of :func:`jaxns.utils.summary`.
         """
         if self._results is None:
             raise RuntimeError(
@@ -321,8 +325,8 @@ class NestedSampler:
 
     def diagnostics(self):
         """
-        Plot diagnostics of the result. This is a wrapper of ``jaxns.plotting.plot_diagnostics``
-        and ``jaxns.plotting.plot_cornerplot``.
+        Plot diagnostics of the result. This is a wrapper of :func:`jaxns.plotting.plot_diagnostics`
+        and :func:`jaxns.plotting.plot_cornerplot`.
         """
         if self._results is None:
             raise RuntimeError(
