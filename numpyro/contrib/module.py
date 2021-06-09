@@ -5,7 +5,8 @@ from collections import namedtuple
 from copy import deepcopy
 from functools import partial
 
-from jax import numpy as jnp
+from jax import random
+import jax.numpy as jnp
 from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
@@ -18,16 +19,32 @@ __all__ = [
 ]
 
 
-def flax_module(name, nn_module, *, input_shape=None, **kwargs):
+def flax_module(name, nn_module, *, input_shape=None, apply_rng=None, mutable=None, **kwargs):
     """
     Declare a :mod:`~flax` style neural network inside a
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
+    Given a flax ``nn_module``, in flax to evaluate the module with
+    a given set of parameters, we use: ``nn_module.apply(params, x)``.
+    In a NumPyro model, the pattern will be::
+
+        net = flax_module("net", nn_module)
+        y = net(x)
+
     :param str name: name of the module to be registered.
     :param flax.linen.Module nn_module: a `flax` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
+    :param list apply_rng: A list to indicate which extra rng _kinds_ are needed for
+        ``nn_module``. For example, when ``nn_module`` includes dropout layers, we
+        need to set ``apply_rng=["dropout"]``. Defaults to None, which means no extra
+        rng key is needed. Please see
+        `Flax Linen Intro <https://flax.readthedocs.io/en/latest/notebooks/linen_intro.html#Invoking-Modules>`_
+        for more information in how Flax deals with stochastic layers like dropout.
+    :param list mutable: A list to indicate mutable states of ``nn_module``. For example,
+        if your module has BatchNorm layer, we will need to define ``mutable=["batch_stats"]``.
+        See the above `Flax Linen Intro` tutorial for more information.
     :param kwargs: optional keyword arguments to initialize flax neural network
         as an alternative to `input_shape`
     :return: a callable with bound parameters that takes an array
@@ -45,16 +62,37 @@ def flax_module(name, nn_module, *, input_shape=None, **kwargs):
         ) from e
     module_key = name + "$params"
     nn_params = numpyro.param(module_key)
+
+    if mutable:
+        nn_state = numpyro.param(name + "$state", infer={"mutable": True})
+        assert nn_state is None or isinstance(nn_state, dict)
+
     if nn_params is None:
-        args = (jnp.ones(input_shape),) if input_shape is not None else ()
         # feed in dummy data to init params
+        args = (jnp.ones(input_shape),) if input_shape is not None else ()
         rng_key = numpyro.prng_key()
-        nn_vars = nn_module.init(rng_key, *args, **kwargs)
-        nn_params = flax.core.unfreeze(nn_vars)["params"]
+        # split rng_key into a dict of rng_kind: rng_key
+        rngs = {}
+        if apply_rng:
+            assert isinstance(apply_rng, list)
+            for kind in apply_rng:
+                rng_key, subkey = random.split(rng_key)
+                rngs[kind] = subkey
+        rngs["params"] = rng_key
+
+        nn_vars = flax.core.unfreeze(nn_module.init(rngs, *args, **kwargs))
+        nn_params = nn_vars["params"]
+        if mutable:
+            nn_state = {k: v for k, v in nn_vars.items() if k != "params"}
+            assert set(mutable) == set(nn_state)
+            numpyro.param(name + "$state", nn_state, infer={"mutable": True})
         # make sure that nn_params keep the same order after unflatten
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
+
+    def apply_with_state(params, state, *args, **kwargs):
+        # TODO
     return partial(nn_module.apply, {"params": nn_params})
 
 
@@ -64,12 +102,20 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
+    Given a haiku ``nn_module``, in haiku to evaluate the module with
+    a given set of parameters, we use: ``nn_module.apply(params, None, x)``.
+    In a NumPyro model, the pattern will be::
+
+        net = haiku_module("net", nn_module, apply_rng=True)
+        y = net(None, x)  # or y = net(x) if apply_rng=False
+
     :param str name: name of the module to be registered.
-    :param haiku.Module nn_module: a `haiku` Module which has .init and .apply methods
+    :param nn_module: a `haiku` Module which has .init and .apply methods
+    :type nn_module: haiku.Transformed or haiku.TransformedWithState
     :param tuple input_shape: shape of the input taken by the
         neural network.
     :param bool apply_rng: A flag to indicate if the returned callable requires
-        a rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
+        an rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
         to False, which means no rng argument is needed. If this is True, the signature
         of the returned callable ``nn = haiku_module(..., apply_rng=True)`` will be
         ``nn(rng_key, x)`` (rather than ``nn(x)``).
@@ -161,7 +207,7 @@ def _update_params(params, new_params, prior, prefix=""):
             )
 
 
-def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
+def random_flax_module(name, nn_module, prior, *, input_shape=None, apply_rng=None, **kwargs):
     """
     A primitive to place a prior over the parameters of the Flax module `nn_module`.
 
@@ -193,8 +239,14 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
                                      prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},
                                      input_shape=(4,))
 
-    :type param: dict or ~numpyro.distributions.Distribution
+    :type prior: dict or ~numpyro.distributions.Distribution
     :param tuple input_shape: shape of the input taken by the neural network.
+    :param list apply_rng: A list to indicate which extra rng _kinds_ are needed for
+        ``nn_module``. For example, when ``nn_module`` includes dropout layers, we
+        need to set ``apply_rng=["dropout"]``. Defaults to None, which means no extra
+        rng key is needed. Please see
+        `Flax Linen Intro <https://flax.readthedocs.io/en/latest/notebooks/linen_intro.html#Invoking-Modules>`_
+        for more information in how Flax deals with stochastic layers like dropout.
     :param kwargs: optional keyword arguments to initialize flax neural network
         as an alternative to `input_shape`
     :returns: a sampled module
@@ -254,7 +306,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
         >>> assert losses[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
-    nn = flax_module(name, nn_module, input_shape=input_shape, **kwargs)
+    nn = flax_module(name, nn_module, input_shape=input_shape, apply_rng=apply_rng, **kwargs)
     params = nn.args[0]["params"]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
@@ -270,7 +322,8 @@ def random_haiku_module(
     A primitive to place a prior over the parameters of the Haiku module `nn_module`.
 
     :param str name: name of NumPyro module
-    :param haiku.Module: the module to be registered with NumPyro
+    :param nn_module: the module to be registered with NumPyro
+    :type nn_module: haiku.Transformed or haiku.TransformedWithState
     :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
         respective distributions as values. For example::
 
@@ -279,10 +332,10 @@ def random_haiku_module(
                                       prior={"linear.b": dist.Cauchy(), "linear.w": dist.Normal()},
                                       input_shape=(4,))
 
-    :type param: dict or ~numpyro.distributions.Distribution
+    :type prior: dict or ~numpyro.distributions.Distribution
     :param tuple input_shape: shape of the input taken by the neural network.
     :param bool apply_rng: A flag to indicate if the returned callable requires
-        a rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
+        an rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
         to False, which means no rng argument is needed. If this is True, the signature
         of the returned callable ``nn = haiku_module(..., apply_rng=True)`` will be
         ``nn(rng_key, x)`` (rather than ``nn(x)``).
