@@ -64,7 +64,7 @@ def haiku_model_by_kwargs_2(w, x, y):
 def flax_model_by_shape(x, y):
     import flax
 
-    linear_module = flax.nn.Dense.partial(features=100)
+    linear_module = flax.linen.Dense(features=100)
     nn = flax_module("nn", linear_module, input_shape=(100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
@@ -73,7 +73,7 @@ def flax_model_by_shape(x, y):
 def flax_model_by_kwargs(x, y):
     import flax
 
-    linear_module = flax.nn.Dense.partial(features=100)
+    linear_module = flax.linen.Dense(features=100)
     nn = flax_module("nn", linear_module, inputs=x)
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
@@ -154,7 +154,7 @@ def test_random_module__mcmc(backend, init):
     if backend == "flax":
         import flax
 
-        linear_module = flax.nn.Dense.partial(features=1)
+        linear_module = flax.linen.Dense(features=1)
         bias_name = "bias"
         weight_name = "kernel"
         random_module = random_flax_module

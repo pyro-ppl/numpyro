@@ -25,7 +25,7 @@ def flax_module(name, nn_module, *, input_shape=None, **kwargs):
     :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
-    :param flax.nn.Module nn_module: a `flax` Module which has .init and .apply methods
+    :param flax.linen.Module nn_module: a `flax` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
     :param kwargs: optional keyword arguments to initialize flax neural network
@@ -49,12 +49,13 @@ def flax_module(name, nn_module, *, input_shape=None, **kwargs):
         args = (jnp.ones(input_shape),) if input_shape is not None else ()
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
-        _, nn_params = nn_module.init(rng_key, *args, **kwargs)
+        nn_vars = nn_module.init(rng_key, *args, **kwargs)
+        nn_params = flax.core.unfreeze(nn_vars)["params"]
         # make sure that nn_params keep the same order after unflatten
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
-    return partial(nn_module.call, nn_params)
+    return partial(nn_module.apply, {"params": nn_params})
 
 
 def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs):
@@ -169,24 +170,26 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
         the module `B` defined as follows::
 
             class A(nn.Module):
-                def apply(self, x):
-                    return nn.Dense(x, 1, bias=False, name='dense')
+                @nn.compact
+                def __call__(self, x):
+                    return nn.Dense(1, use_bias=False, name='dense')(x)
 
             class B(nn.Module):
+                @nn.compact
                 def apply(self, x):
-                    return A(x, name='inner')
+                    return A(name='inner')(x)
 
         has parameters `{'inner': {'dense': {'kernel': param_value}}}`. In the argument
         `prior`, to specify `kernel` parameter, we join the path to it using dots:
         `prior={"inner.dense.kernel": param_prior}`.
 
     :param str name: name of NumPyro module
-    :param flax.nn.Module: the module to be registered with NumPyro
+    :param flax.linen.Module: the module to be registered with NumPyro
     :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
         respective distributions as values. For example::
 
             net = random_flax_module("net",
-                                     flax.nn.Dense.partial(features=1),
+                                     flax.linen.Dense(features=1),
                                      prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},
                                      input_shape=(4,))
 
@@ -203,30 +206,33 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
         # NB: this example is ported from https://github.com/ctallec/pyvarinf/blob/master/main_regression.ipynb
         >>> import numpy as np; np.random.seed(0)
         >>> import tqdm
-        >>> from flax import nn
+        >>> from flax import linen as nn
         >>> from jax import jit, random
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.contrib.module import random_flax_module
         >>> from numpyro.infer import Predictive, SVI, TraceMeanField_ELBO, autoguide, init_to_feasible
-        >>>
+        ...
         >>> class Net(nn.Module):
-        ...     def apply(self, x, n_units):
-        ...         x = nn.Dense(x[..., None], features=n_units)
+        ...     n_units: int
+        ...
+        ...     @nn.compact
+        ...     def __call__(self, x):
+        ...         x = nn.Dense(self.n_units)(x[..., None])
         ...         x = nn.relu(x)
-        ...         x = nn.Dense(x, features=n_units)
+        ...         x = nn.Dense(self.n_units)(x)
         ...         x = nn.relu(x)
-        ...         mean = nn.Dense(x, features=1)
-        ...         rho = nn.Dense(x, features=1)
+        ...         mean = nn.Dense(1)(x)
+        ...         rho = nn.Dense(1)(x)
         ...         return mean.squeeze(), rho.squeeze()
-        >>>
+        ...
         >>> def generate_data(n_samples):
         ...     x = np.random.normal(size=n_samples)
         ...     y = np.cos(x * 3) + np.random.normal(size=n_samples) * np.abs(x) / 2
         ...     return x, y
-        >>>
+        ...
         >>> def model(x, y=None, batch_size=None):
-        ...     module = Net.partial(n_units=32)
+        ...     module = Net(n_units=32)
         ...     net = random_flax_module("nn", module, dist.Normal(0, 0.1), input_shape=())
         ...     with numpyro.plate("batch", x.shape[0], subsample_size=batch_size):
         ...         batch_x = numpyro.subsample(x, event_dim=0)
@@ -234,12 +240,11 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
         ...         mean, rho = net(batch_x)
         ...         sigma = nn.softplus(rho)
         ...         numpyro.sample("obs", dist.Normal(mean, sigma), obs=batch_y)
-        >>>
+        ...
         >>> n_train_data = 5000
         >>> x_train, y_train = generate_data(n_train_data)
         >>> guide = autoguide.AutoNormal(model, init_loc_fn=init_to_feasible)
         >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), TraceMeanField_ELBO())
-        >>>
         >>> n_iterations = 3000
         >>> params, losses = svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
         >>> n_test_data = 100
@@ -250,11 +255,11 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
     nn = flax_module(name, nn_module, input_shape=input_shape, **kwargs)
-    params = nn.args[0]
+    params = nn.args[0]["params"]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
         _update_params(params, new_params, prior)
-    nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
+    nn_new = partial(nn.func, {"params": new_params}, *nn.args[1:], **nn.keywords)
     return nn_new
 
 
