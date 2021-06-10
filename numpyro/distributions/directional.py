@@ -31,7 +31,7 @@ def _numel(shape):
 
 
 def log_I1(orders: int, value, terms=250):
-    r""" Compute first n log modified bessel function of first kind
+    r"""Compute first n log modified bessel function of first kind
     .. math ::
         \log(I_v(z)) = v*\log(z/2) + \log(\sum_{k=0}^\inf \exp\left[2*k*\log(z/2) - \sum_kk^k log(kk)
         - \lgamma(v + k + 1)\right])
@@ -49,7 +49,7 @@ def log_I1(orders: int, value, terms=250):
     flat_vshape = _numel(vshape)
 
     k = jnp.arange(terms)
-    lgammas_all = lax.lgamma(jnp.arange(1., terms + orders + 1))
+    lgammas_all = lax.lgamma(jnp.arange(1.0, terms + orders + 1))
     assert lgammas_all.shape == (orders + terms,)  # lgamma(0) = inf => start from 1
 
     lvalues = lax.log(value / 2) * k.reshape(1, -1)
@@ -64,8 +64,12 @@ def log_I1(orders: int, value, terms=250):
     indices = k[:orders].reshape(-1, 1) + k.reshape(1, -1)
     assert indices.shape == (orders, terms)
 
-    seqs = logsumexp(2 * lvalues[None, :, :] - lfactorials[None, None, :]
-                     - jnp.take_along_axis(lgammas, indices, axis=1)[:, None, :], -1)
+    seqs = logsumexp(
+        2 * lvalues[None, :, :]
+        - lfactorials[None, None, :]
+        - jnp.take_along_axis(lgammas, indices, axis=1)[:, None, :],
+        -1,
+    )
     assert seqs.shape == (orders, flat_vshape)
 
     i1s = lvalues[..., :orders].T + seqs
@@ -110,8 +114,9 @@ class VonMises(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return -(jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))) + \
-            self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
+        return -(
+            jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
+        ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
     def mean(self):
@@ -128,11 +133,11 @@ class VonMises(Distribution):
         )
 
 
-PhiMarginalState = namedtuple("PhiMarginalState", ['i', 'done', 'phi', 'key'])
+PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
 
 
 class SineBivariateVonMises(Distribution):
-    r""" Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
+    r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
     .. math::
         C^{-1}\exp(\kappa_1\cos(x-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
     and
@@ -162,44 +167,78 @@ class SineBivariateVonMises(Distribution):
         to avoid bimodality (see note).
     """
 
-    arg_constraints = {'phi_loc': constraints.real, 'psi_loc': constraints.real,
-                       'phi_concentration': constraints.positive, 'psi_concentration': constraints.positive,
-                       'correlation': constraints.real}
+    arg_constraints = {
+        "phi_loc": constraints.real,
+        "psi_loc": constraints.real,
+        "phi_concentration": constraints.positive,
+        "psi_concentration": constraints.positive,
+        "correlation": constraints.real,
+    }
     support = constraints.independent(constraints.real, 1)
     max_sample_iter = 1000
 
-    def __init__(self, phi_loc, psi_loc, phi_concentration, psi_concentration, correlation=None,
-                 weighted_correlation=None, validate_args=None):
+    def __init__(
+        self,
+        phi_loc,
+        psi_loc,
+        phi_concentration,
+        psi_concentration,
+        correlation=None,
+        weighted_correlation=None,
+        validate_args=None,
+    ):
 
         assert (correlation is None) != (weighted_correlation is None)
 
         if weighted_correlation is not None:
-            correlation = weighted_correlation * jnp.sqrt(phi_concentration * psi_concentration) + 1e-8
+            correlation = (
+                weighted_correlation * jnp.sqrt(phi_concentration * psi_concentration)
+                + 1e-8
+            )
 
-        self.phi_loc, self.psi_loc, self.phi_concentration, self.psi_concentration, self.correlation = promote_shapes(
-            phi_loc, psi_loc,
-            phi_concentration,
-            psi_concentration,
-            correlation)
-        batch_shape = lax.broadcast_shapes(phi_loc.shape, psi_loc.shape, phi_concentration.shape,
-                                           psi_concentration.shape, correlation.shape)
+        (
+            self.phi_loc,
+            self.psi_loc,
+            self.phi_concentration,
+            self.psi_concentration,
+            self.correlation,
+        ) = promote_shapes(
+            phi_loc, psi_loc, phi_concentration, psi_concentration, correlation
+        )
+        batch_shape = lax.broadcast_shapes(
+            phi_loc.shape,
+            psi_loc.shape,
+            phi_concentration.shape,
+            psi_concentration.shape,
+            correlation.shape,
+        )
         super().__init__(batch_shape, (2,), validate_args)
 
-        if self._validate_args and jnp.any(phi_concentration * psi_concentration <= correlation ** 2):
+        if self._validate_args and jnp.any(
+            phi_concentration * psi_concentration <= correlation ** 2
+        ):
             warnings.warn(
-                f'{self.__class__.__name__} bimodal due to concentration-correlation relation, '
-                f'sampling will likely fail.', UserWarning)
+                f"{self.__class__.__name__} bimodal due to concentration-correlation relation, "
+                f"sampling will likely fail.",
+                UserWarning,
+            )
 
     @lazy_property
     def norm_const(self):
         corr = self.correlation.reshape(1, -1) + 1e-8
-        conc = jnp.stack((self.phi_concentration, self.psi_concentration), axis=-1).reshape(-1, 2)
+        conc = jnp.stack(
+            (self.phi_concentration, self.psi_concentration), axis=-1
+        ).reshape(-1, 2)
         m = jnp.arange(50).reshape(-1, 1)
-        num = lax.lgamma(2 * m + 1.)
-        den = lax.lgamma(m + 1.)
+        num = lax.lgamma(2 * m + 1.0)
+        den = lax.lgamma(m + 1.0)
         lbinoms = num - 2 * den
 
-        fs = lbinoms.reshape(-1, 1) + 2 * m * jnp.log(corr) - m * jnp.log(4 * jnp.prod(conc, axis=-1))
+        fs = (
+            lbinoms.reshape(-1, 1)
+            + 2 * m * jnp.log(corr)
+            - m * jnp.log(4 * jnp.prod(conc, axis=-1))
+        )
         fs += log_I1(49, conc, terms=51).sum(-1)
         mfs = fs.max()
         norm_const = 2 * jnp.log(jnp.array(2 * pi)) + mfs + logsumexp(fs - mfs, 0)
@@ -208,9 +247,14 @@ class SineBivariateVonMises(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        indv = self.phi_concentration * jnp.cos(value[..., 0] - self.phi_loc) + self.psi_concentration * jnp.cos(
-            value[..., 1] - self.psi_loc)
-        corr = self.correlation * jnp.sin(value[..., 0] - self.phi_loc) * jnp.sin(value[..., 1] - self.psi_loc)
+        indv = self.phi_concentration * jnp.cos(
+            value[..., 0] - self.phi_loc
+        ) + self.psi_concentration * jnp.cos(value[..., 1] - self.psi_loc)
+        corr = (
+            self.correlation
+            * jnp.sin(value[..., 0] - self.phi_loc)
+            * jnp.sin(value[..., 1] - self.psi_loc)
+        )
         return indv + corr - self.norm_const
 
     def sample(self, key, sample_shape=()):
@@ -233,11 +277,15 @@ class SineBivariateVonMises(Distribution):
         total = _numel(sample_shape)
         phi_den = log_I1(0, conc[1]).squeeze(0)
         phi_shape = (total, 2, _numel(self.batch_shape))
-        phi_state = SineBivariateVonMises._phi_marginal(phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den)
+        phi_state = SineBivariateVonMises._phi_marginal(
+            phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den
+        )
 
         if not jnp.all(phi_state.done):
-            raise ValueError("maximum number of iterations exceeded; "
-                             "try increasing `SineBivariateVonMises.max_sample_iter`")
+            raise ValueError(
+                "maximum number of iterations exceeded; "
+                "try increasing `SineBivariateVonMises.max_sample_iter`"
+            )
 
         phi = lax.atan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
@@ -246,8 +294,13 @@ class SineBivariateVonMises(Distribution):
 
         psi = VonMises(beta, alpha).sample(psi_key)
 
-        phi_psi = jnp.concatenate(((phi + self.phi_loc + pi) % (2 * pi) - pi,
-                                   (psi + self.psi_loc + pi) % (2 * pi) - pi), axis=1)
+        phi_psi = jnp.concatenate(
+            (
+                (phi + self.phi_loc + pi) % (2 * pi) - pi,
+                (psi + self.psi_loc + pi) % (2 * pi) - pi,
+            ),
+            axis=1,
+        )
         phi_psi = jnp.transpose(phi_psi, (0, 2, 1))
         return phi_psi.reshape(*sample_shape, *self.batch_shape, *self.event_shape)
 
@@ -265,13 +318,23 @@ class SineBivariateVonMises(Distribution):
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
 
             x = jnp.sqrt(1 + 2 * eig / b0) * random.normal(acg_key, shape)
-            x /= jnp.linalg.norm(x, axis=1)[:, None, :]  # Angular Central Gaussian distribution
+            x /= jnp.linalg.norm(x, axis=1)[
+                :, None, :
+            ]  # Angular Central Gaussian distribution
 
-            lf = conc[:, :1] * (x[:, :1] - 1) + eigmin + log_I1(0, jnp.sqrt(
-                conc[:, 1:] ** 2 + (corr * x[:, 1:]) ** 2)).squeeze(0) - phi_den
+            lf = (
+                conc[:, :1] * (x[:, :1] - 1)
+                + eigmin
+                + log_I1(
+                    0, jnp.sqrt(conc[:, 1:] ** 2 + (corr * x[:, 1:]) ** 2)
+                ).squeeze(0)
+                - phi_den
+            )
             assert lf.shape == shape
 
-            lg_inv = 1. - b0 / 2 + jnp.log(b0 / 2 + (eig * x ** 2).sum(1, keepdims=True))
+            lg_inv = (
+                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x ** 2).sum(1, keepdims=True))
+            )
             assert lg_inv.shape == lf.shape
 
             accepted = random.uniform(accept_key, shape) < jnp.exp(lf + lg_inv)
@@ -280,14 +343,24 @@ class SineBivariateVonMises(Distribution):
             return PhiMarginalState(i + 1, done | accepted, phi, key)
 
         def cond_fn(curr):
-            return jnp.bitwise_and(curr.i < SineBivariateVonMises.max_sample_iter, jnp.logical_not(jnp.all(curr.done)))
+            return jnp.bitwise_and(
+                curr.i < SineBivariateVonMises.max_sample_iter,
+                jnp.logical_not(jnp.all(curr.done)),
+            )
 
-        phi_state = while_loop(cond_fn, update_fn,
-                               PhiMarginalState(i=jnp.array(0),
-                                                done=jnp.zeros(shape, dtype=bool),
-                                                phi=jnp.empty(shape, dtype=float),
-                                                key=rng_key))
-        return PhiMarginalState(phi_state.i, phi_state.done, phi_state.phi, phi_state.key)
+        phi_state = while_loop(
+            cond_fn,
+            update_fn,
+            PhiMarginalState(
+                i=jnp.array(0),
+                done=jnp.zeros(shape, dtype=bool),
+                phi=jnp.empty(shape, dtype=float),
+                key=rng_key,
+            ),
+        )
+        return PhiMarginalState(
+            phi_state.i, phi_state.done, phi_state.phi, phi_state.key
+        )
 
     @property
     def mean(self):
