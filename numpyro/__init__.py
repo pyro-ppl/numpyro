@@ -17,7 +17,7 @@ from numpyro.primitives import (
     plate_stack,
     prng_key,
     sample,
-    subsample
+    subsample,
 )
 from numpyro.util import enable_x64, set_host_device_count, set_platform
 from numpyro.version import __version__

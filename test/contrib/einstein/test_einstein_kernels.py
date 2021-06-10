@@ -16,7 +16,7 @@ from numpyro.contrib.einstein.kernels import (
     MixtureKernel,
     PrecondMatrixKernel,
     RandomFeatureKernel,
-    RBFKernel
+    RBFKernel,
 )
 
 jnp.set_printoptions(precision=100)

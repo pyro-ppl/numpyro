@@ -25,7 +25,7 @@ from numpyro.infer.hmc_util import (
     parametric_draws,
     velocity_verlet,
     warmup_adapter,
-    welford_covariance
+    welford_covariance,
 )
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 

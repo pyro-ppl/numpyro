@@ -15,8 +15,7 @@ from funsor import Bint, Real, Tensor
 import numpyro
 from numpyro.contrib.control_flow import scan
 from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
-from numpyro.contrib.funsor.enum_messenger import NamedMessenger
-from numpyro.contrib.funsor.enum_messenger import plate as enum_plate
+from numpyro.contrib.funsor.enum_messenger import NamedMessenger, plate as enum_plate
 from numpyro.contrib.funsor.infer_util import log_density
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist

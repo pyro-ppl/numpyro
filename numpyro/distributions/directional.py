@@ -1,27 +1,27 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import namedtuple
 import functools
 import math
+from math import pi
 import operator
 import warnings
-from collections import namedtuple
-from math import pi
 
+from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax import lax
 from jax.scipy.special import erf, i0e, i1e, logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     is_prng_key,
+    lazy_property,
     promote_shapes,
     safe_normalize,
     validate_sample,
     von_mises_centered,
-    lazy_property
 )
 from numpyro.util import while_loop
 
@@ -131,7 +131,7 @@ class VonMises(Distribution):
 PhiMarginalState = namedtuple("PhiMarginalState", ['i', 'done', 'phi', 'key'])
 
 
-class Sine(Distribution):
+class SineBivariateVonMises(Distribution):
     r""" Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
     .. math::
         C^{-1}\exp(\kappa_1\cos(x-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
@@ -166,7 +166,7 @@ class Sine(Distribution):
                        'phi_concentration': constraints.positive, 'psi_concentration': constraints.positive,
                        'correlation': constraints.real}
     support = constraints.independent(constraints.real, 1)
-    max_sample_iter = 10_000
+    max_sample_iter = 1000
 
     def __init__(self, phi_loc, psi_loc, phi_concentration, psi_concentration, correlation=None,
                  weighted_correlation=None, validate_args=None):
@@ -233,13 +233,13 @@ class Sine(Distribution):
         total = _numel(sample_shape)
         phi_den = log_I1(0, conc[1]).squeeze(0)
         phi_shape = (total, 2, _numel(self.batch_shape))
-        phi_state = Sine._phi_marginal(phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den)
+        phi_state = SineBivariateVonMises._phi_marginal(phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den)
 
         if not jnp.all(phi_state.done):
             raise ValueError("maximum number of iterations exceeded; "
                              "try increasing `SineBivariateVonMises.max_sample_iter`")
 
-        phi = lax.atan2(phi_state.phi[:, :1], phi_state.phi[:, 1:])
+        phi = lax.atan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
         alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
         beta = lax.atan(corr / conc[1] * jnp.sin(phi))
@@ -265,7 +265,6 @@ class Sine(Distribution):
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
 
             x = jnp.sqrt(1 + 2 * eig / b0) * random.normal(acg_key, shape)
-
             x /= jnp.linalg.norm(x, axis=1)[:, None, :]  # Angular Central Gaussian distribution
 
             lf = conc[:, :1] * (x[:, :1] - 1) + eigmin + log_I1(0, jnp.sqrt(
@@ -281,7 +280,7 @@ class Sine(Distribution):
             return PhiMarginalState(i + 1, done | accepted, phi, key)
 
         def cond_fn(curr):
-            return jnp.bitwise_and(curr.i < Sine.max_sample_iter, jnp.logical_not(jnp.all(curr.done)))
+            return jnp.bitwise_and(curr.i < SineBivariateVonMises.max_sample_iter, jnp.logical_not(jnp.all(curr.done)))
 
         phi_state = while_loop(cond_fn, update_fn,
                                PhiMarginalState(i=jnp.array(0),
