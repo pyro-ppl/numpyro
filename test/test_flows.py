@@ -10,7 +10,10 @@ import pytest
 from jax import jacfwd, random
 from jax.experimental import stax
 
-from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
+from numpyro.distributions.flows import (
+    BlockNeuralAutoregressiveTransform,
+    InverseAutoregressiveTransform,
+)
 from numpyro.distributions.util import matrix_to_tril_vec
 from numpyro.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
 

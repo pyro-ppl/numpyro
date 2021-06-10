@@ -38,7 +38,7 @@ from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
     Independent,
-    MaskedDistribution
+    MaskedDistribution,
 )
 from numpyro.distributions.util import scale_and_mask, sum_rightmost
 

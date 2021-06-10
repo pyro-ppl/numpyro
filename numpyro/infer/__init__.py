@@ -16,7 +16,7 @@ from numpyro.infer.initialization import (
     init_to_median,
     init_to_sample,
     init_to_uniform,
-    init_to_value
+    init_to_value,
 )
 from numpyro.infer.mcmc import MCMC
 from numpyro.infer.mixed_hmc import MixedHMC

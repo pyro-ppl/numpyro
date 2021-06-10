@@ -3,7 +3,14 @@
 
 import jax.numpy as jnp
 
-from numpyro.examples.datasets import BASEBALL, COVTYPE, JSB_CHORALES, MNIST, SP500, load_dataset
+from numpyro.examples.datasets import (
+    BASEBALL,
+    COVTYPE,
+    JSB_CHORALES,
+    MNIST,
+    SP500,
+    load_dataset,
+)
 from numpyro.util import fori_loop
 
 
