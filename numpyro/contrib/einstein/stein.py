@@ -54,8 +54,8 @@ class Stein(VI):
                                (should be a subset of number of Stein particles) (EXPERIMENTAL)
     :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
     :param num_mcmc_samples: Number of MCMC update steps at each iteration (EXPERIMENTAL)
-    :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
-    :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
+    :param mcmc_kernel: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
+    :param mcmc_kernel_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
     :param mcmc_kwargs: Keyword arguments provided to the MCMC interface (EXPERIMENTAL)
     :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -80,8 +80,8 @@ class Stein(VI):
             num_mcmc_particles: int = 0,
             num_mcmc_warmup: int = 100,
             num_mcmc_samples: int = 10,
-            sampler_fn=NUTS,
-            sampler_kwargs=None,
+            mcmc_kernel=NUTS,
+            mcmc_kernel_kwargs=None,
             mcmc_kwargs=None,
             **static_kwargs
     ):
@@ -111,8 +111,8 @@ class Stein(VI):
         self.num_mcmc_particles = num_mcmc_particles
         self.num_mcmc_warmup = num_mcmc_warmup
         self.num_mcmc_updates = num_mcmc_samples
-        self.sampler_fn = sampler_fn
-        self.sampler_kwargs = sampler_kwargs or dict()
+        self.mcmc_kernel = mcmc_kernel
+        self.mcmc_kernel_kwargs = mcmc_kernel_kwargs or dict()
         self.mcmc_kwargs = mcmc_kwargs or dict()
         self.mcmc: MCMC = None
         self.guide_param_names = None
@@ -298,7 +298,7 @@ class Stein(VI):
 
         # 1. Run warmup on a subset of particles to tune the MCMC state
         warmup_key, mcmc_key = jax.random.split(rng_key)
-        sampler = self.sampler_fn(
+        sampler = self.mcmc_kernel(
             potential_fn=lambda params: self.loss.loss(
                 warmup_key,
                 {**params, **self.constrain_fn(classic_uparams)},

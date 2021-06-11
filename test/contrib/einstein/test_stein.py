@@ -74,13 +74,20 @@ def test_init_strategy(kernel, auto_guide, init_strategy, problem):
     stein.get_params(state)
 
 
+@pytest.mark.parametrize('kernel', KERNELS)
 @pytest.mark.parametrize('sp_criterion', ('local', 'rand'))
+@pytest.mark.parametrize('sp_mode', ('local', 'global'))
 @pytest.mark.parametrize('num_mcmc_particles', (1, 10, 20))
 @pytest.mark.parametrize('mcmc_warmup', (1, 2, 100, 500))
 @pytest.mark.parametrize('mcmc_samples', (1, 2, 100, 500))
 @pytest.mark.parametrize('mcmc_kernel', (HMC, NUTS))
-def test_stein_point(sp_criterion, num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel):
-    pass
+@pytest.mark.parametrize('auto_guide', (AutoDelta, AutoNormal))  # add transforms
+@pytest.mark.parametrize('problem', (uniform_normal, regression))
+def test_stein_point(kernel, sp_criterion, auto_guide, sp_mode, num_mcmc_particles, mcmc_warmup, mcmc_samples,
+                     mcmc_kernel, problem):
+    true_coefs, data, model = problem()
+    stein = Stein(model, auto_guide(model), Adam(1e-1), Trace_ELBO(), kernel, sp_mode=sp_mode,
+                  sp_mcmc_crit=sp_criterion, mcmc_kernel=mcmc_kernel)
 
 
 ########################################
