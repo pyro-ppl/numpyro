@@ -8,10 +8,11 @@ from numpyro.distributions.transforms import AffineTransform
 
 from numpyro.contrib.einstein import Stein
 from numpyro.contrib.einstein import kernels
-from numpyro.infer import Trace_ELBO, HMC, NUTS
+from numpyro.infer import Trace_ELBO, HMC, NUTS, SVI, log_likelihood, Predictive
 from numpyro.infer.autoguide import AutoDelta, AutoNormal
 from numpyro.infer.initialization import (init_to_uniform, init_to_sample, init_with_noise, init_to_median,
                                           init_to_feasible, init_to_value)
+from numpyro.infer.util import log_density
 from numpyro.optim import Adam
 import numpyro
 import jax.numpy as jnp
@@ -86,8 +87,26 @@ def test_stein_point(sp_criterion, num_mcmc_particles, mcmc_warmup, mcmc_samples
 # Stein Interior
 ########################################
 
-def test_get_params():
-    pass
+@pytest.mark.parametrize('kernel', KERNELS)
+@pytest.mark.parametrize('init_strategy', (init_to_uniform(),
+                                           init_to_sample(),
+                                           init_to_median(),
+                                           init_to_feasible()))
+@pytest.mark.parametrize('auto_guide', (AutoDelta, AutoNormal))  # add transforms
+@pytest.mark.parametrize('problem', (regression, uniform_normal))
+def test_get_params(kernel, auto_guide, init_strategy, problem):
+    _, data, model = problem()
+    guide, optim, elbo = auto_guide(model), Adam(1e-1), Trace_ELBO()
+
+    stein = Stein(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
+    stein_params = stein.get_params(stein.init(random.PRNGKey(0), *data))
+
+    svi = SVI(model, guide, optim, elbo)
+    svi_params = svi.get_params(svi.init(random.PRNGKey(0), *data))
+    assert svi_params.keys() == stein_params.keys()
+
+    for name, svi_param in svi_params.items():
+        assert stein_params[name].shape == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
 
 
 def test_evaluate():
