@@ -21,19 +21,19 @@ numpyro.set_platform("cpu")
 
 
 def lda(
-        doc_words,
-        num_topics=20,
-        num_words=100,
-        num_max_elements=10,
-        num_hidden=100,
+    doc_words,
+    num_topics=20,
+    num_words=100,
+    num_max_elements=10,
+    num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs = (
-            numpyro.sample(
-                "topic_word_probs",
-                dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
-            )
-            + 1e-7
+        numpyro.sample(
+            "topic_word_probs",
+            dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
+        )
+        + 1e-7
     )
     element_plate = numpyro.plate("words", num_max_elements, dim=-1)
     with numpyro.plate("documents", num_docs, dim=-2):
@@ -52,11 +52,11 @@ def lda(
 
 
 def lda_guide(
-        doc_words,
-        num_topics=20,
-        num_words=100,
-        num_max_elements=10,
-        num_hidden=100,
+    doc_words,
+    num_topics=20,
+    num_words=100,
+    num_max_elements=10,
+    num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs_val = numpyro.param(
@@ -89,7 +89,7 @@ def make_batcher(data, batch_size=32):
         i = step % ds_count
         epoch = step // ds_count
         is_last = i == (ds_count - 1)
-        batch_values = data[i * batch_size: (i + 1) * batch_size].todense()
+        batch_values = data[i * batch_size : (i + 1) * batch_size].todense()
         res = [[] for _ in range(batch_size)]
         for idx1, idx2 in zip(*np.nonzero(batch_values)):
             res[idx1].append(idx2)
@@ -106,7 +106,7 @@ def make_batcher(data, batch_size=32):
 
 
 def main(_argv):
-    newsgroups = fetch_20newsgroups(subset='train')
+    newsgroups = fetch_20newsgroups(subset="train")
     num_words = 300
     count_vectorizer = CountVectorizer(
         max_df=0.95,
@@ -134,12 +134,25 @@ def main(_argv):
 
     guide = substitute(seed(lda_guide, rng_key), stein.get_params(state))
 
-    newsgroups = fetch_20newsgroups(subset='test')
-    guide_tr = trace(guide).get_trace(count_vectorizer.transform(newsgroups.data).todense(), num_topics=20,
-                                      num_words=num_words, num_max_elements=num_max_elements, num_hidden=100)
-    model_tr = trace(replay(lda, guide_tr)).get_trace(count_vectorizer.transform(newsgroups), num_topics=20,
-                                                      num_words=num_words, num_max_elements=num_max_elements,
-                                                      num_hidden=100)
+    fn, _ = make_batcher(
+        count_vectorizer.transform(fetch_20newsgroups(subset="test").data),
+        batch_size=7532,
+    )
+    (newsgroups_test,), _, _, _ = fn(0)
+    guide_tr = trace(guide).get_trace(
+        newsgroups_test,
+        num_topics=20,
+        num_words=num_words,
+        num_max_elements=num_max_elements,
+        num_hidden=100,
+    )
+    model_tr = trace(replay(lda, guide_tr)).get_trace(
+        newsgroups_test,
+        num_topics=20,
+        num_words=num_words,
+        num_max_elements=num_max_elements,
+        num_hidden=100,
+    )
 
 
 if __name__ == "__main__":

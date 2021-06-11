@@ -62,28 +62,28 @@ class Stein(VI):
     """
 
     def __init__(
-            self,
-            model,
-            guide,
-            optim,
-            loss,
-            kernel_fn: SteinKernel,
-            reinit_hide_fn=lambda site: site["name"].endswith("$params"),
-            init_strategy=init_to_uniform,
-            num_particles: int = 10,
-            loss_temperature: float = 1.0,
-            repulsion_temperature: float = 1.0,
-            classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-            enum=True,
-            sp_mcmc_crit="infl",
-            sp_mode="local",
-            num_mcmc_particles: int = 0,
-            num_mcmc_warmup: int = 100,
-            num_mcmc_samples: int = 10,
-            mcmc_kernel=NUTS,
-            mcmc_kernel_kwargs=None,
-            mcmc_kwargs=None,
-            **static_kwargs
+        self,
+        model,
+        guide,
+        optim,
+        loss,
+        kernel_fn: SteinKernel,
+        reinit_hide_fn=lambda site: site["name"].endswith("$params"),
+        init_strategy=init_to_uniform,
+        num_particles: int = 10,
+        loss_temperature: float = 1.0,
+        repulsion_temperature: float = 1.0,
+        classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
+        enum=True,
+        sp_mcmc_crit="infl",
+        sp_mode="local",
+        num_mcmc_particles: int = 0,
+        num_mcmc_warmup: int = 100,
+        num_mcmc_samples: int = 10,
+        mcmc_kernel=NUTS,
+        mcmc_kernel_kwargs=None,
+        mcmc_kwargs=None,
+        **static_kwargs
     ):
 
         guide = WrappedGuide(
@@ -236,7 +236,7 @@ class Stein(VI):
             lambda y: jnp.sum(
                 jax.vmap(
                     lambda x: self.repulsion_temperature
-                              * self._kernel_grad(kernel, x, y)
+                    * self._kernel_grad(kernel, x, y)
                 )(tstein_particles),
                 axis=0,
             )
@@ -247,10 +247,10 @@ class Stein(VI):
             return (att_force + rep_force) @ reparam_jac
 
         particle_grads = (
-                jax.vmap(single_particle_grad)(
-                    stein_particles, attractive_force, repulsive_force
-                )
-                / self.num_particles
+            jax.vmap(single_particle_grad)(
+                stein_particles, attractive_force, repulsive_force
+            )
+            / self.num_particles
         )
 
         # 5. Decompose the monolithic particle forces back to concrete parameter values
@@ -261,14 +261,14 @@ class Stein(VI):
         return -jnp.mean(loss), res_grads
 
     def _score_sp_mcmc(
-            self,
-            rng_key,
-            subset_idxs,
-            stein_uparams,
-            sp_mcmc_subset_uparams,
-            classic_uparams,
-            *args,
-            **kwargs
+        self,
+        rng_key,
+        subset_idxs,
+        stein_uparams,
+        sp_mcmc_subset_uparams,
+        classic_uparams,
+        *args,
+        **kwargs
     ):
         if self.sp_mode == "local":
             _, ksd = self._svgd_loss_and_grads(
@@ -319,7 +319,7 @@ class Stein(VI):
         )
         stein_params = self.constrain_fn(stein_uparams)
         stein_subset_params = {
-            p: v[0: self.num_mcmc_particles] for p, v in stein_params.items()
+            p: v[0 : self.num_mcmc_particles] for p, v in stein_params.items()
         }
         mcmc.warmup(warmup_key, *args, init_params=stein_subset_params, **kwargs)
 
@@ -330,8 +330,8 @@ class Stein(VI):
         else:
             if self.sp_mcmc_crit == "rand":
                 idxs = jax.random.shuffle(choice_key, jnp.arange(self.num_particles))[
-                       : self.num_mcmc_particles
-                       ]
+                    : self.num_mcmc_particles
+                ]
             elif self.sp_mcmc_crit == "infl":
                 _, grads = self._svgd_loss_and_grads(
                     choice_key, unconstr_params, *args, **kwargs
@@ -410,7 +410,11 @@ class Stein(VI):
         guide_param_names = set()
         should_enum = False
         for site in model_trace.values():
-            if "fn" in site and isinstance(site["fn"], Distribution) and site["fn"].is_discrete:
+            if (
+                "fn" in site
+                and isinstance(site["fn"], Distribution)
+                and site["fn"].is_discrete
+            ):
                 if site["fn"].has_enumerate_support and self.enum:
                     should_enum = True
                 else:
@@ -443,9 +447,14 @@ class Stein(VI):
         self.constrain_fn = partial(transform_fn, inv_transforms)
         self.uconstrain_fn = partial(transform_fn, transforms)
         self.particle_transform_fn = partial(transform_fn, particle_transforms)
-        stein_particles, _ = ravel_pytree({k: params[k] for k, site in guide_trace.items()
-                                           if site['type'] == 'param' and site['name'] in guide_init_params},
-                                          batch_dims=1)
+        stein_particles, _ = ravel_pytree(
+            {
+                k: params[k]
+                for k, site in guide_trace.items()
+                if site["type"] == "param" and site["name"] in guide_init_params
+            },
+            batch_dims=1,
+        )
 
         self.kernel_fn.init(kernel_seed, stein_particles.shape)
         return Stein.CurrentState(self.optim.init(params), rng_key)
