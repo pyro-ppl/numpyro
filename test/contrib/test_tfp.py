@@ -59,7 +59,9 @@ def test_transformed_distributions():
     from numpyro.contrib.tfp import distributions as tfd
 
     d = dist.TransformedDistribution(dist.Normal(0, 1), dist.transforms.ExpTransform())
-    d1 = tfd.TransformedDistribution(tfd.Normal(0, 1), tfb.Exp())
+    d1 = dist.TransformedDistribution(
+        tfd.Normal(0, 1), tfd.BijectorTransform(tfb.Exp())
+    )
     d2 = dist.TransformedDistribution(
         dist.Normal(0, 1), tfd.BijectorTransform(tfb.Exp())
     )
