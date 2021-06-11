@@ -130,8 +130,6 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
         d = TFPDistribution[tfd.Normal](0, 1)
 
-    .. note:: Some special distributions like TransformedDistribution is not yet supported.
-        You can use NumPyro's TransformedDistribution as an alternative.
     """
 
     tfd_class = None
@@ -140,7 +138,6 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         # return parameters from the constructor
         if name in self.tfp_dist.parameters:
             return self.tfp_dist.parameters[name]
-        return super().__getattr__(name)
 
     @property
     def batch_shape(self):
@@ -231,7 +228,7 @@ for _name, _Dist in tfd.__dict__.items():
         continue
     if not issubclass(_Dist, tfd.Distribution):
         continue
-    if _Dist in [tfd.Distribution, tfd.TransformedDistribution]:
+    if _Dist is tfd.Distribution:
         continue
 
     try:
@@ -253,7 +250,7 @@ for _name, _Dist in tfd.__dict__.items():
 
     _PyroDist.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
-    with :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
+    with :class:`~numpyro.contrib.tfp.distributions.TFPDistribution`.
     """.format(
         _Dist.__module__, _Dist.__name__, _Dist.__name__
     )

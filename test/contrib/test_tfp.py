@@ -55,13 +55,12 @@ def test_independent():
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_transformed_distributions():
     from tensorflow_probability.substrates.jax import bijectors as tfb
+    from tensorflow_probability.substrates.jax.distributions import Normal as TFPNormal
 
     from numpyro.contrib.tfp import distributions as tfd
 
     d = dist.TransformedDistribution(dist.Normal(0, 1), dist.transforms.ExpTransform())
-    d1 = dist.TransformedDistribution(
-        tfd.Normal(0, 1), tfd.BijectorTransform(tfb.Exp())
-    )
+    d1 = tfd.TransformedDistribution(TFPNormal(0, 1), tfb.Exp())
     d2 = dist.TransformedDistribution(
         dist.Normal(0, 1), tfd.BijectorTransform(tfb.Exp())
     )
