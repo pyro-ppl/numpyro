@@ -324,6 +324,11 @@ class MixtureKernel(SteinKernel):
 
         return kernel
 
+    def init(self, rng_key, particles_shape):
+        for kf in self.kernel_fns:
+            rng_key, krng_key = random.split(rng_key)
+            kf.init(krng_key, particles_shape)
+
 
 class HessianPrecondMatrix(PrecondMatrix):
     """
