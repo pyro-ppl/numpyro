@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.experimental import stax
 from sklearn.datasets import fetch_20newsgroups
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.utils import shuffle
 
 import numpyro
@@ -13,27 +13,27 @@ import numpyro.distributions as dist
 from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
-from numpyro.infer import Trace_ELBO
+from numpyro.infer import Trace_ELBO, log_likelihood
 from numpyro.optim import Adam
 
 numpyro.set_platform("cpu")
 
 
 def lda(
-    doc_words,
-    lengths,
-    num_topics=20,
-    num_words=100,
-    num_max_elements=10,
-    num_hidden=100,
+        doc_words,
+        lengths,
+        num_topics=20,
+        num_words=100,
+        num_max_elements=10,
+        num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs = (
-        numpyro.sample(
-            "topic_word_probs",
-            dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
-        )
-        + 1e-7
+            numpyro.sample(
+                "topic_word_probs",
+                dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
+            )
+            + 1e-7
     )
     element_plate = numpyro.plate("words", num_max_elements, dim=-1)
     with numpyro.plate("documents", num_docs, dim=-2):
@@ -52,12 +52,12 @@ def lda(
 
 
 def lda_guide(
-    doc_words,
-    lengths,
-    num_topics=20,
-    num_words=100,
-    num_max_elements=10,
-    num_hidden=100,
+        doc_words,
+        lengths,
+        num_topics=20,
+        num_words=100,
+        num_max_elements=10,
+        num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs_val = numpyro.param(
@@ -90,7 +90,7 @@ def make_batcher(data, batch_size=32):
         i = step % ds_count
         epoch = step // ds_count
         is_last = i == (ds_count - 1)
-        batch_values = data[i * batch_size : (i + 1) * batch_size].todense()
+        batch_values = data[i * batch_size: (i + 1) * batch_size].todense()
         res = [[] for _ in range(batch_size)]
         for idx1, idx2 in zip(*np.nonzero(batch_values)):
             res[idx1].append(idx2)
@@ -106,17 +106,22 @@ def make_batcher(data, batch_size=32):
     return batch_fn, num_max_elements
 
 
+def perplexity(stein_params, data):
+    params = {name[:-9]: param for name, param in stein_params.items()}
+    log_likelihood(lda, params, data)
+
+
 def main(_argv):
-    newsgroups = fetch_20newsgroups()["data"]
-    num_words = 100
-    count_vectorizer = CountVectorizer(
+    newsgroups = fetch_20newsgroups(subset='train')
+    num_words = 300
+    tfidf_vectorizer = TfidfVectorizer(
         max_df=0.95,
         min_df=0.01,
         token_pattern=r"(?u)\b[^\d\W]\w+\b",
         max_features=num_words,
         stop_words="english",
     )
-    newsgroups_docs = count_vectorizer.fit_transform(newsgroups)
+    newsgroups_docs = tfidf_vectorizer.fit_transform(newsgroups.data)
     batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=128)
     rng_key = jax.random.PRNGKey(8938)
     stein = Stein(
@@ -130,7 +135,8 @@ def main(_argv):
         num_words=num_words,
         num_max_elements=num_max_elements,
     )
-    stein.run(rng_key, 1000, batch_fun=batch_fn, callbacks=[Progbar()])
+    state, losses = stein.run(rng_key, 10, batch_fun=batch_fn, callbacks=[Progbar()])
+    perplexity(stein.get_params(state), tfidf_vectorizer.transform(fetch_20newsgroups(subset='test').data))
 
 
 if __name__ == "__main__":
