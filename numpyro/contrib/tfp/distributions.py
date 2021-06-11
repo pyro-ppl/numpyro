@@ -138,6 +138,9 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         # return parameters from the constructor
         if name in self.tfp_dist.parameters:
             return self.tfp_dist.parameters[name]
+        elif name in ["dtype", "reparameterization_type"]:
+            return getattr(self.tfp_dist, name)
+        raise AttributeError(name)
 
     @property
     def batch_shape(self):

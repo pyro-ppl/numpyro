@@ -74,19 +74,19 @@ def test_transformed_distributions():
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_logistic_regression():
-    from numpyro.contrib.tfp import distributions as dist
+    from numpyro.contrib.tfp import distributions as tfd
 
     N, dim = 3000, 3
     num_warmup, num_samples = (1000, 1000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits)(rng_key=random.PRNGKey(1))
+    labels = tfd.Bernoulli(logits=logits)(rng_key=random.PRNGKey(1))
 
     def model(labels):
-        coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
+        coefs = numpyro.sample("coefs", tfd.Normal(jnp.zeros(dim), jnp.ones(dim)))
         logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
-        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+        return numpyro.sample("obs", tfd.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
@@ -102,19 +102,19 @@ def test_logistic_regression():
 # TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
 @pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
 def test_beta_bernoulli():
-    from numpyro.contrib.tfp import distributions as dist
+    from numpyro.contrib.tfp import distributions as tfd
 
     num_warmup, num_samples = (500, 2000)
 
     def model(data):
         alpha = jnp.array([1.1, 1.1])
         beta = jnp.array([1.1, 1.1])
-        p_latent = numpyro.sample("p_latent", dist.Beta(alpha, beta))
-        numpyro.sample("obs", dist.Bernoulli(p_latent), obs=data)
+        p_latent = numpyro.sample("p_latent", tfd.Beta(alpha, beta))
+        numpyro.sample("obs", tfd.Bernoulli(p_latent), obs=data)
         return p_latent
 
     true_probs = jnp.array([0.9, 0.1])
-    data = dist.Bernoulli(true_probs)(rng_key=random.PRNGKey(1), sample_shape=(1000, 2))
+    data = tfd.Bernoulli(true_probs)(rng_key=random.PRNGKey(1), sample_shape=(1000, 2))
     kernel = NUTS(model=model, trajectory_length=0.1)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(2), data)
