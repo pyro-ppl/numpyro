@@ -14,6 +14,7 @@ import warnings
 import zipfile
 
 import numpy as np
+import scipy
 
 from jax import lax
 
@@ -66,6 +67,11 @@ JSB_CHORALES = dset(
 HIGGS = dset(
     "higgs",
     ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
+)
+
+LR_BENCHMARKS = dset(
+    "lr_benchmarks",
+    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 
@@ -276,6 +282,24 @@ def _load_higgs(num_datapoints):
     }  # standard split -500_000: as test
 
 
+def _load_lr_benchmarks():
+    _download(LR_BENCHMARKS)
+
+    file_path = os.path.join(DATA_DIR, "benchmarks.mat")
+    data = scipy.io.loadmat(file_path)
+    datasets = {'train': {}, 'test': {}}
+    for k, v in data.items():
+        if str.startswith(k, "__") or k == 'benchmarks' or not v['x'][0, 0].shape[0] > 500:
+            continue
+        k_input = k + '_input'
+        k_class = k + '_class'
+        datasets['train'][k_input] = v['x'][0, 0][v['train'][0, 0][13, :] - 1]
+        datasets['train'][k_class] = (v['t'][0, 0][v['train'][0, 0][13, :] - 1] == 1).astype('float')[:, 0]
+        datasets['test'][k_input] = v['x'][0, 0][v['test'][0, 0][13, :] - 1]
+        datasets['test'][k_class] = (v['t'][0, 0][v['test'][0, 0][13, :] - 1] == 1).astype('float')[:, 0]
+    
+    return datasets
+
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
@@ -295,6 +319,8 @@ def _load(dset, num_datapoints=-1):
         return _load_jsb_chorales()
     elif dset == HIGGS:
         return _load_higgs(num_datapoints)
+    elif dset == LR_BENCHMARKS:
+        return _load_lr_benchmarks()
     raise ValueError("Dataset - {} not found.".format(dset.name))
 
 
