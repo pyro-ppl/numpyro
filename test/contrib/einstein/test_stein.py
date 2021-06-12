@@ -184,31 +184,6 @@ def test_svgd_loss_and_grads():
     pass
 
 
-def test_update():
-    pass
-
-
-@pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize(
-    "init_strategy",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
-)
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-@pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_init(kernel, auto_guide, init_strategy, problem):
-    true_coefs, data, model = problem()
-    stein = Stein(
-        model,
-        auto_guide(model),
-        Adam(1e-1),
-        Trace_ELBO(),
-        kernel,
-        init_strategy=init_strategy,
-    )
-    state = stein.init(random.PRNGKey(0), *data)
-    stein.get_params(state)
-
-
 ########################################
 # Variational Interface
 ########################################
