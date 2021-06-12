@@ -61,7 +61,7 @@ setup(
             "optax==0.0.6",
             # TODO: change this to tensorflow_probability>0.12.1 when the next version
             # of tfp is released. The current release is not compatible with jax>=0.2.12.
-            "tfp-nightly",
+            "tfp-nightly<=0.14.0.dev20210608",
         ],
         "examples": ["arviz", "jupyter", "matplotlib", "pandas", "seaborn"],
     },

@@ -80,7 +80,11 @@ class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
             and (not msg["fn"].has_rsample)
         ):
             msg["value"] = lax.stop_gradient(msg["value"])
-            msg["intermediates"] = lax.stop_gradient(msg["intermediates"])
+            # TODO: reconsider this logic
+            # here we clear all the cached value so that gradients of log_prob(value) w.r.t.
+            # all parameters of the transformed distributions match the behavior of
+            # TransformedDistribution(d, transform) in Pyro with transform.cache_size == 0
+            msg["intermediates"] = None
 
 
 def get_importance_trace(model, guide, args, kwargs, params):
