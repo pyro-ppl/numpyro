@@ -156,12 +156,24 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
         )
 
 
-def test_evaluate():
-    pass
 
+@pytest.mark.parametrize("kernel", KERNELS)
+@pytest.mark.parametrize(
+    "init_strategy",
+    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
+)
+@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
+@pytest.mark.parametrize("problem", (regression, uniform_normal))
+def test_update_evaluate(kernel, auto_guide, init_strategy, problem):
+    _, data, model = problem()
+    guide, optim, elbo = auto_guide(model), Adam(1e-1), Trace_ELBO()
 
-def test_predict():
-    pass
+    stein = Stein(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
+    state = stein.init(random.PRNGKey(0), *data)
+    _, update_loss = stein.update(state, *data)
+    state = stein.init(random.PRNGKey(0), *data)
+    eval_loss = stein.evaluate(state, *data)
+    assert eval_loss == update_loss
 
 
 def test_score_sp_mcmc():
