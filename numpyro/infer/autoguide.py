@@ -291,6 +291,17 @@ class AutoNormal(AutoGuide):
             return self._postprocess_fn(latent_samples)
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
+        """
+        Get samples from the learned posterior.
+
+        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
+        :param dict params: Current parameters of model and autoguide.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
+        :param tuple sample_shape: batch shape of each latent sample, defaults to ().
+        :return: a dict containing samples drawn the this guide.
+        :rtype: dict
+        """
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
         with handlers.seed(rng_seed=rng_key):
@@ -302,6 +313,12 @@ class AutoNormal(AutoGuide):
         return self._constrain(latent_samples)
 
     def median(self, params):
+        """
+        Returns the posterior median value of each latent variable.
+
+        :return: A dict mapping sample site name to median value.
+        :rtype: dict
+        """
         locs = {
             k: params["{}_{}_loc".format(k, self.prefix)]
             for k, v in self._init_locs.items()
@@ -309,10 +326,27 @@ class AutoNormal(AutoGuide):
         return self._constrain(locs)
 
     def quantiles(self, params, quantiles):
-        quantiles = jnp.array(quantiles)[..., None]
+        """
+        Returns posterior quantiles each latent variable. Example::
+
+            print(guide.quantiles(params, [0.05, 0.5, 0.95]))
+
+        :param dict params: A dict containing parameter values.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
+        :param list quantiles: A list of requested quantiles between 0 and 1.
+        :return: A dict mapping sample site name to an array of quantile values.
+        :rtype: dict
+        """
+        quantiles = jnp.array(quantiles)
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
-        latent = {k: dist.Normal(locs[k], scales[k]).icdf(quantiles) for k in locs}
+        latent = {
+            k: dist.Normal(locs[k], scales[k]).icdf(
+                quantiles.reshape((-1,) + (1,) * jnp.ndim(locs[k]))
+            )
+            for k in locs
+        }
         return self._constrain(latent)
 
 
@@ -401,6 +435,17 @@ class AutoDelta(AutoGuide):
         return result
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
+        """
+        Get samples from the learned posterior.
+
+        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
+        :param dict params: Current parameters of model and autoguide.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
+        :param tuple sample_shape: batch shape of each latent sample, defaults to ().
+        :return: a dict containing samples drawn the this guide.
+        :rtype: dict
+        """
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         latent_samples = {
             k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
@@ -602,7 +647,7 @@ class AutoContinuous(AutoGuide):
         :param dict params: A dict containing parameter values.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
             method from :class:`~numpyro.infer.svi.SVI`.
-        :return: A dict mapping sample site name to median tensor.
+        :return: A dict mapping sample site name to median value.
         :rtype: dict
         """
         raise NotImplementedError
@@ -611,13 +656,13 @@ class AutoContinuous(AutoGuide):
         """
         Returns posterior quantiles each latent variable. Example::
 
-            print(guide.quantiles(opt_state, [0.05, 0.5, 0.95]))
+            print(guide.quantiles(params, [0.05, 0.5, 0.95]))
 
         :param dict params: A dict containing parameter values.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
             method from :class:`~numpyro.infer.svi.SVI`.
         :param list quantiles: A list of requested quantiles between 0 and 1.
-        :return: A dict mapping sample site name to a list of quantile values.
+        :return: A dict mapping sample site name to an array of quantile values.
         :rtype: dict
         """
         raise NotImplementedError
