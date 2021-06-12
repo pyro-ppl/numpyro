@@ -80,9 +80,9 @@ def lda_guide(
     )
 
 
-def make_batcher(data, batch_size=32):
+def make_batcher(data, batch_size=32, num_max_elements=-1):
     ds_count = data.shape[0] // batch_size
-    num_max_elements = np.bincount(data.nonzero()[0]).max()
+    num_max_elements = max(np.bincount(data.nonzero()[0]).max(), num_max_elements)
 
     def batch_fn(step):
         nonlocal data
@@ -107,7 +107,7 @@ def make_batcher(data, batch_size=32):
 
 def main(_argv):
     newsgroups = fetch_20newsgroups(subset="train")
-    num_words = 300
+    num_words = 100
     count_vectorizer = CountVectorizer(
         max_df=0.95,
         min_df=0.01,
@@ -136,7 +136,7 @@ def main(_argv):
 
     fn, _ = make_batcher(
         count_vectorizer.transform(fetch_20newsgroups(subset="test").data),
-        batch_size=7532,
+        batch_size=7532, num_max_elements=89
     )
     (newsgroups_test,), _, _, _ = fn(0)
     guide_tr = trace(guide).get_trace(
