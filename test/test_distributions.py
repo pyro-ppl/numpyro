@@ -12,7 +12,7 @@ import pytest
 import scipy.stats as osp
 
 import jax
-from jax import grad, jacfwd, lax, vmap
+from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
@@ -109,6 +109,19 @@ class SparsePoisson(dist.Poisson):
         super().__init__(rate, is_sparse=True, validate_args=validate_args)
 
 
+class FoldedNormal(dist.FoldedDistribution):
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
+
+    def __init__(self, loc, scale, validate_args=None):
+        self.loc = loc
+        self.scale = scale
+        super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return dist.FoldedDistribution.tree_unflatten(aux_data, params)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -189,6 +202,8 @@ CONTINUOUS = [
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, jnp.array([0.0, 0.5]), jnp.array([1.0, 2.0])),
+    T(FoldedNormal, 2.0, 4.0),
+    T(FoldedNormal, jnp.array([2.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.HalfCauchy, 1.0),
     T(dist.HalfCauchy, jnp.array([1.0, 2.0])),
     T(dist.HalfNormal, 1.0),
@@ -665,48 +680,33 @@ def test_sample_gradient(jax_dist, sp_dist, params):
 
 
 @pytest.mark.parametrize(
-    "jax_dist, sp_dist, params",
+    "jax_dist, params",
     [
-        (dist.Gamma, osp.gamma, (1.0,)),
-        (dist.Gamma, osp.gamma, (0.1,)),
-        (dist.Gamma, osp.gamma, (10.0,)),
-        (dist.Chi2, osp.chi2, (1.0,)),
-        (dist.Chi2, osp.chi2, (0.1,)),
-        (dist.Chi2, osp.chi2, (10.0,)),
-        # TODO: add more test cases for Beta/StudentT (and Dirichlet too) when
-        # their pathwise grad (independent of standard_gamma grad) is implemented.
-        pytest.param(
-            dist.Beta,
-            osp.beta,
-            (1.0, 1.0),
-            marks=pytest.mark.xfail(
-                reason="currently, variance of grad of beta sampler is large"
-            ),
-        ),
-        pytest.param(
-            dist.StudentT,
-            osp.t,
-            (1.0,),
-            marks=pytest.mark.xfail(
-                reason="currently, variance of grad of t sampler is large"
-            ),
-        ),
+        (dist.Gamma, (1.0,)),
+        (dist.Gamma, (0.1,)),
+        (dist.Gamma, (10.0,)),
+        (dist.Chi2, (1.0,)),
+        (dist.Chi2, (0.1,)),
+        (dist.Chi2, (10.0,)),
+        (dist.Beta, (1.0, 1.0)),
+        (dist.StudentT, (5.0, 2.0, 4.0)),
     ],
 )
-def test_pathwise_gradient(jax_dist, sp_dist, params):
+def test_pathwise_gradient(jax_dist, params):
     rng_key = random.PRNGKey(0)
-    N = 100
-    z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
-    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng_key, sample_shape=(N,)))(
-        params
-    )
-    eps = 1e-3
-    for i in range(len(params)):
-        args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
-        args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
-        cdf_dot = (sp_dist(*args_rhs).cdf(z) - sp_dist(*args_lhs).cdf(z)) / (2 * eps)
-        expected_grad = -cdf_dot / sp_dist(*params).pdf(z)
-        assert_allclose(actual_grad[i], expected_grad, rtol=0.005)
+    N = 1000000
+
+    def f(params):
+        z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
+        return (z + z ** 2).mean(0)
+
+    def g(params):
+        d = jax_dist(*params)
+        return d.mean + d.variance + d.mean ** 2
+
+    actual_grad = grad(f)(params)
+    expected_grad = grad(g)(params)
+    assert_allclose(actual_grad, expected_grad, rtol=0.005)
 
 
 @pytest.mark.parametrize(
@@ -1102,6 +1102,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
+    if jax_dist is FoldedNormal:
+        pytest.skip("Folded distribution does not has mean/var implemented")
     if jax_dist in (
         _TruncatedNormal,
         dist.LeftTruncatedDistribution,
