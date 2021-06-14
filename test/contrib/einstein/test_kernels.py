@@ -90,7 +90,7 @@ TEST_IDS = [t[0].__class__.__name__ for t in TEST_CASES]
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 def test_kernel_forward(
-        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         return
