@@ -1,18 +1,24 @@
 import string
-from collections import OrderedDict
+from collections import namedtuple
 
 import jax.numpy as jnp
 import numpy as np
 import numpy.random as nrandom
 import pytest
-from attr._compat import ordered_dict
 from jax import random
-from sklearn.utils._testing import assert_dict_equal
+from numpy.testing import assert_allclose
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.contrib.einstein import Stein, RBFKernel, IMQKernel, LinearKernel, GraphicalKernel
 from numpyro.contrib.einstein import kernels
+from numpyro.contrib.einstein.kernels import (
+    HessianPrecondMatrix,
+    MixtureKernel,
+    PrecondMatrixKernel,
+    RandomFeatureKernel,
+)
+from numpyro.contrib.einstein.utils import posdef, sqrth, sqrth_and_inv_sqrth
 from numpyro.distributions import Poisson
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import Trace_ELBO, HMC, NUTS, SVI
@@ -34,11 +40,72 @@ KERNELS = [
     kernels.RandomFeatureKernel(),
 ]
 
+jnp.set_printoptions(precision=100)
+TKERNEL = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
+PARTICLES_2D = jnp.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
 
+TPARTICLES_2D = (jnp.array([1.0, 2.0]), jnp.array([10.0, 5.0]))  # transformed particles
+
+KERNEL_TEST_CASES = [
+    TKERNEL(
+        RBFKernel,
+        lambda d: {},
+        lambda x: x,
+        {
+            "norm": 0.040711474,
+            "vector": jnp.array([0.056071877, 0.7260586]),
+            "matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
+        },
+    ),
+    TKERNEL(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
+    TKERNEL(
+        IMQKernel,
+        lambda d: {},
+        lambda x: x,
+        {"norm": 0.104828484, "vector": jnp.array([0.11043153, 0.31622776])},
+    ),
+    TKERNEL(LinearKernel, lambda d: {}, lambda x: x, {"norm": 21.0}),
+    TKERNEL(
+        lambda mode: MixtureKernel(  # TODO: make wrapper to fix name!!
+            mode=mode,
+            ws=jnp.array([0.2, 0.8]),
+            kernel_fns=[RBFKernel(mode), RBFKernel(mode)],
+        ),
+        lambda d: {},
+        lambda x: x,
+        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+    ),
+    TKERNEL(
+        lambda mode: GraphicalKernel(
+            mode=mode, local_kernel_fns={"p1": RBFKernel("norm")}
+        ),
+        lambda d: {"p1": (0, d)},
+        lambda x: x,
+        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+    ),
+    TKERNEL(
+        lambda mode: PrecondMatrixKernel(
+            HessianPrecondMatrix(), RBFKernel(mode="matrix"), precond_mode="const"
+        ),
+        lambda d: {},
+        lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
+        {
+            "matrix": jnp.array(
+                [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
+            )
+        },
+    ),
+]
+
+TEST_IDS = [t[0].__name__ for t in KERNEL_TEST_CASES]
+
+PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
+
+
+@pytest.mark.parametrize("particles, tparticles", PARTICLES)
 ########################################
 #  Stein Exterior
 ########################################
-
 
 def uniform_normal():
     true_coef = 0.9
@@ -198,16 +265,22 @@ def test_sp_mcmc(num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel):
     stein._sp_mcmc(random.PRNGKey(0), uconstr_params)
 
 
-@pytest.mark.parametrize("kernel", [RBFKernel, IMQKernel, LinearKernel, GraphicalKernel])
-@pytest.mark.parametrize("kernel_mode", ["norm", "vector", "matrix"])
-def test_apply_kernel(kernel, kernel_mode):
-    try:
-        kernel = kernel(mode=kernel_mode)
-    except AssertionError:
+@pytest.mark.parametrize("kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS)
+@pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
+@pytest.mark.parametrize("particles, tparticles", PARTICLES)
+def test_apply_kernel(kernel, particles, particle_info, loss_fn, tparticles, mode, kval):
+    if mode not in kval:
         pytest.skip()
-    x, y, v = (1, 1, 1)
-    stein = Stein(id, id, Adam(1.), Trace_ELBO(), kernel)
-    stein._apply_kernel(kernel, x, y, v)
+    (d,) = tparticles[0].shape
+    kernel_fn = kernel(mode=mode)
+    kernel_fn.init(random.PRNGKey(0), particles.shape)
+    kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
+    v = jnp.ones_like(kval[mode])
+    stein = Stein(id, id, Adam(1.), Trace_ELBO(), kernel(mode))
+    value = stein._apply_kernel(kernel_fn, *tparticles, v)
+    if mode == 'matrix':
+        kval[mode] = jnp.dot(kval[mode], v)
+    assert_allclose(value, kval[mode], atol=1e-9)
 
 
 @pytest.mark.parametrize("length", [1, 2, 3, 6])
@@ -253,3 +326,54 @@ def test_calc_particle_info(num_params, num_particles):
 @pytest.mark.parametrize("callback", [])
 def test_callsback(callback):
     pass
+
+
+########################################
+# Stein Kernels
+########################################
+
+@pytest.mark.parametrize(
+    "kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS
+)
+@pytest.mark.parametrize("particles, tparticles", PARTICLES)
+@pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
+def test_kernel_forward(
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+):
+    if mode not in kval:
+        return
+    (d,) = tparticles[0].shape
+    kernel_fn = kernel(mode=mode)
+    kernel_fn.init(random.PRNGKey(0), particles.shape)
+    kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
+    value = kernel_fn(*tparticles)
+
+    assert_allclose(value, kval[mode], atol=1e-9)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
+def test_posdef(batch_shape):
+    dim = 4
+    x = np.random.normal(size=batch_shape + (dim, dim + 1))
+    m = x @ np.swapaxes(x, -2, -1)
+    assert_allclose(posdef(m), m, rtol=1e-5)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
+def test_sqrth(batch_shape):
+    dim = 4
+    x = np.random.normal(size=batch_shape + (dim, dim + 1))
+    m = x @ np.swapaxes(x, -2, -1)
+    s = sqrth(m)
+    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
+def test_sqrth_and_inv_sqrth(batch_shape):
+    dim = 4
+    x = np.random.normal(size=batch_shape + (dim, dim + 1))
+    m = x @ np.swapaxes(x, -2, -1)
+    s, i, si = sqrth_and_inv_sqrth(m)
+    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
+    assert_allclose(i, np.linalg.inv(m), rtol=1e-5)
+    assert_allclose(si @ np.swapaxes(si, -2, -1), i, rtol=1e-5)
