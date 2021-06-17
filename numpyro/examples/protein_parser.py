@@ -1,6 +1,5 @@
-from parsita import *
-
 import jax.numpy as jnp
+from parsita import TextParsers, reg, repsep, Success, ParseError
 
 
 def _to_dict(parsed):
@@ -51,7 +50,6 @@ class ProteinParser(TextParsers, whitespace=r"[ \t]*"):
         (declaration << "\n")
         & (repsep(aminoacid & dssp & (number | "NT") & (number | "CT"), "\n"))
     ) > _to_dict
-
     dataset = repsep(polypeptide, "\n") << "\n" > _convert_proteins
 
     @classmethod
@@ -85,10 +83,3 @@ class ProteinParser(TextParsers, whitespace=r"[ \t]*"):
             jnp.array([la + [0] * (max_length - len(la)) for la in ll])
             for ll in zip(*inddata)
         ), jnp.array(lengths)
-
-
-if __name__ == "__main__":
-    aas, ds, phis, psis, lengths = ProteinParser.parsef_jnp(
-        "../../notebooks/source/stein_vi/data/TorusDBN/top500.txt"
-    )
-    print(aas.shape[0])

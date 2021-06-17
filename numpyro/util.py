@@ -19,7 +19,6 @@ from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.experimental import host_callback
-from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 from tqdm.auto import tqdm as tqdm_auto
 
@@ -251,16 +250,16 @@ def progress_bar_factory(num_samples, num_chains):
 
 
 def fori_collect(
-    lower,
-    upper,
-    body_fun,
-    init_val,
-    transform=identity,
-    progbar=True,
-    return_last_val=False,
-    collection_size=None,
-    thinning=1,
-    **progbar_opts,
+        lower,
+        upper,
+        body_fun,
+        init_val,
+        transform=identity,
+        progbar=True,
+        return_last_val=False,
+        collection_size=None,
+        thinning=1,
+        **progbar_opts,
 ):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional

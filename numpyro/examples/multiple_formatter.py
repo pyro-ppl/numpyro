@@ -4,7 +4,7 @@ import numpy as np
 
 # From https://stackoverflow.com/a/53586826
 # TODO: Check licensing before including in Pyro repository
-def multiple_formatter(denominator=2, number=np.pi, latex="\pi"):
+def multiple_formatter(denominator=2, number=np.pi, latex=r"\pi"):
     def gcd(a, b):
         while b:
             a, b = b, a % b
@@ -36,7 +36,7 @@ def multiple_formatter(denominator=2, number=np.pi, latex="\pi"):
 
 
 class Multiple:
-    def __init__(self, denominator=2, number=np.pi, latex="\pi"):
+    def __init__(self, denominator=2, number=np.pi, latex=r"\pi"):
         self.denominator = denominator
         self.number = number
         self.latex = latex

@@ -1,5 +1,7 @@
 from abc import ABC
 
+from numpyro.contrib.einstein.vi import VI
+
 
 class Callback(ABC):
     def __new__(cls, *args, **kwargs):

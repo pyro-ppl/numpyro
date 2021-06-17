@@ -14,7 +14,7 @@ from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
 from numpyro.handlers import substitute, seed, trace, replay
-from numpyro.infer import Trace_ELBO, log_likelihood
+from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
 
 numpyro.set_platform("cpu")
@@ -64,9 +64,7 @@ def lda_guide(
         jnp.ones((num_topics, num_words)),
         constraint=dist.constraints.simplex,
     )
-    _topic_word_probs = numpyro.sample(
-        "topic_word_probs", dist.Delta(topic_word_probs_val).to_event(1)
-    )
+    numpyro.sample("topic_word_probs", dist.Delta(topic_word_probs_val).to_event(1))
     amortize_nn = numpyro.module(
         "amortize_nn",
         stax.serial(
@@ -75,9 +73,7 @@ def lda_guide(
         (num_docs, num_max_elements),
     )
     document_topic_probs_vals = amortize_nn(doc_words)[..., None, :] + 1e-7
-    _document_topic_probs = numpyro.sample(
-        "topic_probs", dist.Delta(document_topic_probs_vals)
-    )
+    numpyro.sample("topic_probs", dist.Delta(document_topic_probs_vals))
 
 
 def make_batcher(data, batch_size=32, num_max_elements=-1):
@@ -147,7 +143,7 @@ def main(_argv):
         num_max_elements=num_max_elements,
         num_hidden=100,
     )
-    model_tr = trace(replay(lda, guide_tr)).get_trace(
+    trace(replay(lda, guide_tr)).get_trace(
         newsgroups_test,
         num_topics=20,
         num_words=num_words,

@@ -7,7 +7,6 @@ import jax.random
 
 from numpyro import handlers
 from numpyro.distributions.constraints import real
-from numpyro.distributions.transforms import biject_to
 from numpyro.infer.util import init_to_uniform
 
 __all__ = ["ReinitGuide", "WrappedGuide"]

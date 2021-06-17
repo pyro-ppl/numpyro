@@ -8,7 +8,6 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
     RBFKernel,
 )
-from numpyro.contrib.einstein.reinit_guide import WrappedGuide
 from numpyro.contrib.einstein.stein import Stein
 
 __all__ = [
