@@ -60,12 +60,18 @@ class WrappedGraphicalKernel(GraphicalKernel):
 
 class WrappedPrecondMatrixKernel(PrecondMatrixKernel):
     def __init__(self, mode):
-        super().__init__(HessianPrecondMatrix(), RBFKernel(mode=mode), precond_mode="const")
+        super().__init__(
+            HessianPrecondMatrix(), RBFKernel(mode=mode), precond_mode="const"
+        )
 
 
 class WrappedMixtureKernel(MixtureKernel):
     def __init__(self, mode):
-        super().__init__(mode=mode, ws=jnp.array([0.2, 0.8]), kernel_fns=[RBFKernel(mode), RBFKernel(mode)], )
+        super().__init__(
+            mode=mode,
+            ws=jnp.array([0.2, 0.8]),
+            kernel_fns=[RBFKernel(mode), RBFKernel(mode)],
+        )
 
 
 KERNEL_TEST_CASES = [
@@ -87,9 +93,12 @@ KERNEL_TEST_CASES = [
         {"norm": 0.104828484, "vector": jnp.array([0.11043153, 0.31622776])},
     ),
     TKERNEL(LinearKernel, lambda d: {}, lambda x: x, {"norm": 21.0}),
-    TKERNEL(WrappedMixtureKernel, lambda d: {}, lambda x: x,
-            {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
-            ),
+    TKERNEL(
+        WrappedMixtureKernel,
+        lambda d: {},
+        lambda x: x,
+        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+    ),
     TKERNEL(
         WrappedGraphicalKernel,
         lambda d: {"p1": (0, d)},
@@ -151,62 +160,62 @@ def regression():
     return true_coefs, (data, labels), model
 
 
-# init_with_noise(),  # consider
-# init_to_value()))
-@pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize(
-    "init_strategy",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
-)
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-@pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_init_strategy(kernel, auto_guide, init_strategy, problem):
-    true_coefs, data, model = problem()
-    stein = Stein(
-        model,
-        auto_guide(model),
-        Adam(1e-1),
-        Trace_ELBO(),
-        kernel,
-        init_strategy=init_strategy,
-    )
-    state, loss = stein.run(random.PRNGKey(0), 100, *data)
-    stein.get_params(state)
-
-
-@pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize("sp_criterion", ("infl", "rand"))
-@pytest.mark.parametrize("sp_mode", ("local", "global"))
-@pytest.mark.parametrize("num_mcmc_particles", (1, 2, 10))
-@pytest.mark.parametrize("mcmc_warmup", (1, 2, 100))
-@pytest.mark.parametrize("mcmc_samples", (1, 2, 100))
-@pytest.mark.parametrize("mcmc_kernel", (HMC, NUTS))
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-@pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_stein_point(
-        kernel,
-        sp_criterion,
-        auto_guide,
-        sp_mode,
-        num_mcmc_particles,
-        mcmc_warmup,
-        mcmc_samples,
-        mcmc_kernel,
-        problem,
-):
-    true_coefs, data, model = problem()
-    stein = Stein(
-        model,
-        auto_guide(model),
-        Adam(1e-1),
-        Trace_ELBO(),
-        kernel,
-        sp_mode=sp_mode,
-        sp_mcmc_crit=sp_criterion,
-        mcmc_kernel=mcmc_kernel,
-    )
-    state, loss = stein.run(random.PRNGKey(0), 100, *data)
-    stein.get_params(state)
+# # init_with_noise(),  # consider
+# # init_to_value()))
+# @pytest.mark.parametrize("kernel", KERNELS)
+# @pytest.mark.parametrize(
+#     "init_strategy",
+#     (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
+# )
+# @pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
+# @pytest.mark.parametrize("problem", (uniform_normal, regression))
+# def test_init_strategy(kernel, auto_guide, init_strategy, problem):
+#     true_coefs, data, model = problem()
+#     stein = Stein(
+#         model,
+#         auto_guide(model),
+#         Adam(1e-1),
+#         Trace_ELBO(),
+#         kernel,
+#         init_strategy=init_strategy,
+#     )
+#     state, loss = stein.run(random.PRNGKey(0), 100, *data)
+#     stein.get_params(state)
+#
+#
+# @pytest.mark.parametrize("kernel", KERNELS)
+# @pytest.mark.parametrize("sp_criterion", ("infl", "rand"))
+# @pytest.mark.parametrize("sp_mode", ("local", "global"))
+# @pytest.mark.parametrize("num_mcmc_particles", (1, 2, 10))
+# @pytest.mark.parametrize("mcmc_warmup", (1, 2, 100))
+# @pytest.mark.parametrize("mcmc_samples", (1, 2, 100))
+# @pytest.mark.parametrize("mcmc_kernel", (HMC, NUTS))
+# @pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
+# @pytest.mark.parametrize("problem", (uniform_normal, regression))
+# def test_stein_point(
+#         kernel,
+#         sp_criterion,
+#         auto_guide,
+#         sp_mode,
+#         num_mcmc_particles,
+#         mcmc_warmup,
+#         mcmc_samples,
+#         mcmc_kernel,
+#         problem,
+# ):
+#     true_coefs, data, model = problem()
+#     stein = Stein(
+#         model,
+#         auto_guide(model),
+#         Adam(1e-1),
+#         Trace_ELBO(),
+#         kernel,
+#         sp_mode=sp_mode,
+#         sp_mcmc_crit=sp_criterion,
+#         mcmc_kernel=mcmc_kernel,
+#     )
+#     state, loss = stein.run(random.PRNGKey(0), 100, *data)
+#     stein.get_params(state)
 
 
 ########################################
@@ -252,9 +261,9 @@ def test_update_evaluate(kernel, auto_guide, init_strategy, problem):
 
     stein = Stein(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
     state = stein.init(random.PRNGKey(0), *data)
-    _, update_loss = stein.update(state, *data)
-    state = stein.init(random.PRNGKey(0), *data)
     eval_loss = stein.evaluate(state, *data)
+    state = stein.init(random.PRNGKey(0), *data)
+    _, update_loss = stein.update(state, *data)
     assert eval_loss == update_loss
 
 
@@ -285,14 +294,38 @@ def test_svgd_loss_and_grads():
     pass
 
 
-@pytest.mark.parametrize("num_mcmc_particles", (1, 2, 10))
-@pytest.mark.parametrize("mcmc_warmup", (1, 2, 100))
-@pytest.mark.parametrize("mcmc_samples", (1, 2, 100))
+@pytest.mark.parametrize("num_mcmc_particles", (1, 2, 8))
+@pytest.mark.parametrize("mcmc_warmup", (0, 1, 10))
+@pytest.mark.parametrize("mcmc_samples", (1, 2, 10))
 @pytest.mark.parametrize("mcmc_kernel", (HMC, NUTS))
-def test_sp_mcmc(num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel):
-    uconstr_params = {}
-    stein = Stein()
-    stein._sp_mcmc(random.PRNGKey(0), uconstr_params)
+@pytest.mark.parametrize("problem", (uniform_normal, regression))
+@pytest.mark.parametrize("sp_mode", ["local", "global"])
+@pytest.mark.parametrize("sp_criterion", ("infl", "rand"))
+def test_sp_mcmc(num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel, problem, sp_mode, sp_criterion):
+    if mcmc_samples >= num_mcmc_particles:
+        pytest.skip()
+    true_coefs, data, model = problem()
+    stein = Stein(
+        model,
+        AutoDelta(model),
+        Adam(.1),
+        Trace_ELBO(),
+        RBFKernel(),
+        sp_mcmc_crit=sp_criterion,
+        sp_mode=sp_mode,
+        num_mcmc_particles=num_mcmc_particles,
+        num_mcmc_warmup=mcmc_warmup,
+        num_mcmc_samples=mcmc_samples,
+        mcmc_kernel=mcmc_kernel,
+    )
+    state = stein.init(random.PRNGKey(0), *data)
+    uparams = stein.optim.get_params(state.optim_state)
+    mcmc_update_state = stein._sp_mcmc(random.PRNGKey(0), uparams, *data)
+
+    for k in uparams.keys():
+        assert k in mcmc_update_state
+        assert uparams[k].shape == mcmc_update_state[k].shape
+        assert not np.all(uparams[k] == mcmc_update_state[k])
 
 
 @pytest.mark.parametrize(

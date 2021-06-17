@@ -329,7 +329,7 @@ class Stein(VI):
             idxs = jnp.arange(self.num_particles)
         else:
             if self.sp_mcmc_crit == "rand":
-                idxs = jax.random.shuffle(choice_key, jnp.arange(self.num_particles))[
+                idxs = jax.random.permutation(choice_key, jnp.arange(self.num_particles))[
                     : self.num_mcmc_particles
                 ]
             elif self.sp_mcmc_crit == "infl":
@@ -506,7 +506,7 @@ class Stein(VI):
         :return: evaluate loss given the current parameter values (held within `state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given a state
-        _, rng_key_eval = jax.random.split(state.rng_key)
+        _, _, rng_key_eval = jax.random.split(state.rng_key, num=3)
         params = self.optim.get_params(state.optim_state)
         loss_val, _ = self._svgd_loss_and_grads(
             rng_key_eval, params, *args, **kwargs, **self.static_kwargs
