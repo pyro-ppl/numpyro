@@ -26,10 +26,11 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
-SVIRunResult = namedtuple("SVIRunResult", ["params", "losses"])
+SVIRunResult = namedtuple("SVIRunResult", ["params", "state", "losses"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **params** - the optimized parameters.
+ - **state** - the last :class:`SVIState`
  - **losses** - the losses collected at every step.
 """
 
@@ -165,13 +166,12 @@ class SVI(object):
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):
             if site["type"] == "param":
-                if site["infer"].get("mutable", False):
-                    mutable_state[site["name"]] = site["value"]
-                    continue
                 constraint = site["kwargs"].pop("constraint", constraints.real)
                 transform = biject_to(constraint)
                 inv_transforms[site["name"]] = transform
                 params[site["name"]] = transform.inv(site["value"])
+            elif site["type"] == "mutable":
+                mutable_state[site["name"]] = site["value"]
             elif (
                 site["type"] == "sample"
                 and (not site["is_observed"])
@@ -200,8 +200,6 @@ class SVI(object):
         :return: the corresponding parameters
         """
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
-        if svi_state.mutable_state is not None:
-            params.update(svi_state.mutable_state)
         return params
 
     def update(self, svi_state, *args, **kwargs):
@@ -229,11 +227,9 @@ class SVI(object):
             self.static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
-        has_aux = svi_state.mutable_state is not None
-        out, optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state, has_aux=has_aux
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
+            loss_fn, svi_state.optim_state, has_aux=True
         )
-        loss_val, mutable_state = out if has_aux else (out, None)
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def stable_update(self, svi_state, *args, **kwargs):

@@ -181,18 +181,6 @@ def param(name, init_value=None, **kwargs):
         corresponding batch dimensions of the parameter will be correspondingly
         subsampled. If unspecified, all dimensions will be considered event
         dims and no subsampling will be performed.
-    :param dict infer: an optional dictionary containing additional information
-        for inference algorithms. For example, we can set ``infer={"mutable": True}``
-        to tell SVI that this `param` site stores a mutable value that can be changed
-        during model execution::
-
-            a = numpyro.param("a", {"value": 1.}, infer={"mutable": True})
-            a["value"] = 2.
-            assert numpyro.param("a")["value"] == 2.
-
-        This mutable param can be used to store and update information like
-        running mean/variance in a neural network batch normalization layer.
-        Note that optimizers will skip optimizing those mutable parameters.
     :return: value for the parameter. Unless wrapped inside a
         handler like :class:`~numpyro.handlers.substitute`, this will simply
         return the initial value.
@@ -245,6 +233,31 @@ def deterministic(name, value):
         return value
 
     initial_msg = {"type": "deterministic", "name": name, "value": value}
+
+    # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg["value"]
+
+
+def mutable(name, init_value=None):
+    """
+    This primitive is used to store a mutable value that can be changed
+    during model execution::
+
+        a = numpyro.mutable("a", {"value": 1.})
+        a["value"] = 2.
+        assert numpyro.mutable("a")["value"] == 2.
+
+    For example, this can be used to store and update information like
+    running mean/variance in a neural network batch normalization layer.
+
+    :param str name: name of the mutable site.
+    :param init_value: mutable value to record in the trace.
+    """
+    if not _PYRO_STACK:
+        return init_value
+
+    initial_msg = {"type": "mutable", "name": name, "value": init_value}
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
