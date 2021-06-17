@@ -136,7 +136,8 @@ def main(_argv):
 
     fn, _ = make_batcher(
         count_vectorizer.transform(fetch_20newsgroups(subset="test").data),
-        batch_size=7532, num_max_elements=89
+        batch_size=7532,
+        num_max_elements=89,
     )
     (newsgroups_test,), _, _, _ = fn(0)
     guide_tr = trace(guide).get_trace(

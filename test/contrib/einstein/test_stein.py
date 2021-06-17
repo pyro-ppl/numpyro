@@ -10,7 +10,13 @@ from numpy.testing import assert_allclose
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.contrib.einstein import Stein, RBFKernel, IMQKernel, LinearKernel, GraphicalKernel
+from numpyro.contrib.einstein import (
+    Stein,
+    RBFKernel,
+    IMQKernel,
+    LinearKernel,
+    GraphicalKernel,
+)
 from numpyro.contrib.einstein import kernels
 from numpyro.contrib.einstein.kernels import (
     HessianPrecondMatrix,
@@ -46,6 +52,22 @@ PARTICLES_2D = jnp.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
 
 TPARTICLES_2D = (jnp.array([1.0, 2.0]), jnp.array([10.0, 5.0]))  # transformed particles
 
+
+class WrappedGraphicalKernel(GraphicalKernel):
+    def __init__(self, mode):
+        super().__init__(mode=mode, local_kernel_fns={"p1": RBFKernel("norm")})
+
+
+class WrappedPrecondMatrixKernel(PrecondMatrixKernel):
+    def __init__(self, mode):
+        super().__init__(HessianPrecondMatrix(), RBFKernel(mode=mode), precond_mode="const")
+
+
+class WrappedMixtureKernel(MixtureKernel):
+    def __init__(self, mode):
+        super().__init__(mode=mode, ws=jnp.array([0.2, 0.8]), kernel_fns=[RBFKernel(mode), RBFKernel(mode)], )
+
+
 KERNEL_TEST_CASES = [
     TKERNEL(
         RBFKernel,
@@ -65,28 +87,17 @@ KERNEL_TEST_CASES = [
         {"norm": 0.104828484, "vector": jnp.array([0.11043153, 0.31622776])},
     ),
     TKERNEL(LinearKernel, lambda d: {}, lambda x: x, {"norm": 21.0}),
+    TKERNEL(WrappedMixtureKernel, lambda d: {}, lambda x: x,
+            {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+            ),
     TKERNEL(
-        lambda mode: MixtureKernel(  # TODO: make wrapper to fix name!!
-            mode=mode,
-            ws=jnp.array([0.2, 0.8]),
-            kernel_fns=[RBFKernel(mode), RBFKernel(mode)],
-        ),
-        lambda d: {},
-        lambda x: x,
-        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
-    ),
-    TKERNEL(
-        lambda mode: GraphicalKernel(
-            mode=mode, local_kernel_fns={"p1": RBFKernel("norm")}
-        ),
+        WrappedGraphicalKernel,
         lambda d: {"p1": (0, d)},
         lambda x: x,
         {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     TKERNEL(
-        lambda mode: PrecondMatrixKernel(
-            HessianPrecondMatrix(), RBFKernel(mode="matrix"), precond_mode="const"
-        ),
+        WrappedPrecondMatrixKernel,
         lambda d: {},
         lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
         {
@@ -172,10 +183,17 @@ def test_init_strategy(kernel, auto_guide, init_strategy, problem):
 @pytest.mark.parametrize("mcmc_kernel", (HMC, NUTS))
 @pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_stein_point(kernel, sp_criterion, auto_guide, sp_mode, num_mcmc_particles, mcmc_warmup, mcmc_samples,
-                     mcmc_kernel,
-                     problem,
-                     ):
+def test_stein_point(
+        kernel,
+        sp_criterion,
+        auto_guide,
+        sp_mode,
+        num_mcmc_particles,
+        mcmc_warmup,
+        mcmc_samples,
+        mcmc_kernel,
+        problem,
+):
     true_coefs, data, model = problem()
     stein = Stein(
         model,
@@ -215,7 +233,10 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
     assert svi_params.keys() == stein_params.keys()
 
     for name, svi_param in svi_params.items():
-        assert (stein_params[name].shape == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape)
+        assert (
+                stein_params[name].shape
+                == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+        )
 
 
 @pytest.mark.parametrize("kernel", KERNELS)
@@ -241,14 +262,23 @@ def test_update_evaluate(kernel, auto_guide, init_strategy, problem):
 @pytest.mark.parametrize("subset_idxs", [[], [1], [0, 2, 1, 3]])
 def test_score_sp_mcmc(sp_mode, subset_idxs):
     true_coef, data, model = uniform_normal()
-    if sp_mode == 'local' and not subset_idxs == []:
+    if sp_mode == "local" and not subset_idxs == []:
         pytest.skip()
     stein_uparams = {}
     sp_mcmc_subset_uparams = {}
     classic_uparams = {}
-    stein = Stein(model, AutoDelta(model), Adam(1e-1), Trace_ELBO(), RBFKernel(), sp_mode=sp_mode)
-    stein._score_sp_mcmc(random.PRNGKey(0), subset_idxs, stein_uparams, sp_mcmc_subset_uparams, classic_uparams, *data,
-                         **{})
+    stein = Stein(
+        model, AutoDelta(model), Adam(1e-1), Trace_ELBO(), RBFKernel(), sp_mode=sp_mode
+    )
+    stein._score_sp_mcmc(
+        random.PRNGKey(0),
+        subset_idxs,
+        stein_uparams,
+        sp_mcmc_subset_uparams,
+        classic_uparams,
+        *data,
+        **{},
+    )
 
 
 def test_svgd_loss_and_grads():
@@ -265,10 +295,14 @@ def test_sp_mcmc(num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel):
     stein._sp_mcmc(random.PRNGKey(0), uconstr_params)
 
 
-@pytest.mark.parametrize("kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS)
+@pytest.mark.parametrize(
+    "kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS
+)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
-def test_apply_kernel(kernel, particles, particle_info, loss_fn, tparticles, mode, kval):
+def test_apply_kernel(
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+):
     if mode not in kval:
         pytest.skip()
     (d,) = tparticles[0].shape
@@ -276,9 +310,9 @@ def test_apply_kernel(kernel, particles, particle_info, loss_fn, tparticles, mod
     kernel_fn.init(random.PRNGKey(0), particles.shape)
     kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
     v = jnp.ones_like(kval[mode])
-    stein = Stein(id, id, Adam(1.), Trace_ELBO(), kernel(mode))
+    stein = Stein(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
     value = stein._apply_kernel(kernel_fn, *tparticles, v)
-    if mode == 'matrix':
+    if mode == "matrix":
         kval[mode] = jnp.dot(kval[mode], v)
     assert_allclose(value, kval[mode], atol=1e-9)
 
@@ -295,8 +329,10 @@ def test_param_size(length, depth, t):
     seed = random.PRNGKey(nrandom.randint(0, 10_000))
     sizes = Poisson(5).sample(seed, (length, nrandom.randint(0, 10))) + 1
     total_size = sum(map(lambda size: size.prod(), sizes))
-    uparam = t(nest(jnp.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes)
-    stein = Stein(id, id, Adam(1.), Trace_ELBO(), RBFKernel())
+    uparam = t(
+        nest(jnp.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes
+    )
+    stein = Stein(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
     assert stein._param_size(uparam) == total_size, f"Failed for seed {seed}"
 
 
@@ -310,10 +346,13 @@ def test_calc_particle_info(num_params, num_particles):
     uparams = {string.ascii_lowercase[i]: uparam for i in range(num_params)}
 
     par_param_size = sum(map(lambda size: size.prod(), sizes)) // num_particles
-    expected_start_end = zip(par_param_size * np.arange(num_params), par_param_size * np.arange(1, num_params + 1))
+    expected_start_end = zip(
+        par_param_size * np.arange(num_params),
+        par_param_size * np.arange(1, num_params + 1),
+    )
     expected_pinfo = dict(zip(string.ascii_lowercase[:num_params], expected_start_end))
 
-    stein = Stein(id, id, Adam(1.), Trace_ELBO(), RBFKernel())
+    stein = Stein(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
     pinfo = stein._calc_particle_info(uparams, num_particles)
 
     for k in pinfo.keys():
@@ -331,6 +370,7 @@ def test_callsback(callback):
 ########################################
 # Stein Kernels
 ########################################
+
 
 @pytest.mark.parametrize(
     "kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS

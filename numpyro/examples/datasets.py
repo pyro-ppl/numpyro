@@ -70,43 +70,35 @@ HIGGS = dset(
 )
 
 LR_BANANA = dset(
-    "lr_banana",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_banana", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_DIABETIS = dset(
-    "lr_diabetis",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_diabetis", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_GERMAN = dset(
-    "lr_german",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_german", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_IMAGE = dset(
-    "lr_image",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_image", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_RINGNORM = dset(
-    "lr_ringnorm",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_ringnorm", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_SPLICE = dset(
-    "lr_splice",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_splice", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_TWONORM = dset(
-    "lr_twonorm",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_twonorm", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 LR_WAVEFORM = dset(
-    "lr_waveform",
-    ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+    "lr_waveform", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
 )
 
 
@@ -326,12 +318,17 @@ def _load_lr_benchmarks(dset, dset_name):
     for k, v in data.items():
         if k != dset_name:
             continue
-        datasets['train'] = (v['x'][0, 0][v['train'][0, 0][13, :] - 1],
-                             (v['t'][0, 0][v['train'][0, 0][13, :] - 1] == 1).astype('float')[:, 0])
-        datasets['test'] = (v['x'][0, 0][v['test'][0, 0][13, :] - 1],
-                            (v['t'][0, 0][v['test'][0, 0][13, :] - 1] == 1).astype('float')[:, 0])
-    
+        datasets["train"] = (
+            v["x"][0, 0][v["train"][0, 0][13, :] - 1],
+            (v["t"][0, 0][v["train"][0, 0][13, :] - 1] == 1).astype("float")[:, 0],
+        )
+        datasets["test"] = (
+            v["x"][0, 0][v["test"][0, 0][13, :] - 1],
+            (v["t"][0, 0][v["test"][0, 0][13, :] - 1] == 1).astype("float")[:, 0],
+        )
+
     return datasets
+
 
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
