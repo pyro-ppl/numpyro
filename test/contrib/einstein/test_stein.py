@@ -268,43 +268,51 @@ def test_update_evaluate(kernel, auto_guide, init_strategy, problem):
 
 
 @pytest.mark.parametrize("sp_mode", ["local", "global"])
-@pytest.mark.parametrize("subset_idxs", [[], [1], [0, 2, 1, 3]])
+@pytest.mark.parametrize("subset_idxs", [[], [1], [8, 1], [5, 3, 1, 0]])
 def test_score_sp_mcmc(sp_mode, subset_idxs):
     true_coef, data, model = uniform_normal()
-    if sp_mode == "local" and not subset_idxs == []:
+    if sp_mode == "local" and subset_idxs == []:
         pytest.skip()
-    stein_uparams = {}
-    sp_mcmc_subset_uparams = {}
+
+    stein_uparams = {'alpha_auto_loc': jnp.array([-1.2769351, 0.8191833, 0.06361625, 1.9087944,
+                                                  -1.7327318, 0.86918986, 1.2703587, -1.9048039,
+                                                  -0.9014138, -0.5144944]),
+                     'loc_base_auto_loc': jnp.array([1.533597, 0.6824607, -0.22308162, -1.4471097,
+                                                     -0.83393484, 0.9589054, 0.8279534, 1.9304745,
+                                                     -1.8250008, 1.6629155])}
+    sub_uparams = {'alpha_auto_loc': jnp.ones((len(subset_idxs), 4)),
+                   'loc_base_auto_loc': jnp.ones((len(subset_idxs), 4))}
     classic_uparams = {}
     stein = Stein(
         model, AutoDelta(model), Adam(1e-1), Trace_ELBO(), RBFKernel(), sp_mode=sp_mode
     )
-    stein._score_sp_mcmc(
-        random.PRNGKey(0),
-        subset_idxs,
-        stein_uparams,
-        sp_mcmc_subset_uparams,
-        classic_uparams,
-        *data,
-        **{},
-    )
+    stein.init(random.PRNGKey(0), *data)
+    for i in range(2):
+        score = stein._score_sp_mcmc(
+            random.PRNGKey(1),
+            jnp.array(subset_idxs, dtype=int),
+            stein_uparams,
+            {p: v[:, i] for p, v in sub_uparams.items()},
+            classic_uparams,
+            *data,
+            **{},
+        )
+        assert score < 0  # FIXME
 
 
 def test_svgd_loss_and_grads():
     pass
 
 
-@pytest.mark.parametrize("num_mcmc_particles", (1, 2, 8))
-@pytest.mark.parametrize("mcmc_warmup", (0, 1, 10))
-@pytest.mark.parametrize("mcmc_samples", (1, 2, 10))
+@pytest.mark.parametrize("num_mcmc_particles", (2, 1, 4))
+@pytest.mark.parametrize("mcmc_samples", (5, 3, 1))
 @pytest.mark.parametrize("mcmc_kernel", (HMC, NUTS))
-@pytest.mark.parametrize("problem", (uniform_normal, regression))
 @pytest.mark.parametrize("sp_mode", ["local", "global"])
 @pytest.mark.parametrize("sp_criterion", ("infl", "rand"))
-def test_sp_mcmc(num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel, problem, sp_mode, sp_criterion):
+def test_sp_mcmc(num_mcmc_particles, mcmc_samples, mcmc_kernel, sp_mode, sp_criterion):
     if mcmc_samples >= num_mcmc_particles:
         pytest.skip()
-    true_coefs, data, model = problem()
+    true_coefs, data, model = uniform_normal()
     stein = Stein(
         model,
         AutoDelta(model),
@@ -314,7 +322,7 @@ def test_sp_mcmc(num_mcmc_particles, mcmc_warmup, mcmc_samples, mcmc_kernel, pro
         sp_mcmc_crit=sp_criterion,
         sp_mode=sp_mode,
         num_mcmc_particles=num_mcmc_particles,
-        num_mcmc_warmup=mcmc_warmup,
+        num_mcmc_warmup=1,
         num_mcmc_samples=mcmc_samples,
         mcmc_kernel=mcmc_kernel,
     )
