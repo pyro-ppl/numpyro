@@ -745,7 +745,7 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "plate")) or msg.get(
+        if (msg["type"] not in ("sample", "param", "mutable", "plate")) or msg.get(
             "_control_flow_done", False
         ):
             if msg["type"] == "control_flow":
