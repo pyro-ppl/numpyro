@@ -71,7 +71,8 @@ class _NumPyroOptim(object):
         by reevaluating the function multiple times to get optimal
         parameters.
 
-        :param fn: objective function.
+        :param fn: objective function returning a pair where the first item is loss,
+            the second item (TODO: revise this doc)
         :param state: current optimizer state.
         :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
             where the first one is the output that we want to differentiate and the
