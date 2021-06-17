@@ -1,7 +1,13 @@
+import string
+from collections import OrderedDict
+
 import jax.numpy as jnp
+import numpy as np
 import numpy.random as nrandom
 import pytest
+from attr._compat import ordered_dict
 from jax import random
+from sklearn.utils._testing import assert_dict_equal
 
 import numpyro
 import numpyro.distributions as dist
@@ -142,10 +148,7 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
     assert svi_params.keys() == stein_params.keys()
 
     for name, svi_param in svi_params.items():
-        assert (
-                stein_params[name].shape
-                == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
-        )
+        assert (stein_params[name].shape == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape)
 
 
 @pytest.mark.parametrize("kernel", KERNELS)
@@ -179,8 +182,6 @@ def test_score_sp_mcmc(sp_mode, subset_idxs):
     stein = Stein(model, AutoDelta(model), Adam(1e-1), Trace_ELBO(), RBFKernel(), sp_mode=sp_mode)
     stein._score_sp_mcmc(random.PRNGKey(0), subset_idxs, stein_uparams, sp_mcmc_subset_uparams, classic_uparams, *data,
                          **{})
-
-    pass
 
 
 def test_svgd_loss_and_grads():
@@ -218,18 +219,32 @@ def test_param_size(length, depth, t):
             return v
         return nest(t([v]), d - 1)
 
-    sizes = Poisson(5).sample(random.PRNGKey(nrandom.randint(0, 10_000)), (length, nrandom.randint(0, 10))) + 1
+    seed = random.PRNGKey(nrandom.randint(0, 10_000))
+    sizes = Poisson(5).sample(seed, (length, nrandom.randint(0, 10))) + 1
     total_size = sum(map(lambda size: size.prod(), sizes))
-    param_size = t(nest(jnp.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes)
+    uparam = t(nest(jnp.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes)
     stein = Stein(id, id, Adam(1.), Trace_ELBO(), RBFKernel())
-    assert stein._param_size(param_size) == total_size
+    assert stein._param_size(uparam) == total_size, f"Failed for seed {seed}"
 
 
-@pytest.mark.parametrize("num_particles", [0, 1, 2, 10])
-def test_calc_particle_info(num_particles):
-    uparams = {}
+@pytest.mark.parametrize("num_particles", [1, 2, 7, 10])
+@pytest.mark.parametrize("num_params", [0, 1, 2, 10, 20])
+def test_calc_particle_info(num_params, num_particles):
+    seed = random.PRNGKey(nrandom.randint(0, 10_000))
+    sizes = Poisson(5).sample(seed, (100, nrandom.randint(0, 10))) + 1
+
+    uparam = tuple(jnp.empty(tuple(size)) for size in sizes)
+    uparams = {string.ascii_lowercase[i]: uparam for i in range(num_params)}
+
+    par_param_size = sum(map(lambda size: size.prod(), sizes)) // num_particles
+    expected_start_end = zip(par_param_size * np.arange(num_params), par_param_size * np.arange(1, num_params + 1))
+    expected_pinfo = dict(zip(string.ascii_lowercase[:num_params], expected_start_end))
+
     stein = Stein(id, id, Adam(1.), Trace_ELBO(), RBFKernel())
     pinfo = stein._calc_particle_info(uparams, num_particles)
+
+    for k in pinfo.keys():
+        assert pinfo[k] == expected_pinfo[k], f"Failed for seed {seed}"
 
 
 ########################################
