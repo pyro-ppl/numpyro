@@ -1,5 +1,6 @@
 import string
 from collections import namedtuple
+from copy import copy
 
 import jax.numpy as jnp
 import numpy as np
@@ -353,9 +354,10 @@ def test_apply_kernel(
     v = jnp.ones_like(kval[mode])
     stein = Stein(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
     value = stein._apply_kernel(kernel_fn, *tparticles, v)
+    kval_ = copy(kval)
     if mode == "matrix":
-        kval[mode] = jnp.dot(kval[mode], v)
-    assert_allclose(value, kval[mode], atol=1e-9)
+        kval[mode] = jnp.dot(kval_[mode], v)
+    assert_allclose(value, kval_[mode], atol=1e-9)
 
 
 @pytest.mark.parametrize("length", [1, 2, 3, 6])
