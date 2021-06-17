@@ -14,7 +14,55 @@ from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import log_density
 
 
-class Trace_ELBO:
+class ELBO:
+    """
+    Base class for all ELBO objectives.
+
+    Subclasses should implement either :meth:`loss` or :meth:`loss_with_mutable_state`.
+
+    :param num_particles: The number of particles/samples used to form the ELBO
+        (gradient) estimators.
+    """
+    def __init__(self, num_particles=1):
+        self.num_particles = num_particles
+
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
+        """
+        return self.loss_with_mutable_state(rng_key, param_map, model, guide, *args, **kwargs)[0]
+
+    def loss_with_mutable_state(self, rng_key, param_map, model, guide, *args, **kwargs):
+        """
+        Likes :meth:`loss` but also update and return the mutable state, which stores the
+        values at :func:`~numpyro.mutable` sites.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: a tuple of ELBO loss and the mutable state
+        """
+        raise NotImplementedError("This ELBO objective does not support mutable state.")
+
+
+class Trace_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
     along the lines of references [1] and [2]. There are no restrictions on the
@@ -42,21 +90,7 @@ class Trace_ELBO:
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        """
-        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
-
-        :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
-        :param model: Python callable with NumPyro primitives for the model.
-        :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
-        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
-        """
+    def loss_with_mutable_state(self, rng_key, param_map, model, guide, *args, **kwargs):
 
         def single_particle_elbo(rng_key):
             params = param_map.copy()
@@ -69,7 +103,7 @@ class Trace_ELBO:
             mutable_params = {
                 name: site["value"]
                 for name, site in guide_trace.items()
-                if site["type"] == "param" and site["infer"].get("mutable", False)
+                if site["type"] == "mutable"
             }
             params.update(mutable_params)
             seeded_model = replay(seeded_model, guide_trace)
@@ -80,39 +114,31 @@ class Trace_ELBO:
                 {
                     name: site["value"]
                     for name, site in model_trace.items()
-                    if site["type"] == "param" and site["infer"].get("mutable", False)
+                    if site["type"] == "mutable"
                 }
             )
 
             # log p(z) - log q(z)
-            elbo = model_log_density - guide_log_density
-            if self.num_particles == 1 and mutable_params:
-                return elbo, mutable_params
-            elif mutable_params:
-                raise ValueError(
-                    "Currently, mutable state is updated only when num_particles=1."
-                )
-            return elbo
+            elbo_particle = model_log_density - guide_log_density
+            if mutable_params:
+                if self.num_particles == 1:
+                    return elbo_particle, mutable_params
+                else:
+                    raise ValueError(
+                        "Currently, we only support mutable states with num_particles=1."
+                    )
+            else:
+                return elbo_particle, None
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
         if self.num_particles == 1:
-            elbo = single_particle_elbo(rng_key)
-            if isinstance(elbo, tuple):
-                return -elbo[0], elbo[1]
-            return -elbo
+            elbo, mutable_state = single_particle_elbo(rng_key)
+            return -elbo, mutable_state
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
-
-
-class ELBO(Trace_ELBO):
-    def __init__(self, num_particles=1):
-        warnings.warn(
-            "Using ELBO directly in SVI is deprecated. Please use Trace_ELBO class instead.",
-            FutureWarning,
-        )
-        super().__init__(num_particles=num_particles)
+            elbos, mutable_state = vmap(single_particle_elbo)(rng_keys)
+            return -jnp.mean(elbos), mutable_state
 
 
 def _get_log_prob_sum(site):
@@ -152,7 +178,7 @@ def _check_mean_field_requirement(model_trace, guide_trace):
         )
 
 
-class TraceMeanField_ELBO(Trace_ELBO):
+class TraceMeanField_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. This is currently the only
     ELBO estimator in NumPyro that uses analytic KL divergences when those
@@ -170,21 +196,7 @@ class TraceMeanField_ELBO(Trace_ELBO):
         dependency structures.
     """
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        """
-        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
-
-        :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
-        :param model: Python callable with NumPyro primitives for the model.
-        :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
-        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
-        """
+    def loss_with_mutable_state(self, rng_key, param_map, model, guide, *args, **kwargs):
 
         def single_particle_elbo(rng_key):
             params = param_map.copy()
@@ -234,25 +246,26 @@ class TraceMeanField_ELBO(Trace_ELBO):
                     assert site["infer"].get("is_auxiliary")
                     elbo_particle = elbo_particle - _get_log_prob_sum(site)
 
-            if self.num_particles == 1 and mutable_params:
-                return elbo_particle, mutable_params
-            elif mutable_params:
-                raise ValueError(
-                    "Currently, mutable state is updated only when num_particles=1."
-                )
-            return elbo_particle
+            if mutable_params:
+                if self.num_particles == 1:
+                    return elbo_particle, mutable_params
+                else:
+                    raise ValueError(
+                        "Currently, we only support mutable states with num_particles=1."
+                    )
+            else:
+                return elbo_particle, None
 
         if self.num_particles == 1:
-            elbo = single_particle_elbo(rng_key)
-            if isinstance(elbo, tuple):
-                return -elbo[0], elbo[1]
-            return -elbo
+            elbo, mutable_state = single_particle_elbo(rng_key)
+            return -elbo, mutable_state
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
+            elbos, mutable_state = vmap(single_particle_elbo)(rng_keys)
+            return -jnp.mean(elbos), mutable_state
 
 
-class RenyiELBO(Trace_ELBO):
+class RenyiELBO(ELBO):
     r"""
     An implementation of Renyi's :math:`\alpha`-divergence
     variational inference following reference [1].
@@ -282,23 +295,9 @@ class RenyiELBO(Trace_ELBO):
                 "for the case alpha = 1."
             )
         self.alpha = alpha
-        super(RenyiELBO, self).__init__(num_particles=num_particles)
+        super().__init__(num_particles=num_particles)
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        """
-        Evaluates the Renyi ELBO with an estimator that uses num_particles many samples/particles.
-
-        :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
-        :param model: Python callable with NumPyro primitives for the model.
-        :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
-        :returns: negative of the Renyi Evidence Lower Bound (ELBO) to be minimized.
-        """
 
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
