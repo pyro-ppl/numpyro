@@ -123,10 +123,6 @@ TEST_IDS = [t[0].__name__ for t in KERNEL_TEST_CASES]
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
 
 
-########################################
-#  Stein Exterior
-########################################
-
 
 def uniform_normal():
     true_coef = 0.9
@@ -160,6 +156,9 @@ def regression():
 
     return true_coefs, (data, labels), model
 
+########################################
+#  Stein Exterior (Smoke tests)
+########################################
 
 # # init_with_noise(),  # consider
 # # init_to_value()))
@@ -448,13 +447,6 @@ def test_calc_particle_info(num_params, num_particles):
     for k in pinfo.keys():
         assert pinfo[k] == expected_pinfo[k], f"Failed for seed {seed}"
 
-
-########################################
-# Variational Interface
-########################################
-@pytest.mark.parametrize("callback", [])
-def test_callsback(callback):
-    pass
 
 
 ########################################

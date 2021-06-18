@@ -14,7 +14,7 @@ from jax.tree_util import tree_map
 from numpyro import handlers
 from numpyro.contrib.einstein.reinit_guide import WrappedGuide
 from numpyro.contrib.einstein.kernels import SteinKernel
-from numpyro.contrib.einstein.vi import VI
+from numpyro.contrib.vi import VI
 from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution
 from numpyro.distributions.transforms import IdentityTransform
