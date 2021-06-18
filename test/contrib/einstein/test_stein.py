@@ -244,8 +244,8 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
 
     for name, svi_param in svi_params.items():
         assert (
-            stein_params[name].shape
-            == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+                stein_params[name].shape
+                == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
         )
 
 
@@ -328,7 +328,28 @@ def test_score_sp_mcmc(sp_mode, subset_idxs):
 
 
 def test_svgd_loss_and_grads():
-    pass
+    true_coefs, data, model = uniform_normal()
+    guide = AutoDelta(model)
+    loss = Trace_ELBO()
+    stein_uparams = {
+        "alpha_auto_loc": jnp.array(
+            [
+                -1.2,
+            ]
+        ),
+        "loc_base_auto_loc": jnp.array(
+            [
+                1.53,
+            ]
+        ),
+    }
+    stein = Stein(model, guide, Adam(.1), loss, RBFKernel())
+    stein.init(random.PRNGKey(0), *data)
+    svi = SVI(model, guide, Adam(.1), loss)
+    svi.init(random.PRNGKey(0), *data)
+    expected_loss = loss.loss(random.PRNGKey(1), svi.constrain_fn(stein_uparams), model, guide, *data)
+    stein_loss, stein_grad = stein._svgd_loss_and_grads(random.PRNGKey(1), stein_uparams, *data)
+    assert expected_loss == stein_loss
 
 
 @pytest.mark.parametrize("num_mcmc_particles", (2, 1, 4))
@@ -369,7 +390,7 @@ def test_sp_mcmc(num_mcmc_particles, mcmc_samples, mcmc_kernel, sp_mode, sp_crit
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 def test_apply_kernel(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         pytest.skip()
@@ -382,7 +403,7 @@ def test_apply_kernel(
     value = stein._apply_kernel(kernel_fn, *tparticles, v)
     kval_ = copy(kval)
     if mode == "matrix":
-        kval[mode] = jnp.dot(kval_[mode], v)
+        kval_[mode] = jnp.dot(kval_[mode], v)
     assert_allclose(value, kval_[mode], atol=1e-9)
 
 
@@ -447,7 +468,7 @@ def test_callsback(callback):
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 def test_kernel_forward(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         return

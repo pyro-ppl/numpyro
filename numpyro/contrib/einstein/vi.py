@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections import namedtuple
 from typing import List
 

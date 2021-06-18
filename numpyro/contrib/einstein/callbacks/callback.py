@@ -1,7 +1,5 @@
 from abc import ABC
 
-from numpyro.contrib.einstein.vi import VI
-
 
 class Callback(ABC):
     def __new__(cls, *args, **kwargs):
@@ -9,7 +7,7 @@ class Callback(ABC):
             raise TypeError("Callback is not directly instantiable")
         return super().__new__(cls)
 
-    def __init__(self, vi: "VI" = None):
+    def __init__(self, vi=None):
         self.vi = vi
 
     def on_train_begin(self, train_info):
