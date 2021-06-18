@@ -123,7 +123,6 @@ TEST_IDS = [t[0].__name__ for t in KERNEL_TEST_CASES]
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
 
 
-
 def uniform_normal():
     true_coef = 0.9
 
@@ -155,6 +154,7 @@ def regression():
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     return true_coefs, (data, labels), model
+
 
 ########################################
 #  Stein Exterior (Smoke tests)
@@ -243,8 +243,8 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
 
     for name, svi_param in svi_params.items():
         assert (
-                stein_params[name].shape
-                == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+            stein_params[name].shape
+            == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
         )
 
 
@@ -342,12 +342,16 @@ def test_svgd_loss_and_grads():
             ]
         ),
     }
-    stein = Stein(model, guide, Adam(.1), loss, RBFKernel())
+    stein = Stein(model, guide, Adam(0.1), loss, RBFKernel())
     stein.init(random.PRNGKey(0), *data)
-    svi = SVI(model, guide, Adam(.1), loss)
+    svi = SVI(model, guide, Adam(0.1), loss)
     svi.init(random.PRNGKey(0), *data)
-    expected_loss = loss.loss(random.PRNGKey(1), svi.constrain_fn(stein_uparams), model, guide, *data)
-    stein_loss, stein_grad = stein._svgd_loss_and_grads(random.PRNGKey(1), stein_uparams, *data)
+    expected_loss = loss.loss(
+        random.PRNGKey(1), svi.constrain_fn(stein_uparams), model, guide, *data
+    )
+    stein_loss, stein_grad = stein._svgd_loss_and_grads(
+        random.PRNGKey(1), stein_uparams, *data
+    )
     assert expected_loss == stein_loss
 
 
@@ -389,7 +393,7 @@ def test_sp_mcmc(num_mcmc_particles, mcmc_samples, mcmc_kernel, sp_mode, sp_crit
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 def test_apply_kernel(
-        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         pytest.skip()
@@ -448,7 +452,6 @@ def test_calc_particle_info(num_params, num_particles):
         assert pinfo[k] == expected_pinfo[k], f"Failed for seed {seed}"
 
 
-
 ########################################
 # Stein Kernels
 ########################################
@@ -460,7 +463,7 @@ def test_calc_particle_info(num_params, num_particles):
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 def test_kernel_forward(
-        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         return

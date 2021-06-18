@@ -250,16 +250,16 @@ def progress_bar_factory(num_samples, num_chains):
 
 
 def fori_collect(
-        lower,
-        upper,
-        body_fun,
-        init_val,
-        transform=identity,
-        progbar=True,
-        return_last_val=False,
-        collection_size=None,
-        thinning=1,
-        **progbar_opts,
+    lower,
+    upper,
+    body_fun,
+    init_val,
+    transform=identity,
+    progbar=True,
+    return_last_val=False,
+    collection_size=None,
+    thinning=1,
+    **progbar_opts,
 ):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional

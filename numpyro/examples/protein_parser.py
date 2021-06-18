@@ -46,8 +46,10 @@ class ProteinParser(TextParsers, whitespace=r"[ \t]*"):
 
     number = reg(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?") > float
 
-    polypeptide = ((declaration << "\n") & (
-        repsep(aminoacid & dssp & (number | "NT") & (number | "CT"), "\n"))) > _to_dict
+    polypeptide = (
+        (declaration << "\n")
+        & (repsep(aminoacid & dssp & (number | "NT") & (number | "CT"), "\n"))
+    ) > _to_dict
     dataset = repsep(polypeptide, "\n") << "\n" > _convert_proteins
 
     @classmethod
@@ -77,5 +79,8 @@ class ProteinParser(TextParsers, whitespace=r"[ \t]*"):
             )
             lengths.append(len(as_[1:-1]))
         max_length = max(lengths)
-        res = tuple(jnp.array([la + [0] * (max_length - len(la)) for la in ll]) for ll in zip(*inddata))
+        res = tuple(
+            jnp.array([la + [0] * (max_length - len(la)) for la in ll])
+            for ll in zip(*inddata)
+        )
         return *res, jnp.array(lengths)
