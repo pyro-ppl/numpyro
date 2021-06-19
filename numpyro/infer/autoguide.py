@@ -194,7 +194,7 @@ class AutoNormal(AutoGuide):
     to construct a guide over the entire latent space. The guide does not
     depend on the model's ``*args, **kwargs``.
 
-    This should be equivalent to :class: `AutoDiagonalNormal` , but with
+    This should be equivalent to :class:`AutoDiagonalNormal` , but with
     more convenient site names and with better support for mean field ELBO.
 
     Usage::
