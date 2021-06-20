@@ -51,10 +51,16 @@ def _make_loss_fn(
         if mutable_state is not None:
             params.update(mutable_state)
             result = elbo.loss_with_mutable_state(
-                rng_key, params, model, guide, *args, **kwargs, **static_kwargs)
+                rng_key, params, model, guide, *args, **kwargs, **static_kwargs
+            )
             return result["loss"], result["mutable_state"]
         else:
-            return elbo.loss(rng_key, params, model, guide, *args, **kwargs, **static_kwargs), None
+            return (
+                elbo.loss(
+                    rng_key, params, model, guide, *args, **kwargs, **static_kwargs
+                ),
+                None,
+            )
 
     return loss_fn
 

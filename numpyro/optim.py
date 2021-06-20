@@ -60,9 +60,7 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(
-        self, fn: Callable[[Any], Tuple], state: _IterOptState
-    ):
+    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -81,9 +79,7 @@ class _NumPyroOptim(object):
         (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
         return (out, aux), self.update(grads, state)
 
-    def eval_and_stable_update(
-        self, fn: Callable[[Any], Tuple], state: _IterOptState
-    ):
+    def eval_and_stable_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -269,24 +265,20 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(
-        self, fn: Callable[[Any], Tuple], state: _IterOptState
-    ):
+    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         i, (flat_params, unravel_fn) = state
 
         def loss_fn(x):
             x = unravel_fn(x)
             out, aux = fn(x)
             if aux is not None:
-                raise ValueError("Minimize does not support models with mutable states.")
+                raise ValueError(
+                    "Minimize does not support models with mutable states."
+                )
             return out
 
         results = minimize(
-            loss_fn,
-            flat_params,
-            (),
-            method=self._method,
-            **self._kwargs
+            loss_fn, flat_params, (), method=self._method, **self._kwargs
         )
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))

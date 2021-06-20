@@ -467,7 +467,7 @@ def test_autoguide_deterministic(auto_class):
     svi = SVI(model, guide, optimiser, Trace_ELBO())
 
     svi_result = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
-    params, losses = svi_result.params, svi_result.losses
+    params = svi_result.params
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(0), params, sample_shape=(1000,)
     )

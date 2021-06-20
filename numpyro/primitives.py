@@ -256,7 +256,14 @@ def mutable(name, init_value=None):
     if not _PYRO_STACK:
         return init_value
 
-    initial_msg = {"type": "mutable", "name": name, "value": init_value}
+    initial_msg = {
+        "type": "mutable",
+        "name": name,
+        "fn": identity,
+        "args": (init_value,),
+        "kwargs": {},
+        "value": init_value,
+    }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)

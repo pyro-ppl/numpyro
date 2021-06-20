@@ -23,6 +23,7 @@ class ELBO:
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
     """
+
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
@@ -41,9 +42,13 @@ class ELBO:
             during the course of fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
-        return self.loss_with_mutable_state(rng_key, param_map, model, guide, *args, **kwargs)[0]
+        return self.loss_with_mutable_state(
+            rng_key, param_map, model, guide, *args, **kwargs
+        )[0]
 
-    def loss_with_mutable_state(self, rng_key, param_map, model, guide, *args, **kwargs):
+    def loss_with_mutable_state(
+        self, rng_key, param_map, model, guide, *args, **kwargs
+    ):
         """
         Likes :meth:`loss` but also update and return the mutable state, which stores the
         values at :func:`~numpyro.mutable` sites.
@@ -90,8 +95,9 @@ class Trace_ELBO(ELBO):
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
-    def loss_with_mutable_state(self, rng_key, param_map, model, guide, *args, **kwargs):
-
+    def loss_with_mutable_state(
+        self, rng_key, param_map, model, guide, *args, **kwargs
+    ):
         def single_particle_elbo(rng_key):
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
@@ -196,8 +202,9 @@ class TraceMeanField_ELBO(ELBO):
         dependency structures.
     """
 
-    def loss_with_mutable_state(self, rng_key, param_map, model, guide, *args, **kwargs):
-
+    def loss_with_mutable_state(
+        self, rng_key, param_map, model, guide, *args, **kwargs
+    ):
         def single_particle_elbo(rng_key):
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
@@ -298,7 +305,6 @@ class RenyiELBO(ELBO):
         super().__init__(num_particles=num_particles)
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)

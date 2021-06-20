@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import random, test_util
-import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -149,7 +148,7 @@ def test_update_params():
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
 @pytest.mark.parametrize("init", ["shape", "kwargs"])
-def test_random_module__mcmc(backend, init):
+def test_random_module_mcmc(backend, init):
 
     if backend == "flax":
         import flax
@@ -217,14 +216,14 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
         if dropout:
             x = hk.dropout(hk.next_rng_key(), 0.5, x)
         if batchnorm:
-            x = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.001)(
+            x = hk.BatchNorm(create_offset=True, create_scale=True, decay_rate=0.001)(
                 x, is_training=True
             )
         return x
 
     def model():
         transform = hk.transform_with_state if batchnorm else hk.transform
-        nn = haiku_module("nn", transform(fn), apply_rng=dropout, x=jnp.ones((4, 3)))
+        nn = haiku_module("nn", transform(fn), apply_rng=dropout, input_shape=(4, 3))
         x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
         if dropout:
             y = nn(numpyro.prng_key(), x)
@@ -237,6 +236,51 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
 
     if batchnorm:
         assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
-        assert tr["nn$state"]["infer"].get("mutable", False)
+        assert tr["nn$state"]["type"] == "mutable"
+    else:
+        assert set(tr.keys()) == {"nn$params", "x", "y"}
+
+
+@pytest.mark.parametrize("dropout", [True, False])
+@pytest.mark.parametrize("batchnorm", [True, False])
+def test_flax_state_dropout_smoke(dropout, batchnorm):
+    import flax.linen as nn
+
+    class Net(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            x = nn.Dense(10)(x)
+            if dropout:
+                x = nn.Dropout(0.5, deterministic=False)(x)
+            if batchnorm:
+                x = nn.BatchNorm(
+                    use_bias=True,
+                    use_scale=True,
+                    momentum=0.999,
+                    use_running_average=False,
+                )(x)
+            return x
+
+    def model():
+        net = flax_module(
+            "nn",
+            Net(),
+            apply_rng=["dropout"] if dropout else None,
+            mutable=["batch_stats"] if batchnorm else None,
+            input_shape=(4, 3),
+        )
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        if dropout:
+            y = net(x, rngs={"dropout": numpyro.prng_key()})
+        else:
+            y = net(x)
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    if batchnorm:
+        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+        assert tr["nn$state"]["type"] == "mutable"
     else:
         assert set(tr.keys()) == {"nn$params", "x", "y"}

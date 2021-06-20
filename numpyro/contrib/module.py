@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
+from numpyro.primitives import mutable as numpyro_mutable
 
 __all__ = [
     "flax_module",
@@ -19,7 +20,9 @@ __all__ = [
 ]
 
 
-def flax_module(name, nn_module, *, input_shape=None, apply_rng=None, mutable=None, **kwargs):
+def flax_module(
+    name, nn_module, *, input_shape=None, apply_rng=None, mutable=None, **kwargs
+):
     """
     Declare a :mod:`~flax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -31,6 +34,12 @@ def flax_module(name, nn_module, *, input_shape=None, apply_rng=None, mutable=No
 
         net = flax_module("net", nn_module)
         y = net(x)
+
+    or with dropout layers::
+
+        net = flax_module("net", nn_module, apply_rng=["dropout"])
+        rng_key = numpyro.prng_key()
+        y = net(x, rngs={"dropout": rng_key})
 
     :param str name: name of the module to be registered.
     :param flax.linen.Module nn_module: a `flax` Module which has .init and .apply methods
@@ -64,8 +73,9 @@ def flax_module(name, nn_module, *, input_shape=None, apply_rng=None, mutable=No
     nn_params = numpyro.param(module_key)
 
     if mutable:
-        nn_state = numpyro.param(name + "$state", infer={"mutable": True})
+        nn_state = numpyro_mutable(name + "$state")
         assert nn_state is None or isinstance(nn_state, dict)
+        assert not ((nn_state is None) ^ (nn_params is None))
 
     if nn_params is None:
         # feed in dummy data to init params
@@ -81,19 +91,33 @@ def flax_module(name, nn_module, *, input_shape=None, apply_rng=None, mutable=No
         rngs["params"] = rng_key
 
         nn_vars = flax.core.unfreeze(nn_module.init(rngs, *args, **kwargs))
+        if "params" not in nn_vars:
+            raise ValueError(
+                "Your nn_module does not have any parameter. Currently, it is not"
+                " supported in NumPyro. Please make a github issue if you need"
+                " that feature."
+            )
         nn_params = nn_vars["params"]
         if mutable:
             nn_state = {k: v for k, v in nn_vars.items() if k != "params"}
             assert set(mutable) == set(nn_state)
-            numpyro.param(name + "$state", nn_state, infer={"mutable": True})
+            numpyro_mutable(name + "$state", nn_state)
         # make sure that nn_params keep the same order after unflatten
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
 
-    def apply_with_state(params, state, *args, **kwargs):
-        # TODO
-    return partial(nn_module.apply, {"params": nn_params})
+    def apply_with_state(params, *args, **kwargs):
+        params = {"params": params, **nn_state}
+        out, new_state = nn_module.apply(params, mutable=mutable, *args, **kwargs)
+        nn_state.update(**new_state)
+        return out
+
+    def apply_without_state(params, *args, **kwargs):
+        return nn_module.apply({"params": params}, *args, **kwargs)
+
+    apply_fn = apply_with_state if mutable else apply_without_state
+    return partial(apply_fn, nn_params)
 
 
 def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs):
@@ -106,8 +130,14 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
     a given set of parameters, we use: ``nn_module.apply(params, None, x)``.
     In a NumPyro model, the pattern will be::
 
+        net = haiku_module("net", nn_module)
+        y = net(x)  # or y = net(rng_key, x)
+
+    or with dropout layers::
+
         net = haiku_module("net", nn_module, apply_rng=True)
-        y = net(None, x)  # or y = net(x) if apply_rng=False
+        rng_key = numpyro.prng_key()
+        y = net(rng_key, x)
 
     :param str name: name of the module to be registered.
     :param nn_module: a `haiku` Module which has .init and .apply methods
@@ -141,10 +171,10 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
     module_key = name + "$params"
     nn_params = numpyro.param(module_key)
     with_state = isinstance(nn_module, hk.TransformedWithState)
-    nn_state = None
     if with_state:
-        nn_state = numpyro.param(name + "$state", infer={"mutable": True})
+        nn_state = numpyro_mutable(name + "$state")
         assert nn_state is None or isinstance(nn_state, dict)
+        assert not ((nn_state is None) ^ (nn_params is None))
 
     if nn_params is None:
         args = (jnp.ones(input_shape),) if input_shape is not None else ()
@@ -153,7 +183,7 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
         if with_state:
             nn_params, nn_state = nn_module.init(rng_key, *args, **kwargs)
             nn_state = dict(nn_state)
-            numpyro.param(name + "$state", nn_state, infer={"mutable": True})
+            numpyro_mutable(name + "$state", nn_state)
         else:
             nn_params = nn_module.init(rng_key, *args, **kwargs)
         # haiku init returns an immutable dict
@@ -164,14 +194,13 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
 
-    def apply_with_state(params, state, *args, **kwargs):
-        out, state = nn_module.apply(params, state, *args, **kwargs)
-        nn_state.update(**state)
+    def apply_with_state(params, *args, **kwargs):
+        out, new_state = nn_module.apply(params, nn_state, *args, **kwargs)
+        nn_state.update(**new_state)
         return out
 
-    if with_state:
-        return partial(apply_with_state, nn_params, nn_state)
-    return partial(nn_module.apply, nn_params)
+    apply_fn = apply_with_state if with_state else nn_module.apply
+    return partial(apply_fn, nn_params)
 
 
 # register an "empty" parameter which only stores its shape
@@ -207,7 +236,9 @@ def _update_params(params, new_params, prior, prefix=""):
             )
 
 
-def random_flax_module(name, nn_module, prior, *, input_shape=None, apply_rng=None, **kwargs):
+def random_flax_module(
+    name, nn_module, prior, *, input_shape=None, apply_rng=None, mutable=None, **kwargs
+):
     """
     A primitive to place a prior over the parameters of the Flax module `nn_module`.
 
@@ -215,14 +246,14 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, apply_rng=No
         Parameters of a Flax module are stored in a nested dict. For example,
         the module `B` defined as follows::
 
-            class A(nn.Module):
-                @nn.compact
+            class A(flax.linen.Module):
+                @flax.linen.compact
                 def __call__(self, x):
                     return nn.Dense(1, use_bias=False, name='dense')(x)
 
-            class B(nn.Module):
-                @nn.compact
-                def apply(self, x):
+            class B(flax.linen.Module):
+                @flax.linen.compact
+                def __call__(self, x):
                     return A(name='inner')(x)
 
         has parameters `{'inner': {'dense': {'kernel': param_value}}}`. In the argument
@@ -247,6 +278,9 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, apply_rng=No
         rng key is needed. Please see
         `Flax Linen Intro <https://flax.readthedocs.io/en/latest/notebooks/linen_intro.html#Invoking-Modules>`_
         for more information in how Flax deals with stochastic layers like dropout.
+    :param list mutable: A list to indicate mutable states of ``nn_module``. For example,
+        if your module has BatchNorm layer, we will need to define ``mutable=["batch_stats"]``.
+        See the above `Flax Linen Intro` tutorial for more information.
     :param kwargs: optional keyword arguments to initialize flax neural network
         as an alternative to `input_shape`
     :returns: a sampled module
@@ -307,12 +341,19 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, apply_rng=No
         >>> assert losses[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
-    nn = flax_module(name, nn_module, input_shape=input_shape, apply_rng=apply_rng, **kwargs)
-    params = nn.args[0]["params"]
+    nn = flax_module(
+        name,
+        nn_module,
+        input_shape=input_shape,
+        apply_rng=apply_rng,
+        mutable=mutable,
+        **kwargs
+    )
+    params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
         _update_params(params, new_params, prior)
-    nn_new = partial(nn.func, {"params": new_params}, *nn.args[1:], **nn.keywords)
+    nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
     return nn_new
 
 
