@@ -16,6 +16,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
 from numpyro.infer import SVI, RenyiELBO, Trace_ELBO, TraceMeanField_ELBO
+from numpyro.primitives import mutable as numpyro_mutable
 from numpyro.util import fori_loop
 
 
@@ -241,14 +242,14 @@ def test_svi_discrete_latent():
 def test_mutable_state(stable_update, num_particles, elbo):
     def model():
         x = numpyro.sample("x", dist.Normal(-1, 1))
-        numpyro.param("x1p", x + 1, infer={"mutable": True})
+        numpyro_mutable("x1p", x + 1)
 
     def guide():
         loc = numpyro.param("loc", 0.0)
-        p = numpyro.param("loc1p", {"value": None}, infer={"mutable": True})
+        p = numpyro_mutable("loc1p", {"value": None})
         # we can modify the content of `p` if it is a dict
         p["value"] = loc + 2
-        numpyro.sample("x", dist.Normal(loc, 1))
+        numpyro.sample("x", dist.Normal(loc, 0.1))
 
     svi = SVI(model, guide, optim.Adam(0.1), elbo(num_particles=num_particles))
     if num_particles > 1:
@@ -257,5 +258,9 @@ def test_mutable_state(stable_update, num_particles, elbo):
         return
     svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
     params = svi_result.params
-    assert set(params.keys()) == {"x1p", "loc", "loc1p"}
-    assert_allclose(params["loc1p"]["value"], params["loc"] + 2, atol=0.1)
+    mutable_state = svi_result.state.mutable_state
+    assert set(mutable_state) == {"x1p", "loc1p"}
+    assert_allclose(mutable_state["loc1p"]["value"], params["loc"] + 2, atol=0.1)
+    # here, the initial loc has value 0., hence x1p will have init value near 1
+    # it won't be updated during SVI run because it is not a mutable state
+    assert_allclose(mutable_state["x1p"], 1.0, atol=0.2)

@@ -21,7 +21,7 @@ SVIState = namedtuple("SVIState", ["optim_state", "mutable_state", "rng_key"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **optim_state** - current optimizer's state.
- - **mutable_state** - extra state to store params values indicated by `infer={"mutable": False}`
+ - **mutable_state** - extra state to store values of `"mutable"` sites
  - **rng_key** - random number generator seed used for the iteration.
 """
 

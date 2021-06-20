@@ -44,7 +44,7 @@ class ELBO:
         """
         return self.loss_with_mutable_state(
             rng_key, param_map, model, guide, *args, **kwargs
-        )[0]
+        )["loss"]
 
     def loss_with_mutable_state(
         self, rng_key, param_map, model, guide, *args, **kwargs
@@ -140,11 +140,11 @@ class Trace_ELBO(ELBO):
         # the ELBO is a lower bound that needs to be maximized.
         if self.num_particles == 1:
             elbo, mutable_state = single_particle_elbo(rng_key)
-            return -elbo, mutable_state
+            return {"loss": -elbo, "mutable_state": mutable_state}
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             elbos, mutable_state = vmap(single_particle_elbo)(rng_keys)
-            return -jnp.mean(elbos), mutable_state
+            return {"loss": -jnp.mean(elbos), "mutable_state": mutable_state}
 
 
 def _get_log_prob_sum(site):
@@ -265,11 +265,11 @@ class TraceMeanField_ELBO(ELBO):
 
         if self.num_particles == 1:
             elbo, mutable_state = single_particle_elbo(rng_key)
-            return -elbo, mutable_state
+            return {"loss": -elbo, "mutable_state": mutable_state}
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             elbos, mutable_state = vmap(single_particle_elbo)(rng_keys)
-            return -jnp.mean(elbos), mutable_state
+            return {"loss": -jnp.mean(elbos), "mutable_state": mutable_state}
 
 
 class RenyiELBO(ELBO):
