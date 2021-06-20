@@ -527,7 +527,9 @@ def test_discrete_helpful_error(auto_class, init_loc_fn):
     def model():
         p = numpyro.sample("p", dist.Beta(2.0, 2.0))
         x = numpyro.sample("x", dist.Bernoulli(p))
-        numpyro.sample("obs", dist.Bernoulli(p * x + (1 - p) * (1 - x)), obs=jnp.array([1.0, 0.0]))
+        numpyro.sample(
+            "obs", dist.Bernoulli(p * x + (1 - p) * (1 - x)), obs=jnp.array([1.0, 0.0])
+        )
 
     guide = auto_class(model, init_loc_fn=init_loc_fn)
     with pytest.raises(ValueError, match=".*handle discrete.*"):
