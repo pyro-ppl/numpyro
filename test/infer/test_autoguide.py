@@ -29,7 +29,12 @@ from numpyro.infer.autoguide import (
     AutoMultivariateNormal,
     AutoNormal,
 )
-from numpyro.infer.initialization import init_to_median
+from numpyro.infer.initialization import (
+    init_to_feasible,
+    init_to_median,
+    init_to_sample,
+    init_to_uniform,
+)
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import Predictive
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
@@ -496,3 +501,67 @@ def test_plate_inconsistent(size, dim):
     svi = SVI(model, guide, numpyro.optim.Adam(step_size=0.1), Trace_ELBO())
     with pytest.raises(AssertionError, match="has inconsistent dim or size"):
         svi.run(random.PRNGKey(0), 10)
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        AutoNormal,
+        AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation,
+    ],
+)
+@pytest.mark.parametrize(
+    "init_loc_fn",
+    [
+        init_to_feasible,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+    ],
+)
+def test_discrete_helpful_error(auto_class, init_loc_fn):
+    def model():
+        p = numpyro.sample("p", dist.Beta(2.0, 2.0))
+        x = numpyro.sample("x", dist.Bernoulli(p))
+        numpyro.sample(
+            "obs", dist.Bernoulli(p * x + (1 - p) * (1 - x)), obs=jnp.array([1.0, 0.0])
+        )
+
+    guide = auto_class(model, init_loc_fn=init_loc_fn)
+    with pytest.raises(ValueError, match=".*handle discrete.*"):
+        handlers.seed(guide, 0)()
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        AutoNormal,
+        AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation,
+    ],
+)
+@pytest.mark.parametrize(
+    "init_loc_fn",
+    [
+        init_to_feasible,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+    ],
+)
+def test_sphere_helpful_error(auto_class, init_loc_fn):
+    def model():
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0).expand([2]).to_event(1))
+        y = numpyro.sample("y", dist.ProjectedNormal(x))
+        numpyro.sample("obs", dist.Normal(y, 1), obs=jnp.array([1.0, 0.0]))
+
+    guide = auto_class(model, init_loc_fn=init_loc_fn)
+    with pytest.raises(ValueError, match=".*ProjectedNormalReparam.*"):
+        handlers.seed(guide, 0)()
