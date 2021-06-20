@@ -298,7 +298,8 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, apply_rng=No
         >>> guide = autoguide.AutoNormal(model, init_loc_fn=init_to_feasible)
         >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), TraceMeanField_ELBO())
         >>> n_iterations = 3000
-        >>> params, losses = svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
+        >>> svi_result = svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
+        >>> params, losses = svi_result.params, svi_result.losses
         >>> n_test_data = 100
         >>> x_test, y_test = generate_data(n_test_data)
         >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)

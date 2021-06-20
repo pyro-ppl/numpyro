@@ -95,7 +95,8 @@ def test_run(progress_bar):
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
-    params, losses = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    svi_result = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    params, losses = svi_result.params, svi_result.losses
     assert losses.shape == (1000,)
     assert_allclose(
         params["alpha_q"] / (params["alpha_q"] + params["beta_q"]),

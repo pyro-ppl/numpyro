@@ -35,8 +35,8 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
-def _apply_loss_fn(
-    loss_fn,
+def _make_loss_fn(
+    elbo,
     rng_key,
     constrain_fn,
     model,
@@ -44,13 +44,19 @@ def _apply_loss_fn(
     args,
     kwargs,
     static_kwargs,
-    params,
     mutable_state=None,
 ):
-    params = constrain_fn(params)
-    if mutable_state is not None:
-        params.update(mutable_state)
-    return loss_fn(rng_key, params, model, guide, *args, **kwargs, **static_kwargs)
+    def loss_fn(params):
+        params = constrain_fn(params)
+        if mutable_state is not None:
+            params.update(mutable_state)
+            result = elbo.loss_with_mutable_state(
+                rng_key, params, model, guide, *args, **kwargs, **static_kwargs)
+            return result["loss"], result["mutable_state"]
+        else:
+            return elbo.loss(rng_key, params, model, guide, *args, **kwargs, **static_kwargs), None
+
+    return loss_fn
 
 
 class SVI(object):
@@ -215,9 +221,8 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        loss_fn = partial(
-            _apply_loss_fn,
-            self.loss.loss,
+        loss_fn = _make_loss_fn(
+            self.loss,
             rng_key_step,
             self.constrain_fn,
             self.model,
@@ -228,7 +233,7 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state, has_aux=True
+            loss_fn, svi_state.optim_state
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
@@ -245,9 +250,8 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        loss_fn = partial(
-            _apply_loss_fn,
-            self.loss.loss,
+        loss_fn = _make_loss_fn(
+            self.loss,
             rng_key_step,
             self.constrain_fn,
             self.model,
@@ -257,11 +261,9 @@ class SVI(object):
             self.static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
-        has_aux = svi_state.mutable_state is not None
-        out, optim_state = self.optim.eval_and_stable_update(
-            loss_fn, svi_state.optim_state, has_aux=has_aux
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
+            loss_fn, svi_state.optim_state
         )
-        loss_val, mutable_state = out if has_aux else (out, None)
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def run(
@@ -332,7 +334,9 @@ class SVI(object):
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
-        return SVIRunResult(self.get_params(svi_state), losses)
+        # XXX: we also return the last svi_state for further inspection of both
+        # optimizer's state and mutable state.
+        return SVIRunResult(self.get_params(svi_state), svi_state, losses)
 
     def evaluate(self, svi_state, *args, **kwargs):
         """

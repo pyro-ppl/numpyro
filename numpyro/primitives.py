@@ -210,7 +210,6 @@ def param(name, init_value=None, **kwargs):
         "value": None,
         "scale": None,
         "cond_indep_stack": [],
-        "infer": kwargs.get("infer", {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
