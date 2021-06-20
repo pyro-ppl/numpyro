@@ -75,7 +75,7 @@ def flax_module(
     if mutable:
         nn_state = numpyro_mutable(name + "$state")
         assert nn_state is None or isinstance(nn_state, dict)
-        assert not ((nn_state is None) ^ (nn_params is None))
+        assert (nn_state is None) == (nn_params is None)
 
     if nn_params is None:
         # feed in dummy data to init params
@@ -174,7 +174,7 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
     if with_state:
         nn_state = numpyro_mutable(name + "$state")
         assert nn_state is None or isinstance(nn_state, dict)
-        assert not ((nn_state is None) ^ (nn_params is None))
+        assert (nn_state is None) == (nn_params is None)
 
     if nn_params is None:
         args = (jnp.ones(input_shape),) if input_shape is not None else ()
