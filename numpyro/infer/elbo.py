@@ -215,7 +215,7 @@ class TraceMeanField_ELBO(ELBO):
             mutable_params = {
                 name: site["value"]
                 for name, site in guide_trace.items()
-                if site["type"] == "param" and site["infer"].get("mutable", False)
+                if site["type"] == "mutable"
             }
             params.update(mutable_params)
             subs_model = substitute(replay(seeded_model, guide_trace), data=params)
@@ -224,7 +224,7 @@ class TraceMeanField_ELBO(ELBO):
                 {
                     name: site["value"]
                     for name, site in model_trace.items()
-                    if site["type"] == "param" and site["infer"].get("mutable", False)
+                    if site["type"] == "mutable"
                 }
             )
             _check_mean_field_requirement(model_trace, guide_trace)
