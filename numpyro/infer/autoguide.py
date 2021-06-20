@@ -36,8 +36,8 @@ from numpyro.distributions.util import (
     sum_rightmost,
 )
 from numpyro.infer.elbo import Trace_ELBO
-from numpyro.infer.initialization import init_to_median
-from numpyro.infer.util import init_to_uniform, initialize_model
+from numpyro.infer.initialization import init_to_median, init_to_uniform
+from numpyro.infer.util import helpful_support_errors, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import not_jax_tracer
@@ -147,6 +147,10 @@ class AutoGuide(ABC):
         self._prototype_plate_sizes = {}
         for name, site in self.prototype_trace.items():
             if site["type"] == "sample":
+                if not site["is_observed"] and site["fn"].is_discrete:
+                    # raise support errors early for discrete sites
+                    with helpful_support_errors(site):
+                        biject_to(site["fn"].support)
                 for frame in site["cond_indep_stack"]:
                     if frame.name in self._prototype_frames:
                         assert (
@@ -266,7 +270,8 @@ class AutoNormal(AutoGuide):
                 ):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
-                    transform = biject_to(site["fn"].support)
+                    with helpful_support_errors(site):
+                        transform = biject_to(site["fn"].support)
                     guide_dist = dist.TransformedDistribution(site_fn, transform)
                     result[name] = numpyro.sample(name, guide_dist)
 
@@ -485,7 +490,8 @@ class AutoContinuous(AutoGuide):
 
         for name, unconstrained_value in self._unpack_latent(latent).items():
             site = self.prototype_trace[name]
-            transform = biject_to(site["fn"].support)
+            with helpful_support_errors(site):
+                transform = biject_to(site["fn"].support)
             value = transform(unconstrained_value)
             event_ndim = site["fn"].event_dim
             if numpyro.get_mask() is False:
