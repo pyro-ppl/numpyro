@@ -10,30 +10,31 @@ from sklearn.utils import shuffle
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro import handlers
 from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
-from numpyro.handlers import substitute, seed, trace, replay
 from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
+from numpyro.util import ravel_pytree
 
 numpyro.set_platform("cpu")
 
 
 def lda(
-    doc_words,
-    num_topics=20,
-    num_words=100,
-    num_max_elements=10,
-    num_hidden=100,
+        doc_words,
+        num_topics=20,
+        num_words=100,
+        num_max_elements=10,
+        num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs = (
-        numpyro.sample(
-            "topic_word_probs",
-            dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
-        )
-        + 1e-7
+            numpyro.sample(
+                "topic_word_probs",
+                dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
+            )
+            + 1e-7
     )
     element_plate = numpyro.plate("words", num_max_elements, dim=-1)
     with numpyro.plate("documents", num_docs, dim=-2):
@@ -52,11 +53,11 @@ def lda(
 
 
 def lda_guide(
-    doc_words,
-    num_topics=20,
-    num_words=100,
-    num_max_elements=10,
-    num_hidden=100,
+        doc_words,
+        num_topics=20,
+        num_words=100,
+        num_max_elements=10,
+        num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs_val = numpyro.param(
@@ -85,7 +86,7 @@ def make_batcher(data, batch_size=32, num_max_elements=-1):
         i = step % ds_count
         epoch = step // ds_count
         is_last = i == (ds_count - 1)
-        batch_values = data[i * batch_size : (i + 1) * batch_size].todense()
+        batch_values = data[i * batch_size: (i + 1) * batch_size].todense()
         res = [[] for _ in range(batch_size)]
         for idx1, idx2 in zip(*np.nonzero(batch_values)):
             res[idx1].append(idx2)
@@ -99,6 +100,21 @@ def make_batcher(data, batch_size=32, num_max_elements=-1):
         return (np.array(padded_res),), {}, epoch, is_last
 
     return batch_fn, num_max_elements
+
+
+def single_particle_log_likelihood(rng_key, model, guide, args, kwargs, param_map):
+    model_seed, guide_seed = jax.random.split(rng_key)
+    seeded_model = handlers.seed(model, model_seed)
+    seeded_guide = handlers.seed(guide, guide_seed)
+
+    guide_log_density, guide_trace = numpyro.infer.log_density(
+        seeded_guide, args, kwargs, param_map
+    )
+
+    seeded_model = handlers.replay(seeded_model, guide_trace)
+    model_log_density, _ = numpyro.infer.log_density(seeded_model, args, kwargs, param_map)
+
+    return model_log_density
 
 
 def main(_argv):
@@ -128,28 +144,25 @@ def main(_argv):
     )
     state, losses = stein.run(inf_key, 10, batch_fun=batch_fn, callbacks=[Progbar()])
 
-    guide = substitute(seed(lda_guide, rng_key), stein.get_params(state))
-
     fn, _ = make_batcher(
         count_vectorizer.transform(fetch_20newsgroups(subset="test").data),
         batch_size=7532,
         num_max_elements=89,
     )
-    (newsgroups_test,), _, _, _ = fn(0)
-    guide_tr = trace(guide).get_trace(
-        newsgroups_test,
-        num_topics=20,
-        num_words=num_words,
-        num_max_elements=num_max_elements,
-        num_hidden=100,
-    )
-    trace(replay(lda, guide_tr)).get_trace(
-        newsgroups_test,
-        num_topics=20,
-        num_words=num_words,
-        num_max_elements=num_max_elements,
-        num_hidden=100,
-    )
+    (test_data,), _, _, _ = fn(0)
+    particles, unravel_pytree = ravel_pytree(stein.get_params(state), batch_dims=1)
+
+    def log_likelihood(particle):
+        return stein.loss.loss(jax.random.PRNGKey(0),
+                               unravel_pytree(particle),
+                               handlers.scale(stein._inference_model, stein.loss_temperature),
+                               stein.guide,
+                               test_data,
+                               num_topics=20,
+                               num_words=num_words,
+                               num_max_elements=num_max_elements)
+
+    print(jax.vmap(log_likelihood)(particles))
 
 
 if __name__ == "__main__":
