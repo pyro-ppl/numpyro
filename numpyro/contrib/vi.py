@@ -6,8 +6,7 @@ import jax
 from jax.lax import fori_loop
 
 from numpyro import handlers
-import numpyro.contrib.einstein.callbacks.callback as ncallback
-import numpyro.contrib.einstein.callbacks.checkpoint as ncheckpoint
+from numpyro.contrib import callbacks
 
 
 class VI:
@@ -42,18 +41,18 @@ class VI:
         raise NotImplementedError
 
     def run(
-        self,
-        rng_key,
-        num_steps,
-        *args,
-        callbacks: List[ncallback.Callback] = None,
-        batch_fun=None,
-        validation_rate=5,
-        validation_fun=None,
-        restore=False,
-        restore_path=None,
-        jit_compile=True,
-        **kwargs
+            self,
+            rng_key,
+            num_steps,
+            *args,
+            callbacks: List[callbacks.Callback] = None,
+            batch_fun=None,
+            validation_rate=5,
+            validation_fun=None,
+            restore=False,
+            restore_path=None,
+            jit_compile=True,
+            **kwargs
     ):
         def bodyfn(_i, info, *args, **kwargs):
             body_state, _ = info
@@ -67,17 +66,17 @@ class VI:
 
         state = self.init(rng_key, *args, *batch_args, **kwargs, **batch_kwargs)
         if restore and restore_path:
-            opt_state, rng_key, loss = ncheckpoint.Checkpoint.load(restore_path)
+            opt_state, rng_key, loss = callbacks.Checkpoint.load(restore_path)
             state = VI.CurrentState(opt_state, rng_key)
 
             num_steps -= state[0][0]
         else:
             loss = self.evaluate(state, *args, *batch_args, **kwargs, **batch_kwargs)
         if (
-            not callbacks
-            and batch_fun is None
-            and validation_fun is None
-            and jit_compile
+                not callbacks
+                and batch_fun is None
+                and validation_fun is None
+                and jit_compile
         ):
             state, loss = fori_loop(
                 0,
