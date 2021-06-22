@@ -14,7 +14,9 @@ from numpyro import handlers
 from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.einstein.callbacks import Progbar
 from numpyro.contrib.indexing import Vindex
+from numpyro.handlers import replay
 from numpyro.infer import Trace_ELBO
+from numpyro.infer.util import log_density
 from numpyro.optim import Adam
 from numpyro.util import ravel_pytree
 
@@ -117,6 +119,29 @@ def single_particle_log_likelihood(rng_key, model, guide, args, kwargs, param_ma
     return model_log_density
 
 
+def perplexity(rng_key, stein, stein_state, *model_args, **model_kwargs):
+    particles, unravel_pytree = ravel_pytree(stein.get_params(stein_state), batch_dims=1)
+    model = handlers.scale(stein._inference_model, stein.loss_temperature)
+
+    def particle_log_likelihood(particle, key):
+        particle = unravel_pytree(particle)
+        model_seed, guide_seed = jax.random.split(key)
+        seeded_model = handlers.seed(model, model_seed)
+        seeded_guide = handlers.seed(stein.guide, guide_seed)
+        guide_trace = handlers.trace(handlers.substitute(seeded_guide, data=particle)).get_trace(*model_args,
+                                                                                                 **model_kwargs)
+        seeded_model = replay(seeded_model, guide_trace)
+        model_log_density, _ = log_density(
+            handlers.block(seeded_model, hide_fn=lambda site: site['type'] != 'sample' or not site['is_observed']),
+            model_args, model_kwargs, particle)
+
+        return model_log_density
+
+    keys = jax.random.split(rng_key, particles.shape[0])
+    # b^{1/n\sum_i log_b q(x_i)}
+    return 2 ** (-jax.vmap(particle_log_likelihood)(particles, keys).mean() / jnp.log(2))
+
+
 def main(_argv):
     newsgroups = fetch_20newsgroups(subset="train")
     num_words = 100
@@ -150,19 +175,10 @@ def main(_argv):
         num_max_elements=89,
     )
     (test_data,), _, _, _ = fn(0)
-    particles, unravel_pytree = ravel_pytree(stein.get_params(state), batch_dims=1)
+    per = perplexity(jax.random.PRNGKey(0), stein, state, test_data, num_topics=20, num_words=num_words,
+                     num_max_elements=num_max_elements)
 
-    def log_likelihood(particle):
-        return stein.loss.loss(jax.random.PRNGKey(0),
-                               unravel_pytree(particle),
-                               handlers.scale(stein._inference_model, stein.loss_temperature),
-                               stein.guide,
-                               test_data,
-                               num_topics=20,
-                               num_words=num_words,
-                               num_max_elements=num_max_elements)
-
-    print(jax.vmap(log_likelihood)(particles))
+    print(per)
 
 
 if __name__ == "__main__":
