@@ -607,7 +607,7 @@ class scope(Messenger):
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.handlers import scope, seed, trace
-        ...
+
         >>> def model():
         ...     with scope(prefix="a"):
         ...         with scope(prefix="b", divider="."):
