@@ -58,7 +58,7 @@ def lda(
 def lda_guide(
         doc_words,
         num_topics=20,
-        num_words=100,
+        num_words=150,
         num_max_elements=10,
         num_hidden=100,
 ):
@@ -169,7 +169,7 @@ def main(_argv):
         stop_words="english",
     )
     newsgroups_docs = count_vectorizer.fit_transform(newsgroups.data)
-    batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=1024)
+    batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=128)
     rng_key = jax.random.PRNGKey(8938)
     inf_key, pred_key = jax.random.split(rng_key)
     stein = Stein(

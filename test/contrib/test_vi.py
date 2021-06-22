@@ -1,26 +1,13 @@
 import tempfile
 
+import jax.numpy as jnp
 import pytest
-from numpyro.contrib.callbacks import (
-    Checkpoint,
-    EarlyStopping,
-    History,
-    Progbar,
-    ReduceLROnPlateau,
-    TerminateOnNaN)
-import jax
+from jax import random
 
-import numpyro
-from numpyro.infer.autoguide import AutoDelta
-import numpyro.distributions as dist
-from numpyro.infer import ELBO, Trace_ELBO
-from numpyro.contrib.einstein import Stein
-from numpyro.infer.initialization import init_to_value, init_with_noise
-from numpyro.contrib.einstein.kernels import RBFKernel
+from numpyro.contrib.callbacks import (
+    Checkpoint)
 from numpyro.contrib.einstein.stein import VIState
 from numpyro.optim import Adam
-from jax import random
-import jax.numpy as jnp
 
 
 ########################################
