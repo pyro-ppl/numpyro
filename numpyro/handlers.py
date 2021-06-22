@@ -112,7 +112,7 @@ class trace(Messenger):
     Returns a handler that records the inputs and outputs at primitive calls
     inside `fn`.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -175,7 +175,7 @@ class replay(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param guide_trace: an OrderedDict containing execution metadata.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -600,20 +600,20 @@ class scope(Messenger):
     """
     This handler prepend a prefix followed by a divider to the name of sample sites.
 
-    Example::
+    **Example:**
 
     .. doctest::
 
-       >>> import numpyro
-       >>> import numpyro.distributions as dist
-       >>> from numpyro.handlers import scope, seed, trace
-       >>>
-       >>> def model():
-       ...     with scope(prefix="a"):
-       ...         with scope(prefix="b", divider="."):
-       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
-       ...
-       >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import scope, seed, trace
+        ...
+        >>> def model():
+        ...     with scope(prefix="a"):
+        ...         with scope(prefix="b", divider="."):
+        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+        ...
+        >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
