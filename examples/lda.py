@@ -139,7 +139,7 @@ def perplexity(rng_key, stein, stein_state, *model_args, **model_kwargs):
 
     keys = jax.random.split(rng_key, particles.shape[0])
     # b^{1/n\sum_i log_b q(x_i)}
-    return 2 ** (-jax.vmap(particle_log_likelihood)(particles, keys).mean() / jnp.log(2))
+    return 2 ** (-(jax.vmap(particle_log_likelihood)(particles, keys) / jnp.log(2)).mean())
 
 
 def main(_argv):
