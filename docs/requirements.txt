@@ -6,5 +6,5 @@ jaxlib>=0.1.45
 optax==0.0.6
 nbsphinx>=0.8.5
 sphinx-gallery
-tfp-nightly<=0.14.0.dev20210608 # TODO: change this to tensorflow-probability when it is stable
+tfp-nightly<=0.14.0.dev20210608  # TODO: change this to tensorflow-probability when it is stable
 tqdm

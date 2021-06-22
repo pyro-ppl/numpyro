@@ -14,7 +14,7 @@ from jax.tree_util import tree_map
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
-from numpyro.infer.util import transform_fn
+from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim
 
 SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
@@ -154,7 +154,8 @@ class SVI(object):
         for site in list(model_trace.values()) + list(guide_trace.values()):
             if site["type"] == "param":
                 constraint = site["kwargs"].pop("constraint", constraints.real)
-                transform = biject_to(constraint)
+                with helpful_support_errors(site):
+                    transform = biject_to(constraint)
                 inv_transforms[site["name"]] = transform
                 params[site["name"]] = transform.inv(site["value"])
             elif (

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import os
 import random
 import re
+import warnings
 
 import numpy as np
 import tqdm
@@ -300,6 +301,13 @@ def fori_collect(
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
+    # host_callback does not work yet with multi-GPU platforms
+    # See: https://github.com/google/jax/issues/6447
+    if num_chains > 1 and jax.default_backend() == "gpu":
+        warnings.warn(
+            "We will disable progress bar because it does not work yet on multi-GPUs platforms."
+        )
+        progbar = False
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
