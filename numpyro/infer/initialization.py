@@ -70,10 +70,14 @@ def init_to_uniform(site=None, radius=2):
             )
             return site["value"]
 
+        # XXX: we import here to avoid circular import
+        from numpyro.infer.util import helpful_support_errors
+
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
 
-        transform = biject_to(site["fn"].support)
+        with helpful_support_errors(site):
+            transform = biject_to(site["fn"].support)
         unconstrained_shape = transform.inverse_shape(site["fn"].shape())
         unconstrained_samples = dist.Uniform(-radius, radius)(
             rng_key=rng_key, sample_shape=sample_shape + unconstrained_shape
