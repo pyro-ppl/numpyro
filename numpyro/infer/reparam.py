@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 from abc import ABC, abstractmethod
 
 import jax.numpy as jnp
@@ -288,3 +290,27 @@ class NeuTraReparam(Reparam):
         """
         x_unconstrained = self.transform(latent)
         return self.guide._unpack_and_constrain(x_unconstrained, self.params)
+
+
+class CircularReparam(Reparam):
+    def __call__(self, name, fn, obs):
+        original_fn = fn
+        fn, expand_shape, event_dim = self._unwrap(fn)
+
+        # Draw parameter-free noise.
+        new_fn = dist.Normal(0, 1).mask(False)  # arbitrary, improper uniform
+        value = numpyro.sample(
+            f"{name}_unwrapped",
+            self._wrap(new_fn, expand_shape, event_dim),
+            obs=obs,
+        )
+
+        # Differentiably transform.
+        # value = jnp.fmod(value, 2 * math.pi)  # in [0, 2 * pi)
+        # or maybe this?
+        # value = jnp.fmod(value + math.pi, 2 * math.pi) - math.pi  # in [-pi, pi)
+        value = jnp.arctan2(jnp.sin(value), jnp.cos(value))
+
+        # Simulate a pyro.deterministic() site.
+        numpyro.factor(f"{name}_factor", original_fn.log_prob(value))
+        return None, value
