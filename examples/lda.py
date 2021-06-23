@@ -1,5 +1,4 @@
 import sys
-import matplotlib.pyplot as plt
 
 import jax
 import jax.numpy as jnp
@@ -12,8 +11,8 @@ from sklearn.utils import shuffle
 import numpyro
 import numpyro.distributions as dist
 from numpyro import handlers
-from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.callbacks import Progbar
+from numpyro.contrib.einstein import RBFKernel, Stein
 from numpyro.contrib.indexing import Vindex
 from numpyro.handlers import replay
 from numpyro.infer import Trace_ELBO
@@ -58,7 +57,7 @@ def lda(
 def lda_guide(
         doc_words,
         num_topics=20,
-        num_words=150,
+        num_words=100,
         num_max_elements=10,
         num_hidden=100,
 ):
@@ -115,17 +114,13 @@ def single_particle_log_likelihood(rng_key, model, guide, args, kwargs, param_ma
     )
 
     seeded_model = handlers.replay(seeded_model, guide_trace)
-    model_log_density, _ = numpyro.infer.log_density(
-        seeded_model, args, kwargs, param_map
-    )
+    model_log_density, _ = numpyro.infer.log_density(seeded_model, args, kwargs, param_map)
 
     return model_log_density
 
 
 def perplexity(rng_key, stein, stein_state, *model_args, **model_kwargs):
-    particles, unravel_pytree = ravel_pytree(
-        stein.get_params(stein_state), batch_dims=1
-    )
+    particles, unravel_pytree = ravel_pytree(stein.get_params(stein_state), batch_dims=1)
     model = handlers.scale(stein._inference_model, stein.loss_temperature)
 
     def particle_log_likelihood(particle, key):
@@ -133,34 +128,23 @@ def perplexity(rng_key, stein, stein_state, *model_args, **model_kwargs):
         model_seed, guide_seed = jax.random.split(key)
         seeded_model = handlers.seed(model, model_seed)
         seeded_guide = handlers.seed(stein.guide, guide_seed)
-        guide_trace = handlers.trace(
-            handlers.substitute(seeded_guide, data=particle)
-        ).get_trace(*model_args, **model_kwargs)
+        guide_trace = handlers.trace(handlers.substitute(seeded_guide, data=particle)).get_trace(*model_args,
+                                                                                                 **model_kwargs)
         seeded_model = replay(seeded_model, guide_trace)
         model_log_density, _ = log_density(
-            handlers.block(
-                seeded_model,
-                hide_fn=lambda site: site["type"] != "sample"
-                                     or not site["is_observed"],
-            ),
-            model_args,
-            model_kwargs,
-            particle,
-        )
+            handlers.block(seeded_model, hide_fn=lambda site: site['type'] != 'sample' or not site['is_observed']),
+            model_args, model_kwargs, particle)
 
         return model_log_density
 
     keys = jax.random.split(rng_key, particles.shape[0])
-    print('mean likelihood', (jax.vmap(particle_log_likelihood)(particles, keys) / jnp.log(2)).mean())
-    # b^{-1/n\sum_i log_b q(x_i)}
-    return 2 ** (
-        -(jax.vmap(particle_log_likelihood)(particles, keys) / jnp.log(2)).mean()
-    )
+    # b^{1/n\sum_i log_b q(x_i)}
+    return 2 ** (-(jax.vmap(particle_log_likelihood)(particles, keys) / jnp.log(2)).mean())
 
 
 def main(_argv):
     newsgroups = fetch_20newsgroups(subset="train")
-    num_words = 150
+    num_words = 100
     count_vectorizer = CountVectorizer(
         max_df=0.95,
         min_df=0.01,
@@ -178,16 +162,12 @@ def main(_argv):
         Adam(0.001),
         Trace_ELBO(),
         RBFKernel(),
-        num_particles=10,
+        num_particles=5,
         num_topics=20,
         num_words=num_words,
         num_max_elements=num_max_elements,
     )
-    state, losses = stein.run(inf_key, 1000, batch_fun=batch_fn, callbacks=[Progbar()])
-
-    plt.plot(losses)
-    plt.show()
-
+    state, _ = stein.run(inf_key, 10, batch_fun=batch_fn, callbacks=[Progbar()])
 
     fn, _ = make_batcher(
         count_vectorizer.transform(fetch_20newsgroups(subset="test").data),
@@ -195,15 +175,8 @@ def main(_argv):
         num_max_elements=89,
     )
     (test_data,), _, _, _ = fn(0)
-    per = perplexity(
-        jax.random.PRNGKey(0),
-        stein,
-        state,
-        test_data,
-        num_topics=20,
-        num_words=num_words,
-        num_max_elements=num_max_elements,
-    )
+    per = perplexity(jax.random.PRNGKey(0), stein, state, test_data, num_topics=20, num_words=num_words,
+                     num_max_elements=num_max_elements)
 
     print(per)
 
