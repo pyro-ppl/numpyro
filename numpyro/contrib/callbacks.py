@@ -101,7 +101,7 @@ class Checkpoint(Callback):
 
     def latest(self):
         path = Path(self.file_path)
-        restore_files = path.parent.glob("*" + "".join(path.suffixes))
+        restore_files = path.parent.glob("*" + "".join(path.suffixes))  # TODO: fix regex
         try:
             return max(restore_files, key=os.path.getctime)
         except ValueError:
@@ -154,10 +154,6 @@ class EarlyStopping(Callback):
 
     def update_and_early_stop(self, loss):
         if self.smoothing == "dexp":
-            self.prev_loss = self.curr_loss
-            self.curr_loss = self.data_smoothing_factor * loss + (
-                    1 - self.data_smoothing_factor
-            ) * (self.curr_loss + self.trend)
             if self.trend is None:
                 self.trend = loss - self.curr_loss
             else:
@@ -165,6 +161,10 @@ class EarlyStopping(Callback):
                         self.trend_smoothing_factor * (self.curr_loss - self.prev_loss)
                         + (1 - self.trend_smoothing_factor) * self.trend
                 )
+            self.prev_loss = self.curr_loss
+            self.curr_loss = self.data_smoothing_factor * loss + (
+                    1 - self.data_smoothing_factor
+            ) * (self.curr_loss + self.trend)
         elif self.smoothing == "exp":
             self.curr_loss = (
                     self.data_smoothing_factor * loss
@@ -203,10 +203,11 @@ class Progbar(Callback):
         self.progbar: Optional[tqdm] = None
 
     def on_train_begin(self, train_info):
-        self.progbar = trange(train_info["num_steps"])
+        if self.vi is not None:
+            self.progbar = trange(train_info["num_steps"])
 
     def on_train_step_end(self, step, train_info):
-        if self.progbar is not None:
+        if self.progbar is not None and self.vi is not None:
             self.progbar.set_description(
                 "{} {:.5}".format(self.vi.name, train_info["loss"]), refresh=False
             )
@@ -260,10 +261,10 @@ class ReduceLROnPlateau(Callback):
     def _reduce_lr_on_plateau(self, loss):
         if loss - self.best_loss < self.min_delta:
             self.best_loss = loss
-            self.waiting = 0
+            self.waiting = 1
         elif self.waiting >= self.patience:
             self.lr = max(self.min_lr, self.factor * self.lr)
-            self.waiting = 0
+            self.waiting = 1
         else:
             self.waiting += 1
 
