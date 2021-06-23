@@ -306,10 +306,7 @@ class CircularReparam(Reparam):
         )
 
         # Differentiably transform.
-        # value = jnp.fmod(value, 2 * math.pi)  # in [0, 2 * pi)
-        # or maybe this?
-        # value = jnp.fmod(value + math.pi, 2 * math.pi) - math.pi  # in [-pi, pi)
-        value = jnp.arctan2(jnp.sin(value), jnp.cos(value))
+        value = jnp.remainder(value + math.pi, 2 * math.pi) - math.pi
 
         # Simulate a pyro.deterministic() site.
         numpyro.factor(f"{name}_factor", original_fn.log_prob(value))
