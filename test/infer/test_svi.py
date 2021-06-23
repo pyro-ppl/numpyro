@@ -16,7 +16,14 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import SVI, RenyiELBO, Trace_ELBO, TraceGraph_ELBO
+from numpyro.infer import (
+    SVI,
+    RenyiELBO,
+    Trace_ELBO,
+    TraceGraph_ELBO,
+    TraceMeanField_ELBO,
+)
+from numpyro.primitives import mutable as numpyro_mutable
 from numpyro.util import fori_loop
 
 
@@ -96,7 +103,8 @@ def test_run(progress_bar):
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
-    params, losses = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    svi_result = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    params, losses = svi_result.params, svi_result.losses
     assert losses.shape == (1000,)
     assert_allclose(
         params["alpha_q"] / (params["alpha_q"] + params["beta_q"]),
@@ -233,6 +241,36 @@ def test_svi_discrete_latent():
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
     with pytest.warns(UserWarning, match="SVI does not support models with discrete"):
         svi.run(random.PRNGKey(0), 10)
+
+
+@pytest.mark.parametrize("stable_update", [True, False])
+@pytest.mark.parametrize("num_particles", [1, 10])
+@pytest.mark.parametrize("elbo", [Trace_ELBO, TraceMeanField_ELBO])
+def test_mutable_state(stable_update, num_particles, elbo):
+    def model():
+        x = numpyro.sample("x", dist.Normal(-1, 1))
+        numpyro_mutable("x1p", x + 1)
+
+    def guide():
+        loc = numpyro.param("loc", 0.0)
+        p = numpyro_mutable("loc1p", {"value": None})
+        # we can modify the content of `p` if it is a dict
+        p["value"] = loc + 2
+        numpyro.sample("x", dist.Normal(loc, 0.1))
+
+    svi = SVI(model, guide, optim.Adam(0.1), elbo(num_particles=num_particles))
+    if num_particles > 1:
+        with pytest.raises(ValueError, match="mutable state"):
+            svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
+        return
+    svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
+    params = svi_result.params
+    mutable_state = svi_result.state.mutable_state
+    assert set(mutable_state) == {"x1p", "loc1p"}
+    assert_allclose(mutable_state["loc1p"]["value"], params["loc"] + 2, atol=0.1)
+    # here, the initial loc has value 0., hence x1p will have init value near 1
+    # it won't be updated during SVI run because it is not a mutable state
+    assert_allclose(mutable_state["x1p"], 1.0, atol=0.2)
 
 
 def test_tracegraph_normal_normal():
