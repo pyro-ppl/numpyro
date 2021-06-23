@@ -7,6 +7,7 @@ from jax.lax import fori_loop
 
 from numpyro import handlers
 from numpyro.contrib import callbacks
+from numpyro.util import fori_collect
 
 
 class VI:
@@ -78,13 +79,14 @@ class VI:
                 and validation_fun is None
                 and jit_compile
         ):
-            state, loss = fori_loop(
+            state, losses = fori_collect(
                 0,
                 num_steps,
                 lambda i, info: bodyfn(i, info, *args, **kwargs),
                 (state, loss),
             )
         else:
+            losses = []
             try:
                 train_info = {
                     "num_steps": num_steps,
@@ -113,6 +115,7 @@ class VI:
                     state, loss = bodyfn(
                         i, (state, loss), *args, *batch_args, **kwargs, **batch_kwargs
                     )
+                    losses.append(loss)
                     train_info["state"] = state
                     train_info["loss"] = loss
                     for callback in callbacks:
@@ -140,8 +143,8 @@ class VI:
                     callback.on_train_end(train_info)
                     callback.vi = None
             except StopIteration:
-                return state, loss
-        return state, loss
+                return state, losses
+        return state, losses
 
     def _predict_model(self, rng_key, params, *args, **kwargs):
         guide_trace = handlers.trace(

@@ -167,7 +167,8 @@ def main(_argv):
         num_words=num_words,
         num_max_elements=num_max_elements,
     )
-    state, _ = stein.run(inf_key, 10, batch_fun=batch_fn, callbacks=[Progbar()])
+    state, losses = stein.run(inf_key, 10, batch_fun=batch_fn, callbacks=[Progbar()])
+    print(losses)
 
     fn, _ = make_batcher(
         count_vectorizer.transform(fetch_20newsgroups(subset="test").data),
