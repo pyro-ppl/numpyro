@@ -16,7 +16,13 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import SVI, RenyiELBO, Trace_ELBO, TraceGraph_ELBO, TraceMeanField_ELBO
+from numpyro.infer import (
+    SVI,
+    RenyiELBO,
+    Trace_ELBO,
+    TraceGraph_ELBO,
+    TraceMeanField_ELBO,
+)
 from numpyro.primitives import mutable as numpyro_mutable
 from numpyro.util import fori_loop
 
