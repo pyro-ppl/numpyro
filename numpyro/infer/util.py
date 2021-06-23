@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from contextlib import contextmanager
 from functools import partial
 import warnings
 
@@ -15,7 +16,7 @@ import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import seed, substitute, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
@@ -68,6 +69,55 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
+class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
+    """
+    Stop gradient for samples at latent sample sites for which has_rsample=False.
+    """
+
+    def postprocess_message(self, msg):
+        if (
+            msg["type"] == "sample"
+            and (not msg["is_observed"])
+            and (not msg["fn"].has_rsample)
+        ):
+            msg["value"] = lax.stop_gradient(msg["value"])
+            # TODO: reconsider this logic
+            # here we clear all the cached value so that gradients of log_prob(value) w.r.t.
+            # all parameters of the transformed distributions match the behavior of
+            # TransformedDistribution(d, transform) in Pyro with transform.cache_size == 0
+            msg["intermediates"] = None
+
+
+def get_importance_trace(model, guide, args, kwargs, params):
+    """
+    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
+    The returned traces also store the log probability at each site.
+
+    .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
+    """
+    guide = substitute(guide, data=params)
+    with _without_rsample_stop_gradient():
+        guide_trace = trace(guide).get_trace(*args, **kwargs)
+    model = substitute(replay(model, guide_trace), data=params)
+    model_trace = trace(model).get_trace(*args, **kwargs)
+    for tr in (guide_trace, model_trace):
+        for site in tr.values():
+            if site["type"] == "sample":
+                if "log_prob" not in site:
+                    value = site["value"]
+                    intermediates = site["intermediates"]
+                    scale = site["scale"]
+                    if intermediates:
+                        log_prob = site["fn"].log_prob(value, intermediates)
+                    else:
+                        log_prob = site["fn"].log_prob(value)
+
+                    if (scale is not None) and (not is_identically_one(scale)):
+                        log_prob = scale * log_prob
+                    site["log_prob"] = log_prob
+    return model_trace, guide_trace
+
+
 def transform_fn(transforms, params, invert=False):
     """
     (EXPERIMENTAL INTERFACE) Callable that applies a transformation from the `transforms`
@@ -107,7 +157,8 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
     def substitute_fn(site):
         if site["name"] in params:
             if site["type"] == "sample":
-                return biject_to(site["fn"].support)(params[site["name"]])
+                with helpful_support_errors(site):
+                    return biject_to(site["fn"].support)(params[site["name"]])
             else:
                 return params[site["name"]]
 
@@ -125,7 +176,8 @@ def _unconstrain_reparam(params, site):
     if name in params:
         p = params[name]
         support = site["fn"].support
-        t = biject_to(support)
+        with helpful_support_errors(site):
+            t = biject_to(support)
         # in scan, we might only want to substitute an item at index i, rather than the whole sequence
         i = site["infer"].get("_scan_current_index", None)
         if i is not None:
@@ -263,7 +315,8 @@ def find_valid_initial_params(
                     and not v["fn"].is_discrete
                 ):
                     constrained_values[k] = v["value"]
-                    inv_transforms[k] = biject_to(v["fn"].support)
+                    with helpful_support_errors(v):
+                        inv_transforms[k] = biject_to(v["fn"].support)
             params = transform_fn(
                 inv_transforms,
                 {k: v for k, v in constrained_values.items()},
@@ -343,7 +396,8 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                     )
             else:
                 support = v["fn"].support
-                inv_transforms[k] = biject_to(support)
+                with helpful_support_errors(v):
+                    inv_transforms[k] = biject_to(support)
                 # XXX: the following code filters out most situations with dynamic supports
                 args = ()
                 if isinstance(support, constraints._GreaterThan):
@@ -844,3 +898,25 @@ def log_likelihood(
     batch_size = int(np.prod(batch_shape))
     chunk_size = batch_size if parallel else 1
     return soft_vmap(single_loglik, posterior_samples, len(batch_shape), chunk_size)
+
+
+@contextmanager
+def helpful_support_errors(site):
+    try:
+        yield
+    except NotImplementedError as e:
+        name = site["name"]
+        support_name = repr(site["fn"].support).lower()
+        if "integer" in support_name or "boolean" in support_name:
+            # TODO: mention enumeration when it is supported in SVI
+            raise ValueError(
+                f"Continuous inference cannot handle discrete sample site '{name}'."
+            )
+        if "sphere" in support_name:
+            raise ValueError(
+                f"Continuous inference cannot handle spherical sample site '{name}'. "
+                "Consider using ProjectedNormal distribution together with "
+                "a reparameterizer, e.g. "
+                f"numpyro.handlers.reparam(config={{'{name}': ProjectedNormalReparam()}})."
+            )
+        raise e from None
