@@ -511,7 +511,7 @@ def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
     return downstream_costs, downstream_guide_cost_nodes
 
 
-class TraceGraph_ELBO:
+class TraceGraph_ELBO(ELBO):
     """
     A TraceGraph implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
@@ -532,7 +532,7 @@ class TraceGraph_ELBO:
     """
 
     def __init__(self, num_particles=1):
-        self.num_particles = num_particles
+        super().__init__(num_particles=num_particles)
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         """
