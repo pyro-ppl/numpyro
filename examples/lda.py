@@ -193,15 +193,13 @@ def run_lda(num_topics=20, num_particles=5):
         num_max_elements=89,
     )
 
-    per = log2_perplexity(jax.random.PRNGKey(0),
-                          stein,
-                          state,
-                          batch_fn,
-                          num_topics=num_topics,
-                          num_words=num_words,
-                          num_max_elements=num_max_elements)
-
-    print(per)
+    return log2_perplexity(jax.random.PRNGKey(0),
+                           stein,
+                           state,
+                           batch_fn,
+                           num_topics=num_topics,
+                           num_words=num_words,
+                           num_max_elements=num_max_elements)
 
 
 if __name__ == "__main__":
