@@ -3,6 +3,14 @@ Automatic Guide Generation
 
 .. automodule:: numpyro.infer.autoguide
 
+AutoGuide
+---------
+.. autoclass:: numpyro.infer.autoguide.AutoGuide
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 AutoContinuous
 --------------
 .. autoclass:: numpyro.infer.autoguide.AutoContinuous

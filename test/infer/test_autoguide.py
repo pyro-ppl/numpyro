@@ -81,6 +81,10 @@ def test_beta_bernoulli(auto_class):
     )
     assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
 
+    if auto_class not in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+        quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
+        assert quantiles["beta"].shape == (3, 2)
+
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
     predictive_samples = predictive(random.PRNGKey(1), None)
