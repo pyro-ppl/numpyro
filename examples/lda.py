@@ -143,14 +143,14 @@ def build_visual():
     perplexities = []
     num_particles = (1, 4, 16, 64)
     for nparticles in num_particles:
-        for num_topics in range(2, max_num_topics, 2):
+        for num_topics in range(2, max_num_topics + 1, 2):
             perplexities.append(run_lda(num_topics, nparticles))
-    perplexities = np.array(perplexities).reshape(4, (max_num_topics - 1) // 2)
+    perplexities = np.array(perplexities).reshape(4, max_num_topics // 2)
 
     for i in range(4):
-        plt.plot(np.arange(2, max_num_topics, 2), perplexities[i], 'x--', label=f"{num_particles[i]} Particles")
+        plt.plot(np.arange(2, max_num_topics + 1, 2), perplexities[i], 'x--', label=f"{num_particles[i]} Particles")
     plt.legend()
-    plt.xticks(list(range(2, max_num_topics, 2)))
+    plt.xticks(list(range(2, max_num_topics + 1, 2)))
     plt.ylabel('Log Perplexity')
     plt.xlabel('Number of Topics')
     plt.show()
@@ -168,13 +168,13 @@ def run_lda(num_topics=20, num_particles=5):
         stop_words="english",
     )
     newsgroups_docs = count_vectorizer.fit_transform(newsgroups.data)
-    batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=128)
+    batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=1024)
     rng_key = jax.random.PRNGKey(8938)
     inf_key, pred_key = jax.random.split(rng_key)
     stein = Stein(
         lda,
         lda_guide,
-        Adam(0.001),
+        Adam(1.),
         Trace_ELBO(),
         RBFKernel(),
         num_particles=num_particles,
