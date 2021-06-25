@@ -53,6 +53,7 @@ __all__ = [
     "Constraint",
 ]
 
+import math
 import numpy as np
 
 import jax.numpy
@@ -94,6 +95,17 @@ class _Boolean(Constraint):
 
     def feasible_like(self, prototype):
         return jax.numpy.zeros_like(prototype)
+
+
+class _Circular(Constraint):
+
+    def __call__(self, x):
+        return (x >= - math.pi) & (x < math.pi)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(
+            math.pi, jax.numpy.shape(prototype)
+        )
 
 
 class _CorrCholesky(Constraint):
@@ -454,6 +466,7 @@ class _Sphere(Constraint):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
+circular = _Circular()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
