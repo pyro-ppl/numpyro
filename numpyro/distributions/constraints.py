@@ -54,6 +54,7 @@ __all__ = [
 ]
 
 import math
+
 import numpy as np
 
 import jax.numpy
@@ -98,14 +99,11 @@ class _Boolean(Constraint):
 
 
 class _Circular(Constraint):
-
     def __call__(self, x):
-        return (x >= - math.pi) & (x < math.pi)
+        return (x >= -math.pi) & (x < math.pi)
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(
-            math.pi, jax.numpy.shape(prototype)
-        )
+        return jax.numpy.broadcast_to(math.pi, jax.numpy.shape(prototype))
 
 
 class _CorrCholesky(Constraint):

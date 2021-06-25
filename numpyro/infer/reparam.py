@@ -1,9 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import math
-
 from abc import ABC, abstractmethod
+import math
 
 import jax.numpy as jnp
 
