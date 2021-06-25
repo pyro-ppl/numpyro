@@ -22,7 +22,7 @@ from numpyro.distributions.util import (
 class VonMises(Distribution):
     arg_constraints = {"loc": constraints.real, "concentration": constraints.positive}
     reparametrized_params = ["loc"]
-    support = constraints.interval(-math.pi, math.pi)
+    support = constraints.circular
 
     def __init__(self, loc, concentration, validate_args=None):
         """von Mises distribution for sampling directions.
