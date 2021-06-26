@@ -521,6 +521,25 @@ class LKJ(TransformedDistribution):
     When ``concentration < 1``, the distribution favors samples with small determinent. This is
     useful when we know a priori that some underlying variables are correlated.
 
+    Sample code for using LKJ in the context of multivariate normal sample::
+
+        def model(y): # y has dimension N x d
+            d = y.shape[1]
+            N = y.shape[0]
+            # Vector of variances for each of the d variables
+            theta = numpyro.sample("theta", dist.HalfCauchy(jnp.ones(d)))
+
+            concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
+            corr_mat = numpyro.sample("L_omega", dist.LKJ(d, concentration))
+            cov_mat = jnp.matmul(jnp.matmul(jnp.diag(jnp.sqrt(theta)), corr_mat), jnp.diag(jnp.sqrt(theta)))
+
+            # Vector of expectations
+            mu = jnp.zeros(d)
+
+            with numpyro.plate("observations", N):
+                obs = numpyro.sample("obs", dist.MultivariateNormal(mu, covariance_matrix=cov_mat), obs=y)
+            return obs 
+
     :param int dimension: dimension of the matrices
     :param ndarray concentration: concentration/shape parameter of the
         distribution (often referred to as eta)
@@ -581,6 +600,26 @@ class LKJCholesky(Distribution):
     When ``concentration < 1``, the distribution favors samples with small diagonal entries
     (hence small determinent). This is useful when we know a priori that some underlying
     variables are correlated.
+
+    Sample code for using LKJCholesky in the context of multivariate normal sample::
+
+        def model(y): # y has dimension N x d
+            d = y.shape[1]
+            N = y.shape[0]
+            # Vector of variances for each of the d variables
+            theta = numpyro.sample("theta", dist.HalfCauchy(jnp.ones(d)))
+            # Lower cholesky factor of a correlation matrix
+            concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
+            L_omega = numpyro.sample("L_omega", dist.LKJCholesky(d, concentration))
+            # Lower cholesky factor of the covariance matrix
+            L_Omega = jnp.matmul(jnp.diag(jnp.sqrt(theta)), L_omega)
+
+            # Vector of expectations
+            mu = jnp.zeros(d)
+
+            with numpyro.plate("observations", N):
+                obs = numpyro.sample("obs", dist.MultivariateNormal(mu, scale_tril=L_Omega), obs=y)
+            return obs 
 
     :param int dimension: dimension of the matrices
     :param ndarray concentration: concentration/shape parameter of the
