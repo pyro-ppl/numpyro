@@ -554,7 +554,7 @@ class LKJ(TransformedDistribution):
             theta = numpyro.sample("theta", dist.HalfCauchy(jnp.ones(d)))
 
             concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
-            corr_mat = numpyro.sample("L_omega", dist.LKJ(d, concentration))
+            corr_mat = numpyro.sample("corr_mat", dist.LKJ(d, concentration))
             cov_mat = jnp.matmul(jnp.matmul(jnp.diag(jnp.sqrt(theta)), corr_mat), jnp.diag(jnp.sqrt(theta)))
 
             # Vector of expectations
