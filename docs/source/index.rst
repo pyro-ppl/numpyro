@@ -37,6 +37,7 @@ NumPyro documentation
    examples/annotation
    examples/hmm_enum
    examples/capture_recapture
+   examples/gaussian_shells
    tutorials/discrete_imputation
 
 .. nbgallery::
