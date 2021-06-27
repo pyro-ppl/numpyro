@@ -5,17 +5,18 @@
 Example: ProdLDA
 ================
 In this example, we will follow [1] to implement the ProdLDA topic model from
-Autoencoding Variational Inference For Topic Models by Akash Srivastava and
-Charles Sutton. This model returns consistently better topics than vanilla LDA
-and trains much more quickly. Furthermore, it does not require a custom
-inference algorithm that relies on complex mathematical derivations. This
-example also serves as an introduction to Flax and Haiku modules in NumPyro.
+Autoencoding Variational Inference For Topic Models by Akash Srivastava and Charles
+Sutton [2]. This model returns consistently better topics than vanilla LDA and trains
+much more quickly. Furthermore, it does not require a custom inference algorithm that
+relies on complex mathematical derivations. This example also serves as an
+introduction to Flax and Haiku modules in NumPyro.
 
 **References:**
     1. http://pyro.ai/examples/prodlda.html
-    2. Akash Srivastava, & Charles Sutton. (2017). Autoencoding Variational
-       Inference For Topic Models.
-.. image:: https://i.ibb.co/zV5rjX6/Screen-Shot-2020-09-24-at-11-21-38.png
+    2. Akash Srivastava, & Charles Sutton. (2017). Autoencoding Variational Inference
+       For Topic Models.
+
+.. image:: ../_static/img/examples/prodlda.png
     :align: center
 """
 import matplotlib.pyplot as plt
