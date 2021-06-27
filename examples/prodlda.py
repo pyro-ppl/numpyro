@@ -73,9 +73,9 @@ class HaikuDecoder:
         dropout_rate = self._dropout_rate if is_training else 0.0
         h = hk.dropout(hk.next_rng_key(), dropout_rate, inputs)
         h = hk.Linear(self._vocab_size)(h)
-        h = hk.BatchNorm(
-            create_scale=True, create_offset=True, decay_rate=0.1
-        )(h, is_training)
+        h = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.1)(
+            h, is_training
+        )
         return jax.nn.softmax(h)
 
 
@@ -84,9 +84,7 @@ def model(docs, hyperparams, is_training=False):
         "decoder",
         # use `transform_with_state` for BatchNorm
         hk.transform_with_state(
-            HaikuDecoder(
-                hyperparams["vocab_size"], hyperparams["dropout_rate"]
-            )
+            HaikuDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"])
         ),
         input_shape=(1, hyperparams["num_topics"]),
         apply_rng=True,
@@ -99,12 +97,8 @@ def model(docs, hyperparams, is_training=False):
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
     ):
         batch_docs = numpyro.subsample(docs, event_dim=1)
-        logtheta_loc = jnp.zeros(
-            (batch_docs.shape[0], hyperparams["num_topics"])
-        )
-        logtheta_scale = jnp.ones(
-            (batch_docs.shape[0], hyperparams["num_topics"])
-        )
+        logtheta_loc = jnp.zeros((batch_docs.shape[0], hyperparams["num_topics"]))
+        logtheta_scale = jnp.ones((batch_docs.shape[0], hyperparams["num_topics"]))
         logtheta = numpyro.sample(
             "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1)
         )
@@ -197,9 +191,7 @@ if __name__ == "__main__":
     optimizer = numpyro.optim.Adam(learning_rate)
     svi = SVI(model, guide, optimizer, loss=TraceMeanField_ELBO())
 
-    params, losses = svi.run(
-        rng_key, num_steps, docs, hyperparams, is_training=True
-    )
+    params, losses = svi.run(rng_key, num_steps, docs, hyperparams, is_training=True)
 
     plt.plot(losses)
 
