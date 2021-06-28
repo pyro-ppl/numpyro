@@ -547,7 +547,7 @@ class LKJ(TransformedDistribution):
 
     Sample code for using LKJ in the context of multivariate normal sample::
 
-        def model(y): # y has dimension N x d
+        def model(y):  # y has dimension N x d
             d = y.shape[1]
             N = y.shape[0]
             # Vector of variances for each of the d variables
@@ -555,14 +555,16 @@ class LKJ(TransformedDistribution):
 
             concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
             corr_mat = numpyro.sample("corr_mat", dist.LKJ(d, concentration))
-            cov_mat = jnp.matmul(jnp.matmul(jnp.diag(jnp.sqrt(theta)), corr_mat), jnp.diag(jnp.sqrt(theta)))
+            sigma = jnp.sqrt(theta)
+            # we can also use a faster formula `cov_mat = jnp.outer(theta, theta) * corr_mat`
+            cov_mat = jnp.matmul(jnp.matmul(jnp.diag(sigma), corr_mat), jnp.diag(sigma))
 
             # Vector of expectations
             mu = jnp.zeros(d)
 
             with numpyro.plate("observations", N):
                 obs = numpyro.sample("obs", dist.MultivariateNormal(mu, covariance_matrix=cov_mat), obs=y)
-            return obs 
+            return obs
 
     :param int dimension: dimension of the matrices
     :param ndarray concentration: concentration/shape parameter of the
@@ -627,7 +629,7 @@ class LKJCholesky(Distribution):
 
     Sample code for using LKJCholesky in the context of multivariate normal sample::
 
-        def model(y): # y has dimension N x d
+        def model(y):  # y has dimension N x d
             d = y.shape[1]
             N = y.shape[0]
             # Vector of variances for each of the d variables
@@ -636,14 +638,16 @@ class LKJCholesky(Distribution):
             concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
             L_omega = numpyro.sample("L_omega", dist.LKJCholesky(d, concentration))
             # Lower cholesky factor of the covariance matrix
-            L_Omega = jnp.matmul(jnp.diag(jnp.sqrt(theta)), L_omega)
+            sigma = jnp.sqrt(theta)
+            # we can also use a faster formula `L_Omega = sigma[..., None] * L_omega`
+            L_Omega = jnp.matmul(jnp.diag(sigma), L_omega)
 
             # Vector of expectations
             mu = jnp.zeros(d)
 
             with numpyro.plate("observations", N):
                 obs = numpyro.sample("obs", dist.MultivariateNormal(mu, scale_tril=L_Omega), obs=y)
-            return obs 
+            return obs
 
     :param int dimension: dimension of the matrices
     :param ndarray concentration: concentration/shape parameter of the
