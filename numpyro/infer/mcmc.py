@@ -204,6 +204,11 @@ class MCMC(object):
     .. note:: Setting `progress_bar=False` will improve the speed for many cases. But it might
         require more memory than the other option.
 
+    .. note:: If setting `num_chains` greater than `1` in a Jupyter Notebook, then you will need to
+        have installed `ipywidgets <https://ipywidgets.readthedocs.io/en/latest/user_install.html>`_
+        in the environment from which you launced Jupyter in order for the progress bars to render
+        correctly.
+
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
         and :class:`~numpyro.infer.hmc.NUTS` are available.

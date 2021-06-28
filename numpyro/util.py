@@ -21,7 +21,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
-CHAIN_RE = re.compile(r"\d+$")
+CHAIN_RE = re.compile(r"(?<=_)\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
 def set_rng_seed(rng_seed):
