@@ -21,6 +21,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
+_CHAIN_RE = re.compile(r"(?<=_)\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
 def set_rng_seed(rng_seed):
@@ -189,12 +190,16 @@ def progress_bar_factory(num_samples, num_chains):
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
     def _update_tqdm(arg, transform, device):
-        chain = int(str(device)[4:])
+        chain_match = _CHAIN_RE.search(str(device))
+        assert chain_match
+        chain = int(chain_match.group())
         tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
         tqdm_bars[chain].update(arg)
 
     def _close_tqdm(arg, transform, device):
-        chain = int(str(device)[4:])
+        chain_match = _CHAIN_RE.search(str(device))
+        assert chain_match
+        chain = int(chain_match.group())
         tqdm_bars[chain].update(arg)
         finished_chains.append(chain)
         if len(finished_chains) == num_chains:
