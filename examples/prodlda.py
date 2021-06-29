@@ -19,6 +19,8 @@ introduction to Flax and Haiku modules in NumPyro.
 .. image:: ../_static/img/examples/prodlda.png
     :align: center
 """
+import argparse
+
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.datasets import fetch_20newsgroups
@@ -142,6 +144,43 @@ def guide(docs, hyperparams, is_training=False):
         )
 
 
+def load_data():
+    news = fetch_20newsgroups(subset="all")
+    vectorizer = CountVectorizer(max_df=0.5, min_df=20, stop_words="english")
+    docs = jnp.array(vectorizer.fit_transform(news["data"]).toarray())
+
+    vocab = pd.DataFrame(columns=["word", "index"])
+    vocab["word"] = vectorizer.get_feature_names()
+    vocab["index"] = vocab.index
+
+    return docs, vocab
+
+
+def run_inference(docs, args):
+    rng_key = random.PRNGKey(0)
+    docs = device_put(docs)
+
+    hyperparams = dict(
+        vocab_size=docs.shape[1],
+        num_topics=args.num_topics,
+        hidden=args.hidden,
+        dropout_rate=args.dropout_rate,
+        batch_size=args.batch_size,
+    )
+
+    optimizer = numpyro.optim.Adam(args.learning_rate)
+    svi = SVI(model, guide, optimizer, loss=TraceMeanField_ELBO())
+
+    return svi.run(
+        rng_key,
+        args.num_steps,
+        docs,
+        hyperparams,
+        is_training=True,
+        progress_bar=not args.disable_progbar,
+    )
+
+
 def plot_word_cloud(b, ax, vocab, n):
     indices = jnp.argsort(b)[::-1]
     df = pd.DataFrame(indices[:100], columns=["index"])
@@ -157,44 +196,12 @@ def plot_word_cloud(b, ax, vocab, n):
     ax.axis("off")
 
 
-if __name__ == "__main__":
-    rng_key = random.PRNGKey(0)
-    # TODO: remove data_home override
-    news = fetch_20newsgroups(subset="all", data_home="/tmp/scikit-learn-data")
-    vectorizer = CountVectorizer(max_df=0.5, min_df=20, stop_words="english")
-    docs = jnp.array(vectorizer.fit_transform(news["data"]).toarray())
-
-    vocab = pd.DataFrame(columns=["word", "index"])
-    vocab["word"] = vectorizer.get_feature_names()
-    vocab["index"] = vocab.index
-
+def main(args):
+    docs, vocab = load_data()
     print(f"Dictionary size: {len(vocab)}")
     print(f"Corpus size: {docs.shape}")
 
-    # TODO: allow these to be overridden with command-line arguments
-    rng_key = random.PRNGKey(0)
-    num_topics = 20
-    docs = device_put(docs)
-    batch_size = 32
-    learning_rate = 1e-3
-    num_steps = 30_000
-    hidden = 100
-    dropout_rate = 0.2
-
-    hyperparams = dict(
-        vocab_size=docs.shape[1],
-        num_topics=num_topics,
-        hidden=hidden,
-        dropout_rate=dropout_rate,
-        batch_size=batch_size,
-    )
-
-    optimizer = numpyro.optim.Adam(learning_rate)
-    svi = SVI(model, guide, optimizer, loss=TraceMeanField_ELBO())
-
-    svi_result = svi.run(rng_key, num_steps, docs, hyperparams, is_training=True)
-
-    plt.plot(svi_result.losses)
+    svi_result = run_inference(docs, args)
 
     beta = svi_result.params["decoder$params"]["linear"]["w"]
 
@@ -204,4 +211,29 @@ if __name__ == "__main__":
         plot_word_cloud(beta[n], axs[i, j], vocab, n)
     axs[-1, -1].axis("off")
 
-    plt.show()
+    fig.savefig("wordclouds.png")
+
+
+if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.6.0")
+    parser = argparse.ArgumentParser(
+        description="Probabilistic topic modelling with Flax and Haiku"
+    )
+    parser.add_argument("-n", "--num-steps", nargs="?", default=30_000, type=int)
+    parser.add_argument("-t", "--num-topics", nargs="?", default=20, type=int)
+    parser.add_argument("--batch-size", nargs="?", default=32, type=int)
+    parser.add_argument("--learning-rate", nargs="?", default=1e-3, type=float)
+    parser.add_argument("--hidden", nargs="?", default=100, type=int)
+    parser.add_argument("--dropout-rate", nargs="?", default=0.2, type=float)
+    parser.add_argument(
+        "-dp",
+        "--disable-progbar",
+        action="store_true",
+        default=False,
+        help="Whether to disable progress bar",
+    )
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+    args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+    main(args)
