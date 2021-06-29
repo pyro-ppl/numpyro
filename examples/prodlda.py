@@ -73,8 +73,8 @@ class HaikuDecoder:
     def __call__(self, inputs, is_training):
         dropout_rate = self._dropout_rate if is_training else 0.0
         h = hk.dropout(hk.next_rng_key(), dropout_rate, inputs)
-        h = hk.Linear(self._vocab_size)(h)
-        h = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.1)(
+        h = hk.Linear(self._vocab_size, with_bias=False)(h)
+        h = hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.1)(
             h, is_training
         )
         return jax.nn.softmax(h)
@@ -98,16 +98,15 @@ def model(docs, hyperparams, is_training=False):
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
     ):
         batch_docs = numpyro.subsample(docs, event_dim=1)
-        logtheta_loc = jnp.zeros((batch_docs.shape[0], hyperparams["num_topics"]))
-        logtheta_scale = jnp.ones((batch_docs.shape[0], hyperparams["num_topics"]))
         logtheta = numpyro.sample(
-            "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1)
+            "logtheta",
+            dist.Normal(0, 1).expand((hyperparams["num_topics"],)).to_event(1),
         )
         theta = jax.nn.softmax(logtheta)
 
         count_param = decoder(numpyro.prng_key(), theta, is_training)
 
-        total_count = batch_docs.sum(-1).max().astype(int)
+        total_count = batch_docs.sum(-1)
         numpyro.sample(
             "obs", dist.Multinomial(total_count, count_param), obs=batch_docs
         )
@@ -143,7 +142,7 @@ def guide(docs, hyperparams, is_training=False):
         )
 
 
-def plot_word_cloud(b, ax, n):
+def plot_word_cloud(b, ax, vocab, n):
     indices = jnp.argsort(b)[::-1]
     df = pd.DataFrame(indices[:100], columns=["index"])
     words = pd.merge(df, vocab[["index", "word"]], how="left", on="index")[
@@ -178,25 +177,26 @@ if __name__ == "__main__":
     docs = device_put(docs)
     batch_size = 32
     learning_rate = 1e-3
-    num_steps = 200_000
+    num_steps = 30_000
     hidden = 100
+    dropout_rate = 0.2
 
     hyperparams = dict(
         vocab_size=docs.shape[1],
         num_topics=num_topics,
         hidden=hidden,
-        dropout_rate=0.2,
+        dropout_rate=dropout_rate,
         batch_size=batch_size,
     )
 
     optimizer = numpyro.optim.Adam(learning_rate)
     svi = SVI(model, guide, optimizer, loss=TraceMeanField_ELBO())
 
-    params, losses = svi.run(rng_key, num_steps, docs, hyperparams, is_training=True)
+    svi_result = svi.run(rng_key, num_steps, docs, hyperparams, is_training=True)
 
-    plt.plot(losses)
+    plt.plot(svi_result.losses)
 
-    beta = params["decoder$params"]["haiku_decoder/linear"]["w"]
+    beta = svi_result.params["decoder$params"]["linear"]["w"]
 
     fig, axs = plt.subplots(7, 3, figsize=(14, 24))
     for n in range(beta.shape[0]):
