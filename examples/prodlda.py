@@ -27,23 +27,24 @@ from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
 from wordcloud import WordCloud
 
+import flax.linen as nn
 import haiku as hk
 import jax
 from jax import device_put, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.module import haiku_module
+from numpyro.contrib.module import flax_module, haiku_module
 import numpyro.distributions as dist
 from numpyro.infer import SVI, TraceMeanField_ELBO
 
 
 class HaikuEncoder:
     def __init__(self, vocab_size, num_topics, hidden, dropout_rate):
-        self._dropout_rate = dropout_rate
         self._vocab_size = vocab_size
-        self._hidden = hidden
         self._num_topics = num_topics
+        self._hidden = hidden
+        self._dropout_rate = dropout_rate
 
     def __call__(self, inputs, is_training):
         dropout_rate = self._dropout_rate if is_training else 0.0
@@ -67,10 +68,34 @@ class HaikuEncoder:
         return logtheta_loc, logtheta_scale
 
 
+class FlaxEncoder(nn.Module):
+    vocab_size: int
+    num_topics: int
+    hidden: int
+    dropout_rate: float
+
+    @nn.compact
+    def __call__(self, inputs, is_training):
+        h = nn.softplus(nn.Dense(self.hidden)(inputs))
+        h = nn.softplus(nn.Dense(self.hidden)(h))
+        h = nn.Dropout(self.dropout_rate, deterministic=not is_training)(h)
+
+        h_mu, h_sigma = nn.Dense(self.num_topics)(h), nn.Dense(self.num_topics)(h)
+
+        logtheta_loc = nn.BatchNorm(
+            use_bias=False, use_scale=False, use_running_average=not is_training
+        )(h_mu)
+        logtheta_logvar = nn.BatchNorm(
+            use_bias=False, use_scale=False, use_running_average=not is_training
+        )(h_sigma)
+        logtheta_scale = jnp.exp(0.5 * logtheta_logvar)
+        return logtheta_loc, logtheta_scale
+
+
 class HaikuDecoder:
     def __init__(self, vocab_size, dropout_rate):
-        self._dropout_rate = dropout_rate
         self._vocab_size = vocab_size
+        self._dropout_rate = dropout_rate
 
     def __call__(self, inputs, is_training):
         dropout_rate = self._dropout_rate if is_training else 0.0
@@ -82,19 +107,46 @@ class HaikuDecoder:
         return jax.nn.softmax(h)
 
 
-def model(docs, hyperparams, is_training=False):
-    decoder = haiku_module(
-        "decoder",
-        # use `transform_with_state` for BatchNorm
-        hk.transform_with_state(
-            HaikuDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"])
-        ),
-        input_shape=(1, hyperparams["num_topics"]),
-        apply_rng=True,
-        # to ensure proper initialisation of BatchNorm we must
-        # initialise with is_training=True
-        is_training=True,
-    )
+class FlaxDecoder(nn.Module):
+    vocab_size: int
+    dropout_rate: float
+
+    @nn.compact
+    def __call__(self, inputs, is_training):
+        h = nn.Dropout(self.dropout_rate, deterministic=not is_training)(inputs)
+        h = nn.Dense(self.vocab_size, use_bias=False)(h)
+        h = nn.BatchNorm(
+            use_bias=False, use_scale=False, use_running_average=not is_training
+        )(h)
+        return nn.softmax(h)
+
+
+def model(docs, hyperparams, is_training=False, use_haiku=False):
+    if use_haiku:
+        decoder = haiku_module(
+            "decoder",
+            # use `transform_with_state` for BatchNorm
+            hk.transform_with_state(
+                HaikuDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"])
+            ),
+            input_shape=(1, hyperparams["num_topics"]),
+            apply_rng=True,
+            # to ensure proper initialisation of BatchNorm we must
+            # initialise with is_training=True
+            is_training=True,
+        )
+    else:
+        decoder = flax_module(
+            "decoder",
+            # use `transform_with_state` for BatchNorm
+            FlaxDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"]),
+            input_shape=(1, hyperparams["num_topics"]),
+            apply_rng=["dropout"],
+            mutable=["batch_stats"],
+            # to ensure proper initialisation of BatchNorm we must
+            # initialise with is_training=True
+            is_training=True,
+        )
 
     with numpyro.plate(
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
@@ -106,7 +158,12 @@ def model(docs, hyperparams, is_training=False):
         )
         theta = jax.nn.softmax(logtheta)
 
-        count_param = decoder(numpyro.prng_key(), theta, is_training)
+        if use_haiku:
+            count_param = decoder(numpyro.prng_key(), theta, is_training)
+        else:
+            count_param = decoder(
+                theta, is_training, rngs={"dropout": numpyro.prng_key()}
+            )
 
         total_count = batch_docs.sum(-1)
         numpyro.sample(
@@ -114,31 +171,57 @@ def model(docs, hyperparams, is_training=False):
         )
 
 
-def guide(docs, hyperparams, is_training=False):
-    encoder = haiku_module(
-        "encoder",
-        # use `transform_with_state` for BatchNorm
-        hk.transform_with_state(
-            HaikuEncoder(
+def guide(docs, hyperparams, is_training=False, use_haiku=False):
+    if use_haiku:
+        encoder = haiku_module(
+            "encoder",
+            # use `transform_with_state` for BatchNorm
+            hk.transform_with_state(
+                HaikuEncoder(
+                    hyperparams["vocab_size"],
+                    hyperparams["num_topics"],
+                    hyperparams["hidden"],
+                    hyperparams["dropout_rate"],
+                )
+            ),
+            input_shape=(1, hyperparams["vocab_size"]),
+            apply_rng=True,
+            # to ensure proper initialisation of BatchNorm we must
+            # initialise with is_training=True
+            is_training=True,
+        )
+    else:
+        encoder = flax_module(
+            "encoder",
+            # use `transform_with_state` for BatchNorm
+            FlaxEncoder(
                 hyperparams["vocab_size"],
                 hyperparams["num_topics"],
                 hyperparams["hidden"],
                 hyperparams["dropout_rate"],
-            )
-        ),
-        input_shape=(1, hyperparams["vocab_size"]),
-        apply_rng=True,
-        # to ensure proper initialisation of BatchNorm we must
-        # initialise with is_training=True
-        is_training=True,
-    )
+            ),
+            input_shape=(1, hyperparams["vocab_size"]),
+            apply_rng=["dropout"],
+            mutable=["batch_stats"],
+            # to ensure proper initialisation of BatchNorm we must
+            # initialise with is_training=True
+            is_training=True,
+        )
+
     with numpyro.plate(
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
     ):
         batch_docs = numpyro.subsample(docs, event_dim=1)
-        logtheta_loc, logtheta_scale = encoder(
-            numpyro.prng_key(), batch_docs, is_training
-        )
+
+        if use_haiku:
+            logtheta_loc, logtheta_scale = encoder(
+                numpyro.prng_key(), batch_docs, is_training
+            )
+        else:
+            logtheta_loc, logtheta_scale = encoder(
+                batch_docs, is_training, rngs={"dropout": numpyro.prng_key()}
+            )
+
         numpyro.sample(
             "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1)
         )
@@ -178,6 +261,7 @@ def run_inference(docs, args):
         hyperparams,
         is_training=True,
         progress_bar=not args.disable_progbar,
+        use_haiku=args.use_haiku,
     )
 
 
@@ -203,7 +287,10 @@ def main(args):
 
     svi_result = run_inference(docs, args)
 
-    beta = svi_result.params["decoder$params"]["linear"]["w"]
+    if args.use_haiku:
+        beta = svi_result.params["decoder$params"]["linear"]["w"]
+    else:
+        beta = svi_result.params["decoder$params"]["Dense_0"]["kernel"]
 
     fig, axs = plt.subplots(7, 3, figsize=(14, 24))
     for n in range(beta.shape[0]):
@@ -233,6 +320,12 @@ if __name__ == "__main__":
         help="Whether to disable progress bar",
     )
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+    parser.add_argument(
+        "--use-haiku",
+        action="store_true",
+        default=False,
+        help="Whether to use Haiku for the encoder / decoder",
+    )
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
