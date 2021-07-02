@@ -11,10 +11,17 @@ much more quickly. Furthermore, it does not require a custom inference algorithm
 relies on complex mathematical derivations. This example also serves as an
 introduction to Flax and Haiku modules in NumPyro.
 
+For the interested reader, a nice extension of this model is the CombinedTM model [3]
+which utilizes a pre-trained sentence transformer (like https://www.sbert.net/) to
+generate a better representation of the encoded latent vector.
+
 **References:**
     1. http://pyro.ai/examples/prodlda.html
     2. Akash Srivastava, & Charles Sutton. (2017). Autoencoding Variational Inference
        For Topic Models.
+    3. Federico Bianchi, Silvia Terragni, and Dirk Hovy (2021), "Pre-training is a Hot
+       Topic: Contextualized Document Embeddings Improve Topic Coherence"
+       (https://arxiv.org/abs/2004.03974)
 
 .. image:: ../_static/img/examples/prodlda.png
     :align: center
@@ -57,15 +64,30 @@ class HaikuEncoder:
         # the number of learning parameters
         h_mu = hk.Linear(self._num_topics)(h)
         logtheta_loc = hk.BatchNorm(
-            create_scale=False, create_offset=False, decay_rate=0.1
+            create_scale=False, create_offset=False, decay_rate=0.99
         )(h_mu, is_training)
 
         h_sigma = hk.Linear(self._num_topics)(h)
         logtheta_logvar = hk.BatchNorm(
-            create_scale=False, create_offset=False, decay_rate=0.1
+            create_scale=False, create_offset=False, decay_rate=0.99
         )(h_sigma, is_training)
         logtheta_scale = jnp.exp(0.5 * logtheta_logvar)
         return logtheta_loc, logtheta_scale
+
+
+class HaikuDecoder:
+    def __init__(self, vocab_size, dropout_rate):
+        self._vocab_size = vocab_size
+        self._dropout_rate = dropout_rate
+
+    def __call__(self, inputs, is_training):
+        dropout_rate = self._dropout_rate if is_training else 0.0
+        h = hk.dropout(hk.next_rng_key(), dropout_rate, inputs)
+        h = hk.Linear(self._vocab_size, with_bias=False)(h)
+        h = hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.99)(
+            h, is_training
+        )
+        return jax.nn.softmax(h)
 
 
 class FlaxEncoder(nn.Module):
@@ -92,21 +114,6 @@ class FlaxEncoder(nn.Module):
         return logtheta_loc, logtheta_scale
 
 
-class HaikuDecoder:
-    def __init__(self, vocab_size, dropout_rate):
-        self._vocab_size = vocab_size
-        self._dropout_rate = dropout_rate
-
-    def __call__(self, inputs, is_training):
-        dropout_rate = self._dropout_rate if is_training else 0.0
-        h = hk.dropout(hk.next_rng_key(), dropout_rate, inputs)
-        h = hk.Linear(self._vocab_size, with_bias=False)(h)
-        h = hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.1)(
-            h, is_training
-        )
-        return jax.nn.softmax(h)
-
-
 class FlaxDecoder(nn.Module):
     vocab_size: int
     dropout_rate: float
@@ -121,8 +128,21 @@ class FlaxDecoder(nn.Module):
         return nn.softmax(h)
 
 
-def model(docs, hyperparams, is_training=False, use_haiku=False):
-    if use_haiku:
+def model(docs, hyperparams, is_training=False, nn_framework="flax"):
+    if nn_framework == "flax":
+        decoder = flax_module(
+            "decoder",
+            FlaxDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"]),
+            input_shape=(1, hyperparams["num_topics"]),
+            # ensure PRNGKey is made available to dropout layers
+            apply_rng=["dropout"],
+            # indicate mutable state due to BatchNorm layers
+            mutable=["batch_stats"],
+            # to ensure proper initialisation of BatchNorm we must
+            # initialise with is_training=True
+            is_training=True,
+        )
+    elif nn_framework == "haiku":
         decoder = haiku_module(
             "decoder",
             # use `transform_with_state` for BatchNorm
@@ -136,17 +156,7 @@ def model(docs, hyperparams, is_training=False, use_haiku=False):
             is_training=True,
         )
     else:
-        decoder = flax_module(
-            "decoder",
-            # use `transform_with_state` for BatchNorm
-            FlaxDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"]),
-            input_shape=(1, hyperparams["num_topics"]),
-            apply_rng=["dropout"],
-            mutable=["batch_stats"],
-            # to ensure proper initialisation of BatchNorm we must
-            # initialise with is_training=True
-            is_training=True,
-        )
+        raise ValueError(f"Invalid choice {nn_framework} for argument nn_framework")
 
     with numpyro.plate(
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
@@ -158,12 +168,12 @@ def model(docs, hyperparams, is_training=False, use_haiku=False):
         )
         theta = jax.nn.softmax(logtheta)
 
-        if use_haiku:
-            count_param = decoder(numpyro.prng_key(), theta, is_training)
-        else:
+        if nn_framework == "flax":
             count_param = decoder(
                 theta, is_training, rngs={"dropout": numpyro.prng_key()}
             )
+        elif nn_framework == "haiku":
+            count_param = decoder(numpyro.prng_key(), theta, is_training)
 
         total_count = batch_docs.sum(-1)
         numpyro.sample(
@@ -171,8 +181,26 @@ def model(docs, hyperparams, is_training=False, use_haiku=False):
         )
 
 
-def guide(docs, hyperparams, is_training=False, use_haiku=False):
-    if use_haiku:
+def guide(docs, hyperparams, is_training=False, nn_framework="flax"):
+    if nn_framework == "flax":
+        encoder = flax_module(
+            "encoder",
+            FlaxEncoder(
+                hyperparams["vocab_size"],
+                hyperparams["num_topics"],
+                hyperparams["hidden"],
+                hyperparams["dropout_rate"],
+            ),
+            input_shape=(1, hyperparams["vocab_size"]),
+            # ensure PRNGKey is made available to dropout layers
+            apply_rng=["dropout"],
+            # indicate mutable state due to BatchNorm layers
+            mutable=["batch_stats"],
+            # to ensure proper initialisation of BatchNorm we must
+            # initialise with is_training=True
+            is_training=True,
+        )
+    elif nn_framework == "haiku":
         encoder = haiku_module(
             "encoder",
             # use `transform_with_state` for BatchNorm
@@ -191,35 +219,20 @@ def guide(docs, hyperparams, is_training=False, use_haiku=False):
             is_training=True,
         )
     else:
-        encoder = flax_module(
-            "encoder",
-            # use `transform_with_state` for BatchNorm
-            FlaxEncoder(
-                hyperparams["vocab_size"],
-                hyperparams["num_topics"],
-                hyperparams["hidden"],
-                hyperparams["dropout_rate"],
-            ),
-            input_shape=(1, hyperparams["vocab_size"]),
-            apply_rng=["dropout"],
-            mutable=["batch_stats"],
-            # to ensure proper initialisation of BatchNorm we must
-            # initialise with is_training=True
-            is_training=True,
-        )
+        raise ValueError(f"Invalid choice {nn_framework} for argument nn_framework")
 
     with numpyro.plate(
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
     ):
         batch_docs = numpyro.subsample(docs, event_dim=1)
 
-        if use_haiku:
-            logtheta_loc, logtheta_scale = encoder(
-                numpyro.prng_key(), batch_docs, is_training
-            )
-        else:
+        if nn_framework == "flax":
             logtheta_loc, logtheta_scale = encoder(
                 batch_docs, is_training, rngs={"dropout": numpyro.prng_key()}
+            )
+        elif nn_framework == "haiku":
+            logtheta_loc, logtheta_scale = encoder(
+                numpyro.prng_key(), batch_docs, is_training
             )
 
         numpyro.sample(
@@ -261,21 +274,22 @@ def run_inference(docs, args):
         hyperparams,
         is_training=True,
         progress_bar=not args.disable_progbar,
-        use_haiku=args.use_haiku,
+        nn_framework=args.nn_framework,
     )
 
 
 def plot_word_cloud(b, ax, vocab, n):
     indices = jnp.argsort(b)[::-1]
-    df = pd.DataFrame(indices[:100], columns=["index"])
+    top20 = indices[:20]
+    df = pd.DataFrame(top20, columns=["index"])
     words = pd.merge(df, vocab[["index", "word"]], how="left", on="index")[
         "word"
     ].values.tolist()
-    sizes = (b[indices[:100]] * 1000).astype(int).tolist()
+    sizes = b[top20].tolist()
     freqs = {words[i]: sizes[i] for i in range(len(words))}
     wc = WordCloud(background_color="white", width=800, height=500)
     wc = wc.generate_from_frequencies(freqs)
-    ax.set_title("Topic %d" % (n + 1))
+    ax.set_title(f"Topic {n + 1}")
     ax.imshow(wc, interpolation="bilinear")
     ax.axis("off")
 
@@ -287,16 +301,25 @@ def main(args):
 
     svi_result = run_inference(docs, args)
 
-    if args.use_haiku:
-        beta = svi_result.params["decoder$params"]["linear"]["w"]
-    else:
+    if args.nn_framework == "flax":
         beta = svi_result.params["decoder$params"]["Dense_0"]["kernel"]
+    elif args.nn_framework == "haiku":
+        beta = svi_result.params["decoder$params"]["linear"]["w"]
 
-    fig, axs = plt.subplots(7, 3, figsize=(14, 24))
+    beta = jax.nn.softmax(beta)
+
+    # the number of plots depends on the chosen number of topics.
+    # add 2 to num topics to ensure we create a row for any remainder after division
+    nrows = (args.num_topics + 2) // 3
+    fig, axs = plt.subplots(nrows, 3, figsize=(14, 3 + 3 * nrows))
+    axs = axs.flatten()
+
     for n in range(beta.shape[0]):
-        i, j = divmod(n, 3)
-        plot_word_cloud(beta[n], axs[i, j], vocab, n)
-    axs[-1, -1].axis("off")
+        plot_word_cloud(beta[n], axs[n], vocab, n)
+
+    # hide any unused axes
+    for i in range(n, len(axs)):
+        axs[i].axis("off")
 
     fig.savefig("wordclouds.png")
 
@@ -307,7 +330,7 @@ if __name__ == "__main__":
         description="Probabilistic topic modelling with Flax and Haiku"
     )
     parser.add_argument("-n", "--num-steps", nargs="?", default=30_000, type=int)
-    parser.add_argument("-t", "--num-topics", nargs="?", default=20, type=int)
+    parser.add_argument("-t", "--num-topics", nargs="?", default=12, type=int)
     parser.add_argument("--batch-size", nargs="?", default=32, type=int)
     parser.add_argument("--learning-rate", nargs="?", default=1e-3, type=float)
     parser.add_argument("--hidden", nargs="?", default=100, type=int)
@@ -319,12 +342,17 @@ if __name__ == "__main__":
         default=False,
         help="Whether to disable progress bar",
     )
-    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     parser.add_argument(
-        "--use-haiku",
-        action="store_true",
-        default=False,
-        help="Whether to use Haiku for the encoder / decoder",
+        "--device", default="cpu", type=str, help='use "cpu", "gpu" or "tpu".'
+    )
+    parser.add_argument(
+        "--nn-framework",
+        nargs="?",
+        default="flax",
+        help=(
+            "The framework to use for constructing encoder / decoder. Options are "
+            '"flax" or "haiku".'
+        ),
     )
     args = parser.parse_args()
 
