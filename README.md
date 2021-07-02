@@ -197,7 +197,11 @@ pip install numpyro[cudaXXY] -f https://storage.googleapis.com/jax-releases/jax_
 where `XXY` is your CUDA XX.Y version number, e.g., for CUDA 10.2 use `cuda[102]` in the above.
 If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/google/jax#pip-installation-gpu-cuda).
 
-To run NumPyro on Cloud TPUs, you can use pip to install NumPyro as above and setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
+To run NumPyro on Cloud TPUs, you need to setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs)
+and then install NumPyro using the following pip command:
+```
+pip install numpyro[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+```
 
 > **Default Platform:** JAX will use GPU by default if CUDA-supported `jaxlib` package is installed. You can use [set_platform](http://num.pyro.ai/en/stable/utilities.html#set-platform) utility `numpyro.set_platform("cpu")` to switch to CPU at the beginning of your program.
 

@@ -15,7 +15,7 @@ _available_cuda_versions = [
     "110",
     "111",
 ]  # TODO: align these with what's available in JAX before release
-_jax_version_constraints = ">= 0.2.11"
+_jax_version_constraints = ">=0.2.13"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
