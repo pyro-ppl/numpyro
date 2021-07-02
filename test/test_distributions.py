@@ -464,6 +464,8 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     elif constraint is constraints.sphere:
         x = random.normal(key, size)
         return x / jnp.linalg.norm(x, axis=-1)
+    elif constraint is constraints.circular:
+        return random.uniform(key, size, minval=-jnp.pi, maxval=jnp.pi)
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -525,6 +527,8 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         x = random.normal(key, size)
         x = x / jnp.linalg.norm(x, axis=-1, keepdims=True)
         return 2 * x
+    elif constraint is constraints.circular:
+        return random.uniform(key, size, minval=jnp.pi, maxval=2 * jnp.pi)
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
