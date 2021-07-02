@@ -55,15 +55,11 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            # TODO: bump funsor version before the release
-            "funsor @ git+https://github.com/pyro-ppl/funsor.git@d5574988665dd822ec64e41f2b54b9dc929959dc",
+            "funsor",
             "graphviz",
-            "jaxns==0.0.7",
-            "optax==0.0.6",
-            # TODO: change this to tensorflow_probability>0.12.1 when the next version
-            # of tfp is released. The current release is not compatible with jax>=0.2.12.
-            # TODO: relax this restriction when we revise tfp wrapper
-            "tfp-nightly<=0.14.0.dev20210608",
+            "jaxns>=0.0.7",
+            "optax>=0.0.6",
+            "tensorflow_probability>=0.13",
         ],
         "examples": ["arviz", "jupyter", "matplotlib", "pandas", "seaborn"],
     },
