@@ -20,6 +20,18 @@ from numpyro.distributions.util import (
 
 
 class VonMises(Distribution):
+    """
+    The von Mises distribution, also known as the circular normal distribution.
+
+    To use this distribution with autoguides and HMC, use ``handlers.reparam``
+    with a :class:`~numpyro.infer.reparam.CircularReparam` reparametrizer in 
+    the model, e.g.::
+
+        @handlers.reparam(config={"direction": CircularReparam()})
+        def model():
+            direction = numpyro.sample("direction", VonMises(0.0, 4.0)
+            ...
+    """
     arg_constraints = {"loc": constraints.real, "concentration": constraints.positive}
     reparametrized_params = ["loc"]
     support = constraints.circular
