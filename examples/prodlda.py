@@ -64,12 +64,12 @@ class HaikuEncoder:
         # the number of learning parameters
         h_mu = hk.Linear(self._num_topics)(h)
         logtheta_loc = hk.BatchNorm(
-            create_scale=False, create_offset=False, decay_rate=0.99
+            create_scale=False, create_offset=False, decay_rate=0.9
         )(h_mu, is_training)
 
         h_sigma = hk.Linear(self._num_topics)(h)
         logtheta_logvar = hk.BatchNorm(
-            create_scale=False, create_offset=False, decay_rate=0.99
+            create_scale=False, create_offset=False, decay_rate=0.9
         )(h_sigma, is_training)
         logtheta_scale = jnp.exp(0.5 * logtheta_logvar)
         return logtheta_loc, logtheta_scale
@@ -84,7 +84,7 @@ class HaikuDecoder:
         dropout_rate = self._dropout_rate if is_training else 0.0
         h = hk.dropout(hk.next_rng_key(), dropout_rate, inputs)
         h = hk.Linear(self._vocab_size, with_bias=False)(h)
-        h = hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.99)(
+        h = hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.9)(
             h, is_training
         )
         return jax.nn.softmax(h)
@@ -105,10 +105,16 @@ class FlaxEncoder(nn.Module):
         h_mu, h_sigma = nn.Dense(self.num_topics)(h), nn.Dense(self.num_topics)(h)
 
         logtheta_loc = nn.BatchNorm(
-            use_bias=False, use_scale=False, use_running_average=not is_training
+            use_bias=False,
+            use_scale=False,
+            momentum=0.9,
+            use_running_average=not is_training,
         )(h_mu)
         logtheta_logvar = nn.BatchNorm(
-            use_bias=False, use_scale=False, use_running_average=not is_training
+            use_bias=False,
+            use_scale=False,
+            momentum=0.9,
+            use_running_average=not is_training,
         )(h_sigma)
         logtheta_scale = jnp.exp(0.5 * logtheta_logvar)
         return logtheta_loc, logtheta_scale
@@ -123,7 +129,10 @@ class FlaxDecoder(nn.Module):
         h = nn.Dropout(self.dropout_rate, deterministic=not is_training)(inputs)
         h = nn.Dense(self.vocab_size, use_bias=False)(h)
         h = nn.BatchNorm(
-            use_bias=False, use_scale=False, use_running_average=not is_training
+            use_bias=False,
+            use_scale=False,
+            momentum=0.9,
+            use_running_average=not is_training,
         )(h)
         return nn.softmax(h)
 
