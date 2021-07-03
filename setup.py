@@ -65,7 +65,14 @@ setup(
             # TODO: relax this restriction when we revise tfp wrapper
             "tfp-nightly<=0.14.0.dev20210608",
         ],
-        "examples": ["arviz", "jupyter", "matplotlib", "pandas", "seaborn"],
+        "examples": [
+            "arviz",
+            "jupyter",
+            "matplotlib",
+            "pandas",
+            "seaborn",
+            "wordcloud",
+        ],
     },
     long_description=long_description,
     long_description_content_type="text/markdown",
