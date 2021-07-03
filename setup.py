@@ -71,6 +71,7 @@ setup(
             "matplotlib",
             "pandas",
             "seaborn",
+            "scikit-learn",
             "wordcloud",
         ],
     },
