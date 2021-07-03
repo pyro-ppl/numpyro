@@ -59,6 +59,7 @@ NumPyro documentation
    examples/neutra
    examples/covtype
    examples/thompson_sampling
+   examples/prodlda
 
 
 Indices and tables
