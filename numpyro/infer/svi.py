@@ -102,7 +102,7 @@ class SVI(object):
         >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
         >>> params = svi_result.params
         >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(0), 2000, data)
+        >>> samples = predictive(random.PRNGKey(0), data)
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
 
     :param model: Python callable with Pyro primitives for the model.
