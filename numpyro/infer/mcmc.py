@@ -64,7 +64,9 @@ class MCMCKernel(ABC):
         >>> kernel = MetropolisHastings(f)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
-        >>> samples = mcmc.get_samples()
+        >>> posterior_samples = mcmc.get_samples()
+        >>> predictive = Predictive(model, posterior_samples=posterior_samples)
+        >>> samples = predictive(rng_key1, *model_args, **model_kwargs)
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
 
@@ -508,6 +510,8 @@ class MCMC(object):
     def run(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
+
+        See :class:`~numpyro.infer.util.Predictive` for how to use them to collect posterior predictive samples.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
             For multi-chains, a batch of `num_chains` keys can be supplied. If `rng_key`

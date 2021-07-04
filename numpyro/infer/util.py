@@ -743,6 +743,21 @@ class Predictive(object):
           argument is not None, its value should be equal to `num_chains x N`.
 
     :return: dict of samples from the predictive distribution.
+
+    **Example:**
+
+    Given a model, you can sample from the prior predictive:
+
+        >>> predictive = Predictive(model, num_samples=num_samples)
+        >>> samples = predictive(rng_key1, *model_args, **model_kwargs)
+
+    If you also have posterior samples, you can sample from the posterior predictive:
+
+        >>> predictive = Predictive(model, posterior_samples=posterior_samples)
+        >>> samples = predictive(rng_key1, *model_args, **model_kwargs)
+
+    See docstrings for :class:`~numpyro.infer.svi.SVI` and :class:`~numpyro.infer.mcmc.MCMCKernel`
+    to see example code of this in context.
     """
 
     def __init__(
