@@ -83,7 +83,7 @@ class SVI(object):
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.distributions import constraints
-        >>> from numpyro.infer import SVI, Trace_ELBO
+        >>> from numpyro.infer import Predictive, SVI, Trace_ELBO
 
         >>> def model(data):
         ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
