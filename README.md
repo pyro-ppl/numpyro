@@ -184,21 +184,28 @@ Pyro users will note that the API for model specification and inference is large
 
 > **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) and [this forum post](https://forum.pyro.ai/t/numpyro-with-gpu-works-on-windows/2690) if you want to use GPUs on Windows.
 
-To install NumPyro with a CPU version of JAX, you can use pip:
+To install NumPyro with the latest CPU version of JAX, you can use pip:
 
 ```
 pip install numpyro
 ```
 
-To use NumPyro on the GPU, you need to install CUDA first and then use the following pip command:
+In case of compatibility issues arise during execution of the above ocmmand, you can instead force the installation of a known
+compatible CPU version of JAX with
+
+```
+pip install numpyro[cpu]
+```
+
+To use **NumPyro on the GPU**, you need to install CUDA first and then use the following pip command:
 ```
 pip install numpyro[cudaXXY] -f https://storage.googleapis.com/jax-releases/jax_releases.html
 ```
 where `XXY` is your CUDA XX.Y version number, e.g., for CUDA 10.2 use `cuda[102]` in the above.
 If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/google/jax#pip-installation-gpu-cuda).
 
-To run NumPyro on Cloud TPUs, you need to setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs)
-and then install NumPyro using the following pip command:
+To run **NumPyro on Cloud TPUs**, you need to setup the TPU backend as detailed in the [Cloud TPU VM JAX Quickstart Guide](https://cloud.google.com/tpu/docs/jax-quickstart-tpu-vm). After you have verified that the TPU backend is properly set up,
+you can install NumPyro using the following pip command:
 ```
 pip install numpyro[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 ```
