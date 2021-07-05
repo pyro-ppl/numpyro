@@ -190,7 +190,7 @@ To install NumPyro with the latest CPU version of JAX, you can use pip:
 pip install numpyro
 ```
 
-In case of compatibility issues arise during execution of the above ocmmand, you can instead force the installation of a known
+In case of compatibility issues arise during execution of the above command, you can instead force the installation of a known
 compatible CPU version of JAX with
 
 ```
@@ -199,12 +199,15 @@ pip install numpyro[cpu]
 
 To use **NumPyro on the GPU**, you need to install CUDA first and then use the following pip command:
 ```
-pip install numpyro[cudaXXY] -f https://storage.googleapis.com/jax-releases/jax_releases.html
+# change `cuda111` to your CUDA version number, e.g. for CUDA 10.2 use `cuda102`
+pip install numpyro[cuda111] -f https://storage.googleapis.com/jax-releases/jax_releases.html
 ```
-where `XXY` is your CUDA XX.Y version number, e.g., for CUDA 10.2 use `cuda[102]` in the above.
 If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/google/jax#pip-installation-gpu-cuda).
 
-To run **NumPyro on Cloud TPUs**, you need to setup the TPU backend as detailed in the [Cloud TPU VM JAX Quickstart Guide](https://cloud.google.com/tpu/docs/jax-quickstart-tpu-vm). After you have verified that the TPU backend is properly set up,
+To run **NumPyro on Cloud TPUs**, you can look at some [JAX on Cloud TPU examples](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
+
+For Cloud TPU VM, you need to setup the TPU backend as detailed in the [Cloud TPU VM JAX Quickstart Guide](https://cloud.google.com/tpu/docs/jax-quickstart-tpu-vm).
+After you have verified that the TPU backend is properly set up,
 you can install NumPyro using the `pip install numpyro` command.
 
 > **Default Platform:** JAX will use GPU by default if CUDA-supported `jaxlib` package is installed. You can use [set_platform](http://num.pyro.ai/en/stable/utilities.html#set-platform) utility `numpyro.set_platform("cpu")` to switch to CPU at the beginning of your program.
