@@ -62,17 +62,11 @@ class HaikuEncoder:
 
         # NB: here we set `create_scale=False` and `create_offset=False` to reduce
         # the number of learning parameters
-        h_mu = hk.Linear(self._num_topics)(h)
-        logtheta_loc = hk.BatchNorm(
+        h = hk.Linear(self._num_topics)(h)
+        log_concentration = hk.BatchNorm(
             create_scale=False, create_offset=False, decay_rate=0.9
-        )(h_mu, is_training)
-
-        h_sigma = hk.Linear(self._num_topics)(h)
-        logtheta_logvar = hk.BatchNorm(
-            create_scale=False, create_offset=False, decay_rate=0.9
-        )(h_sigma, is_training)
-        logtheta_scale = jnp.exp(0.5 * logtheta_logvar)
-        return logtheta_loc, logtheta_scale
+        )(h, is_training)
+        return jnp.exp(log_concentration)
 
 
 class HaikuDecoder:
@@ -84,10 +78,9 @@ class HaikuDecoder:
         dropout_rate = self._dropout_rate if is_training else 0.0
         h = hk.dropout(hk.next_rng_key(), dropout_rate, inputs)
         h = hk.Linear(self._vocab_size, with_bias=False)(h)
-        h = hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.9)(
+        return hk.BatchNorm(create_scale=False, create_offset=False, decay_rate=0.9)(
             h, is_training
         )
-        return jax.nn.softmax(h)
 
 
 class FlaxEncoder(nn.Module):
@@ -102,22 +95,15 @@ class FlaxEncoder(nn.Module):
         h = nn.softplus(nn.Dense(self.hidden)(h))
         h = nn.Dropout(self.dropout_rate, deterministic=not is_training)(h)
 
-        h_mu, h_sigma = nn.Dense(self.num_topics)(h), nn.Dense(self.num_topics)(h)
+        h = nn.Dense(self.num_topics)(h)
 
-        logtheta_loc = nn.BatchNorm(
+        log_concentration = nn.BatchNorm(
             use_bias=False,
             use_scale=False,
             momentum=0.9,
             use_running_average=not is_training,
-        )(h_mu)
-        logtheta_logvar = nn.BatchNorm(
-            use_bias=False,
-            use_scale=False,
-            momentum=0.9,
-            use_running_average=not is_training,
-        )(h_sigma)
-        logtheta_scale = jnp.exp(0.5 * logtheta_logvar)
-        return logtheta_loc, logtheta_scale
+        )(h)
+        return jnp.exp(log_concentration)
 
 
 class FlaxDecoder(nn.Module):
@@ -128,13 +114,12 @@ class FlaxDecoder(nn.Module):
     def __call__(self, inputs, is_training):
         h = nn.Dropout(self.dropout_rate, deterministic=not is_training)(inputs)
         h = nn.Dense(self.vocab_size, use_bias=False)(h)
-        h = nn.BatchNorm(
+        return nn.BatchNorm(
             use_bias=False,
             use_scale=False,
             momentum=0.9,
             use_running_average=not is_training,
         )(h)
-        return nn.softmax(h)
 
 
 def model(docs, hyperparams, is_training=False, nn_framework="flax"):
@@ -171,22 +156,18 @@ def model(docs, hyperparams, is_training=False, nn_framework="flax"):
         "documents", docs.shape[0], subsample_size=hyperparams["batch_size"]
     ):
         batch_docs = numpyro.subsample(docs, event_dim=1)
-        logtheta = numpyro.sample(
-            "logtheta",
-            dist.Normal(0, 1).expand((hyperparams["num_topics"],)).to_event(1),
+        theta = numpyro.sample(
+            "theta", dist.Dirichlet(jnp.ones(hyperparams["num_topics"]))
         )
-        theta = jax.nn.softmax(logtheta)
 
         if nn_framework == "flax":
-            count_param = decoder(
-                theta, is_training, rngs={"dropout": numpyro.prng_key()}
-            )
+            logits = decoder(theta, is_training, rngs={"dropout": numpyro.prng_key()})
         elif nn_framework == "haiku":
-            count_param = decoder(numpyro.prng_key(), theta, is_training)
+            logits = decoder(numpyro.prng_key(), theta, is_training)
 
         total_count = batch_docs.sum(-1)
         numpyro.sample(
-            "obs", dist.Multinomial(total_count, count_param), obs=batch_docs
+            "obs", dist.Multinomial(total_count, logits=logits), obs=batch_docs
         )
 
 
@@ -236,17 +217,13 @@ def guide(docs, hyperparams, is_training=False, nn_framework="flax"):
         batch_docs = numpyro.subsample(docs, event_dim=1)
 
         if nn_framework == "flax":
-            logtheta_loc, logtheta_scale = encoder(
+            concentration = encoder(
                 batch_docs, is_training, rngs={"dropout": numpyro.prng_key()}
             )
         elif nn_framework == "haiku":
-            logtheta_loc, logtheta_scale = encoder(
-                numpyro.prng_key(), batch_docs, is_training
-            )
+            concentration = encoder(numpyro.prng_key(), batch_docs, is_training)
 
-        numpyro.sample(
-            "logtheta", dist.Normal(logtheta_loc, logtheta_scale).to_event(1)
-        )
+        numpyro.sample("theta", dist.Dirichlet(concentration))
 
 
 def load_data():
@@ -342,7 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--num-topics", nargs="?", default=12, type=int)
     parser.add_argument("--batch-size", nargs="?", default=32, type=int)
     parser.add_argument("--learning-rate", nargs="?", default=1e-3, type=float)
-    parser.add_argument("--hidden", nargs="?", default=100, type=int)
+    parser.add_argument("--hidden", nargs="?", default=200, type=int)
     parser.add_argument("--dropout-rate", nargs="?", default=0.2, type=float)
     parser.add_argument(
         "-dp",
