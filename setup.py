@@ -72,7 +72,15 @@ setup(
             # TODO: relax this restriction when we revise tfp wrapper
             "tfp-nightly<=0.14.0.dev20210608",
         ],
-        "examples": ["arviz", "jupyter", "matplotlib", "pandas", "seaborn"],
+        "examples": [
+            "arviz",
+            "jupyter",
+            "matplotlib",
+            "pandas",
+            "seaborn",
+            "scikit-learn",
+            "wordcloud",
+        ],
         "cpu": f"jax[cpu]{_jax_version_constraints}",
         # TPU and CUDA installations, currently require to add package repository URL, i.e.,
         # pip install numpyro[cuda101] -f https://storage.googleapis.com/jax-releases/jax_releases.html
