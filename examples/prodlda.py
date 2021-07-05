@@ -11,6 +11,9 @@ much more quickly. Furthermore, it does not require a custom inference algorithm
 relies on complex mathematical derivations. This example also serves as an
 introduction to Flax and Haiku modules in NumPyro.
 
+Note that unlike [1, 2], this implementation uses a Dirichlet prior directly rather
+than approximating it with a softmax-normal distribution.
+
 For the interested reader, a nice extension of this model is the CombinedTM model [3]
 which utilizes a pre-trained sentence transformer (like https://www.sbert.net/) to
 generate a better representation of the encoded latent vector.
@@ -59,10 +62,10 @@ class HaikuEncoder:
         h = jax.nn.softplus(hk.Linear(self._hidden)(inputs))
         h = jax.nn.softplus(hk.Linear(self._hidden)(h))
         h = hk.dropout(hk.next_rng_key(), dropout_rate, h)
+        h = hk.Linear(self._num_topics)(h)
 
         # NB: here we set `create_scale=False` and `create_offset=False` to reduce
         # the number of learning parameters
-        h = hk.Linear(self._num_topics)(h)
         log_concentration = hk.BatchNorm(
             create_scale=False, create_offset=False, decay_rate=0.9
         )(h, is_training)
@@ -94,7 +97,6 @@ class FlaxEncoder(nn.Module):
         h = nn.softplus(nn.Dense(self.hidden)(inputs))
         h = nn.softplus(nn.Dense(self.hidden)(h))
         h = nn.Dropout(self.dropout_rate, deterministic=not is_training)(h)
-
         h = nn.Dense(self.num_topics)(h)
 
         log_concentration = nn.BatchNorm(
