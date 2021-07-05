@@ -2033,3 +2033,13 @@ def test_kl_normal_normal(shape):
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
+def test_kl_dirichlet_dirichlet(shape):
+    p = dist.Normal(np.exp(np.random.normal(size=shape)))
+    q = dist.Normal(np.exp(np.random.normal(size=shape)))
+    actual = kl_divergence(p, q)
+    x = p.sample(random.PRNGKey(0), (200_000,)).copy()
+    expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
+    assert_allclose(actual, expected, rtol=0.1)
