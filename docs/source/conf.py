@@ -158,7 +158,7 @@ with open("../../README.md", "rt") as f:
         if "# NumPyro" == line.rstrip():
             break
     lines = lines[i:]
-    lines[0] = "# Getting Started with NumPyro\n"
+    lines[0] = "# Getting Started\n"
     text = "\n".join(lines)
 
 with open("getting_started.rst", "wt") as f:

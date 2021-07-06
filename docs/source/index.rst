@@ -6,14 +6,14 @@ NumPyro documentation
 
 .. toctree::
    :maxdepth: 1
-
-   getting_started
-
-.. toctree::
-   :maxdepth: 1
    :caption: API and Developer Reference
 
-   api
+   getting_started
+   primitives
+   distributions
+   infer
+   handlers
+   contrib
    Change Log <https://github.com/pyro-ppl/numpyro/releases>
 
 .. nbgallery::
