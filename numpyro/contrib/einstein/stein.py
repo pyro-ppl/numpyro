@@ -47,7 +47,7 @@ class Stein(VI):
     :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
                                    without Stein (E.g. parameters for large normal networks or other transformation)
     :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand'
-                         for random (EXPERIMENTAL)
+                         for random (EXPERIMENTAL)  # TODO: @Ola add last crieteria
     :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local'
                     for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
     :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC
