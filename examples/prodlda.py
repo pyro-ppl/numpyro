@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Example: ProdLDA
-================
+Example: ProdLDA with Flax and Haiku
+====================================
+
 In this example, we will follow [1] to implement the ProdLDA topic model from
 Autoencoding Variational Inference For Topic Models by Akash Srivastava and Charles
 Sutton [2]. This model returns consistently better topics than vanilla LDA and trains

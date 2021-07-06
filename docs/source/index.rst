@@ -43,6 +43,7 @@ NumPyro documentation
    examples/capture_recapture
    examples/gaussian_shells
    tutorials/discrete_imputation
+   examples/prodlda
 
 .. nbgallery::
    :maxdepth: 1
@@ -63,7 +64,6 @@ NumPyro documentation
    examples/neutra
    examples/covtype
    examples/thompson_sampling
-   examples/prodlda
 
 
 Indices and tables
