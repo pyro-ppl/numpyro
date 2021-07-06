@@ -1,5 +1,5 @@
 Inference
----------
+=========
 
 .. toctree::
    :glob:
