@@ -6,9 +6,13 @@ NumPyro documentation
 
 .. toctree::
    :maxdepth: 1
-   :caption: API and Developer Reference
 
    getting_started
+
+.. toctree::
+   :maxdepth: 1
+   :caption: API and Developer Reference
+
    primitives
    distributions
    infer
