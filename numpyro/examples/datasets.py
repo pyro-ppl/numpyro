@@ -68,6 +68,11 @@ HIGGS = dset(
     ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
 )
 
+NINE_MERS = dset(
+    "9mers",
+    ["https://github.com/pyro-ppl/datasets/blob/master/9mers_data.pkl?raw=true"],
+)
+
 
 def _download(dset):
     for url in dset.urls:
@@ -276,6 +281,12 @@ def _load_higgs(num_datapoints):
     }  # standard split -500_000: as test
 
 
+def _load_9mers():
+    _download(NINE_MERS)
+    file_path = os.path.join(DATA_DIR, "9mers_data.pkl")
+    return {"train": pickle.load(open(file_path, "rb"))}
+
+
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
@@ -295,6 +306,8 @@ def _load(dset, num_datapoints=-1):
         return _load_jsb_chorales()
     elif dset == HIGGS:
         return _load_higgs(num_datapoints)
+    elif dset == NINE_MERS:
+        return _load_9mers()
     raise ValueError("Dataset - {} not found.".format(dset.name))
 
 
@@ -313,9 +326,18 @@ def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
 
 
 def load_dataset(
-    dset, batch_size=None, split="train", shuffle=True, num_datapoints=None
+    dset,
+    batch_size=None,
+    split="train",
+    shuffle=True,
+    num_datapoints=None,
+    subset_key=None,
 ):
-    arrays = _load(dset, num_datapoints)[split]
+    data = _load(dset, num_datapoints)[split]
+    if isinstance(data, dict) and subset_key:
+        arrays = data.get(subset_key)
+    else:
+        arrays = data
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
     if not batch_size:
