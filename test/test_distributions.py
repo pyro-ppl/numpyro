@@ -23,7 +23,6 @@ from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multin
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
 from numpyro.distributions.transforms import (
-    L1BallTransform,
     LowerCholeskyAffine,
     PermuteTransform,
     PowerTransform,
