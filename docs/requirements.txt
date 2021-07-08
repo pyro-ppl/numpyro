@@ -3,6 +3,7 @@ flax
 funsor
 jax>=0.1.65
 jaxlib>=0.1.45
+jaxns==0.0.7
 optax==0.0.6
 nbsphinx>=0.8.5
 sphinx-gallery

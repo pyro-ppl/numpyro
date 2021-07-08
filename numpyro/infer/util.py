@@ -16,7 +16,7 @@ import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import seed, substitute, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
@@ -67,6 +67,55 @@ def log_density(model, model_args, model_kwargs, params):
             log_prob = jnp.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
+
+
+class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
+    """
+    Stop gradient for samples at latent sample sites for which has_rsample=False.
+    """
+
+    def postprocess_message(self, msg):
+        if (
+            msg["type"] == "sample"
+            and (not msg["is_observed"])
+            and (not msg["fn"].has_rsample)
+        ):
+            msg["value"] = lax.stop_gradient(msg["value"])
+            # TODO: reconsider this logic
+            # here we clear all the cached value so that gradients of log_prob(value) w.r.t.
+            # all parameters of the transformed distributions match the behavior of
+            # TransformedDistribution(d, transform) in Pyro with transform.cache_size == 0
+            msg["intermediates"] = None
+
+
+def get_importance_trace(model, guide, args, kwargs, params):
+    """
+    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
+    The returned traces also store the log probability at each site.
+
+    .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
+    """
+    guide = substitute(guide, data=params)
+    with _without_rsample_stop_gradient():
+        guide_trace = trace(guide).get_trace(*args, **kwargs)
+    model = substitute(replay(model, guide_trace), data=params)
+    model_trace = trace(model).get_trace(*args, **kwargs)
+    for tr in (guide_trace, model_trace):
+        for site in tr.values():
+            if site["type"] == "sample":
+                if "log_prob" not in site:
+                    value = site["value"]
+                    intermediates = site["intermediates"]
+                    scale = site["scale"]
+                    if intermediates:
+                        log_prob = site["fn"].log_prob(value, intermediates)
+                    else:
+                        log_prob = site["fn"].log_prob(value)
+
+                    if (scale is not None) and (not is_identically_one(scale)):
+                        log_prob = scale * log_prob
+                    site["log_prob"] = log_prob
+    return model_trace, guide_trace
 
 
 def transform_fn(transforms, params, invert=False):

@@ -27,7 +27,8 @@ def init_to_median(site=None, num_samples=15):
     ):
         if site["value"] is not None:
             warnings.warn(
-                f"Site '{site['name']}' already stores a value - skip initializing this site."
+                f"init_to_median() skipping initialization of site '{site['name']}'"
+                " which already stores a value."
             )
             return site["value"]
 
@@ -66,7 +67,8 @@ def init_to_uniform(site=None, radius=2):
     ):
         if site["value"] is not None:
             warnings.warn(
-                f"Site '{site['name']}' already stores a value - skip initializing this site."
+                f"init_to_uniform() skipping initialization of site '{site['name']}'"
+                " which already stores a value."
             )
             return site["value"]
 
