@@ -6,7 +6,6 @@ import functools
 import math
 from math import pi
 import operator
-import warnings
 
 from jax import lax
 import jax.numpy as jnp
@@ -362,7 +361,9 @@ class SineBivariateVonMises(Distribution):
     @property
     def mean(self):
         """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
-        return (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
+        return (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
+            2.0 * jnp.pi
+        ) - jnp.pi
 
     def _bfind(self, eig):
         b = eig.shape[0] / 2 * jnp.ones(self.batch_shape, dtype=eig.dtype)
