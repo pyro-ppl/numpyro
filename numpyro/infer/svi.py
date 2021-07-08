@@ -14,31 +14,55 @@ from jax.tree_util import tree_map
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
-from numpyro.infer.util import transform_fn
+from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim
 
-SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
+SVIState = namedtuple("SVIState", ["optim_state", "mutable_state", "rng_key"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **optim_state** - current optimizer's state.
+ - **mutable_state** - extra state to store values of `"mutable"` sites
  - **rng_key** - random number generator seed used for the iteration.
 """
 
 
-SVIRunResult = namedtuple("SVIRunResult", ["params", "losses"])
+SVIRunResult = namedtuple("SVIRunResult", ["params", "state", "losses"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **params** - the optimized parameters.
+ - **state** - the last :class:`SVIState`
  - **losses** - the losses collected at every step.
 """
 
 
-def _apply_loss_fn(
-    loss_fn, rng_key, constrain_fn, model, guide, args, kwargs, static_kwargs, params
+def _make_loss_fn(
+    elbo,
+    rng_key,
+    constrain_fn,
+    model,
+    guide,
+    args,
+    kwargs,
+    static_kwargs,
+    mutable_state=None,
 ):
-    return loss_fn(
-        rng_key, constrain_fn(params), model, guide, *args, **kwargs, **static_kwargs
-    )
+    def loss_fn(params):
+        params = constrain_fn(params)
+        if mutable_state is not None:
+            params.update(mutable_state)
+            result = elbo.loss_with_mutable_state(
+                rng_key, params, model, guide, *args, **kwargs, **static_kwargs
+            )
+            return result["loss"], result["mutable_state"]
+        else:
+            return (
+                elbo.loss(
+                    rng_key, params, model, guide, *args, **kwargs, **static_kwargs
+                ),
+                None,
+            )
+
+    return loss_fn
 
 
 class SVI(object):
@@ -150,13 +174,17 @@ class SVI(object):
         )
         params = {}
         inv_transforms = {}
+        mutable_state = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):
             if site["type"] == "param":
                 constraint = site["kwargs"].pop("constraint", constraints.real)
-                transform = biject_to(constraint)
+                with helpful_support_errors(site):
+                    transform = biject_to(constraint)
                 inv_transforms[site["name"]] = transform
                 params[site["name"]] = transform.inv(site["value"])
+            elif site["type"] == "mutable":
+                mutable_state[site["name"]] = site["value"]
             elif (
                 site["type"] == "sample"
                 and (not site["is_observed"])
@@ -166,13 +194,16 @@ class SVI(object):
                     "Currently, SVI does not support models with discrete latent variables"
                 )
 
+        if not mutable_state:
+            mutable_state = None
         self.constrain_fn = partial(transform_fn, inv_transforms)
         # we convert weak types like float to float32/float64
         # to avoid recompiling body_fn in svi.run
-        params = tree_map(
-            lambda x: lax.convert_element_type(x, jnp.result_type(x)), params
+        params, mutable_state = tree_map(
+            lambda x: lax.convert_element_type(x, jnp.result_type(x)),
+            (params, mutable_state),
         )
-        return SVIState(self.optim.init(params), rng_key)
+        return SVIState(self.optim.init(params), mutable_state, rng_key)
 
     def get_params(self, svi_state):
         """
@@ -197,9 +228,8 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        loss_fn = partial(
-            _apply_loss_fn,
-            self.loss.loss,
+        loss_fn = _make_loss_fn(
+            self.loss,
             rng_key_step,
             self.constrain_fn,
             self.model,
@@ -207,11 +237,12 @@ class SVI(object):
             args,
             kwargs,
             self.static_kwargs,
+            mutable_state=svi_state.mutable_state,
         )
-        loss_val, optim_state = self.optim.eval_and_update(
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
             loss_fn, svi_state.optim_state
         )
-        return SVIState(optim_state, rng_key), loss_val
+        return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def stable_update(self, svi_state, *args, **kwargs):
         """
@@ -226,9 +257,8 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        loss_fn = partial(
-            _apply_loss_fn,
-            self.loss.loss,
+        loss_fn = _make_loss_fn(
+            self.loss,
             rng_key_step,
             self.constrain_fn,
             self.model,
@@ -236,11 +266,12 @@ class SVI(object):
             args,
             kwargs,
             self.static_kwargs,
+            mutable_state=svi_state.mutable_state,
         )
-        loss_val, optim_state = self.optim.eval_and_stable_update(
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
             loss_fn, svi_state.optim_state
         )
-        return SVIState(optim_state, rng_key), loss_val
+        return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def run(
         self,
@@ -310,7 +341,9 @@ class SVI(object):
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
-        return SVIRunResult(self.get_params(svi_state), losses)
+        # XXX: we also return the last svi_state for further inspection of both
+        # optimizer's state and mutable state.
+        return SVIRunResult(self.get_params(svi_state), svi_state, losses)
 
     def evaluate(self, svi_state, *args, **kwargs):
         """

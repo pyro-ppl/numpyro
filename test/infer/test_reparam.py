@@ -217,9 +217,9 @@ def test_loc_scale(dist_type, centered, shape, event_dim):
         return get_moments(trace["x"]["value"])
 
     if "dist_type" == "Normal":
-        reparam = LocScaleReparam()
+        reparam = LocScaleReparam(centered)
     else:
-        reparam = LocScaleReparam(shape_params=["df"])
+        reparam = LocScaleReparam(centered, shape_params=["df"])
 
     def get_actual_probe(loc, scale):
         with numpyro.handlers.trace() as trace:

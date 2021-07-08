@@ -37,6 +37,7 @@ NumPyro documentation
    examples/annotation
    examples/hmm_enum
    examples/capture_recapture
+   examples/gaussian_shells
    tutorials/discrete_imputation
 
 .. nbgallery::
@@ -58,6 +59,7 @@ NumPyro documentation
    examples/neutra
    examples/covtype
    examples/thompson_sampling
+   examples/prodlda
 
 
 Indices and tables
