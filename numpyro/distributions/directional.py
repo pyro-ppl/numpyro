@@ -29,7 +29,7 @@ class VonMises(Distribution):
 
         @handlers.reparam(config={"direction": CircularReparam()})
         def model():
-            direction = numpyro.sample("direction", VonMises(0.0, 4.0)
+            direction = numpyro.sample("direction", VonMises(0.0, 4.0))
             ...
     """
 

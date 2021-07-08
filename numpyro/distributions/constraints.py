@@ -103,7 +103,7 @@ class _Circular(Constraint):
         return (x >= -math.pi) & (x < math.pi)
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(math.pi, jax.numpy.shape(prototype))
+        return jax.numpy.broadcast_to(0.0, jax.numpy.shape(prototype))
 
 
 class _CorrCholesky(Constraint):
