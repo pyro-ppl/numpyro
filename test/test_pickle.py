@@ -10,7 +10,16 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SA, BarkerMH, DiscreteHMCGibbs, MixedHMC
+from numpyro.infer import (
+    HMC,
+    HMCECS,
+    MCMC,
+    NUTS,
+    SA,
+    BarkerMH,
+    DiscreteHMCGibbs,
+    MixedHMC,
+)
 
 
 def normal_model():

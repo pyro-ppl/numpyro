@@ -477,6 +477,13 @@ ZeroInflatedNegativeBinomial2
 
 Directional Distributions
 =========================
+SineBivariateVonMises
+---------------------
+.. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 ProjectedNormal
 ---------------

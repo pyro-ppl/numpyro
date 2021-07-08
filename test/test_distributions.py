@@ -4,6 +4,7 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+import math
 import os
 import math
 
@@ -20,6 +21,7 @@ from jax.scipy.special import expit, logsumexp
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
+from numpyro.distributions.directional import SineBivariateVonMises
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -28,14 +30,14 @@ from numpyro.distributions.transforms import (
     PermuteTransform,
     PowerTransform,
     SoftplusTransform,
-    biject_to
+    biject_to,
 )
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
     signed_stick_breaking_tril,
     sum_rightmost,
-    vec_to_tril_matrix
+    vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
 
@@ -341,6 +343,31 @@ DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
     T(dist.VonMises, 2.0, jnp.array([150.0, 10.0])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.0]), jnp.array([20.0, 30.0])),
+    T(
+        SineBivariateVonMises,
+        jnp.array([0.0]),
+        jnp.array([0.0]),
+        jnp.array([5.0]),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array([3.003]),
+        jnp.array([-1.3430]),
+        jnp.array([5.0]),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array([math.pi - 0.2, 1.0]),
+        jnp.array([0.0, 1.0]),
+        jnp.array([2.123, 20.0]),
+        jnp.array([7.0, 0.5]),
+        None,
+        jnp.array([0.2, 0.5]),
+    ),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
@@ -1496,7 +1523,6 @@ def test_constraints(constraint, x, expected):
 )
 @pytest.mark.parametrize("shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
-
     transform = biject_to(constraint)
     event_dim = transform.domain.event_dim
     if isinstance(constraint, constraints._Interval):
