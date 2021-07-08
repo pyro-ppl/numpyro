@@ -62,9 +62,9 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            "funsor>=0.4.1",
+            "funsor==0.4.1",
             "graphviz",
-            "jaxns>=0.0.7",
+            "jaxns==0.0.7",
             "optax>=0.0.6",
             "tensorflow_probability>=0.13",
         ],
