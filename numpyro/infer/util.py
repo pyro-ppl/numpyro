@@ -17,7 +17,7 @@ import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import replay, seed, substitute, trace
+from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
@@ -689,21 +689,23 @@ def _predictive(
             lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[batch_ndim:])[0],
             posterior_samples,
         )
-        model_trace = trace(
+        prototype_trace = trace(
             seed(substitute(masked_model, prototype_sample), subkey)
         ).get_trace(*model_args, **model_kwargs)
-        first_available_dim = -_guess_max_plate_nesting(model_trace) - 1
+        first_available_dim = -_guess_max_plate_nesting(prototype_trace) - 1
 
     def single_prediction(val):
         rng_key, samples = val
         if infer_discrete:
+            from numpyro.contrib.funsor import config_enumerate
             from numpyro.contrib.funsor.discrete import _sample_posterior
 
+            model_trace = prototype_trace
             pred_samples = _sample_posterior(
-                substitute(model, samples),
+                config_enumerate(condition(model, samples)),
                 first_available_dim,
                 temperature,
-                subkey,
+                rng_key,
                 *model_args,
                 **model_kwargs,
             )
@@ -756,17 +758,15 @@ class Predictive(object):
     :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
-    :param bool infer_discrete: whether or not to sample discrete sites marked with
-        ``site["infer"]["enumerate"] = "parallel"`` from the posterior,
-        conditioned on observations. Default to False.
-    :param int temperature: This argument controls the behavior of
-        sampling discrete latent sites marked with
-        ``site["infer"]["enumerate"] = "parallel"`` from the posterior,
-        conditioned on observations. If not None, this can be set to either 1
-        (sample via forward-filter backward-sample) or 0 (optimize via Viterbi-like
-        MAP inference). By default, this is None, which means the samples will
-        be drawn by running the model (conditioned on posterior samples) forward.
-    :type infer_discrete_temperature: int or None
+    :param bool infer_discrete: whether or not to sample discrete sites from the
+        posterior, conditioned on observations and other latent values in
+        ``posterior_samples``. Under the hood, those sites will be marked with
+        ``site["infer"]["enumerate"] = "parallel"``. See how `infer_discrete` works at
+        the `Pyro enumeration tutorial <https://pyro.ai/examples/enumeration.html>`_.
+        This feature requires ``funsor`` installation.
+    :param int temperature: Either 1 (sample via forward-filter backward-sample)
+        or 0 (optimize via Viterbi-like MAP inference). Defaults to 1 (sample).
+        This argument only takes effect when ``infer_discrete=True``.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
     :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:

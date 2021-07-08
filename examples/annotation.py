@@ -42,7 +42,6 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.funsor import config_enumerate
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, Predictive
@@ -314,9 +313,7 @@ def main(args):
     mcmc.print_summary()
 
     posterior_samples = mcmc.get_samples()
-    predictive = Predictive(
-        config_enumerate(model), posterior_samples, infer_discrete=True
-    )
+    predictive = Predictive(model, posterior_samples, infer_discrete=True)
     discrete_samples = predictive(random.PRNGKey(1), *data)
 
     item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
