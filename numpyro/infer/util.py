@@ -11,6 +11,7 @@ import numpy as np
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 import numpyro
 from numpyro.distributions import constraints
@@ -673,17 +674,45 @@ def _predictive(
     posterior_samples,
     batch_shape,
     return_sites=None,
+    infer_discrete=False,
+    temperature=1,
     parallel=True,
     model_args=(),
     model_kwargs={},
 ):
-    model = numpyro.handlers.mask(model, mask=False)
+    masked_model = numpyro.handlers.mask(model, mask=False)
+    if infer_discrete:
+        # inspect the model to get some structure
+        rng_key, subkey = random.split(rng_key)
+        batch_ndim = len(batch_shape)
+        prototype_sample = tree_map(
+            lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[batch_ndim:])[0],
+            posterior_samples,
+        )
+        model_trace = trace(
+            seed(substitute(masked_model, prototype_sample), subkey)
+        ).get_trace(*model_args, **model_kwargs)
+        first_available_dim = -_guess_max_plate_nesting(model_trace) - 1
 
     def single_prediction(val):
         rng_key, samples = val
-        model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(
-            *model_args, **model_kwargs
-        )
+        if infer_discrete:
+            from numpyro.contrib.funsor.discrete import _sample_posterior
+
+            pred_samples = _sample_posterior(
+                substitute(model, samples),
+                first_available_dim,
+                temperature,
+                subkey,
+                *model_args,
+                **model_kwargs,
+            )
+        else:
+            model_trace = trace(
+                seed(substitute(masked_model, samples), rng_key)
+            ).get_trace(*model_args, **model_kwargs)
+            pred_samples = {name: site["value"] for name, site in model_trace.items()}
+
         if return_sites is not None:
             if return_sites == "":
                 sites = {
@@ -698,9 +727,7 @@ def _predictive(
                 if (site["type"] == "sample" and k not in samples)
                 or (site["type"] == "deterministic")
             }
-        return {
-            name: site["value"] for name, site in model_trace.items() if name in sites
-        }
+        return {name: value for name, value in pred_samples.items() if name in sites}
 
     num_samples = int(np.prod(batch_shape))
     if num_samples > 1:
@@ -729,6 +756,17 @@ class Predictive(object):
     :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
+    :param bool infer_discrete: whether or not to sample discrete sites marked with
+        ``site["infer"]["enumerate"] = "parallel"`` from the posterior,
+        conditioned on observations. Default to False.
+    :param int temperature: This argument controls the behavior of
+        sampling discrete latent sites marked with
+        ``site["infer"]["enumerate"] = "parallel"`` from the posterior,
+        conditioned on observations. If not None, this can be set to either 1
+        (sample via forward-filter backward-sample) or 0 (optimize via Viterbi-like
+        MAP inference). By default, this is None, which means the samples will
+        be drawn by running the model (conditioned on posterior samples) forward.
+    :type infer_discrete_temperature: int or None
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
     :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
@@ -749,10 +787,13 @@ class Predictive(object):
         self,
         model,
         posterior_samples=None,
+        *,
         guide=None,
         params=None,
         num_samples=None,
         return_sites=None,
+        infer_discrete=False,
+        temperature=1,
         parallel=False,
         batch_ndims=1,
     ):
@@ -801,6 +842,8 @@ class Predictive(object):
         self.num_samples = num_samples
         self.guide = guide
         self.params = {} if params is None else params
+        self.infer_discrete = infer_discrete
+        self.temperature = temperature
         self.return_sites = return_sites
         self.parallel = parallel
         self.batch_ndims = batch_ndims
@@ -838,6 +881,8 @@ class Predictive(object):
             posterior_samples,
             self._batch_shape,
             return_sites=self.return_sites,
+            infer_discrete=self.infer_discrete,
+            temperature=self.temperature,
             parallel=self.parallel,
             model_args=args,
             model_kwargs=kwargs,
