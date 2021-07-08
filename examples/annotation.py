@@ -37,11 +37,12 @@ import os
 
 import numpy as np
 
-from jax import nn, random
+from jax import nn, random, vmap
 import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
+from numpyro.contrib.funsor import config_enumerate, infer_discrete
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
@@ -311,6 +312,34 @@ def main(args):
     )
     mcmc.run(random.PRNGKey(0), *data)
     mcmc.print_summary()
+
+    def infer_discrete_model(rng_key, samples):
+        conditioned_model = handlers.condition(model, data=samples)
+        infer_discrete_model = infer_discrete(
+            config_enumerate(conditioned_model), rng_key=rng_key
+        )
+        with handlers.trace() as tr:
+            infer_discrete_model(*data)
+
+        return {
+            name: site["value"]
+            for name, site in tr.items()
+            if site["type"] == "sample" and site["infer"].get("enumerate") == "parallel"
+        }
+
+    posterior_samples = mcmc.get_samples()
+    discrete_samples = vmap(infer_discrete_model)(
+        random.split(random.PRNGKey(1), args.num_samples), posterior_samples
+    )
+
+    item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
+        discrete_samples["c"].squeeze(-1)
+    )
+    print("Histogram of the predicted class of each item:")
+    row_format = "{:>10}" * 5
+    print(row_format.format("", *["c={}".format(i) for i in range(4)]))
+    for i, row in enumerate(item_class):
+        print(row_format.format(f"item[{i}]", *row))
 
 
 if __name__ == "__main__":

@@ -238,6 +238,38 @@ def deterministic(name, value):
     return msg["value"]
 
 
+def mutable(name, init_value=None):
+    """
+    This primitive is used to store a mutable value that can be changed
+    during model execution::
+
+        a = numpyro.mutable("a", {"value": 1.})
+        a["value"] = 2.
+        assert numpyro.mutable("a")["value"] == 2.
+
+    For example, this can be used to store and update information like
+    running mean/variance in a neural network batch normalization layer.
+
+    :param str name: name of the mutable site.
+    :param init_value: mutable value to record in the trace.
+    """
+    if not _PYRO_STACK:
+        return init_value
+
+    initial_msg = {
+        "type": "mutable",
+        "name": name,
+        "fn": identity,
+        "args": (init_value,),
+        "kwargs": {},
+        "value": init_value,
+    }
+
+    # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg["value"]
+
+
 def _inspect():
     """
     EXPERIMENTAL Inspect the Pyro stack.

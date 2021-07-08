@@ -22,6 +22,8 @@ EXAMPLES = [
     "capture_recapture.py --num-samples 4 --num-warmup 1 -m 3",
     "capture_recapture.py --num-samples 4 --num-warmup 1 -m 5",
     "covtype.py --algo HMC --num-samples 10 --num-warmup 10",
+    "gaussian_shells.py --num-samples 100",
+    "gaussian_shells.py --num-samples 100 --enum",
     "gp.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "hmcecs.py --subsample_size 5 --num_svi_steps 1 --num_blocks 1 "
     "--dataset mock --num_warmup 1 --num_samples 5 --num_datapoints 100",
@@ -35,6 +37,8 @@ EXAMPLES = [
     "minipyro.py",
     "neutra.py --num-samples 100 --num-warmup 100",
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
+    "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
+    "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
     "sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10",
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
     "ucbadmit.py --num-chains 2",
