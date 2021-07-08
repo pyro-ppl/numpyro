@@ -1213,6 +1213,11 @@ def test_mean_var(jax_dist, sp_dist, params):
 
         expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
+    elif jax_dist in [dist.SineBivariateVonMises]:
+        circ_mean = lambda angles: jnp.arctan2(jnp.mean(jnp.sin(angles), axis=0), jnp.mean(jnp.cos(angles), axis=0))
+        phi_loc = circ_mean(samples[..., 0])
+        psi_loc = circ_mean(samples[..., 1])
+        assert_allclose(d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2)
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)

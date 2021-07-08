@@ -285,7 +285,6 @@ class SineBivariateVonMises(Distribution):
         )
 
         phi = lax.atan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
-        print(phi)
 
         alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
         beta = lax.atan(corr / conc[1] * jnp.sin(phi))
