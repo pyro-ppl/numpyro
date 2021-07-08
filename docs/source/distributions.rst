@@ -486,6 +486,14 @@ ProjectedNormal
     :show-inheritance:
     :member-order: bysource
 
+SineSkewed
+----------
+.. autoclass:: numpyro.distributions.directional.SineSkewed
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 VonMises
 --------
 .. autoclass:: numpyro.distributions.directional.VonMises
