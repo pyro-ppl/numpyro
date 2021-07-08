@@ -1058,5 +1058,5 @@ def test_init_strategy_substituted_model():
 
     subs_model = numpyro.handlers.substitute(model, data={"x": 10.0})
     mcmc = MCMC(NUTS(subs_model), num_warmup=10, num_samples=10)
-    with pytest.warns(UserWarning, match="skip initializing"):
+    with pytest.warns(UserWarning, match="skipping initialization"):
         mcmc.run(random.PRNGKey(1))
