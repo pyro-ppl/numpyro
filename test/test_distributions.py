@@ -23,6 +23,7 @@ from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multin
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
 from numpyro.distributions.transforms import (
+    L1BallTransform,
     LowerCholeskyAffine,
     PermuteTransform,
     PowerTransform,
@@ -1471,6 +1472,7 @@ def test_constraints(constraint, x, expected):
         constraints.corr_matrix,
         constraints.greater_than(2),
         constraints.interval(-3, 5),
+        constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
         constraints.ordered_vector,
@@ -1533,6 +1535,7 @@ def test_biject_to(constraint, shape):
             constraints.real_vector,
             constraints.ordered_vector,
             constraints.positive_ordered_vector,
+            constraints.l1_ball,
         ]:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
