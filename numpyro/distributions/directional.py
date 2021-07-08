@@ -226,15 +226,6 @@ class SineBivariateVonMises(Distribution):
         )
         super().__init__(batch_shape, (2,), validate_args)
 
-        if self._validate_args and jnp.any(
-            phi_concentration * psi_concentration <= correlation ** 2
-        ):
-            warnings.warn(
-                f"{self.__class__.__name__} bimodal due to concentration-correlation relation, "
-                f"sampling will likely fail.",
-                UserWarning,
-            )
-
     @lazy_property
     def norm_const(self):
         corr = self.correlation.reshape(1, -1) + 1e-8
@@ -294,6 +285,7 @@ class SineBivariateVonMises(Distribution):
         )
 
         phi = lax.atan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
+        print(phi)
 
         alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
         beta = lax.atan(corr / conc[1] * jnp.sin(phi))
@@ -370,7 +362,8 @@ class SineBivariateVonMises(Distribution):
 
     @property
     def mean(self):
-        return jnp.stack((self.phi_loc, self.psi_loc), axis=-1)
+        """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
+        return (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
 
     def _bfind(self, eig):
         b = eig.shape[0] / 2 * jnp.ones(self.batch_shape, dtype=eig.dtype)
