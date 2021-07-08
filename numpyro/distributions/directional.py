@@ -138,26 +138,38 @@ PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
 
 class SineBivariateVonMises(Distribution):
     r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
+
     .. math::
         C^{-1}\exp(\kappa_1\cos(x-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
+
     and
+
     .. math::
         C = (2\pi)^2 \sum_{i=0} {2i \choose i}
         \left(\frac{\rho^2}{4\kappa_1\kappa_2}\right)^i I_i(\kappa_1)I_i(\kappa_2),
+
     where I_i(\cdot) is the modified bessel function of first kind, mu's are the locations of the distribution,
     kappa's are the concentration and rho gives the correlation between angles x_1 and x_2.
     This distribution is helpful for modeling coupled angles such as torsion angles in peptide chains.
-    To infer parameters, use :class:`~pyro.infer.NUTS` or :class:`~pyro.infer.HMC` with priors that
+
+    To infer parameters, use :class:`~numpyro.infer.NUTS` or :class:`~numpyro.infer.HMC` with priors that
     avoid parameterizations where the distribution becomes bimodal; see note below.
+
     .. note:: Sample efficiency drops as
+
         .. math::
             \frac{\rho}{\kappa_1\kappa_2} \rightarrow 1
+
         because the distribution becomes increasingly bimodal.
+
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
-    .. note:: In the context of :class:`~pyro.infer.SVI`, this distribution can be used as a likelihood but not for
+
+    .. note:: In the context of :class:`~numpyro.infer.SVI`, this distribution can be used as a likelihood but not for
         latent variables.
+
     ** References: **
-      1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
+        1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
+
     :param jnp.Tensor phi_loc: location of first angle
     :param jnp.Tensor psi_loc: location of second angle
     :param jnp.Tensor phi_concentration: concentration of first angle
@@ -280,12 +292,6 @@ class SineBivariateVonMises(Distribution):
         phi_state = SineBivariateVonMises._phi_marginal(
             phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den
         )
-
-        if not jnp.all(phi_state.done):
-            raise ValueError(
-                "maximum number of iterations exceeded; "
-                "try increasing `SineBivariateVonMises.max_sample_iter`"
-            )
 
         phi = lax.atan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
