@@ -140,7 +140,7 @@ class SineBivariateVonMises(Distribution):
     r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
 
     .. math::
-        C^{-1}\exp(\kappa_1\cos(x-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
+        C^{-1}\exp(\kappa_1\cos(x_1-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
 
     and
 
@@ -148,8 +148,8 @@ class SineBivariateVonMises(Distribution):
         C = (2\pi)^2 \sum_{i=0} {2i \choose i}
         \left(\frac{\rho^2}{4\kappa_1\kappa_2}\right)^i I_i(\kappa_1)I_i(\kappa_2),
 
-    where I_i(\cdot) is the modified bessel function of first kind, mu's are the locations of the distribution,
-    kappa's are the concentration and rho gives the correlation between angles x_1 and x_2.
+    where :math:`I_i(\cdot)` is the modified bessel function of first kind, mu's are the locations of the distribution,
+    kappa's are the concentration and rho gives the correlation between angles :math:`x_1` and :math:`x_2`.
     This distribution is helpful for modeling coupled angles such as torsion angles in peptide chains.
 
     To infer parameters, use :class:`~numpyro.infer.NUTS` or :class:`~numpyro.infer.HMC` with priors that
