@@ -297,7 +297,10 @@ class CircularReparam(Reparam):
         fn, expand_shape, event_dim = self._unwrap(fn)
 
         # Draw parameter-free noise.
-        new_fn = dist.Normal(0, 1).mask(False)
+        # new_fn = dist.Normal(0, 1).mask(False)
+        new_fn = dist.ImproperUniform(constraints.real, 
+                                      original_fn.batch_shape, 
+                                      original_fn.event_shape)
         value = numpyro.sample(
             f"{name}_unwrapped",
             self._wrap(new_fn, expand_shape, event_dim),
