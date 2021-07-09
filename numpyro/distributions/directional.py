@@ -217,17 +217,17 @@ class SineBivariateVonMises(Distribution):
             phi_loc, psi_loc, phi_concentration, psi_concentration, correlation
         )
         batch_shape = lax.broadcast_shapes(
-            phi_loc.shape,
-            psi_loc.shape,
-            phi_concentration.shape,
-            psi_concentration.shape,
-            correlation.shape,
+            jnp.shape(phi_loc),
+            jnp.shape(psi_loc),
+            jnp.shape(phi_concentration),
+            jnp.shape(psi_concentration),
+            jnp.shape(correlation),
         )
         super().__init__(batch_shape, (2,), validate_args)
 
     @lazy_property
     def norm_const(self):
-        corr = self.correlation.reshape(1, -1) + 1e-8
+        corr = jnp.reshape(self.correlation, (1, -1)) + 1e-8
         conc = jnp.stack(
             (self.phi_concentration, self.psi_concentration), axis=-1
         ).reshape(-1, 2)
@@ -244,7 +244,7 @@ class SineBivariateVonMises(Distribution):
         fs += log_I1(49, conc, terms=51).sum(-1)
         mfs = fs.max()
         norm_const = 2 * jnp.log(jnp.array(2 * pi)) + mfs + logsumexp(fs - mfs, 0)
-        return norm_const.reshape(self.phi_loc.shape)
+        return jnp.reshape(norm_const, jnp.shape(self.phi_loc))
 
     def log_prob(self, value):
         if self._validate_args:
@@ -265,6 +265,8 @@ class SineBivariateVonMises(Distribution):
             1. A New Unified Approach for the Simulation of aWide Class of Directional Distributions
                John T. Kent, Asaad M. Ganeiber & Kanti V. Mardia (2018)
         """
+        assert is_prng_key(key)
+
         phi_key, psi_key = random.split(key)
 
         corr = self.correlation
@@ -283,10 +285,10 @@ class SineBivariateVonMises(Distribution):
             phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den
         )
 
-        phi = lax.atan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
+        phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
         alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
-        beta = lax.atan(corr / conc[1] * jnp.sin(phi))
+        beta = jnp.arctan(corr / conc[1] * jnp.sin(phi))
 
         psi = VonMises(beta, alpha).sample(psi_key)
 
@@ -422,6 +424,8 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
         return safe_normalize(self.concentration + eps)
