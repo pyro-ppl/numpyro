@@ -674,13 +674,13 @@ def _predictive(
     posterior_samples,
     batch_shape,
     return_sites=None,
-    infer_discrete_temperature=None,
+    infer_discrete=False,
     parallel=True,
     model_args=(),
     model_kwargs={},
 ):
     masked_model = numpyro.handlers.mask(model, mask=False)
-    if infer_discrete_temperature is not None:
+    if infer_discrete:
         # inspect the model to get some structure
         rng_key, subkey = random.split(rng_key)
         batch_ndim = len(batch_shape)
@@ -695,15 +695,16 @@ def _predictive(
 
     def single_prediction(val):
         rng_key, samples = val
-        if infer_discrete_temperature is not None:
+        if infer_discrete:
             from numpyro.contrib.funsor import config_enumerate
             from numpyro.contrib.funsor.discrete import _sample_posterior
 
             model_trace = prototype_trace
+            temperature = 1
             pred_samples = _sample_posterior(
                 config_enumerate(condition(model, samples)),
                 first_available_dim,
-                infer_discrete_temperature,
+                temperature,
                 rng_key,
                 *model_args,
                 **model_kwargs,
@@ -757,15 +758,12 @@ class Predictive(object):
     :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
-    :param infer_discrete_temperature: if not None, we'll sample discrete sites from the
+    :param bool infer_discrete: whether or not to sample discrete sites from the
         posterior, conditioned on observations and other latent values in
         ``posterior_samples``. Under the hood, those sites will be marked with
         ``site["infer"]["enumerate"] = "parallel"``. See how `infer_discrete` works at
         the `Pyro enumeration tutorial <https://pyro.ai/examples/enumeration.html>`_.
-        The temperature value is either 1 (sample via forward-filter backward-sample)
-        or 0 (optimize via Viterbi-like MAP inference).
         Note that this requires ``funsor`` installation.
-    :type infer_discrete_temperature: None or int
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
     :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
@@ -791,7 +789,7 @@ class Predictive(object):
         params=None,
         num_samples=None,
         return_sites=None,
-        infer_discrete_temperature=None,
+        infer_discrete=False,
         parallel=False,
         batch_ndims=1,
     ):
@@ -840,7 +838,7 @@ class Predictive(object):
         self.num_samples = num_samples
         self.guide = guide
         self.params = {} if params is None else params
-        self.infer_discrete_temperature = infer_discrete_temperature
+        self.infer_discrete = infer_discrete
         self.return_sites = return_sites
         self.parallel = parallel
         self.batch_ndims = batch_ndims
@@ -878,7 +876,7 @@ class Predictive(object):
             posterior_samples,
             self._batch_shape,
             return_sites=self.return_sites,
-            infer_discrete_temperature=self.infer_discrete_temperature,
+            infer_discrete=self.infer_discrete,
             parallel=self.parallel,
             model_args=args,
             model_kwargs=kwargs,
