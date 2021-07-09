@@ -98,12 +98,9 @@ class _Boolean(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _Circular(Constraint):
-    def __call__(self, x):
-        return (x >= -math.pi) & (x < math.pi)
-
-    def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(0.0, jax.numpy.shape(prototype))
+class _Circular(_Interval):
+    def __init__(self):
+        super().__init__(-math.pi, math.pi)
 
 
 class _CorrCholesky(Constraint):
