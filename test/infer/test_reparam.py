@@ -15,11 +15,11 @@ import numpyro.handlers as handlers
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoIAFNormal
 from numpyro.infer.reparam import (
+    CircularReparam,
     LocScaleReparam,
     NeuTraReparam,
     ProjectedNormalReparam,
     TransformReparam,
-    CircularReparam,
 )
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
@@ -302,6 +302,7 @@ def test_circular(shape):
 
     # This model is for inference
     reparam = CircularReparam()
+
     @numpyro.handlers.reparam(config={"x": reparam})
     def model_act(loc, concentration):
         numpyro.sample("x", dist.VonMises(loc, concentration))
