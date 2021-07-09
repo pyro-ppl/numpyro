@@ -590,10 +590,8 @@ class L1BallTransform(Transform):
     codomain = constraints.l1_ball
 
     def __call__(self, x):
+        # transform to (-1, 1) interval
         t = jnp.tanh(x)
-        # make sure that t in (-1, 1)
-        eps = jnp.finfo(t.dtype).eps
-        t = jnp.clip(t, a_min=(-1 + eps), a_max=(1 - eps))
 
         # apply stick-breaking transform
         remainder = jnp.cumprod(1 - jnp.abs(t[..., :-1]), axis=-1)
@@ -606,9 +604,12 @@ class L1BallTransform(Transform):
         remainder = 1 - jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
         pad_width = [(0, 0)] * (y.ndim - 1) + [(1, 0)]
         remainder = jnp.pad(remainder, pad_width, mode="constant", constant_values=1.0)
+        finfo = jnp.finfo(y.dtype)
+        remainder = jnp.clip(remainder, a_min=finfo.tiny)
         t = y / remainder
 
         # inverse of tanh
+        t = jnp.clip(t, a_min=-1 + finfo.eps, a_max=1 - finfo.eps)
         return jnp.arctanh(t)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -619,7 +620,9 @@ class L1BallTransform(Transform):
         # hence jacobian is triangular and logdet is the sum of the log
         # of the diagonal part of the jacobian
         one_minus_remainder = jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
-        # log(remainder) = log1p(1 - remainder)
+        eps = jnp.finfo(y.dtype).eps
+        one_minus_remainder = jnp.clip(one_minus_remainder, a_max=1 - eps)
+        # log(remainder) = log1p(remainder - 1)
         stick_breaking_logdet = jnp.sum(jnp.log1p(-one_minus_remainder), axis=-1)
 
         tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.0), axis=-1)
