@@ -98,11 +98,6 @@ class _Boolean(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _Circular(_Interval):
-    def __init__(self):
-        super().__init__(-math.pi, math.pi)
-
-
 class _CorrCholesky(Constraint):
     event_dim = 2
 
@@ -455,6 +450,11 @@ class _Sphere(Constraint):
 
     def feasible_like(self, prototype):
         return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
+
+
+class _Circular(_Interval):
+    def __init__(self):
+        super().__init__(-math.pi, math.pi)
 
 
 # TODO: Make types consistent
