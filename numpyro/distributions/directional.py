@@ -49,9 +49,9 @@ class SineSkewed(Distribution):
             skewness = torch.stack((skew_phi, psi_bound * skew_psi), dim=-1)
             with numpyro.plate('obs_plate'):
                 sine = SineBivariateVonMises(phi_loc=phi_loc, psi_loc=psi_loc,
-                                            phi_concentration=1000 * phi_conc,
-                                            psi_concentration=1000 * psi_conc,
-                                            weighted_correlation=corr_scale)
+                                             phi_concentration=1000 * phi_conc,
+                                             psi_concentration=1000 * psi_conc,
+                                             weighted_correlation=corr_scale)
                 return numpyro.sample('phi_psi', SineSkewed(sine, skewness), obs=obs)
 
     To ensure the skewing does not alter the normalization constant of the (Sine Bivaraite von Mises) base
@@ -91,9 +91,15 @@ class SineSkewed(Distribution):
         "skewness": constraints.independent(constraints.interval(-1.0, 1.0), 1)
     }
 
-    support = constraints.independent(constraints.real, 1)
+    support = constraints.independent(
+        constraints.real, 1
+    )  # TODO: add Circular constraint (issue 1070 and PR 1080)
 
     def __init__(self, base_dist: Distribution, skewness, validate_args=None):
+        assert (
+            base_dist.event_shape == skewness.shape[-1]
+        ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
+
         batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness.shape[:-1])
         event_shape = skewness.shape[-1:]
         self.skewness = jnp.broadcast_to(skewness, batch_shape + event_shape)
