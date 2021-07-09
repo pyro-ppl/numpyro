@@ -19,6 +19,7 @@ from numpyro.infer.reparam import (
     NeuTraReparam,
     ProjectedNormalReparam,
     TransformReparam,
+    CircularReparam,
 )
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
@@ -35,6 +36,26 @@ def get_moments(x):
     m3 = jnp.mean(xxx, axis=0) / m2 ** 1.5
     m4 = jnp.mean(xxxx, axis=0) / m2 ** 2
     return jnp.stack([m1, m2, m3, m4])
+
+
+# Helper functions to get central circular moments
+def mean_vector(x, m, n):
+    s = jnp.mean(jnp.sin(n * (x - m)), axis=0)
+    c = jnp.mean(jnp.cos(n * (x - m)), axis=0)
+    return s, c
+
+
+def circular_moment(x, n):
+    m = jnp.arctan2(*mean_vector(x, 0.0, n))  # circular mean
+    s, c = mean_vector(x, m, n)
+    # direction = jnp.arctan2(s, c)
+    length = jnp.hypot(s, c)
+    return length
+    # return jnp.array([direction, length])
+
+
+def get_circular_moments(x):
+    return jnp.stack([circular_moment(x, i) for i in range(1, 5)])
 
 
 def test_syntax():
@@ -268,3 +289,39 @@ def test_projected_normal(shape, dim):
     expected_grad = jacobian(get_expected_probe)(concentration)
     actual_grad = jacobian(get_actual_probe)(concentration)
     assert_allclose(actual_grad, expected_grad, atol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
+def test_circular(shape):
+    # Define two models which should return the same distributions
+    # This model is the expected distribution
+    def model_exp(loc, concentration):
+        with numpyro.plate_stack("plates", shape):
+            with numpyro.plate("particles", 10000):
+                numpyro.sample("x", dist.VonMises(loc, concentration))
+
+    # This model is for inference
+    reparam = CircularReparam()
+    @numpyro.handlers.reparam(config={"x": reparam})
+    def model_act(loc, concentration):
+        numpyro.sample("x", dist.VonMises(loc, concentration))
+
+    def get_expected_probe(loc, concentration):
+        with numpyro.handlers.trace() as trace:
+            with numpyro.handlers.seed(rng_seed=0):
+                model_exp(loc, concentration)
+        return get_circular_moments(trace["x"]["value"])
+
+    def get_actual_probe(loc, concentration):
+        kernel = NUTS(model_act)
+        mcmc = MCMC(kernel, num_warmup=1000, num_samples=10000, num_chains=1)
+        mcmc.run(random.PRNGKey(0), loc, concentration)
+        samples = mcmc.get_samples()
+        return get_circular_moments(samples["x"])
+
+    loc = np.random.uniform(-np.pi, np.pi, shape)
+    concentration = np.random.lognormal(1.0, 1.0, shape)
+    expected_probe = get_expected_probe(loc, concentration)
+    actual_probe = get_actual_probe(loc, concentration)
+
+    assert_allclose(actual_probe, expected_probe, atol=0.1)
