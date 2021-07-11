@@ -237,22 +237,22 @@ conda install -c conda-forge numpyro
    - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=PRNGKey(0))`.
    - Wrap the code in a `seed` handler, used either as a context manager or as a function that wraps over the original callable. e.g.
 
-     ```python
-     with handlers.seed(rng_seed=0):  # random.PRNGKey(0) is used
-         x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNGKey split from random.PRNGKey(0)
-         y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
-     ```
+        ```python
+        with handlers.seed(rng_seed=0):  # random.PRNGKey(0) is used
+            x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNGKey split from random.PRNGKey(0)
+            y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
+        ```
 
      , or as a higher order function:
 
-     ```python
-     def fn():
-         x = numpyro.sample('x', dist.Beta(1, 1))
-         y = numpyro.sample('y', dist.Bernoulli(x))
-         return y
+        ```python
+        def fn():
+            x = numpyro.sample('x', dist.Beta(1, 1))
+            y = numpyro.sample('y', dist.Bernoulli(x))
+            return y
 
-     print(handlers.seed(fn, rng_seed=0)())
-     ```
+        print(handlers.seed(fn, rng_seed=0)())
+        ```
 
 2. Can I use the same Pyro model for doing inference in NumPyro?
 
