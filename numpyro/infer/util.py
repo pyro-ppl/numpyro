@@ -746,15 +746,21 @@ class Predictive(object):
 
     **Example:**
 
-    Given a model, you can sample from the prior predictive:
+    Given a model
 
-        >>> predictive = Predictive(model, num_samples=num_samples)
-        >>> samples = predictive(rng_key1, *model_args, **model_kwargs)
+        def model(X, y=None):
+            ...
+            return numpyro.sample("obs", likelihood, obs=y)
+
+    you can sample from the prior predictive:
+
+        predictive = Predictive(model, num_samples=1000)
+        y_pred = predictive(rng_key, X)["obs"]
 
     If you also have posterior samples, you can sample from the posterior predictive:
 
-        >>> predictive = Predictive(model, posterior_samples=posterior_samples)
-        >>> samples = predictive(rng_key1, *model_args, **model_kwargs)
+        predictive = Predictive(model, posterior_samples=posterior_samples)
+        y_pred = predictive(rng_key, X)["obs"]
 
     See docstrings for :class:`~numpyro.infer.svi.SVI` and :class:`~numpyro.infer.mcmc.MCMCKernel`
     to see example code of this in context.

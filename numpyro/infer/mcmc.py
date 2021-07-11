@@ -65,8 +65,6 @@ class MCMCKernel(ABC):
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
         >>> posterior_samples = mcmc.get_samples()
-        >>> predictive = Predictive(model, posterior_samples=posterior_samples)
-        >>> samples = predictive(rng_key1, *model_args, **model_kwargs)
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
 
@@ -597,6 +595,14 @@ class MCMC(object):
             `dict` keyed on site names if a model containing Pyro primitives is used,
             but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
             `potential_fn` for HMC that takes `list` args).
+
+        **Example:**
+
+        You can then pass those samples to :class:`~numpyro.infer.util.Predictive`:
+
+            posterior_samples = mcmc.get_samples()
+            predictive = Predictive(model, posterior_samples=posterior_samples)
+            samples = predictive(rng_key1, *model_args, **model_kwargs)
         """
         return (
             self._states[self._sample_field]
