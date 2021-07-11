@@ -118,8 +118,7 @@ def _sample_posterior(
             values = [v.reshape((-1,) + prototype_shape[1:]) for v in values]
             data[root_name] = jnp.concatenate(values)
 
-    with substitute(data=data):
-        return model(*args, **kwargs)
+    return data
 
 
 def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=None):
@@ -169,6 +168,12 @@ def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=Non
             temperature=temperature,
             rng_key=rng_key,
         )
-    return functools.partial(
-        _sample_posterior, fn, first_available_dim, temperature, rng_key
-    )
+
+    def wrap_fn(*args, **kwargs):
+        samples = _sample_posterior(
+            fn, first_available_dim, temperature, rng_key, *args, **kwargs
+        )
+        with substitute(data=samples):
+            return fn(*args, **kwargs)
+
+    return wrap_fn

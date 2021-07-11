@@ -509,8 +509,6 @@ class MCMC(object):
         """
         Run the MCMC samplers and collect samples.
 
-        See :class:`~numpyro.infer.util.Predictive` for how to use them to collect posterior predictive samples.
-
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
             For multi-chains, a batch of `num_chains` keys can be supplied. If `rng_key`
             does not have batch_size, it will be split in to a batch of `num_chains` keys.

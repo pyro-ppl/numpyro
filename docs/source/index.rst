@@ -13,7 +13,11 @@ NumPyro documentation
    :maxdepth: 1
    :caption: API and Developer Reference
 
-   api
+   primitives
+   distributions
+   infer
+   handlers
+   contrib
    Change Log <https://github.com/pyro-ppl/numpyro/releases>
 
 .. nbgallery::
@@ -39,6 +43,7 @@ NumPyro documentation
    examples/capture_recapture
    examples/gaussian_shells
    tutorials/discrete_imputation
+   examples/prodlda
 
 .. nbgallery::
    :maxdepth: 1
