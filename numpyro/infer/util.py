@@ -778,6 +778,27 @@ class Predictive(object):
           argument is not None, its value should be equal to `num_chains x N`.
 
     :return: dict of samples from the predictive distribution.
+
+    **Example:**
+
+    Given a model
+
+        def model(X, y=None):
+            ...
+            return numpyro.sample("obs", likelihood, obs=y)
+
+    you can sample from the prior predictive:
+
+        predictive = Predictive(model, num_samples=1000)
+        y_pred = predictive(rng_key, X)["obs"]
+
+    If you also have posterior samples, you can sample from the posterior predictive:
+
+        predictive = Predictive(model, posterior_samples=posterior_samples)
+        y_pred = predictive(rng_key, X)["obs"]
+
+    See docstrings for :class:`~numpyro.infer.svi.SVI` and :class:`~numpyro.infer.mcmc.MCMCKernel`
+    to see example code of this in context.
     """
 
     def __init__(
