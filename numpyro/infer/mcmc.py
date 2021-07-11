@@ -596,11 +596,11 @@ class MCMC(object):
 
         **Example:**
 
-        You can then pass those samples to :class:`~numpyro.infer.util.Predictive`:
+        You can then pass those samples to :class:`~numpyro.infer.util.Predictive`::
 
             posterior_samples = mcmc.get_samples()
             predictive = Predictive(model, posterior_samples=posterior_samples)
-            samples = predictive(rng_key1, \*model_args, \*\*model_kwargs)
+            samples = predictive(rng_key1, *model_args, **model_kwargs)
 
         """
         return (
