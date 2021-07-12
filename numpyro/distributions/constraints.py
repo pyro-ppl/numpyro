@@ -28,6 +28,7 @@
 
 __all__ = [
     "boolean",
+    "circular",
     "corr_cholesky",
     "corr_matrix",
     "dependent",
