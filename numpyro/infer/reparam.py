@@ -293,17 +293,19 @@ class NeuTraReparam(Reparam):
 
 class CircularReparam(Reparam):
     def __call__(self, name, fn, obs):
-        original_fn = fn
-        fn, expand_shape, event_dim = self._unwrap(fn)
-
+        # Support must be circular
+        support = fn.support
+        if isinstance(support, constraints._IndependentConstraint):
+            support = fn.support.base_constraint
+        assert isinstance(fn.support, constraints._Circular)
+        
         # Draw parameter-free noise.
-        # new_fn = dist.Normal(0, 1).mask(False)
         new_fn = dist.ImproperUniform(
-            constraints.real, original_fn.batch_shape, original_fn.event_shape
+            constraints.real, fn.batch_shape, fn.event_shape
         )
         value = numpyro.sample(
             f"{name}_unwrapped",
-            self._wrap(new_fn, expand_shape, event_dim),
+            new_fn,
             obs=obs,
         )
 
@@ -311,5 +313,5 @@ class CircularReparam(Reparam):
         value = jnp.remainder(value + math.pi, 2 * math.pi) - math.pi
 
         # Simulate a pyro.deterministic() site.
-        numpyro.factor(f"{name}_factor", original_fn.log_prob(value))
+        numpyro.factor(f"{name}_factor", fn.log_prob(value))
         return None, value
