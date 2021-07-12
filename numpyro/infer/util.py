@@ -871,10 +871,11 @@ def helpful_support_errors(site):
                 f"numpyro.handlers.reparam(config={{'{name}': ProjectedNormalReparam()}})."
             )
         if "circular" in support_name:
-            raise ValueError(
-                f"Continuous inference cannot handle circular sample site '{name}'. "
+            warnings.warn(
+                f"Continuous inference poorly handles circular sample site '{name}'. "
                 "Consider using VonMises distribution together with "
                 "a reparameterizer, e.g. "
-                f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
+                f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}}).",
+                UserWarning
             )
         raise e from None
