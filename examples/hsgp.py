@@ -6,16 +6,16 @@ This example replicates a few of the models in the excellent case
 study by Aki Vehtari [1] (originally written using R and Stan).
 The case study uses approximate Gaussian processes [2] to model the
 relative number of births per day in the US from 1969 to 1988.
-The Hilbert space approximation is way faster than exact Gaussian
-processes because it circumvents the need for inverting the the
+The Hilbert space approximation is way faster than the exact Gaussian
+processes because it circumvents the need for inverting the
 covariance matrix.
 
-The original case study presented by Aki also emphasises the iterative
-process of building a Bayesian model, which is excellent as a pedagocial
+The original case study presented by Aki also emphasizes the iterative
+process of building a Bayesian model, which is excellent as a pedagogical
 resource. Here, however, I replicate only 4 out of all the models available in [1].
-There are a few minor differences in the mathematical details of my model `GP4`,
+There are a few minor differences in the mathematical details of my model GP4,
 which I had to make in order for the chains to mix properly. I have clearly
-commented the places where our models are different.
+commented on the places where our models are different.
 
 **References:**
     1. Gelman, Vehtari, Simpson, et al (2020), `"Bayesian workflow book - Birthdays"
@@ -62,7 +62,6 @@ def save_samples(out_path, samples):
     Save dictionary of arrays using numpys compressed binary format
     Fast reading and writing and efficient storage
     """
-
     np.savez_compressed(out_path, **samples)
 
 
@@ -158,7 +157,6 @@ class GP1:
     def __init__(self):
         self.x_scaler = UnivariateScaler()
         self.y_scaler = UnivariateScaler()
-        self.data = None
 
     def model(self, x, L, M, y=None):
         # intercept
@@ -699,10 +697,10 @@ def main(args):
     if args.save_figure:
         print(f"Saving figure at {args.save_figure}")
         fig = model.make_figure(posterior_samples)
-        plt.savefig(args.save_figure)
+        fig.savefig(args.save_figure)
         plt.close()
 
-    return model, data, mcmc, posterior_samples, fig
+    return model, data, mcmc, posterior_samples
 
 
 if __name__ == "__main__":
