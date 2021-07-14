@@ -580,7 +580,7 @@ boolean
 
 circular
 --------
-.. autofunction:: numpyro.distributions.constraints.circular
+.. autodata:: numpyro.distributions.constraints.circular
 
 corr_cholesky
 ^^^^^^^^^^^^^
