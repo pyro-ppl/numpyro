@@ -39,6 +39,10 @@ def discrete_to_continuous(probs, locs):
     numpyro.sample("x", dist.Normal(locs[c], 0.5))
 
 
+def discrete(prob):
+    numpyro.sample("x", dist.Bernoulli(prob))
+
+
 @pytest.mark.parametrize(
     "test_model,model_kwargs,expected_graph_spec",
     [
@@ -102,6 +106,18 @@ def discrete_to_continuous(probs, locs):
                     "x": {"is_observed": False, "distribution": "Normal"},
                 },
                 "edge_list": [("c", "x")],
+            },
+        ),
+        (
+            discrete,
+            dict(prob=0.5),
+            {
+                "plate_groups": {None: ["x"]},
+                "plate_data": {},
+                "node_data": {
+                    "x": {"is_observed": False, "distribution": "BernoulliProbs"}
+                },
+                "edge_list": [],
             },
         ),
     ],

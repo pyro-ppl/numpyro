@@ -117,7 +117,10 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         and not site["is_observed"]
         and not site["fn"].is_discrete
     }
-    log_prob_grads = jax.jacobian(get_log_probs)(samples)
+    if samples:
+        log_prob_grads = jax.jacobian(get_log_probs)(samples)
+    else:
+        log_prob_grads = {k: {} for k in get_log_probs(samples)}
     sample_deps = {}
     for name, grads in log_prob_grads.items():
         sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}
