@@ -292,6 +292,10 @@ class NeuTraReparam(Reparam):
 
 
 class CircularReparam(Reparam):
+    """
+    Reparametrizer for :class:`~numpyro.distributions.VonMises` latent
+    variables.
+    """    
     def __call__(self, name, fn, obs):
         # Support must be circular
         support = fn.support
