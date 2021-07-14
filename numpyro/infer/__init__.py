@@ -2,7 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.infer.barker import BarkerMH
-from numpyro.infer.elbo import ELBO, RenyiELBO, Trace_ELBO, TraceMeanField_ELBO
+from numpyro.infer.elbo import (
+    ELBO,
+    RenyiELBO,
+    Trace_ELBO,
+    TraceGraph_ELBO,
+    TraceMeanField_ELBO,
+)
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.initialization import (
@@ -43,5 +49,6 @@ __all__ = [
     "SA",
     "SVI",
     "Trace_ELBO",
+    "TraceGraph_ELBO",
     "TraceMeanField_ELBO",
 ]

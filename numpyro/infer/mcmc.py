@@ -64,7 +64,7 @@ class MCMCKernel(ABC):
         >>> kernel = MetropolisHastings(f)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
-        >>> samples = mcmc.get_samples()
+        >>> posterior_samples = mcmc.get_samples()
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
 
@@ -203,6 +203,11 @@ class MCMC(object):
 
     .. note:: Setting `progress_bar=False` will improve the speed for many cases. But it might
         require more memory than the other option.
+
+    .. note:: If setting `num_chains` greater than `1` in a Jupyter Notebook, then you will need to
+        have installed `ipywidgets <https://ipywidgets.readthedocs.io/en/latest/user_install.html>`_
+        in the environment from which you launced Jupyter in order for the progress bars to render
+        correctly.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
@@ -588,6 +593,15 @@ class MCMC(object):
             `dict` keyed on site names if a model containing Pyro primitives is used,
             but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
             `potential_fn` for HMC that takes `list` args).
+
+        **Example:**
+
+        You can then pass those samples to :class:`~numpyro.infer.util.Predictive`::
+
+            posterior_samples = mcmc.get_samples()
+            predictive = Predictive(model, posterior_samples=posterior_samples)
+            samples = predictive(rng_key1, *model_args, **model_kwargs)
+
         """
         return (
             self._states[self._sample_field]

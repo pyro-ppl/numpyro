@@ -151,7 +151,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.7.1")
     parser = argparse.ArgumentParser(
         description="UCBadmit gender discrimination using HMC"
     )

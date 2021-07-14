@@ -1,10 +1,11 @@
 dm-haiku
 flax
-funsor
-jax>=0.1.65
-jaxlib>=0.1.45
-optax==0.0.6
+funsor>=0.4.1
+jax>=0.2.11
+jaxlib>=0.1.62
+jaxns>=0.0.7
+optax>=0.0.6
 nbsphinx>=0.8.5
 sphinx-gallery
-tfp-nightly<=0.14.0.dev20210608  # TODO: change this to tensorflow-probability when it is stable
+tensorflow_probability>=0.13
 tqdm

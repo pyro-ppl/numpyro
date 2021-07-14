@@ -81,6 +81,10 @@ def test_beta_bernoulli(auto_class):
     )
     assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
 
+    if auto_class not in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+        quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
+        assert quantiles["beta"].shape == (3, 2)
+
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
     predictive_samples = predictive(random.PRNGKey(1), None)
@@ -471,7 +475,8 @@ def test_autoguide_deterministic(auto_class):
     optimiser = numpyro.optim.Adam(step_size=0.01)
     svi = SVI(model, guide, optimiser, Trace_ELBO())
 
-    params, losses = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
+    svi_result = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
+    params = svi_result.params
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(0), params, sample_shape=(1000,)
     )
