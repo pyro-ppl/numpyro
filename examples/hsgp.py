@@ -15,9 +15,9 @@ covariance matrix.
 
 The original case study presented by Aki also emphasizes the iterative
 process of building a Bayesian model, which is excellent as a pedagogical
-resource. Here, however, I replicate only 4 out of all the models available in [1].
-There are a few minor differences in the mathematical details of my model GP4,
-which I had to make in order for the chains to mix properly. I have clearly
+resource. Here, however, we replicate only 4 out of all the models available in [1].
+There are a few minor differences in the mathematical details of our models,
+which we had to make in order for the chains to mix properly. We have clearly
 commented on the places where our models are different.
 
 **References:**
@@ -494,7 +494,7 @@ class GP4:
 
         # Finnish horseshoe prior on day of year effect
         # Aki uses slab_df=100 instead, but chains didn't mix
-        # in my case for some reason, so I lowered it to 50.
+        # in our case for some reason, so we lowered it to 50.
         slab_scale = 2
         slab_df = 50
         scale_global = 0.1
