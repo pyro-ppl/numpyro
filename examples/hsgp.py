@@ -705,7 +705,9 @@ def main(args):
 
 if __name__ == "__main__":
     args = parse_arguments()
-    jax.config.update("jax_enable_x64", args.x64)
+    if args.x64:
+        numpyro.enable_x64()
+
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
     main(args)
