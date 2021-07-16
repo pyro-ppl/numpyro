@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Example: Hilbert space approximation for Gaussian processes.
 ============================================================
