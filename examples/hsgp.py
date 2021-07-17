@@ -22,9 +22,9 @@ commented on the places where our models are different.
 
 **References:**
     1. Gelman, Vehtari, Simpson, et al (2020), `"Bayesian workflow book - Birthdays"
-       <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`_.
+       <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`.
     2. Riutort-Mayol G, Bürkner PC, Andersen MR, et al (2020),
-    "Practical hilbert space approximate bayesian gaussian processes for probabilistic programming"
+       "Practical hilbert space approximate bayesian gaussian processes for probabilistic programming".
 
 .. image:: ../_static/img/examples/hsgp.png
     :align: center
@@ -42,11 +42,12 @@ import pandas as pd
 
 import jax
 import jax.numpy as jnp
+from tensorflow_probability.substrates import jax as tfp
+
 import numpyro
+from numpyro import deterministic, plate, sample
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
-from numpyro import sample, plate, deterministic
-from tensorflow_probability.substrates import jax as tfp
 
 
 # --- utility functions
@@ -680,19 +681,19 @@ NAME_TO_MODEL = {
 
 
 def main(args):
+    is_sphinxbuild = "NUMPYRO_SPHINXBUILD" in os.environ
     model = NAME_TO_MODEL[args.model]()
     data = model.get_data()
-    print(f"x: mean={model.x_scaler._mean}, sd={model.x_scaler._std}")
-    print(f"y: mean={model.y_scaler._mean}, sd={model.y_scaler._std}")
     mcmc = MCMC(
         NUTS(model.model),
         num_warmup=args.num_warmup,
         num_samples=args.num_samples,
         num_chains=args.num_chains,
-        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+        progress_bar=False if is_sphinxbuild else True,
     )
     mcmc.run(jax.random.PRNGKey(0), **data)
-    mcmc.print_summary()
+    if not is_sphinxbuild:
+        mcmc.print_summary()
     posterior_samples = mcmc.get_samples()
     if args.save_samples:
         print(f"Saving samples at {args.save_samples}")
