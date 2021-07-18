@@ -537,14 +537,14 @@ class GP4:
         x = data["id"].values
         memorial_days = data.loc[
             data["date"].dt.month.eq(5)
-            & data["date"].dt.day_of_week.eq(0)
+            & data["date"].dt.weekday.eq(0)
             & data["date"].dt.day.ge(25),
             "id",
         ].values
 
         labour_days = data.loc[
             data["date"].dt.month.eq(9)
-            & data["date"].dt.day_of_week.eq(0)
+            & data["date"].dt.weekday.eq(0)
             & data["date"].dt.day.le(7),
             "id",
         ].values
@@ -552,7 +552,7 @@ class GP4:
 
         thanksgiving_days = data.loc[
             data["date"].dt.month.eq(11)
-            & data["date"].dt.day_of_week.eq(3)
+            & data["date"].dt.weekday.eq(3)
             & data["date"].dt.day.ge(22)
             & data["date"].dt.day.le(28),
             "id",
