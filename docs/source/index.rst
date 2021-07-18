@@ -60,6 +60,7 @@ NumPyro documentation
    examples/ucbadmit
    examples/hmcecs
    examples/hmm
+   examples/hsgp
    examples/ode
    examples/neutra
    examples/covtype
