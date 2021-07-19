@@ -24,10 +24,10 @@ class VonMises(Distribution):
     The von Mises distribution, also known as the circular normal distribution.
 
     This distribution is supported by a circular constraint from -pi to +pi. By
-    default, the circular support behaves like 
+    default, the circular support behaves like
     ``constraints.interval(-math.pi, math.pi)``. To avoid issues at the
     boundaries of this interval during sampling, you should reparameterize this
-    distribution using ``handlers.reparam`` with a 
+    distribution using ``handlers.reparam`` with a
     :class:`~numpyro.infer.reparam.CircularReparam` reparametrizer in
     the model, e.g.::
 
