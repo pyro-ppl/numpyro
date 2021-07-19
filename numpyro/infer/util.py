@@ -962,10 +962,21 @@ def log_likelihood(
 
 @contextmanager
 def helpful_support_errors(site):
+    # Warnings
+    name = site["name"]
+    support = getattr(site["fn"], "support", None)
+    if support is constraints.circular:
+        msg = (
+            f"Continuous inference poorly handles circular sample site '{name}'. "
+            + "Consider using VonMises distribution together with "
+            + "a reparameterizer, e.g. "
+            + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
+        )
+        warnings.warn(msg, UserWarning)
+    # Errors
     try:
         yield
     except NotImplementedError as e:
-        name = site["name"]
         support_name = repr(site["fn"].support).lower()
         if "integer" in support_name or "boolean" in support_name:
             # TODO: mention enumeration when it is supported in SVI
@@ -978,13 +989,5 @@ def helpful_support_errors(site):
                 "Consider using ProjectedNormal distribution together with "
                 "a reparameterizer, e.g. "
                 f"numpyro.handlers.reparam(config={{'{name}': ProjectedNormalReparam()}})."
-            )
-        if "circular" in support_name:
-            warnings.warn(
-                f"Continuous inference poorly handles circular sample site '{name}'. "
-                "Consider using VonMises distribution together with "
-                "a reparameterizer, e.g. "
-                f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}}).",
-                UserWarning
             )
         raise e from None
