@@ -295,18 +295,17 @@ class CircularReparam(Reparam):
     """
     Reparametrizer for :class:`~numpyro.distributions.VonMises` latent
     variables.
-    """    
+    """
+
     def __call__(self, name, fn, obs):
         # Support must be circular
         support = fn.support
-        if isinstance(support, constraints._IndependentConstraint):
+        if isinstance(support, constraints.independent):
             support = fn.support.base_constraint
-        assert isinstance(fn.support, constraints._Circular)
-        
+        assert support is constraints.circular
+
         # Draw parameter-free noise.
-        new_fn = dist.ImproperUniform(
-            constraints.real, fn.batch_shape, fn.event_shape
-        )
+        new_fn = dist.ImproperUniform(constraints.real, fn.batch_shape, fn.event_shape)
         value = numpyro.sample(
             f"{name}_unwrapped",
             new_fn,
@@ -315,6 +314,7 @@ class CircularReparam(Reparam):
 
         # Differentiably transform.
         value = jnp.remainder(value + math.pi, 2 * math.pi) - math.pi
+        # value = jnp.arctan2(jnp.sin(value), jnp.cos(value))
 
         # Simulate a pyro.deterministic() site.
         numpyro.factor(f"{name}_factor", fn.log_prob(value))
