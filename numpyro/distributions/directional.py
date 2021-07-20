@@ -170,12 +170,12 @@ class SineBivariateVonMises(Distribution):
     ** References: **
         1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
 
-    :param jnp.array phi_loc: location of first angle
-    :param jnp.array psi_loc: location of second angle
-    :param jnp.array phi_concentration: concentration of first angle
-    :param jnp.array psi_concentration: concentration of second angle
-    :param jnp.array correlation: correlation between the two angles
-    :param jnp.array weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
+    :param jnp.ndarray phi_loc: location of first angle
+    :param jnp.ndarray psi_loc: location of second angle
+    :param jnp.ndarray phi_concentration: concentration of first angle
+    :param jnp.ndarray psi_concentration: concentration of second angle
+    :param jnp.ndarray correlation: correlation between the two angles
+    :param jnp.ndarray weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
         to avoid bimodality (see note).
     """
 
