@@ -7,8 +7,6 @@ import math
 from math import pi
 import operator
 
-import numpy as np
-
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
