@@ -186,7 +186,9 @@ class SineBivariateVonMises(Distribution):
         "psi_concentration": constraints.positive,
         "correlation": constraints.real,
     }
-    support = constraints.independent(constraints.real, 1)  # TODO: update to circular constraint @1080
+    support = constraints.independent(
+        constraints.real, 1
+    )  # TODO: @OlaRonning update to circular constraint @1080
     max_sample_iter = 1000
 
     def __init__(
@@ -315,7 +317,9 @@ class SineBivariateVonMises(Distribution):
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
 
             x = jnp.sqrt(1 + 2 * eig / b0) * random.normal(acg_key, shape)
-            x /= jnp.linalg.norm(x, axis=1, keepdims=True)  # Angular Central Gaussian distribution
+            x /= jnp.linalg.norm(
+                x, axis=1, keepdims=True
+            )  # Angular Central Gaussian distribution
 
             lf = (
                 conc[:, :1] * (x[:, :1] - 1)
@@ -363,7 +367,9 @@ class SineBivariateVonMises(Distribution):
         mean = (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
             2.0 * jnp.pi
         ) - jnp.pi
-        return jnp.broadcast_to(mean, self.batch_shape)
+        print(mean.shape)
+        print(self.batch_shape)
+        return jnp.broadcast_to(mean, (*self.batch_shape, 2))
 
     def _bfind(self, eig):
         b = eig.shape[0] / 2 * jnp.ones(self.batch_shape, dtype=eig.dtype)

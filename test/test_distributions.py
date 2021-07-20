@@ -353,7 +353,7 @@ DIRECTIONAL = [
         SineBivariateVonMises,
         jnp.array([3.003]),
         jnp.array([-1.3430]),
-        jnp.array([5.0]),
+        jnp.array(5.0),
         jnp.array([6.0]),
         jnp.array([2.0]),
     ),
@@ -1222,6 +1222,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     elif jax_dist in [dist.SineBivariateVonMises]:
         phi_loc = _circ_mean(samples[..., 0])
         psi_loc = _circ_mean(samples[..., 1])
+
         assert_allclose(
             d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2
         )
