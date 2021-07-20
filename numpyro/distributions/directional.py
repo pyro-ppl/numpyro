@@ -3,12 +3,11 @@
 
 import math
 
+from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax import lax
 from jax.scipy.special import erf, i0e, i1e
 
-import numpyro.distributions.distribution
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
@@ -31,8 +30,8 @@ class SineSkewed(Distribution):
 
     The Sine Skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
     For example with a von Mises distribution over a circle (1-torus), the Sine Skewed von Mises Distribution has one
-    skew parameter. The skewness parameters can be inferred using :class:`~numpyro.infer.HMC` or
-    :class:`~numpyro.infer.NUTS`. For example, the following will produce a uniform prior over
+    skew parameter. The skewness parameters can be inferred using :class:`~numpyro.infer.hmc.HMC` or
+    :class:`~numpyro.infer.hmc.NUTS`. For example, the following will produce a uniform prior over
     skewness for the 2-torus::
 
         def model(obs):
@@ -50,8 +49,8 @@ class SineSkewed(Distribution):
             skewness = jnp.stack((skew_phi, psi_bound * skew_psi), dim=-1)
             with numpyro.plate('obs_plate'):
                 sine = SineBivariateVonMises(phi_loc=phi_loc, psi_loc=psi_loc,
-                                             phi_concentration=1000 * phi_conc,
-                                             psi_concentration=1000 * psi_conc,
+                                             phi_concentration=70 * phi_conc,
+                                             psi_concentration=70 * psi_conc,
                                              weighted_correlation=corr_scale)
                 return numpyro.sample('phi_psi', SineSkewed(sine, skewness), obs=obs)
 
@@ -68,8 +67,8 @@ class SineSkewed(Distribution):
         skew_psi = numpyro.sample('skew_psi', Uniform(-psi_bound, psi_bound))
 
     as it would make the support for the Uniform distribution dynamic.
-    In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can freely be used as a likelihood. But, when used as
-    latent variables it will lead to slow inference for 2 and higher dim toruses. This is because the base_dist
+    In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can freely be used as a likelihood. But, when
+    used as latent variables it will lead to slow inference for 2 and higher dim toruses. This is because the base_dist
     cannot be reparameterized.
 
     .. note:: An event in the base distribution must be on a d-torus, so the event_shape must be (d,).
@@ -81,19 +80,17 @@ class SineSkewed(Distribution):
         1. Sine-skewed toroidal distributions and their application in protein bioinformatics
             Ameijeiras-Alonso, J., Ley, C. (2019)
 
-    :param numpyro.distributions.distribution.Distribution base_dist: base density on a d-dimensional torus. Supported base
-        distributions include: 1D :class:`~numpyro.distributions.directional.VonMises`,
+    :param numpyro.distributions.distribution.Distribution base_dist: base density on a d-dimensional torus. Supported
+        base distributions include: 1D :class:`~numpyro.distributions.directional.VonMises`,
         :class:`~numpyro.distributions.directional.SineBivariateVonMises`,
         1D :class:`~numpyro.distributions.directional.ProjectedNormal`, and
         :class:`~numpyro.distributions.continuous.Uniform` (-pi, pi).
-    :param jnp.ndarray skewness: skewness of the distribution.
+    :param np.ndarray skewness: skewness of the distribution.
     """
-
 
     arg_constraints = {
         "skewness": constraints.independent(constraints.interval(-1.0, 1.0), 1)
     }
-
 
     support = constraints.independent(
         constraints.real, 1
@@ -101,7 +98,7 @@ class SineSkewed(Distribution):
 
     def __init__(self, base_dist: Distribution, skewness, validate_args=None):
         assert (
-                base_dist.event_shape == skewness.shape[-1:]
+            base_dist.event_shape == skewness.shape[-1:]
         ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
 
         batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness.shape[:-1])
@@ -123,11 +120,11 @@ class SineSkewed(Distribution):
             ]
         )
         return (
-                self.__class__.__name__
-                + "("
-                + f"base_density: {str(self.base_dist)}, "
-                + args_string
-                + ")"
+            self.__class__.__name__
+            + "("
+            + f"base_density: {str(self.base_dist)}, "
+            + args_string
+            + ")"
         )
 
     def sample(self, key, sample_shape=()):
@@ -138,11 +135,11 @@ class SineSkewed(Distribution):
 
         # Section 2.3 step 3 in [1]
         mask = u <= 0.5 + 0.5 * (
-                self.skewness * jnp.sin((ys - bd.mean) % (2 * jnp.pi))
+            self.skewness * jnp.sin((ys - bd.mean) % (2 * jnp.pi))
         ).sum(-1)
         mask = mask[..., None]
         samples = (jnp.where(mask, ys, -ys + 2 * bd.mean) + jnp.pi) % (
-                2 * jnp.pi
+            2 * jnp.pi
         ) - jnp.pi
         return samples
 
@@ -153,7 +150,11 @@ class SineSkewed(Distribution):
             self.base_dist._validate_sample(value)
 
         # Eq. 2.1 in [1]
-        skew_prob = jnp.log1p((self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))).sum(-1))
+        skew_prob = jnp.log1p(
+            (self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))).sum(
+                -1
+            )
+        )
         return self.base_dist.log_prob(value) + skew_prob
 
     @property
@@ -199,7 +200,7 @@ class VonMises(Distribution):
     @validate_sample
     def log_prob(self, value):
         return -(
-                jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
+            jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
         ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
