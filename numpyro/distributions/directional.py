@@ -6,6 +6,7 @@ import functools
 import math
 from math import pi
 import operator
+import numpy as np
 
 from jax import lax
 import jax.numpy as jnp
@@ -170,12 +171,12 @@ class SineBivariateVonMises(Distribution):
     ** References: **
         1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
 
-    :param jnp.ndarray phi_loc: location of first angle
-    :param jnp.ndarray psi_loc: location of second angle
-    :param jnp.ndarray phi_concentration: concentration of first angle
-    :param jnp.ndarray psi_concentration: concentration of second angle
-    :param jnp.ndarray correlation: correlation between the two angles
-    :param jnp.ndarray weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
+    :param np.ndarray phi_loc: location of first angle
+    :param np.ndarray psi_loc: location of second angle
+    :param np.ndarray phi_concentration: concentration of first angle
+    :param np.ndarray psi_concentration: concentration of second angle
+    :param np.ndarray correlation: correlation between the two angles
+    :param np.ndarray weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
         to avoid bimodality (see note).
     """
 
