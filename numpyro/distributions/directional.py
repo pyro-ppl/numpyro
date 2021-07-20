@@ -164,8 +164,8 @@ class SineBivariateVonMises(Distribution):
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
 
-    .. note:: In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can be used as a likelihood but not for
-        latent variables.
+    .. note:: In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can be used as a likelihood but not
+        for latent variables.
 
     ** References: **
         1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
