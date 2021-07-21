@@ -397,7 +397,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                     )
             else:
                 support = v["fn"].support
-                with helpful_support_errors(v):
+                with helpful_support_errors(v, raise_warnings=True):
                     inv_transforms[k] = biject_to(support)
                 # XXX: the following code filters out most situations with dynamic supports
                 args = ()
@@ -961,23 +961,28 @@ def log_likelihood(
 
 
 @contextmanager
-def helpful_support_errors(site):
-    # Warnings
+def helpful_support_errors(site, raise_warnings=False):
     name = site["name"]
     support = getattr(site["fn"], "support", None)
-    if support is constraints.circular:
-        msg = (
-            f"Continuous inference poorly handles circular sample site '{name}'. "
-            + "Consider using VonMises distribution together with "
-            + "a reparameterizer, e.g. "
-            + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
-        )
-        warnings.warn(msg, UserWarning)
-    # Errors
+    if isinstance(support, constraints.independent):
+        support = support.base_constraint
+
+    # Warnings
+    if raise_warnings:
+        if support is constraints.circular:
+            msg = (
+                f"Continuous inference poorly handles circular sample site '{name}'. "
+                + "Consider using VonMises distribution together with "
+                + "a reparameterizer, e.g. "
+                + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
+            )
+            warnings.warn(msg, UserWarning)
+
+    # Exceptions
     try:
         yield
     except NotImplementedError as e:
-        support_name = repr(site["fn"].support).lower()
+        support_name = repr(support).lower()
         if "integer" in support_name or "boolean" in support_name:
             # TODO: mention enumeration when it is supported in SVI
             raise ValueError(
