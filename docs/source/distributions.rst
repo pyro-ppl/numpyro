@@ -578,6 +578,10 @@ boolean
 ^^^^^^^
 .. autodata:: numpyro.distributions.constraints.boolean
 
+circular
+--------
+.. autodata:: numpyro.distributions.constraints.circular
+
 corr_cholesky
 ^^^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.corr_cholesky
