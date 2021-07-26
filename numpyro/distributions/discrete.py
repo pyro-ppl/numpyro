@@ -77,7 +77,7 @@ class BernoulliProbs(Distribution):
     has_enumerate_support = True
 
     def __init__(self, probs, validate_args=None):
-        self.probs = probs
+        self.probs = clamp_probs(probs)
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
