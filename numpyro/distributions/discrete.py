@@ -77,7 +77,7 @@ class BernoulliProbs(Distribution):
     has_enumerate_support = True
 
     def __init__(self, probs, validate_args=None):
-        self.probs = clamp_probs(probs)
+        self.probs = probs
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -91,7 +91,8 @@ class BernoulliProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
+        ps_clamped = clamp_probs(self.probs)
+        return xlogy(value, ps_clamped) + xlog1py(1 - value, - ps_clamped)
 
     @lazy_property
     def logits(self):
