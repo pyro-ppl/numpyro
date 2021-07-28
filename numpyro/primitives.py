@@ -131,6 +131,29 @@ def sample(
         + "_unobserved"`` which should be used by guides.
     :return: sample from the stochastic `fn`.
     """
+    if not isinstance(fn, numpyro.distributions.Distribution):
+        type_error = TypeError(
+            "It looks like you tried to use a fn that isn't an instance of "
+            "numpyro.distributions.Distribution, or "
+            "tensorflow_probability.distributions.Distribution. If you're using "
+            "tensorflow_probability, make sure it is correctly installed."
+        )
+        try:
+            from tensorflow_probability.substrates.jax import distributions as tfd
+
+            from numpyro.contrib.tfp.distributions import TFPDistribution
+        except ImportError:
+            # if tensorflow_probability fails to import, then fn can't have been a tf
+            # distribution in the first place, so returning TypeError is ok
+            raise type_error
+
+        if isinstance(fn, tfd.Distribution):
+            fn = TFPDistribution[fn.__class__](**fn.parameters)
+        else:
+            # if tensorflow_probability imported, but fn is not tfd.Distribution we
+            # still need to raise a type error
+            raise type_error
+
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
         return fn(rng_key=rng_key, sample_shape=sample_shape)
