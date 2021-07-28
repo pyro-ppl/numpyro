@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-from jax import hessian, lax, random, tree_map
+from jax import hessian, jacfwd, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -886,12 +886,8 @@ class AutoLaplaceApproximation(AutoContinuous):
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
-                warnings.warn(
-                    "Hessian of log posterior at the MAP point is singular. Posterior"
-                    " samples from AutoLaplaceApproxmiation will be constant (equal to"
-                    " the MAP point)."
-                )
-        scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
+                jacobian = jacfwd(loss_fn)(loc)
+                scale_tril = jnp.outer(jacobian.T, jacobian)
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):

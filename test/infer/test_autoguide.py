@@ -3,6 +3,7 @@
 
 from functools import partial
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -335,7 +336,7 @@ def test_dynamic_supports():
     assert_allclose(actual_loss, expected_loss)
 
 
-def test_laplace_approximation_warning():
+def test_laplace_approximation_uses_gauss_newton_hessian():
     def model(x, y):
         a = numpyro.sample("a", dist.Normal(0, 10))
         b = numpyro.sample("b", dist.Normal(0, 10), sample_shape=(3,))
@@ -349,8 +350,9 @@ def test_laplace_approximation_warning():
     init_state = svi.init(random.PRNGKey(0))
     svi_state = fori_loop(0, 10000, lambda i, val: svi.update(val)[0], init_state)
     params = svi.get_params(svi_state)
-    with pytest.warns(UserWarning, match="Hessian of log posterior"):
-        guide.sample_posterior(random.PRNGKey(1), params)
+    samples = guide.sample_posterior(random.PRNGKey(1), params)
+    # NaNs would be returned if we tried to invert the hessian
+    assert not np.any([np.isnan(v).any() for v in samples.values()])
 
 
 def test_improper():
