@@ -292,4 +292,4 @@ def test_mcmc_unwrapped_tfp_distributions():
     mcmc.run(random.PRNGKey(0), jnp.array([0, 0, 1, 1, 1]))
     samples = mcmc.get_samples()
 
-    assert_allclose(jnp.mean(samples["p"]), 4 / 7, atol=0.01)
+    assert_allclose(jnp.mean(samples["p"]), 4 / 7, atol=0.05)
