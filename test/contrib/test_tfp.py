@@ -251,3 +251,45 @@ def test_sample_tfp_distributions():
     # test intermediates are []
     value, intermediates = d(sample_intermediates=True, rng_key=random.PRNGKey(0))
     assert intermediates == []
+
+
+# test that sampling from unwrapped tensorflow_probability distributions works as
+# expected using numpyro.sample primitive
+@pytest.mark.parametrize(
+    "dist,args",
+    [
+        ["Bernoulli", (0,)],
+        ["Beta", (1, 1)],
+        ["Binomial", (10, 0)],
+        ["Categorical", ([0, 1, -1],)],
+        ["Cauchy", (0, 1)],
+        ["Dirichlet", ([1, 2, 0.5],)],
+        ["Exponential", (1,)],
+        ["Normal", (0, 1)],
+    ],
+)
+def test_sample_unwrapped_tfp_distributions(dist, args):
+    from tensorflow_probability.substrates.jax import distributions as tfd
+
+    # test no error is raised
+    with numpyro.handlers.seed(rng_seed=random.PRNGKey(0)):
+        # since we import tfd inside the test, distributions have to be parametrized as
+        # strings, which is why we use getattr here
+        numpyro.sample("sample", getattr(tfd, dist)(*args))
+
+
+# test that MCMC works with unwrapped tensorflow_probability distributions
+def test_mcmc_unwrapped_tfp_distributions():
+    from tensorflow_probability.substrates.jax import distributions as tfd
+
+    def model(y):
+        theta = numpyro.sample("p", tfd.Beta(1, 1))
+
+        with numpyro.plate("plate", y.size):
+            numpyro.sample("y", tfd.Bernoulli(probs=theta), obs=y)
+
+    mcmc = MCMC(NUTS(model), num_warmup=1000, num_samples=1000)
+    mcmc.run(random.PRNGKey(0), jnp.array([0, 0, 1, 1, 1]))
+    samples = mcmc.get_samples()
+
+    assert_allclose(jnp.mean(samples["p"]), 4 / 7, atol=0.01)
