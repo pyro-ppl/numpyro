@@ -105,18 +105,67 @@ def _transform_to_bijector_constraint(constraint):
     return BijectorTransform(constraint.bijector)
 
 
+def _onehot_enumerate_support(self, expand=True):
+    n = self.event_shape[-1]
+    values = jnp.identity(n, dtype=jnp.result_type(self.dtype))
+    values = values.reshape((n,) + (1,) * len(self.batch_shape) + (n,))
+    if expand:
+        values = jnp.broadcast_to(values, (n,) + self.batch_shape + (n,))
+    return values
+
+
 class _TFPDistributionMeta(type(NumPyroDistribution)):
     def __getitem__(cls, tfd_class):
         assert issubclass(tfd_class, tfd.Distribution)
+
+        tfd_class_name = tfd_class.__name__
 
         def init(self, *args, **kwargs):
             self.tfp_dist = tfd_class(*args, **kwargs)
 
         init.__signature__ = inspect.signature(tfd_class.__init__)
 
-        _PyroDist = type(tfd_class.__name__, (TFPDistribution,), {})
+        _PyroDist = type(tfd_class_name, (TFPDistribution,), {})
         _PyroDist.tfd_class = tfd_class
         _PyroDist.__init__ = init
+
+        if tfd_class is tfd.InverseGamma:
+            _PyroDist.arg_constraints = {
+                "concentration": constraints.positive,
+                "scale": constraints.positive,
+            }
+        elif tfd_class is tfd.OneHotCategorical:
+            _PyroDist.arg_constraints = {"logits": constraints.real_vector}
+            _PyroDist.has_enumerate_support = True
+            _PyroDist.support = constraints.simplex
+            _PyroDist.is_discrete = True
+            _PyroDist.enumerate_support = _onehot_enumerate_support
+        elif tfd_class is tfd.OrderedLogistic:
+            _PyroDist.arg_constraints = {
+                "cutpoints": constraints.ordered_vector,
+                "loc": constraints.real,
+            }
+        elif tfd_class is tfd.Pareto:
+            _PyroDist.arg_constraints = {
+                "concentration": constraints.positive,
+                "scale": constraints.positive,
+            }
+        else:
+            if hasattr(numpyro_dist, tfd_class_name):
+                numpyro_dist_class = getattr(numpyro_dist, tfd_class_name)
+                # resolve FooProbs/FooLogits namespaces
+                if type(numpyro_dist_class).__name__ == "function":
+                    if not hasattr(numpyro_dist, f"{tfd_class_name}Logits"):
+                        raise ValueError
+                    numpyro_dist_class = getattr(
+                        numpyro_dist, f"{tfd_class_name}Logits"
+                    )
+                _PyroDist.arg_constraints = numpyro_dist_class.arg_constraints
+                _PyroDist.has_enumerate_support = (
+                    numpyro_dist_class.has_enumerate_support
+                )
+                _PyroDist.enumerate_support = numpyro_dist_class.enumerate_support
+
         return _PyroDist
 
 
@@ -188,42 +237,6 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         return self.support is None
 
 
-InverseGamma = TFPDistribution[tfd.InverseGamma]
-InverseGamma.arg_constraints = {
-    "concentration": constraints.positive,
-    "scale": constraints.positive,
-}
-
-
-def _onehot_enumerate_support(self, expand=True):
-    n = self.event_shape[-1]
-    values = jnp.identity(n, dtype=jnp.result_type(self.dtype))
-    values = values.reshape((n,) + (1,) * len(self.batch_shape) + (n,))
-    if expand:
-        values = jnp.broadcast_to(values, (n,) + self.batch_shape + (n,))
-    return values
-
-
-OneHotCategorical = TFPDistribution[tfd.OneHotCategorical]
-OneHotCategorical.arg_constraints = {"logits": constraints.real_vector}
-OneHotCategorical.has_enumerate_support = True
-OneHotCategorical.support = constraints.simplex
-OneHotCategorical.is_discrete = True
-OneHotCategorical.enumerate_support = _onehot_enumerate_support
-
-OrderedLogistic = TFPDistribution[tfd.OrderedLogistic]
-OrderedLogistic.arg_constraints = {
-    "cutpoints": constraints.ordered_vector,
-    "loc": constraints.real,
-}
-
-Pareto = TFPDistribution[tfd.Pareto]
-Pareto.arg_constraints = {
-    "concentration": constraints.positive,
-    "scale": constraints.positive,
-}
-
-
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]
 _len_all = len(__all__)
 for _name, _Dist in tfd.__dict__.items():
@@ -235,21 +248,11 @@ for _name, _Dist in tfd.__dict__.items():
         continue
 
     try:
-        _PyroDist = locals()[_name]
-    except KeyError:
         _PyroDist = TFPDistribution[_Dist]
-        _PyroDist.__module__ = __name__
-        if hasattr(numpyro_dist, _name):
-            numpyro_dist_class = getattr(numpyro_dist, _name)
-            # resolve FooProbs/FooLogits namespaces
-            if type(numpyro_dist_class).__name__ == "function":
-                if not hasattr(numpyro_dist, _name + "Logits"):
-                    continue
-                numpyro_dist_class = getattr(numpyro_dist, _name + "Logits")
-            _PyroDist.arg_constraints = numpyro_dist_class.arg_constraints
-            _PyroDist.has_enumerate_support = numpyro_dist_class.has_enumerate_support
-            _PyroDist.enumerate_support = numpyro_dist_class.enumerate_support
-        locals()[_name] = _PyroDist
+    except ValueError:
+        continue
+    _PyroDist.__module__ = __name__
+    locals()[_name] = _PyroDist
 
     _PyroDist.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
