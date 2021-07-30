@@ -32,6 +32,7 @@ def test_api_consistent():
                 assert p in inspect.getfullargspec(tfp_dist.__init__)[0]
 
 
+@pytest.mark.filterwarnings("ignore:Importing distributions")
 def test_dist_pytree():
     from numpyro.contrib.tfp import distributions as tfd
 
@@ -42,6 +43,7 @@ def test_dist_pytree():
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
+@pytest.mark.filterwarnings("ignore:Importing distributions")
 def test_independent():
     from numpyro.contrib.tfp import distributions as tfd
 
@@ -53,6 +55,7 @@ def test_independent():
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
+@pytest.mark.filterwarnings("ignore:Importing distributions")
 def test_transformed_distributions():
     from tensorflow_probability.substrates.jax import bijectors as tfb
     from tensorflow_probability.substrates.jax.distributions import Normal as TFPNormal
@@ -74,14 +77,14 @@ def test_transformed_distributions():
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_logistic_regression():
-    from numpyro.contrib.tfp import distributions as tfd
+    from tensorflow_probability.substrates.jax import distributions as tfd
 
     N, dim = 3000, 3
     num_warmup, num_samples = (1000, 1000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
-    labels = tfd.Bernoulli(logits=logits)(rng_key=random.PRNGKey(1))
+    labels = tfd.Bernoulli(logits=logits).sample(seed=random.PRNGKey(1))
 
     def model(labels):
         coefs = numpyro.sample("coefs", tfd.Normal(jnp.zeros(dim), jnp.ones(dim)))
@@ -102,7 +105,7 @@ def test_logistic_regression():
 # TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
 @pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
 def test_beta_bernoulli():
-    from numpyro.contrib.tfp import distributions as tfd
+    from tensorflow_probability.substrates.jax import distributions as tfd
 
     num_warmup, num_samples = (500, 2000)
 
@@ -114,7 +117,9 @@ def test_beta_bernoulli():
         return p_latent
 
     true_probs = jnp.array([0.9, 0.1])
-    data = tfd.Bernoulli(true_probs)(rng_key=random.PRNGKey(1), sample_shape=(1000, 2))
+    data = tfd.Bernoulli(true_probs).sample(
+        seed=random.PRNGKey(1), sample_shape=(1000, 2)
+    )
     kernel = NUTS(model=model, trajectory_length=0.1)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(2), data)
@@ -240,6 +245,7 @@ def test_unnormalized_normal_chain(kernel, kwargs, num_chains):
 # test if sampling from tfp distributions works as expected using
 # numpyro sample function: numpyro.sample("name", dist) (bug)
 @pytest.mark.filterwarnings("ignore:can't resolve package")
+@pytest.mark.filterwarnings("ignore:Importing distributions")
 def test_sample_tfp_distributions():
     from numpyro.contrib.tfp import distributions as tfd
 
