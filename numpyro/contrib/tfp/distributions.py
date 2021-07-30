@@ -154,12 +154,9 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
             if hasattr(numpyro_dist, tfd_class_name):
                 numpyro_dist_class = getattr(numpyro_dist, tfd_class_name)
                 # resolve FooProbs/FooLogits namespaces
-                if type(numpyro_dist_class).__name__ == "function":
-                    if not hasattr(numpyro_dist, f"{tfd_class_name}Logits"):
-                        raise ValueError
-                    numpyro_dist_class = getattr(
-                        numpyro_dist, f"{tfd_class_name}Logits"
-                    )
+                numpyro_dist_class = getattr(
+                    numpyro_dist, f"{tfd_class_name}Logits", numpyro_dist_class
+                )
                 _PyroDist.arg_constraints = numpyro_dist_class.arg_constraints
                 _PyroDist.has_enumerate_support = (
                     numpyro_dist_class.has_enumerate_support
@@ -247,10 +244,7 @@ for _name, _Dist in tfd.__dict__.items():
     if _Dist is tfd.Distribution:
         continue
 
-    try:
-        _PyroDist = TFPDistribution[_Dist]
-    except ValueError:
-        continue
+    _PyroDist = TFPDistribution[_Dist]
     _PyroDist.__module__ = __name__
     locals()[_name] = _PyroDist
 
