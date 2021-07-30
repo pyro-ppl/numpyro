@@ -265,7 +265,10 @@ def test_sample_tfp_distributions():
         ["Cauchy", (0, 1)],
         ["Dirichlet", ([1, 2, 0.5],)],
         ["Exponential", (1,)],
+        ["InverseGamma", (1, 1)],
         ["Normal", (0, 1)],
+        ["OrderedLogistic", ([0, 1], 0.5)],
+        ["Pareto", (1,)],
     ],
 )
 def test_sample_unwrapped_tfp_distributions(dist, args):
@@ -276,6 +279,23 @@ def test_sample_unwrapped_tfp_distributions(dist, args):
         # since we import tfd inside the test, distributions have to be parametrized as
         # strings, which is why we use getattr here
         numpyro.sample("sample", getattr(tfd, dist)(*args))
+
+
+# test mixture distributions
+def test_sample_unwrapped_mixture_same_family():
+    from tensorflow_probability.substrates.jax import distributions as tfd
+
+    # test no error is raised
+    with numpyro.handlers.seed(rng_seed=random.PRNGKey(0)):
+        numpyro.sample(
+            "sample",
+            tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=[0.3, 0.7]),
+                components_distribution=tfd.Normal(
+                    loc=[-1.0, 1], scale=[0.1, 0.5]  # One for each component.
+                ),
+            ),
+        )
 
 
 # test that MCMC works with unwrapped tensorflow_probability distributions
