@@ -159,8 +159,11 @@ def sample(
                 raise type_error
 
             if isinstance(fn, tfd.Distribution):
-                # if fn is a tfp distribution we need to wrap it
-                fn = TFPDistribution[fn.__class__](**fn.parameters)
+                with warnings.catch_warnings():
+                    # ignore FutureWarnings when instantiating TFPDistribution
+                    warnings.simplefilter("ignore", category=FutureWarning)
+                    # if fn is a tfp distribution we need to wrap it
+                    fn = TFPDistribution[fn.__class__](**fn.parameters)
             else:
                 # if tensorflow_probability imported, but fn is not tfd.Distribution we
                 # still need to raise a type error
