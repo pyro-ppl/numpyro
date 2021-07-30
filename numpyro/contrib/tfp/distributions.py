@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import lru_cache
 import inspect
 import warnings
 
@@ -116,6 +117,7 @@ def _onehot_enumerate_support(self, expand=True):
 
 
 class _TFPDistributionMeta(type(NumPyroDistribution)):
+    @lru_cache(maxsize=None)
     def __getitem__(cls, tfd_class):
         assert issubclass(tfd_class, tfd.Distribution)
 
