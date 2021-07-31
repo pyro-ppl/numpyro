@@ -245,7 +245,7 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         fn = jax.tree_util.tree_unflatten(aux_data, params)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
-            return cls[fn.__class__](**fn.parameters)
+            return TFPDistribution[fn.__class__](**fn.parameters)
 
 
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]
