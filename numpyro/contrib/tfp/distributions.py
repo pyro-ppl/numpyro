@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import lru_cache
-import inspect
 import warnings
 
 import numpy as np
@@ -133,8 +132,6 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
             )
             self.tfp_dist = tfd_class(*args, **kwargs)
 
-        init.__signature__ = inspect.signature(tfd_class.__init__)
-
         _PyroDist = type(tfd_class_name, (TFPDistribution,), {})
         _PyroDist.__init__ = init
 
@@ -186,6 +183,7 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         d = TFPDistribution[tfd.Normal](0, 1)
 
     """
+
     def __getattr__(self, name):
         # return parameters from the constructor
         if name in self.tfp_dist.parameters:

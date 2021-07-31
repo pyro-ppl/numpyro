@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import inspect
 import os
 
 from numpy.testing import assert_allclose
@@ -15,21 +14,6 @@ import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.reparam import TransformReparam
-
-
-# XXX: for some reasons, pytest raises ImportWarning when we import tfp
-@pytest.mark.filterwarnings("ignore:can't resolve package")
-def test_api_consistent():
-    from numpyro.contrib.tfp import distributions as tfd
-
-    for name in tfd.__all__:
-        if name in numpyro.distributions.__all__:
-            tfp_dist = getattr(tfd, name)
-            numpyro_dist = getattr(numpyro.distributions, name)
-            if type(numpyro_dist).__name__ == "function":
-                numpyro_dist = getattr(numpyro.distributions, name + "Logits")
-            for p in tfp_dist.arg_constraints:
-                assert p in inspect.getfullargspec(tfp_dist.__init__)[0]
 
 
 def test_dist_pytree():
