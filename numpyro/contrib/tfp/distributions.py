@@ -136,7 +136,6 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
         init.__signature__ = inspect.signature(tfd_class.__init__)
 
         _PyroDist = type(tfd_class_name, (TFPDistribution,), {})
-        _PyroDist.tfd_class = tfd_class
         _PyroDist.__init__ = init
 
         if tfd_class is tfd.InverseGamma:
@@ -187,9 +186,6 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         d = TFPDistribution[tfd.Normal](0, 1)
 
     """
-
-    tfd_class = None
-
     def __getattr__(self, name):
         # return parameters from the constructor
         if name in self.tfp_dist.parameters:
