@@ -131,6 +131,44 @@ def sample(
         + "_unobserved"`` which should be used by guides.
     :return: sample from the stochastic `fn`.
     """
+    if not isinstance(fn, numpyro.distributions.Distribution):
+        type_error = TypeError(
+            "It looks like you tried to use a fn that isn't an instance of "
+            "numpyro.distributions.Distribution, funsor.Funsor or "
+            "tensorflow_probability.distributions.Distribution. If you're using "
+            "funsor or tensorflow_probability, make sure they are correctly installed."
+        )
+
+        # fn can be a funsor.Funsor, but this won't be installed for all users
+        try:
+            from funsor import Funsor
+        except ImportError:
+            Funsor = None
+
+        # if Funsor import failed, or fn is not a Funsor it's also possible fn could be
+        # a tensorflow_probability distribution
+        if Funsor is None or not isinstance(fn, Funsor):
+            try:
+                from tensorflow_probability.substrates.jax import distributions as tfd
+
+                from numpyro.contrib.tfp.distributions import TFPDistribution
+            except ImportError:
+                # if tensorflow_probability fails to import here, then fn is not a
+                # numpyro Distribution or a Funsor, and it can't have been a tfp
+                # distribution either, so raising TypeError is ok
+                raise type_error
+
+            if isinstance(fn, tfd.Distribution):
+                with warnings.catch_warnings():
+                    # ignore FutureWarnings when instantiating TFPDistribution
+                    warnings.simplefilter("ignore", category=FutureWarning)
+                    # if fn is a tfp distribution we need to wrap it
+                    fn = TFPDistribution[fn.__class__](**fn.parameters)
+            else:
+                # if tensorflow_probability imported, but fn is not tfd.Distribution we
+                # still need to raise a type error
+                raise type_error
+
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
         return fn(rng_key=rng_key, sample_shape=sample_shape)
