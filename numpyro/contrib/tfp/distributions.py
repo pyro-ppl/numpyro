@@ -7,6 +7,7 @@ import warnings
 
 import numpy as np
 
+import jax
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
 
@@ -241,6 +242,16 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
     def is_discrete(self):
         # XXX: this should cover most cases
         return self.support is None
+
+    def tree_flatten(self):
+        return jax.tree_util.tree_flatten(self.tfp_dist)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        fn = jax.tree_util.tree_unflatten(aux_data, params)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            return cls[fn.__class__](**fn.parameters)
 
 
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]

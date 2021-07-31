@@ -32,14 +32,23 @@ def test_api_consistent():
                 assert p in inspect.getfullargspec(tfp_dist.__init__)[0]
 
 
-@pytest.mark.filterwarnings("ignore:Importing distributions")
 def test_dist_pytree():
-    from numpyro.contrib.tfp import distributions as tfd
+    from tensorflow_probability.substrates.jax import distributions as tfd
 
+    from numpyro.contrib.tfp.distributions import TFPDistribution
+
+    @jit
     def f(x):
-        return tfd.Normal(x, 1)
+        with numpyro.handlers.trace() as tr:
+            numpyro.sample("x", tfd.Normal(x, 1))
+        return tr["x"]["fn"]
 
-    jit(f)(0)
+    with numpyro.handlers.seed(rng_seed=0):
+        res = f(0.0)
+
+    assert isinstance(res, TFPDistribution)
+    assert res.loc == 0
+    assert res.scale == 1
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
