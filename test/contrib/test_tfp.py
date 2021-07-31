@@ -23,12 +23,11 @@ def test_dist_pytree():
 
     @jit
     def f(x):
-        with numpyro.handlers.trace() as tr:
+        with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as tr:
             numpyro.sample("x", tfd.Normal(x, 1))
         return tr["x"]["fn"]
 
-    with numpyro.handlers.seed(rng_seed=0):
-        res = f(0.0)
+    res = f(0.0)
 
     assert isinstance(res, TFPDistribution)
     assert res.loc == 0
@@ -222,10 +221,12 @@ def test_unnormalized_normal_chain(kernel, kwargs, num_chains):
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 @pytest.mark.filterwarnings("ignore:Importing distributions")
 def test_sample_tfp_distributions():
-    from numpyro.contrib.tfp import distributions as tfd
+    from tensorflow_probability.substrates.jax import distributions as tfd
+
+    from numpyro.contrib.tfp.distributions import TFPDistribution
 
     # test no error raised
-    d = tfd.Normal(0, 1)
+    d = TFPDistribution[tfd.Normal](0, 1)
     with numpyro.handlers.seed(rng_seed=random.PRNGKey(0)):
         numpyro.sample("normal", d)
 
