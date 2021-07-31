@@ -282,6 +282,6 @@ __doc__ = "\n\n".join(
     """.format(
             _name
         )
-        for _name in __all__[:_len_all] + sorted(__all__[_len_all:])
+        for _name in __all__[:_len_all]
     ]
 )
