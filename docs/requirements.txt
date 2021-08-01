@@ -1,11 +1,15 @@
 dm-haiku
 flax
 funsor>=0.4.1
+ipython
 jax>=0.2.11
 jaxlib>=0.1.62
 jaxns>=0.0.7
 optax>=0.0.6
-nbsphinx>=0.8.5
+nbsphinx==0.8.6
+readthedocs-sphinx-search==0.1.0
+sphinx==4.1.2
 sphinx-gallery
+sphinx_rtd_theme==0.5.2
 tensorflow_probability>=0.13
 tqdm
