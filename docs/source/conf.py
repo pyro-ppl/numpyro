@@ -73,7 +73,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
     "sphinx_gallery.gen_gallery",
-    'sphinx_search.extension',
+    "sphinx_search.extension",
 ]
 
 # Enable documentation inheritance
