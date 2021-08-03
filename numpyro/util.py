@@ -408,3 +408,108 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
         lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def format_trace_shapes(trace, title="Trace Shapes:", last_site=None, log_prob=False):
+    """
+    Returns a string showing a table of the shapes of all sites in the
+    trace.
+    """
+    if not trace.keys():
+        return title
+    rows = [[title]]
+
+    rows.append(["Param Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "param":
+            rows.append(
+                [name, None]
+                + [str(size) for size in getattr(site["value"], "shape", ())]
+            )
+        if name == last_site:
+            break
+
+    rows.append(["Sample Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "sample":
+            # param shape
+            batch_shape = getattr(site["fn"], "batch_shape", ())
+            event_shape = getattr(site["fn"], "event_shape", ())
+            rows.append(
+                [f"{name} dist", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # value shape
+            event_dim = len(event_shape)
+            shape = getattr(site["value"], "shape", ())
+            batch_shape = shape[: len(shape) - event_dim]
+            event_shape = shape[len(shape) - event_dim :]
+            rows.append(
+                ["value", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # log_prob shape
+            if log_prob:
+                batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
+                rows.append(
+                    ["log_prob", None]
+                    + [str(size) for size in batch_shape]
+                    + ["|", None]
+                )
+        if name == last_site:
+            break
+
+    return _format_table(rows)
+
+
+def _format_table(rows):
+    """
+    Formats a right justified table using None as column separator.
+    """
+    # compute column widths
+    column_widths = [0, 0, 0]
+    for row in rows:
+        widths = [0, 0, 0]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                widths[j] += 1
+        for j in range(3):
+            column_widths[j] = max(column_widths[j], widths[j])
+
+    # justify columns
+    for i, row in enumerate(rows):
+        cols = [[], [], []]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                cols[j].append(cell)
+        cols = [
+            [""] * (width - len(col)) + col
+            if direction == "r"
+            else col + [""] * (width - len(col))
+            for width, col, direction in zip(column_widths, cols, "rrl")
+        ]
+        rows[i] = sum(cols, [])
+
+    # compute cell widths
+    cell_widths = [0] * len(rows[0])
+    for row in rows:
+        for j, cell in enumerate(row):
+            cell_widths[j] = max(cell_widths[j], len(cell))
+
+    # justify cells
+    return "\n".join(
+        " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
+        for row in rows
+    )
