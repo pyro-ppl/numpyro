@@ -31,6 +31,7 @@ NumPyro documentation
    examples/vae
    examples/funnel
    examples/stochastic_volatility
+   examples/prodlda
    tutorials/model_rendering
 
 .. nbgallery::
@@ -43,7 +44,6 @@ NumPyro documentation
    examples/capture_recapture
    examples/gaussian_shells
    tutorials/discrete_imputation
-   examples/prodlda
 
 .. nbgallery::
    :maxdepth: 1

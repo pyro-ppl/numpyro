@@ -378,19 +378,19 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         variables will contain the following sites:
 
             + init sites: those sites belong to the first `history` traces of `f`.
-                Sites at the `i`-th trace will have name prefixed with
-                `'_PREV_' * (2 * history - 1 - i)`.
+              Sites at the `i`-th trace will have name prefixed with
+              `'_PREV_' * (2 * history - 1 - i)`.
             + scanned sites: those sites collect the values of the remaining scan
-                loop over `f`. An addition time dimension `_time_foo` will be
-                added to those sites, where `foo` is the name of the first site
-                appeared in `f`.
+              loop over `f`. An addition time dimension `_time_foo` will be
+              added to those sites, where `foo` is the name of the first site
+              appeared in `f`.
 
         Not all transition functions `f` are supported. All of the restrictions from
         Pyro's enumeration tutorial [2] still apply here. In addition, there should
         not have any site outside of `scan` depend on the first output of `scan`
         (the last carry value).
 
-    ** References **
+    **References**
 
     1. *Temporal Parallelization of Bayesian Smoothers*,
        Simo Sarkka, Angel F. Garcia-Fernandez
