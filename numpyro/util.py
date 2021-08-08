@@ -414,6 +414,13 @@ def format_shapes(trace, *, title="Trace Shapes:", last_site=None, log_prob=Fals
     """
     Returns a string showing a table of the shapes of all sites in the
     trace.
+
+    :param dict trace: The model trace to format. Use ``numpyro.handlers.trace`` to
+        produce the trace.
+    :param str title: Title for the table of shapes.
+    :param str last_site: Name of a site in the model. If supplied, subsequent sites
+        are not displayed in the table.
+    :param bool log_prob: Display shapes of log probabilities for each sample site.
     """
     if not trace.keys():
         return title
