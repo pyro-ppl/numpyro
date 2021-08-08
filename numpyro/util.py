@@ -462,6 +462,12 @@ def format_shapes(trace, *, title="Trace Shapes:", last_site=None, log_prob=Fals
                     + [str(size) for size in batch_shape]
                     + ["|", None]
                 )
+        elif site["type"] == "plate":
+            shape = getattr(site["value"], "shape", ())
+            rows.append(
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
+            )
+
         if name == last_site:
             break
 
