@@ -410,7 +410,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
 
 
-def format_trace_shapes(trace, title="Trace Shapes:", last_site=None, log_prob=False):
+def format_shapes(trace, *, title="Trace Shapes:", last_site=None, log_prob=False):
     """
     Returns a string showing a table of the shapes of all sites in the
     trace.
