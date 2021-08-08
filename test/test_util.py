@@ -9,7 +9,9 @@ import jax.numpy as jnp
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
 
-from numpyro.util import fori_collect, soft_vmap
+import numpyro
+import numpyro.distributions as dist
+from numpyro.util import fori_collect, format_shapes, soft_vmap
 
 
 def test_fori_collect_thinning():
@@ -101,3 +103,35 @@ def test_soft_vmap(batch_shape, chunk_size):
     assert set(ys.keys()) == {"a", "b"}
     assert_allclose(ys["a"], xs["a"][..., None] * jnp.ones(4))
     assert_allclose(ys["b"], ~xs["b"])
+
+
+def test_format_shapes():
+    data = jnp.arange(100)
+
+    def model_test():
+        mean = numpyro.param("mean", jnp.zeros(len(data)))
+        with numpyro.plate("data", len(data), subsample_size=10) as ind:
+            batch = data[ind]
+            mean_batch = mean[ind]
+            numpyro.sample("x", dist.Normal(mean_batch, 1), obs=batch)
+
+    with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as t:
+        model_test()
+
+    assert (
+        format_shapes(t)
+        == "Trace Shapes:       \n Param Sites:       \n         mean    100\n"
+        "Sample Sites:       \n   data plate 10   |\n       x dist 10   |\n        "
+        "value 10   |"
+    )
+    assert (
+        format_shapes(t, log_prob=True)
+        == "Trace Shapes:       \n Param Sites:       \n         mean    100\n"
+        "Sample Sites:       \n   data plate 10   |\n       x dist 10   |\n        "
+        "value 10   |\n     log_prob 10   |"
+    )
+    assert (
+        format_shapes(t, last_site="data")
+        == "Trace Shapes:       \n Param Sites:       \n         mean    100\n"
+        "Sample Sites:       \n   data plate 10   |"
+    )
