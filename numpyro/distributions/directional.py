@@ -10,6 +10,7 @@ import operator
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
+from jax.scipy import special
 from jax.scipy.special import erf, i0e, i1e, logsumexp
 
 from numpyro.distributions import constraints
@@ -48,10 +49,10 @@ def log_I1(orders: int, value, terms=250):
     flat_vshape = _numel(vshape)
 
     k = jnp.arange(terms)
-    lgammas_all = lax.lgamma(jnp.arange(1.0, terms + orders + 1))
+    lgammas_all = special.gammaln(jnp.arange(1.0, terms + orders + 1))
     assert lgammas_all.shape == (orders + terms,)  # lgamma(0) = inf => start from 1
 
-    lvalues = lax.log(value / 2) * k.reshape(1, -1)
+    lvalues = jnp.log(value / 2) * k.reshape(1, -1)
     assert lvalues.shape == (flat_vshape, terms)
 
     lfactorials = lgammas_all[:terms]
@@ -151,7 +152,7 @@ class SineBivariateVonMises(Distribution):
     kappa's are the concentration and rho gives the correlation between angles :math:`x_1` and :math:`x_2`.
     This distribution is helpful for modeling coupled angles such as torsion angles in peptide chains.
 
-    To infer parameters, use :class:`~numpyro.infer.NUTS` or :class:`~numpyro.infer.HMC` with priors that
+    To infer parameters, use :class:`~numpyro.infer.hmc.NUTS` or :class:`~numpyro.infer.hmc.HMC` with priors that
     avoid parameterizations where the distribution becomes bimodal; see note below.
 
     .. note:: Sample efficiency drops as
@@ -163,18 +164,18 @@ class SineBivariateVonMises(Distribution):
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
 
-    .. note:: In the context of :class:`~numpyro.infer.SVI`, this distribution can be used as a likelihood but not for
-        latent variables.
+    .. note:: In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can be used as a likelihood but not
+        for latent variables.
 
     ** References: **
         1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
 
-    :param jnp.Tensor phi_loc: location of first angle
-    :param jnp.Tensor psi_loc: location of second angle
-    :param jnp.Tensor phi_concentration: concentration of first angle
-    :param jnp.Tensor psi_concentration: concentration of second angle
-    :param jnp.Tensor correlation: correlation between the two angles
-    :param jnp.Tensor weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
+    :param np.ndarray phi_loc: location of first angle
+    :param np.ndarray psi_loc: location of second angle
+    :param np.ndarray phi_concentration: concentration of first angle
+    :param np.ndarray psi_concentration: concentration of second angle
+    :param np.ndarray correlation: correlation between the two angles
+    :param np.ndarray weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
         to avoid bimodality (see note).
     """
 
@@ -185,7 +186,9 @@ class SineBivariateVonMises(Distribution):
         "psi_concentration": constraints.positive,
         "correlation": constraints.real,
     }
-    support = constraints.independent(constraints.real, 1)
+    support = constraints.independent(
+        constraints.real, 1
+    )  # TODO: @OlaRonning update to circular constraint @1080
     max_sample_iter = 1000
 
     def __init__(
@@ -232,8 +235,8 @@ class SineBivariateVonMises(Distribution):
             (self.phi_concentration, self.psi_concentration), axis=-1
         ).reshape(-1, 2)
         m = jnp.arange(50).reshape(-1, 1)
-        num = lax.lgamma(2 * m + 1.0)
-        den = lax.lgamma(m + 1.0)
+        num = special.gammaln(2 * m + 1.0)
+        den = special.gammaln(m + 1.0)
         lbinoms = num - 2 * den
 
         fs = (
@@ -244,11 +247,10 @@ class SineBivariateVonMises(Distribution):
         fs += log_I1(49, conc, terms=51).sum(-1)
         mfs = fs.max()
         norm_const = 2 * jnp.log(jnp.array(2 * pi)) + mfs + logsumexp(fs - mfs, 0)
-        return jnp.reshape(norm_const, jnp.shape(self.phi_loc))
+        return norm_const.reshape(jnp.shape(self.phi_loc))
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         indv = self.phi_concentration * jnp.cos(
             value[..., 0] - self.phi_loc
         ) + self.psi_concentration * jnp.cos(value[..., 1] - self.psi_loc)
@@ -266,7 +268,6 @@ class SineBivariateVonMises(Distribution):
                John T. Kent, Asaad M. Ganeiber & Kanti V. Mardia (2018)
         """
         assert is_prng_key(key)
-
         phi_key, psi_key = random.split(key)
 
         corr = self.correlation
@@ -316,9 +317,9 @@ class SineBivariateVonMises(Distribution):
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
 
             x = jnp.sqrt(1 + 2 * eig / b0) * random.normal(acg_key, shape)
-            x /= jnp.linalg.norm(x, axis=1)[
-                :, None, :
-            ]  # Angular Central Gaussian distribution
+            x /= jnp.linalg.norm(
+                x, axis=1, keepdims=True
+            )  # Angular Central Gaussian distribution
 
             lf = (
                 conc[:, :1] * (x[:, :1] - 1)
@@ -362,10 +363,13 @@ class SineBivariateVonMises(Distribution):
 
     @property
     def mean(self):
-        """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
-        return (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
+        """Computes circular mean of distribution. Note: same as location when mapped to support [-pi, pi]"""
+        mean = (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
             2.0 * jnp.pi
         ) - jnp.pi
+        print(mean.shape)
+        print(self.batch_shape)
+        return jnp.broadcast_to(mean, (*self.batch_shape, 2))
 
     def _bfind(self, eig):
         b = eig.shape[0] / 2 * jnp.ones(self.batch_shape, dtype=eig.dtype)
@@ -424,8 +428,6 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
         return safe_normalize(self.concentration + eps)

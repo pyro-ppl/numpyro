@@ -343,8 +343,8 @@ DIRECTIONAL = [
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.0]), jnp.array([20.0, 30.0])),
     T(
         SineBivariateVonMises,
-        jnp.array([0.]),
-        0.,
+        jnp.array([0.0]),
+        jnp.array([0.0]),
         jnp.array([5.0]),
         jnp.array([6.0]),
         jnp.array([2.0]),
@@ -352,8 +352,8 @@ DIRECTIONAL = [
     T(
         SineBivariateVonMises,
         jnp.array([3.003]),
-        jnp.array(-1.3430),
-        jnp.array([5.0]),
+        jnp.array([-1.3430]),
+        jnp.array(5.0),
         jnp.array([6.0]),
         jnp.array([2.0]),
     ),
@@ -365,15 +365,6 @@ DIRECTIONAL = [
         jnp.array([7.0, 0.5]),
         None,
         jnp.array([0.2, 0.5]),
-    ),
-    T(
-        SineBivariateVonMises,
-        jnp.array([math.pi - 0.2, 1.0]),
-        jnp.array([0.0, -math.pi + .1]),
-        jnp.array([2.123, 20.0]),
-        jnp.array(0.5),
-        None,
-        jnp.array([0., 0.]),
     ),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
@@ -1231,6 +1222,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     elif jax_dist in [dist.SineBivariateVonMises]:
         phi_loc = _circ_mean(samples[..., 0])
         psi_loc = _circ_mean(samples[..., 1])
+
         assert_allclose(
             d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2
         )
