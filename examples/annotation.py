@@ -314,25 +314,9 @@ def main(args):
     mcmc.run(random.PRNGKey(0), *data)
     mcmc.print_summary()
 
-    def infer_discrete_model(rng_key, samples):
-        rng_key, subkey = random.split(rng_key)
-        conditioned_model = handlers.condition(model, data=samples)
-        infer_discrete_model = infer_discrete(
-            config_enumerate(conditioned_model), rng_key=subkey
-        )
-        with handlers.trace() as tr:
-            infer_discrete_model(*data)
-
-        return {
-            name: site["value"]
-            for name, site in tr.items()
-            if site["type"] == "sample" and site["infer"].get("enumerate") == "parallel"
-        }
-
     posterior_samples = mcmc.get_samples()
-    discrete_samples = vmap(infer_discrete_model)(
-        random.split(random.PRNGKey(1), args.num_samples), posterior_samples
-    )
+    predictive = Predictive(model, posterior_samples, infer_discrete=True)
+    discrete_samples = predictive(random.PRNGKey(1), *data)
 
     item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
         discrete_samples["c"].squeeze(-1)
@@ -345,7 +329,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.7.2")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

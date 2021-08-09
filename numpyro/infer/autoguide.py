@@ -36,8 +36,8 @@ from numpyro.distributions.util import (
     sum_rightmost,
 )
 from numpyro.infer.elbo import Trace_ELBO
-from numpyro.infer.initialization import init_to_median
-from numpyro.infer.util import init_to_uniform, initialize_model
+from numpyro.infer.initialization import init_to_median, init_to_uniform
+from numpyro.infer.util import helpful_support_errors, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import not_jax_tracer
@@ -113,15 +113,18 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sample_posterior(self, rng_key, params, *args, **kwargs):
+    def sample_posterior(self, rng_key, params, sample_shape=()):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
 
-        :param jax.random.PRNGKey rng_key: PRNG seed.
-        :param params: Current parameters of model and autoguide.
-        :param sample_shape: (keyword argument) shape of samples to be drawn.
-        :return: batch of samples from the approximate posterior.
+        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
+        :param dict params: Current parameters of model and autoguide.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
+        :param tuple sample_shape: sample shape of each latent site, defaults to ().
+        :return: a dict containing samples drawn the this guide.
+        :rtype: dict
         """
         raise NotImplementedError
 
@@ -147,10 +150,46 @@ class AutoGuide(ABC):
         self._prototype_plate_sizes = {}
         for name, site in self.prototype_trace.items():
             if site["type"] == "sample":
+                if not site["is_observed"] and site["fn"].is_discrete:
+                    # raise support errors early for discrete sites
+                    with helpful_support_errors(site):
+                        biject_to(site["fn"].support)
                 for frame in site["cond_indep_stack"]:
-                    self._prototype_frames[frame.name] = frame
+                    if frame.name in self._prototype_frames:
+                        assert (
+                            frame == self._prototype_frames[frame.name]
+                        ), f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
+                    else:
+                        self._prototype_frames[frame.name] = frame
             elif site["type"] == "plate":
                 self._prototype_frame_full_sizes[name] = site["args"][0]
+
+    def median(self, params):
+        """
+        Returns the posterior median value of each latent variable.
+
+        :param dict params: A dict containing parameter values.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
+        :return: A dict mapping sample site name to median value.
+        :rtype: dict
+        """
+        raise NotImplementedError
+
+    def quantiles(self, params, quantiles):
+        """
+        Returns posterior quantiles each latent variable. Example::
+
+            print(guide.quantiles(params, [0.05, 0.5, 0.95]))
+
+        :param dict params: A dict containing parameter values.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
+        :param list quantiles: A list of requested quantiles between 0 and 1.
+        :return: A dict mapping sample site name to an array of quantile values.
+        :rtype: dict
+        """
+        raise NotImplementedError
 
 
 class AutoNormal(AutoGuide):
@@ -159,7 +198,7 @@ class AutoNormal(AutoGuide):
     to construct a guide over the entire latent space. The guide does not
     depend on the model's ``*args, **kwargs``.
 
-    This should be equivalent to :class: `AutoDiagonalNormal` , but with
+    This should be equivalent to :class:`AutoDiagonalNormal` , but with
     more convenient site names and with better support for mean field ELBO.
 
     Usage::
@@ -222,12 +261,6 @@ class AutoNormal(AutoGuide):
                     )
 
     def __call__(self, *args, **kwargs):
-        """
-        An automatic guide with the same ``*args, **kwargs`` as the base ``model``.
-
-        :return: A dict mapping sample site name to sampled value.
-        :rtype: dict
-        """
         if self.prototype_trace is None:
             # run model to inspect the model structure
             self._setup_prototype(*args, **kwargs)
@@ -261,7 +294,8 @@ class AutoNormal(AutoGuide):
                 ):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
-                    transform = biject_to(site["fn"].support)
+                    with helpful_support_errors(site):
+                        transform = biject_to(site["fn"].support)
                     guide_dist = dist.TransformedDistribution(site_fn, transform)
                     result[name] = numpyro.sample(name, guide_dist)
 
@@ -304,10 +338,15 @@ class AutoNormal(AutoGuide):
         return self._constrain(locs)
 
     def quantiles(self, params, quantiles):
-        quantiles = jnp.array(quantiles)[..., None]
+        quantiles = jnp.array(quantiles)
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
-        latent = {k: dist.Normal(locs[k], scales[k]).icdf(quantiles) for k in locs}
+        latent = {
+            k: dist.Normal(locs[k], scales[k]).icdf(
+                quantiles.reshape((-1,) + (1,) * jnp.ndim(locs[k]))
+            )
+            for k in locs
+        }
         return self._constrain(latent)
 
 
@@ -403,12 +442,6 @@ class AutoDelta(AutoGuide):
         return latent_samples
 
     def median(self, params):
-        """
-        Returns the posterior median value of each latent variable.
-
-        :return: A dict mapping sample site name to median tensor.
-        :rtype: dict
-        """
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         return locs
 
@@ -463,12 +496,6 @@ class AutoContinuous(AutoGuide):
         )
 
     def __call__(self, *args, **kwargs):
-        """
-        An automatic guide with the same ``*args, **kwargs`` as the base ``model``.
-
-        :return: A dict mapping sample site name to sampled value.
-        :rtype: dict
-        """
         if self.prototype_trace is None:
             # run model to inspect the model structure
             self._setup_prototype(*args, **kwargs)
@@ -480,7 +507,8 @@ class AutoContinuous(AutoGuide):
 
         for name, unconstrained_value in self._unpack_latent(latent).items():
             site = self.prototype_trace[name]
-            transform = biject_to(site["fn"].support)
+            with helpful_support_errors(site):
+                transform = biject_to(site["fn"].support)
             value = transform(unconstrained_value)
             event_ndim = site["fn"].event_dim
             if numpyro.get_mask() is False:
@@ -574,48 +602,10 @@ class AutoContinuous(AutoGuide):
         return dist.TransformedDistribution(base_dist, transform)
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
-        """
-        Get samples from the learned posterior.
-
-        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
-        :param dict params: Current parameters of model and autoguide.
-            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
-            method from :class:`~numpyro.infer.svi.SVI`.
-        :param tuple sample_shape: batch shape of each latent sample, defaults to ().
-        :return: a dict containing samples drawn the this guide.
-        :rtype: dict
-        """
         latent_sample = handlers.substitute(
             handlers.seed(self._sample_latent, rng_key), params
         )(sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
-
-    def median(self, params):
-        """
-        Returns the posterior median value of each latent variable.
-
-        :param dict params: A dict containing parameter values.
-            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
-            method from :class:`~numpyro.infer.svi.SVI`.
-        :return: A dict mapping sample site name to median tensor.
-        :rtype: dict
-        """
-        raise NotImplementedError
-
-    def quantiles(self, params, quantiles):
-        """
-        Returns posterior quantiles each latent variable. Example::
-
-            print(guide.quantiles(opt_state, [0.05, 0.5, 0.95]))
-
-        :param dict params: A dict containing parameter values.
-            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
-            method from :class:`~numpyro.infer.svi.SVI`.
-        :param list quantiles: A list of requested quantiles between 0 and 1.
-        :return: A dict mapping sample site name to a list of quantile values.
-        :rtype: dict
-        """
-        raise NotImplementedError
 
 
 class AutoDiagonalNormal(AutoContinuous):

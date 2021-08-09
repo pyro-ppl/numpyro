@@ -28,6 +28,7 @@
 
 __all__ = [
     "boolean",
+    "circular",
     "corr_cholesky",
     "corr_matrix",
     "dependent",
@@ -52,6 +53,8 @@ __all__ = [
     "unit_interval",
     "Constraint",
 ]
+
+import math
 
 import numpy as np
 
@@ -454,6 +457,7 @@ class _Sphere(Constraint):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
+circular = _Interval(-math.pi, math.pi)
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
