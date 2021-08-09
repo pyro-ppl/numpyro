@@ -281,9 +281,17 @@ class SineBivariateVonMises(Distribution):
 
         total = _numel(sample_shape)
         phi_den = log_I1(0, conc[1]).squeeze(0)
-        phi_shape = (total, 2, _numel(self.batch_shape))
+        batch_size = _numel(self.batch_shape)
+        phi_shape = (total, 2, batch_size)
         phi_state = SineBivariateVonMises._phi_marginal(
-            phi_shape, phi_key, conc, corr, eig, b0, eigmin, phi_den
+            phi_shape,
+            phi_key,
+            jnp.reshape(conc, (2, batch_size)),
+            jnp.reshape(corr, (batch_size,)),
+            jnp.reshape(eig, (2, batch_size)),
+            jnp.reshape(b0, (batch_size,)),
+            jnp.reshape(eigmin, (batch_size,)),
+            jnp.reshape(phi_den, (batch_size,)),
         )
 
         phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])

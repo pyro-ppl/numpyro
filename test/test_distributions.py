@@ -359,6 +359,14 @@ DIRECTIONAL = [
     ),
     T(
         SineBivariateVonMises,
+        jnp.array(-1.232),
+        jnp.array(-1.3430),
+        jnp.array(3.4),
+        jnp.array(2.0),
+        jnp.array(1.0),
+    ),
+    T(
+        SineBivariateVonMises,
         jnp.array([math.pi - 0.2, 1.0]),
         jnp.array([0.0, 1.0]),
         jnp.array([2.123, 20.0]),
