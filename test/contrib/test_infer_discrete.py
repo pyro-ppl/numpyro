@@ -82,19 +82,7 @@ def test_hmm_smoke(length, temperature):
     logger.info("inferred states: {}".format(list(map(int, inferred_states))))
 
 
-@pytest.mark.parametrize(
-    "length",
-    [
-        1,
-        2,
-        pytest.param(
-            10,
-            marks=pytest.mark.xfail(
-                reason="adjoint does not work with markov sum product yet."
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("length", [1, 2, 10])
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_scan_hmm_smoke(length, temperature):
 
