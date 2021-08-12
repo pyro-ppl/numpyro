@@ -119,19 +119,28 @@ def test_format_shapes():
         model_test()
 
     assert (
-        format_shapes(t)
-        == "Trace Shapes:       \n Param Sites:       \n         mean    100\n"
-        "Sample Sites:       \n   data plate 10   |\n       x dist 10   |\n        "
-        "value 10   |"
+        format_shapes(t) == "Trace Shapes:       \n"
+        " Param Sites:       \n"
+        "         mean    100\n"
+        "Sample Sites:       \n"
+        "   data plate 10   |\n"
+        "       x dist 10   |\n"
+        "        value 10   |"
     )
     assert (
-        format_shapes(t, log_prob=True)
-        == "Trace Shapes:       \n Param Sites:       \n         mean    100\n"
-        "Sample Sites:       \n   data plate 10   |\n       x dist 10   |\n        "
-        "value 10   |\n     log_prob 10   |"
+        format_shapes(t, log_prob=True) == "Trace Shapes:       \n"
+        " Param Sites:       \n"
+        "         mean    100\n"
+        "Sample Sites:       \n"
+        "   data plate 10   |\n"
+        "       x dist 10   |\n"
+        "        value 10   |\n"
+        "     log_prob 10   |"
     )
     assert (
-        format_shapes(t, last_site="data")
-        == "Trace Shapes:       \n Param Sites:       \n         mean    100\n"
-        "Sample Sites:       \n   data plate 10   |"
+        format_shapes(t, last_site="data") == "Trace Shapes:       \n"
+        " Param Sites:       \n"
+        "         mean    100\n"
+        "Sample Sites:       \n"
+        "   data plate 10   |"
     )
