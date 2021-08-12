@@ -762,6 +762,14 @@ InvCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+L1BallTransform
+---------------
+.. autoclass:: numpyro.distributions.transforms.L1BallTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowerCholeskyAffine
 ^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.LowerCholeskyAffine
