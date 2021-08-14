@@ -110,37 +110,46 @@ def test_format_shapes():
 
     def model_test():
         mean = numpyro.param("mean", jnp.zeros(len(data)))
+        scale = numpyro.sample("scale", dist.Normal(0, 1).expand([3]).to_event(1))
+        scale = scale.sum()
         with numpyro.plate("data", len(data), subsample_size=10) as ind:
             batch = data[ind]
             mean_batch = mean[ind]
-            numpyro.sample("x", dist.Normal(mean_batch, 1), obs=batch)
+            numpyro.sample("x", dist.Normal(mean_batch, scale), obs=batch)
 
     with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as t:
         model_test()
 
     assert (
-        format_shapes(t) == "Trace Shapes:       \n"
-        " Param Sites:       \n"
-        "         mean    100\n"
-        "Sample Sites:       \n"
-        "   data plate 10   |\n"
-        "       x dist 10   |\n"
-        "        value 10   |"
+        format_shapes(t) == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "   data plate 10   |  \n"
+        "       x dist 10   |  \n"
+        "        value 10   |  "
     )
     assert (
-        format_shapes(t, log_prob=True) == "Trace Shapes:       \n"
-        " Param Sites:       \n"
-        "         mean    100\n"
-        "Sample Sites:       \n"
-        "   data plate 10   |\n"
-        "       x dist 10   |\n"
-        "        value 10   |\n"
-        "     log_prob 10   |"
+        format_shapes(t, log_prob=True) == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "     log_prob      |  \n"
+        "   data plate 10   |  \n"
+        "       x dist 10   |  \n"
+        "        value 10   |  \n"
+        "     log_prob 10   |  "
     )
     assert (
-        format_shapes(t, last_site="data") == "Trace Shapes:       \n"
-        " Param Sites:       \n"
-        "         mean    100\n"
-        "Sample Sites:       \n"
-        "   data plate 10   |"
+        format_shapes(t, last_site="data") == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "   data plate 10   |  "
     )
