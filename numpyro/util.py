@@ -408,3 +408,143 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
         lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def format_shapes(
+    trace,
+    *,
+    compute_log_prob=False,
+    title="Trace Shapes:",
+    last_site=None,
+):
+    """
+    Given the trace of a function, returns a string showing a table of the shapes of
+    all sites in the trace.
+
+    Use :class:`~numpyro.handlers.trace` handler (or funsor
+    :class:`~numpyro.contrib.funsor.enum_messenger.trace` handler for enumeration) to
+    produce the trace.
+
+    :param dict trace: The model trace to format.
+    :param compute_log_prob: Compute log probabilities and display the shapes in the
+        table. Accepts True / False or a function which when given a dictionary
+        containing site-level metadata returns whether the log probability should be
+        calculated and included in the table.
+    :param str title: Title for the table of shapes.
+    :param str last_site: Name of a site in the model. If supplied, subsequent sites
+        are not displayed in the table.
+
+    Usage::
+
+        def model(*args, **kwargs):
+            ...
+
+        trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
+        numpyro.util.format_shapes(trace)
+    """
+    if not trace.keys():
+        return title
+    rows = [[title]]
+
+    rows.append(["Param Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "param":
+            rows.append(
+                [name, None]
+                + [str(size) for size in getattr(site["value"], "shape", ())]
+            )
+        if name == last_site:
+            break
+
+    rows.append(["Sample Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "sample":
+            # param shape
+            batch_shape = getattr(site["fn"], "batch_shape", ())
+            event_shape = getattr(site["fn"], "event_shape", ())
+            rows.append(
+                [f"{name} dist", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # value shape
+            event_dim = len(event_shape)
+            shape = getattr(site["value"], "shape", ())
+            batch_shape = shape[: len(shape) - event_dim]
+            event_shape = shape[len(shape) - event_dim :]
+            rows.append(
+                ["value", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # log_prob shape
+            if (not callable(compute_log_prob) and compute_log_prob) or (
+                callable(compute_log_prob) and compute_log_prob(site)
+            ):
+                batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
+                rows.append(
+                    ["log_prob", None]
+                    + [str(size) for size in batch_shape]
+                    + ["|", None]
+                )
+        elif site["type"] == "plate":
+            shape = getattr(site["value"], "shape", ())
+            rows.append(
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
+            )
+
+        if name == last_site:
+            break
+
+    return _format_table(rows)
+
+
+def _format_table(rows):
+    """
+    Formats a right justified table using None as column separator.
+    """
+    # compute column widths
+    column_widths = [0, 0, 0]
+    for row in rows:
+        widths = [0, 0, 0]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                widths[j] += 1
+        for j in range(3):
+            column_widths[j] = max(column_widths[j], widths[j])
+
+    # justify columns
+    for i, row in enumerate(rows):
+        cols = [[], [], []]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                cols[j].append(cell)
+        cols = [
+            [""] * (width - len(col)) + col
+            if direction == "r"
+            else col + [""] * (width - len(col))
+            for width, col, direction in zip(column_widths, cols, "rrl")
+        ]
+        rows[i] = sum(cols, [])
+
+    # compute cell widths
+    cell_widths = [0] * len(rows[0])
+    for row in rows:
+        for j, cell in enumerate(row):
+            cell_widths[j] = max(cell_widths[j], len(cell))
+
+    # justify cells
+    return "\n".join(
+        " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
+        for row in rows
+    )
