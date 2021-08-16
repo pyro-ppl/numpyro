@@ -94,6 +94,34 @@ _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
+def _GaussianMixture(mixing_probs, loc, scale):
+    component_dist = dist.Normal(loc=loc, scale=scale)
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureSameFamily(
+        mixing_distribution=mixing_distribution,
+        component_distribution=component_dist,
+    )
+
+
+_GaussianMixture.arg_constraints = {}
+_GaussianMixture.reparametrized_params = []
+_GaussianMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _Gaussian2DMixture(mixing_probs, loc, cov_matrix):
+    component_dist = dist.MultivariateNormal(loc=loc, covariance_matrix=cov_matrix)
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureSameFamily(
+        mixing_distribution=mixing_distribution,
+        component_distribution=component_dist,
+    )
+
+
+_Gaussian2DMixture.arg_constraints = {}
+_Gaussian2DMixture.reparametrized_params = []
+_Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
 class _ImproperWrapper(dist.ImproperUniform):
     def sample(self, key, sample_shape=()):
         transform = biject_to(self.support)
@@ -335,6 +363,33 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, jnp.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(
+        _GaussianMixture,
+        jnp.ones(3) / 3.0,
+        jnp.array([0.0, 7.7, 2.1]),
+        jnp.array([4.2, 7.7, 2.1]),
+    ),
+    T(
+        _Gaussian2DMixture,
+        jnp.array([0.2, 0.5, 0.3]),
+        jnp.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        jnp.array(
+            [
+                [
+                    [0.1, -0.2],
+                    [-0.2, 1.0],
+                ],
+                [
+                    [0.75, 0.0],
+                    [0.0, 0.75],
+                ],
+                [
+                    [1.0, 0.5],
+                    [0.5, 0.27],
+                ],
+            ]
+        ),  # Covariance
+    ),
 ]
 
 DIRECTIONAL = [
@@ -594,11 +649,10 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         )
 
 
-@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)], ids=str)
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
+def test_infer_shapes(jax_dist, sp_dist, params):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
     shapes = tuple(x() if callable(x) else x for x in shapes)
     jax_dist = jax_dist(*params)
@@ -1248,8 +1302,8 @@ def test_mean_var(jax_dist, sp_dist, params):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
-    if jax_dist is _TruncatedNormal:
-        pytest.skip("_TruncatedNormal is a function, not a class")
+    if jax_dist in (_TruncatedNormal, _GaussianMixture, _Gaussian2DMixture):
+        pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
