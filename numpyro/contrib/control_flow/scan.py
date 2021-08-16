@@ -390,7 +390,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         not have any site outside of `scan` depend on the first output of `scan`
         (the last carry value).
 
-    ** References **
+    **References**
 
     1. *Temporal Parallelization of Bayesian Smoothers*,
        Simo Sarkka, Angel F. Garcia-Fernandez

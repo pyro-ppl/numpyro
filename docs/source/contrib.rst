@@ -1,3 +1,6 @@
+Contributed Code
+================
+
 Nested Sampling
 ~~~~~~~~~~~~~~~
 
