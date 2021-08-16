@@ -80,9 +80,9 @@ class HMCGibbs(MCMCKernel):
         ...     numpyro.sample("obs", dist.Normal(x + y, 1.0), obs=jnp.array([1.0]))
         ...
         >>> def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
-        ...    y = hmc_sites['y']
-        ...    new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
-        ...    return {'x': new_x}
+        ...     y = hmc_sites['y']
+        ...     new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
+        ...     return {'x': new_x}
         ...
         >>> hmc_kernel = NUTS(model)
         >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
