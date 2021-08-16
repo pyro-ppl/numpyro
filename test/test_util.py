@@ -132,7 +132,7 @@ def test_format_shapes():
         "        value 10   |  "
     )
     assert (
-        format_shapes(t, log_prob=True) == "Trace Shapes:         \n"
+        format_shapes(t, compute_log_prob=True) == "Trace Shapes:         \n"
         " Param Sites:         \n"
         "         mean    100  \n"
         "Sample Sites:         \n"
@@ -143,6 +143,19 @@ def test_format_shapes():
         "       x dist 10   |  \n"
         "        value 10   |  \n"
         "     log_prob 10   |  "
+    )
+    assert (
+        format_shapes(t, compute_log_prob=lambda site: site["name"] == "scale")
+        == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "     log_prob      |  \n"
+        "   data plate 10   |  \n"
+        "       x dist 10   |  \n"
+        "        value 10   |  "
     )
     assert (
         format_shapes(t, last_site="data") == "Trace Shapes:         \n"

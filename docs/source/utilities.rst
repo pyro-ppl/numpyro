@@ -104,3 +104,7 @@ Visualization Utilities
 render_model
 ------------
 .. autofunction:: numpyro.contrib.render.render_model
+
+Trace inspection
+----------------
+.. autofunction:: numpyro.util.format_shapes

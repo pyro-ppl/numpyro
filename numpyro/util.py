@@ -410,17 +410,37 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
 
 
-def format_shapes(trace, *, title="Trace Shapes:", last_site=None, log_prob=False):
+def format_shapes(
+    trace,
+    *,
+    compute_log_prob=False,
+    title="Trace Shapes:",
+    last_site=None,
+):
     """
-    Returns a string showing a table of the shapes of all sites in the
-    trace.
+    Given the trace of a function, returns a string showing a table of the shapes of
+    all sites in the trace.
 
-    :param dict trace: The model trace to format. Use ``numpyro.handlers.trace`` to
-        produce the trace.
+    Use :class:`~numpyro.handlers.trace` handler (or funsor
+    :class:`~numpyro.contrib.funsor.enum_messenger.trace` handler for enumeration) to
+    produce the trace.
+
+    :param dict trace: The model trace to format.
+    :param compute_log_prob: Compute log probabilities and display the shapes in the
+        table. Accepts True / False or a function which when given a dictionary
+        containing site-level metadata returns whether the log probability should be
+        calculated and included in the table.
     :param str title: Title for the table of shapes.
     :param str last_site: Name of a site in the model. If supplied, subsequent sites
         are not displayed in the table.
-    :param bool log_prob: Display shapes of log probabilities for each sample site.
+
+    Usage::
+
+        def model(*args, **kwargs):
+            ...
+
+        trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
+        numpyro.util.format_shapes(trace)
     """
     if not trace.keys():
         return title
@@ -462,7 +482,9 @@ def format_shapes(trace, *, title="Trace Shapes:", last_site=None, log_prob=Fals
             )
 
             # log_prob shape
-            if log_prob:
+            if (not callable(compute_log_prob) and compute_log_prob) or (
+                callable(compute_log_prob) and compute_log_prob(site)
+            ):
                 batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
                 rows.append(
                     ["log_prob", None]
