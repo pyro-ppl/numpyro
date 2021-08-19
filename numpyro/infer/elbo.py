@@ -27,7 +27,7 @@ class ELBO:
 
     """
     Determines whether the ELBO objective can support inference of discrete latent variables.
-    
+
     Subclasses that are capable of inferring  discrete latent variables should override to `True`
     """
     can_infer_discrete = False
