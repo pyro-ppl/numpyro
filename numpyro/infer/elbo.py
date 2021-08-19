@@ -67,6 +67,15 @@ class ELBO:
         """
         raise NotImplementedError("This ELBO objective does not support mutable state.")
 
+    def can_infer_discrete(self):
+        """
+        Determines whether the ELBO objective can support inference of discrete latent variables
+
+        :return: bool indicating if inference of discrete latent variables is possible
+        """
+        return False
+
+
 
 class Trace_ELBO(ELBO):
     """
@@ -596,3 +605,6 @@ class TraceGraph_ELBO(ELBO):
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
+
+    def can_infer_discrete(self):
+        return True
