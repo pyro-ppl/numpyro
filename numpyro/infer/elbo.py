@@ -25,6 +25,13 @@ class ELBO:
         (gradient) estimators.
     """
 
+    """
+    Determines whether the ELBO objective can support inference of discrete latent variables.
+    
+    Subclasses that are capable of inferring  discrete latent variables should override to `True`
+    """
+    can_infer_discrete = False
+
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
@@ -66,14 +73,6 @@ class ELBO:
         :return: a tuple of ELBO loss and the mutable state
         """
         raise NotImplementedError("This ELBO objective does not support mutable state.")
-
-    def can_infer_discrete(self):
-        """
-        Determines whether the ELBO objective can support inference of discrete latent variables
-
-        :return: bool indicating if inference of discrete latent variables is possible
-        """
-        return False
 
 
 class Trace_ELBO(ELBO):
@@ -539,6 +538,8 @@ class TraceGraph_ELBO(ELBO):
         John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
     """
 
+    can_infer_discrete = True
+
     def __init__(self, num_particles=1):
         super().__init__(num_particles=num_particles)
 
@@ -604,6 +605,3 @@ class TraceGraph_ELBO(ELBO):
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
-
-    def can_infer_discrete(self):
-        return True

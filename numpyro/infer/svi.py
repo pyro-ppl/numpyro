@@ -192,7 +192,7 @@ class SVI(object):
                 site["type"] == "sample"
                 and (not site["is_observed"])
                 and site["fn"].support.is_discrete
-                and not self.loss.can_infer_discrete()
+                and not self.loss.can_infer_discrete
             ):
                 s_name = type(self.loss).__name__
                 warnings.warn(
@@ -285,7 +285,7 @@ class SVI(object):
         *args,
         progress_bar=True,
         stable_update=False,
-        **kwargs
+        **kwargs,
     ):
         """
         (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
@@ -371,5 +371,5 @@ class SVI(object):
             self.guide,
             *args,
             **kwargs,
-            **self.static_kwargs
+            **self.static_kwargs,
         )
