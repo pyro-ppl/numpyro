@@ -91,7 +91,8 @@ class BernoulliProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
+        ps_clamped = clamp_probs(self.probs)
+        return xlogy(value, ps_clamped) + xlog1py(1 - value, -ps_clamped)
 
     @lazy_property
     def logits(self):

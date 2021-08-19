@@ -124,7 +124,8 @@ class UniformReparam(Reparam):
 
 class NestedSampler:
     """
-    (EXPERIMENTAL) A wrapper for `jaxns`, a nested sampling package based on JAX.
+    (EXPERIMENTAL) A wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_ ,
+    a nested sampling package based on JAX.
 
     See reference [1] for details on the meaning of each parameter.
     Please consider citing this reference if you use the nested sampler in your research.

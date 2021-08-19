@@ -78,9 +78,26 @@ def log_I1(orders: int, value, terms=250):
 
 
 class VonMises(Distribution):
+    """
+    The von Mises distribution, also known as the circular normal distribution.
+
+    This distribution is supported by a circular constraint from -pi to +pi. By
+    default, the circular support behaves like
+    ``constraints.interval(-math.pi, math.pi)``. To avoid issues at the
+    boundaries of this interval during sampling, you should reparameterize this
+    distribution using ``handlers.reparam`` with a
+    :class:`~numpyro.infer.reparam.CircularReparam` reparametrizer in
+    the model, e.g.::
+
+        @handlers.reparam(config={"direction": CircularReparam()})
+        def model():
+            direction = numpyro.sample("direction", VonMises(0.0, 4.0))
+            ...
+    """
+
     arg_constraints = {"loc": constraints.real, "concentration": constraints.positive}
     reparametrized_params = ["loc"]
-    support = constraints.interval(-math.pi, math.pi)
+    support = constraints.circular
 
     def __init__(self, loc, concentration, validate_args=None):
         """von Mises distribution for sampling directions.

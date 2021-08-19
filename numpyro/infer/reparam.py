@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
+import math
 
 import jax.numpy as jnp
 
@@ -288,3 +289,32 @@ class NeuTraReparam(Reparam):
         """
         x_unconstrained = self.transform(latent)
         return self.guide._unpack_and_constrain(x_unconstrained, self.params)
+
+
+class CircularReparam(Reparam):
+    """
+    Reparametrizer for :class:`~numpyro.distributions.VonMises` latent
+    variables.
+    """
+
+    def __call__(self, name, fn, obs):
+        # Support must be circular
+        support = fn.support
+        if isinstance(support, constraints.independent):
+            support = fn.support.base_constraint
+        assert support is constraints.circular
+
+        # Draw parameter-free noise.
+        new_fn = dist.ImproperUniform(constraints.real, fn.batch_shape, fn.event_shape)
+        value = numpyro.sample(
+            f"{name}_unwrapped",
+            new_fn,
+            obs=obs,
+        )
+
+        # Differentiably transform.
+        value = jnp.remainder(value + math.pi, 2 * math.pi) - math.pi
+
+        # Simulate a pyro.deterministic() site.
+        numpyro.factor(f"{name}_factor", fn.log_prob(value))
+        return None, value
