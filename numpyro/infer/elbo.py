@@ -76,7 +76,6 @@ class ELBO:
         return False
 
 
-
 class Trace_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
