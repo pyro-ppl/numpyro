@@ -197,15 +197,13 @@ class SineBivariateVonMises(Distribution):
     """
 
     arg_constraints = {
-        "phi_loc": constraints.real,
-        "psi_loc": constraints.real,
+        "phi_loc": constraints.circular,
+        "psi_loc": constraints.circular,
         "phi_concentration": constraints.positive,
         "psi_concentration": constraints.positive,
         "correlation": constraints.real,
     }
-    support = constraints.independent(
-        constraints.real, 1
-    )  # TODO: @OlaRonning update to circular constraint @1080
+    support = constraints.independent(constraints.circular, 1)
     max_sample_iter = 1000
 
     def __init__(
@@ -218,7 +216,6 @@ class SineBivariateVonMises(Distribution):
         weighted_correlation=None,
         validate_args=None,
     ):
-
         assert (correlation is None) != (weighted_correlation is None)
 
         if weighted_correlation is not None:
