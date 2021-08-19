@@ -184,15 +184,31 @@ Pyro users will note that the API for model specification and inference is large
 
 > **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) and [this forum post](https://forum.pyro.ai/t/numpyro-with-gpu-works-on-windows/2690) if you want to use GPUs on Windows.
 
-To install NumPyro with a CPU version of JAX, you can use pip:
+To install NumPyro with the latest CPU version of JAX, you can use pip:
 
 ```
 pip install numpyro
 ```
 
-To use NumPyro on the GPU, you will need to first [install](https://github.com/google/jax#installation) `jax` and `jaxlib` with CUDA support.
+In case of compatibility issues arise during execution of the above command, you can instead force the installation of a known
+compatible CPU version of JAX with
 
-To run NumPyro on Cloud TPUs, you can use pip to install NumPyro as above and setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
+```
+pip install numpyro[cpu]
+```
+
+To use **NumPyro on the GPU**, you need to install CUDA first and then use the following pip command:
+```
+# change `cuda111` to your CUDA version number, e.g. for CUDA 10.2 use `cuda102`
+pip install numpyro[cuda111] -f https://storage.googleapis.com/jax-releases/jax_releases.html
+```
+If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/google/jax#pip-installation-gpu-cuda).
+
+To run **NumPyro on Cloud TPUs**, you can look at some [JAX on Cloud TPU examples](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
+
+For Cloud TPU VM, you need to setup the TPU backend as detailed in the [Cloud TPU VM JAX Quickstart Guide](https://cloud.google.com/tpu/docs/jax-quickstart-tpu-vm).
+After you have verified that the TPU backend is properly set up,
+you can install NumPyro using the `pip install numpyro` command.
 
 > **Default Platform:** JAX will use GPU by default if CUDA-supported `jaxlib` package is installed. You can use [set_platform](http://num.pyro.ai/en/stable/utilities.html#set-platform) utility `numpyro.set_platform("cpu")` to switch to CPU at the beginning of your program.
 
@@ -202,6 +218,11 @@ You can also install NumPyro from source:
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
 pip install -e .[dev]  # contains additional dependencies for NumPyro development
+```
+
+You can also install NumPyro with conda:
+```
+conda install -c conda-forge numpyro
 ```
 
 ## Frequently Asked Questions
@@ -216,22 +237,22 @@ pip install -e .[dev]  # contains additional dependencies for NumPyro developmen
    - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=PRNGKey(0))`.
    - Wrap the code in a `seed` handler, used either as a context manager or as a function that wraps over the original callable. e.g.
 
-     ```python
-     with handlers.seed(rng_seed=0):  # random.PRNGKey(0) is used
-         x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNGKey split from random.PRNGKey(0)
-         y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
-     ```
+        ```python
+        with handlers.seed(rng_seed=0):  # random.PRNGKey(0) is used
+            x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNGKey split from random.PRNGKey(0)
+            y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
+        ```
 
      , or as a higher order function:
 
-     ```python
-     def fn():
-         x = numpyro.sample('x', dist.Beta(1, 1))
-         y = numpyro.sample('y', dist.Bernoulli(x))
-         return y
+        ```python
+        def fn():
+            x = numpyro.sample('x', dist.Beta(1, 1))
+            y = numpyro.sample('y', dist.Bernoulli(x))
+            return y
 
-     print(handlers.seed(fn, rng_seed=0)())
-     ```
+        print(handlers.seed(fn, rng_seed=0)())
+        ```
 
 2. Can I use the same Pyro model for doing inference in NumPyro?
 

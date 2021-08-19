@@ -131,9 +131,9 @@ def run_inference(
     kernel = NUTS(model)
     mcmc = MCMC(
         kernel,
-        num_warmup,
-        num_samples,
-        num_chains,
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(rng_key, design_matrix, outcome)
@@ -160,7 +160,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.7.2")
     parser = argparse.ArgumentParser(description="Testing whether  ")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)

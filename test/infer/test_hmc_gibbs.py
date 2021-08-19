@@ -40,7 +40,7 @@ def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 def test_linear_model_log_sigma(
-    kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=500, num_samples=500
+    kernel_cls, N=100, P=50, sigma=0.11, num_warmup=500, num_samples=500
 ):
     np.random.seed(0)
     X = np.random.randn(N * P).reshape((N, P))
@@ -63,7 +63,9 @@ def test_linear_model_log_sigma(
 
     hmc_kernel = kernel_cls(model)
     kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=["beta"])
-    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
 
     mcmc.run(random.PRNGKey(0), X, Y)
 
@@ -76,7 +78,7 @@ def test_linear_model_log_sigma(
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 def test_linear_model_sigma(
-    kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500, num_samples=500
+    kernel_cls, N=90, P=40, sigma=0.07, num_warmup=500, num_samples=500
 ):
     np.random.seed(1)
     X = np.random.randn(N * P).reshape((N, P))
@@ -97,7 +99,9 @@ def test_linear_model_sigma(
 
     hmc_kernel = kernel_cls(model)
     kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=["beta"])
-    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
 
     mcmc.run(random.PRNGKey(0), X, Y)
 
@@ -109,7 +113,7 @@ def test_linear_model_sigma(
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
-def test_gaussian_model(kernel_cls, D=2, warmup_steps=5000, num_samples=5000):
+def test_gaussian_model(kernel_cls, D=2, num_warmup=5000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
     cov = jnp.matmul(jnp.transpose(cov), cov) + 0.25 * jnp.eye(2 * D)
@@ -149,7 +153,9 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=5000, num_samples=5000):
 
     hmc_kernel = kernel_cls(model, dense_mass=True)
     kernel = HMCGibbs(hmc_kernel, gibbs_fn=gaussian_gibbs_fn, gibbs_sites=["x0"])
-    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
 
     mcmc.run(random.PRNGKey(0))
 
@@ -178,7 +184,13 @@ def test_discrete_gibbs_multiple_sites_chain(kernel, inner_kernel, kwargs, num_c
         numpyro.sample("y", dist.Binomial(10, 0.3))
 
     sampler = kernel(inner_kernel(model), **kwargs)
-    mcmc = MCMC(sampler, 1000, 10000, num_chains=num_chains, progress_bar=False)
+    mcmc = MCMC(
+        sampler,
+        num_warmup=1000,
+        num_samples=10000,
+        num_chains=num_chains,
+        progress_bar=False,
+    )
     mcmc.run(random.PRNGKey(0))
     mcmc.print_summary()
     samples = mcmc.get_samples()
@@ -197,7 +209,7 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
         numpyro.deterministic("y2", y ** 2)
 
     sampler = kernel(inner_kernel(model), **kwargs)
-    mcmc = MCMC(sampler, 1000, 10000, progress_bar=False)
+    mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
@@ -217,7 +229,7 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
         numpyro.sample("c", dist.Bernoulli(0.8))
 
     sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
-    mcmc = MCMC(sampler, 1000, 10000, progress_bar=False)
+    mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()["c"]
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
@@ -238,7 +250,7 @@ def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     sampler = kernel(
         inner_kernel(model, trajectory_length=1.2), modified=modified, **kwargs
     )
-    mcmc = MCMC(sampler, 1000, 200000, progress_bar=False)
+    mcmc = MCMC(sampler, num_warmup=1000, num_samples=200000, progress_bar=False)
     mcmc.run(random.PRNGKey(0), probs, locs)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"]), 1.3, atol=0.1)
@@ -276,7 +288,7 @@ def test_enum_subsample_smoke():
 
     data = random.normal(random.PRNGKey(0), (10000,)) + 1
     kernel = HMCECS(NUTS(model), num_blocks=10)
-    mcmc = MCMC(kernel, 10, 10)
+    mcmc = MCMC(kernel, num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0), data)
 
 
@@ -304,7 +316,7 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     proxy_fn = HMCECS.taylor_proxy(ref_params)
 
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
-    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(0), data, subsample_size)
 
     samples = mcmc.get_samples()
@@ -407,7 +419,7 @@ def test_estimate_likelihood(kernel_cls):
 
     proxy_fn = HMCECS.taylor_proxy({"mean": ref_params})
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn, num_blocks=num_blocks)
-    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
 
     mcmc.run(random.PRNGKey(0), data, extra_fields=["hmc_state.potential_energy"])
 

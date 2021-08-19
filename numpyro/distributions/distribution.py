@@ -35,8 +35,9 @@ import numpy as np
 
 from jax import lax, tree_util
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
-from numpyro.distributions.transforms import ComposeTransform, Transform
+from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
     lazy_property,
     promote_shapes,
@@ -1051,12 +1052,44 @@ class TransformedDistribution(Distribution):
         )
 
 
+class FoldedDistribution(TransformedDistribution):
+    """
+    Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``,
+    but additionally supports :meth:`log_prob` .
+
+    :param Distribution base_dist: A univariate distribution to reflect.
+    """
+
+    support = constraints.positive
+
+    def __init__(self, base_dist, validate_args=None):
+        if base_dist.event_shape:
+            raise ValueError("Only univariate distributions can be folded.")
+        super().__init__(base_dist, AbsTransform(), validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value):
+        dim = max(len(self.batch_shape), jnp.ndim(value))
+        plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
+        return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_dist.tree_flatten()
+        return base_flatten, (type(self.base_dist), base_aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        base_cls, base_aux = aux_data
+        base_dist = base_cls.tree_unflatten(base_aux, params)
+        return cls(base_dist)
+
+
 class Delta(Distribution):
     arg_constraints = {
         "v": constraints.dependent(is_discrete=False),
         "log_density": constraints.real,
     }
-    reparameterized_params = ["v", "log_density"]
+    reparametrized_params = ["v", "log_density"]
 
     def __init__(self, v=0.0, log_density=0.0, event_dim=0, validate_args=None):
         if event_dim > jnp.ndim(v):

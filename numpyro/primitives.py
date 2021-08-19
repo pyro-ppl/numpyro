@@ -131,6 +131,44 @@ def sample(
         + "_unobserved"`` which should be used by guides.
     :return: sample from the stochastic `fn`.
     """
+    if not isinstance(fn, numpyro.distributions.Distribution):
+        type_error = TypeError(
+            "It looks like you tried to use a fn that isn't an instance of "
+            "numpyro.distributions.Distribution, funsor.Funsor or "
+            "tensorflow_probability.distributions.Distribution. If you're using "
+            "funsor or tensorflow_probability, make sure they are correctly installed."
+        )
+
+        # fn can be a funsor.Funsor, but this won't be installed for all users
+        try:
+            from funsor import Funsor
+        except ImportError:
+            Funsor = None
+
+        # if Funsor import failed, or fn is not a Funsor it's also possible fn could be
+        # a tensorflow_probability distribution
+        if Funsor is None or not isinstance(fn, Funsor):
+            try:
+                from tensorflow_probability.substrates.jax import distributions as tfd
+
+                from numpyro.contrib.tfp.distributions import TFPDistribution
+            except ImportError:
+                # if tensorflow_probability fails to import here, then fn is not a
+                # numpyro Distribution or a Funsor, and it can't have been a tfp
+                # distribution either, so raising TypeError is ok
+                raise type_error
+
+            if isinstance(fn, tfd.Distribution):
+                with warnings.catch_warnings():
+                    # ignore FutureWarnings when instantiating TFPDistribution
+                    warnings.simplefilter("ignore", category=FutureWarning)
+                    # if fn is a tfp distribution we need to wrap it
+                    fn = TFPDistribution[fn.__class__](**fn.parameters)
+            else:
+                # if tensorflow_probability imported, but fn is not tfd.Distribution we
+                # still need to raise a type error
+                raise type_error
+
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
         return fn(rng_key=rng_key, sample_shape=sample_shape)
@@ -232,6 +270,38 @@ def deterministic(name, value):
         return value
 
     initial_msg = {"type": "deterministic", "name": name, "value": value}
+
+    # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg["value"]
+
+
+def mutable(name, init_value=None):
+    """
+    This primitive is used to store a mutable value that can be changed
+    during model execution::
+
+        a = numpyro.mutable("a", {"value": 1.})
+        a["value"] = 2.
+        assert numpyro.mutable("a")["value"] == 2.
+
+    For example, this can be used to store and update information like
+    running mean/variance in a neural network batch normalization layer.
+
+    :param str name: name of the mutable site.
+    :param init_value: mutable value to record in the trace.
+    """
+    if not _PYRO_STACK:
+        return init_value
+
+    initial_msg = {
+        "type": "mutable",
+        "name": name,
+        "fn": identity,
+        "args": (init_value,),
+        "kwargs": {},
+        "value": init_value,
+    }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
@@ -358,7 +428,7 @@ class plate(Messenger):
         This can be used to apply a scaling factor by inference algorithms. e.g.
         when computing ELBO using a mini-batch.
     :param int dim: Optional argument to specify which dimension in the tensor
-        is used as the plate dim. If `None` (default), the leftmost available dim
+        is used as the plate dim. If `None` (default), the rightmost available dim
         is allocated.
     """
 

@@ -64,7 +64,7 @@ class MCMCKernel(ABC):
         >>> kernel = MetropolisHastings(f)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
-        >>> samples = mcmc.get_samples()
+        >>> posterior_samples = mcmc.get_samples()
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
 
@@ -204,6 +204,11 @@ class MCMC(object):
     .. note:: Setting `progress_bar=False` will improve the speed for many cases. But it might
         require more memory than the other option.
 
+    .. note:: If setting `num_chains` greater than `1` in a Jupyter Notebook, then you will need to
+        have installed `ipywidgets <https://ipywidgets.readthedocs.io/en/latest/user_install.html>`_
+        in the environment from which you launced Jupyter in order for the progress bars to render
+        correctly.
+
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
         and :class:`~numpyro.infer.hmc.NUTS` are available.
@@ -234,6 +239,7 @@ class MCMC(object):
     def __init__(
         self,
         sampler,
+        *,
         num_warmup,
         num_samples,
         num_chains=1,
@@ -439,7 +445,7 @@ class MCMC(object):
 
             .. code-block:: python
 
-                mcmc = MCMC(NUTS(model), 100, 100)
+                mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
                 mcmc.run(random.PRNGKey(0))
                 first_100_samples = mcmc.get_samples()
                 mcmc.post_warmup_state = mcmc.last_state
@@ -466,7 +472,7 @@ class MCMC(object):
         extra_fields=(),
         collect_warmup=False,
         init_params=None,
-        **kwargs
+        **kwargs,
     ):
         """
         Run the MCMC warmup adaptation phase. After this call, `self.warmup_state` will be set
@@ -508,9 +514,10 @@ class MCMC(object):
             does not have batch_size, it will be split in to a batch of `num_chains` keys.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from `z`, `diverging`) from :data:`numpyro.infer.mcmc.HMCState`
-            to collect during the MCMC run.
-        :type extra_fields: tuple or list
+        :param extra_fields: Extra fields (aside from `"z"`, `"diverging"`) to be collected
+            during the MCMC run. Note that subfields can be accessed using dots, e.g.
+            `"adapt_state.step_size"` can be used to collect step sizes at each step.
+        :type extra_fields: tuple or list of str
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
@@ -587,6 +594,15 @@ class MCMC(object):
             `dict` keyed on site names if a model containing Pyro primitives is used,
             but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
             `potential_fn` for HMC that takes `list` args).
+
+        **Example:**
+
+        You can then pass those samples to :class:`~numpyro.infer.util.Predictive`::
+
+            posterior_samples = mcmc.get_samples()
+            predictive = Predictive(model, posterior_samples=posterior_samples)
+            samples = predictive(rng_key1, *model_args, **model_kwargs)
+
         """
         return (
             self._states[self._sample_field]

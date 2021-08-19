@@ -34,7 +34,7 @@ from numpyro.util import cond, fori_loop, identity
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
  - **z** - a dict of the current latent values (both HMC and Gibbs sites)
- - **hmc_state** - current hmc_state
+ - **hmc_state** - current :data:`~numpyro.infer.hmc.HMCState`
  - **rng_key** - random key for the current step
 """
 
@@ -80,13 +80,13 @@ class HMCGibbs(MCMCKernel):
         ...     numpyro.sample("obs", dist.Normal(x + y, 1.0), obs=jnp.array([1.0]))
         ...
         >>> def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
-        ...    y = hmc_sites['y']
-        ...    new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
-        ...    return {'x': new_x}
+        ...     y = hmc_sites['y']
+        ...     new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
+        ...     return {'x': new_x}
         ...
         >>> hmc_kernel = NUTS(model)
         >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
-        >>> mcmc = MCMC(kernel, 100, 100, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=100, num_samples=100, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
 
@@ -386,7 +386,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
-        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
@@ -587,7 +587,7 @@ class HMCECS(HMCGibbs):
         ...
         >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
         >>> kernel = HMCECS(NUTS(model), num_blocks=10)
-        >>> mcmc = MCMC(kernel, 1000, 1000)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), data)
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.) < 0.1
@@ -701,6 +701,10 @@ class HMCECS(HMCGibbs):
 
     @staticmethod
     def taylor_proxy(reference_params):
+        """
+        This is just a convenient static method which calls
+        :func:`~numpyro.infer.hmc_gibbs.taylor_proxy`.
+        """
         return taylor_proxy(reference_params)
 
 
@@ -740,7 +744,7 @@ def taylor_proxy(reference_params):
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
 
-    ** References: **
+    **References:**
 
     [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
         Bardenet., R., Doucet, A., Holmes, C. (2014)

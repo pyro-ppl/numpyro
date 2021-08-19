@@ -64,8 +64,8 @@ def main(args):
     nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(
         nuts_kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
@@ -91,8 +91,8 @@ def main(args):
     nuts_kernel = NUTS(neutra_model)
     mcmc = MCMC(
         nuts_kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
@@ -197,7 +197,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.7.2")
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=4000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

@@ -13,9 +13,39 @@ import numpyro.distributions as dist
 def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10):
     """
     Infer relations of RVs and plates from given model and optionally data.
-    See issue #949 on pyro-ppl/numpyro for more details.
+    See https://github.com/pyro-ppl/numpyro/issues/949 for more details.
 
-    :param int num_tries: times to trace model to detect discrete -> continuous dependency.
+    This returns a dictionary with keys:
+
+    -  "sample_sample" map each downstream sample site to a list of the upstream
+       sample sites on which it depend;
+    -  "sample_dist" maps each sample site to the name of the distribution at
+       that site;
+    -  "plate_sample" maps each plate name to a lists of the sample sites
+       within that plate; and
+    -  "observe" is a list of observed sample sites.
+
+    For example for the model::
+
+        def model(data):
+            m = numpyro.sample('m', dist.Normal(0, 1))
+            sd = numpyro.sample('sd', dist.LogNormal(m, 1))
+            with numpyro.plate('N', len(data)):
+                numpyro.sample('obs', dist.Normal(m, sd), obs=data)
+
+    the relation is::
+
+        {'sample_sample': {'m': [], 'sd': ['m'], 'obs': ['m', 'sd']},
+         'sample_dist': {'m': 'Normal', 'sd': 'LogNormal', 'obs': 'Normal'},
+         'plate_sample': {'N': ['obs']},
+         'observed': ['obs']}
+
+    :param callable model: A model to inspect.
+    :param model_args: Optional tuple of model args.
+    :param model_kwargs: Optional dict of model kwargs.
+    :param int num_tries: Optional number times to trace model to detect
+        discrete -> continuous dependency.
+    :rtype: dict
     """
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
@@ -87,7 +117,10 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         and not site["is_observed"]
         and not site["fn"].is_discrete
     }
-    log_prob_grads = jax.jacobian(get_log_probs)(samples)
+    if samples:
+        log_prob_grads = jax.jacobian(get_log_probs)(samples)
+    else:
+        log_prob_grads = {k: {} for k in get_log_probs(samples)}
     sample_deps = {}
     for name, grads in log_prob_grads.items():
         sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}

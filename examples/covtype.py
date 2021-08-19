@@ -174,7 +174,8 @@ def benchmark_hmc(args, features, labels):
         subsample_size = 1000
         guide = AutoBNAFNormal(model, num_flows=1, hidden_factors=[8])
         svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-        params, losses = svi.run(random.PRNGKey(2), 2000, features, labels)
+        svi_result = svi.run(random.PRNGKey(2), 2000, features, labels)
+        params, losses = svi_result.params, svi_result.losses
         plt.plot(losses)
         plt.show()
 
@@ -192,7 +193,7 @@ def benchmark_hmc(args, features, labels):
         )
     else:
         raise ValueError("Invalid algorithm, either 'HMC', 'NUTS', or 'HMCECS'.")
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples)
     mcmc.run(rng_key, features, labels, subsample_size, extra_fields=("accept_prob",))
     print("Mean accept prob:", jnp.mean(mcmc.get_extra_fields()["accept_prob"]))
     mcmc.print_summary(exclude_deterministic=False)
@@ -205,7 +206,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.7.2")
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument(
         "-n", "--num-samples", default=1000, type=int, help="number of samples"
