@@ -516,8 +516,7 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        consts = jnp.log(self.loc) + jnp.log(self.__b) + self.loc
-        return consts + self.__b * value - self.loc * jnp.exp(self.__b * value)
+        return jnp.log(self.__a) + self.__b * value - self.__a / self.__b * (jnp.exp(self.__b * value) - 1)
 
     @property
     def mean(self):
