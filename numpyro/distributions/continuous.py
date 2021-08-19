@@ -516,6 +516,7 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        # https://www.wolframalpha.com/input/?i=log%28a+e%5E%28-%28a+%28-1+%2B+e%5E%28b+x%29%29%29%2Fb+%2B+b+x%29%29
         return jnp.log(self.__a) + self.__b * value - self.__a / self.__b * (jnp.exp(self.__b * value) - 1)
 
     @property
