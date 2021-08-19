@@ -490,6 +490,50 @@ class Gumbel(Distribution):
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
+class Gompertz(Distribution):
+    arg_constraints = {
+        "shape": constraints.positive,
+        "scale": constraints.positive,
+    }
+    support = constraints.positive
+    reparametrized_params = ["shape", "scale"]
+
+    def __init__(self, shape=1.0, scale=1.0, validate_args=None):
+        self.shape, self.scale = promote_shapes(shape, scale)
+        # Alias parameters as they appear on wikipedia page
+        # See https://en.wikipedia.org/wiki/Gompertz_distribution
+        self.__eta, self.__b = self.shape, 1 / self.scale
+        batch_shape = lax.broadcast_shapes(jnp.shape(shape), jnp.shape(scale))
+        super(Gompertz, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        random_shape = sample_shape + self.batch_shape + self.event_shape
+        unifs = random.uniform(key, shape=random_shape)
+        return self.icdf(unifs)
+
+    @validate_sample
+    def log_prob(self, value):
+        consts = jnp.log(self.shape) + jnp.log(self.__b) + self.shape
+        return consts + self.__b * value - self.shape * jnp.exp(self.__b * value)
+
+    @property
+    def mean(self):
+        raise NotImplementedError("Gompertz mean not yet implemented")
+
+    @property
+    def variance(self):
+        raise NotImplementedError("Gompertz variance not yet implemented")
+
+    def cdf(self, value):
+        return 1 - jnp.exp(-1 * self.shape * (jnp.exp(self.__b * value) - 1))
+
+    def icdf(self, q):
+        return jnp.log(1 - jnp.log(1 - q) / self.shape) / self.__b
+
+
 class Laplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
