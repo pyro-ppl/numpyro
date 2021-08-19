@@ -192,9 +192,10 @@ class SVI(object):
                 site["type"] == "sample"
                 and (not site["is_observed"])
                 and site["fn"].support.is_discrete
+                and not self.loss.can_infer_discrete()
             ):
                 warnings.warn(
-                    "Currently, SVI does not support models with discrete latent variables"
+                    f"Currently, SVI with {type(self.loss).__name__} loss does not support models with discrete latent variables"
                 )
 
         if not mutable_state:
