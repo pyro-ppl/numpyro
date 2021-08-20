@@ -335,7 +335,7 @@ def test_dynamic_supports():
     assert_allclose(actual_loss, expected_loss)
 
 
-def test_laplace_approximation_uses_gauss_newton_hessian():
+def test_laplace_approximation_warning():
     def model(x, y):
         a = numpyro.sample("a", dist.Normal(0, 10))
         b = numpyro.sample("b", dist.Normal(0, 10), sample_shape=(3,))
