@@ -889,7 +889,7 @@ class AutoLaplaceApproximation(AutoContinuous):
                 warnings.warn(
                     "Hessian of log posterior at the MAP point is singular. Posterior"
                     " samples from AutoLaplaceApproxmiation will be constant (equal to"
-                    " the MAP point)."
+                    " the MAP point). Please consider using an AutoNormal guide."
                 )
         scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
         return LowerCholeskyAffine(loc, scale_tril)
