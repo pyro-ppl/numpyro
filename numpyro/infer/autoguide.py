@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-from jax import hessian, jacfwd, lax, random, tree_map
+from jax import hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -891,7 +891,7 @@ class AutoLaplaceApproximation(AutoContinuous):
                     " samples from AutoLaplaceApproxmiation will be constant (equal to"
                     " the MAP point). Please consider using an AutoNormal guide."
                 )
-            scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
+        scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
