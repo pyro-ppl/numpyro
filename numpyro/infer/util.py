@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from contextlib import contextmanager
 from functools import partial
 import warnings
 
@@ -10,12 +11,13 @@ import numpy as np
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import seed, substitute, trace
+from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
@@ -68,6 +70,55 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
+class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
+    """
+    Stop gradient for samples at latent sample sites for which has_rsample=False.
+    """
+
+    def postprocess_message(self, msg):
+        if (
+            msg["type"] == "sample"
+            and (not msg["is_observed"])
+            and (not msg["fn"].has_rsample)
+        ):
+            msg["value"] = lax.stop_gradient(msg["value"])
+            # TODO: reconsider this logic
+            # here we clear all the cached value so that gradients of log_prob(value) w.r.t.
+            # all parameters of the transformed distributions match the behavior of
+            # TransformedDistribution(d, transform) in Pyro with transform.cache_size == 0
+            msg["intermediates"] = None
+
+
+def get_importance_trace(model, guide, args, kwargs, params):
+    """
+    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
+    The returned traces also store the log probability at each site.
+
+    .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
+    """
+    guide = substitute(guide, data=params)
+    with _without_rsample_stop_gradient():
+        guide_trace = trace(guide).get_trace(*args, **kwargs)
+    model = substitute(replay(model, guide_trace), data=params)
+    model_trace = trace(model).get_trace(*args, **kwargs)
+    for tr in (guide_trace, model_trace):
+        for site in tr.values():
+            if site["type"] == "sample":
+                if "log_prob" not in site:
+                    value = site["value"]
+                    intermediates = site["intermediates"]
+                    scale = site["scale"]
+                    if intermediates:
+                        log_prob = site["fn"].log_prob(value, intermediates)
+                    else:
+                        log_prob = site["fn"].log_prob(value)
+
+                    if (scale is not None) and (not is_identically_one(scale)):
+                        log_prob = scale * log_prob
+                    site["log_prob"] = log_prob
+    return model_trace, guide_trace
+
+
 def transform_fn(transforms, params, invert=False):
     """
     (EXPERIMENTAL INTERFACE) Callable that applies a transformation from the `transforms`
@@ -107,7 +158,8 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
     def substitute_fn(site):
         if site["name"] in params:
             if site["type"] == "sample":
-                return biject_to(site["fn"].support)(params[site["name"]])
+                with helpful_support_errors(site):
+                    return biject_to(site["fn"].support)(params[site["name"]])
             else:
                 return params[site["name"]]
 
@@ -125,7 +177,8 @@ def _unconstrain_reparam(params, site):
     if name in params:
         p = params[name]
         support = site["fn"].support
-        t = biject_to(support)
+        with helpful_support_errors(site):
+            t = biject_to(support)
         # in scan, we might only want to substitute an item at index i, rather than the whole sequence
         i = site["infer"].get("_scan_current_index", None)
         if i is not None:
@@ -263,7 +316,8 @@ def find_valid_initial_params(
                     and not v["fn"].is_discrete
                 ):
                     constrained_values[k] = v["value"]
-                    inv_transforms[k] = biject_to(v["fn"].support)
+                    with helpful_support_errors(v):
+                        inv_transforms[k] = biject_to(v["fn"].support)
             params = transform_fn(
                 inv_transforms,
                 {k: v for k, v in constrained_values.items()},
@@ -343,7 +397,8 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                     )
             else:
                 support = v["fn"].support
-                inv_transforms[k] = biject_to(support)
+                with helpful_support_errors(v, raise_warnings=True):
+                    inv_transforms[k] = biject_to(support)
                 # XXX: the following code filters out most situations with dynamic supports
                 args = ()
                 if isinstance(support, constraints._GreaterThan):
@@ -619,17 +674,47 @@ def _predictive(
     posterior_samples,
     batch_shape,
     return_sites=None,
+    infer_discrete=False,
     parallel=True,
     model_args=(),
     model_kwargs={},
 ):
-    model = numpyro.handlers.mask(model, mask=False)
+    masked_model = numpyro.handlers.mask(model, mask=False)
+    if infer_discrete:
+        # inspect the model to get some structure
+        rng_key, subkey = random.split(rng_key)
+        batch_ndim = len(batch_shape)
+        prototype_sample = tree_map(
+            lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[batch_ndim:])[0],
+            posterior_samples,
+        )
+        prototype_trace = trace(
+            seed(substitute(masked_model, prototype_sample), subkey)
+        ).get_trace(*model_args, **model_kwargs)
+        first_available_dim = -_guess_max_plate_nesting(prototype_trace) - 1
 
     def single_prediction(val):
         rng_key, samples = val
-        model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(
-            *model_args, **model_kwargs
-        )
+        if infer_discrete:
+            from numpyro.contrib.funsor import config_enumerate
+            from numpyro.contrib.funsor.discrete import _sample_posterior
+
+            model_trace = prototype_trace
+            temperature = 1
+            pred_samples = _sample_posterior(
+                config_enumerate(condition(model, samples)),
+                first_available_dim,
+                temperature,
+                rng_key,
+                *model_args,
+                **model_kwargs,
+            )
+        else:
+            model_trace = trace(
+                seed(substitute(masked_model, samples), rng_key)
+            ).get_trace(*model_args, **model_kwargs)
+            pred_samples = {name: site["value"] for name, site in model_trace.items()}
+
         if return_sites is not None:
             if return_sites == "":
                 sites = {
@@ -644,9 +729,7 @@ def _predictive(
                 if (site["type"] == "sample" and k not in samples)
                 or (site["type"] == "deterministic")
             }
-        return {
-            name: site["value"] for name, site in model_trace.items() if name in sites
-        }
+        return {name: value for name, value in pred_samples.items() if name in sites}
 
     num_samples = int(np.prod(batch_shape))
     if num_samples > 1:
@@ -675,6 +758,12 @@ class Predictive(object):
     :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
+    :param bool infer_discrete: whether or not to sample discrete sites from the
+        posterior, conditioned on observations and other latent values in
+        ``posterior_samples``. Under the hood, those sites will be marked with
+        ``site["infer"]["enumerate"] = "parallel"``. See how `infer_discrete` works at
+        the `Pyro enumeration tutorial <https://pyro.ai/examples/enumeration.html>`_.
+        Note that this requires ``funsor`` installation.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
     :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
@@ -689,16 +778,39 @@ class Predictive(object):
           argument is not None, its value should be equal to `num_chains x N`.
 
     :return: dict of samples from the predictive distribution.
+
+    **Example:**
+
+    Given a model::
+
+        def model(X, y=None):
+            ...
+            return numpyro.sample("obs", likelihood, obs=y)
+
+    you can sample from the prior predictive::
+
+        predictive = Predictive(model, num_samples=1000)
+        y_pred = predictive(rng_key, X)["obs"]
+
+    If you also have posterior samples, you can sample from the posterior predictive::
+
+        predictive = Predictive(model, posterior_samples=posterior_samples)
+        y_pred = predictive(rng_key, X)["obs"]
+
+    See docstrings for :class:`~numpyro.infer.svi.SVI` and :class:`~numpyro.infer.mcmc.MCMCKernel`
+    to see example code of this in context.
     """
 
     def __init__(
         self,
         model,
         posterior_samples=None,
+        *,
         guide=None,
         params=None,
         num_samples=None,
         return_sites=None,
+        infer_discrete=False,
         parallel=False,
         batch_ndims=1,
     ):
@@ -747,6 +859,7 @@ class Predictive(object):
         self.num_samples = num_samples
         self.guide = guide
         self.params = {} if params is None else params
+        self.infer_discrete = infer_discrete
         self.return_sites = return_sites
         self.parallel = parallel
         self.batch_ndims = batch_ndims
@@ -784,6 +897,7 @@ class Predictive(object):
             posterior_samples,
             self._batch_shape,
             return_sites=self.return_sites,
+            infer_discrete=self.infer_discrete,
             parallel=self.parallel,
             model_args=args,
             model_kwargs=kwargs,
@@ -844,3 +958,41 @@ def log_likelihood(
     batch_size = int(np.prod(batch_shape))
     chunk_size = batch_size if parallel else 1
     return soft_vmap(single_loglik, posterior_samples, len(batch_shape), chunk_size)
+
+
+@contextmanager
+def helpful_support_errors(site, raise_warnings=False):
+    name = site["name"]
+    support = getattr(site["fn"], "support", None)
+    if isinstance(support, constraints.independent):
+        support = support.base_constraint
+
+    # Warnings
+    if raise_warnings:
+        if support is constraints.circular:
+            msg = (
+                f"Continuous inference poorly handles circular sample site '{name}'. "
+                + "Consider using VonMises distribution together with "
+                + "a reparameterizer, e.g. "
+                + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
+            )
+            warnings.warn(msg, UserWarning)
+
+    # Exceptions
+    try:
+        yield
+    except NotImplementedError as e:
+        support_name = repr(support).lower()
+        if "integer" in support_name or "boolean" in support_name:
+            # TODO: mention enumeration when it is supported in SVI
+            raise ValueError(
+                f"Continuous inference cannot handle discrete sample site '{name}'."
+            )
+        if "sphere" in support_name:
+            raise ValueError(
+                f"Continuous inference cannot handle spherical sample site '{name}'. "
+                "Consider using ProjectedNormal distribution together with "
+                "a reparameterizer, e.g. "
+                f"numpyro.handlers.reparam(config={{'{name}': ProjectedNormalReparam()}})."
+            )
+        raise e from None

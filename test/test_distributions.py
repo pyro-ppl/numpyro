@@ -1471,6 +1471,7 @@ def test_constraints(constraint, x, expected):
         constraints.corr_matrix,
         constraints.greater_than(2),
         constraints.interval(-3, 5),
+        constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
         constraints.ordered_vector,
@@ -1533,6 +1534,7 @@ def test_biject_to(constraint, shape):
             constraints.real_vector,
             constraints.ordered_vector,
             constraints.positive_ordered_vector,
+            constraints.l1_ball,
         ]:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
@@ -2031,5 +2033,15 @@ def test_kl_normal_normal(shape):
     q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
     actual = kl_divergence(p, q)
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
+    expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
+    assert_allclose(actual, expected, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(4,), (2, 3)], ids=str)
+def test_kl_dirichlet_dirichlet(shape):
+    p = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
+    q = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
+    actual = kl_divergence(p, q)
+    x = p.sample(random.PRNGKey(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)

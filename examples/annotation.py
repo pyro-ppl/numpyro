@@ -37,14 +37,14 @@ import os
 
 import numpy as np
 
-from jax import nn, random
+from jax import nn, random, vmap
 import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.reparam import LocScaleReparam
 
 
@@ -312,9 +312,22 @@ def main(args):
     mcmc.run(random.PRNGKey(0), *data)
     mcmc.print_summary()
 
+    posterior_samples = mcmc.get_samples()
+    predictive = Predictive(model, posterior_samples, infer_discrete=True)
+    discrete_samples = predictive(random.PRNGKey(1), *data)
+
+    item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
+        discrete_samples["c"].squeeze(-1)
+    )
+    print("Histogram of the predicted class of each item:")
+    row_format = "{:>10}" * 5
+    print(row_format.format("", *["c={}".format(i) for i in range(4)]))
+    for i, row in enumerate(item_class):
+        print(row_format.format(f"item[{i}]", *row))
+
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.7.2")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

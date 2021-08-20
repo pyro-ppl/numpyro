@@ -383,7 +383,7 @@ def test_subsample_replay():
         with numpyro.plate("a", len(data), subsample_size=subsample_size):
             pass
 
-    with handlers.seed(rng_seed=1), handlers.replay(guide_trace=guide_trace):
+    with handlers.seed(rng_seed=1), handlers.replay(trace=guide_trace):
         with numpyro.plate("a", len(data)):
             subsample_data = numpyro.subsample(data, event_dim=0)
             assert subsample_data.shape == (subsample_size,)

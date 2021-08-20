@@ -395,7 +395,7 @@ def logmatmulexp(x, y):
 
 
 def clamp_probs(probs):
-    finfo = jnp.finfo(jnp.result_type(probs))
+    finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
 
 

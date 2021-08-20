@@ -136,7 +136,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
 
     .. warning::
         Instead of using this interface directly, we would highly recommend you
-        to use the higher level :class:`numpyro.infer.MCMC` API instead.
+        to use the higher level :class:`~numpyro.infer.mcmc.MCMC` API instead.
 
     **Example**
 

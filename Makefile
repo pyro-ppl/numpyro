@@ -17,7 +17,7 @@ install: FORCE
 	pip install -e .[dev,doc,test,examples]
 
 doctest: FORCE
-	$(MAKE) -C docs doctest
+	JAX_PLATFORM_NAME=cpu $(MAKE) -C docs doctest
 
 test: lint FORCE
 	pytest -v test
