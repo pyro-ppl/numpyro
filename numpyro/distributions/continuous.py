@@ -492,18 +492,17 @@ class Gumbel(Distribution):
 
 class Gompertz(Distribution):
     arg_constraints = {
-        "loc": constraints.positive,
-        "shape": constraints.positive,
+        "rate": constraints.positive,
+        "concentration": constraints.positive,
     }
     support = constraints.positive
     reparametrized_params = ["loc", "shape"]
 
-    def __init__(self, loc=1.0, shape=1.0, validate_args=None):
-        self.loc, self.shape = promote_shapes(loc, shape)
+    def __init__(self, rate, concentration, validate_args=None):
+        self.rate, self.concentration = promote_shapes(rate, concentration)
         # Alias parameters as they appear in this article
         # https://www.tandfonline.com/doi/abs/10.1080/03461238.2012.687697
-        self.__a, self.__b = self.loc, self.shape
-        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(shape))
+        batch_shape = lax.broadcast_shapes(jnp.shape(rate), jnp.shape(concentration))
         super(Gompertz, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
@@ -516,23 +515,39 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        # https://www.wolframalpha.com/input/?i=log%28a+e%5E%28-%28a+%28-1+%2B+e%5E%28b+x%29%29%29%2Fb+%2B+b+x%29%29
-        return jnp.log(self.__a) + self.__b * value - self.__a / self.__b * (jnp.exp(self.__b * value) - 1)
+        conc_times_value = self.concentration * value
+        return (
+            jnp.log1p(self.rate)
+            + conc_times_value
+            - self.rate / self.concentration * (jnp.expm1(conc_times_value) - 1)
+        )
 
     @property
     def mean(self):
+        rate_over_conc = self.rate / self.concentration
         # Using approximation from corollary 1 in aforementioned paper
-        return jnp.exp(self.__a / self.__b) * (self.__a / self.__b - jnp.log(self.__a / self.__b) - EULER_MASCHERONI) / self.__b
+        return (
+            jnp.exp(rate_over_conc)
+            * (rate_over_conc - jnp.log1p(rate_over_conc) - EULER_MASCHERONI)
+            / self.concentration
+        )
 
     @property
     def variance(self):
         raise NotImplementedError("Gompertz variance not yet implemented")
 
     def cdf(self, value):
-        return 1 - jnp.exp(-1 * self.__a / self.__b * (jnp.exp(self.__b * value) - 1))
+        return 1 - jnp.expm1(
+            -self.rate
+            / self.concentration
+            * (jnp.expm1(self.concentration * value) - 1)
+        )
 
     def icdf(self, q):
-        return jnp.log(1 - jnp.log(1 - q) * self.__b / self.__a) / self.__b
+        return (
+            jnp.log1p(1 - jnp.log1p(1 - q) * self.concentration / self.rate)
+            / self.concentration
+        )
 
 
 class Laplace(Distribution):
