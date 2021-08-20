@@ -886,8 +886,12 @@ class AutoLaplaceApproximation(AutoContinuous):
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
-                jacobian = jacfwd(loss_fn)(loc)
-                scale_tril = jnp.outer(jacobian.T, jacobian)
+                warnings.warn(
+                    "Hessian of log posterior at the MAP point is singular. Posterior"
+                    " samples from AutoLaplaceApproxmiation will be constant (equal to"
+                    " the MAP point). Please consider using an AutoNormal guide."
+                )
+            scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):

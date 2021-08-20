@@ -350,9 +350,8 @@ def test_laplace_approximation_uses_gauss_newton_hessian():
     init_state = svi.init(random.PRNGKey(0))
     svi_state = fori_loop(0, 10000, lambda i, val: svi.update(val)[0], init_state)
     params = svi.get_params(svi_state)
-    samples = guide.sample_posterior(random.PRNGKey(1), params)
-    # NaNs would be returned if we tried to invert the hessian
-    assert not np.any([np.isnan(v).any() for v in samples.values()])
+    with pytest.warns(UserWarning, match="Hessian of log posterior"):
+        guide.sample_posterior(random.PRNGKey(1), params)
 
 
 def test_improper():
