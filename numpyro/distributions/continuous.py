@@ -527,7 +527,7 @@ class Gompertz(Distribution):
         rate_over_conc = self.rate / self.concentration
         # Using approximation from corollary 1 in aforementioned paper
         return (
-            jnp.exp(rate_over_conc)
+            jnp.expm1(rate_over_conc)
             * (rate_over_conc - jnp.log1p(rate_over_conc) - EULER_MASCHERONI)
             / self.concentration
         )
@@ -571,7 +571,7 @@ class Laplace(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        normalize_term = jnp.log(2 * self.scale)
+        normalize_term = jnp.log1p(2 * self.scale)
         value_scaled = jnp.abs(value - self.loc) / self.scale
         return -value_scaled - normalize_term
 
