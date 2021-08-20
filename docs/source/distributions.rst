@@ -489,6 +489,14 @@ ProjectedNormal
     :show-inheritance:
     :member-order: bysource
 
+SineBivariateVonMises
+---------------------
+.. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 VonMises
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.directional.VonMises
