@@ -826,6 +826,14 @@ SigmoidTransform
     :show-inheritance:
     :member-order: bysource
 
+Simplex2OrderedTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.Simplex2OrderedTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 SoftplusLowerCholeskyTransform
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.SoftplusLowerCholeskyTransform
