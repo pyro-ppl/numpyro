@@ -816,9 +816,9 @@ class Simplex2OrderedTransform(Transform):
         
         # the first term defies the general map formula
         # hence, the most succinct implementation is to parametrize the changing term
-        expit_init=jnp.broadcast_to(1.0,p_y.shape)[...,0]
+        expit_init=jnp.broadcast_to(1.0,x.shape)[...,0]
         # scan must run along the last dimension, so we need to move that dimension to be the leading
-        _, y = lax.scan(scan_fn, expit_init,jnp.moveaxis(p_y[...,:-1],-1,0))
+        _, y = lax.scan(scan_fn, expit_init,jnp.moveaxis(x[...,:-1],-1,0))
         # reverse the move for last dimension to represent the event shape
         y=jnp.moveaxis(y,0,-1)
     
