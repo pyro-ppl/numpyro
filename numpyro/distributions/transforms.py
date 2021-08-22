@@ -838,10 +838,12 @@ class Simplex2OrderedTransform(Transform):
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        K=x.shape[0] 
+        K=x.shape[-1]
+        J_shape=x.shape[:-1]+(K,K)
+
         sigma=expit(self.anchor_point-y)
-        
-        J=jnp.zeros((K,K),dtype=float)
+
+        J=jnp.zeros(J_shape,dtype=float)
         # first column holding the suming constraint of the ordinal probabilities
         J=J.at[...,0].set(1.0)
         # partial derivation of sigma
@@ -851,7 +853,7 @@ class Simplex2OrderedTransform(Transform):
         J=J.at[..., i+1, j+1].set(-rho)
         # off-diagonal element
         J=J.at[..., i, j+1].set(rho)
-    
+
         _,log_det=jnp.linalg.slogdet(J)
         # NB: sign has to be the opposite of [1] due to Numpyro's implementation of TransformedDistribution
         return -log_det
