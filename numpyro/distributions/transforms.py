@@ -791,67 +791,70 @@ class SigmoidTransform(Transform):
         x_abs = jnp.abs(x)
         return -x_abs - 2 * jnp.log1p(jnp.exp(-x_abs))
 
-
 class Simplex2OrderedTransform(Transform):
     """
     Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
     Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
     Anchor point is a nuisance parameter to improve identifiability.
-
+     
     **References:**
 
     1. *Ordinal Regression Case Study, section 2.2*,
        M. Betancourt, https://betanalpha.github.io/assets/case_studies/ordinal_regression.html
-    """
-
+    """    
     domain = constraints.simplex
     codomain = constraints.ordered_vector
-
+    
     def __init__(self, anchor_point=0.0):
         self.anchor_point = anchor_point
-
-    def __call__(self, x):
+    
+    def __call__(self, x):        
         def scan_fn(expit_term, x):
-            y = self.anchor_point - logit(expit_term - x)
-            next_expit_term = expit(self.anchor_point - y)
+            y=self.anchor_point-logit(expit_term-x)        
+            next_expit_term=expit(self.anchor_point-y)
             return next_expit_term, y
-
+        
         # the first term defies the general map formula
         # hence, the most succinct implementation is to parametrize the changing term
-        expit_init = 1
-        _, y = lax.scan(scan_fn, expit_init, x[:-1])
+        expit_init=jnp.broadcast_to(1.0,p_y.shape)[...,0]
+        # scan must run along the last dimension, so we need to move that dimension to be the leading
+        _, y = lax.scan(scan_fn, expit_init,jnp.moveaxis(p_y[...,:-1],-1,0))
+        # reverse the move for last dimension to represent the event shape
+        y=jnp.moveaxis(y,0,-1)
+    
         return y
+    
+    def _inverse(self,y):
+        K=y.shape[-1]+1
+        x_shape=y.shape[:-1]+(K,)
 
-    def _inverse(self, y):
-        K = y.shape[0] + 1
-        sigma = expit(self.anchor_point - y)
+        sigma=expit(self.anchor_point-y)
 
-        x = jnp.zeros((K,), dtype=float)
-        x = x.at[0].set(1 - sigma[0])
-        x = x.at[1:-1].set(sigma[:-1] - sigma[1:])
-        x = x.at[-1].set(sigma[-1])
+        x=jnp.zeros(x_shape,dtype=float)
+        x=x.at[...,0].set(1-sigma[...,0])
+        x=x.at[...,1:-1].set(sigma[...,:-1]-sigma[...,1:])
+        x=x.at[...,-1].set(sigma[...,-1])
 
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        K = x.shape[0]
-        sigma = expit(self.anchor_point - y)
-
-        J = jnp.zeros((K, K), dtype=float)
+        K=x.shape[0] 
+        sigma=expit(self.anchor_point-y)
+        
+        J=jnp.zeros((K,K),dtype=float)
         # first column holding the suming constraint of the ordinal probabilities
-        J = J.at[..., 0].set(1.0)
+        J=J.at[...,0].set(1.0)
         # partial derivation of sigma
-        rho = jnp.multiply(sigma, 1 - sigma)
-        i, j = jnp.diag_indices(K - 1)
+        rho=jnp.multiply(sigma,1-sigma)
+        i,j=jnp.diag_indices(K-1) 
         # diagonal element
-        J = J.at[..., i + 1, j + 1].set(-rho)
+        J=J.at[..., i+1, j+1].set(-rho)
         # off-diagonal element
-        J = J.at[..., i, j + 1].set(rho)
-
-        _, log_det = jnp.linalg.slogdet(J)
+        J=J.at[..., i, j+1].set(rho)
+    
+        _,log_det=jnp.linalg.slogdet(J)
         # NB: sign has to be the opposite of [1] due to Numpyro's implementation of TransformedDistribution
         return -log_det
-
 
 def _softplus_inv(y):
     return jnp.log(-jnp.expm1(-y)) + y
