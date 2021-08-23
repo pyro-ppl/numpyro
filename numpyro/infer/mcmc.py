@@ -74,8 +74,6 @@ class MCMCKernel(ABC):
         constrained to the site's support, in addition to returning deterministic
         sites in the model.
 
-        .. note:: until the kernel is used in an MCMC run, `postprocess_fn` will return the identity
-
         :param model_args: Arguments to the model.
         :param model_kwargs: Keyword arguments to the model.
         """
