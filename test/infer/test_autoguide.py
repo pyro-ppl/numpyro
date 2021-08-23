@@ -77,12 +77,12 @@ def test_beta_bernoulli(auto_class):
     svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
-    print("TRUE COEFS", true_coefs)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
-    assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
+    posterior_mean = jnp.mean(posterior_samples["beta"], 0)
+    assert_allclose(posterior_mean, true_coefs, atol=0.05)
 
     if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
         quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
@@ -93,10 +93,11 @@ def test_beta_bernoulli(auto_class):
     predictive_samples = predictive(random.PRNGKey(1), None)
     assert predictive_samples["obs"].shape == (1000, 2)
 
-    # ... or from the guide + params
-    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-    predictive_samples = predictive(random.PRNGKey(1), None)
-    assert predictive_samples["obs"].shape == (1000, 2)
+    if auto_class not in [AutoDAIS]:
+        # ... or from the guide + params
+        predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+        predictive_samples = predictive(random.PRNGKey(1), None)
+        assert predictive_samples["obs"].shape == (1000, 2)
 
 
 @pytest.mark.parametrize(

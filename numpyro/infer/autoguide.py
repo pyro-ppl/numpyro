@@ -638,8 +638,12 @@ class AutoDAIS(AutoContinuous):
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
     """
-    def __init__(self, model, *, K=10, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, K=16, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1):
         self._init_scale = init_scale
+
+        if K < 1:
+            raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
+
         self.K = K
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
@@ -658,8 +662,8 @@ class AutoDAIS(AutoContinuous):
             with numpyro.handlers.block():
                 return -self._potential_fn(x_unpack)
 
-        eta = numpyro.param("eta", 0.02, constraint=constraints.interval(0, 0.05))
-        gamma = 0.9  # numpyro.param("gamma", 0.5, constraint=constraints.interval(0, 1))
+        eta = numpyro.param("eta", 0.02, constraint=constraints.interval(0, 0.1))
+        gamma = numpyro.param("gamma", 0.9, constraint=constraints.interval(0, 1))
         mass_matrix = numpyro.param("auto_mass_matrix", jnp.ones(self.latent_dim), constraint=constraints.positive)
         init_loc = numpyro.param("theta_0_loc", jnp.zeros(self.latent_dim))
         init_scale = numpyro.param("theta_0_scale", jnp.full(self.latent_dim, self._init_scale), constraint=constraints.positive)
@@ -683,6 +687,18 @@ class AutoDAIS(AutoContinuous):
         numpyro.factor("factor", -log_factor)
 
         return theta
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        def _single_sample(_rng_key):
+            latent_sample = handlers.substitute(
+                handlers.seed(self._sample_latent, _rng_key), params)(sample_shape=())
+            return self._unpack_and_constrain(latent_sample, params)
+
+        if sample_shape:
+            rng_key = random.split(rng_key, sample_shape[0])
+            return lax.map(_single_sample, rng_key)
+        else:
+            return _single_smaple(rng_key)
 
 
 class AutoDiagonalNormal(AutoContinuous):
