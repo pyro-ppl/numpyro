@@ -21,6 +21,7 @@ from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
+    AutoDAIS,
     AutoDelta,
     AutoDiagonalNormal,
     AutoIAFNormal,
@@ -47,6 +48,7 @@ init_strategy = init_to_median(num_samples=2)
     "auto_class",
     [
         AutoDiagonalNormal,
+        AutoDAIS,
         AutoIAFNormal,
         AutoBNAFNormal,
         AutoMultivariateNormal,
@@ -75,13 +77,14 @@ def test_beta_bernoulli(auto_class):
     svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
+    print("TRUE COEFS", true_coefs)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
     assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
 
-    if auto_class not in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+    if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
         quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
         assert quantiles["beta"].shape == (3, 2)
 
@@ -142,7 +145,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
+    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal):
         median = guide.median(params)
         assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method

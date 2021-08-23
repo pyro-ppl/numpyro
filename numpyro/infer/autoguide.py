@@ -8,6 +8,7 @@ import warnings
 
 import numpy as np
 
+import jax
 from jax import hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
@@ -45,6 +46,7 @@ from numpyro.util import not_jax_tracer
 __all__ = [
     "AutoContinuous",
     "AutoGuide",
+    "AutoDAIS",
     "AutoDiagonalNormal",
     "AutoLaplaceApproximation",
     "AutoLowRankMultivariateNormal",
@@ -133,7 +135,7 @@ class AutoGuide(ABC):
         with handlers.block():
             (
                 init_params,
-                _,
+                self._potential_fn,
                 self._postprocess_fn,
                 self.prototype_trace,
             ) = initialize_model(
@@ -606,6 +608,81 @@ class AutoContinuous(AutoGuide):
             handlers.seed(self._sample_latent, rng_key), params
         )(sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
+
+
+class AutoDAIS(AutoContinuous):
+    """
+    This implementation of :class:`AutoDais` uses DAIS [1, 2] to construct
+    a guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    References:
+    [1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
+        Tomas Geffner, Justin Domke.
+    [2] "Differentiable Annealed Importance Sampling and the Perils of Gradient Noise,"
+        Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse.
+
+    Usage::
+
+        guide = AutoDAIS(model)
+        svi = SVI(model, guide, ...)
+
+    :param callable model: A NumPyro model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_loc_fn: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param float init_scale: Initial scale for the standard deviation of each
+        (unconstrained transformed) latent variable.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
+    """
+    def __init__(self, model, *, K=10, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1):
+        self._init_scale = init_scale
+        self.K = K
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+        # NB: raise error if there are subsampling site in the self.prototype_trace
+
+    def _get_posterior(self):
+        raise NotImplementedError
+
+    def _sample_latent(self, *args, **kwargs):
+        kwargs.pop("sample_shape", ())
+
+        def log_density(x):
+            x_unpack = self._unpack_latent(x)
+            with numpyro.handlers.block():
+                return -self._potential_fn(x_unpack)
+
+        eta = numpyro.param("eta", 0.02, constraint=constraints.interval(0, 0.05))
+        gamma = 0.9  # numpyro.param("gamma", 0.5, constraint=constraints.interval(0, 1))
+        mass_matrix = numpyro.param("auto_mass_matrix", jnp.ones(self.latent_dim), constraint=constraints.positive)
+        init_loc = numpyro.param("theta_0_loc", jnp.zeros(self.latent_dim))
+        init_scale = numpyro.param("theta_0_scale", jnp.full(self.latent_dim, self._init_scale), constraint=constraints.positive)
+
+        theta_0 = numpyro.sample("auto_theta_0", dist.Normal(init_loc, init_scale).to_event(), infer={"is_auxiliary": True})
+        momentum_distribution = dist.Normal(0, mass_matrix).to_event()
+        v_0 = numpyro.sample("v_0", momentum_distribution.mask(False), infer={"is_auxiliary": True})
+        eps = numpyro.sample("eps", momentum_distribution.expand((self.K,)).to_event().mask(False), infer={"is_auxiliary": True})
+
+        def scan_body(carry, eps):
+            theta_prev, v_prev, log_factor = carry
+            theta_half = theta_prev + 0.5 * eta * (v_prev / mass_matrix)
+            v_hat = v_prev + eta * jax.grad(log_density)(theta_half)
+            theta = theta_half + 0.5 * eta * (v_hat / mass_matrix)
+            v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+            log_factor = log_factor + momentum_distribution.log_prob(v_hat) - momentum_distribution.log_prob(v_prev)
+            return (theta, v, log_factor), None
+
+        (theta, _, log_factor), _ = jax.lax.scan(scan_body, (theta_0, v_0, 0.), eps)
+
+        numpyro.factor("factor", -log_factor)
+
+        return theta
 
 
 class AutoDiagonalNormal(AutoContinuous):
