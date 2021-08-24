@@ -77,6 +77,13 @@ def test_beta_bernoulli(auto_class):
     svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
 
+    if auto_class in [AutoDAIS]:
+        print("\n\nparams\n", params)
+        betas = params["auto_beta_increments"]
+        betas = jnp.cumsum(betas)
+        betas = betas / betas[-1]
+        print("betas", betas)
+
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(

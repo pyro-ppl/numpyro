@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 
 import jax
-from jax import hessian, lax, random, tree_map
+from jax import grad, hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -685,11 +685,23 @@ class AutoDAIS(AutoContinuous):
                 return -self._potential_fn(x_unpack)
 
         eta = numpyro.param(
-            "{}_eta".format(self.prefix), self.eta_init, constraint=constraints.interval(0, self.eta_max)
+            "{}_eta".format(self.prefix),
+            self.eta_init,
+            constraint=constraints.interval(0, self.eta_max),
         )
         gamma = numpyro.param(
-            "{}_gamma".format(self.prefix), self.gamma_init, constraint=constraints.interval(0, 1)
+            "{}_gamma".format(self.prefix),
+            self.gamma_init,
+            constraint=constraints.interval(0, 1),
         )
+        betas = numpyro.param(
+            "{}_beta_increments".format(self.prefix),
+            jnp.ones(self.K),
+            constraint=constraints.positive,
+        )
+        betas = jnp.cumsum(betas)
+        betas = betas / betas[-1]  # K-dimensional with betas[-1] = 1
+
         mass_matrix = numpyro.param(
             "{}_mass_matrix".format(self.prefix),
             jnp.full(self.latent_dim, 1.0 / self._init_scale),
@@ -697,16 +709,19 @@ class AutoDAIS(AutoContinuous):
         )
         eta_inv_mass_matrix = 0.5 * eta / mass_matrix
 
-        init_z_loc = numpyro.param("{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim))
+        init_z_loc = numpyro.param(
+            "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
+        )
         init_z_scale = numpyro.param(
             "{}_z_0_scale".format(self.prefix),
             jnp.full(self.latent_dim, self._init_scale),
             constraint=constraints.positive,
         )
 
+        base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         z_0 = numpyro.sample(
             "{}_z_0".format(self.prefix),
-            dist.Normal(init_z_loc, init_z_scale).to_event(),
+            base_z_dist,
             infer={"is_auxiliary": True},
         )
         momentum_dist = dist.Normal(0, mass_matrix).to_event()
@@ -716,10 +731,14 @@ class AutoDAIS(AutoContinuous):
             infer={"is_auxiliary": True},
         )
 
-        def scan_body(carry, eps):
+        def scan_body(carry, eps_beta):
+            eps, beta = eps_beta
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta_inv_mass_matrix
-            v_hat = v_prev + eta * jax.grad(log_density)(z_half)
+            gradient = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half) + beta * grad(
+                log_density
+            )(z_half)
+            v_hat = v_prev + eta * gradient
             z = z_half + v_hat * eta_inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
             log_factor = (
@@ -730,7 +749,7 @@ class AutoDAIS(AutoContinuous):
             return (z, v, log_factor), None
 
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
-        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), eps)
+        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), (eps, betas))
 
         numpyro.factor("factor", log_factor)
 
