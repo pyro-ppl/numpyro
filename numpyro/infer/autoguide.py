@@ -614,8 +614,10 @@ class AutoDAIS(AutoContinuous):
     """
     This implementation of :class:`AutoDAIS` uses Differentiable Annealed
     Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
-    latent space. The same algorithm is called Uncorrected Hamiltonian Annealing
-    in [1].
+    latent space. Samples from the variational distribution (i.e. guide)
+    are generated using a combination of (uncorrected) Hamiltonian Monte Carlo
+    and Annealed Importance Sampling. The same algorithm is called Uncorrected
+    Hamiltonian Annealing in [1].
 
     References:
     [1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
@@ -630,14 +632,18 @@ class AutoDAIS(AutoContinuous):
 
     :param callable model: A NumPyro model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param int K: a positive integer that controls the number of HMC steps used.
+        defaults to 8.
+    :param float eta_init: the initial value of the step size used in HMC. defaults
+        to 0.05.
+    :param float eta_max: the maximum value of the learnable step size used in HMC.
+        defaults to 0.5.
+    :param float gamma_init: the initial value of the learnable damping factor used
+        during partial momentum refreshments in HMC. defaults to 0.9.
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param float init_scale: Initial scale for the standard deviation of each
         (unconstrained transformed) latent variable.
-    :param callable create_plates: An optional function inputing the same
-        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
-        or iterable of plates. Plates not returned will be created
-        automatically as usual. This is useful for data subsampling.
     """
 
     def __init__(
@@ -645,8 +651,8 @@ class AutoDAIS(AutoContinuous):
         model,
         *,
         K=8,
-        eta_init=0.02,
-        eta_max=0.2,
+        eta_init=0.05,
+        eta_max=0.5,
         gamma_init=0.9,
         prefix="auto",
         init_loc_fn=init_to_uniform,
@@ -664,6 +670,8 @@ class AutoDAIS(AutoContinuous):
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
             raise ValueError("gamma_init must be in the open interval (0, 1).")
+        if init_scale <= 0.0:
+            raise ValueError("init_scale must be positive.")
 
         self.eta_init = eta_init
         self.eta_max = eta_max
