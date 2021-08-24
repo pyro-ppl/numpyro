@@ -478,6 +478,18 @@ ZeroInflatedNegativeBinomial2
 .. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
 
 
+Mixture Distributions
+---------------------
+
+MixtureSameFamily
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Directional Distributions
 -------------------------
 
