@@ -639,14 +639,27 @@ class AutoDAIS(AutoContinuous):
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
     """
-    def __init__(self, model, *, K=8, eta_init=0.02, eta_max=0.2, gamma_init=0.9,
-                 prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1):
+
+    def __init__(
+        self,
+        model,
+        *,
+        K=8,
+        eta_init=0.02,
+        eta_max=0.2,
+        gamma_init=0.9,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+    ):
         self._init_scale = init_scale
 
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
         if eta_init <= 0.0 or eta_init >= eta_max:
-            raise ValueError("eta_init must be positive and satisfy eta_init < eta_max.")
+            raise ValueError(
+                "eta_init must be positive and satisfy eta_init < eta_max."
+            )
         if eta_max <= 0.0:
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
@@ -666,22 +679,43 @@ class AutoDAIS(AutoContinuous):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
-
         def log_density(x):
             x_unpack = self._unpack_latent(x)
             with numpyro.handlers.block():
                 return -self._potential_fn(x_unpack)
 
-        eta = numpyro.param("eta", self.eta_init, constraint=constraints.interval(0, self.eta_max))
-        gamma = numpyro.param("gamma", self.gamma_init, constraint=constraints.interval(0, 1))
-        mass_matrix = numpyro.param("auto_mass_matrix", jnp.ones(self.latent_dim), constraint=constraints.positive)
+        eta = numpyro.param(
+            "eta", self.eta_init, constraint=constraints.interval(0, self.eta_max)
+        )
+        gamma = numpyro.param(
+            "gamma", self.gamma_init, constraint=constraints.interval(0, 1)
+        )
+        mass_matrix = numpyro.param(
+            "auto_mass_matrix",
+            jnp.ones(self.latent_dim),
+            constraint=constraints.positive,
+        )
         init_loc = numpyro.param("theta_0_loc", jnp.zeros(self.latent_dim))
-        init_scale = numpyro.param("theta_0_scale", jnp.full(self.latent_dim, self._init_scale), constraint=constraints.positive)
+        init_scale = numpyro.param(
+            "theta_0_scale",
+            jnp.full(self.latent_dim, self._init_scale),
+            constraint=constraints.positive,
+        )
 
-        theta_0 = numpyro.sample("auto_theta_0", dist.Normal(init_loc, init_scale).to_event(), infer={"is_auxiliary": True})
+        theta_0 = numpyro.sample(
+            "auto_theta_0",
+            dist.Normal(init_loc, init_scale).to_event(),
+            infer={"is_auxiliary": True},
+        )
         momentum_dist = dist.Normal(0, mass_matrix).to_event()
-        v_0 = numpyro.sample("v_0", momentum_dist.mask(False), infer={"is_auxiliary": True})
-        eps = numpyro.sample("eps", momentum_dist.expand((self.K,)).to_event().mask(False), infer={"is_auxiliary": True})
+        v_0 = numpyro.sample(
+            "v_0", momentum_dist.mask(False), infer={"is_auxiliary": True}
+        )
+        eps = numpyro.sample(
+            "eps",
+            momentum_dist.expand((self.K,)).to_event().mask(False),
+            infer={"is_auxiliary": True},
+        )
 
         def scan_body(carry, eps):
             theta_prev, v_prev, log_factor = carry
@@ -689,10 +723,14 @@ class AutoDAIS(AutoContinuous):
             v_hat = v_prev + eta * jax.grad(log_density)(theta_half)
             theta = theta_half + 0.5 * eta * (v_hat / mass_matrix)
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
-            log_factor = log_factor + momentum_dist.log_prob(v_hat) - momentum_dist.log_prob(v_prev)
+            log_factor = (
+                log_factor
+                + momentum_dist.log_prob(v_hat)
+                - momentum_dist.log_prob(v_prev)
+            )
             return (theta, v, log_factor), None
 
-        (theta, _, log_factor), _ = jax.lax.scan(scan_body, (theta_0, v_0, 0.), eps)
+        (theta, _, log_factor), _ = jax.lax.scan(scan_body, (theta_0, v_0, 0.0), eps)
 
         numpyro.factor("factor", -log_factor)
 
@@ -701,7 +739,8 @@ class AutoDAIS(AutoContinuous):
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
             latent_sample = handlers.substitute(
-                handlers.seed(self._sample_latent, _rng_key), params)(sample_shape=())
+                handlers.seed(self._sample_latent, _rng_key), params
+            )(sample_shape=())
             return self._unpack_and_constrain(latent_sample, params)
 
         if sample_shape:
