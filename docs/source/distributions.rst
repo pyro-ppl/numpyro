@@ -826,9 +826,9 @@ SigmoidTransform
     :show-inheritance:
     :member-order: bysource
 
-Simplex2OrderedTransform
+SimplexToOrderedTransform
 ^^^^^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.Simplex2OrderedTransform
+.. autoclass:: numpyro.distributions.transforms.SimplexToOrderedTransform
     :members:
     :undoc-members:
     :show-inheritance:

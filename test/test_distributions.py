@@ -28,7 +28,7 @@ from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
     PowerTransform,
-    Simplex2OrderedTransform,
+    SimplexToOrderedTransform,
     SoftplusTransform,
     biject_to,
 )
@@ -1652,10 +1652,21 @@ def test_biject_to(constraint, shape):
             ),
             (2,),
         ),
-        (Simplex2OrderedTransform(0.0),(5,))
+        (SimplexToOrderedTransform(0.0), (5,)),
     ],
 )
-@pytest.mark.parametrize("batch_shape", [pytest.param((), marks=pytest.mark.xfail(reason="Simplex2Ordered cannot run with batch_shape=()")), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+@pytest.mark.parametrize(
+    "batch_shape",
+    [
+        (),
+        (1,),
+        (3,),
+        (6,),
+        (3, 1),
+        (1, 3),
+        (5, 3),
+    ],
+)
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
     rng_key = random.PRNGKey(0)
