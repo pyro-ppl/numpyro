@@ -49,13 +49,13 @@ init_strategy = init_to_median(num_samples=2)
     [
         AutoDiagonalNormal,
         AutoDAIS,
-        AutoIAFNormal,
-        AutoBNAFNormal,
-        AutoMultivariateNormal,
-        AutoLaplaceApproximation,
-        AutoLowRankMultivariateNormal,
-        AutoNormal,
-        AutoDelta,
+#        AutoIAFNormal,
+#        AutoBNAFNormal,
+#        AutoMultivariateNormal,
+#        AutoLaplaceApproximation,
+#        AutoLowRankMultivariateNormal,
+#        AutoNormal,
+#        AutoDelta,
     ],
 )
 def test_beta_bernoulli(auto_class):
@@ -74,8 +74,11 @@ def test_beta_bernoulli(auto_class):
         svi_state, loss = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 3000, body_fn, svi_state)
+    svi_state = fori_loop(0, 5000, body_fn, svi_state)
     params = svi.get_params(svi_state)
+
+    final_elbo = Trace_ELBO(num_particles=5000).loss(random.PRNGKey(2), params, model, guide, data)
+    print("final_elbo", final_elbo)
 
     if auto_class in [AutoDAIS]:
         print("\n\nparams\n", params)

@@ -681,7 +681,10 @@ class AutoDAIS(AutoContinuous):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        # TODO: raise error if there are subsampling site in the self.prototype_trace
+
+        for name, site in self.prototype_trace.items():
+            if site["type"] == "plate" and site["args"][0] > site["args"][1]:
+                raise NotImplementedError("AutoDAIS cannot be used in conjuction with data subsampling.")
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -692,11 +695,16 @@ class AutoDAIS(AutoContinuous):
             with numpyro.handlers.block():
                 return -self._potential_fn(x_unpack)
 
-        eta = numpyro.param(
-            "{}_eta".format(self.prefix),
+        eta0 = numpyro.param(
+            "{}_eta0".format(self.prefix),
             self.eta_init,
             constraint=constraints.interval(0, self.eta_max),
         )
+        eta_coeff = numpyro.param(
+            "{}_eta_coeff".format(self.prefix),
+            0.01,
+            constraint=constraints.positive)
+
         gamma = numpyro.param(
             "{}_gamma".format(self.prefix),
             self.gamma_init,
@@ -712,10 +720,10 @@ class AutoDAIS(AutoContinuous):
 
         mass_matrix = numpyro.param(
             "{}_mass_matrix".format(self.prefix),
-            jnp.full(self.latent_dim, 1.0 / self._init_scale),
+            jnp.ones(self.latent_dim),
             constraint=constraints.positive,
         )
-        eta_inv_mass_matrix = 0.5 * eta / mass_matrix
+        inv_mass_matrix = 0.5 / mass_matrix
 
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
@@ -741,13 +749,14 @@ class AutoDAIS(AutoContinuous):
 
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
+            eta = eta0 + eta_coeff * beta
             z_prev, v_prev, log_factor = carry
-            z_half = z_prev + v_prev * eta_inv_mass_matrix
+            z_half = z_prev + v_prev * eta * inv_mass_matrix
             gradient = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half) + beta * grad(
                 log_density
             )(z_half)
             v_hat = v_prev + eta * gradient
-            z = z_half + v_hat * eta_inv_mass_matrix
+            z = z_half + v_hat * eta * inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
             log_factor = (
                 log_factor
