@@ -170,7 +170,7 @@ class LinearKernel(SteinKernel):
     from [1].
 
     ** References **
-    1. Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
+    1. "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
     """
 
     def __init__(self, mode="norm"):
