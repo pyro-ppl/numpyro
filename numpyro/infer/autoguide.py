@@ -685,56 +685,56 @@ class AutoDAIS(AutoContinuous):
                 return -self._potential_fn(x_unpack)
 
         eta = numpyro.param(
-            "eta", self.eta_init, constraint=constraints.interval(0, self.eta_max)
+            "{}_eta".format(self.prefix), self.eta_init, constraint=constraints.interval(0, self.eta_max)
         )
         gamma = numpyro.param(
-            "gamma", self.gamma_init, constraint=constraints.interval(0, 1)
+            "{}_gamma".format(self.prefix), self.gamma_init, constraint=constraints.interval(0, 1)
         )
         mass_matrix = numpyro.param(
-            "auto_mass_matrix",
-            jnp.ones(self.latent_dim),
+            "{}_mass_matrix".format(self.prefix),
+            jnp.full(self.latent_dim, 1.0 / self._init_scale),
             constraint=constraints.positive,
         )
-        init_loc = numpyro.param("theta_0_loc", jnp.zeros(self.latent_dim))
-        init_scale = numpyro.param(
-            "theta_0_scale",
+        eta_inv_mass_matrix = 0.5 * eta / mass_matrix
+
+        init_z_loc = numpyro.param("{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim))
+        init_z_scale = numpyro.param(
+            "{}_z_0_scale".format(self.prefix),
             jnp.full(self.latent_dim, self._init_scale),
             constraint=constraints.positive,
         )
 
-        theta_0 = numpyro.sample(
-            "auto_theta_0",
-            dist.Normal(init_loc, init_scale).to_event(),
+        z_0 = numpyro.sample(
+            "{}_z_0".format(self.prefix),
+            dist.Normal(init_z_loc, init_z_scale).to_event(),
             infer={"is_auxiliary": True},
         )
         momentum_dist = dist.Normal(0, mass_matrix).to_event()
-        v_0 = numpyro.sample(
-            "v_0", momentum_dist.mask(False), infer={"is_auxiliary": True}
-        )
         eps = numpyro.sample(
-            "eps",
+            "{}_momentum".format(self.prefix),
             momentum_dist.expand((self.K,)).to_event().mask(False),
             infer={"is_auxiliary": True},
         )
 
         def scan_body(carry, eps):
-            theta_prev, v_prev, log_factor = carry
-            theta_half = theta_prev + 0.5 * eta * (v_prev / mass_matrix)
-            v_hat = v_prev + eta * jax.grad(log_density)(theta_half)
-            theta = theta_half + 0.5 * eta * (v_hat / mass_matrix)
+            z_prev, v_prev, log_factor = carry
+            z_half = z_prev + v_prev * eta_inv_mass_matrix
+            v_hat = v_prev + eta * jax.grad(log_density)(z_half)
+            z = z_half + v_hat * eta_inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
             log_factor = (
                 log_factor
-                + momentum_dist.log_prob(v_hat)
-                - momentum_dist.log_prob(v_prev)
+                - momentum_dist.log_prob(v_hat)
+                + momentum_dist.log_prob(v_prev)
             )
-            return (theta, v, log_factor), None
+            return (z, v, log_factor), None
 
-        (theta, _, log_factor), _ = jax.lax.scan(scan_body, (theta_0, v_0, 0.0), eps)
+        v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
+        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), eps)
 
-        numpyro.factor("factor", -log_factor)
+        numpyro.factor("factor", log_factor)
 
-        return theta
+        return z
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
