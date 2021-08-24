@@ -612,9 +612,10 @@ class AutoContinuous(AutoGuide):
 
 class AutoDAIS(AutoContinuous):
     """
-    This implementation of :class:`AutoDais` uses DAIS [1, 2] to construct
-    a guide over the entire latent space. The guide does not
-    depend on the model's ``*args, **kwargs``.
+    This implementation of :class:`AutoDAIS` uses Differentiable Annealed
+    Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
+    latent space. The same algorithm is called Uncorrected Hamiltonian Annealing
+    in [1].
 
     References:
     [1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
@@ -665,7 +666,6 @@ class AutoDAIS(AutoContinuous):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
-        kwargs.pop("sample_shape", ())
 
         def log_density(x):
             x_unpack = self._unpack_latent(x)
@@ -706,8 +706,11 @@ class AutoDAIS(AutoContinuous):
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
-            # add extra shape logic
-            return lax.map(_single_sample, rng_key)
+            samples = lax.map(_single_sample, rng_key)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                samples,
+            )
         else:
             return _single_sample(rng_key)
 
