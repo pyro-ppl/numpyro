@@ -798,7 +798,7 @@ class SimplexToOrderedTransform(Transform):
     Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
 
     :param anchor_point: Anchor point is a nuisance parameter to improve the identifiability of the transform.
-    For simplicity, we assume it is a scalar value.
+    For simplicity, we assume it is a scalar value. For more details please refer to Section 2.2 in [1]
 
     **References:**
 

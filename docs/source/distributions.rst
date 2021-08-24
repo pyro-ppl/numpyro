@@ -827,7 +827,7 @@ SigmoidTransform
     :member-order: bysource
 
 SimplexToOrderedTransform
-^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.SimplexToOrderedTransform
     :members:
     :undoc-members:
