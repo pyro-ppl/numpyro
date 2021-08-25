@@ -13,12 +13,17 @@ process binary classifier. We aim to demonstrate that:
 
 - DAIS can achieve better ELBOs than e.g. mean field variational inference
 - DAIS can achieve better posterior approximations than e.g. mean field variational inference
+- DAIS improves as you increase K, the number of HMC steps used in the sampler
 
 References:
+
 [1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
     Tomas Geffner, Justin Domke.
 [2] "Differentiable Annealed Importance Sampling and the Perils of Gradient Noise,"
     Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse.
+
+.. image:: ../_static/img/examples/dais_demo.png
+    :align: center
 """
 
 import argparse
@@ -181,7 +186,7 @@ def main(args):
                 ylabel="f_{}".format(coord2),
             )
 
-        plt.savefig("dais_demo.pdf")
+        plt.savefig("dais_demo.png")
 
 
 if __name__ == "__main__":
