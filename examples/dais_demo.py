@@ -82,7 +82,7 @@ def get_data(N=16):
 
 # helper function for running SVI with a particular autoguide
 def run_svi(
-    rng_key, X, Y, guide_family="AutoDiagonalNormal", K=8, return_samples=False
+    rng_key, X, Y, guide_family="AutoDiagonalNormal", K=8
 ):
     assert guide_family in ["AutoDiagonalNormal", "AutoDAIS"]
 
@@ -108,12 +108,9 @@ def run_svi(
 
     print("[{}] final elbo: {:.2f}".format(guide_name, final_elbo))
 
-    if return_samples:
-        posterior_samples = guide.sample_posterior(
-            random.PRNGKey(1), params, sample_shape=(args.num_samples,)
-        )
-
-        return posterior_samples
+    return guide.sample_posterior(
+        random.PRNGKey(1), params, sample_shape=(args.num_samples,)
+    )
 
 
 # helper function for running mcmc
@@ -130,16 +127,11 @@ def main(args):
     rng_keys = random.split(random.PRNGKey(0), 4)
 
     # run SVI with an AutoDAIS guide for two values of K
-    run_svi(rng_keys[1], X, Y, guide_family="AutoDAIS", K=8)
-
-    dais128_samples = run_svi(
-        rng_keys[2], X, Y, guide_family="AutoDAIS", K=128, return_samples=True
-    )
+    dais8_samples = run_svi(rng_keys[1], X, Y, guide_family="AutoDAIS", K=8)
+    dais128_samples = run_svi(rng_keys[2], X, Y, guide_family="AutoDAIS", K=128)
 
     # run SVI with an AutoDiagonalNormal guide
-    meanfield_samples = run_svi(
-        rng_keys[3], X, Y, guide_family="AutoDiagonalNormal", return_samples=True
-    )
+    meanfield_samples = run_svi(rng_keys[3], X, Y, guide_family="AutoDiagonalNormal")
 
     # run MCMC inference
     nuts_samples = run_nuts(rng_keys[0], args, X, Y)
@@ -151,40 +143,24 @@ def main(args):
         coord1, coord2 = 0, 1
 
         fig, axes = plt.subplots(
-            3, 1, sharex=True, figsize=(2.5, 6), constrained_layout=True
+            2, 2, sharex=True, figsize=(6, 6), constrained_layout=True
         )
 
         xlim = (-3, 3)
         ylim = (-3, 3)
 
-        sns.kdeplot(
-            x=dais128_samples["f"][:, coord1],
-            y=dais128_samples["f"][:, coord2],
-            ax=axes[0],
-        )
-        axes[0].set(title="AutoDAIS-8")
-
-        sns.kdeplot(
-            x=meanfield_samples["f"][:, coord1],
-            y=meanfield_samples["f"][:, coord2],
-            ax=axes[1],
-        )
-        axes[1].set(title="AutoDiagonalNormal")
-
-        sns.kdeplot(
-            x=nuts_samples["f"][:, coord1],
-            y=nuts_samples["f"][:, coord2],
-            ax=axes[2],
-        )
-        axes[2].set(title="NUTS")
-
-        for ax in axes:
-            ax.set(
-                xlim=xlim,
-                ylim=ylim,
-                xlabel="f_{}".format(coord1),
-                ylabel="f_{}".format(coord2),
+        def add_fig(samples, title, ax):
+            sns.kdeplot(
+                x=samples["f"][:, coord1],
+                y=samples["f"][:, coord2],
+                ax=ax
             )
+            ax.set(title=title, xlim=xlim, ylim=ylim)
+
+        add_fig(dais8_samples, "AutoDAIS (K=8)", axes[0][0])
+        add_fig(dais128_samples, "AutoDAIS (K=128)", axes[0][1])
+        add_fig(meanfield_samples, "AutoDiagonalNormal", axes[1][0])
+        add_fig(nuts_samples, "NUTS", axes[1][1])
 
         plt.savefig("dais_demo.png")
 
@@ -193,7 +169,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Usage example for AutoDAIS guide.")
     parser.add_argument("--num-svi-steps", type=int, default=80 * 1000)
     parser.add_argument("--num-warmup", type=int, default=2000)
-    parser.add_argument("--num-samples", type=int, default=40 * 1000)
+    parser.add_argument("--num-samples", type=int, default=10 * 1000)
     parser.add_argument("--device", default="cpu", type=str, choices=["cpu", "gpu"])
 
     args = parser.parse_args()
