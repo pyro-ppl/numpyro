@@ -23,15 +23,14 @@ References:
 
 import argparse
 
-import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt
-
 import numpy as np
+from scipy.special import expit
+import seaborn as sns
 
 from jax import random
 import jax.numpy as jnp
-from scipy.special import expit
 
 import numpyro
 import numpyro.distributions as dist
