@@ -501,8 +501,7 @@ class Gompertz(Distribution):
     def __init__(self, concentration, rate=1.0, validate_args=None):
         """
         The CDF is
-        ..math
-            F(x) = 1 - exp( -1 * rate / concentration * ( exp(concentration * x) - 1 ) )
+        :math:`F(x) = 1 - \exp \left\{ - \frac{\text{rate}}{\text{concentration}} * \left [ \exp\{\text{concentration} \cdot x\\} - 1 \right ] )`
         """
         self.rate, self.concentration = promote_shapes(rate, concentration)
         # Alias parameters as they appear in this article
@@ -542,7 +541,7 @@ class Gompertz(Distribution):
         raise NotImplementedError("Gompertz variance not yet implemented")
 
     def cdf(self, value):
-        return 1 - jnp.exp(
+        return -jnp.expm1(
             -self.rate / self.concentration * jnp.expm1(self.concentration * value)
         )
 
