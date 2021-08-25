@@ -501,7 +501,9 @@ class Gompertz(Distribution):
     def __init__(self, concentration, rate=1.0, validate_args=None):
         """
         The CDF is
-        :math:`F(x) = 1 - \exp \left\{ - \frac{\text{rate}}{\text{concentration}} * \left [ \exp\{\text{concentration} \cdot x\\} - 1 \right ] )`
+
+        .. math::
+            F(x) = 1 - \exp \left\{ - \frac{\text{rate}}{\text{concentration}} * \left [ \exp\{\text{concentration} \cdot x\\} - 1 \right ] )
         """
         self.rate, self.concentration = promote_shapes(rate, concentration)
         # Alias parameters as they appear in this article
