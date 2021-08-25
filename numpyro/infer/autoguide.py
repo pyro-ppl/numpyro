@@ -619,6 +619,8 @@ class AutoDAIS(AutoContinuous):
     and Annealed Importance Sampling. The same algorithm is called Uncorrected
     Hamiltonian Annealing in [1].
 
+    Note that AutoDAIS cannot be used in conjuction with data subsampling.
+
     References:
     [1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
         Tomas Geffner, Justin Domke.
@@ -643,7 +645,7 @@ class AutoDAIS(AutoContinuous):
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param float init_scale: Initial scale for the standard deviation of
-        the base variational distribution for each(unconstrained transformed)
+        the base variational distribution for each (unconstrained transformed)
         latent variable. Defaults to 0.1.
     """
 
@@ -659,8 +661,6 @@ class AutoDAIS(AutoContinuous):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
     ):
-        self._init_scale = init_scale
-
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
         if eta_init <= 0.0 or eta_init >= eta_max:
@@ -678,6 +678,7 @@ class AutoDAIS(AutoContinuous):
         self.eta_max = eta_max
         self.gamma_init = gamma_init
         self.K = K
+        self._init_scale = init_scale
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -762,11 +763,8 @@ class AutoDAIS(AutoContinuous):
             v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
-            log_factor = (
-                log_factor
-                - momentum_dist.log_prob(v_hat)
-                + momentum_dist.log_prob(v_prev)
-            )
+            delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(v_hat)
+            log_factor = log_factor + delta_ke
             return (z, v, log_factor), None
 
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
