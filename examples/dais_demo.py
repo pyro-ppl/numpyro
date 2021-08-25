@@ -3,7 +3,22 @@
 
 """
 Example: AutoDAIS
-===================================================================
+=================
+
+AutoDAIS constructs a guide that combines elements of Hamiltonian Monte Carlo,
+Annealed Importance Sampling, and Variational Inference.
+
+In this demo script we construct a somewhat artificial example involving a gaussian
+process binary classifier. We aim to demonstrate that:
+
+- DAIS can achieve better ELBOs than e.g. mean field variational inference
+- DAIS can achieve better posterior approximations than e.g. mean field variational inference
+
+References:
+[1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
+    Tomas Geffner, Justin Domke.
+[2] "Differentiable Annealed Importance Sampling and the Perils of Gradient Noise,"
+    Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse.
 """
 
 import argparse
@@ -42,10 +57,11 @@ def model(X, Y, length=0.2):
         "f",
         dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k),
     )
+    # we use a non-standard link function to induce extra non-gaussianity
     numpyro.sample("obs", dist.Bernoulli(logits=jnp.power(f, 3.0)), obs=Y)
 
 
-# create artificial classification dataset
+# create artificial binary classification dataset
 def get_data(N=16):
     np.random.seed(0)
     X = np.linspace(-1, 1, N)
@@ -60,6 +76,7 @@ def get_data(N=16):
     return X, Y
 
 
+# helper function for running SVI with a particular autoguide
 def run_svi(
     rng_key, X, Y, guide_family="AutoDiagonalNormal", K=8, return_samples=False
 ):
@@ -95,6 +112,7 @@ def run_svi(
         return posterior_samples
 
 
+# helper function for running mcmc
 def run_nuts(mcmc_key, args, X, Y):
     mcmc = MCMC(NUTS(model), num_warmup=args.num_warmup, num_samples=args.num_samples)
     mcmc.run(mcmc_key, X, Y)
@@ -107,14 +125,14 @@ def main(args):
 
     rng_keys = random.split(random.PRNGKey(0), 4)
 
-    # run SVI with a AutoDAIS guide for two values of K
+    # run SVI with an AutoDAIS guide for two values of K
     run_svi(rng_keys[1], X, Y, guide_family="AutoDAIS", K=8)
 
-    dais64_samples = run_svi(
+    dais128_samples = run_svi(
         rng_keys[2], X, Y, guide_family="AutoDAIS", K=128, return_samples=True
     )
 
-    # run SVI with a AutoDiagonalNormal guide
+    # run SVI with an AutoDiagonalNormal guide
     meanfield_samples = run_svi(
         rng_keys[3], X, Y, guide_family="AutoDiagonalNormal", return_samples=True
     )
@@ -136,8 +154,8 @@ def main(args):
         ylim = (-3, 3)
 
         sns.kdeplot(
-            x=dais64_samples["f"][:, coord1],
-            y=dais64_samples["f"][:, coord2],
+            x=dais128_samples["f"][:, coord1],
+            y=dais128_samples["f"][:, coord2],
             ax=axes[0],
         )
         axes[0].set(title="AutoDAIS-8")
