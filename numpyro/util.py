@@ -406,7 +406,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(
         lambda y: jnp.reshape(
-            y, (np.prod(jnp.shape(y)[:map_ndims]),) + jnp.shape(y)[map_ndims:]
+            y, (int(np.prod(jnp.shape(y)[:map_ndims])),) + jnp.shape(y)[map_ndims:]
         )[:batch_size],
         ys,
     )
