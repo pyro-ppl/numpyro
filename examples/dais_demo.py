@@ -81,9 +81,7 @@ def get_data(N=16):
 
 
 # helper function for running SVI with a particular autoguide
-def run_svi(
-    rng_key, X, Y, guide_family="AutoDiagonalNormal", K=8
-):
+def run_svi(rng_key, X, Y, guide_family="AutoDiagonalNormal", K=8):
     assert guide_family in ["AutoDiagonalNormal", "AutoDAIS"]
 
     if guide_family == "AutoDAIS":
@@ -150,11 +148,7 @@ def main(args):
         ylim = (-3, 3)
 
         def add_fig(samples, title, ax):
-            sns.kdeplot(
-                x=samples["f"][:, coord1],
-                y=samples["f"][:, coord2],
-                ax=ax
-            )
+            sns.kdeplot(x=samples["f"][:, coord1], y=samples["f"][:, coord2], ax=ax)
             ax.set(title=title, xlim=xlim, ylim=ylim)
 
         add_fig(dais8_samples, "AutoDAIS (K=8)", axes[0][0])
