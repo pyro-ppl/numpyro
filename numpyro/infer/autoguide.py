@@ -641,7 +641,7 @@ class AutoDAIS(AutoContinuous):
     :param float eta_max: The maximum value of the learnable step size used in HMC.
         Defaults to 0.1.
     :param float gamma_init: The initial value of the learnable damping factor used
-        during partial momentum refreshments in HMC. defaults to 0.9.
+        during partial momentum refreshments in HMC. Defaults to 0.9.
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param float init_scale: Initial scale for the standard deviation of
@@ -770,7 +770,7 @@ class AutoDAIS(AutoContinuous):
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
         (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), (eps, betas))
 
-        numpyro.factor("factor", log_factor)
+        numpyro.factor("{}_factor".format(self.prefix), log_factor)
 
         return z
 
