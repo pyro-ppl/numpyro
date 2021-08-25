@@ -684,8 +684,14 @@ class AutoDAIS(AutoContinuous):
         super()._setup_prototype(*args, **kwargs)
 
         for name, site in self.prototype_trace.items():
-            if site["type"] == "plate" and isinstance(site["args"][1], int) and site["args"][0] > site["args"][1]:
-                raise NotImplementedError("AutoDAIS cannot be used in conjuction with data subsampling.")
+            if (
+                site["type"] == "plate"
+                and isinstance(site["args"][1], int)
+                and site["args"][0] > site["args"][1]
+            ):
+                raise NotImplementedError(
+                    "AutoDAIS cannot be used in conjuction with data subsampling."
+                )
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -701,9 +707,7 @@ class AutoDAIS(AutoContinuous):
             self.eta_init,
             constraint=constraints.interval(0, self.eta_max),
         )
-        eta_coeff = numpyro.param(
-            "{}_eta_coeff".format(self.prefix),
-            0.00)
+        eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), 0.00)
 
         gamma = numpyro.param(
             "{}_gamma".format(self.prefix),
