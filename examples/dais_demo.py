@@ -191,9 +191,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Usage example for AutoDAIS guide.")
-    parser.add_argument("--num_svi_steps", type=int, default=80 * 1000)
-    parser.add_argument("--num_warmup", type=int, default=2000)
-    parser.add_argument("--num_samples", type=int, default=40 * 1000)
+    parser.add_argument("--num-svi-steps", type=int, default=80 * 1000)
+    parser.add_argument("--num-warmup", type=int, default=2000)
+    parser.add_argument("--num-samples", type=int, default=40 * 1000)
     parser.add_argument("--device", default="cpu", type=str, choices=["cpu", "gpu"])
 
     args = parser.parse_args()
