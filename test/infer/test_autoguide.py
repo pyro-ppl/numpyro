@@ -49,13 +49,13 @@ init_strategy = init_to_median(num_samples=2)
     [
         AutoDiagonalNormal,
         AutoDAIS,
-#        AutoIAFNormal,
-#        AutoBNAFNormal,
-#        AutoMultivariateNormal,
-#        AutoLaplaceApproximation,
-#        AutoLowRankMultivariateNormal,
-#        AutoNormal,
-#        AutoDelta,
+        AutoIAFNormal,
+        AutoBNAFNormal,
+        AutoMultivariateNormal,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoNormal,
+        AutoDelta,
     ],
 )
 def test_beta_bernoulli(auto_class):
@@ -74,18 +74,8 @@ def test_beta_bernoulli(auto_class):
         svi_state, loss = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 5000, body_fn, svi_state)
+    svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-
-    final_elbo = Trace_ELBO(num_particles=5000).loss(random.PRNGKey(2), params, model, guide, data)
-    print("final_elbo", final_elbo)
-
-    if auto_class in [AutoDAIS]:
-        print("\n\nparams\n", params)
-        betas = params["auto_beta_increments"]
-        betas = jnp.cumsum(betas)
-        betas = betas / betas[-1]
-        print("betas", betas)
 
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
@@ -115,6 +105,7 @@ def test_beta_bernoulli(auto_class):
     [
         AutoDiagonalNormal,
         AutoIAFNormal,
+        AutoDAIS,
         AutoBNAFNormal,
         AutoMultivariateNormal,
         AutoLaplaceApproximation,
@@ -125,6 +116,9 @@ def test_beta_bernoulli(auto_class):
 )
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
+    if auto_class is AutoDAIS and Elbo is TraceMeanField_ELBO:
+        return
+
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
@@ -584,3 +578,19 @@ def test_sphere_helpful_error(auto_class, init_loc_fn):
     guide = auto_class(model, init_loc_fn=init_loc_fn)
     with pytest.raises(ValueError, match=".*ProjectedNormalReparam.*"):
         handlers.seed(guide, 0)()
+
+
+def test_autodais_subsampling_error():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        with numpyro.plate("plate", 20, 10, dim=-1):
+            f = numpyro.sample("beta", dist.Beta(jnp.ones(data.shape), jnp.ones(data.shape)))
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    adam = optim.Adam(0.01)
+    guide = AutoDAIS(model)
+    svi = SVI(model, guide, adam, Trace_ELBO())
+
+    with pytest.raises(NotImplementedError, match=".*data subsampling.*"):
+        svi.init(random.PRNGKey(1), data)

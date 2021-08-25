@@ -631,19 +631,20 @@ class AutoDAIS(AutoContinuous):
         svi = SVI(model, guide, ...)
 
     :param callable model: A NumPyro model.
-    :param str prefix: a prefix that will be prefixed to all param internal sites.
-    :param int K: a positive integer that controls the number of HMC steps used.
-        defaults to 8.
-    :param float eta_init: the initial value of the step size used in HMC. defaults
-        to 0.05.
-    :param float eta_max: the maximum value of the learnable step size used in HMC.
-        defaults to 0.5.
-    :param float gamma_init: the initial value of the learnable damping factor used
+    :param str prefix: A prefix that will be prefixed to all param internal sites.
+    :param int K: A positive integer that controls the number of HMC steps used.
+        Defaults to 8.
+    :param float eta_init: The initial value of the step size used in HMC. Defaults
+        to 0.01.
+    :param float eta_max: The maximum value of the learnable step size used in HMC.
+        Defaults to 0.1.
+    :param float gamma_init: The initial value of the learnable damping factor used
         during partial momentum refreshments in HMC. defaults to 0.9.
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param float init_scale: Initial scale for the standard deviation of each
-        (unconstrained transformed) latent variable.
+    :param float init_scale: Initial scale for the standard deviation of
+        the base variational distribution for each(unconstrained transformed)
+        latent variable. Defaults to 0.1.
     """
 
     def __init__(
@@ -651,8 +652,8 @@ class AutoDAIS(AutoContinuous):
         model,
         *,
         K=8,
-        eta_init=0.05,
-        eta_max=0.5,
+        eta_init=0.01,
+        eta_max=0.1,
         gamma_init=0.9,
         prefix="auto",
         init_loc_fn=init_to_uniform,
@@ -683,7 +684,7 @@ class AutoDAIS(AutoContinuous):
         super()._setup_prototype(*args, **kwargs)
 
         for name, site in self.prototype_trace.items():
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]:
+            if site["type"] == "plate" and isinstance(site["args"][1], int) and site["args"][0] > site["args"][1]:
                 raise NotImplementedError("AutoDAIS cannot be used in conjuction with data subsampling.")
 
     def _get_posterior(self):
@@ -702,8 +703,7 @@ class AutoDAIS(AutoContinuous):
         )
         eta_coeff = numpyro.param(
             "{}_eta_coeff".format(self.prefix),
-            0.01,
-            constraint=constraints.positive)
+            0.00)
 
         gamma = numpyro.param(
             "{}_gamma".format(self.prefix),
@@ -750,12 +750,12 @@ class AutoDAIS(AutoContinuous):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
+            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
-            gradient = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half) + beta * grad(
-                log_density
-            )(z_half)
-            v_hat = v_prev + eta * gradient
+            q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
+            p_grad = beta * grad(log_density)(z_half)
+            v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
             log_factor = (
