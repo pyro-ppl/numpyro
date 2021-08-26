@@ -258,7 +258,7 @@ class TraceMeanField_ELBO(ELBO):
             # handle auxiliary sites in the guide
             for name, site in guide_trace.items():
                 if site["type"] == "sample" and name not in model_trace:
-                    assert site["infer"].get("is_auxiliary")
+                    assert site["infer"].get("is_auxiliary") or site["is_observed"]
                     elbo_particle = elbo_particle - _get_log_prob_sum(site)
 
             if mutable_params:

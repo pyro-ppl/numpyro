@@ -116,9 +116,6 @@ def test_beta_bernoulli(auto_class):
 )
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
-    if auto_class is AutoDAIS and Elbo is TraceMeanField_ELBO:
-        return
-
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
