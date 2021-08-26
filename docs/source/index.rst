@@ -55,6 +55,7 @@ NumPyro documentation
    tutorials/bayesian_imputation
    examples/gp
    examples/bnn
+   examples/dais_demo
    examples/sparse_regression
    examples/proportion_test
    examples/ucbadmit
