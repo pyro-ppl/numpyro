@@ -25,10 +25,10 @@ matplotlib.use("Agg")  # noqa: E402
 
 # helper function for running SVI with a particular autoguide
 def run_svi(rng_key, model, X, Y, surrogate_model=None, guide_family="AutoDiagonalNormal", K=8):
-    assert guide_family in ["AutoDiagonalNormal", "AutoDAIS", "AutoSSDAIS"]
+    assert guide_family in ["AutoDiagonalNormal", "AutoDAIS", "AutoSSDAIS", "AutoMultivariateNormal", "AutoBNAFNormal"]
 
     if guide_family == "AutoDAIS":
-        guide = autoguide.AutoDAIS(model, K=K, eta_init=0.02, eta_max=0.5)
+        guide = autoguide.AutoDAIS(model, K=K, eta_init=0.01, eta_max=0.25)
         step_size = 5e-4
     elif guide_family == "AutoSSDAIS":
         guide = autoguide.AutoSSDAIS(model, surrogate_model, K=K, eta_init=0.02, eta_max=0.5)
@@ -36,16 +36,20 @@ def run_svi(rng_key, model, X, Y, surrogate_model=None, guide_family="AutoDiagon
     elif guide_family == "AutoDiagonalNormal":
         guide = autoguide.AutoDiagonalNormal(model)
         step_size = 3e-3
+    elif guide_family == "AutoMultivariateNormal":
+        guide = autoguide.AutoDiagonalNormal(model)
+        step_size = 1e-3
+    elif guide_family == "AutoBNAFNormal":
+        guide = autoguide.AutoBNAFNormal(model, num_flows=2)
+        step_size = 1e-3
 
     optimizer = numpyro.optim.Adam(step_size=step_size)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
     svi_result = svi.run(rng_key, args.num_svi_steps, X, Y)
     params = svi_result.params
 
-    print('\nparams\n', params)
     if guide_family == "AutoSSDAIS":
         print("omegas sum", params['omegas'].sum())
-
 
     final_elbo = -Trace_ELBO(num_particles=2000).loss(
         rng_key, params, model, guide, X, Y
@@ -71,6 +75,15 @@ def model(X, Y):
         numpyro.sample("obs", dist.Bernoulli(logits=theta @ X.T), obs=Y)
 
 
+def ssmodel(X, Y):
+    N, D = X.shape
+    theta = numpyro.sample("theta", dist.Normal(jnp.zeros(D), jnp.ones(D)))
+    with numpyro.plate("N", N, subsample_size=256):
+        X_batch = numpyro.subsample(X, event_dim=1)
+        Y_batch = numpyro.subsample(Y, event_dim=0)
+        numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
+
+
 def _surrogate_model(X, Y, omega_init):
     N, D = X.shape
     theta = numpyro.sample("theta", dist.Normal(jnp.zeros(D), jnp.ones(D)))
@@ -82,29 +95,32 @@ def _surrogate_model(X, Y, omega_init):
 
 def main(args):
     _, fetch = load_dataset(
-	HIGGS, shuffle=False, num_datapoints=2000
+	HIGGS, shuffle=False, num_datapoints=20000
     )
     X, Y = fetch()
     print("X/Y", X.shape, Y.shape)
 
-    num_ind = 200
+    num_ind = 256
     N = X.shape[0]
     perm = np.random.permutation(N)[:num_ind]
 
     rng_key = random.PRNGKey(0)
 
     surrogate_model = partial(_surrogate_model, X[perm], Y[perm], float(N) / float(num_ind))
+    run_svi(rng_key, ssmodel, X, Y, surrogate_model=surrogate_model, guide_family="AutoSSDAIS", K=24)
 
-    run_svi(rng_key, model, X, Y, surrogate_model=surrogate_model, guide_family="AutoSSDAIS", K=8)
+    run_svi(rng_key, model, X, Y, guide_family="AutoDAIS", K=4)
 
-    run_svi(rng_key, model, X, Y, guide_family="AutoDAIS", K=8)
+    run_svi(rng_key, ssmodel, X, Y, guide_family="AutoDiagonalNormal")
 
-    run_svi(rng_key, model, X, Y, guide_family="AutoDiagonalNormal")
+    run_svi(rng_key, ssmodel, X, Y, guide_family="AutoMultivariateNormal")
+
+    run_svi(rng_key, ssmodel, X, Y, guide_family="AutoBNAFNormal")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Usage example for AutoDAIS guide.")
-    parser.add_argument("--num-svi-steps", type=int, default=80 * 1000)
+    parser.add_argument("--num-svi-steps", type=int, default=120 * 1000)
     parser.add_argument("--num-warmup", type=int, default=2000)
     parser.add_argument("--num-samples", type=int, default=10 * 1000)
     parser.add_argument("--device", default="cpu", type=str, choices=["cpu", "gpu"])

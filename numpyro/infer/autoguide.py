@@ -684,17 +684,19 @@ class AutoDAIS(AutoContinuous):
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
+        subsampling_warning = kwargs.pop('subsampling_warning', True)
         super()._setup_prototype(*args, **kwargs)
 
-        for name, site in self.prototype_trace.items():
-            if (
-                site["type"] == "plate"
-                and isinstance(site["args"][1], int)
-                and site["args"][0] > site["args"][1]
-            ):
-                raise NotImplementedError(
-                    "AutoDAIS cannot be used in conjuction with data subsampling."
-                )
+        if subsampling_warning:
+            for name, site in self.prototype_trace.items():
+                if (
+                    site["type"] == "plate"
+                    and isinstance(site["args"][1], int)
+                    and site["args"][0] > site["args"][1]
+                ):
+                    raise NotImplementedError(
+                        "AutoDAIS cannot be used in conjuction with data subsampling."
+                    )
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -814,7 +816,7 @@ class AutoSSDAIS(AutoDAIS):
         self.surrogate_model = surrogate_model
 
     def _setup_prototype(self, *args, **kwargs):
-        super()._setup_prototype(*args, **kwargs)
+        super()._setup_prototype(*args, subsampling_warning=False, **kwargs)
 
         rng_key = numpyro.prng_key()
 
