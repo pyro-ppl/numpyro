@@ -47,6 +47,7 @@ __all__ = [
     "AutoContinuous",
     "AutoGuide",
     "AutoDAIS",
+    "AutoSSDAIS",
     "AutoDiagonalNormal",
     "AutoLaplaceApproximation",
     "AutoLowRankMultivariateNormal",
@@ -791,6 +792,124 @@ class AutoDAIS(AutoContinuous):
             )
         else:
             return _single_sample(rng_key)
+
+
+class AutoSSDAIS(AutoDAIS):
+    def __init__(
+        self,
+        model,
+        surrogate_model,
+        *,
+        K=8,
+        eta_init=0.01,
+        eta_max=0.1,
+        gamma_init=0.9,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+    ):
+        super().__init__(model, K=K, eta_init=eta_init, eta_max=eta_max, gamma_init=gamma_init,
+                         prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale)
+
+        self.surrogate_model = surrogate_model
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+
+        rng_key = numpyro.prng_key()
+
+        with numpyro.handlers.block(lambda site: site['type'] != 'param'):
+            (
+                _,
+                self._surrogate_potential_fn,
+                _,
+                _
+            ) = initialize_model(
+                rng_key,
+                self.surrogate_model,
+                init_strategy=self.init_loc_fn,
+                dynamic_args=False,
+                model_args=(),
+                model_kwargs={},
+                )
+
+    def _sample_latent(self, *args, **kwargs):
+
+        def blocked_surrogate_model(x):
+            x_unpack = self._unpack_latent(x)
+            with numpyro.handlers.block(lambda site: site['type'] != 'param'):
+                return -self._surrogate_potential_fn(x_unpack)
+
+        eta0 = numpyro.param(
+            "{}_eta0".format(self.prefix),
+            self.eta_init,
+            constraint=constraints.interval(0, self.eta_max),
+        )
+        eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), 0.00)
+
+        gamma = numpyro.param(
+            "{}_gamma".format(self.prefix),
+            self.gamma_init,
+            constraint=constraints.interval(0, 1),
+        )
+        betas = numpyro.param(
+            "{}_beta_increments".format(self.prefix),
+            jnp.ones(self.K),
+            constraint=constraints.positive,
+        )
+        betas = jnp.cumsum(betas)
+        betas = betas / betas[-1]  # K-dimensional with betas[-1] = 1
+
+        mass_matrix = numpyro.param(
+            "{}_mass_matrix".format(self.prefix),
+            jnp.ones(self.latent_dim),
+            constraint=constraints.positive,
+        )
+        inv_mass_matrix = 0.5 / mass_matrix
+
+        init_z_loc = numpyro.param(
+            "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
+        )
+        init_z_scale = numpyro.param(
+            "{}_z_0_scale".format(self.prefix),
+            jnp.full(self.latent_dim, self._init_scale),
+            constraint=constraints.positive,
+        )
+
+        base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        z_0 = numpyro.sample(
+            "{}_z_0".format(self.prefix),
+            base_z_dist,
+            infer={"is_auxiliary": True},
+        )
+        momentum_dist = dist.Normal(0, mass_matrix).to_event()
+        eps = numpyro.sample(
+            "{}_momentum".format(self.prefix),
+            momentum_dist.expand((self.K,)).to_event().mask(False),
+            infer={"is_auxiliary": True},
+        )
+
+        def scan_body(carry, eps_beta):
+            eps, beta = eps_beta
+            eta = eta0 + eta_coeff * beta
+            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            z_prev, v_prev, log_factor = carry
+            z_half = z_prev + v_prev * eta * inv_mass_matrix
+            q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
+            p_grad = beta * grad(blocked_surrogate_model)(z_half)
+            v_hat = v_prev + eta * (q_grad + p_grad)
+            z = z_half + v_hat * eta * inv_mass_matrix
+            v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+            delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(v_hat)
+            log_factor = log_factor + delta_ke
+            return (z, v, log_factor), None
+
+        v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
+        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), (eps, betas))
+
+        numpyro.factor("{}_factor".format(self.prefix), log_factor)
+
+        return z
 
 
 class AutoDiagonalNormal(AutoContinuous):
