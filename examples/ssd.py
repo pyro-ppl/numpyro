@@ -43,6 +43,9 @@ def run_svi(rng_key, model, X, Y, surrogate_model=None, guide_family="AutoDiagon
     params = svi_result.params
 
     print('\nparams\n', params)
+    if guide_family == "AutoSSDAIS":
+        print("omegas sum", params['omegas'].sum())
+
 
     final_elbo = -Trace_ELBO(num_particles=2000).loss(
         rng_key, params, model, guide, X, Y
@@ -74,17 +77,17 @@ def _surrogate_model(X, Y, omega_init):
     omegas = numpyro.param("omegas", omega_init * jnp.ones(N), constraint=dist.constraints.positive)
     with numpyro.plate("N", N):
         with numpyro.handlers.scale(scale=omegas):
-            numpyro.sample("obs", dist.Bernoulli(logits=theta @ X.T), obs=Y)
+                numpyro.sample("obs", dist.Bernoulli(logits=theta @ X.T), obs=Y)
 
 
 def main(args):
     _, fetch = load_dataset(
-	HIGGS, shuffle=False, num_datapoints=1000
+	HIGGS, shuffle=False, num_datapoints=2000
     )
     X, Y = fetch()
     print("X/Y", X.shape, Y.shape)
 
-    num_ind = 100
+    num_ind = 200
     N = X.shape[0]
     perm = np.random.permutation(N)[:num_ind]
 

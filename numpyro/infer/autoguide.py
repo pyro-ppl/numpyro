@@ -818,7 +818,7 @@ class AutoSSDAIS(AutoDAIS):
 
         rng_key = numpyro.prng_key()
 
-        with numpyro.handlers.block(lambda site: site['type'] != 'param'):
+        with numpyro.handlers.block():
             (
                 _,
                 self._surrogate_potential_fn,
@@ -837,7 +837,7 @@ class AutoSSDAIS(AutoDAIS):
 
         def blocked_surrogate_model(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(lambda site: site['type'] != 'param'):
+            with numpyro.handlers.block(hide_fn=lambda site: site['type'] != 'param'):
                 return -self._surrogate_potential_fn(x_unpack)
 
         eta0 = numpyro.param(
