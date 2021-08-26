@@ -1,24 +1,24 @@
-import string
 from collections import namedtuple
 from copy import copy
+import string
 
-import jax.numpy as jnp
 import numpy as np
 import numpy.random as nrandom
-import pytest
-from jax import random
 from numpy.testing import assert_allclose
+import pytest
+
+from jax import random
+import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.contrib.einstein import (
-    Stein,
-    RBFKernel,
+    GraphicalKernel,
     IMQKernel,
     LinearKernel,
-    GraphicalKernel,
+    RBFKernel,
+    Stein,
+    kernels,
 )
-from numpyro.contrib.einstein import kernels
 from numpyro.contrib.einstein.kernels import (
     HessianPrecondMatrix,
     MixtureKernel,
@@ -26,15 +26,16 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
 )
 from numpyro.contrib.einstein.utils import posdef, sqrth, sqrth_and_inv_sqrth
+import numpyro.distributions as dist
 from numpyro.distributions import Poisson
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import Trace_ELBO, HMC, NUTS, SVI
+from numpyro.infer import HMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDelta, AutoNormal
 from numpyro.infer.initialization import (
-    init_to_uniform,
-    init_to_sample,
-    init_to_median,
     init_to_feasible,
+    init_to_median,
+    init_to_sample,
+    init_to_uniform,
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.optim import Adam

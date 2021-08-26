@@ -13,11 +13,11 @@ from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.initialization import (
     init_to_feasible,
-    init_with_noise,
     init_to_median,
     init_to_sample,
     init_to_uniform,
     init_to_value,
+    init_with_noise,
 )
 from numpyro.infer.mcmc import MCMC
 from numpyro.infer.mixed_hmc import MixedHMC

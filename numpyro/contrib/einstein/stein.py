@@ -6,16 +6,16 @@ from functools import partial
 from typing import Callable
 
 import jax
+from jax import ops
 import jax.numpy as jnp
 import jax.random
-from jax import ops
 from jax.tree_util import tree_map
 
 from numpyro import handlers
-from numpyro.contrib.einstein.reinit_guide import WrappedGuide
 from numpyro.contrib.einstein.kernels import SteinKernel
-from numpyro.contrib.vi import VI
+from numpyro.contrib.einstein.reinit_guide import WrappedGuide
 from numpyro.contrib.funsor import config_enumerate, enum
+from numpyro.contrib.vi import VI
 from numpyro.distributions import Distribution
 from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer import MCMC, NUTS, init_to_uniform

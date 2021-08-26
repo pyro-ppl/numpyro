@@ -72,6 +72,7 @@ from numpyro.distributions.distribution import (
     Unit,
 )
 from numpyro.distributions.kl import kl_divergence
+from numpyro.distributions.mixture import NormalMixture
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
@@ -82,7 +83,7 @@ from numpyro.distributions.truncated import (
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
 )
-from numpyro.distributions.mixture import NormalMixture
+
 from . import constraints, transforms
 
 __all__ = [

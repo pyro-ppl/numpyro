@@ -1,26 +1,26 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import OrderedDict, namedtuple
+from contextlib import contextmanager
+from functools import reduce
 import operator
 import os
 import random
 import re
 import warnings
-from collections import OrderedDict
-from collections import namedtuple
-from contextlib import contextmanager
-from functools import reduce
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 import tqdm
+from tqdm.auto import tqdm as tqdm_auto
+
+import jax
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.experimental import host_callback
+import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
-from tqdm.auto import tqdm as tqdm_auto
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
@@ -456,6 +456,8 @@ def ravel_pytree(pytree, *, batch_dims=0):
         return tree_unflatten(treedef, unravel_list(arr))
 
     return flat, unravel_pytree
+
+
 def format_shapes(
     trace,
     *,

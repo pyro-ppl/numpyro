@@ -42,18 +42,18 @@ class VI:
         raise NotImplementedError
 
     def run(
-            self,
-            rng_key,
-            num_steps,
-            *args,
-            callbacks: List[callbacks.Callback] = None,
-            batch_fun=None,
-            validation_rate=5,
-            validation_fun=None,
-            restore=False,
-            restore_path=None,
-            jit_compile=True,
-            **kwargs
+        self,
+        rng_key,
+        num_steps,
+        *args,
+        callbacks: List[callbacks.Callback] = None,
+        batch_fun=None,
+        validation_rate=5,
+        validation_fun=None,
+        restore=False,
+        restore_path=None,
+        jit_compile=True,
+        **kwargs
     ):
         def bodyfn(_i, info, *args, **kwargs):
             body_state, _ = info
@@ -74,10 +74,10 @@ class VI:
         else:
             loss = self.evaluate(state, *args, *batch_args, **kwargs, **batch_kwargs)
         if (
-                not callbacks
-                and batch_fun is None
-                and validation_fun is None
-                and jit_compile
+            not callbacks
+            and batch_fun is None
+            and validation_fun is None
+            and jit_compile
         ):
             state, losses = fori_collect(
                 0,

@@ -1,18 +1,19 @@
-import jax
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from jax.experimental import stax
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.utils import shuffle
 
+import jax
+from jax.experimental import stax
+import jax.numpy as jnp
+
 import numpyro
-import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.contrib.callbacks import Progbar
-from numpyro.contrib.einstein import RBFKernel, Stein
+from numpyro.contrib.einstein import IMQKernel, RBFKernel, Stein
 from numpyro.contrib.indexing import Vindex
+import numpyro.distributions as dist
 from numpyro.handlers import replay
 from numpyro.infer import Trace_ELBO
 from numpyro.infer.util import log_density
@@ -23,19 +24,19 @@ numpyro.set_platform("cpu")
 
 
 def lda(
-        doc_words,
-        num_topics=20,
-        num_words=100,
-        num_max_elements=10,
-        num_hidden=100,
+    doc_words,
+    num_topics=20,
+    num_words=100,
+    num_max_elements=10,
+    num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs = (
-            numpyro.sample(
-                "topic_word_probs",
-                dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
-            )
-            + 1e-7
+        numpyro.sample(
+            "topic_word_probs",
+            dist.Dirichlet(jnp.ones((num_topics, num_words)) / num_words).to_event(1),
+        )
+        + 1e-7
     )
     element_plate = numpyro.plate("words", num_max_elements, dim=-1)
     with numpyro.plate("documents", num_docs, dim=-2):
@@ -54,11 +55,11 @@ def lda(
 
 
 def lda_guide(
-        doc_words,
-        num_topics=20,
-        num_words=100,
-        num_max_elements=10,
-        num_hidden=100,
+    doc_words,
+    num_topics=20,
+    num_words=100,
+    num_max_elements=10,
+    num_hidden=100,
 ):
     num_docs = doc_words.shape[0]
     topic_word_probs_val = numpyro.param(
@@ -87,7 +88,7 @@ def make_batcher(data, batch_size=32, num_max_elements=-1):
         i = step % ds_count
         epoch = step // ds_count
         is_last = i == (ds_count - 1)
-        batch_values = data[i * batch_size: (i + 1) * batch_size].todense()
+        batch_values = data[i * batch_size : (i + 1) * batch_size].todense()
         res = [[] for _ in range(batch_size)]
         for idx1, idx2 in zip(*np.nonzero(batch_values)):
             res[idx1].append(idx2)
@@ -104,7 +105,9 @@ def make_batcher(data, batch_size=32, num_max_elements=-1):
 
 
 def log2_perplexity(rng_key, stein, stein_state, batch_fn, **model_kwargs):
-    particles, unravel_pytree = ravel_pytree(stein.get_params(stein_state), batch_dims=1)
+    particles, unravel_pytree = ravel_pytree(
+        stein.get_params(stein_state), batch_dims=1
+    )
     model = handlers.scale(stein._inference_model, stein.loss_temperature)
 
     keys = jax.random.split(rng_key, particles.shape[0])
@@ -114,26 +117,35 @@ def log2_perplexity(rng_key, stein, stein_state, batch_fn, **model_kwargs):
         model_seed, guide_seed = jax.random.split(key)
         seeded_model = handlers.seed(model, model_seed)
         seeded_guide = handlers.seed(stein.guide, guide_seed)
-        guide_trace = handlers.trace(handlers.substitute(seeded_guide, data=particle)).get_trace(model_args,
-                                                                                                 **model_kwargs)
+        guide_trace = handlers.trace(
+            handlers.substitute(seeded_guide, data=particle)
+        ).get_trace(model_args, **model_kwargs)
         seeded_model = replay(seeded_model, guide_trace)
         model_log_density, _ = log_density(
-            handlers.block(seeded_model, hide_fn=lambda site: site['type'] != 'sample' or not site['is_observed']),
-            (model_args,), model_kwargs, particle)
+            handlers.block(
+                seeded_model,
+                hide_fn=lambda site: site["type"] != "sample"
+                or not site["is_observed"],
+            ),
+            (model_args,),
+            model_kwargs,
+            particle,
+        )
 
         return model_log_density
 
-    mean_likelihood = 0.
+    mean_likelihood = 0.0
     done = False
     i = -1
     while not done:
         (model_args,), _, _, done = batch_fn(i := i + 1)
 
-        mean_likelihood -= (jax.vmap(particle_log_likelihood)(particles,
-                                                              keys,
-                                                              jnp.tile(model_args,
-                                                                       (particles.shape[0], 1, 1))) / jnp.log(
-            2)).mean()
+        mean_likelihood -= (
+            jax.vmap(particle_log_likelihood)(
+                particles, keys, jnp.tile(model_args, (particles.shape[0], 1, 1))
+            )
+            / jnp.log(2)
+        ).mean()
 
     return mean_likelihood / (i + 1)
 
@@ -148,11 +160,16 @@ def build_visual():
     perplexities = np.array(perplexities).reshape(4, max_num_topics // 2)
 
     for i in range(4):
-        plt.plot(np.arange(2, max_num_topics + 1, 2), perplexities[i], 'x--', label=f"{num_particles[i]} Particles")
+        plt.plot(
+            np.arange(2, max_num_topics + 1, 2),
+            perplexities[i],
+            "x--",
+            label=f"{num_particles[i]} Particles",
+        )
     plt.legend()
     plt.xticks(list(range(2, max_num_topics + 1, 2)))
-    plt.ylabel('Log Perplexity')
-    plt.xlabel('Number of Topics')
+    plt.ylabel("Log Perplexity")
+    plt.xlabel("Number of Topics")
     plt.show()
     plt.clf()
 
@@ -174,15 +191,15 @@ def run_lda(num_topics=20, num_particles=5):
     stein = Stein(
         lda,
         lda_guide,
-        Adam(1.),
+        Adam(1.0),
         Trace_ELBO(),
-        RBFKernel(),
+        IMQKernel(),
         num_particles=num_particles,
         num_topics=num_topics,
         num_words=num_words,
         num_max_elements=num_max_elements,
     )
-    state, losses = stein.run(inf_key, 10, batch_fun=batch_fn, callbacks=[Progbar()])
+    state, losses = stein.run(inf_key, 1000, batch_fun=batch_fn, callbacks=[Progbar()])
     plt.plot(losses)
     plt.show()
     plt.clf()
@@ -193,13 +210,15 @@ def run_lda(num_topics=20, num_particles=5):
         num_max_elements=89,
     )
 
-    return log2_perplexity(jax.random.PRNGKey(0),
-                           stein,
-                           state,
-                           batch_fn,
-                           num_topics=num_topics,
-                           num_words=num_words,
-                           num_max_elements=num_max_elements)
+    return log2_perplexity(
+        jax.random.PRNGKey(0),
+        stein,
+        state,
+        batch_fn,
+        num_topics=num_topics,
+        num_words=num_words,
+        num_max_elements=num_max_elements,
+    )
 
 
 if __name__ == "__main__":

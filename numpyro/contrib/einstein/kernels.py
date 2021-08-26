@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Tuple
 
 import numpy as np
+
 from jax import random
 import jax.numpy as jnp
 import jax.scipy.linalg
@@ -83,7 +84,7 @@ class RBFKernel(SteinKernel):
         self,
         mode="norm",
         matrix_mode="norm_diag",
-        bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n),
+        bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n + 1),
     ):
         assert mode == "norm" or mode == "vector" or mode == "matrix"
         assert matrix_mode == "norm_diag" or matrix_mode == "vector_diag"
@@ -97,18 +98,20 @@ class RBFKernel(SteinKernel):
         )
 
     def compute(self, particles, particle_info, loss_fn):
-        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(
-            particles, axis=1
-        )  # N x N (x D)
+
+        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)
+
         if self._normed() and particles.ndim == 2:
             diffs = safe_norm(diffs, ord=2, axis=-1)  # N x D -> N
         diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N (x D)
         factor = self.bandwidth_factor(particles.shape[0])
+
         if diffs.ndim == 2:
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
-        bandwidth = jnp.median(diff_norms) ** 2 * factor + 1e-5
+
+        bandwidth = jnp.median(diff_norms) ** 2 * factor
 
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
@@ -170,7 +173,7 @@ class LinearKernel(SteinKernel):
     from [1].
 
     ** References **
-    1. Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
+    1. "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
     """
 
     def __init__(self, mode="norm"):

@@ -1,6 +1,6 @@
+from jax import lax
 import jax.numpy as jnp
 import jax.scipy as jscipy
-from jax import lax
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Dirichlet, Normal

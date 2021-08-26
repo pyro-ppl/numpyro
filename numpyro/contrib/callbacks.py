@@ -1,13 +1,14 @@
-import os
-import pickle
 from abc import ABC
 from datetime import datetime
+import os
 from pathlib import Path
+import pickle
 from typing import Optional
 
 import numpy as np
-from jax.experimental.optimizers import pack_optimizer_state, unpack_optimizer_state
 from tqdm import tqdm, trange
+
+from jax.experimental.optimizers import pack_optimizer_state, unpack_optimizer_state
 
 __all__ = [
     "Checkpoint",
@@ -15,7 +16,7 @@ __all__ = [
     "History",
     "Progbar",
     "ReduceLROnPlateau",
-    "TerminateOnNaN"
+    "TerminateOnNaN",
 ]
 
 
@@ -57,7 +58,7 @@ class Checkpoint(Callback):
     STRF_TIME = "%Y%m%d_%H%M%S"
 
     def __init__(
-            self, file_path: str, loss_mode="training", save_mode="best", frequency="epoch"
+        self, file_path: str, loss_mode="training", save_mode="best", frequency="epoch"
     ):
         assert loss_mode in {"training", "validation"}
         assert frequency in {"step", "epoch"}
@@ -101,7 +102,9 @@ class Checkpoint(Callback):
 
     def latest(self):
         path = Path(self.file_path)
-        restore_files = path.parent.glob("*" + "".join(path.suffixes))  # TODO: fix regex
+        restore_files = path.parent.glob(
+            "*" + "".join(path.suffixes)
+        )  # TODO: fix regex
         try:
             return max(restore_files, key=os.path.getctime)
         except ValueError:
@@ -116,13 +119,13 @@ class Checkpoint(Callback):
 
 class EarlyStopping(Callback):
     def __init__(
-            self,
-            patience=10,
-            min_delta=0.0,
-            smoothing="dexp",
-            data_smoothing_factor=0.6,
-            trend_smoothing_factor=0.6,
-            loss_mode="training",
+        self,
+        patience=10,
+        min_delta=0.0,
+        smoothing="dexp",
+        data_smoothing_factor=0.6,
+        trend_smoothing_factor=0.6,
+        loss_mode="training",
     ):
         super().__init__()
         assert smoothing in {"none", "exp", "dexp"}
@@ -158,17 +161,17 @@ class EarlyStopping(Callback):
                 self.trend = loss - self.curr_loss
             else:
                 self.trend = (
-                        self.trend_smoothing_factor * (self.curr_loss - self.prev_loss)
-                        + (1 - self.trend_smoothing_factor) * self.trend
+                    self.trend_smoothing_factor * (self.curr_loss - self.prev_loss)
+                    + (1 - self.trend_smoothing_factor) * self.trend
                 )
             self.prev_loss = self.curr_loss
             self.curr_loss = self.data_smoothing_factor * loss + (
-                    1 - self.data_smoothing_factor
+                1 - self.data_smoothing_factor
             ) * (self.curr_loss + self.trend)
         elif self.smoothing == "exp":
             self.curr_loss = (
-                    self.data_smoothing_factor * loss
-                    + (1 - self.data_smoothing_factor) * self.curr_loss
+                self.data_smoothing_factor * loss
+                + (1 - self.data_smoothing_factor) * self.curr_loss
             )
         else:
             self.curr_loss = loss
@@ -221,14 +224,14 @@ class Progbar(Callback):
 
 class ReduceLROnPlateau(Callback):
     def __init__(
-            self,
-            initial_lr=1e-3,
-            factor=0.1,
-            patience=10,
-            min_delta=1e-3,
-            min_lr=1e-5,
-            loss_mode="training",
-            frequency="epoch",
+        self,
+        initial_lr=1e-3,
+        factor=0.1,
+        patience=10,
+        min_delta=1e-3,
+        min_lr=1e-5,
+        loss_mode="training",
+        frequency="epoch",
     ):
         assert loss_mode in {"training", "validation"}
         assert frequency in {"step", "epoch"}

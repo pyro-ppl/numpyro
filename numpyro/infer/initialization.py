@@ -28,9 +28,9 @@ def init_to_median(site=None, reinit_param=lambda site: False, num_samples=15):
         )
 
     if (
-            site["type"] == "sample"
-            and not site["is_observed"]
-            and not site["fn"].is_discrete
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].is_discrete
     ):
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
@@ -63,12 +63,13 @@ def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
         return partial(init_to_uniform, radius=radius, reinit_param=reinit_param)
 
     if (
-            site["type"] == "sample"
-            and not site["is_observed"]
-            and not site["fn"].is_discrete
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].is_discrete
     ) or (site["type"] == "param" and reinit_param(site)):
         # XXX: we import here to avoid circular import
         from numpyro.infer.util import helpful_support_errors
+
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape", ())
         rng_key, subkey = random.split(rng_key)
@@ -117,7 +118,7 @@ def init_to_value(site=None, values=None, reinit_param=lambda site: False):
         return partial(init_to_value, values=values, reinit_param=reinit_param)
 
     if (site["type"] == "sample" and not site["is_observed"]) or (
-            site["type"] == "param" and reinit_param(site)
+        site["type"] == "param" and reinit_param(site)
     ):
         if site["name"] in values:
             return values[site["name"]]
@@ -126,7 +127,7 @@ def init_to_value(site=None, values=None, reinit_param=lambda site: False):
 
 
 def init_with_noise(
-        init_strategy, site=None, noise_scale=1.0, reinit_param=lambda site: False
+    init_strategy, site=None, noise_scale=1.0, reinit_param=lambda site: False
 ):
     if site is None:
         return partial(

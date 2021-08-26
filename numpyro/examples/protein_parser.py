@@ -1,5 +1,6 @@
+from parsita import ParseError, Success, TextParsers, reg, repsep
+
 import jax.numpy as jnp
-from parsita import TextParsers, reg, repsep, Success, ParseError
 
 
 def _to_dict(parsed):
