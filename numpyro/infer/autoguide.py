@@ -621,11 +621,12 @@ class AutoDAIS(AutoContinuous):
 
     Note that AutoDAIS cannot be used in conjuction with data subsampling.
 
-    References:
-    [1] "MCMC Variational Inference via Uncorrected Hamiltonian Annealing,"
-        Tomas Geffner, Justin Domke.
-    [2] "Differentiable Annealed Importance Sampling and the Perils of Gradient Noise,"
-        Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse.
+    **Reference:**
+
+    1. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
+       Tomas Geffner, Justin Domke
+    2. *Differentiable Annealed Importance Sampling and the Perils of Gradient Noise*,
+       Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse
 
     Usage::
 
