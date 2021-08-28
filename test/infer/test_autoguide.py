@@ -66,7 +66,10 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model, init_loc_fn=init_strategy)
+    if auto_class == AutoDAIS:
+        guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
+    else:
+        guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
