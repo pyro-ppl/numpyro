@@ -807,6 +807,7 @@ class AutoSSDAIS(AutoDAIS):
         eta_max=0.1,
         gamma_init=0.9,
         prefix="auto",
+        base_dist="diag",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
     ):
@@ -814,6 +815,12 @@ class AutoSSDAIS(AutoDAIS):
                          prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale)
 
         self.surrogate_model = surrogate_model
+
+        assert base_dist in ["diag", "chol"]
+        if base_dist == "diag":
+            self.diag_base = True
+        else:
+            self.diag_base = False
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, subsampling_warning=False, **kwargs)
@@ -872,18 +879,28 @@ class AutoSSDAIS(AutoDAIS):
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
         )
-        init_z_scale = numpyro.param(
-            "{}_z_0_scale".format(self.prefix),
-            jnp.full(self.latent_dim, self._init_scale),
-            constraint=constraints.positive,
-        )
 
-        base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        if self.diag_base:
+            init_z_scale = numpyro.param(
+                "{}_z_0_scale".format(self.prefix),
+                jnp.full(self.latent_dim, self._init_scale),
+                constraint=constraints.positive,
+            )
+            base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        else:
+            scale_tril = numpyro.param(
+                "{}_scale_tril".format(self.prefix),
+                jnp.identity(self.latent_dim) * self._init_scale,
+                constraint=constraints.lower_cholesky
+            )
+            print("scale_tril",scale_tril.shape)
+            base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
+
         z_0 = numpyro.sample(
             "{}_z_0".format(self.prefix),
             base_z_dist,
-            infer={"is_auxiliary": True},
-        )
+            infer={"is_auxiliary": True})
+
         momentum_dist = dist.Normal(0, mass_matrix).to_event()
         eps = numpyro.sample(
             "{}_momentum".format(self.prefix),
