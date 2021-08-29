@@ -637,6 +637,9 @@ class AutoDAIS(AutoContinuous):
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 8.
+    :param str base_dist: Controls whether the base Normal variational distribution
+       is parameterized by a "diagonal" covariance matrix or a full-rank covariance
+       matrix parameterized by a lower-diagonal "cholesky" factor. Defaults to "diagonal".
     :param float eta_init: The initial value of the step size used in HMC. Defaults
         to 0.01.
     :param float eta_max: The maximum value of the learnable step size used in HMC.
@@ -655,6 +658,7 @@ class AutoDAIS(AutoContinuous):
         model,
         *,
         K=8,
+        base_dist="diagonal",
         eta_init=0.01,
         eta_max=0.1,
         gamma_init=0.9,
@@ -664,6 +668,8 @@ class AutoDAIS(AutoContinuous):
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
+        if base_dist not in ["diagonal", "cholesky"]:
+            raise ValueError('base_dist must be one of "diagonal" or "cholesky".')
         if eta_init <= 0.0 or eta_init >= eta_max:
             raise ValueError(
                 "eta_init must be positive and satisfy eta_init < eta_max."
@@ -679,6 +685,7 @@ class AutoDAIS(AutoContinuous):
         self.eta_max = eta_max
         self.gamma_init = gamma_init
         self.K = K
+        self.base_dist = base_dist
         self._init_scale = init_scale
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
@@ -734,13 +741,22 @@ class AutoDAIS(AutoContinuous):
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
         )
-        init_z_scale = numpyro.param(
-            "{}_z_0_scale".format(self.prefix),
-            jnp.full(self.latent_dim, self._init_scale),
-            constraint=constraints.positive,
-        )
 
-        base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        if self.base_dist == "diagonal":
+            init_z_scale = numpyro.param(
+                "{}_z_0_scale".format(self.prefix),
+                jnp.full(self.latent_dim, self._init_scale),
+                constraint=constraints.positive,
+            )
+            base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        elif self.base_dist == "cholesky":
+            scale_tril = numpyro.param(
+                "{}_z_0_scale_tril".format(self.prefix),
+                jnp.identity(self.latent_dim) * self._init_scale,
+                constraint=constraints.lower_cholesky,
+            )
+            base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
+
         z_0 = numpyro.sample(
             "{}_z_0".format(self.prefix),
             base_z_dist,
