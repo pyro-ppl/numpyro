@@ -751,7 +751,7 @@ class AutoDAIS(AutoContinuous):
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
             scale_tril = numpyro.param(
-                "{}_scale_tril".format(self.prefix),
+                "{}_z_0_scale_tril".format(self.prefix),
                 jnp.identity(self.latent_dim) * self._init_scale,
                 constraint=constraints.lower_cholesky,
             )
