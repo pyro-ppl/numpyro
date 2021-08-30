@@ -9,7 +9,7 @@ import numpy as np
 
 from jax import lax, ops, vmap
 from jax.flatten_util import ravel_pytree
-from jax.nn import softplus
+from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
@@ -787,8 +787,7 @@ class SigmoidTransform(Transform):
         return logit(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        x_abs = jnp.abs(x)
-        return -x_abs - 2 * jnp.log1p(jnp.exp(-x_abs))
+        return -softplus(x) - softplus(-x)
 
 
 def _softplus_inv(y):
@@ -877,12 +876,10 @@ class StickBreakingTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
-        # |det|(J) = Product(y * (1 - z))
+        # |det|(J) = Product(y * (1 - sigmoid(x)))
+        #          = Product(y * sigmoid(x) * exp(-x))
         x = x - jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
-        z = jnp.clip(expit(x), a_min=jnp.finfo(x.dtype).tiny)
-        # XXX we use the identity 1 - z = z * exp(-x) to not worry about
-        # the case z ~ 1
-        return jnp.sum(jnp.log(y[..., :-1] * z) - x, axis=-1)
+        return jnp.sum(jnp.log(y[..., :-1]) + (log_sigmoid(x) - x), axis=-1)
 
     def forward_shape(self, shape):
         if len(shape) < 1:
