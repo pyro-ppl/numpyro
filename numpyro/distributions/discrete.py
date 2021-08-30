@@ -597,6 +597,18 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 
 
 class Poisson(Distribution):
+    r"""
+    Creates a Poisson distribution parameterized by rate, the rate parameter.
+
+    Samples are nonnegative integers, with a pmf given by
+
+    .. math::
+      \mathrm{rate}^k \frac{e^{-\mathrm{rate}}}{k!}
+
+    :param numpy.ndarray rate: The rate parameter
+    :param bool is_sparse: Whether to assume value is mostly zero when computing
+        :meth:`log_prob`, which can speed up computation when data is sparse.
+    """
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
 
