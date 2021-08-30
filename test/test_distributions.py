@@ -1652,7 +1652,16 @@ def test_biject_to(constraint, shape):
             ),
             (2,),
         ),
-        (SimplexToOrderedTransform(0.0), (5,)),
+        (
+            transforms.ComposeTransform(
+                [
+                    biject_to(constraints.simplex),
+                    SimplexToOrderedTransform(0.0),
+                    biject_to(constraints.ordered_vector).inv,
+                ]
+            ),
+            (5,),
+        ),
     ],
 )
 @pytest.mark.parametrize(

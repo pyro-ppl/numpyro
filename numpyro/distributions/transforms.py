@@ -798,7 +798,8 @@ class SimplexToOrderedTransform(Transform):
     Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
 
     :param anchor_point: Anchor point is a nuisance parameter to improve the identifiability of the transform.
-        For simplicity, we assume it is a scalar value. For more details please refer to Section 2.2 in [1]
+        For simplicity, we assume it is a scalar value, but it is broadcastable x.shape[:-1].
+        For more details please refer to Section 2.2 in [1]
 
     **References:**
 
@@ -814,54 +815,25 @@ class SimplexToOrderedTransform(Transform):
         self.anchor_point = anchor_point
 
     def __call__(self, x):
-        def scan_fn(expit_term, x):
-            y = self.anchor_point - logit(expit_term - x)
-            next_expit_term = expit(self.anchor_point - y)
-            return next_expit_term, y
-
-        # the first term defies the general map formula
-        # hence, the most succinct implementation is to parametrize the changing term
-        expit_init = jnp.ones(x.shape[:-1])
-        # scan must run along the last dimension, so we need to move that dimension to be the leading
-        _, y = lax.scan(scan_fn, expit_init, jnp.moveaxis(x[..., :-1], -1, 0))
-        # reverse the move for last dimension to represent the event shape
-        y = jnp.moveaxis(y, 0, -1)
-
+        s = jnp.cumsum(x[..., :-1], axis=-1)
+        y = logit(s) + self.anchor_point
         return y
 
     def _inverse(self, y):
-        K = y.shape[-1] + 1
-        x_shape = y.shape[:-1] + (K,)
-
-        sigma = expit(self.anchor_point - y)
-
-        x = jnp.zeros(x_shape, dtype=float)
-        x = x.at[..., 0].set(1 - sigma[..., 0])
-        x = x.at[..., 1:-1].set(sigma[..., :-1] - sigma[..., 1:])
-        x = x.at[..., -1].set(sigma[..., -1])
-
+        y = y - self.anchor_point
+        s = expit(y)
+        # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
+        # add two boundary points 0 and 1
+        pad_width = [(0, 0)] * (jnp.ndim(s) - 1) + [(1, 1)]
+        s = jnp.pad(s, pad_width, constant_values=(0, 1))
+        x = s[..., 1:] - s[..., :-1]
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        K = x.shape[-1]
-        J_shape = x.shape[:-1] + (K, K)
-
-        sigma = expit(self.anchor_point - y)
-
-        J = jnp.zeros(J_shape, dtype=float)
-        # first column holding the suming constraint of the ordinal probabilities
-        J = J.at[..., 0].set(1.0)
-        # partial derivation of sigma
-        rho = jnp.multiply(sigma, 1 - sigma)
-        i, j = jnp.diag_indices(K - 1)
-        # diagonal element
-        J = J.at[..., i + 1, j + 1].set(-rho)
-        # off-diagonal element
-        J = J.at[..., i, j + 1].set(rho)
-
-        _, log_det = jnp.linalg.slogdet(J)
-        # the above lines compute log_det of the inverse transform from y to x, so we need to take the minus sign here
-        return -log_det
+        # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
+        # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
+        J_logdet = -(softplus(y) + softplus(-y)).sum(-1)
+        return -J_logdet
 
 
 def _softplus_inv(y):
