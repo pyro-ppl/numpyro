@@ -820,7 +820,7 @@ class SimplexToOrderedTransform(Transform):
         return y
 
     def _inverse(self, y):
-        y = y - self.anchor_point
+        y = y - jnp.expand_dims(self.anchor_point, -1)
         s = expit(y)
         # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
         # add two boundary points 0 and 1
@@ -832,8 +832,8 @@ class SimplexToOrderedTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
         # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
-        J_logdet = -(softplus(y) + softplus(-y)).sum(-1)
-        return -J_logdet
+        J_logdet = (softplus(y) + softplus(-y)).sum(-1)
+        return J_logdet
 
 
 def _softplus_inv(y):
