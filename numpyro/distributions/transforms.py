@@ -816,7 +816,7 @@ class SimplexToOrderedTransform(Transform):
 
     def __call__(self, x):
         s = jnp.cumsum(x[..., :-1], axis=-1)
-        y = logit(s) + self.anchor_point
+        y = logit(s) + jnp.expand_dims(self.anchor_point, -1)
         return y
 
     def _inverse(self, y):

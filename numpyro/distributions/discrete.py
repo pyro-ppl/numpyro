@@ -37,7 +37,7 @@ from jax.ops import index_add
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
@@ -432,11 +432,7 @@ class OrderedLogistic(CategoricalProbs):
             predictor = predictor[..., None]
         predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
-        cumulative_probs = expit(cutpoints - predictor)
-        # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (jnp.ndim(cumulative_probs) - 1) + [(1, 1)]
-        cumulative_probs = jnp.pad(cumulative_probs, pad_width, constant_values=(0, 1))
-        probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
+        probs = transforms.SimplexToOrderedTransform(self.predictor).inv(self.cutpoints)
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
     @staticmethod
