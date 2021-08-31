@@ -41,6 +41,7 @@ __all__ = [
     "PermuteTransform",
     "PowerTransform",
     "SigmoidTransform",
+    "SimplexToOrderedTransform",
     "SoftplusTransform",
     "SoftplusLowerCholeskyTransform",
     "StickBreakingTransform",
@@ -788,6 +789,50 @@ class SigmoidTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return -softplus(x) - softplus(-x)
+
+
+class SimplexToOrderedTransform(Transform):
+    """
+    Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
+    Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
+
+    :param anchor_point: Anchor point is a nuisance parameter to improve the identifiability of the transform.
+        For simplicity, we assume it is a scalar value, but it is broadcastable x.shape[:-1].
+        For more details please refer to Section 2.2 in [1]
+
+    **References:**
+
+    1. *Ordinal Regression Case Study, section 2.2*,
+       M. Betancourt, https://betanalpha.github.io/assets/case_studies/ordinal_regression.html
+
+    """
+
+    domain = constraints.simplex
+    codomain = constraints.ordered_vector
+
+    def __init__(self, anchor_point=0.0):
+        self.anchor_point = anchor_point
+
+    def __call__(self, x):
+        s = jnp.cumsum(x[..., :-1], axis=-1)
+        y = logit(s) + jnp.expand_dims(self.anchor_point, -1)
+        return y
+
+    def _inverse(self, y):
+        y = y - jnp.expand_dims(self.anchor_point, -1)
+        s = expit(y)
+        # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
+        # add two boundary points 0 and 1
+        pad_width = [(0, 0)] * (jnp.ndim(s) - 1) + [(1, 1)]
+        s = jnp.pad(s, pad_width, constant_values=(0, 1))
+        x = s[..., 1:] - s[..., :-1]
+        return x
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
+        # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
+        J_logdet = (softplus(y) + softplus(-y)).sum(-1)
+        return J_logdet
 
 
 def _softplus_inv(y):
