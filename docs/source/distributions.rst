@@ -478,12 +478,32 @@ ZeroInflatedNegativeBinomial2
 .. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
 
 
+Mixture Distributions
+---------------------
+
+MixtureSameFamily
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Directional Distributions
 -------------------------
 
 ProjectedNormal
 ^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SineBivariateVonMises
+---------------------
+.. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
     :members:
     :undoc-members:
     :show-inheritance:
@@ -813,6 +833,14 @@ PowerTransform
 SigmoidTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.SigmoidTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SimplexToOrderedTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.SimplexToOrderedTransform
     :members:
     :undoc-members:
     :show-inheritance:

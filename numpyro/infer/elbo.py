@@ -25,6 +25,13 @@ class ELBO:
         (gradient) estimators.
     """
 
+    """
+    Determines whether the ELBO objective can support inference of discrete latent variables.
+
+    Subclasses that are capable of inferring  discrete latent variables should override to `True`
+    """
+    can_infer_discrete = False
+
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
@@ -251,7 +258,7 @@ class TraceMeanField_ELBO(ELBO):
             # handle auxiliary sites in the guide
             for name, site in guide_trace.items():
                 if site["type"] == "sample" and name not in model_trace:
-                    assert site["infer"].get("is_auxiliary")
+                    assert site["infer"].get("is_auxiliary") or site["is_observed"]
                     elbo_particle = elbo_particle - _get_log_prob_sum(site)
 
             if mutable_params:
@@ -530,6 +537,8 @@ class TraceGraph_ELBO(ELBO):
     [1] `Gradient Estimation Using Stochastic Computation Graphs`,
         John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
     """
+
+    can_infer_discrete = True
 
     def __init__(self, num_particles=1):
         super().__init__(num_particles=num_particles)
