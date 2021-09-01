@@ -146,7 +146,7 @@ Gumbel
     :member-order: bysource
 
 Gompertz
-^^^^^^
+^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Gompertz
     :members:
     :undoc-members:
