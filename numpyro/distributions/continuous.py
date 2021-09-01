@@ -541,7 +541,6 @@ class Gompertz(Distribution):
     def mean(self):
         """Get the (approximate) mean of this Gompertz random variate, using corollary 1
         from the Lenart paper"""
-        # Using approximation from corollary 1 in aforementioned paper
         return (
             jnp.exp(self._rate_over_conc)
             * (self._rate_over_conc - jnp.log(self._rate_over_conc) - EULER_MASCHERONI)
