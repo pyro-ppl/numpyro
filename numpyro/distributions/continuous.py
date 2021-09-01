@@ -491,6 +491,19 @@ class Gumbel(Distribution):
 
 
 class Gompertz(Distribution):
+    """Gompertz Distribution sampling utilities.
+
+    All derivations can be found in this paper (Lenart, 2012):
+        https://doi.org/10.1080/03461238.2012.687697
+    with the exception that we call the parameters `concentration` and `rate`,
+    as opposed to their "location" and "scale" terms.
+
+    The CDF is
+
+    .. math::
+        F(x) = 1 - \exp \left\{ \frac{\text{rate}}{\text{concentration}} * \left [ \exp\{\text{concentration} \cdot x\} - 1 \right ] \right\}
+    """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "rate": constraints.positive,
@@ -499,18 +512,14 @@ class Gompertz(Distribution):
     reparametrized_params = ["concentration", "rate"]
 
     def __init__(self, concentration, rate=1.0, validate_args=None):
-        """
-        The CDF is
-
-        .. math::
-            F(x) = 1 - \exp \left\{ - \frac{\text{rate}}{\text{concentration}} * \left [ \exp\{\text{concentration} \cdot x\\} - 1 \right ] )
-        """
         self.rate, self.concentration = promote_shapes(rate, concentration)
-        # Alias parameters as they appear in this article
-        # https://www.tandfonline.com/doi/abs/10.1080/03461238.2012.687697
-        batch_shape = lax.broadcast_shapes(jnp.shape(rate), jnp.shape(concentration))
+
+        # This ratio (and its inverse) are often computed, so we store it once here
+        self._rate_over_conc = self.rate / self.concentration
+
         super(Gompertz, self).__init__(
-            batch_shape=batch_shape, validate_args=validate_args
+            batch_shape=lax.broadcast_shapes(jnp.shape(rate), jnp.shape(concentration)),
+            validate_args=validate_args,
         )
 
     def sample(self, key, sample_shape=()):
@@ -525,33 +534,40 @@ class Gompertz(Distribution):
         return (
             jnp.log(self.rate)
             + conc_times_value
-            - self.rate / self.concentration * jnp.expm1(conc_times_value)
+            - self._rate_over_conc * jnp.expm1(conc_times_value)
         )
 
     @property
     def mean(self):
-        rate_over_conc = self.rate / self.concentration
+        """Get the (approximate) mean of this Gompertz random variate, using corollary 1
+        from the Lenart paper"""
         # Using approximation from corollary 1 in aforementioned paper
         return (
-            jnp.exp(rate_over_conc)
-            * (rate_over_conc - jnp.log(rate_over_conc) - EULER_MASCHERONI)
+            jnp.exp(self._rate_over_conc)
+            * (self._rate_over_conc - jnp.log(self._rate_over_conc) - EULER_MASCHERONI)
             / self.concentration
         )
 
     @property
     def variance(self):
-        raise NotImplementedError("Gompertz variance not yet implemented")
+        """Get the (approximate) variance of this Gompertz random variate, using the
+        approximation at the top of page 8 in the Lenart paper"""
+        one_over_conc_squared = jnp.power(self.concentration, -2)
+
+        term1 = one_over_conc_squared * jnp.power(jnp.pi, 2) / 6
+        term2 = 2 * one_over_conc_squared * self._rate_over_conc
+
+        if term2 > term1:
+            # In this case, the variance is approximately 0
+            return jnp.finfo(float).eps
+
+        return term1 - term2
 
     def cdf(self, value):
-        return -jnp.expm1(
-            -self.rate / self.concentration * jnp.expm1(self.concentration * value)
-        )
+        return -jnp.expm1(-self._rate_over_conc * jnp.expm1(self.concentration * value))
 
     def icdf(self, q):
-        return (
-            jnp.log1p(-jnp.log1p(-q) * self.concentration / self.rate)
-            / self.concentration
-        )
+        return jnp.log1p(-jnp.log1p(-q) / self._rate_over_conc) / self.concentration
 
 
 class Laplace(Distribution):
