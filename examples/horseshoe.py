@@ -36,8 +36,10 @@ def model(X, Y):
     lambdas = numpyro.sample("lambdas", dist.HalfCauchy(jnp.ones(D_X)))
     tau = numpyro.sample("tau", dist.HalfCauchy(jnp.ones(1)))
 
-    # note that in practice we would probably want to integrate out the coefficients
-    # (as is done for example in sparse_regression.py)
+    # note that in practice for a normal likelihood we would probably want to
+    # integrate out the coefficients (as is done for example in sparse_regression.py)
+    # however, this trick wouldn't be applicable to other likelihoods (e.g. bernoulli),
+    # so we do make use of it here.
     unscaled_betas = numpyro.sample("unscaled_betas", dist.Normal(jnp.ones(D_X)))
     scaled_betas = numpyro.deterministic("betas", tau * lambdas * unscaled_betas)
 
