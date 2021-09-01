@@ -448,48 +448,6 @@ class InverseGamma(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
-class Gumbel(Distribution):
-    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
-    support = constraints.real
-    reparametrized_params = ["loc", "scale"]
-
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
-        self.loc, self.scale = promote_shapes(loc, scale)
-        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-
-        super(Gumbel, self).__init__(
-            batch_shape=batch_shape, validate_args=validate_args
-        )
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        standard_gumbel_sample = random.gumbel(
-            key, shape=sample_shape + self.batch_shape + self.event_shape
-        )
-        return self.loc + self.scale * standard_gumbel_sample
-
-    @validate_sample
-    def log_prob(self, value):
-        z = (value - self.loc) / self.scale
-        return -(z + jnp.exp(-z)) - jnp.log(self.scale)
-
-    @property
-    def mean(self):
-        return jnp.broadcast_to(
-            self.loc + self.scale * EULER_MASCHERONI, self.batch_shape
-        )
-
-    @property
-    def variance(self):
-        return jnp.broadcast_to(jnp.pi ** 2 / 6.0 * self.scale ** 2, self.batch_shape)
-
-    def cdf(self, value):
-        return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
-
-    def icdf(self, q):
-        return self.loc - self.scale * jnp.log(-jnp.log(q))
-
-
 class Gompertz(Distribution):
     """Gompertz Distribution sampling utilities.
 
@@ -567,6 +525,48 @@ class Gompertz(Distribution):
 
     def icdf(self, q):
         return jnp.log1p(-jnp.log1p(-q) / self._rate_over_conc) / self.concentration
+
+
+class Gumbel(Distribution):
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
+    support = constraints.real
+    reparametrized_params = ["loc", "scale"]
+
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+
+        super(Gumbel, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        standard_gumbel_sample = random.gumbel(
+            key, shape=sample_shape + self.batch_shape + self.event_shape
+        )
+        return self.loc + self.scale * standard_gumbel_sample
+
+    @validate_sample
+    def log_prob(self, value):
+        z = (value - self.loc) / self.scale
+        return -(z + jnp.exp(-z)) - jnp.log(self.scale)
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(
+            self.loc + self.scale * EULER_MASCHERONI, self.batch_shape
+        )
+
+    @property
+    def variance(self):
+        return jnp.broadcast_to(jnp.pi ** 2 / 6.0 * self.scale ** 2, self.batch_shape)
+
+    def cdf(self, value):
+        return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
+
+    def icdf(self, q):
+        return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
 class Laplace(Distribution):

@@ -236,6 +236,8 @@ CONTINUOUS = [
     T(dist.Gamma, jnp.array([0.5, 1.3]), jnp.array([[1.0], [3.0]])),
     T(dist.GaussianRandomWalk, 0.1, 10),
     T(dist.GaussianRandomWalk, jnp.array([0.1, 0.3, 0.25]), 10),
+    T(dist.Gompertz, jnp.array([1.7]), jnp.array([[2.0], [3.0]])),
+    T(dist.Gompertz, jnp.array([0.5, 1.3]), jnp.array([[1.0], [3.0]])),
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, jnp.array([0.0, 0.5]), jnp.array([1.0, 2.0])),
