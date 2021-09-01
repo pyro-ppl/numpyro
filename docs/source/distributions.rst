@@ -145,6 +145,14 @@ Gumbel
     :show-inheritance:
     :member-order: bysource
 
+Gompertz
+^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Gompertz
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GaussianRandomWalk
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.GaussianRandomWalk
