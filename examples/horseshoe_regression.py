@@ -28,9 +28,9 @@ import jax.numpy as jnp
 import jax.random as random
 
 import numpyro
+from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
-from numpyro.diagnostics import summary
 
 
 # regression model with continuous-valued outputs/responses
