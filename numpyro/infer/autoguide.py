@@ -1135,7 +1135,7 @@ class AutoIAFNormal(AutoContinuous):
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_loc_fn: A per-site initialization function.
-    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param int num_flows: the number of flows to be used, defaults to 1.
     :param list hidden_dims: the dimensionality of the hidden units per layer.
         Defaults to ``[latent_dim, latent_dim]``.
     :param bool skip_connections: whether to add skip connections from the input to the
