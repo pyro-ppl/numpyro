@@ -4,12 +4,13 @@
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import logsumexp
+from jax.scipy.special import gammainc, logsumexp
 from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import (
     Cauchy,
+    Gamma,
     Laplace,
     Logistic,
     Normal,
@@ -402,3 +403,327 @@ class TruncatedPolyaGamma(Distribution):
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         return cls(batch_shape=aux_data)
+
+
+def TruncatedGamma(base_gamma, low=None, high=None, validate_args=None):
+    """
+    A function to generate a truncated gamma distribution.
+
+    :param base_gamma: The base Gamma distribution to be truncated.
+    :param low: the value which is used to truncate the base distribution from below.
+        Setting this parameter to None to not truncate from below.
+    :param high: the value which is used to truncate the base distribution from above.
+        Setting this parameter to None to not truncate from above.
+    """
+    if high is None:
+        if low is None:
+            return base_gamma
+        else:
+            return LeftTruncatedGamma(base_gamma, low=low, validate_args=validate_args)
+    elif low is None:
+        return RightTruncatedGamma(base_gamma, high=high, validate_args=validate_args)
+    else:
+        return TwoSidedTruncatedGamma(
+            base_gamma, low=low, high=high, validate_args=validate_args
+        )
+
+
+class LeftTruncatedGamma(Distribution):
+    arg_constraints = {"low": constraints.positive}
+    reparametrized_params = ["low"]
+
+    def __init__(self, base_gamma, low, validate_args=None):
+        assert isinstance(base_gamma, Gamma)
+        batch_shape = lax.broadcast_shapes(base_gamma.batch_shape, jnp.shape(low))
+        self.base_gamma = tree_map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_gamma
+        )
+        (self.low,) = promote_shapes(low, shape=batch_shape)
+        self._support = constraints.greater_than(low)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    @validate_sample
+    def log_prob(self, value):
+        lprob = self.base_gamma.log_prob(value)
+        lscale = self.base_gamma.cdf(self.low)
+        return lprob - jnp.log(1.0 - lscale)
+
+    def _scale_moment(self, t):
+        assert t > -self.base_gamma.concentration
+        s_lscale = gammainc(
+            self.base_gamma.concentration + t, self.low * self.base_gamma.rate
+        )
+        lscale = self.base_gamma.cdf(self.low)
+        return (1.0 - s_lscale) / (1.0 - lscale)
+
+    @property
+    def mean(self):
+        base_mean = self.base_gamma.mean
+        rescale = self._scale_moment(1.0)
+        return rescale * base_mean
+
+    @property
+    def variance(self):
+        # compute E[X]^2
+        fst_m_sq = jnp.power(self.mean, 2.0)
+
+        # compute E[X^2]
+        base_sec_mt = (
+            (self.base_gamma.concentration + 1)
+            * self.base_gamma.concentration
+            * jnp.power(self.base_gamma.rate, -2.0)
+        )
+        rescale = self._scale_moment(2.0)
+        sec_mt = base_sec_mt * rescale
+
+        # V[X] = E[X^2] - E[X]^2
+        return sec_mt - fst_m_sq
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_gamma.tree_flatten()
+        if isinstance(self._support.lower_bound, (int, float)):
+            return base_flatten, (
+                type(self.base_gamma),
+                base_aux,
+                self._support.lower_bound,
+            )
+        else:
+            return (base_flatten, self.low), (type(self.base_gamma), base_aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        if len(aux_data) == 2:
+            base_flatten, low = params
+            base_cls, base_aux = aux_data
+        else:
+            base_flatten = params
+            base_cls, base_aux, low = aux_data
+        base_gamma = Gamma.tree_unflatten(base_aux, base_flatten)
+        return cls(base_gamma, low=low)
+
+    @validate_sample
+    def cdf(self, value):
+        gcdf = self.base_gamma.cdf(value)
+        lscale = self.base_gamma.cdf(self.low)
+        return (gcdf - lscale) / (1.0 - lscale)
+
+    def icdf(self, q):
+        lscale = self.base_gamma.cdf(self.low)
+        q = q * (1.0 - lscale) + lscale
+        return self.base_gamma.icdf(q)
+
+
+class RightTruncatedGamma(Distribution):
+    arg_constraints = {"high": constraints.positive}
+    reparametrized_params = ["high"]
+
+    def __init__(self, base_gamma, high, validate_args=None):
+        assert isinstance(base_gamma, Gamma)
+        batch_shape = lax.broadcast_shapes(base_gamma.batch_shape, jnp.shape(high))
+        self.base_gamma = tree_map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_gamma
+        )
+        (self.high,) = promote_shapes(high, shape=batch_shape)
+        self._support = constraints.interval(0.0, high)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    @validate_sample
+    def log_prob(self, value):
+        lprob = self.base_gamma.log_prob(value)
+        hscale = self.base_gamma.cdf(self.high)
+        return lprob - jnp.log(hscale)
+
+    def _scale_moment(self, t):
+        assert t > -self.base_gamma.concentration
+        s_hscale = gammainc(
+            self.base_gamma.concentration + t, self.high * self.base_gamma.rate
+        )
+        hscale = self.base_gamma.cdf(self.high)
+        return s_hscale / hscale
+
+    @property
+    def mean(self):
+        base_mean = self.base_gamma.mean
+        rescale = self._scale_moment(1.0)
+        return rescale * base_mean
+
+    @property
+    def variance(self):
+        # compute E[X]^2
+        fst_m_sq = jnp.power(self.mean, 2.0)
+
+        # compute E[X^2]
+        base_sec_mt = (
+            (self.base_gamma.concentration + 1)
+            * self.base_gamma.concentration
+            * jnp.power(self.base_gamma.rate, -2.0)
+        )
+        rescale = self._scale_moment(2.0)
+        sec_mt = base_sec_mt * rescale
+
+        # V[X] = E[X^2] - E[X]^2
+        return sec_mt - fst_m_sq
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_gamma.tree_flatten()
+        if isinstance(self._support.upper_bound, (int, float)):
+            return base_flatten, (
+                type(self.base_gamma),
+                base_aux,
+                self._support.upper_bound,
+            )
+        else:
+            return (base_flatten, self.high), (type(self.base_gamma), base_aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        if len(aux_data) == 2:
+            base_flatten, high = params
+            base_cls, base_aux = aux_data
+        else:
+            base_flatten = params
+            base_cls, base_aux, high = aux_data
+        base_gamma = Gamma.tree_unflatten(base_aux, base_flatten)
+        return cls(base_gamma, high=high)
+
+    @validate_sample
+    def cdf(self, value):
+        gcdf = self.base_gamma.cdf(value)
+        hscale = self.base_gamma.cdf(self.high)
+        return gcdf / hscale
+
+    def icdf(self, q):
+        hscale = self.base_gamma.cdf(self.high)
+        q = q * hscale
+        return self.base_gamma.icdf(q)
+
+
+class TwoSidedTruncatedGamma(Distribution):
+    arg_constraints = {
+        "low": constraints.positive,
+        "high": constraints.dependent,
+    }
+    reparametrized_params = ["low", "high"]
+
+    def __init__(self, base_gamma, low, high, validate_args=None):
+        assert isinstance(base_gamma, Gamma)
+        batch_shape = lax.broadcast_shapes(
+            base_gamma.batch_shape, jnp.shape(low), jnp.shape(high)
+        )
+        self.base_gamma = tree_map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_gamma
+        )
+        (self.low,) = promote_shapes(low, shape=batch_shape)
+        (self.high,) = promote_shapes(high, shape=batch_shape)
+        self._support = constraints.interval(low, high)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    @validate_sample
+    def log_prob(self, value):
+        lprob = self.base_gamma.log_prob(value)
+        lscale = self.base_gamma.cdf(self.low)
+        hscale = self.base_gamma.cdf(self.high)
+        return lprob - jnp.log(hscale - lscale)
+
+    def _scale_moment(self, t):
+        assert t > -self.base_gamma.concentration
+        s_lscale = gammainc(
+            self.base_gamma.concentration + t, self.low * self.base_gamma.rate
+        )
+        s_hscale = gammainc(
+            self.base_gamma.concentration + t, self.high * self.base_gamma.rate
+        )
+        lscale = self.base_gamma.cdf(self.low)
+        hscale = self.base_gamma.cdf(self.high)
+        return (s_hscale - s_lscale) / (hscale - lscale)
+
+    @property
+    def mean(self):
+        base_mean = self.base_gamma.mean
+        rescale = self._scale_moment(1.0)
+        return rescale * base_mean
+
+    @property
+    def variance(self):
+        # compute E[X]^2
+        fst_m_sq = jnp.power(self.mean, 2.0)
+
+        # compute E[X^2]
+        base_sec_mt = (
+            (self.base_gamma.concentration + 1)
+            * self.base_gamma.concentration
+            * jnp.power(self.base_gamma.rate, -2.0)
+        )
+        rescale = self._scale_moment(2.0)
+        sec_mt = base_sec_mt * rescale
+
+        # V[X] = E[X^2] - E[X]^2
+        return sec_mt - fst_m_sq
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_gamma.tree_flatten()
+        if isinstance(self._support.lower_bound, (int, float)) and isinstance(
+            self._support.upper_bound, (int, float)
+        ):
+            return base_flatten, (
+                type(self.base_gamma),
+                base_aux,
+                self._support.lower_bound,
+                self._support.upper_bound,
+            )
+        else:
+            return (base_flatten, self.low, self.high), (
+                type(self.base_gamma),
+                base_aux,
+            )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        if len(aux_data) == 2:
+            base_flatten, low, high = params
+            base_cls, base_aux = aux_data
+        else:
+            base_flatten = params
+            base_cls, base_aux, low, high = aux_data
+        base_gamma = Gamma.tree_unflatten(base_aux, base_flatten)
+        return cls(base_gamma, low=low, high=high)
+
+    @validate_sample
+    def cdf(self, value):
+        gcdf = self.base_gamma.cdf(value)
+        lscale = self.base_gamma.cdf(self.low)
+        hscale = self.base_gamma.cdf(self.high)
+        return (gcdf - lscale) / (hscale - lscale)
+
+    def icdf(self, q):
+        lscale = self.base_gamma.cdf(self.low)
+        hscale = self.base_gamma.cdf(self.high)
+        q = q * (hscale - lscale) + lscale
+        return self.base_gamma.icdf(q)

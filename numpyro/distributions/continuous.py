@@ -31,7 +31,16 @@ import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import betainc, expit, gammaln, logit, multigammaln, ndtr, ndtri
+from jax.scipy.special import (
+    betainc,
+    expit,
+    gammainc,
+    gammaln,
+    logit,
+    multigammaln,
+    ndtr,
+    ndtri,
+)
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -281,6 +290,15 @@ class Gamma(Distribution):
     @property
     def variance(self):
         return self.concentration / jnp.power(self.rate, 2)
+
+    def cdf(self, value):
+        return gammainc(self.concentration, value * self.rate)
+
+    def icdf(self, q):
+        # https://github.com/pyro-ppl/numpyro/issues/969
+        from numpyro.distributions.util import gammaincinv
+
+        return gammaincinv(self.concentration, q) / self.rate
 
 
 class Chi2(Gamma):
