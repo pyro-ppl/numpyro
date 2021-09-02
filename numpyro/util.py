@@ -442,7 +442,8 @@ def format_shapes(
         def model(*args, **kwargs):
             ...
 
-        trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
+        with numpyro.handlers.seed(rng_key=1):
+            trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
         numpyro.util.format_shapes(trace)
     """
     if not trace.keys():
