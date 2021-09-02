@@ -57,6 +57,7 @@ NumPyro documentation
    examples/bnn
    examples/dais_demo
    examples/sparse_regression
+   examples/horseshoe_regression
    examples/proportion_test
    examples/ucbadmit
    examples/hmcecs
