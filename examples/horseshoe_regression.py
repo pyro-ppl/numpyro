@@ -42,7 +42,7 @@ def model_normal_likelihood(X, Y):
     tau = numpyro.sample("tau", dist.HalfCauchy(jnp.ones(1)))
 
     # note that in practice for a normal likelihood we would probably want to
-    # integrate out the coefficients (as is done for example in sparse_regression.py)
+    # integrate out the coefficients (as is done for example in sparse_regression.py).
     # however, this trick wouldn't be applicable to other likelihoods
     # (e.g. bernoulli, see below) so we don't make use of it here.
     unscaled_betas = numpyro.sample("unscaled_betas", dist.Normal(jnp.ones(D_X)))
@@ -116,6 +116,7 @@ def get_data(N=50, D_X=3, sigma_obs=0.05, response="continuous"):
 
     if response == "continuous":
         Y += sigma_obs * np.random.randn(N)
+        Y /= Y.std()
     elif response == "binary":
         Y = np.random.binomial(1, expit(Y))
 
@@ -145,11 +146,11 @@ def main(args):
     # next generate and analyze data with binary-valued responses
     # (note we use more data for the case of binary-valued responses,
     # since each response carries less information than a real number)
-    X, Y = get_data(N=5 * N, D_X=D_X, response="binary")
+    X, Y = get_data(N=4 * N, D_X=D_X, response="binary")
 
     # do inference
     rng_key, rng_key_predict = random.split(random.PRNGKey(0))
-    summary = run_inference(model_normal_likelihood, args, rng_key, X, Y)
+    summary = run_inference(model_bernoulli_likelihood, args, rng_key, X, Y)
 
     # lambda should only be large for the first 3 dimensions, which
     # correspond to relevant covariates (see get_data)
