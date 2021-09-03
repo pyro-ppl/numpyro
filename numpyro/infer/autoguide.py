@@ -1226,7 +1226,7 @@ class AutoBNAFNormal(AutoContinuous):
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_loc_fn: A per-site initialization function.
-    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param int num_flows: the number of flows to be used, defaults to 1.
     :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
