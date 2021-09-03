@@ -33,6 +33,7 @@ NumPyro documentation
    examples/stochastic_volatility
    examples/prodlda
    tutorials/model_rendering
+   tutorials/geometry
 
 .. nbgallery::
    :maxdepth: 1
