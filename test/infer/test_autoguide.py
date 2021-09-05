@@ -47,15 +47,15 @@ init_strategy = init_to_median(num_samples=2)
 @pytest.mark.parametrize(
     "auto_class",
     [
-        #AutoDiagonalNormal,
-        #AutoDAIS,
-        #AutoIAFNormal,
-        #AutoBNAFNormal,
+        AutoDiagonalNormal,
+        AutoDAIS,
+        AutoIAFNormal,
+        AutoBNAFNormal,
         AutoMultivariateNormal,
-        #AutoLaplaceApproximation,
-        #AutoLowRankMultivariateNormal,
-        #AutoNormal,
-        #AutoDelta,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoNormal,
+        AutoDelta,
     ],
 )
 def test_beta_bernoulli(auto_class):
