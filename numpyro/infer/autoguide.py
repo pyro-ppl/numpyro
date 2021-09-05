@@ -27,7 +27,6 @@ from numpyro.distributions.transforms import (
     ComposeTransform,
     IndependentTransform,
     LowerCholeskyAffine,
-    ScaledUnitLowerCholeskyTransform,
     PermuteTransform,
     UnpackTransform,
     biject_to,
@@ -940,8 +939,7 @@ class AutoMultivariateNormal(AutoContinuous):
         Returns a multivariate Normal posterior distribution.
         """
         transform = self.get_transform(params)
-        print("dir", dir(transform))
-        return dist.MultivariateNormal(loc, transform.scale_tril)
+        return dist.MultivariateNormal(transform.loc, transform.scale_tril)
 
     def median(self, params):
         loc = params["{}_loc".format(self.prefix)]
