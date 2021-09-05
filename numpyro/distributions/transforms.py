@@ -38,7 +38,6 @@ __all__ = [
     "L1BallTransform",
     "LowerCholeskyTransform",
     "ScaledUnitLowerCholeskyTransform",
-    "ScaledUnitLowerCholeskyAffine",
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
@@ -679,31 +678,6 @@ class LowerCholeskyAffine(Transform):
         if len(shape) < 1:
             raise ValueError("Too few dimensions on input")
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
-
-
-class ScaledUnitLowerCholeskyAffine(LowerCholeskyAffine):
-    r"""
-    Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`
-    where `scale\_tril\ = unit\_scale\_tril\ @\ diag`.
-
-    :param loc: a real vector.
-    :param unit_scale_tril: a lower triangular matrix with unit diagonal.
-    :param diag: a real vector with positive entries.
-    """
-    domain = constraints.real_vector
-    codomain = constraints.real_vector
-
-    def __init__(self, loc, unit_scale_tril, diag):
-        if jnp.ndim(unit_scale_tril) != 2:
-            raise ValueError(
-                "Only support 2-dimensional scale_tril matrix. "
-                "Please make a feature request if you need to "
-                "use this transform with batched scale_tril."
-            )
-        self.loc = loc
-        self.unit_scale_tril = unit_scale_tril
-        self.diag = diag
-        self.scale_tril = unit_scale_tril * diag
 
 
 class LowerCholeskyTransform(Transform):
