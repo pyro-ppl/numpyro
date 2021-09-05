@@ -487,6 +487,7 @@ integer_greater_than = _IntegerGreaterThan
 interval = _Interval
 l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _LowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 ordered_vector = _OrderedVector()

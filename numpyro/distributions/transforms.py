@@ -710,7 +710,7 @@ class LowerCholeskyTransform(Transform):
 
 class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     domain = constraints.real_vector
-    codomain = constraints.lower_cholesky
+    codomain = constraints.scaled_unit_lower_cholesky
 
     def __call__(self, x):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
@@ -1101,6 +1101,11 @@ def _transform_to_l1_ball(constraint):
 @biject_to.register(constraints.lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
+
+
+@biject_to.register(constraints.scaled_unit_lower_cholesky)
+def _transform_to_scaled_unit_lower_cholesky(constraint):
+    return ScaledUnitLowerCholeskyTransform()
 
 
 @biject_to.register(constraints.ordered_vector)

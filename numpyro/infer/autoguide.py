@@ -894,7 +894,7 @@ class AutoMultivariateNormal(AutoContinuous):
 
     # TODO consider switching to constraints.softplus_lower_cholesky
     # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_tril_constraint = constraints.lower_cholesky
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
 
     def __init__(
         self,
