@@ -895,8 +895,7 @@ class AutoMultivariateNormal(AutoContinuous):
 
     # TODO consider switching to constraints.softplus_lower_cholesky
     # See https://github.com/pyro-ppl/numpyro/issues/855
-    # scale_tril_constraint = constraints.lower_cholesky
-    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
+    scale_tril_constraint = constraints.lower_cholesky
 
     def __init__(
         self,
@@ -922,34 +921,26 @@ class AutoMultivariateNormal(AutoContinuous):
     def _get_posterior(self):
         loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
         scale_tril = numpyro.param(
-            "{}_unit_scale_tril".format(self.prefix),
-            jnp.identity(self.latent_dim),
+            "{}_scale_tril".format(self.prefix),
+            _init_scale * jnp.identity(self.latent_dim),
             constraint=self.scale_tril_constraint,
-        )
-        print("get post scale_tril", scale_tril)
-        diag = numpyro.param(
-            "{}_diag".format(self.prefix),
-            jnp.ones(self.latent_dim) * self._init_scale,
-            constraint=constraints.positive,
         )
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
     def get_base_dist(self):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
-    def get_transform(self, params):
+    def get_loc_transform(self, params):
         loc = params["{}_loc".format(self.prefix)]
-        unit_scale_tril = params["{}_unit_scale_tril".format(self.prefix)]
-        print("get t unit_scale_tril", unit_scale_tril)
-        diag = params["{}_diag".format(self.prefix)]
-        return ScaledUnitLowerCholeskyAffine(loc, unit_scale_tril, diag)
+        scale_tril = params["{}_scale_tril".format(self.prefix)]
+        return ScaledUnitLowerCholeskyTransform(scale_tril)
 
     def get_posterior(self, params):
         """
         Returns a multivariate Normal posterior distribution.
         """
-        transform = self.get_transform(params)
-        return dist.MultivariateNormal(transform.loc, transform.scale_tril)
+        loc, transform = self.get_loc_transform(params)
+        return dist.MultivariateNormal(loc, transform.scale_tril)
 
     def median(self, params):
         loc = params["{}_loc".format(self.prefix)]

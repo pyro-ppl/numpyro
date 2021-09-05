@@ -710,13 +710,25 @@ class LowerCholeskyTransform(Transform):
 
 class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     domain = constraints.real_vector
-    codomain = constraints.scaled_unit_lower_cholesky
+    codomain = constraints.lower_cholesky
 
     def __call__(self, x):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = jnp.exp(x[..., -n:])
-        scale_tril = z + jnp.identity(n)
+        return (z + jnp.identity(n)) * diag
+
+    def _inverse(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        diag = jnp.diagonal(y, axis1=-2, axis2=-1)
+        return jnp.concatenate(
+            [z / diag, jnp.log(diag)], axis=-1
+        )
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return (x[..., -n:] * arange(1, n + 1)).sum(-1)
 
 
 class OrderedTransform(Transform):
