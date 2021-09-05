@@ -719,10 +719,10 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         return (z + jnp.identity(n)) * diag
 
     def _inverse(self, y):
-        z = matrix_to_tril_vec(y, diagonal=-1)
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
+        z = matrix_to_tril_vec(y / diag, diagonal=-1)
         return jnp.concatenate(
-            [z / diag, jnp.log(diag)], axis=-1
+            [z, jnp.log(diag)], axis=-1
         )
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
