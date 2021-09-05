@@ -27,7 +27,7 @@ from numpyro.distributions.transforms import (
     ComposeTransform,
     IndependentTransform,
     LowerCholeskyAffine,
-    ScaledUnitLowerCholeskyAffine,
+    ScaledUnitLowerCholeskyTransform,
     PermuteTransform,
     UnpackTransform,
     biject_to,
@@ -922,7 +922,7 @@ class AutoMultivariateNormal(AutoContinuous):
         loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
         scale_tril = numpyro.param(
             "{}_scale_tril".format(self.prefix),
-            _init_scale * jnp.identity(self.latent_dim),
+            jnp.identity(self.latent_dim) * self._init_scale,
             constraint=self.scale_tril_constraint,
         )
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
@@ -930,16 +930,17 @@ class AutoMultivariateNormal(AutoContinuous):
     def get_base_dist(self):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
-    def get_loc_transform(self, params):
+    def get_transform(self, params):
         loc = params["{}_loc".format(self.prefix)]
         scale_tril = params["{}_scale_tril".format(self.prefix)]
-        return ScaledUnitLowerCholeskyTransform(scale_tril)
+        return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
         """
         Returns a multivariate Normal posterior distribution.
         """
-        loc, transform = self.get_loc_transform(params)
+        transform = self.get_transform(params)
+        print("dir", dir(transform))
         return dist.MultivariateNormal(loc, transform.scale_tril)
 
     def median(self, params):

@@ -1103,11 +1103,6 @@ def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
 
 
-@biject_to.register(constraints.scaled_unit_lower_cholesky)
-def _transform_to_scaled_unit_lower_cholesky(constraint):
-    return ScaledUnitLowerCholeskyTransform()
-
-
 @biject_to.register(constraints.ordered_vector)
 def _transform_to_ordered_vector(constraint):
     return OrderedTransform()

@@ -2173,15 +2173,3 @@ def test_kl_dirichlet_dirichlet(shape):
     x = p.sample(random.PRNGKey(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
-
-
-@pytest.mark.parametrize("dim", [1, 3])
-def test_scaled_unit_lower_cholesky_affine(dim):
-    loc = jnp.ones(dim)
-    unit_scale_tril = jnp.eye(dim)
-    diag = jnp.ones(dim)
-    t = transforms.ScaledUnitLowerCholeskyAffine(loc=loc, unit_scale_tril=unit_scale_tril, diag=diag)
-
-    x = np.random.randn(dim)
-    y = t(x)
-
