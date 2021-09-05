@@ -27,6 +27,7 @@ from numpyro.distributions.transforms import (
     ComposeTransform,
     IndependentTransform,
     LowerCholeskyAffine,
+    ScaledUnitLowerCholeskyAffine,
     PermuteTransform,
     UnpackTransform,
     biject_to,
@@ -894,7 +895,8 @@ class AutoMultivariateNormal(AutoContinuous):
 
     # TODO consider switching to constraints.softplus_lower_cholesky
     # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_tril_constraint = constraints.lower_cholesky
+    # scale_tril_constraint = constraints.lower_cholesky
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
 
     def __init__(
         self,
@@ -920,9 +922,15 @@ class AutoMultivariateNormal(AutoContinuous):
     def _get_posterior(self):
         loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
         scale_tril = numpyro.param(
-            "{}_scale_tril".format(self.prefix),
-            jnp.identity(self.latent_dim) * self._init_scale,
+            "{}_unit_scale_tril".format(self.prefix),
+            jnp.identity(self.latent_dim),
             constraint=self.scale_tril_constraint,
+        )
+        print("get post scale_tril", scale_tril)
+        diag = numpyro.param(
+            "{}_diag".format(self.prefix),
+            jnp.ones(self.latent_dim) * self._init_scale,
+            constraint=constraints.positive,
         )
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
@@ -931,8 +939,10 @@ class AutoMultivariateNormal(AutoContinuous):
 
     def get_transform(self, params):
         loc = params["{}_loc".format(self.prefix)]
-        scale_tril = params["{}_scale_tril".format(self.prefix)]
-        return LowerCholeskyAffine(loc, scale_tril)
+        unit_scale_tril = params["{}_unit_scale_tril".format(self.prefix)]
+        print("get t unit_scale_tril", unit_scale_tril)
+        diag = params["{}_diag".format(self.prefix)]
+        return ScaledUnitLowerCholeskyAffine(loc, unit_scale_tril, diag)
 
     def get_posterior(self, params):
         """

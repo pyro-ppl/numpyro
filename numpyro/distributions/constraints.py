@@ -336,6 +336,19 @@ class _LowerCholesky(Constraint):
         )
 
 
+class _ScaledUnitLowerCholesky(_LowerCholesky):
+    event_dim = 2
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tril = jnp.tril(x)
+        lower_triangular = jnp.all(
+            jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1
+        )
+        unit_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) == 1.0, axis=-1)
+        return lower_triangular & unit_diagonal
+
+
 class _Multinomial(Constraint):
     is_discrete = True
     event_dim = 1
@@ -487,6 +500,7 @@ integer_greater_than = _IntegerGreaterThan
 interval = _Interval
 l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 ordered_vector = _OrderedVector()

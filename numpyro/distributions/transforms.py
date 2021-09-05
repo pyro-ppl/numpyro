@@ -37,6 +37,8 @@ __all__ = [
     "InvCholeskyTransform",
     "L1BallTransform",
     "LowerCholeskyTransform",
+    "ScaledUnitLowerCholeskyTransform",
+    "ScaledUnitLowerCholeskyAffine",
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
@@ -679,6 +681,31 @@ class LowerCholeskyAffine(Transform):
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
 
 
+class ScaledUnitLowerCholeskyAffine(LowerCholeskyAffine):
+    r"""
+    Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`
+    where `scale\_tril\ = unit\_scale\_tril\ @\ diag`.
+
+    :param loc: a real vector.
+    :param unit_scale_tril: a lower triangular matrix with unit diagonal.
+    :param diag: a real vector with positive entries.
+    """
+    domain = constraints.real_vector
+    codomain = constraints.real_vector
+
+    def __init__(self, loc, unit_scale_tril, diag):
+        if jnp.ndim(unit_scale_tril) != 2:
+            raise ValueError(
+                "Only support 2-dimensional scale_tril matrix. "
+                "Please make a feature request if you need to "
+                "use this transform with batched scale_tril."
+            )
+        self.loc = loc
+        self.unit_scale_tril = unit_scale_tril
+        self.diag = diag
+        self.scale_tril = unit_scale_tril * diag
+
+
 class LowerCholeskyTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
@@ -705,6 +732,17 @@ class LowerCholeskyTransform(Transform):
 
     def inverse_shape(self, shape):
         return _matrix_inverse_shape(shape)
+
+
+class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
+    domain = constraints.real_vector
+    codomain = constraints.scaled_unit_lower_cholesky
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = jnp.exp(x[..., -n:])
+        scale_tril = z + jnp.identity(n)
 
 
 class OrderedTransform(Transform):
@@ -1077,6 +1115,11 @@ def _transform_to_l1_ball(constraint):
 @biject_to.register(constraints.lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
+
+
+@biject_to.register(constraints.scaled_unit_lower_cholesky)
+def _transform_to_scaled_unit_lower_cholesky(constraint):
+    return ScaledUnitLowerCholeskyTransform()
 
 
 @biject_to.register(constraints.ordered_vector)
