@@ -606,7 +606,7 @@ def test_subsample_model_with_deterministic():
             numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(5))
 
     guide = AutoNormal(model)
-    svi = SVI(model, guide, optim.Adam(1.), Trace_ELBO())
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert "x2" in samples
