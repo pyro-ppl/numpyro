@@ -715,7 +715,7 @@ class LowerCholeskyTransform(Transform):
 
 
 class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
-    """
+    r"""
     Like `LowerCholeskyTransform` this `Transform` transforms
     a real vector to a lower triangular cholesky factor. However
     it does so via a decomposition
