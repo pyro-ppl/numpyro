@@ -681,6 +681,12 @@ class LowerCholeskyAffine(Transform):
 
 
 class LowerCholeskyTransform(Transform):
+    """
+    Transform a real vector to a lower triangular cholesky
+    factor, where the strictly lower triangular submatrix is
+    unconstrained and the diagonal is parameterized with an
+    exponential transform.
+    """
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
 
@@ -709,6 +715,17 @@ class LowerCholeskyTransform(Transform):
 
 
 class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
+    """
+    Like `LowerCholeskyTransform` this `Transform` transforms
+    a real vector to a lower triangular cholesky factor. However
+    it does so via a decomposition
+
+    :math:`y = loc + unit\_scale\_tril\ @\ scale\_diag\ @\ x`.
+
+    where :math:`unit\_scale\_tril\` has ones along the diagonal
+    and :math:`scale\_diag\` is a diagonal matrix with all positive
+    entries that is parameterized with an exponential transform.
+    """
     domain = constraints.real_vector
     codomain = constraints.scaled_unit_lower_cholesky
 
