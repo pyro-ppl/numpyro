@@ -834,9 +834,9 @@ PowerTransform
     :show-inheritance:
     :member-order: bysource
 
-ScaledUnitLowerCholesky
-^^^^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholesky
+ScaledUnitLowerCholeskyTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
