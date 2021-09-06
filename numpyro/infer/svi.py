@@ -311,6 +311,9 @@ class SVI(object):
         :rtype: SVIRunResult
         """
 
+        if num_steps < 1:
+            raise ValueError("num_steps must be a positive integer.")
+
         def body_fn(svi_state, _):
             if stable_update:
                 svi_state, loss = self.stable_update(svi_state, *args, **kwargs)
