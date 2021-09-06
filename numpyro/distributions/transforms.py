@@ -721,9 +721,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     def _inverse(self, y):
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
         z = matrix_to_tril_vec(y / diag[..., None], diagonal=-1)
-        return jnp.concatenate(
-            [z, jnp.log(diag)], axis=-1
-        )
+        return jnp.concatenate([z, jnp.log(diag)], axis=-1)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
