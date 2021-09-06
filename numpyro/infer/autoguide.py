@@ -136,7 +136,7 @@ class AutoGuide(ABC):
             (
                 init_params,
                 self._potential_fn,
-                self._postprocess_fn,
+                postprocess_fn,
                 self.prototype_trace,
             ) = initialize_model(
                 rng_key,
@@ -146,6 +146,10 @@ class AutoGuide(ABC):
                 model_args=args,
                 model_kwargs=kwargs,
             )
+        # We apply a fixed seed just in case postprocess_fn requires
+        # a random key to generate subsample indices. It does not matter
+        # because we only collect deterministic sites.
+        self._postprocess_fn = handlers.seed(postprocess_fn, rng_seed=0)
         self._init_locs = init_params[0]
 
         self._prototype_frames = {}
