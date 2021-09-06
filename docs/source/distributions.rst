@@ -674,6 +674,10 @@ real_vector
 ^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.real_vector
 
+scaled_unit_lower_cholesky
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.scaled_unit_lower_cholesky
+
 softplus_positive
 ^^^^^^^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.softplus_positive
@@ -825,6 +829,14 @@ PermuteTransform
 PowerTransform
 ^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.PowerTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ScaledUnitLowerCholesky
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholesky
     :members:
     :undoc-members:
     :show-inheritance:
