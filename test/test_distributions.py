@@ -1582,6 +1582,7 @@ def test_constraints(constraint, x, expected):
         constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
+        constraints.scaled_unit_lower_cholesky,
         constraints.ordered_vector,
         constraints.positive,
         constraints.positive_definite,
@@ -1666,6 +1667,7 @@ def test_biject_to(constraint, shape):
             inv_expected = np.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         elif constraint in [
             constraints.lower_cholesky,
+            constraints.scaled_unit_lower_cholesky,
             constraints.positive_definite,
             constraints.softplus_lower_cholesky,
         ]:
