@@ -452,6 +452,10 @@ class _SoftplusLowerCholesky(_LowerCholesky):
         )
 
 
+class _ScaledUnitLowerCholesky(_LowerCholesky):
+    pass
+
+
 class _Sphere(Constraint):
     """
     Constrain to the Euclidean sphere of any dimension.
@@ -487,7 +491,7 @@ integer_greater_than = _IntegerGreaterThan
 interval = _Interval
 l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
-scaled_unit_lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 ordered_vector = _OrderedVector()

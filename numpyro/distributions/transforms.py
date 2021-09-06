@@ -716,11 +716,11 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = jnp.exp(x[..., -n:])
-        return (z + jnp.identity(n)) * diag
+        return (z + jnp.identity(n)) * diag[..., None]
 
     def _inverse(self, y):
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
-        z = matrix_to_tril_vec(y / diag, diagonal=-1)
+        z = matrix_to_tril_vec(y / diag[..., None], diagonal=-1)
         return jnp.concatenate(
             [z, jnp.log(diag)], axis=-1
         )
