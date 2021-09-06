@@ -47,6 +47,7 @@ __all__ = [
     "positive_integer",
     "real",
     "real_vector",
+    "scaled_unit_lower_cholesky",
     "simplex",
     "sphere",
     "softplus_lower_cholesky",
