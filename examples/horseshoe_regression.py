@@ -45,7 +45,7 @@ def model_normal_likelihood(X, Y):
     # integrate out the coefficients (as is done for example in sparse_regression.py).
     # however, this trick wouldn't be applicable to other likelihoods
     # (e.g. bernoulli, see below) so we don't make use of it here.
-    unscaled_betas = numpyro.sample("unscaled_betas", dist.Normal(jnp.ones(D_X)))
+    unscaled_betas = numpyro.sample("unscaled_betas", dist.Normal(0.0, jnp.ones(D_X)))
     scaled_betas = numpyro.deterministic("betas", tau * lambdas * unscaled_betas)
 
     # compute mean function using linear coefficients
@@ -68,7 +68,7 @@ def model_bernoulli_likelihood(X, Y):
 
     # note that this reparameterization (i.e. coordinate transformation) improves
     # posterior geometry and makes NUTS sampling more efficient
-    unscaled_betas = numpyro.sample("unscaled_betas", dist.Normal(jnp.ones(D_X)))
+    unscaled_betas = numpyro.sample("unscaled_betas", dist.Normal(0.0, jnp.ones(D_X)))
     scaled_betas = numpyro.deterministic("betas", tau * lambdas * unscaled_betas)
 
     # compute mean function using linear coefficients
@@ -116,7 +116,6 @@ def get_data(N=50, D_X=3, sigma_obs=0.05, response="continuous"):
 
     if response == "continuous":
         Y += sigma_obs * np.random.randn(N)
-        Y /= Y.std()
     elif response == "binary":
         Y = np.random.binomial(1, expit(Y))
 
@@ -141,6 +140,8 @@ def main(args):
     # correspond to relevant covariates (see get_data)
     print("Posterior median over lambdas (leading 5 dimensions):")
     print(summary["lambdas"]["median"][:5])
+    print("Posterior mean over betas (leading 5 dimensions):")
+    print(summary["betas"]["mean"][:5])
 
     print("[Experiment with binary-valued responses]")
     # next generate and analyze data with binary-valued responses
@@ -156,6 +157,8 @@ def main(args):
     # correspond to relevant covariates (see get_data)
     print("Posterior median over lambdas (leading 5 dimensions):")
     print(summary["lambdas"]["median"][:5])
+    print("Posterior mean over betas (leading 5 dimensions):")
+    print(summary["betas"]["mean"][:5])
 
 
 if __name__ == "__main__":
