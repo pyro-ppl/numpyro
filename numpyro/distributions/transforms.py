@@ -687,6 +687,7 @@ class LowerCholeskyTransform(Transform):
     unconstrained and the diagonal is parameterized with an
     exponential transform.
     """
+
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
 
