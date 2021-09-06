@@ -728,7 +728,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
-        return (x[..., -n:] * arange(1, n + 1)).sum(-1)
+        return (x[..., -n:] * jnp.arange(1, n + 1)).sum(-1)
 
 
 class OrderedTransform(Transform):
