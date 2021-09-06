@@ -723,8 +723,8 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
 
     :math:`y = loc + unit\_scale\_tril\ @\ scale\_diag\ @\ x`.
 
-    where :math:`unit\_scale\_tril\` has ones along the diagonal
-    and :math:`scale\_diag\` is a diagonal matrix with all positive
+    where :math:`unit\_scale\_tril` has ones along the diagonal
+    and :math:`scale\_diag` is a diagonal matrix with all positive
     entries that is parameterized with a softplus transform.
     """
     domain = constraints.real_vector
