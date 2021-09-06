@@ -745,7 +745,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         diag = x[..., -n:]
         diag_softplus = jnp.diagonal(y, axis1=-2, axis2=-1)
-        return (diag_softplus * jnp.arange(n) - softplus(-diag)).sum(-1)
+        return (jnp.log(diag_softplus) * jnp.arange(n) - softplus(-diag)).sum(-1)
 
 
 class OrderedTransform(Transform):

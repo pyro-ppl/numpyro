@@ -220,9 +220,7 @@ class AutoNormal(AutoGuide):
         automatically as usual. This is useful for data subsampling.
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -821,9 +819,7 @@ class AutoDiagonalNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -892,8 +888,6 @@ class AutoMultivariateNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_lower_cholesky
-    # See https://github.com/pyro-ppl/numpyro/issues/855
     scale_tril_constraint = constraints.scaled_unit_lower_cholesky
 
     def __init__(
@@ -966,9 +960,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
