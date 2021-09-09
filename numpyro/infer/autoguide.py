@@ -638,10 +638,10 @@ class AutoDAIS(AutoContinuous):
     :param callable model: A NumPyro model.
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
-        Defaults to 8.
+        Defaults to 4.
     :param str base_dist: Controls whether the base Normal variational distribution
        is parameterized by a "diagonal" covariance matrix or a full-rank covariance
-       matrix parameterized by a lower-diagonal "cholesky" factor. Defaults to "diagonal".
+       matrix parameterized by a lower-triangular "cholesky" factor. Defaults to "diagonal".
     :param float eta_init: The initial value of the step size used in HMC. Defaults
         to 0.01.
     :param float eta_max: The maximum value of the learnable step size used in HMC.
@@ -659,7 +659,7 @@ class AutoDAIS(AutoContinuous):
         self,
         model,
         *,
-        K=8,
+        K=4,
         base_dist="diagonal",
         eta_init=0.01,
         eta_max=0.1,
@@ -741,7 +741,8 @@ class AutoDAIS(AutoContinuous):
         inv_mass_matrix = 0.5 / mass_matrix
 
         init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
+            "{}_z_0_loc".format(self.prefix),
+            self._init_latent,
         )
 
         if self.base_dist == "diagonal":
@@ -755,7 +756,7 @@ class AutoDAIS(AutoContinuous):
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
                 jnp.identity(self.latent_dim) * self._init_scale,
-                constraint=constraints.lower_cholesky,
+                constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
