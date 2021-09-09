@@ -673,8 +673,8 @@ class AutoDAIS(AutoContinuous):
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
             raise ValueError("gamma_init must be in the open interval (0, 1).")
-        if init_scale <= 0.0:
-            raise ValueError("init_scale must be positive.")
+        #if init_scale <= 0.0:
+        #    raise ValueError("init_scale must be positive.")
 
         self.eta_init = eta_init
         self.eta_max = eta_max
@@ -876,14 +876,16 @@ class AutoSSDAIS(AutoDAIS):
         )
         inv_mass_matrix = 0.5 / mass_matrix
 
+        init_z_loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
         init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
+            "{}_z_0_loc".format(self.prefix), init_z_loc
         )
 
         if self.diag_base:
+            init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
             init_z_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
-                jnp.full(self.latent_dim, self._init_scale),
+                init_z_scale,
                 constraint=constraints.positive,
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
@@ -893,7 +895,6 @@ class AutoSSDAIS(AutoDAIS):
                 jnp.identity(self.latent_dim) * self._init_scale,
                 constraint=constraints.lower_cholesky
             )
-            print("scale_tril",scale_tril.shape)
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
         z_0 = numpyro.sample(
@@ -1034,18 +1035,25 @@ class AutoMultivariateNormal(AutoContinuous):
                 " argument.",
                 FutureWarning,
             )
-        if init_scale <= 0:
+        if isinstance(init_scale, float) and init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
-        loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
+        loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
+        loc = numpyro.param("{}_loc".format(self.prefix), loc)
+        scale_tril = jnp.identity(self.latent_dim) if isinstance(self._init_scale, float) else self._init_scale[1]
+        diag = numpyro.param("{}_diag_scale".format(self.prefix),
+                             self._init_scale * jnp.ones(self.latent_dim),
+                             constraint=constraints.positive)
         scale_tril = numpyro.param(
             "{}_scale_tril".format(self.prefix),
-            jnp.identity(self.latent_dim) * self._init_scale,
+            scale_tril,
             constraint=self.scale_tril_constraint,
         )
+        scale_tril = jnp.tril(jnp.ones((self.latent_dim, self.latent_dim)), -1) * scale_tril + jnp.eye(self.latent_dim)
+        scale_tril = scale_tril * diag
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
     def get_base_dist(self):
@@ -1054,6 +1062,8 @@ class AutoMultivariateNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params["{}_loc".format(self.prefix)]
         scale_tril = params["{}_scale_tril".format(self.prefix)]
+        scale_tril = jnp.tril(jnp.ones((self.latent_dim, self.latent_dim)), -1) * scale_tril + jnp.eye(self.latent_dim)
+        scale_tril = scale_tril * params["{}_diag_scale".format(self.prefix)]
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
@@ -1061,7 +1071,7 @@ class AutoMultivariateNormal(AutoContinuous):
         Returns a multivariate Normal posterior distribution.
         """
         transform = self.get_transform(params)
-        return dist.MultivariateNormal(transform.loc, transform.scale_tril)
+        return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
 
     def median(self, params):
         loc = params["{}_loc".format(self.prefix)]
