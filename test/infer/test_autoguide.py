@@ -66,7 +66,10 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model, init_loc_fn=init_strategy)
+    if auto_class == AutoDAIS:
+        guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
+    else:
+        guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
@@ -593,3 +596,17 @@ def test_autodais_subsampling_error():
 
     with pytest.raises(NotImplementedError, match=".*data subsampling.*"):
         svi.init(random.PRNGKey(1), data)
+
+
+def test_subsample_model_with_deterministic():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.deterministic("x2", x * 2)
+        with numpyro.plate("N", 10, subsample_size=5):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(5))
+
+    guide = AutoNormal(model)
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 10)
+    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert "x2" in samples

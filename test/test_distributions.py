@@ -28,6 +28,7 @@ from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
     PowerTransform,
+    SimplexToOrderedTransform,
     SoftplusTransform,
     biject_to,
 )
@@ -1581,6 +1582,7 @@ def test_constraints(constraint, x, expected):
         constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
+        constraints.scaled_unit_lower_cholesky,
         constraints.ordered_vector,
         constraints.positive,
         constraints.positive_definite,
@@ -1665,6 +1667,7 @@ def test_biject_to(constraint, shape):
             inv_expected = np.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         elif constraint in [
             constraints.lower_cholesky,
+            constraints.scaled_unit_lower_cholesky,
             constraints.positive_definite,
             constraints.softplus_lower_cholesky,
         ]:
@@ -1705,9 +1708,30 @@ def test_biject_to(constraint, shape):
             ),
             (2,),
         ),
+        (
+            transforms.ComposeTransform(
+                [
+                    biject_to(constraints.simplex),
+                    SimplexToOrderedTransform(0.0),
+                    biject_to(constraints.ordered_vector).inv,
+                ]
+            ),
+            (5,),
+        ),
     ],
 )
-@pytest.mark.parametrize("batch_shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+@pytest.mark.parametrize(
+    "batch_shape",
+    [
+        (),
+        (1,),
+        (3,),
+        (6,),
+        (3, 1),
+        (1, 3),
+        (5, 3),
+    ],
+)
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
     rng_key = random.PRNGKey(0)
@@ -1719,7 +1743,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-4)
     assert transform.inv.inv is transform
     assert transform.inv is transform.inv
     assert transform.domain is transform.inv.codomain
