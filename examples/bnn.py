@@ -70,6 +70,7 @@ def model(X, Y, D_H, D_Y=1):
 
     # observe data
     with numpyro.plate("data", N):
+        # note we use to_event(1) because each observation has shape (1,)
         numpyro.sample("Y", dist.Normal(z3, sigma_obs).to_event(1), obs=Y)
 
 
