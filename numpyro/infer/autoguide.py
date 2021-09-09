@@ -638,10 +638,10 @@ class AutoDAIS(AutoContinuous):
     :param callable model: A NumPyro model.
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
-        Defaults to 8.
+        Defaults to 4.
     :param str base_dist: Controls whether the base Normal variational distribution
        is parameterized by a "diagonal" covariance matrix or a full-rank covariance
-       matrix parameterized by a lower-diagonal "cholesky" factor. Defaults to "diagonal".
+       matrix parameterized by a lower-triangular "cholesky" factor. Defaults to "diagonal".
     :param float eta_init: The initial value of the step size used in HMC. Defaults
         to 0.01.
     :param float eta_max: The maximum value of the learnable step size used in HMC.
@@ -659,7 +659,7 @@ class AutoDAIS(AutoContinuous):
         self,
         model,
         *,
-        K=8,
+        K=4,
         base_dist="diagonal",
         eta_init=0.01,
         eta_max=0.1,
