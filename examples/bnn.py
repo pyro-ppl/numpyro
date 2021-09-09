@@ -40,34 +40,38 @@ def nonlin(x):
 # a two-layer bayesian neural network with computational flow
 # given by D_X => D_H => D_H => D_Y where D_H is the number of
 # hidden units. (note we indicate tensor dimensions in the comments)
-def model(X, Y, D_H):
-
-    D_X, D_Y = X.shape[1], 1
+def model(X, Y, D_H, D_Y=1):
+    N, D_X = X.shape
 
     # sample first layer (we put unit normal priors on all weights)
-    w1 = numpyro.sample(
-        "w1", dist.Normal(jnp.zeros((D_X, D_H)), jnp.ones((D_X, D_H)))
-    )  # D_X D_H
-    z1 = nonlin(jnp.matmul(X, w1))  # N D_H  <= first layer of activations
+    w1 = numpyro.sample("w1", dist.Normal(jnp.zeros((D_X, D_H)), jnp.ones((D_X, D_H))))
+    assert w1.shape == (D_X, D_H)
+    z1 = nonlin(jnp.matmul(X, w1))  # <= first layer of activations
+    assert z1.shape == (N, D_H)
 
     # sample second layer
-    w2 = numpyro.sample(
-        "w2", dist.Normal(jnp.zeros((D_H, D_H)), jnp.ones((D_H, D_H)))
-    )  # D_H D_H
-    z2 = nonlin(jnp.matmul(z1, w2))  # N D_H  <= second layer of activations
+    w2 = numpyro.sample("w2", dist.Normal(jnp.zeros((D_H, D_H)), jnp.ones((D_H, D_H))))
+    assert w2.shape == (D_H, D_H)
+    z2 = nonlin(jnp.matmul(z1, w2))  # <= second layer of activations
+    assert z2.shape == (N, D_H)
 
     # sample final layer of weights and neural network output
-    w3 = numpyro.sample(
-        "w3", dist.Normal(jnp.zeros((D_H, D_Y)), jnp.ones((D_H, D_Y)))
-    )  # D_H D_Y
-    z3 = jnp.matmul(z2, w3)  # N D_Y  <= output of the neural network
+    w3 = numpyro.sample("w3", dist.Normal(jnp.zeros((D_H, D_Y)), jnp.ones((D_H, D_Y))))
+    assert w3.shape == (D_H, D_Y)
+    z3 = jnp.matmul(z2, w3)  # <= output of the neural network
+    assert z3.shape == (N, D_Y)
+
+    if Y is not None:
+        assert z3.shape == Y.shape
 
     # we put a prior on the observation noise
     prec_obs = numpyro.sample("prec_obs", dist.Gamma(3.0, 1.0))
     sigma_obs = 1.0 / jnp.sqrt(prec_obs)
 
     # observe data
-    numpyro.sample("Y", dist.Normal(z3, sigma_obs), obs=Y)
+    with numpyro.plate("data", N):
+        # note we use to_event(1) because each observation has shape (1,)
+        numpyro.sample("Y", dist.Normal(z3, sigma_obs).to_event(1), obs=Y)
 
 
 # helper function for HMC inference
