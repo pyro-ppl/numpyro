@@ -744,7 +744,7 @@ class AutoDAIS(AutoContinuous):
         inv_mass_matrix = 0.5 / mass_matrix
 
         init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
+            "{}_z_0_loc".format(self.prefix), self._init_latent
         )
 
         if self.base_dist == "diagonal":
@@ -758,7 +758,7 @@ class AutoDAIS(AutoContinuous):
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
                 jnp.identity(self.latent_dim) * self._init_scale,
-                constraint=constraints.lower_cholesky,
+                constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
