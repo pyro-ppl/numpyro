@@ -828,6 +828,7 @@ class AutoSSDAIS(AutoDAIS):
         base_dist="diag",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        base_guide=None,
     ):
         super().__init__(model, K=K, eta_init=eta_init, eta_max=eta_max, gamma_init=gamma_init,
                          prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale)
@@ -839,6 +840,7 @@ class AutoSSDAIS(AutoDAIS):
             self.diag_base = True
         else:
             self.diag_base = False
+        self.base_guide = base_guide
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, subsampling_warning=False, **kwargs)
@@ -894,32 +896,37 @@ class AutoSSDAIS(AutoDAIS):
         )
         inv_mass_matrix = 0.5 / mass_matrix
 
-        init_z_loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
-        init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix), init_z_loc
-        )
-
-        if self.diag_base:
-            init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
-            init_z_scale = numpyro.param(
-                "{}_z_0_scale".format(self.prefix),
-                init_z_scale,
-                constraint=constraints.positive,
+        if self.base_guide is None:
+            init_z_loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
+            init_z_loc = numpyro.param(
+                "{}_z_0_loc".format(self.prefix), init_z_loc
             )
-            base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+
+            if self.diag_base:
+                init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
+                init_z_scale = numpyro.param(
+                    "{}_z_0_scale".format(self.prefix),
+                    init_z_scale,
+                    constraint=constraints.positive,
+                )
+                base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+            else:
+                scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
+                scale_tril = numpyro.param(
+                    "{}_scale_tril".format(self.prefix),
+                    scale_tril,
+                    constraint=constraints.scaled_unit_lower_cholesky
+                )
+                base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
+
+            z_0 = numpyro.sample(
+                "{}_z_0".format(self.prefix),
+                base_z_dist,
+                infer={"is_auxiliary": True})
+            base_z_dist_log_prob = base_z_dist.log_prob
         else:
-            scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
-            scale_tril = numpyro.param(
-                "{}_scale_tril".format(self.prefix),
-                scale_tril,
-                constraint=constraints.scaled_unit_lower_cholesky
-            )
-            base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
-
-        z_0 = numpyro.sample(
-            "{}_z_0".format(self.prefix),
-            base_z_dist,
-            infer={"is_auxiliary": True})
+            z_0, base_z_dist_log_prob = self.base_guide("{}_z_0".format(self.prefix))
+            z_0 = jnp.reshape(z_0, (-1,))
 
         momentum_dist = dist.Normal(0, mass_matrix).to_event()
         eps = numpyro.sample(
@@ -934,7 +941,7 @@ class AutoSSDAIS(AutoDAIS):
             eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
-            q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
+            q_grad = (1.0 - beta) * grad(base_z_dist_log_prob)(z_half)
             p_grad = beta * grad(blocked_surrogate_model)(z_half)
             v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
