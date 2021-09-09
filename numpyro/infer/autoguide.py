@@ -908,10 +908,11 @@ class AutoSSDAIS(AutoDAIS):
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         else:
+            scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
             scale_tril = numpyro.param(
                 "{}_scale_tril".format(self.prefix),
-                jnp.identity(self.latent_dim) * self._init_scale,
-                constraint=constraints.lower_cholesky
+                scale_tril,
+                constraint=constraints.scaled_unit_lower_cholesky
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
