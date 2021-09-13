@@ -748,16 +748,18 @@ class AutoDAIS(AutoContinuous):
         )
 
         if self.base_dist == "diagonal":
+            init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
             init_z_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
-                jnp.full(self.latent_dim, self._init_scale),
+                init_z_scale,
                 constraint=constraints.positive,
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
+            scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
-                jnp.identity(self.latent_dim) * self._init_scale,
+                scale_tril,
                 constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
@@ -825,21 +827,17 @@ class AutoSSDAIS(AutoDAIS):
         eta_max=0.1,
         gamma_init=0.9,
         prefix="auto",
-        base_dist="diag",
+        base_dist="diagonal",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         base_guide=None,
     ):
         super().__init__(model, K=K, eta_init=eta_init, eta_max=eta_max, gamma_init=gamma_init,
-                         prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale)
+                         prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale, base_dist=base_dist)
 
         self.surrogate_model = surrogate_model
 
-        assert base_dist in ["diag", "chol"]
-        if base_dist == "diag":
-            self.diag_base = True
-        else:
-            self.diag_base = False
+        assert base_dist in ["diagonal", "cholesky"]
         self.base_guide = base_guide
 
     def _setup_prototype(self, *args, **kwargs):
@@ -902,7 +900,7 @@ class AutoSSDAIS(AutoDAIS):
                 "{}_z_0_loc".format(self.prefix), init_z_loc
             )
 
-            if self.diag_base:
+            if self.base_dist == "diagonal":
                 init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
                 init_z_scale = numpyro.param(
                     "{}_z_0_scale".format(self.prefix),
@@ -1065,17 +1063,12 @@ class AutoMultivariateNormal(AutoContinuous):
     def _get_posterior(self):
         loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
         loc = numpyro.param("{}_loc".format(self.prefix), loc)
-        scale_tril = jnp.identity(self.latent_dim) if isinstance(self._init_scale, float) else self._init_scale[1]
-        diag = numpyro.param("{}_diag_scale".format(self.prefix),
-                             self._init_scale * jnp.ones(self.latent_dim),
-                             constraint=constraints.positive)
+        scale_tril = self._init_scale * jnp.identity(self.latent_dim) if isinstance(self._init_scale, float) else self._init_scale[1]
         scale_tril = numpyro.param(
             "{}_scale_tril".format(self.prefix),
             scale_tril,
             constraint=self.scale_tril_constraint,
         )
-        scale_tril = jnp.tril(jnp.ones((self.latent_dim, self.latent_dim)), -1) * scale_tril + jnp.eye(self.latent_dim)
-        scale_tril = scale_tril * diag
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
     def get_base_dist(self):
@@ -1084,8 +1077,6 @@ class AutoMultivariateNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params["{}_loc".format(self.prefix)]
         scale_tril = params["{}_scale_tril".format(self.prefix)]
-        scale_tril = jnp.tril(jnp.ones((self.latent_dim, self.latent_dim)), -1) * scale_tril + jnp.eye(self.latent_dim)
-        scale_tril = scale_tril * params["{}_diag_scale".format(self.prefix)]
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
