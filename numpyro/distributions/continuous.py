@@ -459,7 +459,7 @@ class Gompertz(Distribution):
     The CDF is
 
     .. math::
-        F(x) = 1 - \\exp \\left\\{ \\frac{\\text{rate}}{\\text{concentration}} * \\left [ \\exp\\{\\text{concentration} \\cdot x\\} - 1 \\right ] \\right\\}
+        F(x) = 1 - \\exp \\left\\{ - \\frac{\\text{rate}}{\\text{concentration}} * \\left [ \\exp\\{\\text{concentration} \\cdot x\\} - 1 \\right ] \\right\\}
     """
 
     arg_constraints = {
