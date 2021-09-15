@@ -64,7 +64,7 @@ def main(args):
     y, ytr_mean, ytr_std = normalize(data.ytr)
 
     if args.method == 0:  # SVI
-        svi = SVI(model, AutoDelta(model), Adagrad(.1), Trace_ELBO())
+        svi = SVI(model, AutoDelta(model), Adagrad(.01), Trace_ELBO())
 
         start = time()
         results = svi.run(inf_key, args.max_iter, x, y, 50)
