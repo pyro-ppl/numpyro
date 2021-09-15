@@ -57,9 +57,8 @@ def model(x, y=None, hidden_dim=50):
 
 def main(args):
     data = load_data(args.dataset)
-    rng_key = random.PRNGKey(args.rng_key)
 
-    inf_key, pred_key = random.split(rng_key, 2)
+    inf_key, pred_key = random.split(random.PRNGKey(args.rng_key), 2)
     x, xtr_mean, xtr_std = normalize(data.xtr)
     y, ytr_mean, ytr_std = normalize(data.ytr)
 
@@ -67,7 +66,7 @@ def main(args):
         svi = SVI(model, AutoDelta(model), Adagrad(.01), Trace_ELBO())
 
         start = time()
-        results = svi.run(inf_key, args.max_iter, x, y, 50)
+        results = svi.run(inf_key, args.max_iter, x, y, 100)
         print(time() - start)
 
         plt.plot(results.losses)
