@@ -196,14 +196,21 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, guide_trace=None):
-        assert guide_trace is not None
-        self.guide_trace = guide_trace
+    def __init__(self, fn=None, trace=None, guide_trace=None):
+        if guide_trace is not None:
+            warnings.warn(
+                "`guide_trace` argument is deprecated. Please replace it by `trace`.",
+                FutureWarning,
+            )
+        if guide_trace is not None:
+            trace = guide_trace
+        assert trace is not None
+        self.trace = trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg["type"] in ("sample", "plate") and msg["name"] in self.guide_trace:
-            msg["value"] = self.guide_trace[msg["name"]]["value"]
+        if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
+            msg["value"] = self.trace[msg["name"]]["value"]
 
 
 class block(Messenger):
@@ -593,7 +600,7 @@ class scope(Messenger):
     """
     This handler prepend a prefix followed by a divider to the name of sample sites.
 
-    Example::
+    **Example**
 
     .. doctest::
 
@@ -738,7 +745,7 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "plate")) or msg.get(
+        if (msg["type"] not in ("sample", "param", "mutable", "plate")) or msg.get(
             "_control_flow_done", False
         ):
             if msg["type"] == "control_flow":

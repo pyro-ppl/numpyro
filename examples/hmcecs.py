@@ -50,9 +50,8 @@ def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
     optimizer = numpyro.optim.Adam(step_size=1e-3)
     guide = autoguide.AutoDelta(model)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-    params, losses = svi.run(
-        svi_key, args.num_svi_steps, data, obs, args.subsample_size
-    )
+    svi_result = svi.run(svi_key, args.num_svi_steps, data, obs, args.subsample_size)
+    params, losses = svi_result.params, svi_result.losses
     ref_params = {"theta": params["theta_auto_loc"]}
 
     # taylor proxy estimates log likelihood (ll) by

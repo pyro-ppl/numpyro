@@ -4,6 +4,7 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+import math
 import os
 
 import numpy as np
@@ -19,6 +20,7 @@ from jax.scipy.special import expit, logsumexp
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
+from numpyro.distributions.directional import SineBivariateVonMises
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -26,6 +28,7 @@ from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
     PowerTransform,
+    SimplexToOrderedTransform,
     SoftplusTransform,
     biject_to,
 )
@@ -43,6 +46,12 @@ TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 def _identity(x):
     return x
+
+
+def _circ_mean(angles):
+    return jnp.arctan2(
+        jnp.mean(jnp.sin(angles), axis=0), jnp.mean(jnp.cos(angles), axis=0)
+    )
 
 
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
@@ -84,6 +93,55 @@ def _TruncatedNormal(loc, scale, low, high):
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+class SineSkewedUniform(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        lower, upper = (jnp.array([-math.pi, -math.pi]), jnp.array([math.pi, math.pi]))
+        base_dist = dist.Uniform(lower, upper, **kwargs).to_event(lower.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+class SineSkewedVonMises(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        von_loc, von_conc = (jnp.array([0.0]), jnp.array([1.0]))
+        base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+class SineSkewedVonMisesBatched(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        von_loc, von_conc = (jnp.array([0.0, -1.234]), jnp.array([1.0, 10.0]))
+        base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+def _GaussianMixture(mixing_probs, loc, scale):
+    component_dist = dist.Normal(loc=loc, scale=scale)
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureSameFamily(
+        mixing_distribution=mixing_distribution,
+        component_distribution=component_dist,
+    )
+
+
+_GaussianMixture.arg_constraints = {}
+_GaussianMixture.reparametrized_params = []
+_GaussianMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _Gaussian2DMixture(mixing_probs, loc, cov_matrix):
+    component_dist = dist.MultivariateNormal(loc=loc, covariance_matrix=cov_matrix)
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureSameFamily(
+        mixing_distribution=mixing_distribution,
+        component_distribution=component_dist,
+    )
+
+
+_Gaussian2DMixture.arg_constraints = {}
+_Gaussian2DMixture.reparametrized_params = []
+_Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -327,16 +385,79 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, jnp.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(
+        _GaussianMixture,
+        jnp.ones(3) / 3.0,
+        jnp.array([0.0, 7.7, 2.1]),
+        jnp.array([4.2, 7.7, 2.1]),
+    ),
+    T(
+        _Gaussian2DMixture,
+        jnp.array([0.2, 0.5, 0.3]),
+        jnp.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        jnp.array(
+            [
+                [
+                    [0.1, -0.2],
+                    [-0.2, 1.0],
+                ],
+                [
+                    [0.75, 0.0],
+                    [0.0, 0.75],
+                ],
+                [
+                    [1.0, 0.5],
+                    [0.5, 0.27],
+                ],
+            ]
+        ),  # Covariance
+    ),
 ]
 
 DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
     T(dist.VonMises, 2.0, jnp.array([150.0, 10.0])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.0]), jnp.array([20.0, 30.0])),
+    T(
+        SineBivariateVonMises,
+        jnp.array([0.0]),
+        jnp.array([0.0]),
+        jnp.array([5.0]),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array([3.003]),
+        jnp.array([-1.3430]),
+        jnp.array(5.0),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array(-1.232),
+        jnp.array(-1.3430),
+        jnp.array(3.4),
+        jnp.array(2.0),
+        jnp.array(1.0),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array([math.pi - 0.2, 1.0]),
+        jnp.array([0.0, 1.0]),
+        jnp.array([2.123, 20.0]),
+        jnp.array([7.0, 0.5]),
+        None,
+        jnp.array([0.2, 0.5]),
+    ),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[-1.0, 2.0, 3.0]])),
+    T(SineSkewedUniform, jnp.array([-math.pi / 4, 0.1])),
+    T(SineSkewedVonMises, jnp.array([0.342355])),
+    T(SineSkewedVonMisesBatched, jnp.array([[0.342355, -0.0001], [0.91, 0.09]])),
 ]
 
 DISCRETE = [
@@ -553,11 +674,10 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         )
 
 
-@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)], ids=str)
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
+def test_infer_shapes(jax_dist, sp_dist, params):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
     shapes = tuple(x() if callable(x) else x for x in shapes)
     jax_dist = jax_dist(*params)
@@ -743,15 +863,13 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     rng_key = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
+    truncated_dists = (
+        dist.LeftTruncatedDistribution,
+        dist.RightTruncatedDistribution,
+        dist.TwoSidedTruncatedDistribution,
+    )
     if sp_dist is None:
-        if isinstance(
-            jax_dist,
-            (
-                dist.LeftTruncatedDistribution,
-                dist.RightTruncatedDistribution,
-                dist.TwoSidedTruncatedDistribution,
-            ),
-        ):
+        if isinstance(jax_dist, truncated_dists):
             if isinstance(params[0], dist.Distribution):
                 # new api
                 loc, scale, low, high = (
@@ -1104,6 +1222,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if "SineSkewed" in jax_dist.__name__:
+        pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
         _TruncatedNormal,
         dist.LeftTruncatedDistribution,
@@ -1186,6 +1306,13 @@ def test_mean_var(jax_dist, sp_dist, params):
 
         expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
+    elif jax_dist in [dist.SineBivariateVonMises]:
+        phi_loc = _circ_mean(samples[..., 0])
+        psi_loc = _circ_mean(samples[..., 1])
+
+        assert_allclose(
+            d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2
+        )
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
@@ -1200,8 +1327,8 @@ def test_mean_var(jax_dist, sp_dist, params):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
-    if jax_dist is _TruncatedNormal:
-        pytest.skip("_TruncatedNormal is a function, not a class")
+    if jax_dist in (_TruncatedNormal, _GaussianMixture, _Gaussian2DMixture):
+        pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
@@ -1213,12 +1340,19 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             and dist_args[i] != "concentration"
         ):
             continue
+        if "SineSkewed" in jax_dist.__name__ and dist_args[i] != "skewness":
+            continue
         if (
             jax_dist is dist.TwoSidedTruncatedDistribution
             and dist_args[i] == "base_dist"
         ):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+            continue
+        if (
+            jax_dist is dist.SineBivariateVonMises
+            and dist_args[i] == "weighted_correlation"
+        ):
             continue
         if params[i] is None:
             oob_params[i] = None
@@ -1239,7 +1373,9 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
-    if not dependent_constraint and jax_dist is not _ImproperWrapper:
+    if not dependent_constraint and (
+        jax_dist is not _ImproperWrapper and "SineSkewed" not in jax_dist.__name__
+    ):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
@@ -1471,8 +1607,10 @@ def test_constraints(constraint, x, expected):
         constraints.corr_matrix,
         constraints.greater_than(2),
         constraints.interval(-3, 5),
+        constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
+        constraints.scaled_unit_lower_cholesky,
         constraints.ordered_vector,
         constraints.positive,
         constraints.positive_definite,
@@ -1488,7 +1626,6 @@ def test_constraints(constraint, x, expected):
 )
 @pytest.mark.parametrize("shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
-
     transform = biject_to(constraint)
     event_dim = transform.domain.event_dim
     if isinstance(constraint, constraints._Interval):
@@ -1533,6 +1670,7 @@ def test_biject_to(constraint, shape):
             constraints.real_vector,
             constraints.ordered_vector,
             constraints.positive_ordered_vector,
+            constraints.l1_ball,
         ]:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
@@ -1557,6 +1695,7 @@ def test_biject_to(constraint, shape):
             inv_expected = np.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         elif constraint in [
             constraints.lower_cholesky,
+            constraints.scaled_unit_lower_cholesky,
             constraints.positive_definite,
             constraints.softplus_lower_cholesky,
         ]:
@@ -1597,9 +1736,30 @@ def test_biject_to(constraint, shape):
             ),
             (2,),
         ),
+        (
+            transforms.ComposeTransform(
+                [
+                    biject_to(constraints.simplex),
+                    SimplexToOrderedTransform(0.0),
+                    biject_to(constraints.ordered_vector).inv,
+                ]
+            ),
+            (5,),
+        ),
     ],
 )
-@pytest.mark.parametrize("batch_shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+@pytest.mark.parametrize(
+    "batch_shape",
+    [
+        (),
+        (1,),
+        (3,),
+        (6,),
+        (3, 1),
+        (1, 3),
+        (5, 3),
+    ],
+)
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
     rng_key = random.PRNGKey(0)
@@ -1611,7 +1771,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-4)
     assert transform.inv.inv is transform
     assert transform.inv is transform.inv
     assert transform.domain is transform.inv.codomain
@@ -2031,5 +2191,15 @@ def test_kl_normal_normal(shape):
     q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
     actual = kl_divergence(p, q)
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
+    expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
+    assert_allclose(actual, expected, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(4,), (2, 3)], ids=str)
+def test_kl_dirichlet_dirichlet(shape):
+    p = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
+    q = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
+    actual = kl_divergence(p, q)
+    x = p.sample(random.PRNGKey(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)

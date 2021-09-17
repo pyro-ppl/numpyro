@@ -236,6 +236,12 @@ class Exponential(Distribution):
     def variance(self):
         return jnp.reciprocal(self.rate ** 2)
 
+    def cdf(self, value):
+        return -jnp.expm1(-self.rate * value)
+
+    def icdf(self, q):
+        return -jnp.log1p(-q) / self.rate
+
 
 class Gamma(Distribution):
     arg_constraints = {
@@ -354,6 +360,12 @@ class HalfCauchy(Distribution):
     def log_prob(self, value):
         return self._cauchy.log_prob(value) + jnp.log(2)
 
+    def cdf(self, value):
+        return self._cauchy.cdf(value) * 2 - 1
+
+    def icdf(self, q):
+        return self._cauchy.icdf((q + 1) / 2)
+
     @property
     def mean(self):
         return jnp.full(self.batch_shape, jnp.inf)
@@ -382,6 +394,12 @@ class HalfNormal(Distribution):
     @validate_sample
     def log_prob(self, value):
         return self._normal.log_prob(value) + jnp.log(2)
+
+    def cdf(self, value):
+        return self._normal.cdf(value) * 2 - 1
+
+    def icdf(self, q):
+        return self._normal.icdf((q + 1) / 2)
 
     @property
     def mean(self):
@@ -465,6 +483,12 @@ class Gumbel(Distribution):
     def variance(self):
         return jnp.broadcast_to(jnp.pi ** 2 / 6.0 * self.scale ** 2, self.batch_shape)
 
+    def cdf(self, value):
+        return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
+
+    def icdf(self, q):
+        return self.loc - self.scale * jnp.log(-jnp.log(q))
+
 
 class Laplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -520,6 +544,27 @@ class LKJ(TransformedDistribution):
 
     When ``concentration < 1``, the distribution favors samples with small determinent. This is
     useful when we know a priori that some underlying variables are correlated.
+
+    Sample code for using LKJ in the context of multivariate normal sample::
+
+        def model(y):  # y has dimension N x d
+            d = y.shape[1]
+            N = y.shape[0]
+            # Vector of variances for each of the d variables
+            theta = numpyro.sample("theta", dist.HalfCauchy(jnp.ones(d)))
+
+            concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
+            corr_mat = numpyro.sample("corr_mat", dist.LKJ(d, concentration))
+            sigma = jnp.sqrt(theta)
+            # we can also use a faster formula `cov_mat = jnp.outer(theta, theta) * corr_mat`
+            cov_mat = jnp.matmul(jnp.matmul(jnp.diag(sigma), corr_mat), jnp.diag(sigma))
+
+            # Vector of expectations
+            mu = jnp.zeros(d)
+
+            with numpyro.plate("observations", N):
+                obs = numpyro.sample("obs", dist.MultivariateNormal(mu, covariance_matrix=cov_mat), obs=y)
+            return obs
 
     :param int dimension: dimension of the matrices
     :param ndarray concentration: concentration/shape parameter of the
@@ -581,6 +626,28 @@ class LKJCholesky(Distribution):
     When ``concentration < 1``, the distribution favors samples with small diagonal entries
     (hence small determinent). This is useful when we know a priori that some underlying
     variables are correlated.
+
+    Sample code for using LKJCholesky in the context of multivariate normal sample::
+
+        def model(y):  # y has dimension N x d
+            d = y.shape[1]
+            N = y.shape[0]
+            # Vector of variances for each of the d variables
+            theta = numpyro.sample("theta", dist.HalfCauchy(jnp.ones(d)))
+            # Lower cholesky factor of a correlation matrix
+            concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
+            L_omega = numpyro.sample("L_omega", dist.LKJCholesky(d, concentration))
+            # Lower cholesky factor of the covariance matrix
+            sigma = jnp.sqrt(theta)
+            # we can also use a faster formula `L_Omega = sigma[..., None] * L_omega`
+            L_Omega = jnp.matmul(jnp.diag(sigma), L_omega)
+
+            # Vector of expectations
+            mu = jnp.zeros(d)
+
+            with numpyro.plate("observations", N):
+                obs = numpyro.sample("obs", dist.MultivariateNormal(mu, scale_tril=L_Omega), obs=y)
+            return obs
 
     :param int dimension: dimension of the matrices
     :param ndarray concentration: concentration/shape parameter of the
@@ -1238,6 +1305,12 @@ class Pareto(TransformedDistribution):
     def support(self):
         return constraints.greater_than(self.scale)
 
+    def cdf(self, value):
+        return 1 - jnp.power(self.scale / value, self.alpha)
+
+    def icdf(self, q):
+        return self.scale / jnp.power(1 - q, 1 / self.alpha)
+
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
 
@@ -1396,6 +1469,13 @@ class Uniform(Distribution):
     def log_prob(self, value):
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
+
+    def cdf(self, value):
+        cdf = (value - self.low) / (self.high - self.low)
+        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+
+    def icdf(self, value):
+        return self.low + value * (self.high - self.low)
 
     @property
     def mean(self):

@@ -476,7 +476,7 @@ class plate(GlobalNamedMessenger):
         This can be used to apply a scaling factor by inference algorithms. e.g.
         when computing ELBO using a mini-batch.
     :param int dim: Optional argument to specify which dimension in the tensor
-        is used as the plate dim. If `None` (default), the leftmost available dim
+        is used as the plate dim. If `None` (default), the rightmost available dim
         is allocated.
     """
 
