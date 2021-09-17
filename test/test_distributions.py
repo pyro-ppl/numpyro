@@ -1,25 +1,25 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
-from functools import partial
 import inspect
 import math
 import os
-
-import numpy as np
-from numpy.testing import assert_allclose, assert_array_equal
-import pytest
-import scipy.stats as osp
+from collections import namedtuple
+from functools import partial
 
 import jax
-from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
+import pytest
+import scipy.stats as osp
+from jax import grad, lax, vmap
 from jax.scipy.special import expit, logsumexp
+from numpy.testing import assert_allclose, assert_array_equal
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
+from numpyro.distributions.directional import SineBivariateVonMises
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -27,6 +27,7 @@ from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
     PowerTransform,
+    SimplexToOrderedTransform,
     SoftplusTransform,
     biject_to,
 )
@@ -44,6 +45,12 @@ TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 def _identity(x):
     return x
+
+
+def _circ_mean(angles):
+    return jnp.arctan2(
+        jnp.mean(jnp.sin(angles), axis=0), jnp.mean(jnp.cos(angles), axis=0)
+    )
 
 
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
@@ -106,6 +113,34 @@ class SineSkewedVonMisesBatched(dist.SineSkewed):
         von_loc, von_conc = (jnp.array([0.0, -1.234]), jnp.array([1.0, 10.0]))
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
         super().__init__(base_dist, skewness, **kwargs)
+
+
+def _GaussianMixture(mixing_probs, loc, scale):
+    component_dist = dist.Normal(loc=loc, scale=scale)
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureSameFamily(
+        mixing_distribution=mixing_distribution,
+        component_distribution=component_dist,
+    )
+
+
+_GaussianMixture.arg_constraints = {}
+_GaussianMixture.reparametrized_params = []
+_GaussianMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _Gaussian2DMixture(mixing_probs, loc, cov_matrix):
+    component_dist = dist.MultivariateNormal(loc=loc, covariance_matrix=cov_matrix)
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureSameFamily(
+        mixing_distribution=mixing_distribution,
+        component_distribution=component_dist,
+    )
+
+
+_Gaussian2DMixture.arg_constraints = {}
+_Gaussian2DMixture.reparametrized_params = []
+_Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -349,12 +384,72 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, jnp.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(
+        _GaussianMixture,
+        jnp.ones(3) / 3.0,
+        jnp.array([0.0, 7.7, 2.1]),
+        jnp.array([4.2, 7.7, 2.1]),
+    ),
+    T(
+        _Gaussian2DMixture,
+        jnp.array([0.2, 0.5, 0.3]),
+        jnp.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        jnp.array(
+            [
+                [
+                    [0.1, -0.2],
+                    [-0.2, 1.0],
+                ],
+                [
+                    [0.75, 0.0],
+                    [0.0, 0.75],
+                ],
+                [
+                    [1.0, 0.5],
+                    [0.5, 0.27],
+                ],
+            ]
+        ),  # Covariance
+    ),
 ]
 
 DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
     T(dist.VonMises, 2.0, jnp.array([150.0, 10.0])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.0]), jnp.array([20.0, 30.0])),
+    T(
+        SineBivariateVonMises,
+        jnp.array([0.0]),
+        jnp.array([0.0]),
+        jnp.array([5.0]),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array([3.003]),
+        jnp.array([-1.3430]),
+        jnp.array(5.0),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array(-1.232),
+        jnp.array(-1.3430),
+        jnp.array(3.4),
+        jnp.array(2.0),
+        jnp.array(1.0),
+    ),
+    T(
+        SineBivariateVonMises,
+        jnp.array([math.pi - 0.2, 1.0]),
+        jnp.array([0.0, 1.0]),
+        jnp.array([2.123, 20.0]),
+        jnp.array([7.0, 0.5]),
+        None,
+        jnp.array([0.2, 0.5]),
+    ),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
@@ -513,22 +608,22 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints.multinomial):
         n = size[-1]
         return (
-            multinomial(
-                key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]
-            )
-            + 1
+                multinomial(
+                    key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]
+                )
+                + 1
         )
     elif constraint is constraints.corr_cholesky:
         return (
-            signed_stick_breaking_tril(
-                random.uniform(
-                    key,
-                    size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
-                    minval=-1,
-                    maxval=1,
+                signed_stick_breaking_tril(
+                    random.uniform(
+                        key,
+                        size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
+                        minval=-1,
+                        maxval=1,
+                    )
                 )
-            )
-            + 1e-2
+                + 1e-2
         )
     elif constraint is constraints.corr_matrix:
         cholesky = 1e-2 + signed_stick_breaking_tril(
@@ -578,11 +673,10 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         )
 
 
-@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)], ids=str)
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
+def test_infer_shapes(jax_dist, sp_dist, params):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
     shapes = tuple(x() if callable(x) else x for x in shapes)
     jax_dist = jax_dist(*params)
@@ -739,10 +833,10 @@ def test_pathwise_gradient(jax_dist, params):
 )
 def test_jit_log_likelihood(jax_dist, sp_dist, params):
     if jax_dist.__name__ in (
-        "GaussianRandomWalk",
-        "_ImproperWrapper",
-        "LKJ",
-        "LKJCholesky",
+            "GaussianRandomWalk",
+            "_ImproperWrapper",
+            "LKJ",
+            "LKJCholesky",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -1099,7 +1193,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     eps = 1e-3
     for i in range(len(params)):
         if isinstance(
-            params[i], dist.Distribution
+                params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
             continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
@@ -1130,10 +1224,10 @@ def test_mean_var(jax_dist, sp_dist, params):
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
-        _TruncatedNormal,
-        dist.LeftTruncatedDistribution,
-        dist.RightTruncatedDistribution,
-        dist.TwoSidedTruncatedDistribution,
+            _TruncatedNormal,
+            dist.LeftTruncatedDistribution,
+            dist.RightTruncatedDistribution,
+            dist.TwoSidedTruncatedDistribution,
     ):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
@@ -1146,9 +1240,9 @@ def test_mean_var(jax_dist, sp_dist, params):
     # check with suitable scipy implementation if available
     # XXX: VonMises is already tested below
     if (
-        sp_dist
-        and not _is_batched_multivariate(d_jax)
-        and jax_dist not in [dist.VonMises]
+            sp_dist
+            and not _is_batched_multivariate(d_jax)
+            and jax_dist not in [dist.VonMises]
     ):
         d_sp = sp_dist(*params)
         try:
@@ -1211,6 +1305,13 @@ def test_mean_var(jax_dist, sp_dist, params):
 
         expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
+    elif jax_dist in [dist.SineBivariateVonMises]:
+        phi_loc = _circ_mean(samples[..., 0])
+        psi_loc = _circ_mean(samples[..., 1])
+
+        assert_allclose(
+            d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2
+        )
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
@@ -1225,8 +1326,8 @@ def test_mean_var(jax_dist, sp_dist, params):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
-    if jax_dist is _TruncatedNormal:
-        pytest.skip("_TruncatedNormal is a function, not a class")
+    if jax_dist in (_TruncatedNormal, _GaussianMixture, _Gaussian2DMixture):
+        pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
@@ -1234,18 +1335,23 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     dependent_constraint = False
     for i in range(len(params)):
         if (
-            jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky)
-            and dist_args[i] != "concentration"
+                jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky)
+                and dist_args[i] != "concentration"
         ):
             continue
         if "SineSkewed" in jax_dist.__name__ and dist_args[i] != "skewness":
             continue
         if (
-            jax_dist is dist.TwoSidedTruncatedDistribution
-            and dist_args[i] == "base_dist"
+                jax_dist is dist.TwoSidedTruncatedDistribution
+                and dist_args[i] == "base_dist"
         ):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+            continue
+        if (
+                jax_dist is dist.SineBivariateVonMises
+                and dist_args[i] == "weighted_correlation"
+        ):
             continue
         if params[i] is None:
             oob_params[i] = None
@@ -1267,7 +1373,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
 
     # Invalid parameter values throw ValueError
     if not dependent_constraint and (
-        jax_dist is not _ImproperWrapper and "SineSkewed" not in jax_dist.__name__
+            jax_dist is not _ImproperWrapper and "SineSkewed" not in jax_dist.__name__
     ):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
@@ -1287,9 +1393,9 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     # Test agreement of log density evaluation on randomly generated samples
     # with scipy's implementation when available.
     if (
-        sp_dist
-        and not _is_batched_multivariate(d)
-        and not (d.event_shape and prepend_shape)
+            sp_dist
+            and not _is_batched_multivariate(d)
+            and not (d.event_shape and prepend_shape)
     ):
         valid_samples = gen_values_within_bounds(
             d.support, size=prepend_shape + d.batch_shape + d.event_shape
@@ -1365,113 +1471,113 @@ def test_categorical_log_prob_grad():
         (constraints.boolean, jnp.array([1, 1]), jnp.array([True, True])),
         (constraints.boolean, jnp.array([-1, 1]), jnp.array([False, True])),
         (
-            constraints.corr_cholesky,
-            jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
-            jnp.array([True, False]),
+                constraints.corr_cholesky,
+                jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+                jnp.array([True, False]),
         ),  # NB: not lower_triangular
         (
-            constraints.corr_cholesky,
-            jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
-            jnp.array([False, False]),
+                constraints.corr_cholesky,
+                jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+                jnp.array([False, False]),
         ),  # NB: not positive_diagonal & not unit_norm_row
         (
-            constraints.corr_matrix,
-            jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
-            jnp.array([True, False]),
+                constraints.corr_matrix,
+                jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+                jnp.array([True, False]),
         ),  # NB: not lower_triangular
         (
-            constraints.corr_matrix,
-            jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
-            jnp.array([False, False]),
+                constraints.corr_matrix,
+                jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+                jnp.array([False, False]),
         ),  # NB: not unit diagonal
         (constraints.greater_than(1), 3, True),
         (
-            constraints.greater_than(1),
-            jnp.array([-1, 1, 5]),
-            jnp.array([False, False, True]),
+                constraints.greater_than(1),
+                jnp.array([-1, 1, 5]),
+                jnp.array([False, False, True]),
         ),
         (constraints.integer_interval(-3, 5), 0, True),
         (
-            constraints.integer_interval(-3, 5),
-            jnp.array([-5, -3, 0, 1.1, 5, 7]),
-            jnp.array([False, True, True, False, True, False]),
+                constraints.integer_interval(-3, 5),
+                jnp.array([-5, -3, 0, 1.1, 5, 7]),
+                jnp.array([False, True, True, False, True, False]),
         ),
         (constraints.interval(-3, 5), 0, True),
         (
-            constraints.interval(-3, 5),
-            jnp.array([-5, -3, 0, 5, 7]),
-            jnp.array([False, True, True, True, False]),
+                constraints.interval(-3, 5),
+                jnp.array([-5, -3, 0, 5, 7]),
+                jnp.array([False, True, True, True, False]),
         ),
         (constraints.less_than(1), -2, True),
         (
-            constraints.less_than(1),
-            jnp.array([-1, 1, 5]),
-            jnp.array([True, False, False]),
+                constraints.less_than(1),
+                jnp.array([-1, 1, 5]),
+                jnp.array([True, False, False]),
         ),
         (constraints.lower_cholesky, jnp.array([[1.0, 0.0], [-2.0, 0.1]]), True),
         (
-            constraints.lower_cholesky,
-            jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
-            jnp.array([False, False]),
+                constraints.lower_cholesky,
+                jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
+                jnp.array([False, False]),
         ),
         (constraints.nonnegative_integer, 3, True),
         (
-            constraints.nonnegative_integer,
-            jnp.array([-1.0, 0.0, 5.0]),
-            jnp.array([False, True, True]),
+                constraints.nonnegative_integer,
+                jnp.array([-1.0, 0.0, 5.0]),
+                jnp.array([False, True, True]),
         ),
         (constraints.positive, 3, True),
         (constraints.positive, jnp.array([-1, 0, 5]), jnp.array([False, False, True])),
         (constraints.positive_definite, jnp.array([[1.0, 0.3], [0.3, 1.0]]), True),
         (
-            constraints.positive_definite,
-            jnp.array([[[2.0, 0.4], [0.3, 2.0]], [[1.0, 0.1], [0.1, 0.0]]]),
-            jnp.array([False, False]),
+                constraints.positive_definite,
+                jnp.array([[[2.0, 0.4], [0.3, 2.0]], [[1.0, 0.1], [0.1, 0.0]]]),
+                jnp.array([False, False]),
         ),
         (constraints.positive_integer, 3, True),
         (
-            constraints.positive_integer,
-            jnp.array([-1.0, 0.0, 5.0]),
-            jnp.array([False, False, True]),
+                constraints.positive_integer,
+                jnp.array([-1.0, 0.0, 5.0]),
+                jnp.array([False, False, True]),
         ),
         (constraints.real, -1, True),
         (
-            constraints.real,
-            jnp.array([jnp.inf, jnp.NINF, jnp.nan, jnp.pi]),
-            jnp.array([False, False, False, True]),
+                constraints.real,
+                jnp.array([jnp.inf, jnp.NINF, jnp.nan, jnp.pi]),
+                jnp.array([False, False, False, True]),
         ),
         (constraints.simplex, jnp.array([0.1, 0.3, 0.6]), True),
         (
-            constraints.simplex,
-            jnp.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
-            jnp.array([True, False, False]),
+                constraints.simplex,
+                jnp.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
+                jnp.array([True, False, False]),
         ),
         (constraints.softplus_positive, 3, True),
         (
-            constraints.softplus_positive,
-            jnp.array([-1, 0, 5]),
-            jnp.array([False, False, True]),
+                constraints.softplus_positive,
+                jnp.array([-1, 0, 5]),
+                jnp.array([False, False, True]),
         ),
         (
-            constraints.softplus_lower_cholesky,
-            jnp.array([[1.0, 0.0], [-2.0, 0.1]]),
-            True,
+                constraints.softplus_lower_cholesky,
+                jnp.array([[1.0, 0.0], [-2.0, 0.1]]),
+                True,
         ),
         (
-            constraints.softplus_lower_cholesky,
-            jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
-            jnp.array([False, False]),
+                constraints.softplus_lower_cholesky,
+                jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
+                jnp.array([False, False]),
         ),
         (constraints.unit_interval, 0.1, True),
         (
-            constraints.unit_interval,
-            jnp.array([-5, 0, 0.5, 1, 7]),
-            jnp.array([False, True, True, True, False]),
+                constraints.unit_interval,
+                jnp.array([-5, 0, 0.5, 1, 7]),
+                jnp.array([False, True, True, True, False]),
         ),
         (
-            constraints.sphere,
-            jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
-            jnp.array([True, False]),
+                constraints.sphere,
+                jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
+                jnp.array([True, False]),
         ),
     ],
 )
@@ -1500,8 +1606,10 @@ def test_constraints(constraint, x, expected):
         constraints.corr_matrix,
         constraints.greater_than(2),
         constraints.interval(-3, 5),
+        constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
+        constraints.scaled_unit_lower_cholesky,
         constraints.ordered_vector,
         constraints.positive,
         constraints.positive_definite,
@@ -1561,6 +1669,7 @@ def test_biject_to(constraint, shape):
             constraints.real_vector,
             constraints.ordered_vector,
             constraints.positive_ordered_vector,
+            constraints.l1_ball,
         ]:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
@@ -1575,9 +1684,9 @@ def test_biject_to(constraint, shape):
                 if constraint is constraints.corr_matrix:
                     # fill the upper triangular part
                     matrix = (
-                        matrix
-                        + jnp.swapaxes(matrix, -2, -1)
-                        + jnp.identity(matrix.shape[-1])
+                            matrix
+                            + jnp.swapaxes(matrix, -2, -1)
+                            + jnp.identity(matrix.shape[-1])
                     )
                 return transform.inv(matrix)
 
@@ -1585,6 +1694,7 @@ def test_biject_to(constraint, shape):
             inv_expected = np.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         elif constraint in [
             constraints.lower_cholesky,
+            constraints.scaled_unit_lower_cholesky,
             constraints.positive_definite,
             constraints.softplus_lower_cholesky,
         ]:
@@ -1596,9 +1706,9 @@ def test_biject_to(constraint, shape):
                 if constraint is constraints.positive_definite:
                     # fill the upper triangular part
                     matrix = (
-                        matrix
-                        + jnp.swapaxes(matrix, -2, -1)
-                        - jnp.diag(jnp.diag(matrix))
+                            matrix
+                            + jnp.swapaxes(matrix, -2, -1)
+                            - jnp.diag(jnp.diag(matrix))
                     )
                 return transform.inv(matrix)
 
@@ -1620,14 +1730,35 @@ def test_biject_to(constraint, shape):
         (PowerTransform(2.0), ()),
         (SoftplusTransform(), ()),
         (
-            LowerCholeskyAffine(
-                jnp.array([1.0, 2.0]), jnp.array([[0.6, 0.0], [1.5, 0.4]])
-            ),
-            (2,),
+                LowerCholeskyAffine(
+                    jnp.array([1.0, 2.0]), jnp.array([[0.6, 0.0], [1.5, 0.4]])
+                ),
+                (2,),
+        ),
+        (
+                transforms.ComposeTransform(
+                    [
+                        biject_to(constraints.simplex),
+                        SimplexToOrderedTransform(0.0),
+                        biject_to(constraints.ordered_vector).inv,
+                    ]
+                ),
+                (5,),
         ),
     ],
 )
-@pytest.mark.parametrize("batch_shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+@pytest.mark.parametrize(
+    "batch_shape",
+    [
+        (),
+        (1,),
+        (3,),
+        (6,),
+        (3, 1),
+        (1, 3),
+        (5, 3),
+    ],
+)
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
     rng_key = random.PRNGKey(0)
@@ -1639,7 +1770,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-4)
     assert transform.inv.inv is transform
     assert transform.inv is transform.inv
     assert transform.domain is transform.inv.codomain
@@ -1677,7 +1808,7 @@ def test_composed_transform(batch_shape):
     log_det = t.log_abs_det_jacobian(x, y)
     assert log_det.shape == batch_shape
     expected_log_det = (
-        jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, y / 2) + jnp.log(2) * 9
+            jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, y / 2) + jnp.log(2) * 9
     )
     assert_allclose(log_det, expected_log_det)
 
@@ -1696,9 +1827,9 @@ def test_composed_transform_1(batch_shape):
     assert log_det.shape == batch_shape
     z = t2(x * 2)
     expected_log_det = (
-        jnp.log(2) * 6
-        + t2.log_abs_det_jacobian(x * 2, z)
-        + t2.log_abs_det_jacobian(z, t2(z)).sum(-1)
+            jnp.log(2) * 6
+            + t2.log_abs_det_jacobian(x * 2, z)
+            + t2.log_abs_det_jacobian(z, t2(z)).sum(-1)
     )
     assert_allclose(log_det, expected_log_det)
 
@@ -1709,8 +1840,8 @@ def test_composed_transform_1(batch_shape):
 def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape):
     base_dist = (
         dist.Normal(0, 1)
-        .expand(batch_shape + prepend_event_shape + (6,))
-        .to_event(1 + len(prepend_event_shape))
+            .expand(batch_shape + prepend_event_shape + (6,))
+            .to_event(1 + len(prepend_event_shape))
     )
     t1 = transforms.AffineTransform(0, 2)
     t2 = transforms.LowerCholeskyTransform()
@@ -1822,7 +1953,7 @@ def test_unpack_transform(x_dim, y_dim):
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS)
 def test_generated_sample_distribution(
-    jax_dist, sp_dist, params, N_sample=100_000, key=random.PRNGKey(11)
+        jax_dist, sp_dist, params, N_sample=100_000, key=random.PRNGKey(11)
 ):
     """On samplers that we do not get directly from JAX, (e.g. we only get
     Gumbel(0,1) but also provide samplers for Gumbel(loc, scale)), also test
@@ -1880,8 +2011,8 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     assert expanded_dist.log_prob(samples).shape == sample_shape + new_batch_shape
     # test expand of expand
     assert (
-        expanded_dist.expand((3,) + new_batch_shape).batch_shape
-        == (3,) + new_batch_shape
+            expanded_dist.expand((3,) + new_batch_shape).batch_shape
+            == (3,) + new_batch_shape
     )
     # test expand error
     if prepend_shape:

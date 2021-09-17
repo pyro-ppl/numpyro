@@ -37,7 +37,12 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
 )
-from numpyro.distributions.directional import ProjectedNormal, SineSkewed, VonMises
+from numpyro.distributions.directional import (
+    ProjectedNormal,
+    SineBivariateVonMises,
+    SineSkewed,
+    VonMises,
+)
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -72,6 +77,7 @@ from numpyro.distributions.distribution import (
     Unit,
 )
 from numpyro.distributions.kl import kl_divergence
+from numpyro.distributions.mixtures import MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
@@ -130,6 +136,7 @@ __all__ = [
     "Logistic",
     "LogNormal",
     "MaskedDistribution",
+    "MixtureSameFamily",
     "Multinomial",
     "MultinomialLogits",
     "MultinomialProbs",
@@ -145,6 +152,7 @@ __all__ = [
     "ProjectedNormal",
     "PRNGIdentity",
     "RightTruncatedDistribution",
+    "SineBivariateVonMises",
     "SineSkewed",
     "SoftLaplace",
     "StudentT",

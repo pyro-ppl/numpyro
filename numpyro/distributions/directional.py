@@ -1,23 +1,16 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
-import functools
-import math
-from math import pi
-import operator
 import functools
 import math
 import operator
 from collections import namedtuple
 from math import pi
-
-from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax import lax
 from jax.scipy import special
 from jax.scipy.special import erf, i0e, i1e, logsumexp
+from jax import lax
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -182,7 +175,7 @@ class SineSkewed(Distribution):
             corr_scale = numpyro.sample('corr_scale', Beta(2., 5.))
 
             # Skewing prior
-            skewness = numpyro.sample('skew_phi', Normal(0, .5).expand((2,)))
+            skewness = numpyro.sample('skew_phi', Normal(0, 0.5).expand((2,)))
 
             with numpyro.plate('obs_plate'):
                 sine = SineBivariateVonMises(phi_loc=phi_loc, psi_loc=psi_loc,
@@ -286,7 +279,6 @@ class SineSkewed(Distribution):
     @property
     def mean(self):
         return self.base_dist.mean
-
 
 class SineBivariateVonMises(Distribution):
     r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by

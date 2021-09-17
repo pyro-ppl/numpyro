@@ -10,54 +10,72 @@ Markov Chain Monte Carlo (MCMC)
 MCMC Kernels
 ------------
 
+MCMCKernel
+^^^^^^^^^^
 .. autoclass:: numpyro.infer.mcmc.MCMCKernel
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+BarkerMH
+^^^^^^^^
 .. autoclass:: numpyro.infer.barker.BarkerMH
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+HMC
+^^^
 .. autoclass:: numpyro.infer.hmc.HMC
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+NUTS
+^^^^
 .. autoclass:: numpyro.infer.hmc.NUTS
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+HMCGibbs
+^^^^^^^^
 .. autoclass:: numpyro.infer.hmc_gibbs.HMCGibbs
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+DiscreteHMCGibbs
+^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.infer.hmc_gibbs.DiscreteHMCGibbs
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+MixedHMC
+^^^^^^^^
 .. autoclass:: numpyro.infer.mixed_hmc.MixedHMC
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+HMCECS
+^^^^^^
 .. autoclass:: numpyro.infer.hmc_gibbs.HMCECS
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+SA
+^^
 .. autoclass:: numpyro.infer.sa.SA
     :members:
     :undoc-members:
