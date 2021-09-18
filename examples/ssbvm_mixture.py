@@ -129,8 +129,8 @@ def ss_model(data, num_data, num_mix_comp=2):
         sine = SineBivariateVonMises(
             phi_loc=phi_loc[assign],
             psi_loc=psi_loc[assign],
-            phi_concentration=500 * phi_conc[assign],
-            psi_concentration=500 * psi_conc[assign],
+            phi_concentration=70 * phi_conc[assign],
+            psi_concentration=70 * psi_conc[assign],
             weighted_correlation=corr_scale[assign],
         )
         return numpyro.sample("phi_psi", SineSkewed(sine, skewness[assign]), obs=data)
