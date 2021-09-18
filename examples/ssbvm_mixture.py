@@ -11,16 +11,21 @@ from jax import numpy as jnp, random
 
 import numpyro
 from numpyro.contrib.funsor import config_enumerate
-from numpyro.distributions import (  # SineSkewed,; SineBivariateVonMises,
+from numpyro.distributions import (
     Beta,
     Categorical,
     Dirichlet,
     Gamma,
+    Normal,
+    SineBivariateVonMises,
+    SineSkewed,
     Uniform,
     VonMises,
 )
+from numpyro.distributions.transforms import L1BallTransform
 from numpyro.examples.datasets import NINE_MERS, load_dataset
 from numpyro.infer import MCMC, NUTS, Predictive, init_to_value
+from numpyro.infer.reparam import CircularReparam
 
 np.set_printoptions(threshold=sys.maxsize)
 
@@ -80,7 +85,9 @@ def multiple_formatter(denominator=2, number=np.pi, latex=r"\pi"):
 
 
 @config_enumerate
-@numpyro.handlers.reparam(config={'phi_loc': CircularReparam(), 'psi_loc': CircularReparam()})
+@numpyro.handlers.reparam(
+    config={"phi_loc": CircularReparam(), "psi_loc": CircularReparam()}
+)
 def ss_model(data, num_data, num_mix_comp=2):
     # Mixture prior
     mix_weights = numpyro.sample("mix_weights", Dirichlet(jnp.ones((num_mix_comp,))))
@@ -112,7 +119,7 @@ def ss_model(data, num_data, num_mix_comp=2):
 
         # Skewness prior
         ball_transform = L1BallTransform()
-        skewness = numpyro.sample('skewness', Normal(0, .5).expand((2,)).to_event(1))
+        skewness = numpyro.sample("skewness", Normal(0, 0.5).expand((2,)).to_event(1))
         skewness = ball_transform(skewness)
 
     with numpyro.plate("obs_plate", num_data, dim=-1):
