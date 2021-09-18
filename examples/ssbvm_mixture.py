@@ -129,8 +129,8 @@ def ss_model(data, num_data, num_mix_comp=2):
         sine = SineBivariateVonMises(
             phi_loc=phi_loc[assign],
             psi_loc=psi_loc[assign],
-            phi_concentration=70 * phi_conc[assign],
-            psi_concentration=70 * psi_conc[assign],
+            phi_concentration=500 * phi_conc[assign],
+            psi_concentration=500 * psi_conc[assign],
             weighted_correlation=corr_scale[assign],
         )
         return numpyro.sample("phi_psi", SineSkewed(sine, skewness[assign]), obs=data)
@@ -219,20 +219,21 @@ def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.pdf"):
 
 def main(num_samples=1000, aas=("S", "P", "G")):
     num_mix_comps = {"S": 9, "G": 10, "P": 7}
+    data = {}
     pred_datas = {}
     rng_key = random.PRNGKey(123)
     for aa in aas:
-        data = fetch_aa_dihedrals(aa)
+        data[aa] = fetch_aa_dihedrals(aa)
         num_mix_comp = num_mix_comps[aa]
 
         kmeans = KMeans(num_mix_comp)
-        kmeans.fit(data)
+        kmeans.fit(data[aa])
         means = {
             "phi_loc": kmeans.cluster_centers_[:, 0],
             "psi_loc": kmeans.cluster_centers_[:, 1],
         }
         posterior_samples = {
-            "ss": run_hmc(ss_model, data, num_mix_comp, num_samples, means)
+            "ss": run_hmc(ss_model, data[aa], num_mix_comp, num_samples, means)
         }
         predictive = Predictive(ss_model, posterior_samples["ss"], parallel=True)
         rng_key, pred_key = random.split(rng_key)
