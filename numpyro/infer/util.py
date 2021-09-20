@@ -892,7 +892,7 @@ class Predictive(object):
                 model_args=args,
                 model_kwargs=kwargs,
             )
-            for name, sample in posterior_samples.items():  # TODO: rewrite me
+            for name, sample in posterior_samples.items():
                 assert self._batch_shape == sample.shape[:self.batch_ndims]
                 if self.num_particles is not None:
                     assert sample.shape[self.batch_ndims] == self.num_particles
