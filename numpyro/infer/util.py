@@ -77,9 +77,9 @@ class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
 
     def postprocess_message(self, msg):
         if (
-            msg["type"] == "sample"
-            and (not msg["is_observed"])
-            and (not msg["fn"].has_rsample)
+                msg["type"] == "sample"
+                and (not msg["is_observed"])
+                and (not msg["fn"].has_rsample)
         ):
             msg["value"] = lax.stop_gradient(msg["value"])
             # TODO: reconsider this logic
@@ -236,16 +236,16 @@ def _init_to_unconstrained_value(site=None, values={}):
 
 
 def find_valid_initial_params(
-    rng_key,
-    model,
-    *,
-    init_strategy=init_to_uniform,
-    enum=False,
-    model_args=(),
-    model_kwargs=None,
-    prototype_params=None,
-    forward_mode_differentiation=False,
-    validate_grad=True,
+        rng_key,
+        model,
+        *,
+        init_strategy=init_to_uniform,
+        enum=False,
+        model_args=(),
+        model_kwargs=None,
+        prototype_params=None,
+        forward_mode_differentiation=False,
+        validate_grad=True,
 ):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
@@ -311,9 +311,9 @@ def find_valid_initial_params(
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
                 if (
-                    v["type"] == "sample"
-                    and not v["is_observed"]
-                    and not v["fn"].is_discrete
+                        v["type"] == "sample"
+                        and not v["is_observed"]
+                        and not v["fn"].is_discrete
                 ):
                     constrained_values[k] = v["value"]
                     with helpful_support_errors(v):
@@ -414,14 +414,14 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
 
 
 def get_potential_fn(
-    model,
-    inv_transforms,
-    *,
-    enum=False,
-    replay_model=False,
-    dynamic_args=False,
-    model_args=(),
-    model_kwargs=None,
+        model,
+        inv_transforms,
+        *,
+        enum=False,
+        replay_model=False,
+        dynamic_args=False,
+        model_args=(),
+        model_kwargs=None,
 ):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
@@ -510,22 +510,22 @@ def _validate_model(model_trace):
             batch_dims = batch_dims - 1  # remove time dimension under scan
         plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
         assert (
-            plate_dims >= batch_dims
+                plate_dims >= batch_dims
         ), "Missing plate statement for batch dimensions at site {}".format(
             site["name"]
         )
 
 
 def initialize_model(
-    rng_key,
-    model,
-    *,
-    init_strategy=init_to_uniform,
-    dynamic_args=False,
-    model_args=(),
-    model_kwargs=None,
-    forward_mode_differentiation=False,
-    validate_grad=True,
+        rng_key,
+        model,
+        *,
+        init_strategy=init_to_uniform,
+        dynamic_args=False,
+        model_args=(),
+        model_kwargs=None,
+        forward_mode_differentiation=False,
+        validate_grad=True,
 ):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
@@ -648,10 +648,10 @@ def initialize_model(
                             for w in ws:
                                 # at site information to the warning message
                                 w.message.args = (
-                                    "Site {}: {}".format(
-                                        site["name"], w.message.args[0]
-                                    ),
-                                ) + w.message.args[1:]
+                                                     "Site {}: {}".format(
+                                                         site["name"], w.message.args[0]
+                                                     ),
+                                                 ) + w.message.args[1:]
                                 warnings.showwarning(
                                     w.message,
                                     w.category,
@@ -669,15 +669,15 @@ def initialize_model(
 
 
 def _predictive(
-    rng_key,
-    model,
-    posterior_samples,
-    batch_shape,
-    return_sites=None,
-    infer_discrete=False,
-    parallel=True,
-    model_args=(),
-    model_kwargs={},
+        rng_key,
+        model,
+        posterior_samples,
+        batch_shape,
+        return_sites=None,
+        infer_discrete=False,
+        parallel=True,
+        model_args=(),
+        model_kwargs={},
 ):
     masked_model = numpyro.handlers.mask(model, mask=False)
     if infer_discrete:
@@ -727,7 +727,7 @@ def _predictive(
                 k
                 for k, site in model_trace.items()
                 if (site["type"] == "sample" and k not in samples)
-                or (site["type"] == "deterministic")
+                   or (site["type"] == "deterministic")
             }
         return {name: value for name, value in pred_samples.items() if name in sites}
 
@@ -802,17 +802,18 @@ class Predictive(object):
     """
 
     def __init__(
-        self,
-        model,
-        posterior_samples=None,
-        *,
-        guide=None,
-        params=None,
-        num_samples=None,
-        return_sites=None,
-        infer_discrete=False,
-        parallel=False,
-        batch_ndims=1,
+            self,
+            model,
+            posterior_samples=None,
+            *,
+            guide=None,
+            params=None,
+            num_samples=None,
+            return_sites=None,
+            infer_discrete=False,
+            parallel=False,
+            batch_ndims=1,
+            num_particles=None
     ):
         if posterior_samples is None and num_samples is None:
             raise ValueError(
@@ -864,6 +865,7 @@ class Predictive(object):
         self.parallel = parallel
         self.batch_ndims = batch_ndims
         self._batch_shape = batch_shape
+        self.num_particles = num_particles
 
     def __call__(self, rng_key, *args, **kwargs):
         """
@@ -890,12 +892,21 @@ class Predictive(object):
                 model_args=args,
                 model_kwargs=kwargs,
             )
+            for name, sample in posterior_samples.items():  # TODO: rewrite me
+                assert self._batch_shape == sample.shape[:self.batch_ndims]
+                if self.num_particles is not None:
+                    assert sample.shape[self.batch_ndims] == self.num_particles
+
+        if self.num_particles is not None:
+            batch_shape = (1,) * (self.batch_ndims - 1) + (self.num_samples, self.num_particles)
+        else:
+            batch_shape = self._batch_shape
         model = substitute(self.model, self.params)
         return _predictive(
             rng_key,
             model,
             posterior_samples,
-            self._batch_shape,
+            batch_shape,
             return_sites=self.return_sites,
             infer_discrete=self.infer_discrete,
             parallel=self.parallel,
@@ -905,7 +916,7 @@ class Predictive(object):
 
 
 def log_likelihood(
-    model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs
+        model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs
 ):
     """
     (EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model,
@@ -971,10 +982,10 @@ def helpful_support_errors(site, raise_warnings=False):
     if raise_warnings:
         if support is constraints.circular:
             msg = (
-                f"Continuous inference poorly handles circular sample site '{name}'. "
-                + "Consider using VonMises distribution together with "
-                + "a reparameterizer, e.g. "
-                + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
+                    f"Continuous inference poorly handles circular sample site '{name}'. "
+                    + "Consider using VonMises distribution together with "
+                    + "a reparameterizer, e.g. "
+                    + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
             )
             warnings.warn(msg, UserWarning)
 

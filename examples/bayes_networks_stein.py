@@ -66,7 +66,7 @@ def main(args):
         svi = SVI(model, AutoDelta(model), Adagrad(.01), Trace_ELBO())
 
         start = time()
-        results = svi.run(inf_key, args.max_iter, x, y, 100)
+        results = svi.run(inf_key, args.max_iter, x, y, 50)
         print(time() - start)
 
         plt.plot(results.losses)
@@ -77,10 +77,12 @@ def main(args):
         pass
     if args.method >= 2:
         if args.method == 2:  # SVGD-EinStein
-            stein = Stein(model, AutoDelta(model), Adagrad(0.001), Trace_ELBO(), RBFKernel(), num_particles=20)
+            stein = Stein(model, AutoDelta(model), Adagrad(1.), Trace_ELBO(), RBFKernel(),
+                          num_particles=args.num_particles)
 
         if args.method == 3:  # SM-EinStein
-            stein = Stein(model, AutoNormal(model), Adagrad(0.001), Trace_ELBO(), RBFKernel(), num_particles=20)
+            stein = Stein(model, AutoNormal(model), Adagrad(1.), Trace_ELBO(), RBFKernel(),
+                          num_particles=args.num_particles)
 
         start = time()
         state, losses = stein.run(inf_key, args.max_iter, x, y, 50, callbacks=[Progbar()])
@@ -88,11 +90,13 @@ def main(args):
 
         plt.plot(losses)
         plt.show()
-        pred = Predictive(model, guide=stein.guide, params=stein.get_params(state), num_samples=1)
+        pred = Predictive(model, guide=stein.guide, params=stein.get_params(state), num_samples=1,
+                          num_particles=args.num_particles if args.method != 0 else None)
 
     preds = pred(pred_key, normalize(data.xte, xtr_mean, xtr_std)[0])
 
-    y_pred = jnp.mean(preds['y_mean'].reshape(1, -1) * ytr_std.reshape(1, 1) + ytr_mean.reshape(1, 1), 0)
+    y_pred = jnp.mean(preds['y_mean'].reshape(-1, data.yte.shape[0]) * ytr_std.reshape(1, 1) + ytr_mean.reshape(1, 1),
+                      0)
 
     print(jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2)), "±0.")
 
@@ -110,8 +114,9 @@ if __name__ == '__main__':
                                               'yacht',
                                               'year_prediction_msd'], default='boston_housing')
     parser.add_argument('--max_iter', type=int, default=2000)
-    parser.add_argument('--method', type=int, choices=range(5), metavar='[0-4]', default=0)
+    parser.add_argument('--method', type=int, choices=range(5), metavar='[0-4]', default=2)
     parser.add_argument('--verbose', type=bool, default=True)
+    parser.add_argument('--num_particles', type=int, default=20)
     parser.add_argument('--rng_key', type=int, default=142)
 
     args = parser.parse_args()
