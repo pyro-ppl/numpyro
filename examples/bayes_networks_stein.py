@@ -112,11 +112,11 @@ if __name__ == '__main__':
                                               'protein',
                                               'wine',
                                               'yacht',
-                                              'year_prediction_msd'], default='boston_housing')
-    parser.add_argument('--max_iter', type=int, default=2000)
+                                              'year_prediction_msd'], default='concrete')
+    parser.add_argument('--max_iter', type=int, default=50_000)
     parser.add_argument('--method', type=int, choices=range(5), metavar='[0-4]', default=2)
     parser.add_argument('--verbose', type=bool, default=True)
-    parser.add_argument('--num_particles', type=int, default=20)
+    parser.add_argument('--num_particles', type=int, default=100)
     parser.add_argument('--rng_key', type=int, default=142)
 
     args = parser.parse_args()
