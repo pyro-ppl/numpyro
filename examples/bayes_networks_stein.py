@@ -2,7 +2,6 @@ import argparse
 from collections import namedtuple
 from functools import partial
 from pathlib import Path
-from random import shuffle
 from time import time
 
 import jax.numpy as jnp
@@ -112,7 +111,7 @@ if __name__ == '__main__':
                                               'protein',
                                               'wine',
                                               'yacht',
-                                              'year_prediction_msd'], default='concrete')
+                                              'year_prediction_msd'], default='boston_housing')
     parser.add_argument('--max_iter', type=int, default=50_000)
     parser.add_argument('--method', type=int, choices=range(5), metavar='[0-4]', default=2)
     parser.add_argument('--verbose', type=bool, default=True)
