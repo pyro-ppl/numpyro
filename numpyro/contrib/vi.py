@@ -3,7 +3,6 @@ from collections import namedtuple
 from typing import List
 
 import jax
-from jax.lax import fori_loop
 
 from numpyro import handlers
 from numpyro.contrib import callbacks
@@ -42,22 +41,22 @@ class VI:
         raise NotImplementedError
 
     def run(
-        self,
-        rng_key,
-        num_steps,
-        *args,
-        callbacks: List[callbacks.Callback] = None,
-        batch_fun=None,
-        validation_rate=5,
-        validation_fun=None,
-        restore=False,
-        restore_path=None,
-        jit_compile=True,
-        **kwargs
+            self,
+            rng_key,
+            num_steps,
+            *args,
+            callbacks: List[callbacks.Callback] = None,
+            batch_fun=None,
+            validation_rate=5,
+            validation_fun=None,
+            restore=False,
+            restore_path=None,
+            jit_compile=True,
+            **kwargs
     ):
         def bodyfn(_i, info):
-            body_state, _ = info
-            return self.update(body_state, *args, **kwargs)
+            body_state = info[0]
+            return *self.update(body_state, *info[2:], **kwargs), *info[2:]
 
         if batch_fun is not None:
             batch_args, batch_kwargs, _, _ = batch_fun(0)
@@ -74,20 +73,21 @@ class VI:
         else:
             loss = self.evaluate(state, *args, *batch_args, **kwargs, **batch_kwargs)
         if (
-            not callbacks
-            and batch_fun is None
-            and validation_fun is None
-            and jit_compile
+                not callbacks
+                and batch_fun is None
+                and validation_fun is None
+                and jit_compile
         ):
-            losses, (state, _) = fori_collect(
+            losses, last_res = fori_collect(
                 0,
                 num_steps,
                 lambda info: bodyfn(0, info),
-                (state, loss),
+                (state, loss, *args),
                 progbar=False,
                 transform=lambda val: val[1],
                 return_last_val=True
             )
+            state = last_res[0]
         else:
             losses = []
             try:
@@ -113,11 +113,14 @@ class VI:
                             epoch_begin = False
                             for callback in callbacks:
                                 callback.on_train_epoch_begin(epoch, train_info)
+                    else:
+                        batch_args = args
                     for callback in callbacks:
                         callback.on_train_step_begin(i, train_info)
-                    state, loss = bodyfn(
-                        i, (state, loss),# *args, *batch_args, **kwargs, **batch_kwargs
+                    res = bodyfn(
+                        i, (state, loss, *batch_args)  # , **kwargs, **batch_kwargs
                     )
+                    state, loss = res[:2]
                     losses.append(loss)
                     train_info["state"] = state
                     train_info["loss"] = loss

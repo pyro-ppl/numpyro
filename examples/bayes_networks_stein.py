@@ -2,6 +2,7 @@ import argparse
 from collections import namedtuple
 from functools import partial
 from pathlib import Path
+from random import shuffle
 from time import time
 
 import jax.numpy as jnp
@@ -29,6 +30,23 @@ def load_data(name: str) -> DataState:
     xtr, xte, ytr, yte = train_test_split(x, y, train_size=.90)
 
     return DataState(*map(partial(jnp.array, dtype=float), (xtr, xte, ytr, yte)))
+
+
+def make_batcher(x, y, batch_size=100):
+    data = np.hstack((x, y.reshape(-1, 1)))
+    ds_count = data[0].shape[0] // batch_size
+
+    def batch_fn(step):
+        nonlocal data
+        i = step % ds_count
+        epoch = step // ds_count
+        is_last = i == (ds_count - 1)
+        batch = data[i * batch_size: (i + 1) * batch_size].todense()
+        if is_last:
+            data = shuffle(data)
+        return (batch[:-1], batch[-1]), {}, epoch, is_last
+
+    return batch_fn
 
 
 def normalize(val, mean=None, std=None):
@@ -83,8 +101,12 @@ def main(args):
             stein = Stein(model, AutoNormal(model), Adagrad(1.), Trace_ELBO(), RBFKernel(),
                           num_particles=args.num_particles)
 
+        make_batcher(x, y, batch_size=args.batch_size)
+
         start = time()
-        state, losses = stein.run(inf_key, args.max_iter, x, y, 50)
+        # use keyword params for static (shape etc.)!
+        state, losses = stein.run(inf_key, args.max_iter, x, y, hidden_dim=50,
+                                  callbacks=[Progbar()] if args.progress_bar else None)
         print(time() - start)
 
         plt.plot(losses)
@@ -112,10 +134,13 @@ if __name__ == '__main__':
                                               'wine',
                                               'yacht',
                                               'year_prediction_msd'], default='boston_housing')
-    parser.add_argument('--max_iter', type=int, default=50_000)
+
+    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--max_iter', type=int, default=20_000)
     parser.add_argument('--method', type=int, choices=range(5), metavar='[0-4]', default=2)
     parser.add_argument('--verbose', type=bool, default=True)
     parser.add_argument('--num_particles', type=int, default=100)
+    parser.add_argument('--progress_bar', type=bool, default=True)
     parser.add_argument('--rng_key', type=int, default=142)
 
     args = parser.parse_args()
