@@ -84,7 +84,7 @@ def main(args):
                           num_particles=args.num_particles)
 
         start = time()
-        state, losses = stein.run(inf_key, args.max_iter, x, y, 100, callbacks=[Progbar()])
+        state, losses = stein.run(inf_key, args.max_iter, x, y, 50)
         print(time() - start)
 
         plt.plot(losses)

@@ -79,11 +79,14 @@ class VI:
             and validation_fun is None
             and jit_compile
         ):
-            state, losses = fori_collect(
+            losses, (state, _) = fori_collect(
                 0,
                 num_steps,
-                lambda i, info: bodyfn(i, info),
+                lambda info: bodyfn(0, info),
                 (state, loss),
+                progbar=False,
+                transform=lambda val: val[1],
+                return_last_val=True
             )
         else:
             losses = []
@@ -113,7 +116,7 @@ class VI:
                     for callback in callbacks:
                         callback.on_train_step_begin(i, train_info)
                     state, loss = bodyfn(
-                        i, (state, loss)#, *args, *batch_args, **kwargs, **batch_kwargs
+                        i, (state, loss),# *args, *batch_args, **kwargs, **batch_kwargs
                     )
                     losses.append(loss)
                     train_info["state"] = state
