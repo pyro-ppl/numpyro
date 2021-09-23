@@ -136,17 +136,19 @@ class AutoGuide(ABC):
         with handlers.block():
             (
                 init_params,
-                self._potential_fn,
-                postprocess_fn,
+                self._potential_fn_gen,
+                postprocess_fn_gen,
                 self.prototype_trace,
             ) = initialize_model(
                 rng_key,
                 self.model,
                 init_strategy=self.init_loc_fn,
-                dynamic_args=False,
+                dynamic_args=True,
                 model_args=args,
                 model_kwargs=kwargs,
             )
+        self._potential_fn = self._potential_fn_gen(*args, **kwargs)
+        postprocess_fn = postprocess_fn_gen(*args, **kwargs)
         # We apply a fixed seed just in case postprocess_fn requires
         # a random key to generate subsample indices. It does not matter
         # because we only collect deterministic sites.
@@ -668,6 +670,7 @@ class AutoDAIS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        enable_subsampling=False,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -690,13 +693,13 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
+        self._enable_subsampling = enable_subsampling
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
-        subsampling_warning = kwargs.pop('subsampling_warning', True)
         super()._setup_prototype(*args, **kwargs)
 
-        if subsampling_warning:
+        if not self._enable_subsampling:
             for name, site in self.prototype_trace.items():
                 if (
                     site["type"] == "plate"
@@ -711,10 +714,17 @@ class AutoDAIS(AutoContinuous):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
+        plates = self._create_plates(*args, **kwargs)
+        plate_data = {k: v._indices for k, v in plates.items()}
+        if kwargs.pop("_enable_subsampling", self._enable_subsampling):
+            potential_fn = self._potential_fn_gen(*args, **kwargs)
+        else:
+            potential_fn = self._potential_fn
+
         def log_density(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block():
-                return -self._potential_fn(x_unpack)
+            with handlers.block(), handlers.substitute(data=plate_data):
+                return -potential_fn(x_unpack)
 
         eta0 = numpyro.param(
             "{}_eta0".format(self.prefix),
@@ -800,9 +810,14 @@ class AutoDAIS(AutoContinuous):
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
+            # NOTE: To sample posterior from a subsampling model, we need to
+            # use `batch = numpyro.subsample(data, event_dim)` pattern.
+            # Passing `batch` of data into the `model`, `guide` will not work
+            # because this method only allows us to get posterior samples
+            # with a fixed model/guide signature.
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
-            )(sample_shape=())
+            )(_enable_subsampling=False)
             return self._unpack_and_constrain(latent_sample, params)
 
         if sample_shape:
