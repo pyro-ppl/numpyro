@@ -451,32 +451,45 @@ class InverseGamma(TransformedDistribution):
 class Gompertz(Distribution):
     """Gompertz Distribution sampling utilities.
 
-    All derivations can be found in this paper (Lenart, 2012):
-        https://doi.org/10.1080/03461238.2012.687697
-    with the exception that we call the parameters `concentration` and `rate`,
-    as opposed to their "location" and "scale" terms.
+    This implementation is based off the derivations from Wikipedia page for the Gompertz distribution.
+    See https://en.wikipedia.org/wiki/Gompertz_distribution.
 
-    The CDF is
+    However, we call the parameter "eta" a concentration parameter.
+    We also let the user specify a rate parameter instead of the scale parameter "b". The two are related by rate = 1 / scale.
+    By default, `rate` = 1. However, if the user specifies a `scale` parameter, we use this value to calculate the corresponding `rate`.
+    In any case, both scale and rate are accessible attributes of this class.
+
+    The CDF, in terms of `concentration` and `rate`, is
 
     .. math::
-        F(x) = 1 - \\exp \\left\\{ - \\frac{\\text{rate}}{\\text{concentration}} * \\left [ \\exp\\{\\text{concentration} \\cdot x\\} - 1 \\right ] \\right\\}
+        F(x) = 1 - \\exp \\left\\{ - \\text{concentration} * \\left [ \\exp\\{\\frac{x}{\\text{rate}}\\} - 1 \\right ] \\right\\}
+
+    or, equivalently, for `scale = 1 / rate`,
+
+    .. math::
+        F(x) = 1 - \\exp \\left\\{ - \\text{concentration} * \\left [ \\exp\\{\\text{scale} \\cdot x \\} - 1 \\right ] \\right\\}
     """
 
     arg_constraints = {
         "concentration": constraints.positive,
         "rate": constraints.positive,
+        "scale": constraints.positive,
     }
     support = constraints.positive
-    reparametrized_params = ["concentration", "rate"]
+    reparametrized_params = ["concentration", "rate", "scale"]
 
-    def __init__(self, concentration, rate=1.0, validate_args=None):
-        self.rate, self.concentration = promote_shapes(rate, concentration)
+    def __init__(self, concentration, rate=1.0, scale=None, validate_args=None):
+        # Allows user to specify either rate or scale
+        if scale is not None:
+            rate = 1 / scale
 
-        # This ratio (and its inverse) are often computed, so we store it once here
-        self._rate_over_conc = self.rate / self.concentration
+        # We keep scale on hand, but only use `rate` in calculations
+        self.concentration, self.rate, self.scale = promote_shapes(
+            concentration, rate, scale
+        )
 
         super(Gompertz, self).__init__(
-            batch_shape=lax.broadcast_shapes(jnp.shape(rate), jnp.shape(concentration)),
+            batch_shape=lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate)),
             validate_args=validate_args,
         )
 
@@ -488,43 +501,20 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        conc_times_value = self.concentration * value
+        value_over_rate = value / self.rate
         return (
-            jnp.log(self.rate)
-            + conc_times_value
-            - self._rate_over_conc * jnp.expm1(conc_times_value)
+            jnp.log(self.concentration)
+            - jnp.log(self.rate)
+            + self.concentration
+            + value_over_rate
+            - self.concentration * jnp.exp(value_over_rate)
         )
-
-    @property
-    def mean(self):
-        """Get the (approximate) mean of this Gompertz random variate, using corollary 1
-        from the Lenart paper"""
-        return (
-            jnp.exp(self._rate_over_conc)
-            * (self._rate_over_conc - jnp.log(self._rate_over_conc) - EULER_MASCHERONI)
-            / self.concentration
-        )
-
-    @property
-    def variance(self):
-        """Get the (approximate) variance of this Gompertz random variate, using the
-        approximation at the top of page 8 in the Lenart paper"""
-        one_over_conc_squared = jnp.power(self.concentration, -2)
-
-        term1 = one_over_conc_squared * jnp.power(jnp.pi, 2) / 6
-        term2 = 2 * one_over_conc_squared * self._rate_over_conc
-
-        if term2 > term1:
-            # In this case, the variance is approximately 0
-            return jnp.finfo(float).eps
-
-        return term1 - term2
 
     def cdf(self, value):
-        return -jnp.expm1(-self._rate_over_conc * jnp.expm1(self.concentration * value))
+        return -jnp.expm1(-self.concentration * jnp.expm1(value / self.rate))
 
     def icdf(self, q):
-        return jnp.log1p(-jnp.log1p(-q) / self._rate_over_conc) / self.concentration
+        return self.rate * jnp.log1p(-jnp.log1p(-q) / self.concentration)
 
 
 class Gumbel(Distribution):
