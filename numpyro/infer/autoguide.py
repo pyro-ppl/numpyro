@@ -136,7 +136,7 @@ class AutoGuide(ABC):
             (
                 init_params,
                 self._potential_fn,
-                self._postprocess_fn,
+                postprocess_fn,
                 self.prototype_trace,
             ) = initialize_model(
                 rng_key,
@@ -146,6 +146,10 @@ class AutoGuide(ABC):
                 model_args=args,
                 model_kwargs=kwargs,
             )
+        # We apply a fixed seed just in case postprocess_fn requires
+        # a random key to generate subsample indices. It does not matter
+        # because we only collect deterministic sites.
+        self._postprocess_fn = handlers.seed(postprocess_fn, rng_seed=0)
         self._init_locs = init_params[0]
 
         self._prototype_frames = {}
@@ -220,9 +224,7 @@ class AutoNormal(AutoGuide):
         automatically as usual. This is useful for data subsampling.
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -636,10 +638,10 @@ class AutoDAIS(AutoContinuous):
     :param callable model: A NumPyro model.
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
-        Defaults to 8.
+        Defaults to 4.
     :param str base_dist: Controls whether the base Normal variational distribution
        is parameterized by a "diagonal" covariance matrix or a full-rank covariance
-       matrix parameterized by a lower-diagonal "cholesky" factor. Defaults to "diagonal".
+       matrix parameterized by a lower-triangular "cholesky" factor. Defaults to "diagonal".
     :param float eta_init: The initial value of the step size used in HMC. Defaults
         to 0.01.
     :param float eta_max: The maximum value of the learnable step size used in HMC.
@@ -657,7 +659,7 @@ class AutoDAIS(AutoContinuous):
         self,
         model,
         *,
-        K=8,
+        K=4,
         base_dist="diagonal",
         eta_init=0.01,
         eta_max=0.1,
@@ -739,7 +741,8 @@ class AutoDAIS(AutoContinuous):
         inv_mass_matrix = 0.5 / mass_matrix
 
         init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix), jnp.zeros(self.latent_dim)
+            "{}_z_0_loc".format(self.prefix),
+            self._init_latent,
         )
 
         if self.base_dist == "diagonal":
@@ -753,7 +756,7 @@ class AutoDAIS(AutoContinuous):
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
                 jnp.identity(self.latent_dim) * self._init_scale,
-                constraint=constraints.lower_cholesky,
+                constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
@@ -821,9 +824,7 @@ class AutoDiagonalNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -892,9 +893,7 @@ class AutoMultivariateNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_lower_cholesky
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_tril_constraint = constraints.lower_cholesky
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
 
     def __init__(
         self,
@@ -966,9 +965,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -1226,7 +1223,7 @@ class AutoBNAFNormal(AutoContinuous):
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_loc_fn: A per-site initialization function.
-    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param int num_flows: the number of flows to be used, defaults to 1.
     :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.

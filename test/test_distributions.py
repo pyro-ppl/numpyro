@@ -95,6 +95,27 @@ _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
+class SineSkewedUniform(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        lower, upper = (jnp.array([-math.pi, -math.pi]), jnp.array([math.pi, math.pi]))
+        base_dist = dist.Uniform(lower, upper, **kwargs).to_event(lower.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+class SineSkewedVonMises(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        von_loc, von_conc = (jnp.array([0.0]), jnp.array([1.0]))
+        base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
+class SineSkewedVonMisesBatched(dist.SineSkewed):
+    def __init__(self, skewness, **kwargs):
+        von_loc, von_conc = (jnp.array([0.0, -1.234]), jnp.array([1.0, 10.0]))
+        base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
+        super().__init__(base_dist, skewness, **kwargs)
+
+
 def _GaussianMixture(mixing_probs, loc, scale):
     component_dist = dist.Normal(loc=loc, scale=scale)
     mixing_distribution = dist.Categorical(probs=mixing_probs)
@@ -436,6 +457,9 @@ DIRECTIONAL = [
     T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
     T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
     T(dist.ProjectedNormal, jnp.array([[-1.0, 2.0, 3.0]])),
+    T(SineSkewedUniform, jnp.array([-math.pi / 4, 0.1])),
+    T(SineSkewedVonMises, jnp.array([0.342355])),
+    T(SineSkewedVonMisesBatched, jnp.array([[0.342355, -0.0001], [0.91, 0.09]])),
 ]
 
 DISCRETE = [
@@ -563,6 +587,12 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     elif constraint is constraints.sphere:
         x = random.normal(key, size)
         return x / jnp.linalg.norm(x, axis=-1)
+    elif constraint is constraints.l1_ball:
+        key1, key2 = random.split(key)
+        sign = random.bernoulli(key1)
+        bounds = [0, (-1) ** sign * 0.5]
+        return random.uniform(key, size, float, *sorted(bounds))
+
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -624,6 +654,11 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         x = random.normal(key, size)
         x = x / jnp.linalg.norm(x, axis=-1, keepdims=True)
         return 2 * x
+    elif constraint is constraints.l1_ball:
+        key1, key2 = random.split(key)
+        sign = random.bernoulli(key1)
+        bounds = [(-1) ** sign * 1.1, (-1) ** sign * 2]
+        return random.uniform(key, size, float, *sorted(bounds))
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -841,15 +876,13 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     rng_key = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
+    truncated_dists = (
+        dist.LeftTruncatedDistribution,
+        dist.RightTruncatedDistribution,
+        dist.TwoSidedTruncatedDistribution,
+    )
     if sp_dist is None:
-        if isinstance(
-            jax_dist,
-            (
-                dist.LeftTruncatedDistribution,
-                dist.RightTruncatedDistribution,
-                dist.TwoSidedTruncatedDistribution,
-            ),
-        ):
+        if isinstance(jax_dist, truncated_dists):
             if isinstance(params[0], dist.Distribution):
                 # new api
                 loc, scale, low, high = (
@@ -1202,6 +1235,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if "SineSkewed" in jax_dist.__name__:
+        pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
         _TruncatedNormal,
         dist.LeftTruncatedDistribution,
@@ -1318,6 +1353,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             and dist_args[i] != "concentration"
         ):
             continue
+        if "SineSkewed" in jax_dist.__name__ and dist_args[i] != "skewness":
+            continue
         if (
             jax_dist is dist.TwoSidedTruncatedDistribution
             and dist_args[i] == "base_dist"
@@ -1349,7 +1386,9 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
-    if not dependent_constraint and jax_dist is not _ImproperWrapper:
+    if not dependent_constraint and (
+        jax_dist is not _ImproperWrapper and "SineSkewed" not in jax_dist.__name__
+    ):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
@@ -1584,6 +1623,7 @@ def test_constraints(constraint, x, expected):
         constraints.l1_ball,
         constraints.less_than(1),
         constraints.lower_cholesky,
+        constraints.scaled_unit_lower_cholesky,
         constraints.ordered_vector,
         constraints.positive,
         constraints.positive_definite,
@@ -1668,6 +1708,7 @@ def test_biject_to(constraint, shape):
             inv_expected = np.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         elif constraint in [
             constraints.lower_cholesky,
+            constraints.scaled_unit_lower_cholesky,
             constraints.positive_definite,
             constraints.softplus_lower_cholesky,
         ]:

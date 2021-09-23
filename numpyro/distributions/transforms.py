@@ -37,6 +37,7 @@ __all__ = [
     "InvCholeskyTransform",
     "L1BallTransform",
     "LowerCholeskyTransform",
+    "ScaledUnitLowerCholeskyTransform",
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
@@ -680,6 +681,13 @@ class LowerCholeskyAffine(Transform):
 
 
 class LowerCholeskyTransform(Transform):
+    """
+    Transform a real vector to a lower triangular cholesky
+    factor, where the strictly lower triangular submatrix is
+    unconstrained and the diagonal is parameterized with an
+    exponential transform.
+    """
+
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
 
@@ -705,6 +713,39 @@ class LowerCholeskyTransform(Transform):
 
     def inverse_shape(self, shape):
         return _matrix_inverse_shape(shape)
+
+
+class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
+    r"""
+    Like `LowerCholeskyTransform` this `Transform` transforms
+    a real vector to a lower triangular cholesky factor. However
+    it does so via a decomposition
+
+    :math:`y = loc + unit\_scale\_tril\ @\ scale\_diag\ @\ x`.
+
+    where :math:`unit\_scale\_tril` has ones along the diagonal
+    and :math:`scale\_diag` is a diagonal matrix with all positive
+    entries that is parameterized with a softplus transform.
+    """
+    domain = constraints.real_vector
+    codomain = constraints.scaled_unit_lower_cholesky
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = softplus(x[..., -n:])
+        return (z + jnp.identity(n)) * diag[..., None]
+
+    def _inverse(self, y):
+        diag = jnp.diagonal(y, axis1=-2, axis2=-1)
+        z = matrix_to_tril_vec(y / diag[..., None], diagonal=-1)
+        return jnp.concatenate([z, _softplus_inv(diag)], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        diag = x[..., -n:]
+        diag_softplus = jnp.diagonal(y, axis1=-2, axis2=-1)
+        return (jnp.log(diag_softplus) * jnp.arange(n) - softplus(-diag)).sum(-1)
 
 
 class OrderedTransform(Transform):
@@ -879,7 +920,8 @@ class SoftplusLowerCholeskyTransform(Transform):
         return jnp.concatenate([z, diag], axis=-1)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        # the jacobian is diagonal, so logdet is the sum of diagonal
+        # `softplus` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return -softplus(-x[..., -n:]).sum(-1)
 
@@ -1077,6 +1119,11 @@ def _transform_to_l1_ball(constraint):
 @biject_to.register(constraints.lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
+
+
+@biject_to.register(constraints.scaled_unit_lower_cholesky)
+def _transform_to_scaled_unit_lower_cholesky(constraint):
+    return ScaledUnitLowerCholeskyTransform()
 
 
 @biject_to.register(constraints.ordered_vector)

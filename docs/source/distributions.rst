@@ -510,8 +510,16 @@ ProjectedNormal
     :member-order: bysource
 
 SineBivariateVonMises
----------------------
+^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SineSkewed
+^^^^^^^^^^
+.. autoclass:: numpyro.distributions.directional.SineSkewed
     :members:
     :undoc-members:
     :show-inheritance:
@@ -607,7 +615,7 @@ boolean
 .. autodata:: numpyro.distributions.constraints.boolean
 
 circular
---------
+^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.circular
 
 corr_cholesky
@@ -681,6 +689,10 @@ real
 real_vector
 ^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.real_vector
+
+scaled_unit_lower_cholesky
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.scaled_unit_lower_cholesky
 
 softplus_positive
 ^^^^^^^^^^^^^^^^^
@@ -791,7 +803,7 @@ InvCholeskyTransform
     :member-order: bysource
 
 L1BallTransform
----------------
+^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.L1BallTransform
     :members:
     :undoc-members:
@@ -833,6 +845,14 @@ PermuteTransform
 PowerTransform
 ^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.PowerTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ScaledUnitLowerCholeskyTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
