@@ -598,6 +598,21 @@ def test_autodais_subsampling_error():
         svi.init(random.PRNGKey(1), data)
 
 
+def test_autodais_subsampling():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        p = numpyro.sample("p", dist.Beta(1, 1))
+        with numpyro.plate("plate", 10, subsample_size=3):
+            batch = numpyro.subsample(data, event_dim=0)
+            assert batch.shape == (3,)
+            numpyro.sample("obs", dist.Bernoulli(p), obs=batch)
+
+    guide = AutoDAIS(model, enable_subsampling=True)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(1), 2, data)
+
+
 def test_subsample_model_with_deterministic():
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))
