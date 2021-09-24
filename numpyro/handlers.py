@@ -674,11 +674,12 @@ class seed(Messenger):
 
     def __init__(self, fn=None, rng_seed=None):
         if isinstance(rng_seed, int) or (
-            isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)
+            isinstance(rng_seed, (np.ndarray, jnp.ndarray))
+            and not jnp.shape(rng_seed)
         ):
             rng_seed = random.PRNGKey(rng_seed)
         if not (
-            isinstance(rng_seed, jnp.ndarray)
+            isinstance(rng_seed, (np.ndarray, jnp.ndarray))
             and rng_seed.dtype == jnp.uint32
             and rng_seed.shape == (2,)
         ):

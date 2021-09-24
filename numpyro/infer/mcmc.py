@@ -7,6 +7,8 @@ from operator import attrgetter
 import os
 import warnings
 
+import numpy as np
+
 from jax import jit, lax, local_device_count, pmap, random, vmap
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
@@ -190,7 +192,7 @@ def _hashable(x):
         return x
     elif isinstance(x, DeviceArray):
         return x.copy().tobytes()
-    elif isinstance(x, jnp.ndarray):
+    elif isinstance(x, (np.ndarray, jnp.ndarray)):
         return x.tobytes()
     return x
 
