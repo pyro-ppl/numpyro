@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, namedtuple
+from functools import partial
 import math
 import os
 
-from jax import device_put, lax, partial, random, vmap
+from jax import device_put, lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
