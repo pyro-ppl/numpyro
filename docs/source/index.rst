@@ -33,6 +33,7 @@ NumPyro documentation
    examples/stochastic_volatility
    examples/prodlda
    tutorials/model_rendering
+   tutorials/bad_posterior_geometry
 
 .. nbgallery::
    :maxdepth: 1
@@ -55,7 +56,9 @@ NumPyro documentation
    tutorials/bayesian_imputation
    examples/gp
    examples/bnn
+   examples/dais_demo
    examples/sparse_regression
+   examples/horseshoe_regression
    examples/proportion_test
    examples/ucbadmit
    examples/hmcecs

@@ -34,7 +34,7 @@ from numpyro.util import cond, fori_loop, identity
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
  - **z** - a dict of the current latent values (both HMC and Gibbs sites)
- - **hmc_state** - current hmc_state
+ - **hmc_state** - current :data:`~numpyro.infer.hmc.HMCState`
  - **rng_key** - random key for the current step
 """
 
@@ -701,6 +701,10 @@ class HMCECS(HMCGibbs):
 
     @staticmethod
     def taylor_proxy(reference_params):
+        """
+        This is just a convenient static method which calls
+        :func:`~numpyro.infer.hmc_gibbs.taylor_proxy`.
+        """
         return taylor_proxy(reference_params)
 
 
@@ -740,7 +744,7 @@ def taylor_proxy(reference_params):
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
 
-    ** References: **
+    **References:**
 
     [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
         Bardenet., R., Doucet, A., Holmes, C. (2014)

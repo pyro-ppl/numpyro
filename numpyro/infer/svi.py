@@ -192,9 +192,11 @@ class SVI(object):
                 site["type"] == "sample"
                 and (not site["is_observed"])
                 and site["fn"].support.is_discrete
+                and not self.loss.can_infer_discrete
             ):
+                s_name = type(self.loss).__name__
                 warnings.warn(
-                    "Currently, SVI does not support models with discrete latent variables"
+                    f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
                 )
 
         if not mutable_state:
@@ -283,7 +285,7 @@ class SVI(object):
         *args,
         progress_bar=True,
         stable_update=False,
-        **kwargs
+        **kwargs,
     ):
         """
         (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
@@ -308,6 +310,9 @@ class SVI(object):
             and `losses` is the collected loss during the process.
         :rtype: SVIRunResult
         """
+
+        if num_steps < 1:
+            raise ValueError("num_steps must be a positive integer.")
 
         def body_fn(svi_state, _):
             if stable_update:
@@ -369,5 +374,5 @@ class SVI(object):
             self.guide,
             *args,
             **kwargs,
-            **self.static_kwargs
+            **self.static_kwargs,
         )

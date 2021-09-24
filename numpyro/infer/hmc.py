@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, namedtuple
+from functools import partial
 import math
 import os
 
-from jax import device_put, lax, partial, random, vmap
+from jax import device_put, lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -511,6 +512,8 @@ class HMC(MCMCKernel):
     Hamiltonian Monte Carlo inference, using fixed trajectory length, with
     provision for step size and mass matrix adaptation.
 
+    .. note:: until the kernel is used in an MCMC run, `postprocess_fn` will return the identity
+
     **References:**
 
     1. *MCMC Using Hamiltonian Dynamics*,
@@ -765,6 +768,8 @@ class NUTS(HMC):
     """
     Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
     with adaptive path length and mass matrix adaptation.
+
+    .. note:: until the kernel is used in an MCMC run, `postprocess_fn` will return the identity
 
     **References:**
 

@@ -231,6 +231,12 @@ def test_stable_run(stable_run):
 
 
 def test_svi_discrete_latent():
+    cont_inf_only_cls = [RenyiELBO(), Trace_ELBO(), TraceMeanField_ELBO()]
+    mixed_inf_cls = [TraceGraph_ELBO()]
+
+    assert not any([c.can_infer_discrete for c in cont_inf_only_cls])
+    assert all([c.can_infer_discrete for c in mixed_inf_cls])
+
     def model():
         numpyro.sample("x", dist.Bernoulli(0.5))
 
@@ -238,9 +244,12 @@ def test_svi_discrete_latent():
         probs = numpyro.param("probs", 0.2)
         numpyro.sample("x", dist.Bernoulli(probs))
 
-    svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
-    with pytest.warns(UserWarning, match="SVI does not support models with discrete"):
-        svi.run(random.PRNGKey(0), 10)
+    for elbo in cont_inf_only_cls:
+        svi = SVI(model, guide, optim.Adam(1), elbo)
+        s_name = type(elbo).__name__
+        w_msg = f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
+        with pytest.warns(UserWarning, match=w_msg):
+            svi.run(random.PRNGKey(0), 10)
 
 
 @pytest.mark.parametrize("stable_update", [True, False])

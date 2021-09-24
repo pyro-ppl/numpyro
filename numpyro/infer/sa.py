@@ -260,8 +260,8 @@ class SA(MCMCKernel):
     subset of approximate posterior samples of size num_chains x num_samples
     instead of num_chains x num_samples x adapt_state_size.
 
-    .. note:: We recommend to use this kernel with `progress_bar=False` in :class:`MCMC`
-        to reduce JAX's dispatch overhead.
+    .. note:: We recommend to use this kernel with `progress_bar=False` in
+        :class:`~numpyro.infer.mcmc.MCMC` to reduce JAX's dispatch overhead.
 
     **References:**
 
@@ -366,6 +366,10 @@ class SA(MCMCKernel):
         return init_state
 
     @property
+    def model(self):
+        return self._model
+
+    @property
     def sample_field(self):
         return "z"
 
@@ -383,8 +387,8 @@ class SA(MCMCKernel):
 
     def sample(self, state, model_args, model_kwargs):
         """
-        Run SA from the given :data:`~numpyro.infer.mcmc.SAState` and return the resulting
-        :data:`~numpyro.infer.mcmc.SAState`.
+        Run SA from the given :data:`~numpyro.infer.sa.SAState` and return the resulting
+        :data:`~numpyro.infer.sa.SAState`.
 
         :param SAState state: Represents the current state.
         :param model_args: Arguments provided to the model.

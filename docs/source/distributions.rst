@@ -478,12 +478,32 @@ ZeroInflatedNegativeBinomial2
 .. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
 
 
+Mixture Distributions
+---------------------
+
+MixtureSameFamily
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Directional Distributions
 -------------------------
 
 ProjectedNormal
 ^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SineBivariateVonMises
+---------------------
+.. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
     :members:
     :undoc-members:
     :show-inheritance:
@@ -654,6 +674,10 @@ real_vector
 ^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.real_vector
 
+scaled_unit_lower_cholesky
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.scaled_unit_lower_cholesky
+
 softplus_positive
 ^^^^^^^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.softplus_positive
@@ -810,9 +834,25 @@ PowerTransform
     :show-inheritance:
     :member-order: bysource
 
+ScaledUnitLowerCholeskyTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 SigmoidTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.SigmoidTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SimplexToOrderedTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.SimplexToOrderedTransform
     :members:
     :undoc-members:
     :show-inheritance:
