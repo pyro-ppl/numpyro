@@ -613,6 +613,26 @@ def test_autodais_subsampling():
     svi.run(random.PRNGKey(1), 2, data)
 
 
+def test_autodais_create_plates():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data, subsample_size=3):
+        p = numpyro.sample("p", dist.Beta(1, 1))
+        with numpyro.plate("plate", 10, subsample_size=subsample_size):
+            batch = numpyro.subsample(data, event_dim=0)
+            assert batch.shape == (subsample_size,)
+            numpyro.sample("obs", dist.Bernoulli(p), obs=batch)
+
+    def create_plates(data, subsample_size=3):
+        return numpyro.plate("plate", 10, subsample_size=subsample_size)
+
+    guide = AutoDAIS(model, enable_subsampling=True,
+                     create_plates=create_plates)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(1), 2, data)
+    svi.run(random.PRNGKey(0), 3, data, subsample_size=10)
+
+
 def test_subsample_model_with_deterministic():
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))

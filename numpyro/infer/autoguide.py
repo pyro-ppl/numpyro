@@ -656,6 +656,12 @@ class AutoDAIS(AutoContinuous):
     :param float init_scale: Initial scale for the standard deviation of
         the base variational distribution for each (unconstrained transformed)
         latent variable. Defaults to 0.1.
+    :param bool enable_subsampling: A flag to decide if we want to run this model
+        with data subsampling.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
     """
 
     def __init__(
@@ -671,6 +677,7 @@ class AutoDAIS(AutoContinuous):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         enable_subsampling=False,
+        create_plates=None,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -694,7 +701,8 @@ class AutoDAIS(AutoContinuous):
         self.base_dist = base_dist
         self._init_scale = init_scale
         self._enable_subsampling = enable_subsampling
-        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn,
+                         create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
