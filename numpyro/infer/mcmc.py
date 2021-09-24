@@ -209,7 +209,8 @@ class MCMC(object):
     .. note:: If setting `num_chains` greater than `1` in a Jupyter Notebook, then you will need to
         have installed `ipywidgets <https://ipywidgets.readthedocs.io/en/latest/user_install.html>`_
         in the environment from which you launced Jupyter in order for the progress bars to render
-        correctly.
+        correctly. If you are using Jupyter Notebook or Jupyter Lab, please also install the
+        corresponding extension package like `widgetsnbextension` or `jupyterlab_widgets`.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
@@ -236,6 +237,8 @@ class MCMC(object):
     :param bool jit_model_args: If set to `True`, this will compile the potential energy
         computation as a function of model arguments. As such, calling `MCMC.run` again
         on a same sized but different dataset will not result in additional compilation cost.
+        Note that currently, this does not take effect for the case ``num_chains > 1``
+        and ``chain_method == 'parallel'``.
     """
 
     def __init__(
