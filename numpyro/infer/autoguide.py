@@ -856,7 +856,8 @@ class AutoSSDAIS(AutoDAIS):
         base_guide=None,
     ):
         super().__init__(model, K=K, eta_init=eta_init, eta_max=eta_max, gamma_init=gamma_init,
-                         prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale, base_dist=base_dist)
+                         prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale, base_dist=base_dist,
+                         enable_subsampling=True)
 
         self.surrogate_model = surrogate_model
 
@@ -864,7 +865,7 @@ class AutoSSDAIS(AutoDAIS):
         self.base_guide = base_guide
 
     def _setup_prototype(self, *args, **kwargs):
-        super()._setup_prototype(*args, subsampling_warning=False, **kwargs)
+        super()._setup_prototype(*args, **kwargs)
 
         rng_key = numpyro.prng_key()
 
