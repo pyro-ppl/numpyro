@@ -304,7 +304,7 @@ def test_compute_downstream_costs_big_model_guide_pair(
 
     for k in dc:
         assert guide_trace[k]["log_prob"].shape == dc[k].shape
-        assert_allclose(dc[k], dc_brute[k])
+        assert_allclose(dc[k], dc_brute[k], rtol=2e-7)
 
 
 def plate_reuse_model_guide(include_obs=True, dim1=3, dim2=2):

@@ -502,8 +502,16 @@ ProjectedNormal
     :member-order: bysource
 
 SineBivariateVonMises
----------------------
+^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SineSkewed
+^^^^^^^^^^
+.. autoclass:: numpyro.distributions.directional.SineSkewed
     :members:
     :undoc-members:
     :show-inheritance:
@@ -599,7 +607,7 @@ boolean
 .. autodata:: numpyro.distributions.constraints.boolean
 
 circular
---------
+^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.circular
 
 corr_cholesky
@@ -787,7 +795,7 @@ InvCholeskyTransform
     :member-order: bysource
 
 L1BallTransform
----------------
+^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.L1BallTransform
     :members:
     :undoc-members:

@@ -131,6 +131,9 @@ def sample(
         + "_unobserved"`` which should be used by guides.
     :return: sample from the stochastic `fn`.
     """
+    assert isinstance(
+        sample_shape, tuple
+    ), "sample_shape needs to be a tuple of integers"
     if not isinstance(fn, numpyro.distributions.Distribution):
         type_error = TypeError(
             "It looks like you tried to use a fn that isn't an instance of "
