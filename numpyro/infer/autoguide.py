@@ -12,7 +12,6 @@ import numpy as np
 import jax
 from jax import grad, hessian, lax, random, tree_map
 from jax.experimental import stax
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
@@ -104,6 +103,11 @@ class AutoGuide(ABC):
                     name, full_size, dim=frame.dim, subsample_size=frame.size
                 )
         return self.plates
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("plates", None)
+        return state
 
     @abstractmethod
     def __call__(self, *args, **kwargs):
@@ -451,27 +455,32 @@ class AutoDelta(AutoGuide):
         return locs
 
 
-def unravel_pytree(x_flat, treedef):
-    assert jnp.shape(x_flat) == 1
+def _unravel_dict(x_flat, shape_dict):
+    """Return `x` from the flatten version `x_flat`. Shape information
+    of each item in `x` is defined in `shape_dict`.
+    """
+    assert jnp.ndim(x_flat) == 1
+    assert isinstance(shape_dict, dict)
     x = {}
     curr_pos = next_pos = 0
-    for name, shape in treedef.items():
-        next_pos = curr_pos + np.prod(shape)
+    for name, shape in shape_dict.items():
+        next_pos = curr_pos + int(np.prod(shape))
         x[name] = x_flat[curr_pos:next_pos].reshape(shape)
         curr_pos = next_pos
     assert next_pos == x_flat.shape[0]
     return x
 
 
-def ravel_pytree(x):
+def _ravel_dict(x):
+    """Return the flatten version of `x` and shapes of each item in `x`."""
     assert isinstance(x, dict)
-    treedef = {}
+    shape_dict = {}
     x_flat = []
     for name, value in x.items():
-        treedef[name] = jnp.shape(value)
+        shape_dict[name] = jnp.shape(value)
         x_flat.append(value.reshape(-1))
     x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
-    return x_flat, treedef
+    return x_flat, shape_dict
 
 
 class AutoContinuous(AutoGuide):
@@ -498,8 +507,8 @@ class AutoContinuous(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_latent, treedef = ravel_pytree(self._init_locs)
-        unpack_latent = partial(unravel_pytree, treedef=treedef)
+        self._init_latent, shape_dict = _ravel_dict(self._init_locs)
+        unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)

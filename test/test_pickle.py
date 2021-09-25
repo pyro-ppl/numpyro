@@ -3,6 +3,7 @@
 
 import pickle
 
+import numpy as np
 import pytest
 
 from jax import random, test_util
@@ -11,15 +12,18 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import (
+    BarkerMH,
+    DiscreteHMCGibbs,
     HMC,
     HMCECS,
     MCMC,
-    NUTS,
-    SA,
-    BarkerMH,
-    DiscreteHMCGibbs,
     MixedHMC,
+    NUTS,
+    Predictive,
+    SA,
+    SVI,
 )
+from numpyro.infer.autoguide import AutoDiagonalNormal, AutoDelta, AutoNormal
 
 
 def normal_model():
@@ -59,3 +63,26 @@ def test_pickle_hmcecs():
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     test_util.check_close(mcmc.get_samples(), pickled_mcmc.get_samples())
+
+
+def poisson_regression(x, N):
+    rate = numpyro.sample('param', dist.Gamma(1., 1.))
+    batch_size = len(x) if x is not None else None
+    with numpyro.plate('batch', N, batch_size):
+        numpyro.sample('x', dist.Poisson(rate), obs=x)
+
+@pytest.mark.parametrize("guide_class", [AutoDelta, AutoDiagonalNormal, AutoNormal])
+def test_pickle_autoguide(guide_class):
+    x = np.random.poisson(1.0, size=(100,))
+    d = 2
+
+    guide = guide_class(poisson_regression)
+    optim = numpyro.optim.Adam(1e-2)
+    svi = SVI(poisson_regression, guide, optim, numpyro.infer.Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(1), 3, x, len(x))
+    pickled_guide = pickle.loads(pickle.dumps(guide))
+
+    predictive = Predictive(poisson_regression, guide=pickled_guide, params=svi_result.params,
+            num_samples=1, return_sites=['param', 'x'])
+    samples = predictive(random.PRNGKey(1), None, 1)
+    assert set(samples.keys()) == {'param', 'x'}
