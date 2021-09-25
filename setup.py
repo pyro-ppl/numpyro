@@ -53,7 +53,7 @@ setup(
             "sphinx-gallery",
         ],
         "test": [
-            "black",
+            "black[jupyter]>=21.8b0",
             "flake8",
             "isort>=5.0",
             "pytest>=4.1",
