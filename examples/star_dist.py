@@ -1,11 +1,13 @@
+"""change                 transform=lambda val: val[1],  to                transform=lambda val: val[0], in VI """
+from math import ceil
+
 import jax.numpy as jnp
-from jax import lax, random
+from jax import lax, random, vmap
 from jax import scipy as jscipy
 from numpyro import distributions as dist
 import numpy as np
 import matplotlib.pyplot as plt
 import numpyro
-from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import Stein, kernels
 from numpyro.infer import Trace_ELBO, init_with_noise, init_to_value
 
@@ -20,10 +22,13 @@ kernels = {'Linear': kernels.LinearKernel(),
            'Matrix Const.': kernels.PrecondMatrixKernel(kernels.HessianPrecondMatrix(),
                                                         kernels.RBFKernel(mode='matrix'),
                                                         precond_mode='const'),
-           'Matrix Anch.': kernels.PrecondMatrixKernel(kernels.HessianPrecondMatrix(),
-                                                        kernels.RBFKernel(mode='matrix'),
-                                                        precond_mode='anchor_points'),
            }
+lrs = {'Linear': .04,
+       'IMQ': .08,
+       'RBF': .09,
+       'Random Feature': .09,
+       'Mixture': .1,
+       'Matrix Const.': 1.}
 
 
 class Star(dist.Distribution):
@@ -37,7 +42,7 @@ class Star(dist.Distribution):
         mus = [mu0]
         covs = [cov0]
         theta = 2 * jnp.pi / n_comp
-        rot = jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]])
+        rot = jnp.array([[jnp.cos(theta), jnp.sin(theta)], [-jnp.sin(theta), jnp.cos(theta)]])
         for i in range(n_comp - 1):
             mui = rot @ mus[-1]
             covi = rot @ covs[-1] @ rot.transpose()
@@ -54,19 +59,34 @@ class Star(dist.Distribution):
         return jscipy.special.logsumexp(jnp.stack(lps, axis=0), axis=0) / self.n_comp
 
     def sample(self, key, sample_shape=()):
-        zs = dist.Categorical(probs=jnp.array([1 / self.n_comp] * self.n_comp)).sample(key, sample_shape)
-        xs = jnp.stack([dist.MultivariateNormal(self.mus[i], self.covs[i]).sample(key, sample_shape)
-                        for i in range(self.n_comp)], axis=0)
-        return jnp.take_along_axis(xs, jnp.expand_dims(jnp.expand_dims(zs, axis=-1), axis=-1), axis=0)
+        assign_key, x_key = random.split(key)
+
+        assign = dist.Categorical(probs=jnp.array([1 / self.n_comp] * self.n_comp)).sample(assign_key, sample_shape)
+        return dist.MultivariateNormal(self.mus[assign], self.covs[assign]).sample(x_key)
 
 
 def model():
     numpyro.sample('x', Star())
 
 
+def mmd(p_samples, q_samples):
+    np = p_samples.shape[0]
+    nq = q_samples.shape[0]
+    q_samples = q_samples.squeeze()
+    pmask = jnp.ones((np, np)) - jnp.eye(np)
+    qmask = jnp.ones((nq, nq)) - jnp.eye(nq)
+    qq_dist = jnp.linalg.norm((q_samples[None, :] - q_samples[:, None]) * qmask[..., None], axis=-1)
+    pp_dist = jnp.linalg.norm((p_samples[None, :] - p_samples[:, None]) * pmask[..., None], axis=-1)
+    pq_dist = jnp.linalg.norm(p_samples[None, :] - q_samples[:, None], axis=-1)
+    return jnp.mean(jnp.exp(-qq_dist ** 2)) + jnp.mean(jnp.exp(-pp_dist ** 2)) - 2 * jnp.mean(jnp.exp(-pq_dist ** 2))
+
+
 if __name__ == '__main__':
-    fig, axs = plt.subplots(1, len(kernels) + 1, figsize=(30, 5), dpi=300)
+    l = ceil((len(kernels) + 1) / 2.)
+    fig, axs = plt.subplots(2, l, figsize=(20, 10), dpi=300)
     rng_key = random.PRNGKey(0)
+    p_samples = Star().sample(rng_key, (10_000,))
+
     guide = AutoDelta(model)
     star_xs = np.linspace(-7, 7, num=1000)
     star_ys = np.linspace(-7, 7, num=1000)
@@ -84,35 +104,50 @@ if __name__ == '__main__':
 
     svgd_state = svgd.init(rng_key)
     res = svgd.get_params(svgd_state)['x_auto_loc']
-    axs[0].imshow(star_lps, origin='lower', interpolation='bicubic', extent=[np.min(star_xs), np.max(star_xs),
-                                                                             np.min(star_ys), np.max(star_ys)])
-    axs[0].scatter(res[..., 0], res[..., 1], c='orange', marker='x', s=150)
-    axs[0].set_xlim((np.min(star_xs), np.max(star_xs)))
-    axs[0].set_ylim((np.min(star_ys), np.max(star_ys)))
-    axs[0].set_title('Initial', fontsize=30)
+    axs[0, 0].imshow(star_lps, origin='lower', interpolation='bicubic', extent=[np.min(star_xs), np.max(star_xs),
+                                                                                np.min(star_ys), np.max(star_ys)])
+    # axs[0, 0].scatter(p_samples[..., 0], p_samples[..., 1], c='blue', marker='x', s=150)
+    axs[0, 0].scatter(res[..., 0], res[..., 1], c='orange', marker='x', s=150, linewidths=3)
+    axs[0, 0].set_xlim((np.min(star_xs), np.max(star_xs)))
+    axs[0, 0].set_ylim((np.min(star_ys), np.max(star_ys)))
+    axs[0, 0].set_title('Initial', fontsize=26)
 
     num_iterations = 1000
-
+    mmds = {}
     for i, (name, kernel) in enumerate(kernels.items()):
-        ax = axs[i + 1]
+        j = i + 1
+        ax = axs[j // l, j % l]
         svgd = Stein(model,
                      guide,
-                     Adagrad(step_size=1.0),
+                     Adagrad(step_size=lrs[name]),
                      Trace_ELBO(),
                      kernel,
                      num_particles=50,
                      init_strategy=init_with_noise(init_to_value(values={'x_auto_loc': np.array([[0., 0.]])}),
                                                    noise_scale=3.0))
-        svgd_state, loss = svgd.run(rng_key, num_iterations, callbacks=[Progbar()])
+        svgd_state, all_states = svgd.run(rng_key, num_iterations)
         res = svgd.get_params(svgd_state)['x_auto_loc']
+        mmds.update(
+            {name: vmap(lambda q_samples: mmd(p_samples, q_samples))(svgd.get_params(all_states)['x_auto_loc'])})
         ax.imshow(star_lps, origin='lower', interpolation='bicubic', extent=[np.min(star_xs), np.max(star_xs),
                                                                              np.min(star_ys), np.max(star_ys)])
-        ax.scatter(res[..., 0], res[..., 1], c='orange', marker='x', s=150)
+        ax.scatter(res[..., 0], res[..., 1], c='orange', marker='x', s=150, linewidths=3)
         ax.set_xlim((np.min(star_xs), np.max(star_xs)))
         ax.set_ylim((np.min(star_ys), np.max(star_ys)))
-        ax.set_title(name, fontsize=30)
+        ax.set_title(name, fontsize=26)
     for ax in axs:
-        ax.set_axis_off()
+        for a in ax:
+            a.set_axis_off()
+    ax = axs[-1, -1]
+    for name, mmd_vals in mmds.items():
+        ax.plot(mmd_vals, label=name, linewidth=3)
+
+    ax.legend(fontsize=16)
+    ax.set_xlabel('Iterations', fontsize=22)
+    ax.set_ylabel('MMD', fontsize=22)
+    ax.tick_params(axis='x', labelsize=14)
+    ax.tick_params(axis='y', labelsize=14)
+    ax.set_axis_on()
 
     fig.tight_layout()
     fig.savefig('star_kernels.pdf')

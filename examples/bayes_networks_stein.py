@@ -2,7 +2,7 @@ import argparse
 from collections import namedtuple
 from functools import partial
 from pathlib import Path
-from random import shuffle
+from jax.random import shuffle
 from time import time
 
 import jax.numpy as jnp
@@ -13,11 +13,11 @@ from sklearn.model_selection import train_test_split
 
 from numpyro.contrib.callbacks import Progbar
 from numpyro.distributions import Normal, Gamma
-from numpyro.contrib.einstein import Stein, RBFKernel, IMQKernel
+from numpyro.contrib.einstein import Stein, RBFKernel
 
 import numpyro
-from numpyro.infer import SVI, Trace_ELBO, Predictive
-from numpyro.infer.autoguide import AutoDelta, AutoDiagonalNormal
+from numpyro.infer import SVI, Trace_ELBO, Predictive, init_to_sample
+from numpyro.infer.autoguide import AutoDelta
 from numpyro.optim import Adagrad
 
 DATADIR = Path(__file__).parent / 'data'
@@ -33,18 +33,20 @@ def load_data(name: str) -> DataState:
 
 
 def make_batcher(x, y, rng_key, batch_size=100, ):
-    data = np.hstack((x, y.reshape(-1, 1)))
+    data = jnp.hstack((x, y.reshape(-1, 1)))
     ds_count = max(data.shape[0] // batch_size, 1)
 
     def batch_fn(step):
         nonlocal data
+        nonlocal rng_key
         i = step % ds_count
         epoch = step // ds_count
         is_last = i == (ds_count - 1)
         batch = data[i * batch_size: (i + 1) * batch_size]
         if is_last:
-            data = shuffle(data)
-        return (jnp.array(batch[:, :-1]), jnp.array(batch[:, -1])), {}, epoch, is_last
+            rng_key, shuffle_key = random.split(rng_key)
+            data = shuffle(shuffle_key, data)
+        return (batch[:, :-1], batch[:, -1]), {}, epoch, is_last
 
     return batch_fn
 
@@ -77,6 +79,7 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
 
         numpyro.sample('y', Normal(jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2, 1.0 / prec_obs), obs=batch_y)
 
+
 def main(args):
     data = load_data(args.dataset)
 
@@ -96,18 +99,18 @@ def main(args):
         pred = Predictive(model, guide=svi.guide, params=results.params, num_samples=1)
 
     if args.method >= 1:
-        if args.method == 1:  # SVGD-EinStein
-            stein = Stein(model, AutoDelta(model), Adagrad(1.), Trace_ELBO(), RBFKernel(),
-                          num_particles=args.num_particles)
 
         times = []
         scores = []
         for _ in range(21):
             rng_key, inf_key = random.split(inf_key)
-            start = time()
 
+            stein = Stein(model, AutoDelta(model), Adagrad(.01), Trace_ELBO(num_particles=50), RBFKernel(),
+                          init_strategy=init_to_sample, num_particles=args.num_particles)
+            start = time()
             # use keyword params for static (shape etc.)!
-            state, losses = stein.run(rng_key, args.max_iter, x, y, hidden_dim=50, subsample_size=args.subsample_size,
+            state, losses = stein.run(rng_key, args.max_iter, x, y, hidden_dim=50,
+                                      subsample_size=args.subsample_size,
                                       callbacks=[Progbar()] if args.progress_bar else None)
             times.append(time() - start)
 
@@ -146,8 +149,8 @@ if __name__ == '__main__':
                                               'yacht',
                                               'year_prediction_msd'], default='boston_housing')
 
-    parser.add_argument('--subsample_size', type=int, default=1000)
-    parser.add_argument('--max_iter', type=int, default=20_000)
+    parser.add_argument('--subsample_size', type=int, default=100)
+    parser.add_argument('--max_iter', type=int, default=2000)
     parser.add_argument('--method', type=int, choices=range(2), metavar='[0-1]', default=1)
     parser.add_argument('--verbose', type=bool, default=True)
     parser.add_argument('--num_particles', type=int, default=100)
