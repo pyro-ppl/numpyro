@@ -722,11 +722,12 @@ class AutoDAIS(AutoContinuous):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
-        plates = self._create_plates(*args, **kwargs)
-        plate_data = {k: v._indices for k, v in plates.items()}
-        if kwargs.pop("_enable_subsampling", self._enable_subsampling):
+        if self._enable_subsampling:
+            plates = self._create_plates(*args, **kwargs)
+            plate_data = {k: v._indices for k, v in plates.items()}
             potential_fn = self._potential_fn_gen(*args, **kwargs)
         else:
+            plate_data = {}
             potential_fn = self._potential_fn
 
         def log_density(x):
@@ -816,16 +817,14 @@ class AutoDAIS(AutoContinuous):
 
         return z
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, sample_shape=(),
+            model_args=(), model_kwargs=None):
+        # NOTE: model_args/model_kwargs needs to be specified for subsampling.
+        model_kwargs = {} if model_kwargs is None else model_kwargs
         def _single_sample(_rng_key):
-            # NOTE: To sample posterior from a subsampling model, we need to
-            # use `batch = numpyro.subsample(data, event_dim)` pattern.
-            # Passing `batch` of data into the `model`, `guide` will not work
-            # because this method only allows us to get posterior samples
-            # with a fixed model/guide signature.
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
-            )(_enable_subsampling=False)
+            )(*model_args, **model_kwargs)
             return self._unpack_and_constrain(latent_sample, params)
 
         if sample_shape:
