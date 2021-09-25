@@ -668,7 +668,7 @@ def parse_arguments():
         type=str,
         help="Path where to save the plot with matplotlib.",
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
     return args
 
 

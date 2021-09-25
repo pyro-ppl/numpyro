@@ -227,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--dense-mass", action="store_true")
     parser.add_argument("--x64", action="store_true")
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)

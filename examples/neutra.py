@@ -205,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--hidden-factor", nargs="?", default=8, type=int)
     parser.add_argument("--num-iters", nargs="?", default=10000, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)

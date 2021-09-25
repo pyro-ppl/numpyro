@@ -131,7 +131,7 @@ if __name__ == "__main__":
         help="whether to enumerate over the discrete latent variable",
     )
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     numpyro.set_platform(args.device)
 

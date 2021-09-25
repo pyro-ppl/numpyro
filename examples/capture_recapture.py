@@ -348,5 +348,5 @@ if __name__ == "__main__":
     parser.add_argument(
         "--algo", default="NUTS", type=str, help='whether to run "NUTS" or "HMC"'
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
     main(args)

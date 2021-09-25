@@ -184,7 +184,7 @@ if __name__ == "__main__":
         type=str,
         choices=["median", "feasible", "value", "uniform", "sample"],
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)

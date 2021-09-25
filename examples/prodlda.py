@@ -343,7 +343,7 @@ if __name__ == "__main__":
             '"flax" or "haiku".'
         ),
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     numpyro.set_platform(args.device)
     main(args)

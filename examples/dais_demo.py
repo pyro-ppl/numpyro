@@ -166,7 +166,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-samples", type=int, default=10 * 1000)
     parser.add_argument("--device", default="cpu", type=str, choices=["cpu", "gpu"])
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     enable_x64()
     numpyro.set_platform(args.device)

@@ -341,7 +341,7 @@ if __name__ == "__main__":
         ' "id" (item_difficulty), "lre" (logistic_random_effects)',
     )
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)

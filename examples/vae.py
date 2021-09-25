@@ -175,5 +175,5 @@ if __name__ == "__main__":
         type=int,
         help="size of hidden layer in encoder/decoder networks",
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
     main(args)

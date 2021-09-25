@@ -63,5 +63,5 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--full-pyro", action="store_true", default=False)
     parser.add_argument("-n", "--num-steps", default=1001, type=int)
     parser.add_argument("-lr", "--learning-rate", default=0.02, type=float)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
     main(args)
