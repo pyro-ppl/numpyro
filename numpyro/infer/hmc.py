@@ -512,7 +512,11 @@ class HMC(MCMCKernel):
     Hamiltonian Monte Carlo inference, using fixed trajectory length, with
     provision for step size and mass matrix adaptation.
 
-    .. note:: until the kernel is used in an MCMC run, `postprocess_fn` will return the identity
+    .. note:: Until the kernel is used in an MCMC run, `postprocess_fn` will return the
+        identity function.
+
+    .. note:: The default init strategy ``init_to_uniform`` might not be a good strategy
+        for some models. You might want to try other init strategies like ``init_to_median``.
 
     **References:**
 
@@ -769,7 +773,11 @@ class NUTS(HMC):
     Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
     with adaptive path length and mass matrix adaptation.
 
-    .. note:: until the kernel is used in an MCMC run, `postprocess_fn` will return the identity
+    .. note:: Until the kernel is used in an MCMC run, `postprocess_fn` will return the
+        identity function.
+
+    .. note:: The default init strategy ``init_to_uniform`` might not be a good strategy
+        for some models. You might want to try other init strategies like ``init_to_median``.
 
     **References:**
 

@@ -153,6 +153,136 @@ class VonMises(Distribution):
 PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
 
 
+class SineSkewed(Distribution):
+    """Sine-skewing [1] is a procedure for producing a distribution that breaks pointwise symmetry on a torus
+    distribution. The new distribution is called the Sine Skewed X distribution, where X is the name of the (symmetric)
+    base distribution. Torus distributions are distributions with support on products of circles
+    (i.e., ⨂^d S^1 where S^1=[-pi,pi) ). So, a 0-torus is a point, the 1-torus is a circle,
+    and the 2-torus is commonly associated with the donut shape.
+
+    The sine skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
+    For example with a von Mises distribution over a circle (1-torus), the sine skewed von Mises distribution has one
+    skew parameter. The skewness parameters can be inferred using :class:`~numpyro.infer.HMC` or
+    :class:`~numpyro.infer.NUTS`. For example, the following will produce a prior over
+    skewness for the 2-torus,::
+
+        @numpyro.handlers.reparam(config={'phi_loc': CircularReparam(), 'psi_loc': CircularReparam()})
+        def model(obs):
+            # Sine priors
+            phi_loc = numpyro.sample('phi_loc', VonMises(pi, 2.))
+            psi_loc = numpyro.sample('psi_loc', VonMises(-pi / 2, 2.))
+            phi_conc = numpyro.sample('phi_conc', Beta(1., 1.))
+            psi_conc = numpyro.sample('psi_conc', Beta(1., 1.))
+            corr_scale = numpyro.sample('corr_scale', Beta(2., 5.))
+
+            # Skewing prior
+            ball_trans = L1BallTransform()
+            skewness = numpyro.sample('skew_phi', Normal(0, 0.5).expand((2,)))
+            skewness = ball_trans(skewness)  # constraint sum |skewness_i| <= 1
+
+            with numpyro.plate('obs_plate'):
+                sine = SineBivariateVonMises(phi_loc=phi_loc, psi_loc=psi_loc,
+                                             phi_concentration=70 * phi_conc,
+                                             psi_concentration=70 * psi_conc,
+                                             weighted_correlation=corr_scale)
+                return numpyro.sample('phi_psi', SineSkewed(sine, skewness), obs=obs)
+
+    To ensure the skewing does not alter the normalization constant of the (sine bivariate von Mises) base
+    distribution the skewness parameters are constraint. The constraint requires the sum of the absolute values of
+    skewness to be less than or equal to one. We can use the :class:`~numpyro.distriubtions.transforms.L1BallTransform`
+    to achieve this.
+
+    In the context of :class:`~pyro.infer.SVI`, this distribution can freely be used as a likelihood, but use as
+    latent variables it will lead to slow inference for 2 and higher dim toruses. This is because the base_dist
+    cannot be reparameterized.
+
+    .. note:: An event in the base distribution must be on a d-torus, so the event_shape must be `(d,)`.
+
+    .. note:: For the skewness parameter, it must hold that the sum of the absolute value of its weights for an event
+        must be less than or equal to one. See eq. 2.1 in [1].
+
+    ** References: **
+        1. Sine-skewed toroidal distributions and their application in protein bioinformatics
+            Ameijeiras-Alonso, J., Ley, C. (2019)
+
+    :param numpyro.distributions.Distribution base_dist: base density on a d-dimensional torus. Supported base
+        distributions include: 1D :class:`~numpyro.distributions.VonMises`,
+        :class:`~numnumpyro.distributions.SineBivariateVonMises`, 1D :class:`~numpyro.distributions.ProjectedNormal`,
+        and :class:`~numpyro.distributions.Uniform` (-pi, pi).
+    :param jax.numpy.array skewness: skewness of the distribution.
+    """
+
+    arg_constraints = {"skewness": constraints.l1_ball}
+
+    support = constraints.independent(constraints.circular, 1)
+
+    def __init__(self, base_dist: Distribution, skewness, validate_args=None):
+        assert (
+            base_dist.event_shape == skewness.shape[-1:]
+        ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
+
+        batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness.shape[:-1])
+        event_shape = skewness.shape[-1:]
+        self.skewness = jnp.broadcast_to(skewness, batch_shape + event_shape)
+        self.base_dist = base_dist.expand(batch_shape)
+        super().__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def __repr__(self):
+        args_string = ", ".join(
+            [
+                "{}: {}".format(
+                    p,
+                    getattr(self, p)
+                    if getattr(self, p).numel() == 1
+                    else getattr(self, p).size(),
+                )
+                for p in self.arg_constraints.keys()
+            ]
+        )
+        return (
+            self.__class__.__name__
+            + "("
+            + f"base_density: {str(self.base_dist)}, "
+            + args_string
+            + ")"
+        )
+
+    def sample(self, key, sample_shape=()):
+        base_key, skew_key = random.split(key)
+        bd = self.base_dist
+        ys = bd.sample(base_key, sample_shape)
+        u = random.uniform(skew_key, sample_shape + self.batch_shape)
+
+        # Section 2.3 step 3 in [1]
+        mask = u <= 0.5 + 0.5 * (
+            self.skewness * jnp.sin((ys - bd.mean) % (2 * jnp.pi))
+        ).sum(-1)
+        mask = mask[..., None]
+        samples = (jnp.where(mask, ys, -ys + 2 * bd.mean) + jnp.pi) % (
+            2 * jnp.pi
+        ) - jnp.pi
+        return samples
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        if self.base_dist._validate_args:
+            self.base_dist._validate_sample(value)
+
+        # Eq. 2.1 in [1]
+        skew_prob = jnp.log1p(
+            (self.skewness * jnp.sin((value - self.base_dist.mean) % (2 * jnp.pi))).sum(
+                -1
+            )
+        )
+        return self.base_dist.log_prob(value) + skew_prob
+
+    @property
+    def mean(self):
+        """Mean of the base distribution"""
+        return self.base_dist.mean
+
+
 class SineBivariateVonMises(Distribution):
     r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
 
@@ -389,8 +519,6 @@ class SineBivariateVonMises(Distribution):
         mean = (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
             2.0 * jnp.pi
         ) - jnp.pi
-        print(mean.shape)
-        print(self.batch_shape)
         return jnp.broadcast_to(mean, (*self.batch_shape, 2))
 
     def _bfind(self, eig):

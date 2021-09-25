@@ -40,6 +40,7 @@ from numpyro.distributions.continuous import (
 from numpyro.distributions.directional import (
     ProjectedNormal,
     SineBivariateVonMises,
+    SineSkewed,
     VonMises,
 )
 from numpyro.distributions.discrete import (
@@ -152,6 +153,7 @@ __all__ = [
     "PRNGIdentity",
     "RightTruncatedDistribution",
     "SineBivariateVonMises",
+    "SineSkewed",
     "SoftLaplace",
     "StudentT",
     "TransformedDistribution",
