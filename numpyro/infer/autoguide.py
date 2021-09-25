@@ -154,7 +154,6 @@ class AutoGuide(ABC):
         # because we only collect deterministic sites.
         self._postprocess_fn = handlers.seed(postprocess_fn, rng_seed=0)
         self._init_locs = init_params[0]
-s
         self._prototype_frames = {}
         self._prototype_plate_sizes = {}
         for name, site in self.prototype_trace.items():

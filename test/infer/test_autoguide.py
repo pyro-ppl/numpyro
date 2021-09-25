@@ -629,8 +629,11 @@ def test_autodais_create_plates():
     guide = AutoDAIS(model, enable_subsampling=True,
                      create_plates=create_plates)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi.run(random.PRNGKey(1), 2, data)
+    svi_result = svi.run(random.PRNGKey(1), 2, data)
     svi.run(random.PRNGKey(0), 3, data, subsample_size=10)
+    guide.sample_posterior(random.PRNGKey(0), svi_result.params, model_args=(data,))
+    predictive = Predictive(guide, {}, params=svi_result.params, num_samples=5)
+    predictive(random.PRNGKey(0), data)
 
 
 def test_subsample_model_with_deterministic():
