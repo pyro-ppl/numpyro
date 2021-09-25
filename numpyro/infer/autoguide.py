@@ -4,6 +4,7 @@
 # Adapted from pyro.infer.autoguide
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
+from functools import partial
 import warnings
 
 import numpy as np
@@ -450,6 +451,29 @@ class AutoDelta(AutoGuide):
         return locs
 
 
+def unravel_pytree(x_flat, treedef):
+    assert jnp.shape(x_flat) == 1
+    x = {}
+    curr_pos = next_pos = 0
+    for name, shape in treedef.items():
+        next_pos = curr_pos + np.prod(shape)
+        x[name] = x_flat[curr_pos:next_pos].reshape(shape)
+        curr_pos = next_pos
+    assert next_pos == x_flat.shape[0]
+    return x
+
+
+def ravel_pytree(x):
+    assert isinstance(x, dict)
+    treedef = {}
+    x_flat = []
+    for name, value in x.items():
+        treedef[name] = jnp.shape(value)
+        x_flat.append(value.reshape(-1))
+    x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
+    return x_flat, treedef
+
+
 class AutoContinuous(AutoGuide):
     """
     Base class for implementations of continuous-valued Automatic
@@ -474,7 +498,8 @@ class AutoContinuous(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_latent, unpack_latent = ravel_pytree(self._init_locs)
+        self._init_latent, treedef = ravel_pytree(self._init_locs)
+        unpack_latent = partial(unravel_pytree, treedef=treedef)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
