@@ -112,7 +112,7 @@ class trace(Messenger):
     Returns a handler that records the inputs and outputs at primitive calls
     inside `fn`.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -175,7 +175,7 @@ class replay(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param guide_trace: an OrderedDict containing execution metadata.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -600,14 +600,14 @@ class scope(Messenger):
     """
     This handler prepend a prefix followed by a divider to the name of sample sites.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.handlers import scope, seed, trace
-        >>>
+
         >>> def model():
         ...     with scope(prefix="a"):
         ...         with scope(prefix="b", divider="."):
@@ -710,6 +710,10 @@ class substitute(Messenger):
     If a `substitute_fn` is provided, then the value at the site is
     replaced by the value returned from the call to `substitute_fn`
     for the given site.
+
+    .. note:: This handler is mainly used for internal algorithms.
+        For conditioning a generative model on observed data, please
+        using the :class:`condition` handler.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict data: dictionary of `numpy.ndarray` values keyed by

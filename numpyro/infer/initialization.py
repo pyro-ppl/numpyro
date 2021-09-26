@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import warnings
 
-from jax import random
 import jax.numpy as jnp
 
 import numpyro.distributions as dist
@@ -25,6 +25,13 @@ def init_to_median(site=None, num_samples=15):
         and not site["is_observed"]
         and not site["fn"].is_discrete
     ):
+        if site["value"] is not None:
+            warnings.warn(
+                f"init_to_median() skipping initialization of site '{site['name']}'"
+                " which already stores a value."
+            )
+            return site["value"]
+
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
         try:
@@ -58,12 +65,18 @@ def init_to_uniform(site=None, radius=2):
         and not site["is_observed"]
         and not site["fn"].is_discrete
     ):
+        if site["value"] is not None:
+            warnings.warn(
+                f"init_to_uniform() skipping initialization of site '{site['name']}'"
+                " which already stores a value."
+            )
+            return site["value"]
+
         # XXX: we import here to avoid circular import
         from numpyro.infer.util import helpful_support_errors
 
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
-        rng_key, subkey = random.split(rng_key)
 
         with helpful_support_errors(site):
             transform = biject_to(site["fn"].support)
