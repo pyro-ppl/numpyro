@@ -722,7 +722,9 @@ class AutoDAIS(AutoContinuous):
 
     def _sample_latent(self, *args, **kwargs):
         if self._enable_subsampling:
-            plates = self._create_plates(*args, **kwargs)
+            rng_key = numpyro.prng_key()
+            with handlers.block(), handlers.seed(rng_seed=rng_key):
+                plates = self._create_plates(*args, **kwargs)
             plate_data = {k: v._indices for k, v in plates.items()}
             potential_fn = self._potential_fn_gen(*args, **kwargs)
         else:
