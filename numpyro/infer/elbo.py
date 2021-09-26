@@ -13,6 +13,7 @@ from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import get_importance_trace, log_density
+from numpyro.util import check_model_guide_match
 
 
 class ELBO:
@@ -121,6 +122,8 @@ class Trace_ELBO(ELBO):
             }
             params.update(mutable_params)
             seeded_model = replay(seeded_model, guide_trace)
+            model_trace = trace(seeded_model).get_trace(*args, **kwargs)
+            check_model_guide_match(model_trace, guide_trace)
             model_log_density, model_trace = log_density(
                 seeded_model, args, kwargs, params
             )
