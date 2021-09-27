@@ -99,13 +99,12 @@ def main(args):
         pred = Predictive(model, guide=svi.guide, params=results.params, num_samples=1)
 
     if args.method >= 1:
-
         times = []
-        scores = []
-        for _ in range(21):
+        states = []
+        for i in range(21):
             rng_key, inf_key = random.split(inf_key)
 
-            stein = Stein(model, AutoDelta(model), Adagrad(.01), Trace_ELBO(num_particles=50), RBFKernel(),
+            stein = Stein(model, AutoDelta(model), Adagrad(.05), Trace_ELBO(num_particles=100), RBFKernel(),
                           init_strategy=init_to_sample, num_particles=args.num_particles)
             start = time()
             # use keyword params for static (shape etc.)!
@@ -113,17 +112,17 @@ def main(args):
                                       subsample_size=args.subsample_size,
                                       callbacks=[Progbar()] if args.progress_bar else None)
             times.append(time() - start)
+            states.append(state)
 
-            # plt.plot(losses)
-            # plt.show()
+        scores = []
+        for state in states:
             pred = Predictive(model, guide=stein.guide, params=stein.get_params(state), num_samples=1,
                               num_particles=args.num_particles if args.method != 0 else None)
+            xte, _, _ = normalize(data.xte, xtr_mean, xtr_std)
+            preds = pred(pred_key, xte, subsample_size=xte.shape[0])['y'].reshape(-1, xte.shape[0])
 
-            preds = pred(pred_key, normalize(data.xte, xtr_mean, xtr_std)[0], subsample_size=data.xte.shape[0])
 
-            y_pred = jnp.mean(
-                preds['y'].reshape(-1, data.yte.shape[0]) * ytr_std.reshape(1, 1) + ytr_mean.reshape(1, 1),
-                0)
+            y_pred = jnp.mean(preds * ytr_std.reshape(1, 1) + ytr_mean.reshape(1, 1), 0)
 
             scores.append(jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2)))
 
