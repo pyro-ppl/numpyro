@@ -11,11 +11,11 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.callbacks import Progbar
-from numpyro.contrib.einstein import IMQKernel, RBFKernel, Stein
+from numpyro.contrib.einstein import IMQKernel, Stein
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.handlers import replay
-from numpyro.infer import Trace_ELBO
+from numpyro.infer import Trace_ELBO, init_to_sample
 from numpyro.infer.util import log_density
 from numpyro.optim import Adam
 from numpyro.util import ravel_pytree
@@ -192,11 +192,12 @@ def run_lda(num_topics=20, num_particles=5):
         lda,
         lda_guide,
         Adam(1.0),
-        Trace_ELBO(),
+        Trace_ELBO(10),
         IMQKernel(),
         num_particles=num_particles,
         num_topics=num_topics,
         num_words=num_words,
+        init_strategy=init_to_sample,
         num_max_elements=num_max_elements,
     )
     state, losses = stein.run(inf_key, 1000, batch_fun=batch_fn, callbacks=[Progbar()])
@@ -219,6 +220,10 @@ def run_lda(num_topics=20, num_particles=5):
         num_words=num_words,
         num_max_elements=num_max_elements,
     )
+
+
+def main():
+    pass
 
 
 if __name__ == "__main__":
