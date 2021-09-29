@@ -480,7 +480,7 @@ class plate(GlobalNamedMessenger):
         is allocated.
     """
 
-    def __init__(self, name, size, subsample_size=None, dim=None):
+    def __init__(self, name, size, subsample_size=None, dim=None, subsample_scale=1.):  # TODO: check correct subsample_scale!
         self.name = name
         self.size = size
         if dim is not None and dim >= 0:
@@ -489,6 +489,7 @@ class plate(GlobalNamedMessenger):
             self.name, self.size, subsample_size, dim
         )
         self.subsample_size = indices.shape[0]
+        self.subsample_scale = subsample_scale
         self._indices = funsor.Tensor(
             indices,
             OrderedDict([(self.name, funsor.Bint[self.subsample_size])]),

@@ -122,7 +122,7 @@ def main(args):
     if args.method >= 1:
         times = []
         states = []
-        for i in range(11):
+        for i in range(21):
             rng_key, inf_key = random.split(inf_key)
 
             stein = Stein(

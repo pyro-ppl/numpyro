@@ -412,6 +412,8 @@ class Stein(VI):
         for site in model_trace.values():
             if (
                     "fn" in site
+                    and site["type"] == 'sample'
+                    and not site["is_observed"]
                     and isinstance(site["fn"], Distribution)
                     and site["fn"].is_discrete
             ):

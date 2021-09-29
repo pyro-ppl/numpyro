@@ -12,6 +12,7 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import IMQKernel, Stein
+from numpyro.contrib.funsor import config_enumerate
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.handlers import replay
@@ -23,6 +24,7 @@ from numpyro.util import ravel_pytree
 numpyro.set_platform("cpu")
 
 
+@config_enumerate
 def lda(
     doc_words,
     num_topics=20,
