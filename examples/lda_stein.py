@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import pyro
 from jax.experimental import stax
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
@@ -17,8 +18,8 @@ from numpyro.optim import Adam
 @config_enumerate  # TODO: FIX enumerate with Funsor!
 def lda(docs, num_words, num_topics, num_hidden=100, subsample_size=10):
     with numpyro.plate('topics', num_topics):
-        topic_words = numpyro.sample('per_topic_word_probs', dist.Dirichlet(jnp.ones(num_words) ** (-1)))
         topic_weights = numpyro.sample('topic_weight', dist.Gamma(num_topics ** (-1), 1.))
+        topic_words = numpyro.sample('topic_words', dist.Dirichlet(jnp.ones(num_words) ** (-1)))
 
     with numpyro.plate('documents', docs.shape[0], dim=-2):
         doc_topics = numpyro.sample('doc_topics', dist.Dirichlet(topic_weights))
@@ -30,14 +31,20 @@ def lda(docs, num_words, num_topics, num_hidden=100, subsample_size=10):
 
 
 def lda_guide(docs, num_words, num_topics, num_hidden=100, subsample_size=10):
-    words_probs_val = numpyro.param("word_probs_val", jnp.ones((num_topics, num_words)),
-                                    constraint=dist.constraints.simplex)
-    numpyro.sample('word_probs', dist.Delta(words_probs_val))
+    topic_weights_posterior = numpyro.param("topic_weights_posterior", jnp.ones(num_topics),
+                                            constraint=dist.constraints.positive)
+    topic_words_posterior = numpyro.param('topic_words_posterior', jnp.ones((num_topics, num_words)),
+                                          constraint=dist.constraints.greater_than(.5))
+    with numpyro.plate('topics', num_topics):
+        numpyro.sample('topic_weight', dist.Gamma(topic_weights_posterior, 1.))
+        numpyro.sample('topic_words', dist.Dirichlet(topic_words_posterior ** (-1)))
+
     nn = numpyro.module("amortize_nn",
                         stax.serial(stax.Dense(num_hidden), stax.Relu, stax.Dense(num_topics), stax.Softmax),
                         (docs.shape[0], num_words))
-    topic_probs_val = nn(docs) + 1e-7
-    numpyro.sample('topic_probs', dist.Delta(topic_probs_val))
+    with pyro.plate("documents", docs.shape[0], dim=-2):
+        doc_topics = nn(docs)[..., None, :]
+        numpyro.sample('doc_topics', dist.Delta(doc_topics, event_dim=1))
 
 
 def load_data(num_words):
@@ -49,7 +56,7 @@ def load_data(num_words):
         max_features=num_words,
         stop_words="english",
     )
-    newsgroups_docs = count_vectorizer.fit_transform(newsgroups.data)[:10]
+    newsgroups_docs = count_vectorizer.fit_transform(newsgroups.data)
     return jnp.array(newsgroups_docs.todense())
 
 
@@ -79,13 +86,25 @@ def run_hmc(docs, rng_key, num_words, num_topics=20):
     mcmc.print_summary()
 
 
+def run_svi(docs, rng_key, num_words, num_topics=20):
+    svi = SVI(lda, lda_guide, Adam(.001), Trace_ELBO())
+    res = svi.run(rng_key, 100, docs, num_words, num_topics)
+    plt.plot(res.losses)
+    plt.show()
+    plt.clf()
+
+
 def main(args=None):
-    num_words = 4
+    num_words = 64
     rng_key = jax.random.PRNGKey(8938)
     docs = load_data(num_words)
-    run_hmc(docs, rng_key, num_words)
+    run_svi(docs, rng_key, num_words)
 
 
 if __name__ == '__main__':
+    from jax.config import config
+
+    config.update('jax_disable_jit', True)
+
     args = None
     main(args)
