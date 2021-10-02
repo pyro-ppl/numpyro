@@ -17,7 +17,6 @@ Welcome to NumPyro Tutorials!
    bayesian_hierarchical_linear_regression
    discrete_imputation
    model_rendering
-   bayesian_hierarchical_stacking
 
 
 Indices
