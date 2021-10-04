@@ -32,30 +32,6 @@ def load_data(name: str) -> DataState:
     return DataState(*map(partial(jnp.array, dtype=float), (xtr, xte, ytr, yte)))
 
 
-def make_batcher(
-    x,
-    y,
-    rng_key,
-    batch_size=100,
-):
-    data = jnp.hstack((x, y.reshape(-1, 1)))
-    ds_count = max(data.shape[0] // batch_size, 1)
-
-    def batch_fn(step):
-        nonlocal data
-        nonlocal rng_key
-        i = step % ds_count
-        epoch = step // ds_count
-        is_last = i == (ds_count - 1)
-        batch = data[i * batch_size : (i + 1) * batch_size]
-        if is_last:
-            rng_key, shuffle_key = random.split(rng_key)
-            data = shuffle(shuffle_key, data)
-        return (batch[:, :-1], batch[:, -1]), {}, epoch, is_last
-
-    return batch_fn
-
-
 def normalize(val, mean=None, std=None):
     if mean is None and std is None:
         std = jnp.std(val, 0, keepdims=True)
@@ -69,25 +45,17 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
     prec_nn = numpyro.sample("prec_nn", Gamma(1.0, 0.1))
 
     n, m = x.shape
-    b1 = numpyro.sample(
-        "nn_b1",
-        Normal(
-            jnp.zeros(
-                hidden_dim,
-            ),
-            1.0 / prec_nn,
-        ),
-    )
+    b1 = numpyro.sample( "nn_b1", Normal( jnp.zeros( hidden_dim, ), 1.0 / prec_nn, ), )
     b2 = numpyro.sample("nn_b2", Normal(0.0, 1.0 / prec_nn))
     w1 = numpyro.sample("nn_w1", Normal(jnp.zeros((m, hidden_dim)), 1.0 / prec_nn))
     w2 = numpyro.sample("nn_w2", Normal(jnp.zeros(hidden_dim), 1.0 / prec_nn))
 
     with numpyro.plate(
-        "data",
-        x.shape[0],
-        subsample_size=subsample_size,
-        subsample_scale=subsample_size,
-        dim=-1,
+            "data",
+            x.shape[0],
+            subsample_size=subsample_size,
+            subsample_scale=subsample_size,
+            dim=-1,
     ):
         batch_x = numpyro.subsample(x, event_dim=1)
         if y is not None:
@@ -191,7 +159,7 @@ if __name__ == "__main__":
             "yacht",
             "year_prediction_msd",
         ],
-        default="year_prediction_msd",
+        default="boston_housing",
     )
 
     parser.add_argument("--subsample_size", type=int, default=100)
