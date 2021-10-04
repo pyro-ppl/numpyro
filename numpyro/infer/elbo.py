@@ -122,8 +122,6 @@ class Trace_ELBO(ELBO):
             }
             params.update(mutable_params)
             seeded_model = replay(seeded_model, guide_trace)
-            model_trace = trace(seeded_model).get_trace(*args, **kwargs)
-            check_model_guide_match(model_trace, guide_trace)
             model_log_density, model_trace = log_density(
                 seeded_model, args, kwargs, params
             )
