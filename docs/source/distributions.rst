@@ -646,6 +646,10 @@ interval
 ^^^^^^^^
 .. autofunction:: numpyro.distributions.constraints.interval
 
+l1_ball
+^^^^^^^
+.. autofunction:: numpyro.distributions.constraints.l1_ball
+
 less_than
 ^^^^^^^^^
 .. autofunction:: numpyro.distributions.constraints.less_than
