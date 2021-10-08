@@ -33,7 +33,6 @@ import jax
 from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
-from jax.ops import index_add
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
@@ -633,11 +632,14 @@ class Poisson(Distribution):
             nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
-            return index_add(
-                -rate,
-                nonzero,
-                jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
-            ).reshape(shape)
+            return (
+                (-rate)
+                .at[nonzero]
+                .add(
+                    jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
+                )
+                .reshape(shape)
+            )
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
