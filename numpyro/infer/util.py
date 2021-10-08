@@ -313,7 +313,7 @@ def find_valid_initial_params(
                 if (
                     v["type"] == "sample"
                     and not v["is_observed"]
-                    and not v["fn"].is_discrete
+                    and not v["fn"].support.is_discrete
                 ):
                     constrained_values[k] = v["value"]
                     with helpful_support_errors(v):
@@ -388,7 +388,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     has_enumerate_support = False
     for k, v in model_trace.items():
         if v["type"] == "sample" and not v["is_observed"]:
-            if v["fn"].is_discrete:
+            if v["fn"].support.is_discrete:
                 has_enumerate_support = True
                 if not v["fn"].has_enumerate_support:
                     raise RuntimeError(
@@ -586,7 +586,9 @@ def initialize_model(
     constrained_values = {
         k: v["value"]
         for k, v in model_trace.items()
-        if v["type"] == "sample" and not v["is_observed"] and not v["fn"].is_discrete
+        if v["type"] == "sample"
+        and not v["is_observed"]
+        and not v["fn"].support.is_discrete
     }
 
     if has_enumerate_support:

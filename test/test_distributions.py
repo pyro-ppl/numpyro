@@ -2009,6 +2009,13 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
     assert_allclose(actual, expected)
 
 
+def test_zero_inflated_enumerate_support():
+    base_dist = dist.Bernoulli(0.5)
+    d = dist.ZeroInflatedDistribution(base_dist, gate=0.5)
+    assert d.has_enumerate_support
+    assert_allclose(d.enumerate_support(), base_dist.enumerate_support())
+
+
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
 @pytest.mark.parametrize("prepend_shape", [(), (2, 3)])
 @pytest.mark.parametrize("sample_shape", [(), (4,)])

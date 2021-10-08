@@ -23,7 +23,7 @@ def init_to_median(site=None, num_samples=15):
     if (
         site["type"] == "sample"
         and not site["is_observed"]
-        and not site["fn"].is_discrete
+        and not site["fn"].support.is_discrete
     ):
         if site["value"] is not None:
             warnings.warn(
@@ -63,7 +63,7 @@ def init_to_uniform(site=None, radius=2):
     if (
         site["type"] == "sample"
         and not site["is_observed"]
-        and not site["fn"].is_discrete
+        and not site["fn"].support.is_discrete
     ):
         if site["value"] is not None:
             warnings.warn(
