@@ -620,7 +620,6 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = jax.device_get(value)
         if (
             self.is_sparse
             and not isinstance(value, jax.core.Tracer)
@@ -628,8 +627,8 @@ class Poisson(Distribution):
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
-            nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
             return (
