@@ -276,7 +276,9 @@ def yearday_effect(day_of_year):
     slab_df = 50  # 100 in original case study
     slab_scale = 2
     scale_global = 0.1
-    tau = sample("tau", dist.HalfNormal(2 * scale_global))  # Orignial uses half-t with 100df
+    tau = sample(
+        "tau", dist.HalfNormal(2 * scale_global)
+    )  # Orignial uses half-t with 100df
     c_aux = sample("c_aux", dist.InverseGamma(0.5 * slab_df, 0.5 * slab_df))
     c = slab_scale * jnp.sqrt(c_aux)
 
@@ -314,7 +316,9 @@ def birthdays_model(
     intercept = sample("intercept", dist.Normal(0, 1))
     f1 = scope(trend_gp, "trend")(x, L, M1)
     f2 = scope(year_gp, "year")(x, w0, M2)
-    g3 = scope(trend_gp, "week-trend")(x, L, M3)  # length ~ lognormal(-1, 1) in original
+    g3 = scope(trend_gp, "week-trend")(
+        x, L, M3
+    )  # length ~ lognormal(-1, 1) in original
     weekday = scope(weekday_effect, "week")(day_of_week)
     yearday = scope(yearday_effect, "day")(day_of_year)
 
