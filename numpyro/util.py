@@ -536,7 +536,7 @@ def check_model_guide_match(model_trace, guide_trace):
     model_vars = set(
         name
         for name, site in model_trace.items()
-        if site["type"] == "sample" and not site["is_observed"]
+        if site["type"] == "sample" and not site.get("is_observed", False)
     )
     # TODO: Collect enum variables when TraceEnum_ELBO is supported.
     enum_vars = set()
@@ -594,7 +594,7 @@ def check_model_guide_match(model_trace, guide_trace):
     model_vars = set(
         name
         for name, site in model_trace.items()
-        if site["type"] == "plate" and not site["is_observed"]
+        if site["type"] == "plate" and not site.get("is_observed", False)
     )
     guide_vars = set(
         name for name, site in guide_trace.items() if site["type"] == "plate"
