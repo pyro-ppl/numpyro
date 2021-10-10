@@ -508,7 +508,7 @@ def format_shapes(
     return _format_table(rows)
 
 
-def check_model_guide_match(model_trace, guide_trace, max_plate_nesting=float("inf")):
+def check_model_guide_match(model_trace, guide_trace):
     """
     :param dict model_trace: The model trace to check.
     :param dict guide_trace: The guide trace to check.
@@ -518,8 +518,8 @@ def check_model_guide_match(model_trace, guide_trace, max_plate_nesting=float("i
         marked auxiliary.
     2. Each sample site in the guide either appears in the model or is marked,
         auxiliary via ``infer={'is_auxiliary': True}``.
-    3. Each :class:``~numpyro.plate`` statement in the guide also appears in the
-        model.
+    3. Each :class:`~numpyro.primitives.plate` statement in the guide also
+        appears in the model.
     4. At each sample site that appears in both the model and guide, the model
         and guide agree on sample shape.
     """
@@ -538,12 +538,9 @@ def check_model_guide_match(model_trace, guide_trace, max_plate_nesting=float("i
         for name, site in model_trace.items()
         if site["type"] == "sample" and not site["is_observed"]
     )
-    enum_vars = set(
-        name
-        for name, site in model_trace.items()
-        if site["type"] == "sample" and not site["is_observed"]
-        if name not in guide_vars
-    )
+    # TODO: Collect enum variables when TraceEnum_ELBO is supported.
+    enum_vars = set()
+
     if aux_vars & model_vars:
         warnings.warn(
             "Found auxiliary vars in the model: {}".format(aux_vars & model_vars)
@@ -583,17 +580,6 @@ def check_model_guide_match(model_trace, guide_trace, max_plate_nesting=float("i
             if model_shape == guide_shape:
                 continue
 
-            # Allow broadcasting outside of max_plate_nesting.
-            if len(model_shape) > max_plate_nesting:
-                model_shape = model_shape[
-                    len(model_shape) - max_plate_nesting - model_site["fn"].event_dim :
-                ]
-            if len(guide_shape) > max_plate_nesting:
-                guide_shape = guide_shape[
-                    len(guide_shape) - max_plate_nesting - guide_site["fn"].event_dim :
-                ]
-            if model_shape == guide_shape:
-                continue
             for model_size, guide_size in zip_longest(
                 reversed(model_shape), reversed(guide_shape), fillvalue=1
             ):
@@ -608,10 +594,10 @@ def check_model_guide_match(model_trace, guide_trace, max_plate_nesting=float("i
     model_vars = set(
         name
         for name, site in model_trace.items()
-        if site["type"] == "sample" and not site["is_observed"]
+        if site["type"] == "plate" and not site["is_observed"]
     )
     guide_vars = set(
-        name for name, site in guide_trace.items() if site["type"] == "sample"
+        name for name, site in guide_trace.items() if site["type"] == "plate"
     )
     if not (guide_vars <= model_vars):
         warnings.warn(

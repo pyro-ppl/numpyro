@@ -66,7 +66,11 @@ def log_density(model, model_args, model_kwargs, params):
                 try:
                     broadcast_shapes(guide_shape, model_shape)
                 except ValueError:
-                    raise ValueError("Model and guide shape disagree at site: '{}': {} vs {}".format(site["name"], model_shape, guide_shape))
+                    raise ValueError(
+                        "Model and guide shapes disagree at site: '{}': {} vs {}".format(
+                            site["name"], model_shape, guide_shape
+                        )
+                    )
                 log_prob = site["fn"].log_prob(value)
 
             if (scale is not None) and (not is_identically_one(scale)):

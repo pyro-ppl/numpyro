@@ -125,6 +125,7 @@ class Trace_ELBO(ELBO):
             model_log_density, model_trace = log_density(
                 seeded_model, args, kwargs, params
             )
+            check_model_guide_match(model_trace, guide_trace)
             mutable_params.update(
                 {
                     name: site["value"]
