@@ -62,7 +62,9 @@ def log_density(model, model_args, model_kwargs, params):
                 log_prob = site["fn"].log_prob(value, intermediates)
             else:
                 guide_shape = value.shape
-                model_shape = site["fn"].shape()
+                model_shape = tuple(
+                    site["fn"].shape()
+                )  # TensorShape from tfp needs casting to tuple
                 try:
                     broadcast_shapes(guide_shape, model_shape)
                 except ValueError:
