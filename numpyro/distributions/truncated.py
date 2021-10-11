@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from jax import lax
+import jax.config as config
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
@@ -61,7 +62,13 @@ class LeftTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.float64 if config.x64_enabled else jnp.float32
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        maxval = 1.0 - finfo.eps
+        u = random.uniform(
+            key, shape=sample_shape + self.batch_shape, minval=minval, maxval=maxval
+        )
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return (1 - sign) * loc + sign * self.base_dist.icdf(
@@ -126,7 +133,13 @@ class RightTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.float64 if config.x64_enabled else jnp.float32
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        maxval = 1.0 - finfo.eps
+        u = random.uniform(
+            key, shape=sample_shape + self.batch_shape, minval=minval, maxval=maxval
+        )
         return self.base_dist.icdf(u * self._cdf_at_high)
 
     @validate_sample
@@ -197,7 +210,13 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.float64 if config.x64_enabled else jnp.float32
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        maxval = 1.0 - finfo.eps
+        u = random.uniform(
+            key, shape=sample_shape + self.batch_shape, minval=minval, maxval=maxval
+        )
 
         # NB: we use a more numerically stable formula for a symmetric base distribution
         #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) = icdf[(1 - u) * cdf(low) + u * cdf(high)]
