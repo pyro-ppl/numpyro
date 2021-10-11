@@ -592,9 +592,7 @@ def check_model_guide_match(model_trace, guide_trace):
 
     # Check subsample sites introduced by plate.
     model_vars = set(
-        name
-        for name, site in model_trace.items()
-        if site["type"] == "plate" and not site.get("is_observed", False)
+        name for name, site in model_trace.items() if site["type"] == "plate"
     )
     guide_vars = set(
         name for name, site in guide_trace.items() if site["type"] == "plate"
