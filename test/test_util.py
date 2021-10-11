@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import warnings
 
 from numpy.testing import assert_allclose
 import pytest
@@ -177,16 +176,11 @@ def test_check_model_guide_match():
         svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
         svi.run(random.PRNGKey(42), num_steps=50)
 
-    def _assert_single_warning_and_contains_string(ws, s):
-        assert len(ws) == 1
-        assert issubclass(ws[0].category, UserWarning)
-        assert s in str(ws[0].message)
-
     def _run_svi_check_warnings(model, guide, expected_string):
-        with warnings.catch_warnings(record=True) as ws:
-            warnings.simplefilter("always")
+        with pytest.warns(UserWarning, match=expected_string) as ws:
             _run_svi(model, guide)
-            _assert_single_warning_and_contains_string(ws, expected_string)
+            assert len(ws) == 1
+            assert expected_string in str(ws[0].message)
 
     def _create_traces_check_error_string(model, guide, expected_string):
         model_trace = numpyro.handlers.trace(
