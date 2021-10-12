@@ -906,34 +906,35 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
             )
             assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
             return
-        elif isinstance(jax_dist,
-                (
-                    dist.LeftTruncatedGamma,
-                    dist.RightTruncatedGamma,
-                    dist.TwoSidedTruncatedGamma,
-                ),
+        elif isinstance(
+            jax_dist,
+            (
+                dist.LeftTruncatedGamma,
+                dist.RightTruncatedGamma,
+                dist.TwoSidedTruncatedGamma,
+            ),
         ):
-            # params = [base_gamma[concentration, rate], low, high] 
+            # params = [base_gamma[concentration, rate], low, high]
             if isinstance(jax_dist, dist.LeftTruncatedGamma):
                 conc, rate, low = (
-                        params[0].concentration,
-                        params[0].rate,
-                        params[1],
+                    params[0].concentration,
+                    params[0].rate,
+                    params[1],
                 )
                 high = np.inf
             elif isinstance(jax_dist, dist.RightTruncatedGamma):
                 conc, rate, high = (
-                        params[0].concentration,
-                        params[0].rate,
-                        params[1],
+                    params[0].concentration,
+                    params[0].rate,
+                    params[1],
                 )
                 low = -np.inf
             else:
                 conc, rate, low, high = (
-                        params[0].concentration,
-                        params[0].rate,
-                        params[1],
-                        params[2],
+                    params[0].concentration,
+                    params[0].rate,
+                    params[1],
+                    params[2],
                 )
             sp_dist = get_sp_dist(dist.Gamma)(conc, rate)
             expected = sp_dist.logpdf(samples) - jnp.log(
@@ -1396,10 +1397,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             and dist_args[i] == "base_dist"
         ):
             continue
-        if (
-            jax_dist is dist.TwoSidedTruncatedGamma
-            and dist_args[i] == "base_gamma"
-        ):
+        if jax_dist is dist.TwoSidedTruncatedGamma and dist_args[i] == "base_gamma":
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue
