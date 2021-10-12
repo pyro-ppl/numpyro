@@ -14,43 +14,11 @@ from jax import (
     tree_unflatten,
 )
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node_class
 
 from numpyro import handlers
+from numpyro.contrib.control_flow.util import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
-
-
-@register_pytree_node_class
-class PytreeTrace:
-    def __init__(self, trace):
-        self.trace = trace
-
-    def tree_flatten(self):
-        trace, aux_trace = {}, {}
-        for name, site in self.trace.items():
-            if site["type"] in ["sample", "deterministic"]:
-                trace[name], aux_trace[name] = {}, {"_control_flow_done": True}
-                for key in site:
-                    if key in ["fn", "args", "value", "intermediates"]:
-                        trace[name][key] = site[key]
-                    # scanned sites have stop field because we trace them inside a block handler
-                    elif key != "stop":
-                        aux_trace[name][key] = site[key]
-        # keep the site order information because in JAX, flatten and unflatten do not preserve
-        # the order of keys in a dict
-        site_names = list(trace.keys())
-        return (trace,), (aux_trace, site_names)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        aux_trace, site_names = aux_data
-        (trace,) = children
-        trace_with_aux = {}
-        for name in site_names:
-            trace[name].update(aux_trace[name])
-            trace_with_aux[name] = trace[name]
-        return cls(trace_with_aux)
 
 
 def _subs_wrapper(subs_map, i, length, site):
@@ -410,19 +378,19 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         variables will contain the following sites:
 
             + init sites: those sites belong to the first `history` traces of `f`.
-                Sites at the `i`-th trace will have name prefixed with
-                `'_PREV_' * (2 * history - 1 - i)`.
+              Sites at the `i`-th trace will have name prefixed with
+              `'_PREV_' * (2 * history - 1 - i)`.
             + scanned sites: those sites collect the values of the remaining scan
-                loop over `f`. An addition time dimension `_time_foo` will be
-                added to those sites, where `foo` is the name of the first site
-                appeared in `f`.
+              loop over `f`. An addition time dimension `_time_foo` will be
+              added to those sites, where `foo` is the name of the first site
+              appeared in `f`.
 
         Not all transition functions `f` are supported. All of the restrictions from
         Pyro's enumeration tutorial [2] still apply here. In addition, there should
         not have any site outside of `scan` depend on the first output of `scan`
         (the last carry value).
 
-    ** References **
+    **References**
 
     1. *Temporal Parallelization of Bayesian Smoothers*,
        Simo Sarkka, Angel F. Garcia-Fernandez
@@ -451,6 +419,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
             f, init, xs, length=length, reverse=reverse
         )
+        return carry, ys
     else:
         # Otherwise, we initialize a message...
         initial_msg = {

@@ -100,6 +100,8 @@ def compute_markov_factors(
     sum_vars,
     prod_vars,
     history,
+    sum_op,
+    prod_op,
 ):
     """
     :param dict time_to_factors: a map from time variable to the log prob factors.
@@ -119,8 +121,8 @@ def compute_markov_factors(
         eliminate_vars = (sum_vars | prod_vars) - time_to_markov_dims[time_var]
         with funsor.interpretations.lazy:
             lazy_result = funsor.sum_product.sum_product(
-                funsor.ops.logaddexp,
-                funsor.ops.add,
+                sum_op,
+                prod_op,
                 log_factors,
                 eliminate=eliminate_vars,
                 plates=prod_vars,
@@ -136,7 +138,7 @@ def compute_markov_factors(
             )
             markov_factors.append(
                 funsor.sum_product.sarkka_bilmes_product(
-                    funsor.ops.logaddexp, funsor.ops.add, trans, time_var, global_vars
+                    sum_op, prod_op, trans, time_var, global_vars
                 )
             )
         else:
@@ -144,33 +146,14 @@ def compute_markov_factors(
             prev_to_curr = {k: _shift_name(k, -_get_shift(k)) for k in prev_vars}
             markov_factors.append(
                 funsor.sum_product.sequential_sum_product(
-                    funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr
+                    sum_op, prod_op, trans, time_var, prev_to_curr
                 )
             )
     return markov_factors
 
 
-def log_density(model, model_args, model_kwargs, params):
-    """
-    Similar to :func:`numpyro.infer.util.log_density` but works for models
-    with discrete latent variables. Internally, this uses :mod:`funsor`
-    to marginalize discrete latent sites and evaluate the joint log probability.
-
-    :param model: Python callable containing NumPyro primitives. Typically,
-        the model has been enumerated by using
-        :class:`~numpyro.contrib.funsor.enum_messenger.enum` handler::
-
-            def model(*args, **kwargs):
-                ...
-
-            log_joint = log_density(enum(config_enumerate(model)), args, kwargs, params)
-
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs: kwargs provided to the model.
-    :param dict params: dictionary of current parameter values keyed by site
-        name.
-    :return: log of joint density and a corresponding model trace
-    """
+def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
+    """Helper function to compute elbo and extract its components from execution traces."""
     model = substitute(model, data=params)
     with plate_to_enum_plate():
         model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
@@ -180,6 +163,7 @@ def log_density(model, model_args, model_kwargs, params):
     time_to_markov_dims = defaultdict(frozenset)  # dimensions at markov sites
     sum_vars, prod_vars = frozenset(), frozenset()
     history = 1
+    log_measures = {}
     for site in model_trace.values():
         if site["type"] == "sample":
             value = site["value"]
@@ -214,7 +198,9 @@ def log_density(model, model_args, model_kwargs, params):
                 log_factors.append(log_prob_factor)
 
             if not site["is_observed"]:
+                log_measures[site["name"]] = log_prob_factor
                 sum_vars |= frozenset({site["name"]})
+
             prod_vars |= frozenset(
                 f.name for f in site["cond_indep_stack"] if f.dim is not None
             )
@@ -236,13 +222,15 @@ def log_density(model, model_args, model_kwargs, params):
             sum_vars,
             prod_vars,
             history,
+            sum_op,
+            prod_op,
         )
         log_factors = log_factors + markov_factors
 
     with funsor.interpretations.lazy:
         lazy_result = funsor.sum_product.sum_product(
-            funsor.ops.logaddexp,
-            funsor.ops.add,
+            sum_op,
+            prod_op,
             log_factors,
             eliminate=sum_vars | prod_vars,
             plates=prod_vars,
@@ -255,4 +243,31 @@ def log_density(model, model_args, model_kwargs, params):
                 result.data.shape, {k.split("__BOUND")[0] for k in result.inputs}
             )
         )
+    return result, model_trace, log_measures
+
+
+def log_density(model, model_args, model_kwargs, params):
+    """
+    Similar to :func:`numpyro.infer.util.log_density` but works for models
+    with discrete latent variables. Internally, this uses :mod:`funsor`
+    to marginalize discrete latent sites and evaluate the joint log probability.
+
+    :param model: Python callable containing NumPyro primitives. Typically,
+        the model has been enumerated by using
+        :class:`~numpyro.contrib.funsor.enum_messenger.enum` handler::
+
+            def model(*args, **kwargs):
+                ...
+
+            log_joint = log_density(enum(config_enumerate(model)), args, kwargs, params)
+
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :param dict params: dictionary of current parameter values keyed by site
+        name.
+    :return: log of joint density and a corresponding model trace
+    """
+    result, model_trace, _ = _enum_log_density(
+        model, model_args, model_kwargs, params, funsor.ops.logaddexp, funsor.ops.add
+    )
     return result.data, model_trace

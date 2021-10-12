@@ -9,6 +9,14 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
+_available_cuda_versions = [
+    "101",
+    "102",
+    "110",
+    "111",
+]  # TODO: align these with what's available in JAX before release
+_jax_version_constraints = ">=0.2.13"
+_jaxlib_version_constraints = ">=0.1.65"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
@@ -23,7 +31,6 @@ except Exception as e:
     sys.stderr.flush()
     long_description = ""
 
-
 setup(
     name="numpyro",
     version=version,
@@ -32,20 +39,21 @@ setup(
     url="https://github.com/pyro-ppl/numpyro",
     author="Uber AI Labs",
     install_requires=[
-        "jax>=0.2.11",
-        "jaxlib>=0.1.62",
+        f"jax{_jax_version_constraints}",
+        f"jaxlib{_jaxlib_version_constraints}",
         "tqdm",
     ],
     extras_require={
         "doc": [
             "ipython",  # sphinx needs this to render codes
-            "nbsphinx",
+            "nbsphinx>=0.8.5",
+            "readthedocs-sphinx-search==0.1.0",
             "sphinx",
             "sphinx_rtd_theme",
             "sphinx-gallery",
         ],
         "test": [
-            "black",
+            "black[jupyter]>=21.8b0",
             "flake8",
             "isort>=5.0",
             "pytest>=4.1",
@@ -55,14 +63,29 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            # TODO: bump funsor version before the release
-            "funsor @ git+https://github.com/pyro-ppl/funsor.git@d5574988665dd822ec64e41f2b54b9dc929959dc",
+            "funsor==0.4.1",
             "graphviz",
-            # TODO: change this to tensorflow_probability>0.12.1 when the next version
-            # of tfp is released. The current release is not compatible with jax>=0.2.12.
-            "tfp-nightly",
+            "jaxns==0.0.7",
+            "optax>=0.0.6",
+            "tensorflow_probability>=0.13",
         ],
-        "examples": ["arviz", "jupyter", "matplotlib", "pandas", "seaborn"],
+        "examples": [
+            "arviz",
+            "jupyter",
+            "matplotlib",
+            "pandas",
+            "seaborn",
+            "scikit-learn",
+            "wordcloud",
+        ],
+        "cpu": f"jax[cpu]{_jax_version_constraints}",
+        # TPU and CUDA installations, currently require to add package repository URL, i.e.,
+        # pip install numpyro[cuda101] -f https://storage.googleapis.com/jax-releases/jax_releases.html
+        "tpu": f"jax[tpu]{_jax_version_constraints}",
+        **{
+            f"cuda{version}": f"jax[cuda{version}]{_jax_version_constraints}"
+            for version in _available_cuda_versions
+        },
     },
     long_description=long_description,
     long_description_content_type="text/markdown",

@@ -27,7 +27,9 @@ def model(deterministic=True):
 def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
     GLOBAL["count"] = 0
     mcmc = MCMC(
-        NUTS(model, find_heuristic_step_size=find_heuristic_step_size), 100, 100
+        NUTS(model, find_heuristic_step_size=find_heuristic_step_size),
+        num_warmup=100,
+        num_samples=100,
     )
     mcmc.run(random.PRNGKey(0), deterministic=deterministic)
     mcmc.get_samples()
@@ -45,7 +47,7 @@ def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
 )
 def test_mcmc_parallel_chain(deterministic):
     GLOBAL["count"] = 0
-    mcmc = MCMC(NUTS(model), 100, 100, num_chains=2)
+    mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100, num_chains=2)
     mcmc.run(random.PRNGKey(0), deterministic=deterministic)
     mcmc.get_samples()
 

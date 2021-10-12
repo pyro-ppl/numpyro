@@ -8,7 +8,7 @@ suited for working with NumPyro inference algorithms.
 """
 
 from collections import namedtuple
-from typing import Callable, Tuple, TypeVar
+from typing import Any, Callable, Tuple, TypeVar
 
 from jax import lax, value_and_grad
 from jax.experimental import optimizers
@@ -60,7 +60,7 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -69,17 +69,17 @@ class _NumPyroOptim(object):
         by reevaluating the function multiple times to get optimal
         parameters.
 
-        :param fn: objective function.
+        :param fn: an objective function returning a pair where the first item
+            is a scalar loss function to be differentiated and the second item
+            is an auxiliary output.
         :param state: current optimizer state.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
-        return out, self.update(grads, state)
+        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        return (out, aux), self.update(grads, state)
 
-    def eval_and_stable_update(
-        self, fn: Callable, state: _IterOptState
-    ) -> _IterOptState:
+    def eval_and_stable_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -90,14 +90,14 @@ class _NumPyroOptim(object):
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
+        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
             lambda _: (out, self.update(grads, state)),
             lambda _: (jnp.nan, state),
             None,
         )
-        return out, state
+        return (out, aux), state
 
     def get_params(self, state: _IterOptState) -> _Params:
         """
@@ -265,15 +265,21 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         i, (flat_params, unravel_fn) = state
+
+        def loss_fn(x):
+            x = unravel_fn(x)
+            out, aux = fn(x)
+            if aux is not None:
+                raise ValueError(
+                    "Minimize does not support models with mutable states."
+                )
+            return out
+
         results = minimize(
-            lambda x: fn(unravel_fn(x)),
-            flat_params,
-            (),
-            method=self._method,
-            **self._kwargs
+            loss_fn, flat_params, (), method=self._method, **self._kwargs
         )
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
-        return out, state
+        return (out, None), state

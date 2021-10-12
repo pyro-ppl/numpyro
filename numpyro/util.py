@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import os
 import random
 import re
+import warnings
 
 import numpy as np
 import tqdm
@@ -20,6 +21,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
+_CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
 def set_rng_seed(rng_seed):
@@ -188,12 +190,16 @@ def progress_bar_factory(num_samples, num_chains):
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
     def _update_tqdm(arg, transform, device):
-        chain = int(str(device)[4:])
+        chain_match = _CHAIN_RE.search(str(device))
+        assert chain_match
+        chain = int(chain_match.group())
         tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
         tqdm_bars[chain].update(arg)
 
     def _close_tqdm(arg, transform, device):
-        chain = int(str(device)[4:])
+        chain_match = _CHAIN_RE.search(str(device))
+        assert chain_match
+        chain = int(chain_match.group())
         tqdm_bars[chain].update(arg)
         finished_chains.append(chain)
         if len(finished_chains) == num_chains:
@@ -300,6 +306,13 @@ def fori_collect(
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
+    # host_callback does not work yet with multi-GPU platforms
+    # See: https://github.com/google/jax/issues/6447
+    if num_chains > 1 and jax.default_backend() == "gpu":
+        warnings.warn(
+            "We will disable progress bar because it does not work yet on multi-GPUs platforms."
+        )
+        progbar = False
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
@@ -369,7 +382,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
 
     # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
     num_chunks = batch_size = int(np.prod(batch_shape))
-    prepend_shape = (-1,) if batch_size > 1 else ()
+    prepend_shape = (batch_size,) if batch_size > 1 else ()
     xs = tree_map(
         lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs
     )
@@ -392,6 +405,150 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(
-        lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
+        lambda y: jnp.reshape(
+            y, (int(np.prod(jnp.shape(y)[:map_ndims])),) + jnp.shape(y)[map_ndims:]
+        )[:batch_size],
+        ys,
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def format_shapes(
+    trace,
+    *,
+    compute_log_prob=False,
+    title="Trace Shapes:",
+    last_site=None,
+):
+    """
+    Given the trace of a function, returns a string showing a table of the shapes of
+    all sites in the trace.
+
+    Use :class:`~numpyro.handlers.trace` handler (or funsor
+    :class:`~numpyro.contrib.funsor.enum_messenger.trace` handler for enumeration) to
+    produce the trace.
+
+    :param dict trace: The model trace to format.
+    :param compute_log_prob: Compute log probabilities and display the shapes in the
+        table. Accepts True / False or a function which when given a dictionary
+        containing site-level metadata returns whether the log probability should be
+        calculated and included in the table.
+    :param str title: Title for the table of shapes.
+    :param str last_site: Name of a site in the model. If supplied, subsequent sites
+        are not displayed in the table.
+
+    Usage::
+
+        def model(*args, **kwargs):
+            ...
+
+        with numpyro.handlers.seed(rng_key=1):
+            trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
+        numpyro.util.format_shapes(trace)
+    """
+    if not trace.keys():
+        return title
+    rows = [[title]]
+
+    rows.append(["Param Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "param":
+            rows.append(
+                [name, None]
+                + [str(size) for size in getattr(site["value"], "shape", ())]
+            )
+        if name == last_site:
+            break
+
+    rows.append(["Sample Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "sample":
+            # param shape
+            batch_shape = getattr(site["fn"], "batch_shape", ())
+            event_shape = getattr(site["fn"], "event_shape", ())
+            rows.append(
+                [f"{name} dist", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # value shape
+            event_dim = len(event_shape)
+            shape = getattr(site["value"], "shape", ())
+            batch_shape = shape[: len(shape) - event_dim]
+            event_shape = shape[len(shape) - event_dim :]
+            rows.append(
+                ["value", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # log_prob shape
+            if (not callable(compute_log_prob) and compute_log_prob) or (
+                callable(compute_log_prob) and compute_log_prob(site)
+            ):
+                batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
+                rows.append(
+                    ["log_prob", None]
+                    + [str(size) for size in batch_shape]
+                    + ["|", None]
+                )
+        elif site["type"] == "plate":
+            shape = getattr(site["value"], "shape", ())
+            rows.append(
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
+            )
+
+        if name == last_site:
+            break
+
+    return _format_table(rows)
+
+
+def _format_table(rows):
+    """
+    Formats a right justified table using None as column separator.
+    """
+    # compute column widths
+    column_widths = [0, 0, 0]
+    for row in rows:
+        widths = [0, 0, 0]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                widths[j] += 1
+        for j in range(3):
+            column_widths[j] = max(column_widths[j], widths[j])
+
+    # justify columns
+    for i, row in enumerate(rows):
+        cols = [[], [], []]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                cols[j].append(cell)
+        cols = [
+            [""] * (width - len(col)) + col
+            if direction == "r"
+            else col + [""] * (width - len(col))
+            for width, col, direction in zip(column_widths, cols, "rrl")
+        ]
+        rows[i] = sum(cols, [])
+
+    # compute cell widths
+    cell_widths = [0] * len(rows[0])
+    for row in rows:
+        for j, cell in enumerate(row):
+            cell_widths[j] = max(cell_widths[j], len(cell))
+
+    # justify cells
+    return "\n".join(
+        " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
+        for row in rows
+    )

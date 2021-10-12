@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, namedtuple
+from functools import partial
 import math
 import os
 
-from jax import device_put, lax, partial, random, vmap
+from jax import device_put, lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -136,7 +137,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
 
     .. warning::
         Instead of using this interface directly, we would highly recommend you
-        to use the higher level :class:`numpyro.infer.MCMC` API instead.
+        to use the higher level :class:`~numpyro.infer.mcmc.MCMC` API instead.
 
     **Example**
 
@@ -511,6 +512,12 @@ class HMC(MCMCKernel):
     Hamiltonian Monte Carlo inference, using fixed trajectory length, with
     provision for step size and mass matrix adaptation.
 
+    .. note:: Until the kernel is used in an MCMC run, `postprocess_fn` will return the
+        identity function.
+
+    .. note:: The default init strategy ``init_to_uniform`` might not be a good strategy
+        for some models. You might want to try other init strategies like ``init_to_median``.
+
     **References:**
 
     1. *MCMC Using Hamiltonian Dynamics*,
@@ -765,6 +772,12 @@ class NUTS(HMC):
     """
     Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
     with adaptive path length and mass matrix adaptation.
+
+    .. note:: Until the kernel is used in an MCMC run, `postprocess_fn` will return the
+        identity function.
+
+    .. note:: The default init strategy ``init_to_uniform`` might not be a good strategy
+        for some models. You might want to try other init strategies like ``init_to_median``.
 
     **References:**
 

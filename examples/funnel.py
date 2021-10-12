@@ -53,8 +53,8 @@ def run_inference(model, args, rng_key):
     kernel = NUTS(model)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
@@ -108,7 +108,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.8.0")
     parser = argparse.ArgumentParser(
         description="Non-centered reparameterization example"
     )

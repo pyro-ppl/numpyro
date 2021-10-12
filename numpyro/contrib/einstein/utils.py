@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 
 def posdef(m):
-    """  Map a matrix to a positive definite matrix, where all eigenvalues are >= 1e-5. """
+    """Map a matrix to a positive definite matrix, where all eigenvalues are >= 1e-5."""
     mlambda, mvec = jnp.linalg.eigh(m)
     if jnp.ndim(mlambda) >= 2:
         mlambda = jax.vmap(
@@ -19,7 +19,7 @@ def posdef(m):
 
 
 def sqrth(m):
-    """ Map a matrix to a positive definite matrix and square root it. """
+    """Map a matrix to a positive definite matrix and square root it."""
     mlambda, mvec = jnp.linalg.eigh(m)
     if jnp.ndim(mlambda) >= 2:
         mlambdasqrt = jax.vmap(

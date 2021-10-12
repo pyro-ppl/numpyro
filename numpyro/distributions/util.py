@@ -395,7 +395,7 @@ def logmatmulexp(x, y):
 
 
 def clamp_probs(probs):
-    finfo = jnp.finfo(jnp.result_type(probs))
+    finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
 
 
@@ -462,7 +462,7 @@ def _von_mises_centered(key, concentration, shape, dtype):
     s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
 
     def cond_fn(*args):
-        """ check if all are done or reached max number of iterations """
+        """check if all are done or reached max number of iterations"""
         i, _, done, _, _ = args[0]
         return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
 

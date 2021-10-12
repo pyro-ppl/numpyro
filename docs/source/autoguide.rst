@@ -3,6 +3,14 @@ Automatic Guide Generation
 
 .. automodule:: numpyro.infer.autoguide
 
+AutoGuide
+---------
+.. autoclass:: numpyro.infer.autoguide.AutoGuide
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 AutoContinuous
 --------------
 .. autoclass:: numpyro.infer.autoguide.AutoContinuous
@@ -70,6 +78,14 @@ AutoNormal
 AutoDelta
 ---------
 .. autoclass:: numpyro.infer.autoguide.AutoDelta
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AutoDAIS
+--------
+.. autoclass:: numpyro.infer.autoguide.AutoDAIS
     :members:
     :undoc-members:
     :show-inheritance:

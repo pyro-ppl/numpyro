@@ -10,7 +10,7 @@ FROM nvidia/cuda:11.2.2-cudnn8-devel-ubuntu20.04
 # note that this image uses Python 3.8
 ENV IMG_NAME=11.2.2-cudnn8-devel-ubuntu20.04 \
     # declare the cuda version for pulling appropriate jaxlib wheel
-    JAXLIB_CUDA=112
+    JAXLIB_CUDA=111
 
 # install python3 and pip on top of the base Ubuntu image
 # unlike for release, we need to install git and setuptools too

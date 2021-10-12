@@ -47,7 +47,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
    >>> num_warmup, num_samples = 1000, 1000
-   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
    >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP
@@ -86,7 +86,13 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
-from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
+from numpyro.primitives import (
+    _PYRO_STACK,
+    CondIndepStackFrame,
+    Messenger,
+    apply_stack,
+    plate,
+)
 from numpyro.util import not_jax_tracer
 
 __all__ = [
@@ -112,7 +118,7 @@ class trace(Messenger):
     Returns a handler that records the inputs and outputs at primitive calls
     inside `fn`.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -175,7 +181,7 @@ class replay(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param guide_trace: an OrderedDict containing execution metadata.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -196,14 +202,21 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, guide_trace=None):
-        assert guide_trace is not None
-        self.guide_trace = guide_trace
+    def __init__(self, fn=None, trace=None, guide_trace=None):
+        if guide_trace is not None:
+            warnings.warn(
+                "`guide_trace` argument is deprecated. Please replace it by `trace`.",
+                FutureWarning,
+            )
+        if guide_trace is not None:
+            trace = guide_trace
+        assert trace is not None
+        self.trace = trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg["type"] in ("sample", "plate") and msg["name"] in self.guide_trace:
-            msg["value"] = self.guide_trace[msg["name"]]["value"]
+        if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
+            msg["value"] = self.trace[msg["name"]]["value"]
 
 
 class block(Messenger):
@@ -593,14 +606,14 @@ class scope(Messenger):
     """
     This handler prepend a prefix followed by a divider to the name of sample sites.
 
-    Example::
+    **Example:**
 
     .. doctest::
 
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.handlers import scope, seed, trace
-        >>>
+
         >>> def model():
         ...     with scope(prefix="a"):
         ...         with scope(prefix="b", divider="."):
@@ -621,6 +634,14 @@ class scope(Messenger):
     def process_message(self, msg):
         if msg.get("name"):
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
+
+        if msg.get("cond_indep_stack"):
+            msg["cond_indep_stack"] = [
+                CondIndepStackFrame(
+                    f"{self.prefix}{self.divider}{i.name}", i.dim, i.size
+                )
+                for i in msg["cond_indep_stack"]
+            ]
 
 
 class seed(Messenger):
@@ -667,11 +688,11 @@ class seed(Messenger):
 
     def __init__(self, fn=None, rng_seed=None):
         if isinstance(rng_seed, int) or (
-            isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)
+            isinstance(rng_seed, (np.ndarray, jnp.ndarray)) and not jnp.shape(rng_seed)
         ):
             rng_seed = random.PRNGKey(rng_seed)
         if not (
-            isinstance(rng_seed, jnp.ndarray)
+            isinstance(rng_seed, (np.ndarray, jnp.ndarray))
             and rng_seed.dtype == jnp.uint32
             and rng_seed.shape == (2,)
         ):
@@ -703,6 +724,10 @@ class substitute(Messenger):
     If a `substitute_fn` is provided, then the value at the site is
     replaced by the value returned from the call to `substitute_fn`
     for the given site.
+
+    .. note:: This handler is mainly used for internal algorithms.
+        For conditioning a generative model on observed data, please
+        using the :class:`condition` handler.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict data: dictionary of `numpy.ndarray` values keyed by
@@ -738,7 +763,7 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "plate")) or msg.get(
+        if (msg["type"] not in ("sample", "param", "mutable", "plate")) or msg.get(
             "_control_flow_done", False
         ):
             if msg["type"] == "control_flow":

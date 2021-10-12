@@ -21,6 +21,7 @@ from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
+    AutoDAIS,
     AutoDelta,
     AutoDiagonalNormal,
     AutoIAFNormal,
@@ -29,7 +30,12 @@ from numpyro.infer.autoguide import (
     AutoMultivariateNormal,
     AutoNormal,
 )
-from numpyro.infer.initialization import init_to_median
+from numpyro.infer.initialization import (
+    init_to_feasible,
+    init_to_median,
+    init_to_sample,
+    init_to_uniform,
+)
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import Predictive
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
@@ -42,6 +48,7 @@ init_strategy = init_to_median(num_samples=2)
     "auto_class",
     [
         AutoDiagonalNormal,
+        AutoDAIS,
         AutoIAFNormal,
         AutoBNAFNormal,
         AutoMultivariateNormal,
@@ -59,7 +66,10 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model, init_loc_fn=init_strategy)
+    if auto_class == AutoDAIS:
+        guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
+    else:
+        guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
@@ -69,12 +79,18 @@ def test_beta_bernoulli(auto_class):
 
     svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
+
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
-    assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
+    posterior_mean = jnp.mean(posterior_samples["beta"], 0)
+    assert_allclose(posterior_mean, true_coefs, atol=0.05)
+
+    if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+        quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
+        assert quantiles["beta"].shape == (3, 2)
 
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
@@ -92,6 +108,7 @@ def test_beta_bernoulli(auto_class):
     [
         AutoDiagonalNormal,
         AutoIAFNormal,
+        AutoDAIS,
         AutoBNAFNormal,
         AutoMultivariateNormal,
         AutoLaplaceApproximation,
@@ -133,7 +150,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
+    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal):
         median = guide.median(params)
         assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method
@@ -466,7 +483,8 @@ def test_autoguide_deterministic(auto_class):
     optimiser = numpyro.optim.Adam(step_size=0.01)
     svi = SVI(model, guide, optimiser, Trace_ELBO())
 
-    params, losses = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
+    svi_result = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
+    params = svi_result.params
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(0), params, sample_shape=(1000,)
     )
@@ -482,3 +500,113 @@ def test_autoguide_deterministic(auto_class):
         predictive_samples["z"],
         atol=0.05,
     )
+
+
+@pytest.mark.parametrize("size,dim", [(10, -2), (5, -1)])
+def test_plate_inconsistent(size, dim):
+    def model():
+        with numpyro.plate("a", 10, dim=-1):
+            numpyro.sample("x", dist.Normal(0, 1))
+        with numpyro.plate("a", size, dim=dim):
+            numpyro.sample("y", dist.Normal(0, 1))
+
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(step_size=0.1), Trace_ELBO())
+    with pytest.raises(AssertionError, match="has inconsistent dim or size"):
+        svi.run(random.PRNGKey(0), 10)
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        AutoNormal,
+        AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation,
+    ],
+)
+@pytest.mark.parametrize(
+    "init_loc_fn",
+    [
+        init_to_feasible,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+    ],
+)
+def test_discrete_helpful_error(auto_class, init_loc_fn):
+    def model():
+        p = numpyro.sample("p", dist.Beta(2.0, 2.0))
+        x = numpyro.sample("x", dist.Bernoulli(p))
+        numpyro.sample(
+            "obs", dist.Bernoulli(p * x + (1 - p) * (1 - x)), obs=jnp.array([1.0, 0.0])
+        )
+
+    guide = auto_class(model, init_loc_fn=init_loc_fn)
+    with pytest.raises(ValueError, match=".*handle discrete.*"):
+        handlers.seed(guide, 0)()
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        AutoNormal,
+        AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation,
+    ],
+)
+@pytest.mark.parametrize(
+    "init_loc_fn",
+    [
+        init_to_feasible,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+    ],
+)
+def test_sphere_helpful_error(auto_class, init_loc_fn):
+    def model():
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0).expand([2]).to_event(1))
+        y = numpyro.sample("y", dist.ProjectedNormal(x))
+        numpyro.sample("obs", dist.Normal(y, 1), obs=jnp.array([1.0, 0.0]))
+
+    guide = auto_class(model, init_loc_fn=init_loc_fn)
+    with pytest.raises(ValueError, match=".*ProjectedNormalReparam.*"):
+        handlers.seed(guide, 0)()
+
+
+def test_autodais_subsampling_error():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        with numpyro.plate("plate", 20, 10, dim=-1):
+            f = numpyro.sample(
+                "beta", dist.Beta(jnp.ones(data.shape), jnp.ones(data.shape))
+            )
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    adam = optim.Adam(0.01)
+    guide = AutoDAIS(model)
+    svi = SVI(model, guide, adam, Trace_ELBO())
+
+    with pytest.raises(NotImplementedError, match=".*data subsampling.*"):
+        svi.init(random.PRNGKey(1), data)
+
+
+def test_subsample_model_with_deterministic():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.deterministic("x2", x * 2)
+        with numpyro.plate("N", 10, subsample_size=5):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(5))
+
+    guide = AutoNormal(model)
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 10)
+    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert "x2" in samples

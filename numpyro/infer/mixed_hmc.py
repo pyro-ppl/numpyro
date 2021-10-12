@@ -59,7 +59,7 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = MixedHMC(HMC(model, trajectory_length=1.2), num_discrete_updates=20)
-        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()

@@ -1,8 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import lru_cache
+import warnings
+
 import numpy as np
 
+import jax
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
 
@@ -103,42 +107,126 @@ def _transform_to_bijector_constraint(constraint):
     return BijectorTransform(constraint.bijector)
 
 
-_TFPDistributionMeta = type(tfd.Distribution)
+def _onehot_enumerate_support(self, expand=True):
+    n = self.event_shape[-1]
+    values = jnp.identity(n, dtype=jnp.result_type(self.dtype))
+    values = values.reshape((n,) + (1,) * len(self.batch_shape) + (n,))
+    if expand:
+        values = jnp.broadcast_to(values, (n,) + self.batch_shape + (n,))
+    return values
 
 
-# XXX: we create this mixin class to avoid metaclass conflict between TFP and NumPyro Ditribution
-class _TFPMixinMeta(_TFPDistributionMeta, type(NumPyroDistribution)):
-    def __init__(cls, name, bases, dct):
-        # XXX: _TFPDistributionMeta.__init__ registers cls as a PyTree
-        # for some reasons, when defining metaclass of TFPDistributionMixin to be _TFPMixinMeta,
-        # TFPDistributionMixin will be registered as a PyTree 2 times, which is not allowed
-        # in JAX, so we skip registering TFPDistributionMixin as a PyTree.
-        if name == "TFPDistributionMixin":
-            super(_TFPDistributionMeta, cls).__init__(name, bases, dct)
+class _TFPDistributionMeta(type(NumPyroDistribution)):
+    @lru_cache(maxsize=None)
+    def __getitem__(cls, tfd_class):
+        assert issubclass(tfd_class, tfd.Distribution)
+
+        tfd_class_name = tfd_class.__name__
+
+        def init(self, *args, **kwargs):
+            warnings.warn(
+                "Importing distributions from numpyro.contrib.tfp.distributions is "
+                "deprecated. You should import distributions directly from "
+                "tensorflow_probability.substrates.jax.distributions instead.",
+                FutureWarning,
+            )
+            self.tfp_dist = tfd_class(*args, **kwargs)
+
+        _PyroDist = type(tfd_class_name, (TFPDistribution,), {})
+        _PyroDist.__init__ = init
+
+        if tfd_class is tfd.InverseGamma:
+            _PyroDist.arg_constraints = {
+                "concentration": constraints.positive,
+                "scale": constraints.positive,
+            }
+        elif tfd_class is tfd.OneHotCategorical:
+            _PyroDist.arg_constraints = {"logits": constraints.real_vector}
+            _PyroDist.has_enumerate_support = True
+            _PyroDist.support = constraints.simplex
+            _PyroDist.is_discrete = True
+            _PyroDist.enumerate_support = _onehot_enumerate_support
+        elif tfd_class is tfd.OrderedLogistic:
+            _PyroDist.arg_constraints = {
+                "cutpoints": constraints.ordered_vector,
+                "loc": constraints.real,
+            }
+        elif tfd_class is tfd.Pareto:
+            _PyroDist.arg_constraints = {
+                "concentration": constraints.positive,
+                "scale": constraints.positive,
+            }
         else:
-            super(_TFPMixinMeta, cls).__init__(name, bases, dct)
+            if hasattr(numpyro_dist, tfd_class_name):
+                numpyro_dist_class = getattr(numpyro_dist, tfd_class_name)
+                # resolve FooProbs/FooLogits namespaces
+                numpyro_dist_class = getattr(
+                    numpyro_dist, f"{tfd_class_name}Logits", numpyro_dist_class
+                )
+                _PyroDist.arg_constraints = numpyro_dist_class.arg_constraints
+                _PyroDist.has_enumerate_support = (
+                    numpyro_dist_class.has_enumerate_support
+                )
+                _PyroDist.enumerate_support = numpyro_dist_class.enumerate_support
+
+        return _PyroDist
 
 
-class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
+class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
     """
-    A mixin layer to make TensorFlow Probability (TFP) distribution compatible
-    with NumPyro internal.
+    A thin wrapper for TensorFlow Probability (TFP) distributions. The constructor
+    has the same signature as the corresponding TFP distribution.
+
+    This class can be used to convert a TFP distribution to a NumPyro-compatible one
+    as follows::
+
+        d = TFPDistribution[tfd.Normal](0, 1)
+
     """
 
-    def __init_subclass__(cls, **kwargs):
-        # skip register pytree because TFP distributions are already pytrees
-        super(object, cls).__init_subclass__(**kwargs)
+    def __getattr__(self, name):
+        # return parameters from the constructor
+        if name in self.tfp_dist.parameters:
+            return self.tfp_dist.parameters[name]
+        elif name in ["dtype", "reparameterization_type"]:
+            return getattr(self.tfp_dist, name)
+        raise AttributeError(name)
 
-    def __call__(self, *args, **kwargs):
-        key = kwargs.pop("rng_key")
-        sample_intermediates = kwargs.pop("sample_intermediates", False)
-        if sample_intermediates:
-            return self.sample(*args, seed=key, **kwargs), []
-        return self.sample(*args, seed=key, **kwargs)
+    @property
+    def batch_shape(self):
+        return self.tfp_dist.batch_shape
+
+    @property
+    def event_shape(self):
+        return self.tfp_dist.event_shape
+
+    @property
+    def has_rsample(self):
+        return self.tfp_dist.reparameterization_type is tfd.FULLY_REPARAMETERIZED
+
+    def sample(self, key, sample_shape=()):
+        return self.tfp_dist.sample(sample_shape=sample_shape, seed=key)
+
+    def log_prob(self, value):
+        return self.tfp_dist.log_prob(value)
+
+    @property
+    def mean(self):
+        return self.tfp_dist.mean()
+
+    @property
+    def variance(self):
+        return self.tfp_dist.variance()
+
+    def cdf(self, value):
+        return self.tfp_dist.cdf(value)
+
+    def icdf(self, q):
+        return self.tfp_dist.quantile(q)
 
     @property
     def support(self):
-        bijector = self._default_event_space_bijector()
+        bijector = self.tfp_dist._default_event_space_bijector()
         if bijector is not None:
             return BijectorConstraint(bijector)
         else:
@@ -149,41 +237,18 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
         # XXX: this should cover most cases
         return self.support is None
 
+    def tree_flatten(self):
+        return jax.tree_util.tree_flatten(self.tfp_dist)
 
-class InverseGamma(tfd.InverseGamma, TFPDistributionMixin):
-    arg_constraints = {
-        "concentration": constraints.positive,
-        "scale": constraints.positive,
-    }
-
-
-class OneHotCategorical(tfd.OneHotCategorical, TFPDistributionMixin):
-    arg_constraints = {"logits": constraints.real_vector}
-    has_enumerate_support = True
-    support = constraints.simplex
-    is_discrete = True
-
-    def enumerate_support(self, expand=True):
-        n = self.event_shape[-1]
-        values = jnp.identity(n, dtype=jnp.result_type(self.dtype))
-        values = values.reshape((n,) + (1,) * len(self.batch_shape) + (n,))
-        if expand:
-            values = jnp.broadcast_to(values, (n,) + self.batch_shape + (n,))
-        return values
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        fn = jax.tree_util.tree_unflatten(aux_data, params)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            return TFPDistribution[fn.__class__](**fn.parameters)
 
 
-class OrderedLogistic(tfd.OrderedLogistic, TFPDistributionMixin):
-    arg_constraints = {"cutpoints": constraints.ordered_vector, "loc": constraints.real}
-
-
-class Pareto(tfd.Pareto, TFPDistributionMixin):
-    arg_constraints = {
-        "concentration": constraints.positive,
-        "scale": constraints.positive,
-    }
-
-
-__all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistributionMixin"]
+__all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]
 _len_all = len(__all__)
 for _name, _Dist in tfd.__dict__.items():
     if not isinstance(_Dist, type):
@@ -193,26 +258,13 @@ for _name, _Dist in tfd.__dict__.items():
     if _Dist is tfd.Distribution:
         continue
 
-    try:
-        _PyroDist = locals()[_name]
-    except KeyError:
-        _PyroDist = type(_name, (_Dist, TFPDistributionMixin), {})
-        _PyroDist.__module__ = __name__
-        if hasattr(numpyro_dist, _name):
-            numpyro_dist_class = getattr(numpyro_dist, _name)
-            # resolve FooProbs/FooLogits namespaces
-            if type(numpyro_dist_class).__name__ == "function":
-                if not hasattr(numpyro_dist, _name + "Logits"):
-                    continue
-                numpyro_dist_class = getattr(numpyro_dist, _name + "Logits")
-            _PyroDist.arg_constraints = numpyro_dist_class.arg_constraints
-            _PyroDist.has_enumerate_support = numpyro_dist_class.has_enumerate_support
-            _PyroDist.enumerate_support = numpyro_dist_class.enumerate_support
-        locals()[_name] = _PyroDist
+    _PyroDist = TFPDistribution[_Dist]
+    _PyroDist.__module__ = __name__
+    locals()[_name] = _PyroDist
 
     _PyroDist.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
-    with :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
+    with :class:`~numpyro.contrib.tfp.distributions.TFPDistribution`.
     """.format(
         _Dist.__module__, _Dist.__name__, _Dist.__name__
     )
@@ -230,6 +282,6 @@ __doc__ = "\n\n".join(
     """.format(
             _name
         )
-        for _name in __all__[:_len_all] + sorted(__all__[_len_all:])
+        for _name in __all__[:_len_all]
     ]
 )

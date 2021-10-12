@@ -48,7 +48,6 @@ def haiku_model_by_kwargs_2(w, x, y):
         def __init__(self, dim: int = 100):
             super().__init__()
             self._dim = dim
-            return
 
         def __call__(self, w, x):
             l1 = hk.Linear(self._dim, name="w_linear")(w)
@@ -64,7 +63,7 @@ def haiku_model_by_kwargs_2(w, x, y):
 def flax_model_by_shape(x, y):
     import flax
 
-    linear_module = flax.nn.Dense.partial(features=100)
+    linear_module = flax.linen.Dense(features=100)
     nn = flax_module("nn", linear_module, input_shape=(100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
@@ -73,7 +72,7 @@ def flax_model_by_shape(x, y):
 def flax_model_by_kwargs(x, y):
     import flax
 
-    linear_module = flax.nn.Dense.partial(features=100)
+    linear_module = flax.linen.Dense(features=100)
     nn = flax_module("nn", linear_module, inputs=x)
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
@@ -149,12 +148,12 @@ def test_update_params():
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
 @pytest.mark.parametrize("init", ["shape", "kwargs"])
-def test_random_module__mcmc(backend, init):
+def test_random_module_mcmc(backend, init):
 
     if backend == "flax":
         import flax
 
-        linear_module = flax.nn.Dense.partial(features=1)
+        linear_module = flax.linen.Dense(features=1)
         bias_name = "bias"
         weight_name = "kernel"
         random_module = random_flax_module
@@ -169,7 +168,7 @@ def test_random_module__mcmc(backend, init):
         kwargs_name = "x"
 
     N, dim = 3000, 3
-    warmup_steps, num_samples = (1000, 1000)
+    num_warmup, num_samples = (1000, 1000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
@@ -191,7 +190,9 @@ def test_random_module__mcmc(backend, init):
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model=model)
-    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
     mcmc.run(random.PRNGKey(2), data, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
@@ -204,3 +205,82 @@ def test_random_module__mcmc(backend, init):
         true_coefs,
         atol=0.22,
     )
+
+
+@pytest.mark.parametrize("dropout", [True, False])
+@pytest.mark.parametrize("batchnorm", [True, False])
+def test_haiku_state_dropout_smoke(dropout, batchnorm):
+    import haiku as hk
+
+    def fn(x):
+        if dropout:
+            x = hk.dropout(hk.next_rng_key(), 0.5, x)
+        if batchnorm:
+            x = hk.BatchNorm(create_offset=True, create_scale=True, decay_rate=0.001)(
+                x, is_training=True
+            )
+        return x
+
+    def model():
+        transform = hk.transform_with_state if batchnorm else hk.transform
+        nn = haiku_module("nn", transform(fn), apply_rng=dropout, input_shape=(4, 3))
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        if dropout:
+            y = nn(numpyro.prng_key(), x)
+        else:
+            y = nn(x)
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    if batchnorm:
+        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+        assert tr["nn$state"]["type"] == "mutable"
+    else:
+        assert set(tr.keys()) == {"nn$params", "x", "y"}
+
+
+@pytest.mark.parametrize("dropout", [True, False])
+@pytest.mark.parametrize("batchnorm", [True, False])
+def test_flax_state_dropout_smoke(dropout, batchnorm):
+    import flax.linen as nn
+
+    class Net(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            x = nn.Dense(10)(x)
+            if dropout:
+                x = nn.Dropout(0.5, deterministic=False)(x)
+            if batchnorm:
+                x = nn.BatchNorm(
+                    use_bias=True,
+                    use_scale=True,
+                    momentum=0.999,
+                    use_running_average=False,
+                )(x)
+            return x
+
+    def model():
+        net = flax_module(
+            "nn",
+            Net(),
+            apply_rng=["dropout"] if dropout else None,
+            mutable=["batch_stats"] if batchnorm else None,
+            input_shape=(4, 3),
+        )
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        if dropout:
+            y = net(x, rngs={"dropout": numpyro.prng_key()})
+        else:
+            y = net(x)
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    if batchnorm:
+        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+        assert tr["nn$state"]["type"] == "mutable"
+    else:
+        assert set(tr.keys()) == {"nn$params", "x", "y"}

@@ -30,8 +30,9 @@ import warnings
 
 from jax import lax
 import jax.numpy as jnp
+from jax.scipy.special import digamma, gammaln
 
-from numpyro.distributions.continuous import Normal
+from numpyro.distributions.continuous import Dirichlet, Normal
 from numpyro.distributions.distribution import (
     Delta,
     Distribution,
@@ -196,3 +197,15 @@ def _kl_normal_normal(p, q):
     var_ratio = jnp.square(p.scale / q.scale)
     t1 = jnp.square((p.loc - q.loc) / q.scale)
     return 0.5 * (var_ratio + t1 - 1 - jnp.log(var_ratio))
+
+
+@register_kl(Dirichlet, Dirichlet)
+def _kl_dirichlet_dirichlet(p, q):
+    # From http://bariskurt.com/kullback-leibler-divergence-between-two-dirichlet-and-beta-distributions/
+    sum_p_concentration = p.concentration.sum(-1)
+    sum_q_concentration = q.concentration.sum(-1)
+    t1 = gammaln(sum_p_concentration) - gammaln(sum_q_concentration)
+    t2 = (gammaln(p.concentration) - gammaln(q.concentration)).sum(-1)
+    t3 = p.concentration - q.concentration
+    t4 = digamma(p.concentration) - digamma(sum_p_concentration)[..., None]
+    return t1 - t2 + (t3 * t4).sum(-1)

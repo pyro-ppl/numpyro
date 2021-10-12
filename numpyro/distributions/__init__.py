@@ -5,10 +5,15 @@ from numpyro.distributions.conjugate import (
     BetaBinomial,
     DirichletMultinomial,
     GammaPoisson,
+    NegativeBinomial2,
+    NegativeBinomialLogits,
+    NegativeBinomialProbs,
+    ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
+    BetaProportion,
     Cauchy,
     Chi2,
     Dirichlet,
@@ -30,8 +35,14 @@ from numpyro.distributions.continuous import (
     SoftLaplace,
     StudentT,
     Uniform,
+    Weibull,
 )
-from numpyro.distributions.directional import ProjectedNormal, VonMises
+from numpyro.distributions.directional import (
+    ProjectedNormal,
+    SineBivariateVonMises,
+    SineSkewed,
+    VonMises,
+)
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -51,12 +62,14 @@ from numpyro.distributions.discrete import (
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
+    ZeroInflatedDistribution,
     ZeroInflatedPoisson,
 )
 from numpyro.distributions.distribution import (
     Delta,
     Distribution,
     ExpandedDistribution,
+    FoldedDistribution,
     ImproperUniform,
     Independent,
     MaskedDistribution,
@@ -64,6 +77,7 @@ from numpyro.distributions.distribution import (
     Unit,
 )
 from numpyro.distributions.kl import kl_divergence
+from numpyro.distributions.mixtures import MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
@@ -91,6 +105,7 @@ __all__ = [
     "BernoulliProbs",
     "Beta",
     "BetaBinomial",
+    "BetaProportion",
     "Binomial",
     "BinomialLogits",
     "BinomialProbs",
@@ -105,6 +120,7 @@ __all__ = [
     "Distribution",
     "Exponential",
     "ExpandedDistribution",
+    "FoldedDistribution",
     "Gamma",
     "GammaPoisson",
     "GaussianRandomWalk",
@@ -124,18 +140,24 @@ __all__ = [
     "Logistic",
     "LogNormal",
     "MaskedDistribution",
+    "MixtureSameFamily",
     "Multinomial",
     "MultinomialLogits",
     "MultinomialProbs",
     "MultivariateNormal",
     "LowRankMultivariateNormal",
     "Normal",
+    "NegativeBinomialProbs",
+    "NegativeBinomialLogits",
+    "NegativeBinomial2",
     "OrderedLogistic",
     "Pareto",
     "Poisson",
     "ProjectedNormal",
     "PRNGIdentity",
     "RightTruncatedDistribution",
+    "SineBivariateVonMises",
+    "SineSkewed",
     "SoftLaplace",
     "StudentT",
     "TransformedDistribution",
@@ -147,5 +169,8 @@ __all__ = [
     "Uniform",
     "Unit",
     "VonMises",
+    "Weibull",
+    "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
+    "ZeroInflatedNegativeBinomial2",
 ]

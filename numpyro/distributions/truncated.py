@@ -62,7 +62,10 @@ class LeftTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return (1 - sign) * loc + sign * self.base_dist.icdf(
@@ -127,7 +130,10 @@ class RightTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.base_dist.icdf(u * self._cdf_at_high)
 
     @validate_sample
@@ -198,7 +204,10 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
 
         # NB: we use a more numerically stable formula for a symmetric base distribution
         #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) = icdf[(1 - u) * cdf(low) + u * cdf(high)]

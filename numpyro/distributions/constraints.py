@@ -28,6 +28,7 @@
 
 __all__ = [
     "boolean",
+    "circular",
     "corr_cholesky",
     "corr_matrix",
     "dependent",
@@ -36,6 +37,7 @@ __all__ = [
     "integer_greater_than",
     "interval",
     "is_dependent",
+    "l1_ball",
     "less_than",
     "lower_cholesky",
     "multinomial",
@@ -45,6 +47,7 @@ __all__ = [
     "positive_integer",
     "real",
     "real_vector",
+    "scaled_unit_lower_cholesky",
     "simplex",
     "sphere",
     "softplus_lower_cholesky",
@@ -52,6 +55,8 @@ __all__ = [
     "unit_interval",
     "Constraint",
 ]
+
+import math
 
 import numpy as np
 
@@ -350,6 +355,23 @@ class _Multinomial(Constraint):
         return jax.numpy.broadcast_to(value, prototype.shape)
 
 
+class _L1Ball(Constraint):
+    """
+    Constrain to the L1 ball of any dimension.
+    """
+
+    event_dim = 1
+    reltol = 10.0  # Relative to finfo.eps.
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        eps = jnp.finfo(x.dtype).eps
+        return jnp.abs(x).sum(axis=-1) < 1 + self.reltol * eps
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
+
 class _OrderedVector(Constraint):
     event_dim = 1
 
@@ -431,6 +453,10 @@ class _SoftplusLowerCholesky(_LowerCholesky):
         )
 
 
+class _ScaledUnitLowerCholesky(_LowerCholesky):
+    pass
+
+
 class _Sphere(Constraint):
     """
     Constrain to the Euclidean sphere of any dimension.
@@ -454,6 +480,7 @@ class _Sphere(Constraint):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
+circular = _Interval(-math.pi, math.pi)
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
@@ -463,7 +490,9 @@ independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
+l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 ordered_vector = _OrderedVector()

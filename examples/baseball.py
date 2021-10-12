@@ -145,8 +145,8 @@ def run_inference(model, at_bats, hits, rng_key, args):
         kernel = SA(model)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False
         if ("NUMPYRO_SPHINXBUILD" in os.environ or args.disable_progbar)
@@ -210,7 +210,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.8.0")
     parser = argparse.ArgumentParser(description="Baseball batting average using MCMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)
