@@ -525,7 +525,9 @@ def check_model_guide_match(model_trace, guide_trace):
     """
     # Check ordinary sample sites.
     guide_vars = set(
-        name for name, site in guide_trace.items() if site["type"] == "sample"
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample" and not site.get("is_observed", False)
     )
     aux_vars = set(
         name
