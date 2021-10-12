@@ -638,7 +638,7 @@ def test_lift_memoize():
 
 def test_collapse_beta_binomial():
     total_count = 10
-    data = jnp.array(3.0)
+    data = 3.0
 
     def model1():
         c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)

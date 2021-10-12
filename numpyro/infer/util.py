@@ -61,7 +61,7 @@ def log_density(model, model_args, model_kwargs, params):
             if intermediates:
                 log_prob = site["fn"].log_prob(value, intermediates)
             else:
-                guide_shape = value.shape
+                guide_shape = jnp.shape(value)
                 model_shape = tuple(
                     site["fn"].shape()
                 )  # TensorShape from tfp needs casting to tuple

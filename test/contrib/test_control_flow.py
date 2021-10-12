@@ -106,8 +106,8 @@ def test_scan_constrain_reparam_compatible():
     T = 10
     params = {}
     for i in range(T):
-        params[f"x_{i}"] = jnp.array((i + 1.0) / 10)
-        params[f"y_{i}"] = jnp.array(-i / 5)
+        params[f"x_{i}"] = (i + 1.0) / 10
+        params[f"y_{i}"] = -i / 5
     fun_params = {"x": jnp.arange(1, T + 1) / 10, "y": -jnp.arange(T) / 5}
     actual_log_joint = potential_energy(fun_model, (T,), {}, fun_params)
     expected_log_joint = potential_energy(model, (T,), {}, params)
