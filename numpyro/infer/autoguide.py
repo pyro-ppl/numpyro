@@ -854,6 +854,7 @@ class AutoSSDAIS(AutoDAIS):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         base_guide=None,
+        guide_fixed=False,
     ):
         super().__init__(model, K=K, eta_init=eta_init, eta_max=eta_max, gamma_init=gamma_init,
                          prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale, base_dist=base_dist,
@@ -863,6 +864,7 @@ class AutoSSDAIS(AutoDAIS):
 
         assert base_dist in ["diagonal", "cholesky"]
         self.base_guide = base_guide
+        self.guide_fixed = guide_fixed
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -922,7 +924,7 @@ class AutoSSDAIS(AutoDAIS):
             init_z_loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
             init_z_loc = numpyro.param(
                 "{}_z_0_loc".format(self.prefix), init_z_loc
-            )
+            ) if not self.guide_fixed else init_z_loc
 
             if self.base_dist == "diagonal":
                 init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
@@ -930,7 +932,7 @@ class AutoSSDAIS(AutoDAIS):
                     "{}_z_0_scale".format(self.prefix),
                     init_z_scale,
                     constraint=constraints.positive,
-                )
+                ) if not self.guide_fixed else init_z_scale
                 base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
             else:
                 scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
@@ -938,7 +940,7 @@ class AutoSSDAIS(AutoDAIS):
                     "{}_scale_tril".format(self.prefix),
                     scale_tril,
                     constraint=constraints.scaled_unit_lower_cholesky
-                )
+                ) if not self.guide_fixed else scale_tril
                 base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
             z_0 = numpyro.sample(
