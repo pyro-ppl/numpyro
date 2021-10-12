@@ -249,7 +249,6 @@ def approx_periodic_gp_ncp(x, alpha, length, w0, M):
 # --- Components of the Birthdays model --- #
 def trend_gp(x, L, M):
     alpha = sample("alpha", dist.HalfNormal(1.0))
-    # length = sample("length", dist.LogNormal(-1.0, 1.0))
     length = sample("length", dist.InverseGamma(10.0, 2.0))
     f = approx_se_ncp(x, alpha, length, L, M)
     return f
@@ -266,7 +265,6 @@ def weekday_effect(day_of_week):
     with plate("plate_day_of_week", 6):
         weekday = sample("_beta", dist.Normal(0, 1))
 
-    # monday = jnp.array([0.0])
     monday = jnp.array([-jnp.sum(weekday)])  # Monday = 0 in original
     beta = deterministic("beta", jnp.concatenate((monday, weekday)))
     return beta[day_of_week]
