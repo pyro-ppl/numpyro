@@ -81,15 +81,15 @@ from numpyro.distributions.mixtures import MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
+    LeftTruncatedGamma,
     RightTruncatedDistribution,
+    RightTruncatedGamma,
     TruncatedCauchy,
     TruncatedDistribution,
+    TruncatedGamma,
     TruncatedNormal,
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
-    TruncatedGamma,
-    LeftTruncatedGamma,
-    RightTruncatedGamma,
     TwoSidedTruncatedGamma,
 )
 

@@ -4,7 +4,7 @@
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import logsumexp, gammainc
+from jax.scipy.special import gammainc, logsumexp
 from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
