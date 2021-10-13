@@ -1349,9 +1349,10 @@ class SoftLaplace(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(
-            key, shape=sample_shape + self.batch_shape + self.event_shape
-        )
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.icdf(u)
 
     # TODO: refactor validate_sample to only does validation check and use it here
