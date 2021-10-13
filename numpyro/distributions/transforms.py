@@ -106,6 +106,16 @@ class Transform(object):
         """
         return shape
 
+    # Allow for pickle serialization of transforms.
+    def __getstate__(self):
+        attrs = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, weakref.ref):
+                attrs[k] = None
+            else:
+                attrs[k] = v
+        return attrs
+
 
 class _InverseTransform(Transform):
     def __init__(self, transform):

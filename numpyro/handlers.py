@@ -86,7 +86,13 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
-from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
+from numpyro.primitives import (
+    _PYRO_STACK,
+    CondIndepStackFrame,
+    Messenger,
+    apply_stack,
+    plate,
+)
 from numpyro.util import not_jax_tracer
 
 __all__ = [
@@ -628,6 +634,14 @@ class scope(Messenger):
     def process_message(self, msg):
         if msg.get("name"):
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
+
+        if msg.get("cond_indep_stack"):
+            msg["cond_indep_stack"] = [
+                CondIndepStackFrame(
+                    f"{self.prefix}{self.divider}{i.name}", i.dim, i.size
+                )
+                for i in msg["cond_indep_stack"]
+            ]
 
 
 class seed(Messenger):

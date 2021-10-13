@@ -68,6 +68,7 @@ NumPyro documentation
    examples/neutra
    examples/covtype
    examples/thompson_sampling
+   tutorials/bayesian_hierarchical_stacking
 
 
 Indices and tables
