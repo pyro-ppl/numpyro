@@ -17,13 +17,19 @@ The original case study also emphasizes the iterative
 process of building a Bayesian model, which is excellent as a pedagogical
 resource. Here, however, we replicate only the model that includes all
 components (long term trend, smooth year seasonality, slowly varying day of week effect,
-day of the year effect and special floating days effects). Constructing
-the smaller models is stratightforward with the code provided here as one
-only needs to remove terms in the final model.
+day of the year effect and special floating days effects).
+
+The different components of the model are isolated into separate functions
+so that they can easily be reused in different contexts. To combine the
+multiple components into a single birthdays model, here we make use of Numpyro's
+`scope` handler which modifies the site names of the components by adding
+a prefix to them. By doing this, we avoid duplication of site names
+within the model. Following this pattern, it is straightforward to construct the
+other models in [1] with the code provided here.
 
 There are a few minor differences in the mathematical details of our models,
-which we had to make in order for the chains to mix properly or for ease of
-implementation. We have clearly commented on the places where our models are different.
+which we had to make for the chains to mix properly or for ease of
+implementation. We have commented on the places where our models are different.
 
 The periodic kernel approximation requires tensorflow-probability on a jax backend.
 See <https://www.tensorflow.org/probability/examples/TensorFlow_Probability_on_JAX>
