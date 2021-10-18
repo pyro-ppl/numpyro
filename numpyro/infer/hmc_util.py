@@ -6,7 +6,6 @@ from collections import OrderedDict, namedtuple
 from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.ops import index_update
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
@@ -1040,10 +1039,7 @@ def _iterative_build_subtree(
         r_ckpts, r_sum_ckpts = cond(
             leaf_idx % 2 == 0,
             (r_ckpts, r_sum_ckpts),
-            lambda x: (
-                index_update(x[0], ckpt_idx_max, r),
-                index_update(x[1], ckpt_idx_max, r_sum),
-            ),
+            lambda x: (x[0].at[ckpt_idx_max].set(r), x[1].at[ckpt_idx_max].set(r_sum)),
             (r_ckpts, r_sum_ckpts),
             identity,
         )

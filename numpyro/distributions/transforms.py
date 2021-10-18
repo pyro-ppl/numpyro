@@ -7,7 +7,7 @@ import weakref
 
 import numpy as np
 
-from jax import lax, ops, vmap
+from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
@@ -795,10 +795,10 @@ class PermuteTransform(Transform):
 
     def _inverse(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(
-            jnp.zeros(size, dtype=jnp.result_type(int)),
-            self.permutation,
-            jnp.arange(size),
+        permutation_inv = (
+            jnp.zeros(size, dtype=jnp.result_type(int))
+            .at[self.permutation]
+            .set(jnp.arange(size))
         )
         return y[..., permutation_inv]
 

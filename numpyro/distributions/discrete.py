@@ -33,7 +33,6 @@ import jax
 from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
-from jax.ops import index_add
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
@@ -621,7 +620,6 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = jax.device_get(value)
         if (
             self.is_sparse
             and not isinstance(value, jax.core.Tracer)
@@ -629,15 +627,18 @@ class Poisson(Distribution):
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
-            nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
-            return index_add(
-                -rate,
-                nonzero,
-                jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
-            ).reshape(shape)
+            return (
+                jnp.asarray(-rate)
+                .at[nonzero]
+                .add(
+                    jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
+                )
+                .reshape(shape)
+            )
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property

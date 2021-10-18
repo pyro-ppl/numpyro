@@ -8,17 +8,7 @@ import warnings
 
 import numpy as np
 
-from jax import (
-    device_put,
-    grad,
-    hessian,
-    jacfwd,
-    jacobian,
-    lax,
-    ops,
-    random,
-    value_and_grad,
-)
+from jax import device_put, grad, hessian, jacfwd, jacobian, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit
@@ -195,7 +185,7 @@ def _discrete_gibbs_proposal_body_fn(
     rng_key, z, pe, log_weight_sum = val
     rng_key, rng_transition = random.split(rng_key)
     proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
-    z_new_flat = ops.index_update(z_init_flat, idx, proposal)
+    z_new_flat = z_init_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_weight_new = pe_init - pe_new
@@ -279,7 +269,7 @@ def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_si
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
     proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
-    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
@@ -296,7 +286,7 @@ def _discrete_modified_rw_proposal(
     i = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
     proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
     proposal = jnp.where(random.bernoulli(rng_stay, stay_prob), idx, proposal)
-    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
