@@ -660,7 +660,7 @@ class ZeroInflatedProbs(Distribution):
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
-        assert base_dist.is_discrete
+        assert base_dist.support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
                 "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
@@ -700,6 +700,13 @@ class ZeroInflatedProbs(Distribution):
         return (1 - self.gate) * (
             self.base_dist.mean ** 2 + self.base_dist.variance
         ) - self.mean ** 2
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    def enumerate_support(self, expand=True):
+        return self.base_dist.enumerate_support(expand=expand)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):

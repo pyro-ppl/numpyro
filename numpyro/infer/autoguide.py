@@ -161,7 +161,7 @@ class AutoGuide(ABC):
         self._prototype_plate_sizes = {}
         for name, site in self.prototype_trace.items():
             if site["type"] == "sample":
-                if not site["is_observed"] and site["fn"].is_discrete:
+                if not site["is_observed"] and site["fn"].support.is_discrete:
                     # raise support errors early for discrete sites
                     with helpful_support_errors(site):
                         biject_to(site["fn"].support)
