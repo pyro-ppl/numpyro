@@ -690,7 +690,7 @@ class AutoDAIS(AutoContinuous):
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
             raise ValueError("gamma_init must be in the open interval (0, 1).")
-        #if init_scale <= 0.0:
+        # if init_scale <= 0.0:
         #    raise ValueError("init_scale must be positive.")
 
         self.eta_init = eta_init
@@ -700,8 +700,9 @@ class AutoDAIS(AutoContinuous):
         self.base_dist = base_dist
         self._init_scale = init_scale
         self._enable_subsampling = enable_subsampling
-        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn,
-                         create_plates=create_plates)
+        super().__init__(
+            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+        )
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -763,12 +764,14 @@ class AutoDAIS(AutoContinuous):
         )
         inv_mass_matrix = 0.5 / mass_matrix
 
-        init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix), self._init_latent
-        )
+        init_z_loc = numpyro.param("{}_z_0_loc".format(self.prefix), self._init_latent)
 
         if self.base_dist == "diagonal":
-            init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
+            init_z_scale = (
+                jnp.full(self.latent_dim, self._init_scale)
+                if isinstance(self._init_scale, float)
+                else self._init_scale[1]
+            )
             init_z_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
                 init_z_scale,
@@ -776,7 +779,11 @@ class AutoDAIS(AutoContinuous):
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
-            scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
+            scale_tril = (
+                jnp.identity(self.latent_dim) * self._init_scale
+                if isinstance(self._init_scale, float)
+                else self._init_scale[1]
+            )
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
                 scale_tril,
@@ -818,10 +825,12 @@ class AutoDAIS(AutoContinuous):
 
         return z
 
-    def sample_posterior(self, rng_key, params, sample_shape=(),
-            model_args=(), model_kwargs=None):
+    def sample_posterior(
+        self, rng_key, params, sample_shape=(), model_args=(), model_kwargs=None
+    ):
         # NOTE: model_args/model_kwargs needs to be specified for subsampling.
         model_kwargs = {} if model_kwargs is None else model_kwargs
+
         def _single_sample(_rng_key):
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
@@ -856,9 +865,18 @@ class AutoSSDAIS(AutoDAIS):
         base_guide=None,
         guide_fixed=False,
     ):
-        super().__init__(model, K=K, eta_init=eta_init, eta_max=eta_max, gamma_init=gamma_init,
-                         prefix=prefix, init_loc_fn=init_loc_fn, init_scale=init_scale, base_dist=base_dist,
-                         enable_subsampling=True)
+        super().__init__(
+            model,
+            K=K,
+            eta_init=eta_init,
+            eta_max=eta_max,
+            gamma_init=gamma_init,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            init_scale=init_scale,
+            base_dist=base_dist,
+            enable_subsampling=True,
+        )
 
         self.surrogate_model = surrogate_model
 
@@ -872,25 +890,19 @@ class AutoSSDAIS(AutoDAIS):
         rng_key = numpyro.prng_key()
 
         with numpyro.handlers.block():
-            (
-                _,
-                self._surrogate_potential_fn,
-                _,
-                _
-            ) = initialize_model(
+            (_, self._surrogate_potential_fn, _, _) = initialize_model(
                 rng_key,
                 self.surrogate_model,
                 init_strategy=self.init_loc_fn,
                 dynamic_args=False,
                 model_args=(),
                 model_kwargs={},
-                )
+            )
 
     def _sample_latent(self, *args, **kwargs):
-
         def blocked_surrogate_model(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(hide_fn=lambda site: site['type'] != 'param'):
+            with numpyro.handlers.block(hide_fn=lambda site: site["type"] != "param"):
                 return -self._surrogate_potential_fn(x_unpack)
 
         eta0 = numpyro.param(
@@ -921,32 +933,53 @@ class AutoSSDAIS(AutoDAIS):
         inv_mass_matrix = 0.5 / mass_matrix
 
         if self.base_guide is None:
-            init_z_loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
-            init_z_loc = numpyro.param(
-                "{}_z_0_loc".format(self.prefix), init_z_loc
-            ) if not self.guide_fixed else init_z_loc
+            init_z_loc = (
+                self._init_latent
+                if isinstance(self._init_scale, float)
+                else self._init_scale[0]
+            )
+            init_z_loc = (
+                numpyro.param("{}_z_0_loc".format(self.prefix), init_z_loc)
+                if not self.guide_fixed
+                else init_z_loc
+            )
 
             if self.base_dist == "diagonal":
-                init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
-                init_z_scale = numpyro.param(
-                    "{}_z_0_scale".format(self.prefix),
-                    init_z_scale,
-                    constraint=constraints.positive,
-                ) if not self.guide_fixed else init_z_scale
+                init_z_scale = (
+                    jnp.full(self.latent_dim, self._init_scale)
+                    if isinstance(self._init_scale, float)
+                    else self._init_scale[1]
+                )
+                init_z_scale = (
+                    numpyro.param(
+                        "{}_z_0_scale".format(self.prefix),
+                        init_z_scale,
+                        constraint=constraints.positive,
+                    )
+                    if not self.guide_fixed
+                    else init_z_scale
+                )
                 base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
             else:
-                scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
-                scale_tril = numpyro.param(
-                    "{}_scale_tril".format(self.prefix),
-                    scale_tril,
-                    constraint=constraints.scaled_unit_lower_cholesky
-                ) if not self.guide_fixed else scale_tril
+                scale_tril = (
+                    jnp.identity(self.latent_dim) * self._init_scale
+                    if isinstance(self._init_scale, float)
+                    else self._init_scale[1]
+                )
+                scale_tril = (
+                    numpyro.param(
+                        "{}_scale_tril".format(self.prefix),
+                        scale_tril,
+                        constraint=constraints.scaled_unit_lower_cholesky,
+                    )
+                    if not self.guide_fixed
+                    else scale_tril
+                )
                 base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
             z_0 = numpyro.sample(
-                "{}_z_0".format(self.prefix),
-                base_z_dist,
-                infer={"is_auxiliary": True})
+                "{}_z_0".format(self.prefix), base_z_dist, infer={"is_auxiliary": True}
+            )
             base_z_dist_log_prob = base_z_dist.log_prob
         else:
             z_0, base_z_dist_log_prob = self.base_guide("{}_z_0".format(self.prefix))
@@ -1087,9 +1120,17 @@ class AutoMultivariateNormal(AutoContinuous):
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
-        loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
+        loc = (
+            self._init_latent
+            if isinstance(self._init_scale, float)
+            else self._init_scale[0]
+        )
         loc = numpyro.param("{}_loc".format(self.prefix), loc)
-        scale_tril = self._init_scale * jnp.identity(self.latent_dim) if isinstance(self._init_scale, float) else self._init_scale[1]
+        scale_tril = (
+            self._init_scale * jnp.identity(self.latent_dim)
+            if isinstance(self._init_scale, float)
+            else self._init_scale[1]
+        )
         scale_tril = numpyro.param(
             "{}_scale_tril".format(self.prefix),
             scale_tril,

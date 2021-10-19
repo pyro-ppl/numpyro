@@ -6,7 +6,8 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, grad, lax, random
+import jax
+from jax import grad, jit, lax, random
 from jax.experimental.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
@@ -627,8 +628,7 @@ def test_autodais_create_plates():
     def create_plates(data, subsample_size=3):
         return numpyro.plate("plate", 10, subsample_size=subsample_size)
 
-    guide = AutoDAIS(model, enable_subsampling=True,
-                     create_plates=create_plates)
+    guide = AutoDAIS(model, enable_subsampling=True, create_plates=create_plates)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(1), 2, data)
     svi.run(random.PRNGKey(0), 3, data, subsample_size=10)
@@ -653,12 +653,14 @@ def test_subsample_model_with_deterministic():
 
 class SSDAIS2(AutoSSDAIS):
     def _sample_latent(self, *args, **kwargs):
-        with handlers.block(hide_fn=lambda site: site["type"] != "params"), \
-                handlers.trace() as tr, handlers.seed(rng_seed=0):
+        with handlers.block(
+            hide_fn=lambda site: site["type"] != "params"
+        ), handlers.trace() as tr, handlers.seed(rng_seed=0):
             self._surrogate_potential_fn(self._unpack_latent(self._init_latent))
 
-        current_params = {name: site["value"] for name, site in tr.items()
-                if site["type"] == "params"}
+        current_params = {
+            name: site["value"] for name, site in tr.items() if site["type"] == "params"
+        }
 
         # Make this a pure (no side effect) function.
         def blocked_surrogate_model(x):
@@ -694,13 +696,19 @@ class SSDAIS2(AutoSSDAIS):
         inv_mass_matrix = 0.5 / mass_matrix
 
         if self.base_guide is None:
-            init_z_loc = self._init_latent if isinstance(self._init_scale, float) else self._init_scale[0]
-            init_z_loc = numpyro.param(
-                "{}_z_0_loc".format(self.prefix), init_z_loc
+            init_z_loc = (
+                self._init_latent
+                if isinstance(self._init_scale, float)
+                else self._init_scale[0]
             )
+            init_z_loc = numpyro.param("{}_z_0_loc".format(self.prefix), init_z_loc)
 
             if self.base_dist == "diagonal":
-                init_z_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale[1]
+                init_z_scale = (
+                    jnp.full(self.latent_dim, self._init_scale)
+                    if isinstance(self._init_scale, float)
+                    else self._init_scale[1]
+                )
                 init_z_scale = numpyro.param(
                     "{}_z_0_scale".format(self.prefix),
                     init_z_scale,
@@ -708,18 +716,21 @@ class SSDAIS2(AutoSSDAIS):
                 )
                 base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
             else:
-                scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale[1]
+                scale_tril = (
+                    jnp.identity(self.latent_dim) * self._init_scale
+                    if isinstance(self._init_scale, float)
+                    else self._init_scale[1]
+                )
                 scale_tril = numpyro.param(
                     "{}_scale_tril".format(self.prefix),
                     scale_tril,
-                    constraint=constraints.scaled_unit_lower_cholesky
+                    constraint=constraints.scaled_unit_lower_cholesky,
                 )
                 base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
 
             z_0 = numpyro.sample(
-                "{}_z_0".format(self.prefix),
-                base_z_dist,
-                infer={"is_auxiliary": True})
+                "{}_z_0".format(self.prefix), base_z_dist, infer={"is_auxiliary": True}
+            )
             base_z_dist_log_prob = base_z_dist.log_prob
         else:
             z_0, base_z_dist_log_prob = self.base_guide("{}_z_0".format(self.prefix))
@@ -756,32 +767,186 @@ class SSDAIS2(AutoSSDAIS):
 
 
 def test_auto_ssdais():
-    data = jnp.arange(20.)
+    data = jnp.arange(20.0)
 
     def model():
-        loc = numpyro.sample('loc', dist.Normal(0, 1))
-        scale = numpyro.sample('scale', dist.LogNormal(1))
+        loc = numpyro.sample("loc", dist.Normal(0, 1))
+        scale = numpyro.sample("scale", dist.LogNormal(1))
         with numpyro.plate("N", data.shape[0], subsample_size=4):
             batch = numpyro.subsample(data, event_dim=0)
             numpyro.sample("obs", dist.Normal(loc, scale), obs=batch)
 
     def surrogate_model():
         batch = data[:4]
-        loc = numpyro.sample('loc', dist.Normal(0, 1))
-        scale = numpyro.sample('scale', dist.LogNormal(1))
-        shift_loc = numpyro.param('shift_loc', 0.)
-        shift_scale = numpyro.param('shift_scale', 1., constraint=constraints.positive)
+        loc = numpyro.sample("loc", dist.Normal(0, 1))
+        scale = numpyro.sample("scale", dist.LogNormal(1))
+        shift_loc = numpyro.param("shift_loc", 0.0)
+        shift_scale = numpyro.param("shift_scale", 1.0, constraint=constraints.positive)
         with numpyro.plate("N", batch.shape[0]):
             numpyro.sample(
-                "obs", dist.Normal(loc + shift_loc, scale * shift_scale), obs=batch)
+                "obs", dist.Normal(loc + shift_loc, scale * shift_scale), obs=batch
+            )
 
     guide1 = AutoSSDAIS(model, surrogate_model=surrogate_model)
-    svi1 = SVI(model, guide1, optim.Adam(1.), Trace_ELBO())
+    svi1 = SVI(model, guide1, optim.Adam(1.0), Trace_ELBO())
     svi1_result = svi1.run(random.PRNGKey(1), 10)
 
     guide2 = SSDAIS2(model, surrogate_model=surrogate_model)
-    svi2 = SVI(model, guide2, optim.Adam(1.), Trace_ELBO())
+    svi2 = SVI(model, guide2, optim.Adam(1.0), Trace_ELBO())
     svi2_result = svi2.run(random.PRNGKey(1), 10)
 
     assert_allclose(svi1_result.losses, svi2_result.losses)
 
+
+def test_auto_ssdais_local():
+    eta_init = 1e-4  # 0.01
+    eta_max = 0.1
+    gamma_init = 0.9
+    init_scale = 1e-4  # 0.1
+    K = 4
+
+    def model(X, Y, subsample_size, nu=5.0):
+        N, D = X.shape
+        theta = numpyro.sample("theta", dist.Normal(jnp.zeros(D), jnp.ones(D)))
+        sigma_obs = numpyro.param("sigma_obs", 1.0, constraint=constraints.positive)
+
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            X_batch = numpyro.subsample(X, event_dim=1)
+            Y_batch = numpyro.subsample(Y, event_dim=0)
+            tau_log = numpyro.sample(
+                "tau_log",
+                dist.TransformedDistribution(
+                    dist.Gamma(nu / 2, nu / 2), transforms.ExpTransform().inv
+                ),
+            )
+            tau = jnp.exp(tau_log)
+            mean = theta @ X_batch.T
+            scale = sigma_obs / jnp.sqrt(tau)
+            numpyro.sample("obs", dist.Normal(mean, scale), obs=Y_batch)
+
+    def log_density(X_batch, Y_batch, theta, sigma_obs, nu, log_tau_batch):
+        mean = theta @ X_batch.T
+        tau = jnp.exp(log_tau_batch)
+        scale = sigma_obs / jnp.sqrt(tau)
+        tau_log_prob = (
+            dist.TransformedDistribution(
+                dist.Gamma(nu / 2, nu / 2), transforms.ExpTransform().inv
+            )
+            .log_prob(log_tau_batch)
+            .sum()
+        )
+        return dist.Normal(mean, scale).log_prob(Y_batch).sum() + tau_log_prob
+
+    def guide(X, Y, subsample_size, nu=5.0):
+        N, D = X.shape
+        theta_loc = numpyro.param("theta_loc", jnp.zeros(D))
+        theta_scale = numpyro.param(
+            "theta_scale", jnp.ones(D), constraint=constraints.positive
+        )
+        theta = numpyro.sample("theta", dist.Normal(theta_loc, theta_scale))
+        sigma_obs = numpyro.param("sigma_obs", 1.0, constraint=constraints.positive)
+
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            X_batch = numpyro.subsample(X, event_dim=1)
+            Y_batch = numpyro.subsample(Y, event_dim=0)
+
+            eta0 = numpyro.param(
+                "eta0",
+                jnp.ones(N) * eta_init,
+                constraint=constraints.interval(0, eta_max),
+                event_dim=0,
+            )
+            eta_coeff = numpyro.param("eta_coeff", jnp.zeros(N), event_dim=0)
+
+            gamma = numpyro.param(
+                "gamma",
+                jnp.ones(N) * gamma_init,
+                constraint=constraints.interval(0, 1),
+                event_dim=0,
+            )
+            betas = numpyro.param(
+                "beta_increments",
+                jnp.ones((N, K)),
+                constraint=constraints.positive,
+                event_dim=1,
+            )
+            betas = jnp.cumsum(betas, axis=-1)
+            betas = betas / betas[..., -1:]  # K-dimensional with betas[-1] = 1
+
+            mass_matrix = numpyro.param(
+                "mass_matrix",
+                jnp.ones(N),
+                constraint=constraints.positive,
+                event_dim=0,
+            )
+            inv_mass_matrix = 0.5 / mass_matrix
+            assert inv_mass_matrix.shape == (subsample_size,)
+            z_0_loc = numpyro.param("z_0_loc", jnp.zeros(N), event_dim=0)
+            z_0_scale = numpyro.param(
+                "z_0_scale",
+                jnp.ones(N) * init_scale,
+                constraint=constraints.positive,
+                event_dim=0,
+            )
+            base_z_dist = dist.Normal(z_0_loc, z_0_scale)
+            assert base_z_dist.shape() == (subsample_size,)
+            z_0 = numpyro.sample("z_0", base_z_dist, infer={"is_auxiliary": True})
+            base_z_dist_log_prob = lambda x: base_z_dist.log_prob(x).sum()
+
+            momentum_dist = dist.Normal(0, mass_matrix)  # N
+            eps = numpyro.sample(
+                "momentum",
+                dist.Normal(0, mass_matrix[..., None])
+                .expand([subsample_size, K])
+                .to_event(1)
+                .mask(False),
+                infer={"is_auxiliary": True},
+            )
+            batch_log_density = partial(
+                log_density, X_batch, Y_batch, theta, sigma_obs, nu
+            )
+
+            def scan_body(carry, eps_beta):
+                eps, beta = eps_beta
+                assert eps.shape == (subsample_size,) and beta.shape == (
+                    subsample_size,
+                )
+                eta = eta0 + eta_coeff * beta
+                eta = jnp.clip(eta, a_min=0.0, a_max=eta_max)
+                assert eta.shape == (subsample_size,)
+                z_prev, v_prev, log_factor = carry
+                z_half = z_prev + v_prev * eta * inv_mass_matrix
+                q_grad = (1.0 - beta) * grad(base_z_dist_log_prob)(z_half)
+                p_grad = beta * grad(batch_log_density)(z_half)
+                assert q_grad.shape == (subsample_size,) and p_grad.shape == (
+                    subsample_size,
+                )
+                v_hat = v_prev + eta * (q_grad + p_grad)
+                z = z_half + v_hat * eta * inv_mass_matrix
+                v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+                delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(
+                    v_hat
+                )
+                assert delta_ke.shape == (subsample_size,)
+                log_factor = log_factor + delta_ke.sum()
+                return (z, v, log_factor), None
+
+            v_0 = eps[:, -1]  # note the return value of scan doesn't depend on eps[-1]
+            assert eps.shape == (subsample_size, K) and betas.shape == (
+                subsample_size,
+                K,
+            )
+            (z, _, log_factor), _ = jax.lax.scan(
+                scan_body, (z_0, v_0, 0.0), (eps.T, betas.T)
+            )
+
+            numpyro.sample("tau_log", dist.Delta(z, event_dim=0))
+
+        numpyro.factor("factor", log_factor)
+
+    N, D = 10000, 3
+    X = dist.Normal(0, 1).expand([N, D]).sample(random.PRNGKey(0))
+    Y = X[:, 0] + dist.Normal(0, 1).expand([N]).sample(random.PRNGKey(1))
+    svi = SVI(model, guide, optim.Adam(1e-5), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(2), 50000, X, Y, 1000, nu=5.0)
+    print("Theta:", svi_result.params["theta_loc"])
