@@ -306,7 +306,14 @@ class SVI(object):
         :param bool stable_update: whether to use :meth:`stable_update` to update
             the state. Defaults to False.
         :param SVIState init_state: if not None, begin SVI from the
-            final state of previous SVI run.
+            final state of previous SVI run. Usage::
+
+                svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+                svi_result = svi.run(random.PRNGKey(0), 2000, data) 
+                # upon inspection of svi_result the user decides that the model has not converged
+                # continue from the end of the previous svi run rather than beginning again from iteration 0
+                svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state) 
+
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
