@@ -285,7 +285,7 @@ class SVI(object):
         *args,
         progress_bar=True,
         stable_update=False,
-        svi_initial_state=None,
+        init_state=None,
         **kwargs,
     ):
         """
@@ -305,7 +305,7 @@ class SVI(object):
             ``True``.
         :param bool stable_update: whether to use :meth:`stable_update` to update
             the state. Defaults to False.
-        :param SVIRunResult.state svi_initial_state: if not None, begin SVI from the
+        :param SVIState init_state: if not None, begin SVI from the
             final state of previous SVI run.
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
@@ -324,10 +324,10 @@ class SVI(object):
                 svi_state, loss = self.update(svi_state, *args, **kwargs)
             return svi_state, loss
 
-        if svi_initial_state is None:
+        if init_state is None:
             svi_state = self.init(rng_key, *args, **kwargs)
         else:
-            svi_state = svi_initial_state
+            svi_state = init_state
         if progress_bar:
             losses = []
             with tqdm.trange(1, num_steps + 1) as t:
