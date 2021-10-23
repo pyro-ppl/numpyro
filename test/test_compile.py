@@ -42,9 +42,7 @@ def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
 
 
 @pytest.mark.parametrize("deterministic", [True, False])
-@pytest.mark.skipif(
-    jax.device_count() < 2, reason="only one device is available"
-)
+@pytest.mark.skipif(jax.device_count() < 2, reason="only one device is available")
 def test_mcmc_parallel_chain(deterministic):
     GLOBAL["count"] = 0
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100, num_chains=2)
