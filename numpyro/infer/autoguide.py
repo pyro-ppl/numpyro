@@ -1086,7 +1086,29 @@ class AutoLaplaceApproximation(AutoContinuous):
 
         guide = AutoLaplaceApproximation(model, ...)
         svi = SVI(model, guide, ...)
+
+    :param callable get_precision: EXPERIMENTAL a transform that takes the loss
+        function :math:`-\log p(x, z)` and returns a function to compute precision
+        matrix at the MAP point of `z`. By default, we use ``jax.hessian``. Other
+        alternatives can be ``lambda f: jax.jacobian(jax.jacobian(f))``.
+        A customized one, for example by adding a jitter term to the diagonal part of
+        the precision matrix, can also be helpful when hessian of `f` is not positive
+        definite.
     """
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        create_plates=None,
+        get_precision=None,
+    ):
+        super().__init__(
+            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+        )
+        self._get_precision = get_precision if get_precision is not None else hessian
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
@@ -1114,7 +1136,7 @@ class AutoLaplaceApproximation(AutoContinuous):
             return self._loss_fn(params1)
 
         loc = params["{}_loc".format(self.prefix)]
-        precision = hessian(loss_fn)(loc)
+        precision = self._get_precision(loss_fn)(loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
