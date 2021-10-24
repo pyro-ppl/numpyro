@@ -67,6 +67,13 @@ def _mvn_to_scipy(loc, cov, prec, tril):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+def _multivariate_t_to_scipy(df, loc, tril):
+    jax_dist = dist.MultivariateStudentT(df, loc, tril)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
+    return osp.multivariate_t(loc=mean, shape=cov, df=df)
+
+
 def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
     jax_dist = dist.LowRankMultivariateNormal(loc, cov_fac, cov_diag)
     mean = jax_dist.mean
@@ -211,6 +218,7 @@ _DIST_MAP = {
         n=total_count, p=_to_probs_multinom(logits)
     ),
     dist.MultivariateNormal: _mvn_to_scipy,
+    dist.MultivariateStudentT: _multivariate_t_to_scipy,
     dist.LowRankMultivariateNormal: _lowrank_mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda scale, alpha: osp.pareto(alpha, scale=scale),
@@ -327,6 +335,54 @@ CONTINUOUS = [
         None,
         jnp.broadcast_to(jnp.identity(3), (2, 3, 3)),
         None,
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        0.0,
+        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        jnp.array([1.0, 3.0]),
+        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        jnp.array([1.0, 3.0]),
+        jnp.array([[[1.0, 0.0], [0.5, 1.0]]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        jnp.array([3.0]),
+        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        jnp.arange(6, dtype=jnp.float32).reshape((3, 2)),
+        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        jnp.ones(3),
+        jnp.broadcast_to(jnp.identity(3), (2, 3, 3)),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        jnp.array(7.0),
+        jnp.array([1.0, 3.0]),
+        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        jnp.arange(20, 22, dtype=jnp.float32),
+        jnp.ones(3),
+        jnp.broadcast_to(jnp.identity(3), (2, 3, 3)),
     ),
     T(
         dist.LowRankMultivariateNormal,
@@ -666,15 +722,39 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
+    enforce_min_size = False
+    if jax_dist.__name__ == "MultivariateStudentT":
+        enforce_min_size = True
+
     jax_dist = jax_dist(*params)
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert jnp.shape(samples) == expected_shape
-    if sp_dist and not _is_batched_multivariate(jax_dist):
+    if (
+        sp_dist
+        and not _is_batched_multivariate(jax_dist)
+        and not isinstance(jax_dist, dist.MultivariateStudentT)
+    ):
         sp_dist = sp_dist(*params)
         sp_samples = sp_dist.rvs(size=prepend_shape + jax_dist.batch_shape)
+        assert jnp.shape(sp_samples) == expected_shape
+    elif (
+        sp_dist
+        and not _is_batched_multivariate(jax_dist)
+        and isinstance(jax_dist, dist.MultivariateStudentT)
+    ):
+        sp_dist = sp_dist(*params)
+        if enforce_min_size:
+            size_ = prepend_shape + jax_dist.batch_shape
+            size = (1) if size_ == () else size_
+            try:
+                sp_samples = sp_dist.rvs(size=size)
+            except ValueError:
+                pytest.skip("scipy multivariate t doesn't support size as tuple")
+        else:
+            sp_samples = sp_dist.rvs(size=prepend_shape + jax_dist.batch_shape)
         assert jnp.shape(sp_samples) == expected_shape
     if isinstance(jax_dist, dist.MultivariateNormal):
         assert jax_dist.covariance_matrix.ndim == len(jax_dist.batch_shape) + 2
@@ -1254,7 +1334,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     if (
         sp_dist
         and not _is_batched_multivariate(d_jax)
-        and jax_dist not in [dist.VonMises]
+        and jax_dist not in [dist.VonMises, dist.MultivariateStudentT]
     ):
         d_sp = sp_dist(*params)
         try:
@@ -1380,6 +1460,9 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         valid_params[i] = gen_values_within_bounds(
             constraint, jnp.shape(params[i]), key_gen
         )
+        if jax_dist is dist.MultivariateStudentT:
+            # ensure df >= 1 as scipy logpdf nan when df <= 1
+            valid_params[0] += 1
 
     assert jax_dist(*oob_params)
 
