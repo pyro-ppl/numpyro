@@ -722,10 +722,6 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
-    enforce_min_size = False
-    if jax_dist.__name__ == "MultivariateStudentT":
-        enforce_min_size = True
-
     jax_dist = jax_dist(*params)
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
@@ -746,15 +742,14 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         and isinstance(jax_dist, dist.MultivariateStudentT)
     ):
         sp_dist = sp_dist(*params)
-        if enforce_min_size:
-            size_ = prepend_shape + jax_dist.batch_shape
-            size = (1) if size_ == () else size_
-            try:
-                sp_samples = sp_dist.rvs(size=size)
-            except ValueError:
-                pytest.skip("scipy multivariate t doesn't support size as tuple")
-        else:
-            sp_samples = sp_dist.rvs(size=prepend_shape + jax_dist.batch_shape)
+        size_ = prepend_shape + jax_dist.batch_shape
+        size = (1) if size_ == () else size_
+        try:
+            sp_samples = sp_dist.rvs(size=size)
+        except ValueError:
+            pytest.skip(
+                "scipy multivariate t doesn't support size with > 1 element"
+            )
         assert jnp.shape(sp_samples) == expected_shape
     if isinstance(jax_dist, dist.MultivariateNormal):
         assert jax_dist.covariance_matrix.ndim == len(jax_dist.batch_shape) + 2
