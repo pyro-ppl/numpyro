@@ -610,3 +610,14 @@ def test_subsample_model_with_deterministic():
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert "x2" in samples
+
+
+def test_autocontinuous_local_error():
+    def model():
+        with numpyro.plate("N", 10, subsample_size=4):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+    guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    with pytest.raises(ValueError, match="local latent variables"):
+        svi.init(random.PRNGKey(0))
