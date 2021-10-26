@@ -128,7 +128,8 @@ def sample(
         broadcastable with ``fn.batch_shape``. If provided, events with
         mask=True will be conditioned on ``obs`` and remaining events will be
         imputed by sampling. This introduces a latent sample site named ``name
-        + "_unobserved"`` which should be used by guides.
+        + "_unobserved"`` which should be used by guides in SVI. Note that this
+        argument is not intended to be used with MCMC.
     :return: sample from the stochastic `fn`.
     """
     assert isinstance(
