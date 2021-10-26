@@ -157,7 +157,7 @@ def num_mix_comps(amino_acid):
     return num_mix.get(amino_acid, 9)
 
 
-def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.png"):
+def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.pdf"):
     amino_acids = {"S": "Serine", "P": "Proline", "G": "Glycine"}
     fig, axss = plt.subplots(2, len(aas))
     cdata = data
@@ -256,7 +256,7 @@ def main(args):
     pred_datas = {}
     rng_key = random.PRNGKey(args.rng_seed)
     for aa in args.amino_acids:
-        rng_key, inf_key, pred_key = random.split(rng_key)
+        rng_key, inf_key, pred_key = random.split(rng_key, 3)
         data[aa] = fetch_aa_dihedrals(aa)
         num_mix_comp = num_mix_comps(aa)
 
