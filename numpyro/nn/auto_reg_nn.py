@@ -5,7 +5,6 @@
 
 import numpy as np
 
-from jax import ops
 from jax.experimental import stax
 import jax.numpy as jnp
 
@@ -41,7 +40,7 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     """
     # Create mask indices for input, hidden layers, and final layer
     var_index = jnp.zeros(permutation.shape[0])
-    var_index = ops.index_update(var_index, permutation, jnp.arange(input_dim))
+    var_index = var_index.at[permutation].set(jnp.arange(input_dim))
 
     # Create the indices that are assigned to the neurons
     input_indices = 1 + var_index

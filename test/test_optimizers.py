@@ -1,9 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import pytest
 
-from jax import grad, jit, partial
+from jax import grad, jit
 import jax.numpy as jnp
 
 from numpyro import optim

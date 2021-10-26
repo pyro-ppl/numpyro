@@ -26,7 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from jax import lax, ops
+from jax import lax
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
@@ -751,11 +751,8 @@ class LKJCholesky(Distribution):
         w = jnp.expand_dims(jnp.sqrt(beta_sample), axis=-1) * u_hypershere
 
         # put w into the off-diagonal triangular part
-        cholesky = ops.index_add(
-            jnp.zeros(size + self.batch_shape + self.event_shape),
-            ops.index[..., 1:, :-1],
-            w,
-        )
+        cholesky = jnp.zeros(size + self.batch_shape + self.event_shape)
+        cholesky = cholesky.at[..., 1:, :-1].set(w)
         # correct the diagonal
         # NB: we clip due to numerical precision
         diag = jnp.sqrt(jnp.clip(1 - jnp.sum(cholesky ** 2, axis=-1), a_min=0.0))
@@ -1349,9 +1346,10 @@ class SoftLaplace(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(
-            key, shape=sample_shape + self.batch_shape + self.event_shape
-        )
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.icdf(u)
 
     # TODO: refactor validate_sample to only does validation check and use it here

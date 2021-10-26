@@ -28,7 +28,6 @@ import time
 
 import numpy as np
 
-import jax
 from jax import vmap
 import jax.numpy as jnp
 import jax.random as random
@@ -92,9 +91,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, si
     P, N = X.shape[1], X.shape[0]
 
     probe = jnp.zeros((2, P))
-    probe = jax.ops.index_update(
-        probe, jax.ops.index[:, dimension], jnp.array([1.0, -1.0])
-    )
+    probe = probe.at[:, dimension].set(jnp.array([1.0, -1.0]))
 
     eta2 = jnp.square(eta1) * jnp.sqrt(xisq) / msq
     kappa = jnp.sqrt(msq) * lam / jnp.sqrt(msq + jnp.square(eta1 * lam))
@@ -124,12 +121,8 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, si
     P, N = X.shape[1], X.shape[0]
 
     probe = jnp.zeros((4, P))
-    probe = jax.ops.index_update(
-        probe, jax.ops.index[:, dim1], jnp.array([1.0, 1.0, -1.0, -1.0])
-    )
-    probe = jax.ops.index_update(
-        probe, jax.ops.index[:, dim2], jnp.array([1.0, -1.0, 1.0, -1.0])
-    )
+    probe = probe.at[:, dim1].set(jnp.array([1.0, 1.0, -1.0, -1.0]))
+    probe = probe.at[:, dim2].set(jnp.array([1.0, -1.0, 1.0, -1.0]))
 
     eta2 = jnp.square(eta1) * jnp.sqrt(xisq) / msq
     kappa = jnp.sqrt(msq) * lam / jnp.sqrt(msq + jnp.square(eta1 * lam))
@@ -168,12 +161,8 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
     start2 = 0
 
     for dim in range(P):
-        probe = jax.ops.index_update(
-            probe, jax.ops.index[start1 : start1 + 2, dim], jnp.array([1.0, -1.0])
-        )
-        vec = jax.ops.index_update(
-            vec, jax.ops.index[start2, start1 : start1 + 2], jnp.array([0.5, -0.5])
-        )
+        probe = probe.at[start1 : start1 + 2, dim].set(jnp.array([1.0, -1.0]))
+        vec = vec.at[start2, start1 : start1 + 2].set(jnp.array([0.5, -0.5]))
         start1 += 2
         start2 += 1
 
@@ -181,20 +170,14 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
         for dim2 in active_dims:
             if dim1 >= dim2:
                 continue
-            probe = jax.ops.index_update(
-                probe,
-                jax.ops.index[start1 : start1 + 4, dim1],
-                jnp.array([1.0, 1.0, -1.0, -1.0]),
+            probe = probe.at[start1 : start1 + 4, dim1].set(
+                jnp.array([1.0, 1.0, -1.0, -1.0])
             )
-            probe = jax.ops.index_update(
-                probe,
-                jax.ops.index[start1 : start1 + 4, dim2],
-                jnp.array([1.0, -1.0, 1.0, -1.0]),
+            probe = probe.at[start1 : start1 + 4, dim2].set(
+                jnp.array([1.0, -1.0, 1.0, -1.0])
             )
-            vec = jax.ops.index_update(
-                vec,
-                jax.ops.index[start2, start1 : start1 + 4],
-                jnp.array([0.25, -0.25, -0.25, 0.25]),
+            vec = vec.at[start2, start1 : start1 + 4].set(
+                jnp.array([0.25, -0.25, -0.25, 0.25])
             )
             start1 += 4
             start2 += 1
@@ -401,7 +384,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.7.2")
+    assert numpyro.__version__.startswith("0.8.0")
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
