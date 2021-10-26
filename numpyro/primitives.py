@@ -7,7 +7,7 @@ import functools
 import warnings
 
 import jax
-from jax import lax, ops, random
+from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
@@ -128,9 +128,13 @@ def sample(
         broadcastable with ``fn.batch_shape``. If provided, events with
         mask=True will be conditioned on ``obs`` and remaining events will be
         imputed by sampling. This introduces a latent sample site named ``name
-        + "_unobserved"`` which should be used by guides.
+        + "_unobserved"`` which should be used by guides in SVI. Note that this
+        argument is not intended to be used with MCMC.
     :return: sample from the stochastic `fn`.
     """
+    assert isinstance(
+        sample_shape, tuple
+    ), "sample_shape needs to be a tuple of integers"
     if not isinstance(fn, numpyro.distributions.Distribution):
         type_error = TypeError(
             "It looks like you tried to use a fn that isn't an instance of "
@@ -388,17 +392,7 @@ def _subsample_fn(size, subsample_size, rng_key=None):
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
-            val = ops.index_update(
-                val,
-                ops.index[
-                    [i, j],
-                ],
-                val[
-                    ops.index[
-                        [j, i],
-                    ]
-                ],
-            )
+            val = val.at[jnp.array([i, j])].set(val[jnp.array([j, i])])
             return val, None
 
         val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))

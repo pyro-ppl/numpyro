@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+from itertools import zip_longest
 import os
 import random
 import re
@@ -13,7 +14,7 @@ import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 
 import jax
-from jax import device_put, jit, lax, ops, vmap
+from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import host_callback
 from jax.flatten_util import ravel_pytree
@@ -322,7 +323,7 @@ def fori_collect(
         collection = cond(
             idx >= 0,
             collection,
-            lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
+            lambda x: x.at[idx].set(ravel_pytree(transform(val))[0]),
             collection,
             identity,
         )
@@ -505,6 +506,105 @@ def format_shapes(
             break
 
     return _format_table(rows)
+
+
+def check_model_guide_match(model_trace, guide_trace):
+    """
+    :param dict model_trace: The model trace to check.
+    :param dict guide_trace: The guide trace to check.
+    :raises: RuntimeWarning, ValueError
+    Checks the following assumptions:
+    1. Each sample site in the model also appears in the guide and is not
+        marked auxiliary.
+    2. Each sample site in the guide either appears in the model or is marked,
+        auxiliary via ``infer={'is_auxiliary': True}``.
+    3. Each :class:`~numpyro.primitives.plate` statement in the guide also
+        appears in the model.
+    4. At each sample site that appears in both the model and guide, the model
+        and guide agree on sample shape.
+    """
+    # Check ordinary sample sites.
+    guide_vars = set(
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample" and not site.get("is_observed", False)
+    )
+    aux_vars = set(
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample"
+        if site["infer"].get("is_auxiliary")
+    )
+    model_vars = set(
+        name
+        for name, site in model_trace.items()
+        if site["type"] == "sample" and not site.get("is_observed", False)
+    )
+    # TODO: Collect enum variables when TraceEnum_ELBO is supported.
+    enum_vars = set()
+
+    if aux_vars & model_vars:
+        warnings.warn(
+            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars)
+        )
+    if not (guide_vars <= model_vars | aux_vars):
+        warnings.warn(
+            "Found non-auxiliary vars in guide but not model, "
+            "consider marking these infer={{'is_auxiliary': True}}:\n{}".format(
+                guide_vars - aux_vars - model_vars
+            )
+        )
+    if not (model_vars <= guide_vars | enum_vars):
+        warnings.warn(
+            "Found vars in model but not guide: {}".format(
+                model_vars - guide_vars - enum_vars
+            )
+        )
+
+    # Check shapes agree.
+    for name in model_vars & guide_vars:
+        model_site = model_trace[name]
+        guide_site = guide_trace[name]
+
+        if hasattr(model_site["fn"], "event_dim") and hasattr(
+            guide_site["fn"], "event_dim"
+        ):
+            if model_site["fn"].event_dim != guide_site["fn"].event_dim:
+                raise ValueError(
+                    "Model and guide event_dims disagree at site '{}': {} vs {}".format(
+                        name, model_site["fn"].event_dim, guide_site["fn"].event_dim
+                    )
+                )
+
+        if hasattr(model_site["fn"], "shape") and hasattr(guide_site["fn"], "shape"):
+            model_shape = model_site["fn"].shape(model_site["kwargs"]["sample_shape"])
+            guide_shape = guide_site["fn"].shape(guide_site["kwargs"]["sample_shape"])
+            if model_shape == guide_shape:
+                continue
+
+            for model_size, guide_size in zip_longest(
+                reversed(model_shape), reversed(guide_shape), fillvalue=1
+            ):
+                if model_size != guide_size:
+                    raise ValueError(
+                        "Model and guide shapes disagree at site '{}': {} vs {}".format(
+                            name, model_shape, guide_shape
+                        )
+                    )
+
+    # Check subsample sites introduced by plate.
+    model_vars = set(
+        name for name, site in model_trace.items() if site["type"] == "plate"
+    )
+    guide_vars = set(
+        name for name, site in guide_trace.items() if site["type"] == "plate"
+    )
+    if not (guide_vars <= model_vars):
+        warnings.warn(
+            "Found plate statements in guide but not model: {}".format(
+                guide_vars - model_vars
+            )
+        )
 
 
 def _format_table(rows):

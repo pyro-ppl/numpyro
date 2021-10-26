@@ -55,9 +55,10 @@ def model(batch, hidden_dim=400, z_dim=100):
     batch = jnp.reshape(batch, (batch.shape[0], -1))
     batch_dim, out_dim = jnp.shape(batch)
     decode = numpyro.module("decoder", decoder(hidden_dim, out_dim), (batch_dim, z_dim))
-    z = numpyro.sample("z", dist.Normal(jnp.zeros((z_dim,)), jnp.ones((z_dim,))))
-    img_loc = decode(z)
-    return numpyro.sample("obs", dist.Bernoulli(img_loc), obs=batch)
+    with numpyro.plate("batch", batch_dim):
+        z = numpyro.sample("z", dist.Normal(0, 1).expand([z_dim]).to_event(1))
+        img_loc = decode(z)
+        return numpyro.sample("obs", dist.Bernoulli(img_loc).to_event(1), obs=batch)
 
 
 def guide(batch, hidden_dim=400, z_dim=100):
@@ -65,8 +66,8 @@ def guide(batch, hidden_dim=400, z_dim=100):
     batch_dim, out_dim = jnp.shape(batch)
     encode = numpyro.module("encoder", encoder(hidden_dim, z_dim), (batch_dim, out_dim))
     z_loc, z_std = encode(batch)
-    z = numpyro.sample("z", dist.Normal(z_loc, z_std))
-    return z
+    with numpyro.plate("batch", batch_dim):
+        return numpyro.sample("z", dist.Normal(z_loc, z_std).to_event(1))
 
 
 @jit
@@ -159,7 +160,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.7.2")
+    assert numpyro.__version__.startswith("0.8.0")
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument(
         "-n", "--num-epochs", default=15, type=int, help="number of training epochs"

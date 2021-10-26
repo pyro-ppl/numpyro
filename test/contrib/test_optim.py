@@ -1,10 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import grad, jit, partial, random
+from jax import grad, jit, random
 from jax.lax import fori_loop
 import jax.numpy as jnp
 from jax.test_util import check_close

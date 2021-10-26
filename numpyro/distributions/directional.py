@@ -212,9 +212,7 @@ class SineSkewed(Distribution):
     :param jax.numpy.array skewness: skewness of the distribution.
     """
 
-    arg_constraints = {
-        "skewness": constraints.independent(constraints.interval(-1.0, 1.0), 1)
-    }
+    arg_constraints = {"skewness": constraints.l1_ball}
 
     support = constraints.independent(constraints.circular, 1)
 
