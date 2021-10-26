@@ -1461,7 +1461,9 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             constraint, jnp.shape(params[i]), key_gen
         )
         if jax_dist is dist.MultivariateStudentT:
-            # ensure df >= 1 as scipy logpdf nan when df <= 1
+            # As mean is only defined for df > 1 & we instantiate
+            # scipy.stats.multivariate_t with same mean as jax_dist
+            # we need to ensure this is defined, so force df >= 1
             valid_params[0] += 1
 
     assert jax_dist(*oob_params)
