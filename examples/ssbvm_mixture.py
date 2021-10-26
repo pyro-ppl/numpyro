@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 r"""
 Example: Sine-skewed sine (bivariate von Mises) mixture
 =======================================================
@@ -24,6 +25,8 @@ the torus using the sine distribution [1] and break point-wise (toroidal) symmet
     :align: center
     :scale: 125%
 """
+
+
 import argparse
 import math
 from math import pi
