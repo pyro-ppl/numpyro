@@ -286,7 +286,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
-    parser.add_argument("--amino-acids", type=list, default=["S", "P", "G"])
+    parser.add_argument("--amino-acids", nargs="+", default=["S", "P", "G"])
     parser.add_argument("--rng_seed", type=int, default=123)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
 
