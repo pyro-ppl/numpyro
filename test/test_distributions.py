@@ -6,7 +6,6 @@ from functools import partial
 import inspect
 import math
 import os
-import math
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -31,14 +30,14 @@ from numpyro.distributions.transforms import (
     PowerTransform,
     SimplexToOrderedTransform,
     SoftplusTransform,
-    biject_to
+    biject_to,
 )
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
     signed_stick_breaking_tril,
     sum_rightmost,
-    vec_to_tril_matrix
+    vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
 
@@ -347,13 +346,39 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
     T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
-    T(dist.SineBivariateVonMises, jnp.array([0.]), jnp.array([0.]), jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),
-    T(dist.SineBivariateVonMises, jnp.array([3.003]), jnp.array([-1.343]),  # check test_gof, test_mean_var,
-      jnp.array([5.]), jnp.array([6.]), jnp.array([2.])),  # check test_distribution_constraints
-    T(dist.SineBivariateVonMises, jnp.array([-math.pi/3]), jnp.array(-1),
-      jnp.array(.4), jnp.array(10.), jnp.array(.9)),
-    T(dist.SineBivariateVonMises, jnp.array([math.pi - .2, 1.]), jnp.array([0.,1.]),
-      jnp.array([5., 5.]), jnp.array([7., .5]), None, jnp.array([.5, .1])),
+    T(
+        dist.SineBivariateVonMises,
+        jnp.array([0.0]),
+        jnp.array([0.0]),
+        jnp.array([5.0]),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),
+    T(
+        dist.SineBivariateVonMises,
+        jnp.array([3.003]),
+        jnp.array([-1.343]),  # check test_gof, test_mean_var,
+        jnp.array([5.0]),
+        jnp.array([6.0]),
+        jnp.array([2.0]),
+    ),  # check test_distribution_constraints
+    T(
+        dist.SineBivariateVonMises,
+        jnp.array([-math.pi / 3]),
+        jnp.array(-1),
+        jnp.array(0.4),
+        jnp.array(10.0),
+        jnp.array(0.9),
+    ),
+    T(
+        dist.SineBivariateVonMises,
+        jnp.array([math.pi - 0.2, 1.0]),
+        jnp.array([0.0, 1.0]),
+        jnp.array([5.0, 5.0]),
+        jnp.array([7.0, 0.5]),
+        None,
+        jnp.array([0.5, 0.1]),
+    ),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, jnp.array([-1.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),

@@ -68,6 +68,7 @@ NumPyro documentation
    examples/neutra
    examples/covtype
    examples/thompson_sampling
+   examples/ssbvm_mixture
 
 
 Indices and tables

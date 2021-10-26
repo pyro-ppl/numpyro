@@ -1,9 +1,32 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+r"""
+Example: Sine-skewed sine (bivariate von Mises) mixture
+=======================================================
 
+This example models the dihedral angles that occur in the backbone of a protein as a mixture of skewed
+directional distributions. The backbone angle pairs, called :math:`\phi` and :math:`\psi`, are a canonical
+representation for the fold of a protein. In this model, we fix the third dihedral angle (omega) as it usually only
+takes angles 0 and pi radian, with the latter being the most common. We model the angle pairs as a distribution on
+the torus using the sine distribution [1] and break point-wise (toroidal) symmetry using sine-skewing [2].
+
+.. image:: ../_static/img/examples/torus_top.png
+    :align: center
+    :scale: 30%
+
+**References:**
+
+    1. Singh et al. (2002). Probabilistic model for two dependent circular variables. Biometrika.
+    2. Jose Ameijeiras-Alonso and Christophe Ley (2021). Sine-skewed toroidal distributions and their application
+       in protein bioinformatics. Biostatistics.
+
+.. image:: ../_static/img/examples/ssbvm_mixture.png
+    :align: center
+    :scale: 125%
+"""
+import argparse
 import math
 from math import pi
-import sys
 
 import matplotlib.colors
 import matplotlib.pyplot as plt
@@ -30,8 +53,6 @@ from numpyro.examples.datasets import NINE_MERS, load_dataset
 from numpyro.infer import MCMC, NUTS, Predictive, init_to_value
 from numpyro.infer.reparam import CircularReparam
 
-np.set_printoptions(threshold=sys.maxsize)
-
 AMINO_ACIDS = [
     "M",
     "N",
@@ -54,37 +75,6 @@ AMINO_ACIDS = [
     "W",
     "C",
 ]
-
-
-def multiple_formatter(denominator=2, number=np.pi, latex=r"\pi"):
-    def gcd(a, b):
-        while b:
-            a, b = b, a % b
-        return a
-
-    def _multiple_formatter(x, pos):
-        den = denominator
-        num = int(np.rint(den * x / number))
-        com = gcd(num, den)
-        (num, den) = (int(num / com), int(den / com))
-        if den == 1:
-            if num == 0:
-                return r"$0$"
-            if num == 1:
-                return r"$%s$" % latex
-            elif num == -1:
-                return r"$-%s$" % latex
-            else:
-                return r"$%s%s$" % (num, latex)
-        else:
-            if num == 1:
-                return r"$\frac{%s}{%s}$" % (latex, den)
-            elif num == -1:
-                return r"$\frac{-%s}{%s}$" % (latex, den)
-            else:
-                return r"$\frac{%s%s}{%s}$" % (num, latex, den)
-
-    return _multiple_formatter
 
 
 @config_enumerate
@@ -110,8 +100,11 @@ def ss_model(data, num_data, num_mix_comp=2):
 
     with numpyro.plate("mixture", num_mix_comp):
         # BvM priors
+
+        # Place gap in forbidden region of the Ramachandran plot (protein backbone dihedral angle pairs)
         phi_loc = numpyro.sample("phi_loc", VonMises(pi, 2.0))
         psi_loc = numpyro.sample("psi_loc", VonMises(0.0, 0.1))
+
         phi_conc = numpyro.sample(
             "phi_conc", Beta(halpha_phi, beta_count_phi - halpha_phi)
         )
@@ -132,6 +125,7 @@ def ss_model(data, num_data, num_mix_comp=2):
         sine = SineBivariateVonMises(
             phi_loc=phi_loc[assign],
             psi_loc=psi_loc[assign],
+            # These concentrations are an order of magnitude lower than expected (550-1000)!
             phi_concentration=70 * phi_conc[assign],
             psi_concentration=70 * psi_conc[assign],
             weighted_correlation=corr_scale[assign],
@@ -139,12 +133,11 @@ def ss_model(data, num_data, num_mix_comp=2):
         return numpyro.sample("phi_psi", SineSkewed(sine, skewness[assign]), obs=data)
 
 
-def run_hmc(model, data, num_mix_comp, num_samples, bvm_init_locs):
-    rng_key = random.PRNGKey(0)
+def run_hmc(rng_key, model, data, num_mix_comp, args, bvm_init_locs):
     kernel = NUTS(
         model, init_strategy=init_to_value(values=bvm_init_locs), max_tree_depth=7
     )
-    mcmc = MCMC(kernel, num_samples=num_samples, num_warmup=num_samples // 2)
+    mcmc = MCMC(kernel, num_samples=args.num_samples, num_warmup=args.num_warmup)
     mcmc.run(rng_key, data, len(data), num_mix_comp)
     mcmc.print_summary()
     post_samples = mcmc.get_samples()
@@ -156,7 +149,12 @@ def fetch_aa_dihedrals(aa):
     return jnp.stack(fetch())
 
 
-def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.pdf"):
+def num_mix_comps(amino_acid):
+    num_mix = {"G": 10, "P": 7}
+    return num_mix.get(amino_acid, 9)
+
+
+def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.png"):
     amino_acids = {"S": "Serine", "P": "Proline", "G": "Glycine"}
     fig, axss = plt.subplots(2, len(aas))
     cdata = data
@@ -165,8 +163,7 @@ def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.pdf"):
             cdata = pred_data
         for ax, aa in zip(axss[i], aas):
             aa_data = cdata[aa]
-            nbins = 50  # 100 * 2pi
-
+            nbins = 50
             ax.hexbin(
                 aa_data[..., 0].reshape(-1),
                 aa_data[..., 1].reshape(-1),
@@ -220,32 +217,78 @@ def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.pdf"):
         plt.savefig(file_name, bbox_inches="tight")
 
 
-def main(num_samples=1000, aas=("S", "P", "G")):
-    num_mix_comps = {"S": 9, "G": 10, "P": 7}
+def multiple_formatter(denominator=2, number=np.pi, latex=r"\pi"):
+    def gcd(a, b):
+        while b:
+            a, b = b, a % b
+        return a
+
+    def _multiple_formatter(x, pos):
+        den = denominator
+        num = int(np.rint(den * x / number))
+        com = gcd(num, den)
+        (num, den) = (int(num / com), int(den / com))
+        if den == 1:
+            if num == 0:
+                return r"$0$"
+            if num == 1:
+                return r"$%s$" % latex
+            elif num == -1:
+                return r"$-%s$" % latex
+            else:
+                return r"$%s%s$" % (num, latex)
+        else:
+            if num == 1:
+                return r"$\frac{%s}{%s}$" % (latex, den)
+            elif num == -1:
+                return r"$\frac{-%s}{%s}$" % (latex, den)
+            else:
+                return r"$\frac{%s%s}{%s}$" % (num, latex, den)
+
+    return _multiple_formatter
+
+
+def main(args):
     data = {}
     pred_datas = {}
-    rng_key = random.PRNGKey(123)
-    for aa in aas:
+    rng_key = random.PRNGKey(args.rng_seed)
+    for aa in args.amino_acids:
+        rng_key, inf_key, pred_key = random.split(rng_key)
         data[aa] = fetch_aa_dihedrals(aa)
-        num_mix_comp = num_mix_comps[aa]
+        num_mix_comp = num_mix_comps(aa)
 
+        # Use kmeans to initialize the chain location.
         kmeans = KMeans(num_mix_comp)
         kmeans.fit(data[aa])
         means = {
             "phi_loc": kmeans.cluster_centers_[:, 0],
             "psi_loc": kmeans.cluster_centers_[:, 1],
         }
+
         posterior_samples = {
-            "ss": run_hmc(ss_model, data[aa], num_mix_comp, num_samples, means)
+            "ss": run_hmc(inf_key, ss_model, data[aa], num_mix_comp, args, means)
         }
         predictive = Predictive(ss_model, posterior_samples["ss"], parallel=True)
-        rng_key, pred_key = random.split(rng_key)
+
         pred_datas[aa] = predictive(pred_key, None, 1, num_mix_comp)["phi_psi"].reshape(
             -1, 2
         )
 
-    ramachandran_plot(data, pred_datas, aas)
+    ramachandran_plot(data, pred_datas, args.amino_acids)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Sine-skewed sine (bivariate von mises) mixture model example"
+    )
+    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
+    parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
+    parser.add_argument("--amino-acids", type=list, default=["S", "P", "G"])
+    parser.add_argument("--rng_seed", type=int, default=123)
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+
+    args = parser.parse_args()
+    assert all(
+        aa in AMINO_ACIDS for aa in args.amino_acids
+    ), f"{list(filter(lambda aa: aa not in AMINO_ACIDS, args.amino_acids))} are not amino acids."
+    main(args)
