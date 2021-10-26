@@ -1103,7 +1103,6 @@ class MultivariateStudentT(Distribution):
             transpose_a=True,
             lower=True,
         )
-        y = y.reshape(value.shape)
         Z = (
             jnp.log(self.scale_tril.diagonal(axis1=-2, axis2=-1)).sum(-1)
             + 0.5 * n * jnp.log(self.df)
