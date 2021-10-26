@@ -584,10 +584,8 @@ def test_autodais_subsampling_error():
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
+        f = numpyro.sample("beta", dist.Beta(1, 1))
         with numpyro.plate("plate", 20, 10, dim=-1):
-            f = numpyro.sample(
-                "beta", dist.Beta(jnp.ones(data.shape), jnp.ones(data.shape))
-            )
             numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
