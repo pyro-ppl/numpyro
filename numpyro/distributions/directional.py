@@ -154,10 +154,11 @@ PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
 
 
 class SineSkewed(Distribution):
-    """Sine-skewing [1] is a procedure for producing a distribution that breaks pointwise symmetry on a torus
+    r"""Sine-skewing [1] is a procedure for producing a distribution that breaks pointwise symmetry on a torus
     distribution. The new distribution is called the Sine Skewed X distribution, where X is the name of the (symmetric)
     base distribution. Torus distributions are distributions with support on products of circles
-    (i.e., ⨂^d S^1 where S^1=[-pi,pi) ). So, a 0-torus is a point, the 1-torus is a circle,
+    (i.e., :math:`\otimes S^1` where :math:`S^1 = [-pi,pi)`).
+    So, a 0-torus is a point, the 1-torus is a circle,
     and the 2-torus is commonly associated with the donut shape.
 
     The sine skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
@@ -284,7 +285,8 @@ class SineSkewed(Distribution):
 
 
 class SineBivariateVonMises(Distribution):
-    r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
+    r"""Unimodal distribution of two dependent angles on the 2-torus
+    (:math:`S^1 \otimes S^1`) given by
 
     .. math::
         C^{-1}\exp(\kappa_1\cos(x_1-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
