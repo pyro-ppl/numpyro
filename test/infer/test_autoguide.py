@@ -371,7 +371,7 @@ def test_laplace_approximation_custom_hessian():
     x = random.normal(random.PRNGKey(0), (100,))
     y = 1 + 2 * x
     guide = AutoLaplaceApproximation(
-        model, get_precision=lambda f: jacobian(jacobian(f))
+        model, hessian_fn=lambda f, x: jacobian(jacobian(f))(x)
     )
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
     svi_result = svi.run(random.PRNGKey(0), 10000, progress_bar=False)

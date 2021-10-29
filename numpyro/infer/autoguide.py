@@ -1087,13 +1087,14 @@ class AutoLaplaceApproximation(AutoContinuous):
         guide = AutoLaplaceApproximation(model, ...)
         svi = SVI(model, guide, ...)
 
-    :param callable get_precision: EXPERIMENTAL a transform that takes the loss
-        function :math:`-\log p(x, z)` and returns a function to compute precision
-        matrix at the MAP point of `z`. By default, we use ``jax.hessian``. Other
-        alternatives can be ``lambda f: jax.jacobian(jax.jacobian(f))``.
-        A customized one, for example by adding a jitter term to the diagonal part of
-        the precision matrix, can also be helpful when hessian of `f` is not positive
-        definite.
+    :param callable hessian_fn: EXPERIMENTAL a function that takes a function `f`
+        and a vector `x`and returns the hessian of `f` at `x`. By default, we use
+        ``lambda f, x: jax.hessian(f)(x)``. Other alternatives can be
+        ``lambda f, x: jax.jacobian(jax.jacobian(f))(x)`` or
+        ``lambda f, x: jax.hessian(f)(x) + 1e-3 * jnp.eye(x.shape[0])``. The later
+        example is helpful when the hessian of `f` at `x` is not positive definite.
+        Note that the output hessian is the precision matrix of the laplace
+        approximation.
     """
 
     def __init__(
@@ -1103,12 +1104,14 @@ class AutoLaplaceApproximation(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         create_plates=None,
-        get_precision=None,
+        hessian_fn=None,
     ):
         super().__init__(
             model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
         )
-        self._get_precision = get_precision if get_precision is not None else hessian
+        self._hessian_fn = (
+            hessian_fn if hessian_fn is not None else (lambda f, x: hessian(f)(x))
+        )
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
@@ -1136,7 +1139,7 @@ class AutoLaplaceApproximation(AutoContinuous):
             return self._loss_fn(params1)
 
         loc = params["{}_loc".format(self.prefix)]
-        precision = self._get_precision(loss_fn)(loc)
+        precision = self._hessian_fn(loss_fn, loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
