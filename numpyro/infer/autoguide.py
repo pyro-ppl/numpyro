@@ -677,6 +677,7 @@ class AutoDAIS(AutoContinuous):
         init_scale=0.1,
         enable_subsampling=False,
         create_plates=None,
+        fixed_eta=False,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -700,6 +701,7 @@ class AutoDAIS(AutoContinuous):
         self.base_dist = base_dist
         self._init_scale = init_scale
         self._enable_subsampling = enable_subsampling
+        self.fixed_eta = fixed_eta
         super().__init__(
             model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
         )
@@ -737,12 +739,15 @@ class AutoDAIS(AutoContinuous):
             with handlers.block(), handlers.substitute(data=plate_data):
                 return -potential_fn(x_unpack)
 
-        eta0 = numpyro.param(
-            "{}_eta0".format(self.prefix),
-            self.eta_init,
-            constraint=constraints.interval(0, self.eta_max),
-        )
-        eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), 0.00)
+        if not self.fixed_eta:
+            eta0 = numpyro.param(
+                "{}_eta0".format(self.prefix),
+                self.eta_init,
+                constraint=constraints.interval(0, self.eta_max),
+            )
+            eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), 0.00)
+        else:
+            eta0, eta_coeff = self.eta_init, 0.0
 
         gamma = numpyro.param(
             "{}_gamma".format(self.prefix),
