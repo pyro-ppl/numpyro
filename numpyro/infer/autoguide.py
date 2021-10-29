@@ -519,6 +519,14 @@ class AutoContinuous(AutoGuide):
                     type(self).__name__
                 )
             )
+        for site in self.prototype_trace.values():
+            if site["type"] == "sample" and not site["is_observed"]:
+                for frame in site["cond_indep_stack"]:
+                    if frame.size != self._prototype_frame_full_sizes[frame.name]:
+                        raise ValueError(
+                            "AutoContinuous guide does not support"
+                            " local latent variables."
+                        )
 
     @abstractmethod
     def _get_posterior(self):

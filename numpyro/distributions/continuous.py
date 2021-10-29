@@ -754,8 +754,8 @@ class LKJCholesky(Distribution):
         cholesky = jnp.zeros(size + self.batch_shape + self.event_shape)
         cholesky = cholesky.at[..., 1:, :-1].set(w)
         # correct the diagonal
-        # NB: we clip due to numerical precision
-        diag = jnp.sqrt(jnp.clip(1 - jnp.sum(cholesky ** 2, axis=-1), a_min=0.0))
+        # NB: beta_sample = sum(w ** 2) because norm 2 of u is 1.
+        diag = jnp.ones(cholesky.shape[:-1]).at[..., 1:].set(jnp.sqrt(1 - beta_sample))
         cholesky = cholesky + jnp.expand_dims(diag, axis=-1) * jnp.identity(
             self.dimension
         )
@@ -798,7 +798,7 @@ class LKJCholesky(Distribution):
         order = 2 * jnp.expand_dims(self.concentration, axis=-1) - order_offset
 
         # Compute unnormalized log_prob:
-        value_diag = value[..., one_to_D, one_to_D]
+        value_diag = jnp.asarray(value)[..., one_to_D, one_to_D]
         unnormalized = jnp.sum(order * jnp.log(value_diag), axis=-1)
 
         # Compute normalization constant (on the first proof of page 1999 of [1])
