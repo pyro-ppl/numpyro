@@ -9,12 +9,6 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_available_cuda_versions = [
-    "101",
-    "102",
-    "110",
-    "111",
-]  # TODO: align these with what's available in JAX before release
 _jax_version_constraints = ">=0.2.13"
 _jaxlib_version_constraints = ">=0.1.65"
 
@@ -80,12 +74,9 @@ setup(
         ],
         "cpu": f"jax[cpu]{_jax_version_constraints}",
         # TPU and CUDA installations, currently require to add package repository URL, i.e.,
-        # pip install numpyro[cuda101] -f https://storage.googleapis.com/jax-releases/jax_releases.html
+        # pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_releases.html
         "tpu": f"jax[tpu]{_jax_version_constraints}",
-        **{
-            f"cuda{version}": f"jax[cuda{version}]{_jax_version_constraints}"
-            for version in _available_cuda_versions
-        },
+        "cuda": f"jax[cuda]{_jax_version_constraints}",
     },
     long_description=long_description,
     long_description_content_type="text/markdown",
