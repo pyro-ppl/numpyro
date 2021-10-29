@@ -6,7 +6,7 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, lax, random
+from jax import jacobian, jit, lax, random
 from jax.experimental.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
@@ -359,6 +359,23 @@ def test_laplace_approximation_warning():
     params = svi.get_params(svi_state)
     with pytest.warns(UserWarning, match="Hessian of log posterior"):
         guide.sample_posterior(random.PRNGKey(1), params)
+
+
+def test_laplace_approximation_custom_hessian():
+    def model(x, y):
+        a = numpyro.sample("a", dist.Normal(0, 10))
+        b = numpyro.sample("b", dist.Normal(0, 10))
+        mu = a + b * x
+        numpyro.sample("y", dist.Normal(mu, 1), obs=y)
+
+    x = random.normal(random.PRNGKey(0), (100,))
+    y = 1 + 2 * x
+    guide = AutoLaplaceApproximation(
+        model, hessian_fn=lambda f, x: jacobian(jacobian(f))(x)
+    )
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
+    svi_result = svi.run(random.PRNGKey(0), 10000, progress_bar=False)
+    guide.get_transform(svi_result.params)
 
 
 def test_improper():
