@@ -1103,7 +1103,7 @@ class MultivariateStudentT(Distribution):
             lower=True,
         )
         Z = (
-            jnp.log(self.scale_tril.diagonal(axis1=-2, axis2=-1)).sum(-1)
+            jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
             + 0.5 * n * jnp.log(self.df)
             + 0.5 * n * jnp.log(jnp.pi)
             + gammaln(0.5 * self.df)
