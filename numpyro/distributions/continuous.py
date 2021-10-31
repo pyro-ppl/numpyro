@@ -798,7 +798,7 @@ class LKJCholesky(Distribution):
         order = 2 * jnp.expand_dims(self.concentration, axis=-1) - order_offset
 
         # Compute unnormalized log_prob:
-        value_diag = value[..., one_to_D, one_to_D]
+        value_diag = jnp.array(value)[..., one_to_D, one_to_D]
         unnormalized = jnp.sum(order * jnp.log(value_diag), axis=-1)
 
         # Compute normalization constant (on the first proof of page 1999 of [1])
