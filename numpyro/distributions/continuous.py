@@ -1097,10 +1097,9 @@ class MultivariateStudentT(Distribution):
         sample_shape = value.shape[:-2] if self.batch_shape != () else value.shape[:-1]
         a_shape = sample_shape + self.batch_shape + (n, n)
         b_shape = sample_shape + self.batch_shape + (n,)
-        y = lax.linalg.triangular_solve(
+        y = solve_triangular(
             jnp.broadcast_to(self.scale_tril, a_shape),
             jnp.broadcast_to(value - self.loc, b_shape),
-            transpose_a=True,
             lower=True,
         )
         Z = (
