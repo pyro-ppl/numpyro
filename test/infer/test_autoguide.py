@@ -6,7 +6,7 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, lax, random
+from jax import jacobian, jit, lax, random
 from jax.experimental.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
@@ -361,6 +361,23 @@ def test_laplace_approximation_warning():
         guide.sample_posterior(random.PRNGKey(1), params)
 
 
+def test_laplace_approximation_custom_hessian():
+    def model(x, y):
+        a = numpyro.sample("a", dist.Normal(0, 10))
+        b = numpyro.sample("b", dist.Normal(0, 10))
+        mu = a + b * x
+        numpyro.sample("y", dist.Normal(mu, 1), obs=y)
+
+    x = random.normal(random.PRNGKey(0), (100,))
+    y = 1 + 2 * x
+    guide = AutoLaplaceApproximation(
+        model, hessian_fn=lambda f, x: jacobian(jacobian(f))(x)
+    )
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
+    svi_result = svi.run(random.PRNGKey(0), 10000, progress_bar=False)
+    guide.get_transform(svi_result.params)
+
+
 def test_improper():
     y = random.normal(random.PRNGKey(0), (100,))
 
@@ -584,10 +601,8 @@ def test_autodais_subsampling_error():
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
+        f = numpyro.sample("beta", dist.Beta(1, 1))
         with numpyro.plate("plate", 20, 10, dim=-1):
-            f = numpyro.sample(
-                "beta", dist.Beta(jnp.ones(data.shape), jnp.ones(data.shape))
-            )
             numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
@@ -610,3 +625,14 @@ def test_subsample_model_with_deterministic():
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert "x2" in samples
+
+
+def test_autocontinuous_local_error():
+    def model():
+        with numpyro.plate("N", 10, subsample_size=4):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+    guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    with pytest.raises(ValueError, match="local latent variables"):
+        svi.init(random.PRNGKey(0))

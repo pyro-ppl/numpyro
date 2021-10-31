@@ -100,7 +100,8 @@ def main(args):
 
     # predict populations
     pop_pred = Predictive(model, mcmc.get_samples())(PRNGKey(2), data.shape[0])["y"]
-    mu, pi = jnp.mean(pop_pred, 0), jnp.percentile(pop_pred, jnp.array([10, 90]), 0)
+    mu = jnp.mean(pop_pred, 0)
+    pi = jnp.percentile(pop_pred, jnp.array([10, 90]), 0)
     plt.figure(figsize=(8, 6), constrained_layout=True)
     plt.plot(year, data[:, 0], "ko", mfc="none", ms=4, label="true hare", alpha=0.67)
     plt.plot(year, data[:, 1], "bx", label="true lynx")

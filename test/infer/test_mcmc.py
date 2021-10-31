@@ -7,8 +7,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import device_get, jit, lax, pmap, random, vmap
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
 from jax.test_util import check_close
@@ -586,7 +586,7 @@ def test_chain(use_init_params, chain_method):
 def test_chain_inside_jit(kernel_cls, chain_method):
     # NB: this feature is useful for consensus MC.
     # Caution: compiling time will be slow (~ 90s)
-    if chain_method == "parallel" and xla_bridge.device_count() == 1:
+    if chain_method == "parallel" and jax.device_count() == 1:
         pytest.skip("parallel method requires device_count greater than 1.")
     num_warmup, num_samples = 100, 2000
     # Here are settings which is currently supported.
@@ -716,7 +716,7 @@ def test_functional_beta_bernoulli_x64(algo):
     reason="without this mark, we have duplicated tests in Travis",
 )
 def test_functional_map(algo, map_fn):
-    if map_fn is pmap and xla_bridge.device_count() == 1:
+    if map_fn is pmap and jax.device_count() == 1:
         pytest.skip("pmap test requires device_count greater than 1.")
 
     true_mean, true_std = 1.0, 2.0
