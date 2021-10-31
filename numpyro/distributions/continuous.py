@@ -1062,15 +1062,15 @@ class MultivariateStudentT(Distribution):
     ):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
-        # temporary append a new axis to loc
-        loc = loc[..., jnp.newaxis]
-        loc, self.scale_tril = promote_shapes(loc, scale_tril)
         batch_shape = lax.broadcast_shapes(
-            jnp.shape(df), jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
+            jnp.shape(df), jnp.shape(loc)[:-1], jnp.shape(scale_tril)[:-2]
+        )
+        (self.df,) = promote_shapes(jnp.array(df), shape=batch_shape)
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-1:])
+        (self.scale_tril,) = promote_shapes(
+            scale_tril, shape=batch_shape + scale_tril.shape[-2:]
         )
         event_shape = jnp.shape(self.scale_tril)[-1:]
-        self.df = jnp.broadcast_to(jnp.array(df), batch_shape)
-        self.loc = loc[..., 0]
         self._chi2 = Chi2(self.df)
         super(MultivariateStudentT, self).__init__(
             batch_shape=batch_shape,
