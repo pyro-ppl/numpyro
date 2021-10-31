@@ -67,7 +67,7 @@ setup(
             "graphviz",
             "jaxns==0.0.7",
             "optax>=0.0.6",
-            "tensorflow_probability>=0.13",
+            "tfp-nightly",  # TODO: change to tensorflow_probability when it's stable
         ],
         "examples": [
             "arviz",
