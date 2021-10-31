@@ -186,7 +186,7 @@ def density_goodness_of_fit(samples, probs, plot=False):
     if len(samples) <= 100:
         raise InvalidTest("imprecision; use more samples")
 
-    index = np.argsort(samples, 0, kind="quicksort")
+    index = np.argsort(samples, 0, kind="stable")
     samples = samples[index]
     probs = probs[index]
     gaps = samples[1:] - samples[:-1]
