@@ -81,12 +81,16 @@ from numpyro.distributions.mixtures import MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
+    LeftTruncatedGamma,
     RightTruncatedDistribution,
+    RightTruncatedGamma,
     TruncatedCauchy,
     TruncatedDistribution,
+    TruncatedGamma,
     TruncatedNormal,
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
+    TwoSidedTruncatedGamma,
 )
 
 from . import constraints, transforms
@@ -141,6 +145,7 @@ __all__ = [
     "MultinomialLogits",
     "MultinomialProbs",
     "MultivariateNormal",
+    "LeftTruncatedGamma",
     "LowRankMultivariateNormal",
     "Normal",
     "NegativeBinomialProbs",
@@ -152,6 +157,7 @@ __all__ = [
     "ProjectedNormal",
     "PRNGIdentity",
     "RightTruncatedDistribution",
+    "RightTruncatedGamma",
     "SineBivariateVonMises",
     "SineSkewed",
     "SoftLaplace",
@@ -159,9 +165,11 @@ __all__ = [
     "TransformedDistribution",
     "TruncatedCauchy",
     "TruncatedDistribution",
+    "TruncatedGamma",
     "TruncatedNormal",
     "TruncatedPolyaGamma",
     "TwoSidedTruncatedDistribution",
+    "TwoSidedTruncatedGamma",
     "Uniform",
     "Unit",
     "VonMises",

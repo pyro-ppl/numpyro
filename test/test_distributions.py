@@ -272,6 +272,7 @@ CONTINUOUS = [
     T(dist.Laplace, 0.0, 1.0),
     T(dist.Laplace, 0.5, jnp.array([1.0, 2.5])),
     T(dist.Laplace, jnp.array([1.0, -0.5]), jnp.array([2.3, 3.0])),
+    T(dist.LeftTruncatedGamma, dist.Gamma(2.0, 2.0), 1.0),
     T(dist.LKJ, 2, 0.5, "onion"),
     T(dist.LKJ, 5, jnp.array([0.5, 1.0, 2.0]), "cvine"),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
@@ -346,6 +347,7 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
     T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
+    T(dist.RightTruncatedGamma, dist.Gamma(2.0, 2.0), 10.0),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, jnp.array([-1.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
@@ -379,6 +381,7 @@ CONTINUOUS = [
         jnp.array([-2.0, 2.0]),
     ),
     T(dist.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
+    T(dist.TwoSidedTruncatedGamma, dist.Gamma(2.0, 2.0), 0.5, 10.0),
     T(dist.Uniform, 0.0, 2.0),
     T(dist.Uniform, 1.0, jnp.array([2.0, 3.0])),
     T(dist.Uniform, jnp.array([0.0, 0.0]), jnp.array([[2.0], [3.0]])),
@@ -903,6 +906,42 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
             )
             assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
             return
+        elif isinstance(
+            jax_dist,
+            (
+                dist.LeftTruncatedGamma,
+                dist.RightTruncatedGamma,
+                dist.TwoSidedTruncatedGamma,
+            ),
+        ):
+            # params = [base_gamma[concentration, rate], low, high]
+            if isinstance(jax_dist, dist.LeftTruncatedGamma):
+                conc, rate, low = (
+                    params[0].concentration,
+                    params[0].rate,
+                    params[1],
+                )
+                high = np.inf
+            elif isinstance(jax_dist, dist.RightTruncatedGamma):
+                conc, rate, high = (
+                    params[0].concentration,
+                    params[0].rate,
+                    params[1],
+                )
+                low = -np.inf
+            else:
+                conc, rate, low, high = (
+                    params[0].concentration,
+                    params[0].rate,
+                    params[1],
+                    params[2],
+                )
+            sp_dist = get_sp_dist(dist.Gamma)(conc, rate)
+            expected = sp_dist.logpdf(samples) - jnp.log(
+                sp_dist.cdf(high) - sp_dist.cdf(low)
+            )
+            assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
+            return
         pytest.skip("no corresponding scipy distn.")
     if _is_batched_multivariate(jax_dist):
         pytest.skip("batching not allowed in multivariate distns.")
@@ -1357,6 +1396,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             jax_dist is dist.TwoSidedTruncatedDistribution
             and dist_args[i] == "base_dist"
         ):
+            continue
+        if jax_dist is dist.TwoSidedTruncatedGamma and dist_args[i] == "base_gamma":
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue

@@ -560,6 +560,20 @@ def is_prng_key(key):
         return False
 
 
+def gammaincinv(a, p):
+    # until jax/lax has direct implementation we'll need to rely on tfp
+    # https://github.com/pyro-ppl/numpyro/issues/969
+    try:
+        import tensorflow_probability as tfpm
+    except ImportError as e:
+        raise ImportError(
+            "To use gammaincinv, please install TensorFlow Probability. It can be"
+            " installed with `pip install tensorflow_probability`"
+        ) from e
+
+    return tfpm.substrates.jax.math.igammainv(a, p)
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
