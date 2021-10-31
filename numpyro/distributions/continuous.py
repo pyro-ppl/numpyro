@@ -1137,7 +1137,8 @@ class MultivariateStudentT(Distribution):
         df = self.df[..., jnp.newaxis]
         var = jnp.power(self.scale_tril, 2).sum(-1) * (df / (df - 2))
         var = jnp.where(df > 2, var, jnp.inf)
-        return jnp.where(df <= 1, jnp.nan, var)
+        var = jnp.where(df <= 1, jnp.nan, var)
+        return jnp.broadcast_to(var, self.batch_shape + self.event_shape)
 
     @staticmethod
     def infer_shapes(df, loc, scale_tril):
