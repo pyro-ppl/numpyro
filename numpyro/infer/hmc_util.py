@@ -540,7 +540,7 @@ def warmup_adapter(
         find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
-    adaptation_schedule = jnp.array(build_adaptation_schedule(num_adapt_steps))
+    adaptation_schedule = build_adaptation_schedule(num_adapt_steps)
     num_windows = len(adaptation_schedule)
 
     def init_fn(
@@ -677,7 +677,7 @@ def warmup_adapter(
                 identity,
             )
 
-        t_at_window_end = t == adaptation_schedule[window_idx, 1]
+        t_at_window_end = t == jnp.asarray(adaptation_schedule)[window_idx, 1]
         window_idx = jnp.where(t_at_window_end, window_idx + 1, window_idx)
         state = HMCAdaptState(
             step_size,
