@@ -385,6 +385,12 @@ CONTINUOUS = [
         jnp.broadcast_to(jnp.identity(3), (2, 3, 3)),
     ),
     T(
+        dist.MultivariateStudentT,
+        jnp.arange(20, 26, dtype=jnp.float32).reshape((3, 2)),
+        jnp.ones(2),
+        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
         dist.LowRankMultivariateNormal,
         jnp.zeros(2),
         jnp.array([[1.0], [0.0]]),

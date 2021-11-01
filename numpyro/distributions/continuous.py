@@ -1094,14 +1094,6 @@ class MultivariateStudentT(Distribution):
     @validate_sample
     def log_prob(self, value):
         n = self.scale_tril.shape[-1]
-        sample_shape = value.shape[:-2] if self.batch_shape != () else value.shape[:-1]
-        a_shape = sample_shape + self.batch_shape + (n, n)
-        b_shape = sample_shape + self.batch_shape + (n,)
-        y = solve_triangular(
-            jnp.broadcast_to(self.scale_tril, a_shape),
-            jnp.broadcast_to(value - self.loc, b_shape),
-            lower=True,
-        )
         Z = (
             jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
             + 0.5 * n * jnp.log(self.df)
@@ -1109,7 +1101,8 @@ class MultivariateStudentT(Distribution):
             + gammaln(0.5 * self.df)
             - gammaln(0.5 * (self.df + n))
         )
-        return -0.5 * (self.df + n) * jnp.log1p(jnp.power(y, 2).sum(-1) / self.df) - Z
+        M = _batch_mahalanobis(self.scale_tril, value - self.loc)
+        return -0.5 * (self.df + n) * jnp.log1p(M / self.df) - Z
 
     @lazy_property
     def covariance_matrix(self):
