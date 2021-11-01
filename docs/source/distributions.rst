@@ -225,6 +225,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+MultivariateStudentT
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowRankMultivariateNormal
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
