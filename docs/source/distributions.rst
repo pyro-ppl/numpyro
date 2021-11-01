@@ -226,7 +226,7 @@ MultivariateNormal
     :member-order: bysource
 
 MultivariateStudentT
-^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
     :members:
     :undoc-members:
