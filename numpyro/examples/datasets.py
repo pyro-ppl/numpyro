@@ -232,7 +232,7 @@ def _load_jsb_chorales():
     for split, data_split in data.items():
         processed_dataset[split] = {}
         n_seqs = len(data_split)
-        processed_dataset[split]["sequence_lengths"] = np.zeros(n_seqs, dtype=np.long)
+        processed_dataset[split]["sequence_lengths"] = np.zeros(n_seqs, dtype=int)
         processed_dataset[split]["sequences"] = []
         for seq in range(n_seqs):
             seq_length = len(data_split[seq])
