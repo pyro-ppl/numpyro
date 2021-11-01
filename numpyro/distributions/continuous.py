@@ -1065,7 +1065,7 @@ class MultivariateStudentT(Distribution):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(df), jnp.shape(loc)[:-1], jnp.shape(scale_tril)[:-2]
         )
-        (self.df,) = promote_shapes(jnp.array(df), shape=batch_shape)
+        (self.df,) = promote_shapes(df, shape=batch_shape)
         (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-1:])
         (self.scale_tril,) = promote_shapes(
             scale_tril, shape=batch_shape + scale_tril.shape[-2:]
@@ -1121,13 +1121,13 @@ class MultivariateStudentT(Distribution):
     def mean(self):
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
-            jnp.where(self.df[..., jnp.newaxis] <= 1, jnp.inf, self.loc),
+            jnp.where(jnp.expand_dims(self.df, -1) <= 1, jnp.inf, self.loc),
             self.shape(),
         )
 
     @property
     def variance(self):
-        df = self.df[..., jnp.newaxis]
+        df = jnp.expand_dims(self.df, -1)
         var = jnp.power(self.scale_tril, 2).sum(-1) * (df / (df - 2))
         var = jnp.where(df > 2, var, jnp.inf)
         var = jnp.where(df <= 1, jnp.nan, var)
