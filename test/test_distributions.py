@@ -755,7 +755,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         except ValueError:
             pytest.skip("scipy multivariate t doesn't support size with > 1 element")
         assert jnp.shape(sp_samples) == expected_shape
-    if isinstance(jax_dist, dist.MultivariateNormal):
+    if isinstance(jax_dist, (dist.MultivariateNormal, dist.MultivariateStudentT)):
         assert jax_dist.covariance_matrix.ndim == len(jax_dist.batch_shape) + 2
         assert_allclose(
             jax_dist.precision_matrix,
