@@ -52,7 +52,7 @@ setup(
             "isort>=5.0",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
-            "scipy>=1.1",
+            "scipy>=1.6,<1.7",
         ],
         "dev": [
             "dm-haiku",
@@ -61,7 +61,8 @@ setup(
             "graphviz",
             "jaxns==0.0.7",
             "optax>=0.0.6",
-            "tensorflow_probability>=0.13",
+            # TODO: change to tensorflow_probability when it is stable
+            "tfp-nightly",
         ],
         "examples": [
             "arviz",
@@ -89,9 +90,9 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
     ],
 )

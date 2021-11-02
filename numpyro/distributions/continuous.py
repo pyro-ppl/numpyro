@@ -1044,6 +1044,102 @@ class MultivariateNormal(Distribution):
         return batch_shape, event_shape
 
 
+class MultivariateStudentT(Distribution):
+    arg_constraints = {
+        "df": constraints.positive,
+        "loc": constraints.real_vector,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.real_vector
+    reparametrized_params = ["df", "loc", "scale_tril"]
+
+    def __init__(
+        self,
+        df,
+        loc=0.0,
+        scale_tril=None,
+        validate_args=None,
+    ):
+        if jnp.ndim(loc) == 0:
+            (loc,) = promote_shapes(loc, shape=(1,))
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(df), jnp.shape(loc)[:-1], jnp.shape(scale_tril)[:-2]
+        )
+        (self.df,) = promote_shapes(df, shape=batch_shape)
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-1:])
+        (self.scale_tril,) = promote_shapes(
+            scale_tril, shape=batch_shape + scale_tril.shape[-2:]
+        )
+        event_shape = jnp.shape(self.scale_tril)[-1:]
+        self._chi2 = Chi2(self.df)
+        super(MultivariateStudentT, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        key_normal, key_chi2 = random.split(key)
+        std_normal = random.normal(
+            key_normal,
+            shape=sample_shape + self.batch_shape + self.event_shape,
+        )
+        z = self._chi2.sample(key_chi2, sample_shape)
+        y = std_normal * jnp.expand_dims(jnp.sqrt(self.df / z), -1)
+        return self.loc + jnp.squeeze(
+            jnp.matmul(self.scale_tril, y[..., jnp.newaxis]), axis=-1
+        )
+
+    @validate_sample
+    def log_prob(self, value):
+        n = self.scale_tril.shape[-1]
+        Z = (
+            jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+            + 0.5 * n * jnp.log(self.df)
+            + 0.5 * n * jnp.log(jnp.pi)
+            + gammaln(0.5 * self.df)
+            - gammaln(0.5 * (self.df + n))
+        )
+        M = _batch_mahalanobis(self.scale_tril, value - self.loc)
+        return -0.5 * (self.df + n) * jnp.log1p(M / self.df) - Z
+
+    @lazy_property
+    def covariance_matrix(self):
+        # NB: this is not covariance of this distribution;
+        # the actual covariance is df / (df - 2) * covariance_matrix
+        return jnp.matmul(self.scale_tril, jnp.swapaxes(self.scale_tril, -1, -2))
+
+    @lazy_property
+    def precision_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+    @property
+    def mean(self):
+        # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
+        return jnp.broadcast_to(
+            jnp.where(jnp.expand_dims(self.df, -1) <= 1, jnp.inf, self.loc),
+            self.shape(),
+        )
+
+    @property
+    def variance(self):
+        df = jnp.expand_dims(self.df, -1)
+        var = jnp.power(self.scale_tril, 2).sum(-1) * (df / (df - 2))
+        var = jnp.where(df > 2, var, jnp.inf)
+        var = jnp.where(df <= 1, jnp.nan, var)
+        return jnp.broadcast_to(var, self.batch_shape + self.event_shape)
+
+    @staticmethod
+    def infer_shapes(df, loc, scale_tril):
+        event_shape = (scale_tril[-1],)
+        batch_shape = lax.broadcast_shapes(df, loc[:-1], scale_tril[:-2])
+        return batch_shape, event_shape
+
+
 def _batch_mv(bmat, bvec):
     r"""
     Performs a batched matrix-vector product, with compatible but different batch shapes.

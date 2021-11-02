@@ -22,7 +22,7 @@ from numpyro.util import not_jax_tracer, optional
 @pytest.mark.parametrize("use_jit", [False, True])
 def test_mask(mask_last, use_jit):
     N = 10
-    mask = np.ones(N, dtype=np.bool)
+    mask = np.ones(N, dtype=bool)
     mask[-mask_last] = 0
 
     def model(data, mask):
