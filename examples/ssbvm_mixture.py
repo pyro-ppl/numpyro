@@ -11,7 +11,7 @@ representation for the fold of a protein. In this model, we fix the third dihedr
 takes angles 0 and pi radian, with the latter being the most common. We model the angle pairs as a distribution on
 the torus using the sine distribution [1] and break point-wise (toroidal) symmetry using sine-skewing [2].
 
-.. image:: ../_static/img/examples/torus_top.png
+.. image:: ../_static/img/examples/ssbvm_mixture_torus_top.png
     :align: center
     :scale: 30%
 
@@ -26,7 +26,6 @@ the torus using the sine distribution [1] and break point-wise (toroidal) symmet
     :scale: 125%
 """
 
-
 import argparse
 import math
 from math import pi
@@ -39,7 +38,6 @@ from sklearn.cluster import KMeans
 from jax import numpy as jnp, random
 
 import numpyro
-from numpyro.contrib.funsor import config_enumerate
 from numpyro.distributions import (
     Beta,
     Categorical,
@@ -80,7 +78,14 @@ AMINO_ACIDS = [
 ]
 
 
-@config_enumerate
+# The support of the von Mises is [-π,π) with a periodic boundary at ±π. However, the support of
+# the implemented von Mises distribution is just the interval [-π,π) without the periodic boundary. If the
+# loc is close to one of the boundaries (-π or π), the sampler must traverse the entire interval to cross the
+# boundary. This produces a bias, especially if the concentration is high. The interval around
+# zero will have a low probability, making the jump to the other boundary unlikely for the sampler.
+# Using the `CircularReparam` introduces the periodic boundary by transforming the real line to [-π,π).
+# The sampler can sample from the real line, thus crossing the periodic boundary without having to traverse the
+# the entire interval, which eliminates the bias.
 @numpyro.handlers.reparam(
     config={"phi_loc": CircularReparam(), "psi_loc": CircularReparam()}
 )
@@ -148,7 +153,7 @@ def run_hmc(rng_key, model, data, num_mix_comp, args, bvm_init_locs):
 
 
 def fetch_aa_dihedrals(aa):
-    _, fetch = load_dataset(NINE_MERS, subset_key=aa)
+    _, fetch = load_dataset(NINE_MERS, split=aa)
     return jnp.stack(fetch())
 
 
@@ -288,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
     parser.add_argument("--amino-acids", nargs="+", default=["S", "P", "G"])
     parser.add_argument("--rng_seed", type=int, default=123)
-    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--device", default="gpu", type=str, help='use "cpu" or "gpu".')
 
     args = parser.parse_args()
     assert all(

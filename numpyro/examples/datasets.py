@@ -284,7 +284,7 @@ def _load_higgs(num_datapoints):
 def _load_9mers():
     _download(NINE_MERS)
     file_path = os.path.join(DATA_DIR, "9mers_data.pkl")
-    return {"train": pickle.load(open(file_path, "rb"))}
+    return pickle.load(open(file_path, "rb"))
 
 
 def _load(dset, num_datapoints=-1):
@@ -331,13 +331,10 @@ def load_dataset(
     split="train",
     shuffle=True,
     num_datapoints=None,
-    subset_key=None,
 ):
-    data = _load(dset, num_datapoints)[split]
-    if isinstance(data, dict) and subset_key:
-        arrays = data.get(subset_key)
-    else:
-        arrays = data
+    data = _load(dset, num_datapoints)
+    if isinstance(data, dict):
+        arrays = data[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
     if not batch_size:
