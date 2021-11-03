@@ -69,6 +69,7 @@ NumPyro documentation
    examples/covtype
    examples/thompson_sampling
    tutorials/bayesian_hierarchical_stacking
+   examples/ssbvm_mixture
 
 
 Indices and tables
