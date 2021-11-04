@@ -33,11 +33,10 @@ import jax
 from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
-from jax.ops import index_add
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
@@ -432,11 +431,7 @@ class OrderedLogistic(CategoricalProbs):
             predictor = predictor[..., None]
         predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
-        cumulative_probs = expit(cutpoints - predictor)
-        # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (jnp.ndim(cumulative_probs) - 1) + [(1, 1)]
-        cumulative_probs = jnp.pad(cumulative_probs, pad_width, constant_values=(0, 1))
-        probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
+        probs = transforms.SimplexToOrderedTransform(self.predictor).inv(self.cutpoints)
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
     @staticmethod
@@ -597,6 +592,18 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 
 
 class Poisson(Distribution):
+    r"""
+    Creates a Poisson distribution parameterized by rate, the rate parameter.
+
+    Samples are nonnegative integers, with a pmf given by
+
+    .. math::
+      \mathrm{rate}^k \frac{e^{-\mathrm{rate}}}{k!}
+
+    :param numpy.ndarray rate: The rate parameter
+    :param bool is_sparse: Whether to assume value is mostly zero when computing
+        :meth:`log_prob`, which can speed up computation when data is sparse.
+    """
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
 
@@ -613,7 +620,6 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = jax.device_get(value)
         if (
             self.is_sparse
             and not isinstance(value, jax.core.Tracer)
@@ -621,15 +627,18 @@ class Poisson(Distribution):
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
-            nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
-            return index_add(
-                -rate,
-                nonzero,
-                jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
-            ).reshape(shape)
+            return (
+                jnp.asarray(-rate)
+                .at[nonzero]
+                .add(
+                    jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
+                )
+                .reshape(shape)
+            )
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
@@ -651,7 +660,7 @@ class ZeroInflatedProbs(Distribution):
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
-        assert base_dist.is_discrete
+        assert base_dist.support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
                 "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
@@ -691,6 +700,13 @@ class ZeroInflatedProbs(Distribution):
         return (1 - self.gate) * (
             self.base_dist.mean ** 2 + self.base_dist.variance
         ) - self.mean ** 2
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    def enumerate_support(self, expand=True):
+        return self.base_dist.enumerate_support(expand=expand)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):

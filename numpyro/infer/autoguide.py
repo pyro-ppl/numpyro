@@ -4,13 +4,14 @@
 # Adapted from pyro.infer.autoguide
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
+from functools import partial
 import warnings
 
 import numpy as np
 
-from jax import hessian, lax, random, tree_map
+import jax
+from jax import grad, hessian, lax, random, tree_map
 from jax.experimental import stax
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
@@ -45,6 +46,7 @@ from numpyro.util import not_jax_tracer
 __all__ = [
     "AutoContinuous",
     "AutoGuide",
+    "AutoDAIS",
     "AutoDiagonalNormal",
     "AutoLaplaceApproximation",
     "AutoLowRankMultivariateNormal",
@@ -102,6 +104,11 @@ class AutoGuide(ABC):
                 )
         return self.plates
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("plates", None)
+        return state
+
     @abstractmethod
     def __call__(self, *args, **kwargs):
         """
@@ -133,8 +140,8 @@ class AutoGuide(ABC):
         with handlers.block():
             (
                 init_params,
-                _,
-                self._postprocess_fn,
+                self._potential_fn,
+                postprocess_fn,
                 self.prototype_trace,
             ) = initialize_model(
                 rng_key,
@@ -144,13 +151,17 @@ class AutoGuide(ABC):
                 model_args=args,
                 model_kwargs=kwargs,
             )
+        # We apply a fixed seed just in case postprocess_fn requires
+        # a random key to generate subsample indices. It does not matter
+        # because we only collect deterministic sites.
+        self._postprocess_fn = handlers.seed(postprocess_fn, rng_seed=0)
         self._init_locs = init_params[0]
 
         self._prototype_frames = {}
         self._prototype_plate_sizes = {}
         for name, site in self.prototype_trace.items():
             if site["type"] == "sample":
-                if not site["is_observed"] and site["fn"].is_discrete:
+                if not site["is_observed"] and site["fn"].support.is_discrete:
                     # raise support errors early for discrete sites
                     with helpful_support_errors(site):
                         biject_to(site["fn"].support)
@@ -218,9 +229,7 @@ class AutoNormal(AutoGuide):
         automatically as usual. This is useful for data subsampling.
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -446,6 +455,34 @@ class AutoDelta(AutoGuide):
         return locs
 
 
+def _unravel_dict(x_flat, shape_dict):
+    """Return `x` from the flatten version `x_flat`. Shape information
+    of each item in `x` is defined in `shape_dict`.
+    """
+    assert jnp.ndim(x_flat) == 1
+    assert isinstance(shape_dict, dict)
+    x = {}
+    curr_pos = next_pos = 0
+    for name, shape in shape_dict.items():
+        next_pos = curr_pos + int(np.prod(shape))
+        x[name] = x_flat[curr_pos:next_pos].reshape(shape)
+        curr_pos = next_pos
+    assert next_pos == x_flat.shape[0]
+    return x
+
+
+def _ravel_dict(x):
+    """Return the flatten version of `x` and shapes of each item in `x`."""
+    assert isinstance(x, dict)
+    shape_dict = {}
+    x_flat = []
+    for name, value in x.items():
+        shape_dict[name] = jnp.shape(value)
+        x_flat.append(value.reshape(-1))
+    x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
+    return x_flat, shape_dict
+
+
 class AutoContinuous(AutoGuide):
     """
     Base class for implementations of continuous-valued Automatic
@@ -470,7 +507,8 @@ class AutoContinuous(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_latent, unpack_latent = ravel_pytree(self._init_locs)
+        self._init_latent, shape_dict = _ravel_dict(self._init_locs)
+        unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
@@ -481,6 +519,14 @@ class AutoContinuous(AutoGuide):
                     type(self).__name__
                 )
             )
+        for site in self.prototype_trace.values():
+            if site["type"] == "sample" and not site["is_observed"]:
+                for frame in site["cond_indep_stack"]:
+                    if frame.size != self._prototype_frame_full_sizes[frame.name]:
+                        raise ValueError(
+                            "AutoContinuous guide does not support"
+                            " local latent variables."
+                        )
 
     @abstractmethod
     def _get_posterior(self):
@@ -608,6 +654,206 @@ class AutoContinuous(AutoGuide):
         return self._unpack_and_constrain(latent_sample, params)
 
 
+class AutoDAIS(AutoContinuous):
+    """
+    This implementation of :class:`AutoDAIS` uses Differentiable Annealed
+    Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
+    latent space. Samples from the variational distribution (i.e. guide)
+    are generated using a combination of (uncorrected) Hamiltonian Monte Carlo
+    and Annealed Importance Sampling. The same algorithm is called Uncorrected
+    Hamiltonian Annealing in [1].
+
+    Note that AutoDAIS cannot be used in conjuction with data subsampling.
+
+    **Reference:**
+
+    1. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
+       Tomas Geffner, Justin Domke
+    2. *Differentiable Annealed Importance Sampling and the Perils of Gradient Noise*,
+       Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse
+
+    Usage::
+
+        guide = AutoDAIS(model)
+        svi = SVI(model, guide, ...)
+
+    :param callable model: A NumPyro model.
+    :param str prefix: A prefix that will be prefixed to all param internal sites.
+    :param int K: A positive integer that controls the number of HMC steps used.
+        Defaults to 4.
+    :param str base_dist: Controls whether the base Normal variational distribution
+       is parameterized by a "diagonal" covariance matrix or a full-rank covariance
+       matrix parameterized by a lower-triangular "cholesky" factor. Defaults to "diagonal".
+    :param float eta_init: The initial value of the step size used in HMC. Defaults
+        to 0.01.
+    :param float eta_max: The maximum value of the learnable step size used in HMC.
+        Defaults to 0.1.
+    :param float gamma_init: The initial value of the learnable damping factor used
+        during partial momentum refreshments in HMC. Defaults to 0.9.
+    :param callable init_loc_fn: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param float init_scale: Initial scale for the standard deviation of
+        the base variational distribution for each (unconstrained transformed)
+        latent variable. Defaults to 0.1.
+    """
+
+    def __init__(
+        self,
+        model,
+        *,
+        K=4,
+        base_dist="diagonal",
+        eta_init=0.01,
+        eta_max=0.1,
+        gamma_init=0.9,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+    ):
+        if K < 1:
+            raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
+        if base_dist not in ["diagonal", "cholesky"]:
+            raise ValueError('base_dist must be one of "diagonal" or "cholesky".')
+        if eta_init <= 0.0 or eta_init >= eta_max:
+            raise ValueError(
+                "eta_init must be positive and satisfy eta_init < eta_max."
+            )
+        if eta_max <= 0.0:
+            raise ValueError("eta_max must be positive.")
+        if gamma_init <= 0.0 or gamma_init >= 1.0:
+            raise ValueError("gamma_init must be in the open interval (0, 1).")
+        if init_scale <= 0.0:
+            raise ValueError("init_scale must be positive.")
+
+        self.eta_init = eta_init
+        self.eta_max = eta_max
+        self.gamma_init = gamma_init
+        self.K = K
+        self.base_dist = base_dist
+        self._init_scale = init_scale
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+
+        for name, site in self.prototype_trace.items():
+            if (
+                site["type"] == "plate"
+                and isinstance(site["args"][1], int)
+                and site["args"][0] > site["args"][1]
+            ):
+                raise NotImplementedError(
+                    "AutoDAIS cannot be used in conjuction with data subsampling."
+                )
+
+    def _get_posterior(self):
+        raise NotImplementedError
+
+    def _sample_latent(self, *args, **kwargs):
+        def log_density(x):
+            x_unpack = self._unpack_latent(x)
+            with numpyro.handlers.block():
+                return -self._potential_fn(x_unpack)
+
+        eta0 = numpyro.param(
+            "{}_eta0".format(self.prefix),
+            self.eta_init,
+            constraint=constraints.interval(0, self.eta_max),
+        )
+        eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), 0.00)
+
+        gamma = numpyro.param(
+            "{}_gamma".format(self.prefix),
+            self.gamma_init,
+            constraint=constraints.interval(0, 1),
+        )
+        betas = numpyro.param(
+            "{}_beta_increments".format(self.prefix),
+            jnp.ones(self.K),
+            constraint=constraints.positive,
+        )
+        betas = jnp.cumsum(betas)
+        betas = betas / betas[-1]  # K-dimensional with betas[-1] = 1
+
+        mass_matrix = numpyro.param(
+            "{}_mass_matrix".format(self.prefix),
+            jnp.ones(self.latent_dim),
+            constraint=constraints.positive,
+        )
+        inv_mass_matrix = 0.5 / mass_matrix
+
+        init_z_loc = numpyro.param(
+            "{}_z_0_loc".format(self.prefix),
+            self._init_latent,
+        )
+
+        if self.base_dist == "diagonal":
+            init_z_scale = numpyro.param(
+                "{}_z_0_scale".format(self.prefix),
+                jnp.full(self.latent_dim, self._init_scale),
+                constraint=constraints.positive,
+            )
+            base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        elif self.base_dist == "cholesky":
+            scale_tril = numpyro.param(
+                "{}_z_0_scale_tril".format(self.prefix),
+                jnp.identity(self.latent_dim) * self._init_scale,
+                constraint=constraints.scaled_unit_lower_cholesky,
+            )
+            base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
+
+        z_0 = numpyro.sample(
+            "{}_z_0".format(self.prefix),
+            base_z_dist,
+            infer={"is_auxiliary": True},
+        )
+        momentum_dist = dist.Normal(0, mass_matrix).to_event()
+        eps = numpyro.sample(
+            "{}_momentum".format(self.prefix),
+            momentum_dist.expand((self.K,)).to_event().mask(False),
+            infer={"is_auxiliary": True},
+        )
+
+        def scan_body(carry, eps_beta):
+            eps, beta = eps_beta
+            eta = eta0 + eta_coeff * beta
+            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            z_prev, v_prev, log_factor = carry
+            z_half = z_prev + v_prev * eta * inv_mass_matrix
+            q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
+            p_grad = beta * grad(log_density)(z_half)
+            v_hat = v_prev + eta * (q_grad + p_grad)
+            z = z_half + v_hat * eta * inv_mass_matrix
+            v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+            delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(v_hat)
+            log_factor = log_factor + delta_ke
+            return (z, v, log_factor), None
+
+        v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
+        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), (eps, betas))
+
+        numpyro.factor("{}_factor".format(self.prefix), log_factor)
+
+        return z
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        def _single_sample(_rng_key):
+            latent_sample = handlers.substitute(
+                handlers.seed(self._sample_latent, _rng_key), params
+            )(sample_shape=())
+            return self._unpack_and_constrain(latent_sample, params)
+
+        if sample_shape:
+            rng_key = random.split(rng_key, int(np.prod(sample_shape)))
+            samples = lax.map(_single_sample, rng_key)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                samples,
+            )
+        else:
+            return _single_sample(rng_key)
+
+
 class AutoDiagonalNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a Normal distribution
@@ -620,9 +866,7 @@ class AutoDiagonalNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -691,9 +935,7 @@ class AutoMultivariateNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_lower_cholesky
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_tril_constraint = constraints.lower_cholesky
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
 
     def __init__(
         self,
@@ -765,9 +1007,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
 
-    # TODO consider switching to constraints.softplus_positive
-    # See https://github.com/pyro-ppl/numpyro/issues/855
-    scale_constraint = constraints.positive
+    scale_constraint = constraints.softplus_positive
 
     def __init__(
         self,
@@ -854,7 +1094,32 @@ class AutoLaplaceApproximation(AutoContinuous):
 
         guide = AutoLaplaceApproximation(model, ...)
         svi = SVI(model, guide, ...)
+
+    :param callable hessian_fn: EXPERIMENTAL a function that takes a function `f`
+        and a vector `x`and returns the hessian of `f` at `x`. By default, we use
+        ``lambda f, x: jax.hessian(f)(x)``. Other alternatives can be
+        ``lambda f, x: jax.jacobian(jax.jacobian(f))(x)`` or
+        ``lambda f, x: jax.hessian(f)(x) + 1e-3 * jnp.eye(x.shape[0])``. The later
+        example is helpful when the hessian of `f` at `x` is not positive definite.
+        Note that the output hessian is the precision matrix of the laplace
+        approximation.
     """
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        create_plates=None,
+        hessian_fn=None,
+    ):
+        super().__init__(
+            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+        )
+        self._hessian_fn = (
+            hessian_fn if hessian_fn is not None else (lambda f, x: hessian(f)(x))
+        )
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
@@ -882,14 +1147,14 @@ class AutoLaplaceApproximation(AutoContinuous):
             return self._loss_fn(params1)
 
         loc = params["{}_loc".format(self.prefix)]
-        precision = hessian(loss_fn)(loc)
+        precision = self._hessian_fn(loss_fn, loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
                 warnings.warn(
                     "Hessian of log posterior at the MAP point is singular. Posterior"
                     " samples from AutoLaplaceApproxmiation will be constant (equal to"
-                    " the MAP point)."
+                    " the MAP point). Please consider using an AutoNormal guide."
                 )
         scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
         return LowerCholeskyAffine(loc, scale_tril)
@@ -1025,7 +1290,7 @@ class AutoBNAFNormal(AutoContinuous):
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_loc_fn: A per-site initialization function.
-    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param int num_flows: the number of flows to be used, defaults to 1.
     :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.

@@ -10,6 +10,7 @@ import numpy as np
 
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
+from jax.lax import broadcast_shapes
 import jax.numpy as jnp
 from jax.tree_util import tree_map
 
@@ -60,6 +61,18 @@ def log_density(model, model_args, model_kwargs, params):
             if intermediates:
                 log_prob = site["fn"].log_prob(value, intermediates)
             else:
+                guide_shape = jnp.shape(value)
+                model_shape = tuple(
+                    site["fn"].shape()
+                )  # TensorShape from tfp needs casting to tuple
+                try:
+                    broadcast_shapes(guide_shape, model_shape)
+                except ValueError:
+                    raise ValueError(
+                        "Model and guide shapes disagree at site: '{}': {} vs {}".format(
+                            site["name"], model_shape, guide_shape
+                        )
+                    )
                 log_prob = site["fn"].log_prob(value)
 
             if (scale is not None) and (not is_identically_one(scale)):
@@ -313,7 +326,7 @@ def find_valid_initial_params(
                 if (
                         v["type"] == "sample"
                         and not v["is_observed"]
-                        and not v["fn"].is_discrete
+                        and not v["fn"].support.is_discrete
                 ):
                     constrained_values[k] = v["value"]
                     with helpful_support_errors(v):
@@ -388,7 +401,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     has_enumerate_support = False
     for k, v in model_trace.items():
         if v["type"] == "sample" and not v["is_observed"]:
-            if v["fn"].is_discrete:
+            if v["fn"].support.is_discrete:
                 has_enumerate_support = True
                 if not v["fn"].has_enumerate_support:
                     raise RuntimeError(
@@ -586,7 +599,9 @@ def initialize_model(
     constrained_values = {
         k: v["value"]
         for k, v in model_trace.items()
-        if v["type"] == "sample" and not v["is_observed"] and not v["fn"].is_discrete
+        if v["type"] == "sample"
+           and not v["is_observed"]
+           and not v["fn"].support.is_discrete
     }
 
     if has_enumerate_support:

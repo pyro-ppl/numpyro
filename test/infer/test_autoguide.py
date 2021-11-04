@@ -6,7 +6,7 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, lax, random
+from jax import jacobian, jit, lax, random
 from jax.experimental.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
@@ -21,6 +21,7 @@ from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
+    AutoDAIS,
     AutoDelta,
     AutoDiagonalNormal,
     AutoIAFNormal,
@@ -47,6 +48,7 @@ init_strategy = init_to_median(num_samples=2)
     "auto_class",
     [
         AutoDiagonalNormal,
+        AutoDAIS,
         AutoIAFNormal,
         AutoBNAFNormal,
         AutoMultivariateNormal,
@@ -64,7 +66,10 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model, init_loc_fn=init_strategy)
+    if auto_class == AutoDAIS:
+        guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
+    else:
+        guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
@@ -74,14 +79,16 @@ def test_beta_bernoulli(auto_class):
 
     svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
+
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
-    assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
+    posterior_mean = jnp.mean(posterior_samples["beta"], 0)
+    assert_allclose(posterior_mean, true_coefs, atol=0.05)
 
-    if auto_class not in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+    if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
         quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
         assert quantiles["beta"].shape == (3, 2)
 
@@ -101,6 +108,7 @@ def test_beta_bernoulli(auto_class):
     [
         AutoDiagonalNormal,
         AutoIAFNormal,
+        AutoDAIS,
         AutoBNAFNormal,
         AutoMultivariateNormal,
         AutoLaplaceApproximation,
@@ -142,7 +150,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
+    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal):
         median = guide.median(params)
         assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method
@@ -351,6 +359,23 @@ def test_laplace_approximation_warning():
     params = svi.get_params(svi_state)
     with pytest.warns(UserWarning, match="Hessian of log posterior"):
         guide.sample_posterior(random.PRNGKey(1), params)
+
+
+def test_laplace_approximation_custom_hessian():
+    def model(x, y):
+        a = numpyro.sample("a", dist.Normal(0, 10))
+        b = numpyro.sample("b", dist.Normal(0, 10))
+        mu = a + b * x
+        numpyro.sample("y", dist.Normal(mu, 1), obs=y)
+
+    x = random.normal(random.PRNGKey(0), (100,))
+    y = 1 + 2 * x
+    guide = AutoLaplaceApproximation(
+        model, hessian_fn=lambda f, x: jacobian(jacobian(f))(x)
+    )
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
+    svi_result = svi.run(random.PRNGKey(0), 10000, progress_bar=False)
+    guide.get_transform(svi_result.params)
 
 
 def test_improper():
@@ -570,3 +595,44 @@ def test_sphere_helpful_error(auto_class, init_loc_fn):
     guide = auto_class(model, init_loc_fn=init_loc_fn)
     with pytest.raises(ValueError, match=".*ProjectedNormalReparam.*"):
         handlers.seed(guide, 0)()
+
+
+def test_autodais_subsampling_error():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1, 1))
+        with numpyro.plate("plate", 20, 10, dim=-1):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    adam = optim.Adam(0.01)
+    guide = AutoDAIS(model)
+    svi = SVI(model, guide, adam, Trace_ELBO())
+
+    with pytest.raises(NotImplementedError, match=".*data subsampling.*"):
+        svi.init(random.PRNGKey(1), data)
+
+
+def test_subsample_model_with_deterministic():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.deterministic("x2", x * 2)
+        with numpyro.plate("N", 10, subsample_size=5):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(5))
+
+    guide = AutoNormal(model)
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 10)
+    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert "x2" in samples
+
+
+def test_autocontinuous_local_error():
+    def model():
+        with numpyro.plate("N", 10, subsample_size=4):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+    guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    with pytest.raises(ValueError, match="local latent variables"):
+        svi.init(random.PRNGKey(0))

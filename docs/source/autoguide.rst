@@ -82,3 +82,11 @@ AutoDelta
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+AutoDAIS
+--------
+.. autoclass:: numpyro.infer.autoguide.AutoDAIS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

@@ -7,6 +7,8 @@ from operator import attrgetter
 import os
 import warnings
 
+import numpy as np
+
 from jax import jit, lax, local_device_count, pmap, random, vmap
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
@@ -190,7 +192,7 @@ def _hashable(x):
         return x
     elif isinstance(x, DeviceArray):
         return x.copy().tobytes()
-    elif isinstance(x, jnp.ndarray):
+    elif isinstance(x, (np.ndarray, jnp.ndarray)):
         return x.tobytes()
     return x
 
@@ -207,7 +209,8 @@ class MCMC(object):
     .. note:: If setting `num_chains` greater than `1` in a Jupyter Notebook, then you will need to
         have installed `ipywidgets <https://ipywidgets.readthedocs.io/en/latest/user_install.html>`_
         in the environment from which you launced Jupyter in order for the progress bars to render
-        correctly.
+        correctly. If you are using Jupyter Notebook or Jupyter Lab, please also install the
+        corresponding extension package like `widgetsnbextension` or `jupyterlab_widgets`.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
@@ -234,6 +237,34 @@ class MCMC(object):
     :param bool jit_model_args: If set to `True`, this will compile the potential energy
         computation as a function of model arguments. As such, calling `MCMC.run` again
         on a same sized but different dataset will not result in additional compilation cost.
+        Note that currently, this does not take effect for the case ``num_chains > 1``
+        and ``chain_method == 'parallel'``.
+
+    .. note:: It is possible to mix parallel and vectorized sampling, i.e., run vectorized chains
+        on multiple devices using explicit `pmap`. Currently, doing so requires disabling the
+        progress bar. For example,
+
+        .. code-block:: python
+
+            def do_mcmc(rng_key, n_vectorized=8):
+                nuts_kernel = NUTS(model)
+                mcmc = MCMC(
+                    nuts_kernel,
+                    progress_bar=False,
+                    num_chains=n_vectorized,
+                    chain_method='vectorized'
+                )
+                mcmc.run(
+                    rng_key,
+                    extra_fields=("potential_energy",),
+                )
+                return {**mcmc.get_samples(), **mcmc.get_extra_fields()}
+            # Number of devices to pmap over
+            n_parallel = jax.local_device_count()
+            rng_keys = jax.random.split(PRNGKey(rng_seed), n_parallel)
+            traces = pmap(do_mcmc)(rng_keys)
+            # concatenate traces along pmap'ed axis
+            trace = {k: np.concatenate(v) for k, v in traces.items()}
     """
 
     def __init__(

@@ -84,7 +84,7 @@ class VI:
                 lambda info: bodyfn(0, info),
                 (state, loss, *args),
                 progbar=False,
-                transform=lambda val: val[1],
+                transform=lambda val: val[0],
                 return_last_val=True
             )
             state = last_res[0]

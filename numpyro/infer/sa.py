@@ -366,6 +366,10 @@ class SA(MCMCKernel):
         return init_state
 
     @property
+    def model(self):
+        return self._model
+
+    @property
     def sample_field(self):
         return "z"
 

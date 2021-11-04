@@ -192,9 +192,11 @@ class SVI(object):
                 site["type"] == "sample"
                 and (not site["is_observed"])
                 and site["fn"].support.is_discrete
+                and not self.loss.can_infer_discrete
             ):
+                s_name = type(self.loss).__name__
                 warnings.warn(
-                    "Currently, SVI does not support models with discrete latent variables"
+                    f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
                 )
 
         if not mutable_state:
@@ -283,7 +285,8 @@ class SVI(object):
         *args,
         progress_bar=True,
         stable_update=False,
-        **kwargs
+        init_state=None,
+        **kwargs,
     ):
         """
         (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
@@ -302,12 +305,24 @@ class SVI(object):
             ``True``.
         :param bool stable_update: whether to use :meth:`stable_update` to update
             the state. Defaults to False.
+        :param SVIState init_state: if not None, begin SVI from the
+            final state of previous SVI run. Usage::
+
+                svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+                svi_result = svi.run(random.PRNGKey(0), 2000, data)
+                # upon inspection of svi_result the user decides that the model has not converged
+                # continue from the end of the previous svi run rather than beginning again from iteration 0
+                svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state)
+
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
             and `losses` is the collected loss during the process.
         :rtype: SVIRunResult
         """
+
+        if num_steps < 1:
+            raise ValueError("num_steps must be a positive integer.")
 
         def body_fn(svi_state, _):
             if stable_update:
@@ -316,7 +331,10 @@ class SVI(object):
                 svi_state, loss = self.update(svi_state, *args, **kwargs)
             return svi_state, loss
 
-        svi_state = self.init(rng_key, *args, **kwargs)
+        if init_state is None:
+            svi_state = self.init(rng_key, *args, **kwargs)
+        else:
+            svi_state = init_state
         if progress_bar:
             losses = []
             with tqdm.trange(1, num_steps + 1) as t:
@@ -369,5 +387,5 @@ class SVI(object):
             self.guide,
             *args,
             **kwargs,
-            **self.static_kwargs
+            **self.static_kwargs,
         )

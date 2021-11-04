@@ -13,6 +13,7 @@ from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import get_importance_trace, log_density
+from numpyro.util import check_model_guide_match
 
 
 class ELBO:
@@ -24,6 +25,13 @@ class ELBO:
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
     """
+
+    """
+    Determines whether the ELBO objective can support inference of discrete latent variables.
+
+    Subclasses that are capable of inferring  discrete latent variables should override to `True`
+    """
+    can_infer_discrete = False
 
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
@@ -117,6 +125,7 @@ class Trace_ELBO(ELBO):
             model_log_density, model_trace = log_density(
                 seeded_model, args, kwargs, params
             )
+            # check_model_guide_match(model_trace, guide_trace)  # FIXME: @OlaRonning
             mutable_params.update(
                 {
                     name: site["value"]
@@ -251,7 +260,7 @@ class TraceMeanField_ELBO(ELBO):
             # handle auxiliary sites in the guide
             for name, site in guide_trace.items():
                 if site["type"] == "sample" and name not in model_trace:
-                    assert site["infer"].get("is_auxiliary")
+                    assert site["infer"].get("is_auxiliary") or site["is_observed"]
                     elbo_particle = elbo_particle - _get_log_prob_sum(site)
 
             if mutable_params:
@@ -530,6 +539,8 @@ class TraceGraph_ELBO(ELBO):
     [1] `Gradient Estimation Using Stochastic Computation Graphs`,
         John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
     """
+
+    can_infer_discrete = True
 
     def __init__(self, num_particles=1):
         super().__init__(num_particles=num_particles)

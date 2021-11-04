@@ -1,9 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from numpy.testing import assert_allclose
 import pytest
 
+from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.test_util import check_eq
@@ -11,7 +13,7 @@ from jax.tree_util import tree_flatten, tree_multimap
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import fori_collect, format_shapes, soft_vmap
+from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
 
 
 def test_fori_collect_thinning():
@@ -165,4 +167,90 @@ def test_format_shapes():
         "   scale dist      | 3\n"
         "        value      | 3\n"
         "   data plate 10   |  "
+    )
+
+
+def test_check_model_guide_match():
+    def _run_svi(model, guide):
+        adam = numpyro.optim.Adam(1e-3)
+        svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
+        svi.run(random.PRNGKey(42), num_steps=50)
+
+    def _run_svi_check_warnings(model, guide, expected_string):
+        with pytest.warns(UserWarning, match=expected_string) as ws:
+            _run_svi(model, guide)
+            assert len(ws) == 1
+            assert expected_string in str(ws[0].message)
+
+    def _create_traces_check_error_string(model, guide, expected_string):
+        model_trace = numpyro.handlers.trace(
+            numpyro.handlers.seed(model, rng_seed=42)
+        ).get_trace()
+        guide_trace = numpyro.handlers.trace(
+            numpyro.handlers.seed(guide, rng_seed=42)
+        ).get_trace()
+        with pytest.raises(ValueError, match=expected_string):
+            check_model_guide_match(model_trace, guide_trace)
+
+    # 1. Auxiliary vars in the model
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    def guide():
+        numpyro.sample("x", dist.Normal(), infer={"is_auxiliary": True})
+
+    _run_svi_check_warnings(model, guide, "Found auxiliary vars in the model")
+
+    # 2. Non-auxiliary vars in guide but not model
+    def model():
+        numpyro.sample("x1", dist.Normal())
+
+    def guide():
+        numpyro.sample("x1", dist.Normal())
+        numpyro.sample("x2", dist.Normal())
+
+    _run_svi_check_warnings(
+        model, guide, "Found non-auxiliary vars in guide but not model"
+    )
+
+    # 3. Vars in model but not guide
+    def model():
+        numpyro.sample("x1", dist.Normal())
+        numpyro.sample("x2", dist.Normal())
+
+    def guide():
+        numpyro.sample("x1", dist.Normal())
+
+    _run_svi_check_warnings(model, guide, "Found vars in model but not guide")
+
+    # 4. Check event_dims agree
+    def model():
+        numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(4), jnp.identity(4)))
+
+    def guide():
+        numpyro.sample("x", dist.Normal().expand((3, 5)))
+
+    _create_traces_check_error_string(
+        model, guide, "Model and guide event_dims disagree"
+    )
+
+    # 5. Check shapes agree
+    def model():
+        numpyro.sample("x", dist.Normal().expand((3, 2)))
+
+    def guide():
+        numpyro.sample("x", dist.Normal().expand((3, 5)))
+
+    _create_traces_check_error_string(model, guide, "Model and guide shapes disagree")
+
+    # 6. Check subsample sites introduced by plate
+    def model():
+        numpyro.sample("x", dist.Normal().expand((10,)))
+
+    def guide():
+        with numpyro.handlers.plate("data", 100, subsample_size=10):
+            numpyro.sample("x", dist.Normal())
+
+    _run_svi_check_warnings(
+        model, guide, "Found plate statements in guide but not model"
     )
