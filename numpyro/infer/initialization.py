@@ -74,12 +74,12 @@ def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
             and not site["is_observed"]
             and not site["fn"].support.is_discrete
     ) or (site["type"] == "param" and reinit_param(site)):
-        if site["value"] is not None:
-            warnings.warn(
-                f"init_to_uniform() skipping initialization of site '{site['name']}'"
-                " which already stores a value."
-            )
-            return site["value"]
+        # if site["value"] is not None:
+        #     warnings.warn(
+        #         f"init_to_uniform() skipping initialization of site '{site['name']}'"
+        #         " which already stores a value."
+        #     )
+        #     return site["value"]
 
         # XXX: we import here to avoid circular import
         from numpyro.infer.util import helpful_support_errors
