@@ -48,7 +48,7 @@ EXAMPLES = [
     "ucbadmit.py --num-chains 2",
     "vae.py -n 1",
     "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2",
-    "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2 --unroll-loop",
+    "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2 --num-data 10 --unroll-loop",
 ]
 
 
