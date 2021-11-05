@@ -1,12 +1,28 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-"""
+r"""
 Example: AR2 process
 ====================
 
 In this example we show how to use ``jax.lax.scan``
 to avoid writing a (slow) Python for-loop.
+
+To demonstrate, we will be implementing an AR2 process.
+The idea is that we have some times series
+
+.. math::
+
+    y_0, y_1, ..., y_T
+
+and we seek parameters :math:`c`, :math:`\alpha_1`, and :math:`\alpha_2`
+such that for each :math:`t` between :math:`2` and :math:`T`, we have
+
+.. math::
+
+    y_t = c + \alpha_1 y_{t-1} + \alpha_2 y_{t-2} + \epsilon_t
+
+where :math:`\epsilon_t` is an error term.
 
 .. image:: ../_static/img/examples/ar2.png
     :align: center
@@ -27,26 +43,19 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-matplotlib.use("Agg")  # noqa: E402
+matplotlib.use("Agg")
 
 
 def ar2(y, unroll_loop=False):
-    alpha_1 = numpyro.sample(
-        "alpha_1",
-        dist.TruncatedDistribution(dist.Normal(0, 1), low=-1, high=1),
-    )
-    alpha_2 = numpyro.sample(
-        "alpha_2",
-        dist.TruncatedDistribution(dist.Normal(0, 1), low=-1, high=1),
-    )
-    const = numpyro.sample(
-        "const",
-        dist.Normal(0, 1),
-    )
-    sigma = numpyro.sample(
-        "sigma",
-        dist.Normal(0, 1),
-    )
+    alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
+    alpha_2 = numpyro.sample("alpha_2", dist.Normal(0, 1))
+    const = numpyro.sample("const", dist.Normal(0, 1))
+    sigma = numpyro.sample("sigma", dist.Normal(0, 1))
+
+    def transition_fn(carry, y):
+        y_1, y_2 = carry
+        pred = const + alpha_1 * y_1 + alpha_2 * y_2
+        return (y, y_1), pred
 
     if unroll_loop:
         preds = []
@@ -54,12 +63,6 @@ def ar2(y, unroll_loop=False):
             preds.append(const + alpha_1 * y[i - 1] + alpha_2 * y[i - 2])
         preds = jnp.asarray(preds)
     else:
-
-        def transition_fn(carry, y):
-            y_1, y_2 = carry
-            pred = alpha_1 * y_1 + alpha_2 * y_2
-            return (y, y_1), pred
-
         _, preds = jax.lax.scan(transition_fn, (y[1], y[0]), y[2:])
 
     mu = numpyro.deterministic("mu", preds)
@@ -76,17 +79,13 @@ def run_inference(model, args, rng_key, y):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(
-        rng_key,
-        y=y,
-    )
+    mcmc.run(rng_key, y=y)
     mcmc.print_summary()
     print("\nMCMC elapsed time:", time.time() - start)
     return mcmc.get_samples()
 
 
 def main(args):
-
     # generate artifical dataset
     num_data = 142
     t = np.arange(0, num_data)
@@ -103,7 +102,7 @@ def main(args):
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     # plot training data
-    ax.plot(t, y, color="blue", label="True labels")
+    ax.plot(t, y, color="blue", label="True values")
     # plot mean prediction
     # note that we can't make predictions for the first two points,
     # because they don't have lagged values to use prediction.
@@ -112,7 +111,6 @@ def main(args):
     ax.legend()
 
     plt.savefig("ar2_plot.pdf")
-    fig.savefig("docs/source/_static/img/examples/ar2.png")
 
 
 if __name__ == "__main__":
