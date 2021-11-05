@@ -6,7 +6,9 @@ Example: AR2 process
 ====================
 
 In this example we show how to use ``jax.lax.scan``
-to avoid writing a (slow) Python for-loop.
+to avoid writing a (slow) Python for-loop. In this toy
+example, with ``--num-data=1000``, the improvement is
+of almost 10x.
 
 To demonstrate, we will be implementing an AR2 process.
 The idea is that we have some times series
@@ -79,7 +81,7 @@ def run_inference(model, args, rng_key, y):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(rng_key, y=y)
+    mcmc.run(rng_key, y=y, unroll_loop=args.unroll_loop)
     mcmc.print_summary()
     print("\nMCMC elapsed time:", time.time() - start)
     return mcmc.get_samples()
@@ -87,7 +89,7 @@ def run_inference(model, args, rng_key, y):
 
 def main(args):
     # generate artifical dataset
-    num_data = 142
+    num_data = args.num_data
     t = np.arange(0, num_data)
     y = np.sin(t) + np.random.randn(num_data) * 0.1
 
@@ -105,7 +107,7 @@ def main(args):
     ax.plot(t, y, color="blue", label="True values")
     # plot mean prediction
     # note that we can't make predictions for the first two points,
-    # because they don't have lagged values to use prediction.
+    # because they don't have lagged values to use for prediction.
     ax.plot(t[2:], mean_prediction, color="orange", label="Mean predictions")
     ax.set(xlabel="time", ylabel="y", title="AR2 process")
     ax.legend()
@@ -116,10 +118,16 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith("0.8.0")
     parser = argparse.ArgumentParser(description="AR2 example")
+    parser.add_argument("--num-data", nargs="?", default=142, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+    parser.add_argument(
+        "--unroll-loop",
+        action="store_true",
+        help="whether to unroll for-loop (note: slower)",
+    )
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
