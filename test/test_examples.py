@@ -47,6 +47,7 @@ EXAMPLES = [
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
     "ucbadmit.py --num-chains 2",
     "vae.py -n 1",
+    "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2",
 ]
 
 
