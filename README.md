@@ -140,7 +140,7 @@ Expected log joint density: -46.09
 
 ```
 
-Note that for the class of distributions with `loc,scale` paramaters such as `Normal`, `Cauchy`, `StudentT`, we also provide a [LocScaleReparam](http://num.pyro.ai/en/latest/reparam.html#loc-scale-decentering) reparameterizer to achieve the same purpose. The corresponding code will be
+Note that for the class of distributions with `loc,scale` parameters such as `Normal`, `Cauchy`, `StudentT`, we also provide a [LocScaleReparam](http://num.pyro.ai/en/latest/reparam.html#loc-scale-decentering) reparameterizer to achieve the same purpose. The corresponding code will be
 
     with numpyro.handlers.reparam(config={'theta': LocScaleReparam(centered=0)}):
         theta = numpyro.sample('theta', dist.Normal(mu, tau))
@@ -278,7 +278,7 @@ In the near term, we plan to work on the following. Please open new issues for f
 
  - Improving robustness of inference on different models, profiling and performance tuning.
  - Supporting more functionality as part of the [pyro-api](https://github.com/pyro-ppl/pyro-api) generic modeling interface.
- - More inference algorithms, particularly those that require second order derivaties or use HMC.
+ - More inference algorithms, particularly those that require second order derivatives or use HMC.
  - Integration with [Funsor](https://github.com/pyro-ppl/funsor) to support inference algorithms with delayed sampling.
  - Other areas motivated by Pyro's research goals and application focus, and interest from the community.
 
