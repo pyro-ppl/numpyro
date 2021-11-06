@@ -282,7 +282,7 @@ def yearday_effect(day_of_year):
     scale_global = 0.1
     tau = sample(
         "tau", dist.HalfNormal(2 * scale_global)
-    )  # Orignial uses half-t with 100df
+    )  # Original uses half-t with 100df
     c_aux = sample("c_aux", dist.InverseGamma(0.5 * slab_df, 0.5 * slab_df))
     c = slab_scale * jnp.sqrt(c_aux)
 

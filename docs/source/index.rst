@@ -70,6 +70,7 @@ NumPyro documentation
    examples/thompson_sampling
    tutorials/bayesian_hierarchical_stacking
    examples/ssbvm_mixture
+   examples/ar2
 
 
 Indices and tables

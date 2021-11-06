@@ -535,7 +535,7 @@ class Laplace(Distribution):
 class LKJ(TransformedDistribution):
     r"""
     LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
-    parameter :math:`\eta` to make the probability of the correlation matrix :math:`M` propotional
+    parameter :math:`\eta` to make the probability of the correlation matrix :math:`M` proportional
     to :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over correlation matrices.
 

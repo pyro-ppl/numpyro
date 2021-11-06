@@ -29,11 +29,11 @@ UC Berkeley in Fall 1973:
    ====== ====== ============== =======
 
 This example replicates the multilevel model `m_glmm5` at [3], which is used to evaluate whether
-the data contain evidence of gender biased in admissions accross departments. This is a form of
+the data contain evidence of gender biased in admissions across departments. This is a form of
 Generalized Linear Mixed Models for binomial regression problem, which models
 
-    - varying intercepts accross departments,
-    - varying slopes (or the effects of being male) accross departments,
+    - varying intercepts across departments,
+    - varying slopes (or the effects of being male) across departments,
     - correlation between intercepts and slopes,
 
 and uses non-centered parameterization (or whitening).
