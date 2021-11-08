@@ -309,7 +309,7 @@ class SineBivariateVonMises(Distribution):
         .. math::
             \frac{\rho}{\kappa_1\kappa_2} \rightarrow 1
 
-        because the distribution becomes increasingly bimodal.To avoid bimodality use the `weighted_correlation`
+        because the distribution becomes increasingly bimodal. To avoid bimodality use the `weighted_correlation`
         parameter with a skew away from one (e.g., Beta(1,3)). The `weighted_correlation` should be in [0,1].
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
