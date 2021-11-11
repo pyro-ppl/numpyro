@@ -8,7 +8,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
 from jax import jacfwd, random, vmap
-from jax.experimental.stax import serial
+from jax.example_libraries.stax import serial
 import jax.numpy as jnp
 
 from numpyro.distributions.util import matrix_to_tril_vec

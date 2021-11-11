@@ -4,7 +4,7 @@
 import numpy as np
 
 from jax import random
-from jax.experimental import stax
+from jax.example_libraries import stax
 from jax.nn import sigmoid, softplus
 from jax.nn.initializers import glorot_uniform, normal, uniform
 import jax.numpy as jnp

@@ -7,7 +7,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import jacobian, jit, lax, random
-from jax.experimental.stax import Dense
+from jax.example_libraries.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
 

@@ -9,7 +9,7 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_jax_version_constraints = ">=0.2.13"
+_jax_version_constraints = ">=0.2.25"
 _jaxlib_version_constraints = ">=0.1.65"
 
 # Find version

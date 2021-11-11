@@ -51,7 +51,7 @@ def test_renyi_elbo(alpha):
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
 @pytest.mark.parametrize(
-    "optimizer", [optim.Adam(0.05), jax.experimental.optimizers.adam(0.05)]
+    "optimizer", [optim.Adam(0.05), jax.example_libraries.optimizers.adam(0.05)]
 )
 def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)

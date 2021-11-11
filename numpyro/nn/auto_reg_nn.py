@@ -5,7 +5,7 @@
 
 import numpy as np
 
-from jax.experimental import stax
+from jax.example_libraries import stax
 import jax.numpy as jnp
 
 from numpyro.nn.masked_dense import MaskedDense
@@ -73,7 +73,7 @@ def AutoregressiveNN(
     """
     An implementation of a MADE-like auto-regressive neural network.
 
-    Similar to the purely functional layer implemented in jax.experimental.stax,
+    Similar to the purely functional layer implemented in jax.example_libraries.stax,
     the `AutoregressiveNN` class has `init_fun` and `apply_fun` methods,
     where `init_fun` takes an rng_key key and an input shape and returns an
     (output_shape, params) pair, and `apply_fun` takes params and inputs

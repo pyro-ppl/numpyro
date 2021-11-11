@@ -8,7 +8,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import jacfwd, random
-from jax.experimental import stax
+from jax.example_libraries import stax
 
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,
