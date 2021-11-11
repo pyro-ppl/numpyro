@@ -5,10 +5,17 @@
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
+from packaging import version
 import pytest
 
+import jax
 from jax import jacfwd, random, vmap
-from jax.example_libraries.stax import serial
+
+if version.parse(jax.__version__) >= version.parse("0.2.25"):
+    from jax.example_libraries.stax import serial
+else:
+    from jax.experimental.stax import serial
+
 import jax.numpy as jnp
 
 from numpyro.distributions.util import matrix_to_tril_vec

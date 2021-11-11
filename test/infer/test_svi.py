@@ -3,12 +3,18 @@
 
 import numpy as np
 from numpy.testing import assert_allclose
+from packaging import version
 import pytest
 
 import jax
 from jax import jit, random, value_and_grad
 import jax.numpy as jnp
 from jax.test_util import check_close
+
+if version.parse(jax.__version__) >= version.parse("0.2.25"):
+    from jax.example_libraries.optimizers import adam
+else:
+    from jax.experimental.optimizers import adam
 
 import numpyro
 from numpyro import optim
@@ -50,9 +56,7 @@ def test_renyi_elbo(alpha):
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
-@pytest.mark.parametrize(
-    "optimizer", [optim.Adam(0.05), jax.example_libraries.optimizers.adam(0.05)]
-)
+@pytest.mark.parametrize("optimizer", [optim.Adam(0.05), adam(0.05)])
 def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 

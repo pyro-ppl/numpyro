@@ -4,9 +4,16 @@
 from functools import namedtuple, partial
 import warnings
 
+from packaging import version
 import tqdm
 
 import jax
+
+if version.parse(jax.__version__) >= version.parse("0.2.25"):
+    from jax.example_libraries.optimizers import Optimizer
+else:
+    from jax.experimental.optimizers import Optimizer
+
 from jax import jit, lax, random
 import jax.numpy as jnp
 from jax.tree_util import tree_map
@@ -132,7 +139,7 @@ class SVI(object):
 
         if isinstance(optim, _NumPyroOptim):
             self.optim = optim
-        elif isinstance(optim, jax.example_libraries.optimizers.Optimizer):
+        elif isinstance(optim, Optimizer):
             self.optim = _NumPyroOptim(lambda *args: args, *optim)
         else:
             try:

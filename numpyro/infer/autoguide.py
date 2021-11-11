@@ -8,10 +8,16 @@ from functools import partial
 import warnings
 
 import numpy as np
+from packaging import version
 
 import jax
 from jax import grad, hessian, lax, random, tree_map
-from jax.example_libraries import stax
+
+if version.parse(jax.__version__) >= version.parse("0.2.25"):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
+
 import jax.numpy as jnp
 
 import numpyro

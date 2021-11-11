@@ -4,8 +4,15 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/nn/auto_reg_nn.py
 
 import numpy as np
+from packaging import version
 
-from jax.example_libraries import stax
+import jax
+
+if version.parse(jax.__version__) >= version.parse("0.2.25"):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
+
 import jax.numpy as jnp
 
 from numpyro.nn.masked_dense import MaskedDense
