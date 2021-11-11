@@ -10,9 +10,9 @@ import tqdm
 import jax
 
 if version.parse(jax.__version__) >= version.parse("0.2.25"):
-    from jax.example_libraries.optimizers import Optimizer
+    from jax.example_librariesimport optimizers
 else:
-    from jax.experimental.optimizers import Optimizer
+    from jax.experimental import optimizers 
 
 from jax import jit, lax, random
 import jax.numpy as jnp
@@ -139,7 +139,7 @@ class SVI(object):
 
         if isinstance(optim, _NumPyroOptim):
             self.optim = optim
-        elif isinstance(optim, Optimizer):
+        elif isinstance(optim, optimizers.Optimizer):
             self.optim = _NumPyroOptim(lambda *args: args, *optim)
         else:
             try:
