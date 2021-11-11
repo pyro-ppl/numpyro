@@ -14,7 +14,7 @@ from jax.test_util import check_close
 if version.parse(jax.__version__) >= version.parse("0.2.25"):
     from jax.example_libraries import optimizers
 else:
-    from jax.experimental import optimizers 
+    from jax.experimental import optimizers
 
 import numpyro
 from numpyro import optim

@@ -10,9 +10,9 @@ import tqdm
 import jax
 
 if version.parse(jax.__version__) >= version.parse("0.2.25"):
-    from jax.example_librariesimport optimizers
+    from jax.example_libraries import optimizers
 else:
-    from jax.experimental import optimizers 
+    from jax.experimental import optimizers
 
 from jax import jit, lax, random
 import jax.numpy as jnp
