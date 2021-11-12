@@ -205,7 +205,7 @@ def sample(
 def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
-    :mod:`jax.experimental.optimizers`. For an example of how `param` statements
+    :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
     can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
@@ -357,12 +357,12 @@ def get_mask():
 
 def module(name, nn, input_shape=None):
     """
-    Declare a :mod:`~jax.experimental.stax` style neural network inside a
+    Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
-    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.experimental.stax`
+    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.example_libraries.stax`
         constructor function.
     :param tuple input_shape: shape of the input taken by the
         neural network.
