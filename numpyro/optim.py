@@ -3,15 +3,23 @@
 
 """
 Optimizer classes defined here are light wrappers over the corresponding optimizers
-sourced from :mod:`jax.experimental.optimizers` with an interface that is better
+sourced from :mod:`jax.example_libraries.optimizers` with an interface that is better
 suited for working with NumPyro inference algorithms.
 """
 
 from collections import namedtuple
 from typing import Any, Callable, Tuple, TypeVar
 
+import jax
 from jax import lax, value_and_grad
-from jax.experimental import optimizers
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import optimizers
+else:
+    from jax.experimental import optimizers
+
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
@@ -112,7 +120,7 @@ class _NumPyroOptim(object):
 
 def _add_doc(fn):
     def _wrapped(cls):
-        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`".format(
+        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.example_libraries.optimizers.{}`".format(
             fn.__name__
         )
         return cls
