@@ -12,8 +12,9 @@ from numpyro.contrib.einstein import Stein
 from numpyro.contrib.einstein.kernels import RBFKernel
 import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
-from numpyro.infer import ELBO, Trace_ELBO
+from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
+numpyro.set_platform('cpu')
 
 batch_size = 32
 init, get_batch = load_dataset(JSB_CHORALES, batch_size=batch_size)
@@ -193,7 +194,7 @@ def model(
     emission_dim=100,
     transition_dim=200,
     data_dim=88,
-    gru_dim=400,
+    gru_dim=100,
     annealing_factor=1.0
 ):
     batch_size, max_seq_length, *_ = seqs.shape
@@ -251,7 +252,7 @@ def guide(
     emission_dim=100,
     transition_dim=200,
     data_dim=88,
-    gru_dim=400,
+    gru_dim=100,
     annealing_factor=1.0
 ):
     batch_size, max_seq_length, *_ = seqs.shape
@@ -285,7 +286,7 @@ if __name__ == "__main__":
     svgd = Stein(
         model,
         guide,
-        Adam(8e-4),
+        Adam(1e-5),
         Trace_ELBO(),
         RBFKernel(),
         reinit_hide_fn=lambda site: site["name"].endswith("$params"),

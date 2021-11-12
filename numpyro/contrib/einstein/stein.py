@@ -1,16 +1,16 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-from collections import namedtuple
 import functools
+import operator
+from collections import namedtuple
 from functools import partial
 from itertools import chain
-import operator
 from typing import Callable
 
 import jax
-from jax import ops
 import jax.numpy as jnp
 import jax.random
+from jax import ops
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -68,28 +68,28 @@ class Stein(VI):
     """
 
     def __init__(
-        self,
-        model,
-        guide,
-        optim,
-        loss,
-        kernel_fn: SteinKernel,
-        reinit_hide_fn=lambda site: site["name"].endswith("$params"),
-        init_strategy=init_to_uniform,
-        num_particles: int = 10,
-        loss_temperature: float = 1.0,
-        repulsion_temperature: float = 1.0,
-        classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-        enum=True,
-        sp_mcmc_crit="infl",
-        sp_mode="local",
-        num_mcmc_particles: int = 0,
-        num_mcmc_warmup: int = 100,
-        num_mcmc_samples: int = 10,
-        mcmc_kernel=NUTS,
-        mcmc_kernel_kwargs=None,
-        mcmc_kwargs=None,
-        **static_kwargs
+            self,
+            model,
+            guide,
+            optim,
+            loss,
+            kernel_fn: SteinKernel,
+            reinit_hide_fn=lambda site: site["name"].endswith("$params"),
+            init_strategy=init_to_uniform,
+            num_particles: int = 10,
+            loss_temperature: float = 1.0,
+            repulsion_temperature: float = 1.0,
+            classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
+            enum=True,
+            sp_mcmc_crit="infl",
+            sp_mode="local",
+            num_mcmc_particles: int = 0,
+            num_mcmc_warmup: int = 100,
+            num_mcmc_samples: int = 10,
+            mcmc_kernel=NUTS,
+            mcmc_kernel_kwargs=None,
+            mcmc_kwargs=None,
+            **static_kwargs
     ):
 
         guide = WrappedGuide(
@@ -244,22 +244,22 @@ class Stein(VI):
             lambda y: jnp.sum(
                 jax.vmap(
                     lambda x: self.repulsion_temperature
-                    * self._kernel_grad(kernel, x, y)
+                              * self._kernel_grad(kernel, x, y)
                 )(tstein_particles),
                 axis=0,
             )
         )(tstein_particles)
 
         def single_particle_grad(particle, att_forces, rep_forces):
-            reparam_jac = {
-                k: jnp.reshape(
-                    jax.jacfwd(self.particle_transforms[k].inv)(v),
-                    (_numel(v.shape), _numel(v.shape)),
-                )
-                for k, v in unravel_pytree(particle).items()
-            }
+            reparam_jac = {k: jax.tree_map(lambda variable: jax.jacfwd(self.particle_transforms[k].inv)(variable),
+                                           variables)
+                           # if isinstance(variables, tuple) else jax.jacfwd(self.particle_transforms[k].inv)(
+                           #     variables)
+                           for k, variables in unravel_pytree(particle).items()
+                           }
             jac_params = jax.tree_multimap(
-                lambda af, rf, rjac: (af + rf) @ rjac,
+                lambda af, rf, rjac: ((af.reshape(-1) + rf.reshape(-1)) @ rjac.reshape((_numel(rjac.shape[:len(rjac.shape)//2]), -1))).reshape(
+                    rf.shape),
                 unravel_pytree(att_forces),
                 unravel_pytree(rep_forces),
                 reparam_jac,
@@ -268,10 +268,10 @@ class Stein(VI):
             return jac_particle
 
         particle_grads = (
-            jax.vmap(single_particle_grad)(
-                stein_particles, attractive_force, repulsive_force
-            )
-            / self.num_particles
+                jax.vmap(single_particle_grad)(
+                    stein_particles, attractive_force, repulsive_force
+                )
+                / self.num_particles
         )
 
         # 5. Decompose the monolithic particle forces back to concrete parameter values
@@ -282,14 +282,14 @@ class Stein(VI):
         return -jnp.mean(loss), res_grads
 
     def _score_sp_mcmc(
-        self,
-        rng_key,
-        subset_idxs,
-        stein_uparams,
-        sp_mcmc_subset_uparams,
-        classic_uparams,
-        *args,
-        **kwargs
+            self,
+            rng_key,
+            subset_idxs,
+            stein_uparams,
+            sp_mcmc_subset_uparams,
+            classic_uparams,
+            *args,
+            **kwargs
     ):
         if self.sp_mode == "local":
             _, ksd = self._svgd_loss_and_grads(
@@ -340,7 +340,7 @@ class Stein(VI):
         )
         stein_params = self.constrain_fn(stein_uparams)
         stein_subset_params = {
-            p: v[0 : self.num_mcmc_particles] for p, v in stein_params.items()
+            p: v[0: self.num_mcmc_particles] for p, v in stein_params.items()
         }
         mcmc.warmup(warmup_key, *args, init_params=stein_subset_params, **kwargs)
 
@@ -434,11 +434,11 @@ class Stein(VI):
         should_enum = False
         for site in model_trace.values():
             if (
-                "fn" in site
-                and site["type"] == "sample"
-                and not site["is_observed"]
-                and isinstance(site["fn"], Distribution)
-                and site["fn"].is_discrete
+                    "fn" in site
+                    and site["type"] == "sample"
+                    and not site["is_observed"]
+                    and isinstance(site["fn"], Distribution)
+                    and site["fn"].is_discrete
             ):
                 if site["fn"].has_enumerate_support and self.enum:
                     should_enum = True
