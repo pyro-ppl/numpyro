@@ -652,3 +652,16 @@ def _format_table(rows):
         " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
         for row in rows
     )
+
+
+def _versiontuple(version):
+    """
+    :param str version: Version, in string format.
+    Parse version string into tuple of ints.
+
+    Only to be used for the standard 'major.minor.patch' format,
+    such as ``'0.2.13'``.
+
+    Source: https://stackoverflow.com/a/11887825/4451315
+    """
+    return tuple([int(number) for number in version.split(".")])
