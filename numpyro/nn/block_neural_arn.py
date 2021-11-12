@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
-from packaging import version
 
 import jax
 from jax import random
 
-if version.parse(jax.__version__) >= version.parse("0.2.25"):
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import stax
 else:
     from jax.experimental import stax

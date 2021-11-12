@@ -3,7 +3,6 @@
 
 import numpy as np
 from numpy.testing import assert_allclose
-from packaging import version
 import pytest
 
 import jax
@@ -11,7 +10,9 @@ from jax import jit, random, value_and_grad
 import jax.numpy as jnp
 from jax.test_util import check_close
 
-if version.parse(jax.__version__) >= version.parse("0.2.25"):
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import optimizers
 else:
     from jax.experimental import optimizers

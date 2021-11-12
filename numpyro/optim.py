@@ -10,12 +10,12 @@ suited for working with NumPyro inference algorithms.
 from collections import namedtuple
 from typing import Any, Callable, Tuple, TypeVar
 
-from packaging import version
-
 import jax
 from jax import lax, value_and_grad
 
-if version.parse(jax.__version__) >= version.parse("0.2.25"):
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import optimizers
 else:
     from jax.experimental import optimizers

@@ -4,13 +4,14 @@
 from functools import partial
 
 from numpy.testing import assert_allclose
-from packaging import version
 import pytest
 
 import jax
 from jax import jacobian, jit, lax, random
 
-if version.parse(jax.__version__) >= version.parse("0.2.25"):
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries.stax import Dense
 else:
     from jax.experimental.stax import Dense

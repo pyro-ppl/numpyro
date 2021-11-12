@@ -5,13 +5,14 @@
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
-from packaging import version
 import pytest
 
 import jax
 from jax import jacfwd, random, vmap
 
-if version.parse(jax.__version__) >= version.parse("0.2.25"):
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries.stax import serial
 else:
     from jax.experimental.stax import serial
