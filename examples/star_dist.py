@@ -1,16 +1,16 @@
 """change                 transform=lambda val: val[1],  to                transform=lambda val: val[0], in VI """
 from math import ceil
 
-import jax.numpy as jnp
-from jax import lax, random, vmap
-from jax import scipy as jscipy
-from numpyro import distributions as dist
-import numpy as np
 import matplotlib.pyplot as plt
-import numpyro
-from numpyro.contrib.einstein import Stein, kernels
-from numpyro.infer import Trace_ELBO, init_with_noise, init_to_value
+import numpy as np
 
+from jax import lax, random, scipy as jscipy, vmap
+import jax.numpy as jnp
+
+import numpyro
+from numpyro import distributions as dist
+from numpyro.contrib.einstein import Stein, kernels
+from numpyro.infer import Trace_ELBO, init_to_value, init_with_noise
 from numpyro.infer.autoguide import AutoDelta
 from numpyro.optim import Adagrad
 
@@ -143,7 +143,6 @@ if __name__ == "__main__":
         interpolation="bicubic",
         extent=[np.min(star_xs), np.max(star_xs), np.min(star_ys), np.max(star_ys)],
     )
-    # axs[0, 0].scatter(p_samples[..., 0], p_samples[..., 1], c='blue', marker='x', s=150)
     axs[0, 0].scatter(
         res[..., 0], res[..., 1], c="orange", marker="x", s=150, linewidths=3
     )
@@ -168,7 +167,9 @@ if __name__ == "__main__":
                 noise_scale=3.0,
             ),
         )
-        svgd_state, all_states = svgd.run(rng_key, num_iterations)
+        svgd_state, all_states = svgd.run(
+            rng_key, num_iterations, transform=lambda val: val[0]
+        )
         res = svgd.get_params(svgd_state)["x_auto_loc"]
         mmds.update(
             {

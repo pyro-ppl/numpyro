@@ -2,21 +2,21 @@ import argparse
 from collections import namedtuple
 from functools import partial
 from pathlib import Path
-from jax.random import shuffle
 from time import time
 
-import jax.numpy as jnp
-from jax import random
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import train_test_split
 
-from numpyro.contrib.callbacks import Progbar
-from numpyro.distributions import Normal, Gamma
-from numpyro.contrib.einstein import Stein, RBFKernel
+from jax import random
+import jax.numpy as jnp
+from jax.random import shuffle
 
 import numpyro
-from numpyro.infer import SVI, Trace_ELBO, Predictive, init_to_uniform
+from numpyro.contrib.callbacks import Progbar
+from numpyro.contrib.einstein import RBFKernel, Stein
+from numpyro.distributions import Gamma, Normal
+from numpyro.infer import SVI, Predictive, Trace_ELBO, init_to_uniform
 from numpyro.infer.autoguide import AutoDelta
 from numpyro.optim import Adagrad
 
@@ -45,17 +45,25 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
     prec_nn = numpyro.sample("prec_nn", Gamma(1.0, 0.1))
 
     n, m = x.shape
-    b1 = numpyro.sample( "nn_b1", Normal( jnp.zeros( hidden_dim, ), 1.0 / prec_nn, ), )
+    b1 = numpyro.sample(
+        "nn_b1",
+        Normal(
+            jnp.zeros(
+                hidden_dim,
+            ),
+            1.0 / prec_nn,
+        ),
+    )
     b2 = numpyro.sample("nn_b2", Normal(0.0, 1.0 / prec_nn))
     w1 = numpyro.sample("nn_w1", Normal(jnp.zeros((m, hidden_dim)), 1.0 / prec_nn))
     w2 = numpyro.sample("nn_w2", Normal(jnp.zeros(hidden_dim), 1.0 / prec_nn))
 
     with numpyro.plate(
-            "data",
-            x.shape[0],
-            subsample_size=subsample_size,
-            subsample_scale=subsample_size,
-            dim=-1,
+        "data",
+        x.shape[0],
+        subsample_size=subsample_size,
+        subsample_scale=subsample_size,
+        dim=-1,
     ):
         batch_x = numpyro.subsample(x, event_dim=1)
         if y is not None:

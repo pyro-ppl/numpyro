@@ -4,14 +4,15 @@
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Tuple
 
+import numpy as np
+
+from jax import random
 import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
-import numpy as np
-from jax import random
 
-import numpyro.distributions as dist
 from numpyro.contrib.einstein.utils import safe_norm, sqrth_and_inv_sqrth
+import numpyro.distributions as dist
 
 
 class PrecondMatrix(ABC):
@@ -37,10 +38,10 @@ class SteinKernel(ABC):
 
     @abstractmethod
     def compute(
-            self,
-            particles: jnp.ndarray,
-            particle_info: Dict[str, Tuple[int, int]],
-            loss_fn: Callable[[jnp.ndarray], float],
+        self,
+        particles: jnp.ndarray,
+        particle_info: Dict[str, Tuple[int, int]],
+        loss_fn: Callable[[jnp.ndarray], float],
     ):
         """
         Computes the kernel function given the input Stein particles
@@ -93,7 +94,7 @@ class RBFKernel(SteinKernel):
 
     def _normed(self):
         return self._mode == "norm" or (
-                self.mode == "matrix" and self.matrix_mode == "norm_diag"
+            self.mode == "matrix" and self.matrix_mode == "norm_diag"
         )
 
     def compute(self, particles, particle_info, loss_fn):
@@ -212,10 +213,10 @@ class RandomFeatureKernel(SteinKernel):
     """
 
     def __init__(
-            self,
-            mode="norm",
-            bandwidth_subset=None,
-            bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n),
+        self,
+        mode="norm",
+        bandwidth_subset=None,
+        bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n),
     ):
         assert bandwidth_subset is None or bandwidth_subset > 0
         assert mode == "norm"
@@ -363,10 +364,10 @@ class PrecondMatrixKernel(SteinKernel):
     """
 
     def __init__(
-            self,
-            precond_matrix_fn: PrecondMatrix,
-            inner_kernel_fn: SteinKernel,
-            precond_mode="anchor_points",
+        self,
+        precond_matrix_fn: PrecondMatrix,
+        inner_kernel_fn: SteinKernel,
+        precond_mode="anchor_points",
     ):
         assert inner_kernel_fn.mode == "matrix"
         assert precond_mode == "const" or precond_mode == "anchor_points"
@@ -404,8 +405,8 @@ class PrecondMatrixKernel(SteinKernel):
             return jnp.sum(
                 jax.vmap(
                     lambda qs, qis, wx, wy: wx
-                                            * wy
-                                            * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose())
+                    * wy
+                    * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose())
                 )(qs_sqrt, qs_inv_sqrt, wxs, wys),
                 axis=0,
             )
@@ -428,10 +429,10 @@ class GraphicalKernel(SteinKernel):
     """
 
     def __init__(
-            self,
-            mode="matrix",
-            local_kernel_fns: Dict[str, SteinKernel] = None,
-            default_kernel_fn: SteinKernel = RBFKernel(),
+        self,
+        mode="matrix",
+        local_kernel_fns: Dict[str, SteinKernel] = None,
+        default_kernel_fn: SteinKernel = RBFKernel(),
     ):
         assert mode == "matrix"
 

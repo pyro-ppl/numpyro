@@ -28,9 +28,9 @@ def init_to_median(site=None, reinit_param=lambda site: False, num_samples=15):
         )
 
     if (
-            site["type"] == "sample"
-            and not site["is_observed"]
-            and not site["fn"].support.is_discrete
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].support.is_discrete
     ):
         if site["value"] is not None:
             warnings.warn(
@@ -70,9 +70,9 @@ def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
         return partial(init_to_uniform, radius=radius, reinit_param=reinit_param)
 
     if (
-            site["type"] == "sample"
-            and not site["is_observed"]
-            and not site["fn"].support.is_discrete
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].support.is_discrete
     ) or (site["type"] == "param" and reinit_param(site)):
         # if site["value"] is not None:
         #     warnings.warn(
@@ -122,7 +122,7 @@ def init_to_value(site=None, values=None, reinit_param=lambda site: False):
         return partial(init_to_value, values=values, reinit_param=reinit_param)
 
     if (site["type"] == "sample" and not site["is_observed"]) or (
-            site["type"] == "param" and reinit_param(site)
+        site["type"] == "param" and reinit_param(site)
     ):
         if site["name"] in values:
             return values[site["name"]]
@@ -131,7 +131,7 @@ def init_to_value(site=None, values=None, reinit_param=lambda site: False):
 
 
 def init_with_noise(
-        init_strategy, site=None, noise_scale=1.0, reinit_param=lambda site: False
+    init_strategy, site=None, noise_scale=1.0, reinit_param=lambda site: False
 ):
     if site is None:
         return partial(

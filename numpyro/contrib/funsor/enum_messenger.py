@@ -480,7 +480,9 @@ class plate(GlobalNamedMessenger):
         is allocated.
     """
 
-    def __init__(self, name, size, subsample_size=None, dim=None, subsample_scale=1.):  # TODO: check correct subsample_scale!
+    def __init__(
+        self, name, size, subsample_size=None, dim=None, subsample_scale=1.0
+    ):  # TODO: check correct subsample_scale!
         self.name = name
         self.size = size
         if dim is not None and dim >= 0:

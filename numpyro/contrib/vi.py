@@ -41,18 +41,19 @@ class VI:
         raise NotImplementedError
 
     def run(
-            self,
-            rng_key,
-            num_steps,
-            *args,
-            callbacks: List[callbacks.Callback] = None,
-            batch_fun=None,
-            validation_rate=5,
-            validation_fun=None,
-            restore=False,
-            restore_path=None,
-            jit_compile=True,
-            **kwargs
+        self,
+        rng_key,
+        num_steps,
+        *args,
+        callbacks: List[callbacks.Callback] = None,
+        batch_fun=None,
+        validation_rate=5,
+        validation_fun=None,
+        restore=False,
+        restore_path=None,
+        jit_compile=True,
+        transform=lambda val: val[1],  # TODO: refactor
+        **kwargs
     ):
         def bodyfn(_i, info):
             body_state = info[0]
@@ -73,10 +74,10 @@ class VI:
         else:
             loss = self.evaluate(state, *args, *batch_args, **kwargs, **batch_kwargs)
         if (
-                not callbacks
-                and batch_fun is None
-                and validation_fun is None
-                and jit_compile
+            not callbacks
+            and batch_fun is None
+            and validation_fun is None
+            and jit_compile
         ):
             losses, last_res = fori_collect(
                 0,
@@ -84,8 +85,8 @@ class VI:
                 lambda info: bodyfn(0, info),
                 (state, loss, *args),
                 progbar=False,
-                transform=lambda val: val[1],
-                return_last_val=True
+                transform=transform,
+                return_last_val=True,
             )
             state = last_res[0]
         else:

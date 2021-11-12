@@ -154,7 +154,7 @@ def _load_dipper_vole():
     with zipfile.ZipFile(file_path) as zipper:
         data["dipper"] = (
             np.genfromtxt(zipper.open("dipper_capture_history.csv"), delimiter=",")[
-            :, 1:
+                :, 1:
             ].astype(int),
             np.genfromtxt(zipper.open("dipper_sex.csv"), delimiter=",")[:, 1].astype(
                 int
@@ -309,7 +309,7 @@ def _load_higgs(num_datapoints):
 
     return {
         "train": (data[: -(n // 20)], obs[: -(n // 20)]),
-        "test": (data[-(n // 20):], obs[-(n // 20):]),
+        "test": (data[-(n // 20) :], obs[-(n // 20) :]),
     }  # standard split -500_000: as test
 
 
@@ -381,11 +381,11 @@ def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
 
 
 def load_dataset(
-        dset,
-        batch_size=None,
-        split="train",
-        shuffle=True,
-        num_datapoints=None,
+    dset,
+    batch_size=None,
+    split="train",
+    shuffle=True,
+    num_datapoints=None,
 ):
     data = _load(dset, num_datapoints)
     if isinstance(data, dict):

@@ -4,8 +4,8 @@
 from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
 from functools import reduce
-import operator
 from itertools import zip_longest
+import operator
 import os
 import random
 import re

@@ -37,7 +37,7 @@ def apply_stack(msg):
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
     # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer - 1:]:
+    for handler in _PYRO_STACK[-pointer - 1 :]:
         handler.postprocess_message(msg)
     return msg
 
@@ -102,7 +102,7 @@ def _masked_observe(name, fn, obs, obs_mask, **kwargs):
 
 
 def sample(
-        name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_mask=None
+    name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_mask=None
 ):
     """
     Returns a random sample from the stochastic function `fn`. This can have
@@ -428,7 +428,7 @@ class plate(Messenger):
         is allocated.
     """
 
-    def __init__(self, name, size, subsample_size=None, dim=None, subsample_scale=1.):
+    def __init__(self, name, size, subsample_size=None, dim=None, subsample_scale=1.0):
         self.name = name
         assert size > 0, "size of plate should be positive"
         self.size = size
@@ -519,8 +519,10 @@ class plate(Messenger):
             msg["fn"] = msg["fn"].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1.0 if msg["scale"] is None else msg["scale"]
-            msg["scale"] = self.subsample_scale * scale * (
-                self.size / self.subsample_size if self.subsample_size else 1
+            msg["scale"] = (
+                self.subsample_scale
+                * scale
+                * (self.size / self.subsample_size if self.subsample_size else 1)
             )
 
     def postprocess_message(self, msg):
