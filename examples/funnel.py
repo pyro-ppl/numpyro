@@ -60,7 +60,7 @@ def run_inference(model, args, rng_key):
     )
     mcmc.run(rng_key)
     mcmc.print_summary(exclude_deterministic=False)
-    return mcmc.get_samples()
+    return mcmc
 
 
 def main(args):
@@ -70,13 +70,17 @@ def main(args):
     print(
         "============================= Centered Parameterization =============================="
     )
-    samples = run_inference(model, args, rng_key)
+    mcmc = run_inference(model, args, rng_key)
+    samples = mcmc.get_samples()
+    diverging = mcmc.get_extra_fields()["diverging"]
 
     # do inference with non-centered parameterization
     print(
         "\n=========================== Non-centered Parameterization ============================"
     )
-    reparam_samples = run_inference(reparam_model, args, rng_key)
+    reparam_mcmc = run_inference(reparam_model, args, rng_key)
+    reparam_samples = reparam_mcmc.get_samples()
+    reparam_diverging = reparam_mcmc.get_extra_fields()["diverging"]
     # collect deterministic sites
     reparam_samples = Predictive(
         reparam_model, reparam_samples, return_sites=["x", "y"]
@@ -87,15 +91,42 @@ def main(args):
         2, 1, sharex=True, figsize=(8, 8), constrained_layout=True
     )
 
-    ax1.plot(samples["x"][:, 0], samples["y"], "go", alpha=0.3)
+    ax1.plot(
+        samples["x"][~diverging, 0],
+        samples["y"][~diverging],
+        "o",
+        color="darkred",
+        alpha=0.3,
+        label="Non-diverging",
+    )
+    ax1.plot(
+        samples["x"][diverging, 0],
+        samples["y"][diverging],
+        "o",
+        color="lime",
+        label="Diverging",
+    )
     ax1.set(
         xlim=(-20, 20),
         ylim=(-9, 9),
         ylabel="y",
         title="Funnel samples with centered parameterization",
     )
+    ax1.legend()
 
-    ax2.plot(reparam_samples["x"][:, 0], reparam_samples["y"], "go", alpha=0.3)
+    ax2.plot(
+        reparam_samples["x"][~reparam_diverging, 0],
+        reparam_samples["y"][~reparam_diverging],
+        "o",
+        color="darkred",
+        alpha=0.3,
+    )
+    ax2.plot(
+        reparam_samples["x"][reparam_diverging, 0],
+        reparam_samples["y"][reparam_diverging],
+        "o",
+        color="lime",
+    )
     ax2.set(
         xlim=(-20, 20),
         ylim=(-9, 9),
