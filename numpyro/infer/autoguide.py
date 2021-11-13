@@ -485,7 +485,7 @@ def _ravel_dict(x):
     x_flat = []
     for name, value in x.items():
         shape_dict[name] = jnp.shape(value)
-        x_flat.append(value.reshape(-1))
+        x_flat.append(jnp.reshape(value, -1))
     x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
     return x_flat, shape_dict
 
