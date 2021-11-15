@@ -2,21 +2,23 @@
 """
 
 import jax
-from jax.experimental import stax
 import jax.numpy as jnp
 import jax.ops
+import matplotlib.pyplot as plt
+from jax.experimental import stax
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import Stein
 from numpyro.contrib.einstein.kernels import RBFKernel
-import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
-numpyro.set_platform('cpu')
 
-batch_size = 32
+numpyro.set_platform('gpu')
+
+batch_size = 64
 init, get_batch = load_dataset(JSB_CHORALES, batch_size=batch_size)
 ds_count, ds_indxs = init()
 lengths, seqs = get_batch(0, ds_indxs)
@@ -43,8 +45,8 @@ def batch_fun(step):
 
 def _one_hot_chorales(seqs, num_nodes=88):
     return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[
-        ..., 1:
-    ]
+           ..., 1:
+           ]
 
 
 def Emitter(hidden_dim1, hidden_dim2, out_dim):
@@ -186,16 +188,16 @@ def GRU(hidden_dim, W_init=stax.glorot_normal()):
 
 
 def model(
-    seqs,
-    seqs_rev,
-    lengths,
-    *,
-    latent_dim=100,
-    emission_dim=100,
-    transition_dim=200,
-    data_dim=88,
-    gru_dim=100,
-    annealing_factor=1.0
+        seqs,
+        seqs_rev,
+        lengths,
+        *,
+        latent_dim=100,
+        emission_dim=100,
+        transition_dim=200,
+        data_dim=88,
+        gru_dim=100,
+        annealing_factor=1.0
 ):
     batch_size, max_seq_length, *_ = seqs.shape
 
@@ -227,8 +229,8 @@ def model(
             numpyro.sample(
                 "z_aux",
                 dist.Normal(z_loc, z_scale)
-                .mask(jnp.expand_dims(masks, axis=-1))
-                .to_event(2),
+                    .mask(jnp.expand_dims(masks, axis=-1))
+                    .to_event(2),
                 obs=z,
             )
 
@@ -237,23 +239,23 @@ def model(
         numpyro.sample(
             "obs_x",
             dist.Bernoulli(emission_probs)
-            .mask(jnp.expand_dims(masks, axis=-1))
-            .to_event(2),
+                .mask(jnp.expand_dims(masks, axis=-1))
+                .to_event(2),
             obs=oh_x,
         )
 
 
 def guide(
-    seqs,
-    seqs_rev,
-    lengths,
-    *,
-    latent_dim=100,
-    emission_dim=100,
-    transition_dim=200,
-    data_dim=88,
-    gru_dim=100,
-    annealing_factor=1.0
+        seqs,
+        seqs_rev,
+        lengths,
+        *,
+        latent_dim=100,
+        emission_dim=100,
+        transition_dim=200,
+        data_dim=88,
+        gru_dim=100,
+        annealing_factor=1.0
 ):
     batch_size, max_seq_length, *_ = seqs.shape
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
@@ -277,8 +279,8 @@ def guide(
             numpyro.sample(
                 "z",
                 dist.Normal(z_loc, z_scale)
-                .mask(jnp.expand_dims(masks, axis=-1))
-                .to_event(2),
+                    .mask(jnp.expand_dims(masks, axis=-1))
+                    .to_event(2),
             )
 
 
@@ -290,11 +292,24 @@ if __name__ == "__main__":
         Trace_ELBO(),
         RBFKernel(),
         reinit_hide_fn=lambda site: site["name"].endswith("$params"),
-        num_particles=1,
+        num_particles=5,
     )
 
-    num_epochs = 1
+    num_epochs = 1 # 475
     rng_key = jax.random.PRNGKey(seed=142)
-    state, loss = svgd.run(
+    state, losses = svgd.run(
         rng_key, num_epochs * ds_count, callbacks=[Progbar()], batch_fun=batch_fun
     )
+
+    plt.plot(losses)
+    plt.show()
+
+    init, get_batch = load_dataset(JSB_CHORALES, split='test')
+    ds_count, ds_indxs = init()
+
+    nll = 0.
+    for i in range(ds_count):  # TODO: compute over entire dataset!
+        lengths, seqs = get_batch(i, ds_indxs)
+        nll += svgd.evaluate(state, seqs, _reverse_padded(seqs, lengths), lengths)
+        print(lengths)
+    print(nll / lengths.sum())

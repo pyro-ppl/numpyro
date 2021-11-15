@@ -253,12 +253,11 @@ class Stein(VI):
         def single_particle_grad(particle, att_forces, rep_forces):
             reparam_jac = {k: jax.tree_map(lambda variable: jax.jacfwd(self.particle_transforms[k].inv)(variable),
                                            variables)
-                           # if isinstance(variables, tuple) else jax.jacfwd(self.particle_transforms[k].inv)(
-                           #     variables)
                            for k, variables in unravel_pytree(particle).items()
                            }
             jac_params = jax.tree_multimap(
-                lambda af, rf, rjac: ((af.reshape(-1) + rf.reshape(-1)) @ rjac.reshape((_numel(rjac.shape[:len(rjac.shape)//2]), -1))).reshape(
+                lambda af, rf, rjac: ((af.reshape(-1) + rf.reshape(-1)) @ rjac.reshape(
+                    (_numel(rjac.shape[:len(rjac.shape) // 2]), -1))).reshape(
                     rf.shape),
                 unravel_pytree(att_forces),
                 unravel_pytree(rep_forces),
@@ -428,8 +427,6 @@ class Stein(VI):
         transforms = {}
         inv_transforms = {}
         particle_transforms = {}
-        model_particle_transforms = {}
-        guide_particle_transforms = {}
         guide_param_names = set()
         should_enum = False
         for site in model_trace.values():
