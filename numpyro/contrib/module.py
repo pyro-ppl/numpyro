@@ -223,7 +223,12 @@ def _update_params(params, new_params, prior, prefix=""):
             new_item = new_params[name]
             _update_params(item, new_item, prior, prefix=flatten_name)
         elif (not isinstance(prior, dict)) or flatten_name in prior:
-            d = prior[flatten_name] if isinstance(prior, dict) else prior
+            if isinstance(prior, dict):
+                d = prior[flatten_name] 
+            elif callable(prior):
+                d = prior(flatten_name, param_shape)
+            else:
+                d = prior
             if isinstance(params[name], ParamShape):
                 param_shape = params[name].shape
             else:
