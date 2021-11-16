@@ -207,6 +207,65 @@ def test_random_module_mcmc(backend, init):
     )
 
 
+def test_random_module_mcmc_callable(backend, init):
+
+    if backend == "flax":
+        import flax
+
+        linear_module = flax.linen.Dense(features=1)
+        bias_name = "bias"
+        weight_name = "kernel"
+        random_module = random_flax_module
+        kwargs_name = "inputs"
+    elif backend == "haiku":
+        import haiku as hk
+
+        linear_module = hk.transform(lambda x: hk.Linear(1)(x))
+        bias_name = "linear.b"
+        weight_name = "linear.w"
+        random_module = random_haiku_module
+        kwargs_name = "x"
+
+    N, dim = 3000, 3
+    num_warmup, num_samples = (1000, 1000)
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    if init == "shape":
+        kwargs = {"input_shape": (3,)}
+    elif init == "kwargs":
+        kwargs = {kwargs_name: data}
+
+    def model(data, labels):
+        nn = random_module(
+            "nn",
+            linear_module,
+            prior=(lambda name, shape: dist.Cauchy() if name == "bias_name" else dist.Normal()),
+            **kwargs
+        )
+        logits = nn(data).squeeze(-1)
+        numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
+
+    kernel = NUTS(model=model)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
+    mcmc.run(random.PRNGKey(2), data, labels)
+    mcmc.print_summary()
+    samples = mcmc.get_samples()
+    assert set(samples.keys()) == {
+        "nn/{}".format(bias_name),
+        "nn/{}".format(weight_name),
+    }
+    assert_allclose(
+        np.mean(samples["nn/{}".format(weight_name)].squeeze(-1), 0),
+        true_coefs,
+        atol=0.22,
+    )
+
+
 @pytest.mark.parametrize("dropout", [True, False])
 @pytest.mark.parametrize("batchnorm", [True, False])
 def test_haiku_state_dropout_smoke(dropout, batchnorm):
