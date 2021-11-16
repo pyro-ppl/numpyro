@@ -223,17 +223,17 @@ def _update_params(params, new_params, prior, prefix=""):
             new_item = new_params[name]
             _update_params(item, new_item, prior, prefix=flatten_name)
         elif (not isinstance(prior, dict)) or flatten_name in prior:
+            if isinstance(params[name], ParamShape):
+                param_shape = params[name].shape
+            else:
+                param_shape = jnp.shape(params[name])
+                params[name] = ParamShape(param_shape)
             if isinstance(prior, dict):
                 d = prior[flatten_name] 
             elif callable(prior):
                 d = prior(flatten_name, param_shape)
             else:
                 d = prior
-            if isinstance(params[name], ParamShape):
-                param_shape = params[name].shape
-            else:
-                param_shape = jnp.shape(params[name])
-                params[name] = ParamShape(param_shape)
             param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
             # XXX: here we set all dimensions of prior to event dimensions.
             new_params[name] = numpyro.sample(
@@ -267,15 +267,16 @@ def random_flax_module(
 
     :param str name: name of NumPyro module
     :param flax.linen.Module: the module to be registered with NumPyro
-    :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
-        respective distributions as values. For example::
+    :param prior: a NumPyro distribution, a Python dict with parameter names as keys and
+        respective distributions as values or a callable with structure 
+        prior(name, shape) -> Optional[Distribution]. For example::
 
             net = random_flax_module("net",
                                      flax.linen.Dense(features=1),
                                      prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},
                                      input_shape=(4,))
 
-    :type prior: dict or ~numpyro.distributions.Distribution
+    :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
     :param list apply_rng: A list to indicate which extra rng _kinds_ are needed for
         ``nn_module``. For example, when ``nn_module`` includes dropout layers, we
@@ -371,15 +372,16 @@ def random_haiku_module(
     :param str name: name of NumPyro module
     :param nn_module: the module to be registered with NumPyro
     :type nn_module: haiku.Transformed or haiku.TransformedWithState
-    :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
-        respective distributions as values. For example::
+    :param prior: a NumPyro distribution, a Python dict with parameter names as keys and
+        respective distributions as values or a callable with structure:
+        prior(name, shape) -> Optional[Distribution]. For example::
 
             net = random_haiku_module("net",
                                       haiku.transform(lambda x: hk.Linear(1)(x)),
                                       prior={"linear.b": dist.Cauchy(), "linear.w": dist.Normal()},
                                       input_shape=(4,))
 
-    :type prior: dict or ~numpyro.distributions.Distribution
+    :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
     :param bool apply_rng: A flag to indicate if the returned callable requires
         an rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
