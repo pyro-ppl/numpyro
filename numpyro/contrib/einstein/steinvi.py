@@ -36,7 +36,7 @@ def _numel(shape):
     return functools.reduce(operator.mul, shape, 1)
 
 
-class Stein(VI):
+class SteinVI(VI):
     """
     Stein Variational Gradient Descent for Non-parametric Inference.
     :param model: Python callable with Pyro primitives for the model.
@@ -480,7 +480,7 @@ class Stein(VI):
         )
 
         self.kernel_fn.init(kernel_seed, stein_particles.shape)
-        return Stein.CurrentState(self.optim.init(params), rng_key)
+        return SteinVI.CurrentState(self.optim.init(params), rng_key)
 
     def get_params(self, state: VIState):
         """
@@ -517,7 +517,7 @@ class Stein(VI):
             rng_key_step, params, *args, **kwargs, **self.static_kwargs
         )
         optim_state = self.optim.update(grads, optim_state)
-        return Stein.CurrentState(optim_state, rng_key), loss_val
+        return SteinVI.CurrentState(optim_state, rng_key), loss_val
 
     def evaluate(self, state, *args, **kwargs):
         """
@@ -559,3 +559,18 @@ class Stein(VI):
                     )
                 )(stein_params)
             )(jax.random.split(rng_key_predict, num_samples))
+
+    def log_likelihood(self, state, *args, **kwargs):
+        _, rng_key_predict = jax.random.split(state.rng_key)
+        params = self.get_params(state)
+        classic_params = {
+            p: v
+            for p, v in params.items()
+            if p not in self.guide_param_names or self.classic_guide_params_fn(p)
+        }
+        stein_params = {p: v for p, v in params.items() if p not in classic_params}
+        return jax.vmap(
+            lambda sp: self._log_likelihood(
+                rng_key_predict, {**sp, **classic_params}, *args, **kwargs
+            )
+        )(stein_params)

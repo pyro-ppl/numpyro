@@ -41,19 +41,19 @@ class VI:
         raise NotImplementedError
 
     def run(
-        self,
-        rng_key,
-        num_steps,
-        *args,
-        callbacks: List[callbacks.Callback] = None,
-        batch_fun=None,
-        validation_rate=5,
-        validation_fun=None,
-        restore=False,
-        restore_path=None,
-        jit_compile=True,
-        transform=lambda val: val[1],  # TODO: refactor
-        **kwargs
+            self,
+            rng_key,
+            num_steps,
+            *args,
+            callbacks: List[callbacks.Callback] = None,
+            batch_fun=None,
+            validation_rate=5,
+            validation_fun=None,
+            restore=False,
+            restore_path=None,
+            jit_compile=True,
+            transform=lambda val: val[1],  # TODO: refactor
+            **kwargs
     ):
         def bodyfn(_i, info):
             body_state = info[0]
@@ -74,10 +74,10 @@ class VI:
         else:
             loss = self.evaluate(state, *args, *batch_args, **kwargs, **batch_kwargs)
         if (
-            not callbacks
-            and batch_fun is None
-            and validation_fun is None
-            and jit_compile
+                not callbacks
+                and batch_fun is None
+                and validation_fun is None
+                and jit_compile
         ):
             losses, last_res = fori_collect(
                 0,
@@ -153,6 +153,7 @@ class VI:
                 return state, losses
         return state, losses
 
+
     def _predict_model(self, rng_key, params, *args, **kwargs):
         guide_trace = handlers.trace(
             handlers.substitute(handlers.seed(self.guide, rng_key), params)
@@ -164,7 +165,23 @@ class VI:
             )
         ).get_trace(*args, **kwargs)
         return {
-            name: site["value"]
+            name: {'value': site["value"]}
             for name, site in model_trace.items()
             if ("is_observed" not in site) or not site["is_observed"]
+        }
+
+    def _log_likelihood(self, rng_key, params, *args, **kwargs):
+        guide_trace = handlers.trace(
+            handlers.substitute(handlers.seed(self.guide, rng_key), params)
+        ).get_trace(*args, **kwargs)
+        model_trace = handlers.trace(
+            handlers.replay(
+                handlers.substitute(handlers.seed(self.model, rng_key), params),
+                guide_trace,
+            )
+        ).get_trace(*args, **kwargs)
+        return {
+            name: {'log_likelihood': site['fn'].log_prob(site["value"])}
+            for name, site in model_trace.items()
+            if ('type' in site) and site["type"] == "sample" and site["is_observed"]
         }

@@ -16,7 +16,7 @@ from numpyro.contrib.einstein import (
     IMQKernel,
     LinearKernel,
     RBFKernel,
-    Stein,
+    SteinVI,
     kernels,
 )
 from numpyro.contrib.einstein.kernels import (
@@ -235,7 +235,7 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
     _, data, model = problem()
     guide, optim, elbo = auto_guide(model), Adam(1e-1), Trace_ELBO()
 
-    stein = Stein(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
+    stein = SteinVI(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
     stein_params = stein.get_params(stein.init(random.PRNGKey(0), *data))
 
     svi = SVI(model, guide, optim, elbo)
@@ -260,7 +260,7 @@ def test_update_evaluate(kernel, auto_guide, init_strategy, problem):
     _, data, model = problem()
     guide, optim, elbo = auto_guide(model), Adam(1e-1), Trace_ELBO()
 
-    stein = Stein(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
+    stein = SteinVI(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
     state = stein.init(random.PRNGKey(0), *data)
     eval_loss = stein.evaluate(state, *data)
     state = stein.init(random.PRNGKey(0), *data)
@@ -310,7 +310,7 @@ def test_score_sp_mcmc(sp_mode, subset_idxs):
         "loc_base_auto_loc": jnp.ones((len(subset_idxs), 4)),
     }
     classic_uparams = {}
-    stein = Stein(
+    stein = SteinVI(
         model, AutoDelta(model), Adam(1e-1), Trace_ELBO(), RBFKernel(), sp_mode=sp_mode
     )
     stein.init(random.PRNGKey(0), *data)
@@ -343,7 +343,7 @@ def test_svgd_loss_and_grads():
             ]
         ),
     }
-    stein = Stein(model, guide, Adam(0.1), loss, RBFKernel())
+    stein = SteinVI(model, guide, Adam(0.1), loss, RBFKernel())
     stein.init(random.PRNGKey(0), *data)
     svi = SVI(model, guide, Adam(0.1), loss)
     svi.init(random.PRNGKey(0), *data)
@@ -365,7 +365,7 @@ def test_sp_mcmc(num_mcmc_particles, mcmc_samples, mcmc_kernel, sp_mode, sp_crit
     if mcmc_samples >= num_mcmc_particles:
         pytest.skip()
     true_coefs, data, model = uniform_normal()
-    stein = Stein(
+    stein = SteinVI(
         model,
         AutoDelta(model),
         Adam(0.1),
@@ -403,7 +403,7 @@ def test_apply_kernel(
     kernel_fn.init(random.PRNGKey(0), particles.shape)
     kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
     v = jnp.ones_like(kval[mode])
-    stein = Stein(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
+    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
     value = stein._apply_kernel(kernel_fn, *tparticles, v)
     kval_ = copy(kval)
     if mode == "matrix":
@@ -426,7 +426,7 @@ def test_param_size(length, depth, t):
     uparam = t(
         nest(jnp.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes
     )
-    stein = Stein(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
+    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
     assert stein._param_size(uparam) == total_size, f"Failed for seed {seed}"
 
 
@@ -446,7 +446,7 @@ def test_calc_particle_info(num_params, num_particles):
     )
     expected_pinfo = dict(zip(string.ascii_lowercase[:num_params], expected_start_end))
 
-    stein = Stein(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
+    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
     pinfo = stein._calc_particle_info(uparams, num_particles)
 
     for k in pinfo.keys():

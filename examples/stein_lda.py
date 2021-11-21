@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.callbacks import Progbar
-from numpyro.contrib.einstein import IMQKernel, Stein
+from numpyro.contrib.einstein import IMQKernel, SteinVI
 from numpyro.contrib.funsor import config_enumerate
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
@@ -190,7 +190,7 @@ def run_lda(num_topics=20, num_particles=5):
     batch_fn, num_max_elements = make_batcher(newsgroups_docs, batch_size=1024)
     rng_key = jax.random.PRNGKey(8938)
     inf_key, pred_key = jax.random.split(rng_key)
-    stein = Stein(
+    stein = SteinVI(
         lda,
         lda_guide,
         Adam(1.0),

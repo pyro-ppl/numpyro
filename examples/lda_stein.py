@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.callbacks import Progbar
-from numpyro.contrib.einstein import RBFKernel, Stein
+from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.contrib.funsor import config_enumerate
 import numpyro.distributions as dist
 from numpyro.handlers import replay
@@ -96,7 +96,7 @@ def load_data(num_words, counter=None, subset="train"):
 
 def run_stein(docs, rng_key, num_words=300, num_topics=20, num_particles=1):
     inf_key, pred_key, perp_key = jax.random.split(rng_key, 3)
-    stein = Stein(
+    stein = SteinVI(
         lda,
         lda_guide,
         Adam(0.001),

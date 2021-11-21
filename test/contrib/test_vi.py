@@ -17,7 +17,7 @@ from numpyro.contrib.callbacks import (
     ReduceLROnPlateau,
     TerminateOnNaN,
 )
-from numpyro.contrib.einstein.stein import VIState
+from numpyro.contrib.einstein.steinvi import VIState
 from numpyro.optim import Adam
 
 

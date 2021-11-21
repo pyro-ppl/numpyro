@@ -10,15 +10,15 @@ from jax.experimental import stax
 import numpyro
 import numpyro.distributions as dist
 from numpyro.contrib.callbacks import Progbar
-from numpyro.contrib.einstein import Stein
+from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import RBFKernel
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
-from numpyro.infer import Trace_ELBO
+from numpyro.infer import Trace_ELBO, log_likelihood
 from numpyro.optim import Adam
 
 numpyro.set_platform('gpu')
 
-batch_size = 64
+batch_size = 77
 init, get_batch = load_dataset(JSB_CHORALES, batch_size=batch_size)
 ds_count, ds_indxs = init()
 lengths, seqs = get_batch(0, ds_indxs)
@@ -192,12 +192,13 @@ def model(
         seqs_rev,
         lengths,
         *,
-        latent_dim=100,
+        latent_dim=32,
         emission_dim=100,
         transition_dim=200,
         data_dim=88,
-        gru_dim=100,
-        annealing_factor=1.0
+        gru_dim=150,
+        annealing_factor=1.0,
+        predict=False
 ):
     batch_size, max_seq_length, *_ = seqs.shape
 
@@ -236,6 +237,8 @@ def model(
 
         emission_probs = emitter(z)
         oh_x = _one_hot_chorales(seqs)
+        if predict:
+            oh_x = None
         numpyro.sample(
             "obs_x",
             dist.Bernoulli(emission_probs)
@@ -250,12 +253,14 @@ def guide(
         seqs_rev,
         lengths,
         *,
-        latent_dim=100,
+        latent_dim=32,
         emission_dim=100,
         transition_dim=200,
         data_dim=88,
-        gru_dim=100,
-        annealing_factor=1.0
+        gru_dim=150,
+        annealing_factor=1.0,
+        predict = False
+
 ):
     batch_size, max_seq_length, *_ = seqs.shape
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
@@ -285,7 +290,7 @@ def guide(
 
 
 if __name__ == "__main__":
-    svgd = Stein(
+    svgd = SteinVI(
         model,
         guide,
         Adam(1e-5),
@@ -295,7 +300,7 @@ if __name__ == "__main__":
         num_particles=5,
     )
 
-    num_epochs = 1 # 475
+    num_epochs = 1000
     rng_key = jax.random.PRNGKey(seed=142)
     state, losses = svgd.run(
         rng_key, num_epochs * ds_count, callbacks=[Progbar()], batch_fun=batch_fun
@@ -305,11 +310,14 @@ if __name__ == "__main__":
     plt.show()
 
     init, get_batch = load_dataset(JSB_CHORALES, split='test')
-    ds_count, ds_indxs = init()
+    lengths, seqs = get_batch()
 
-    nll = 0.
-    for i in range(ds_count):  # TODO: compute over entire dataset!
-        lengths, seqs = get_batch(i, ds_indxs)
-        nll += svgd.evaluate(state, seqs, _reverse_padded(seqs, lengths), lengths)
-        print(lengths)
-    print(nll / lengths.sum())
+    negative_elbo = svgd.evaluate(state, seqs, _reverse_padded(seqs, lengths), lengths)
+
+    prediction = svgd.predict(state, seqs, _reverse_padded(seqs, lengths), lengths,
+                              num_samples=1, predict=True['obs_x']['value'])
+
+    print('ELBO', -negative_elbo / lengths.sum())
+    ll = svgd.log_likelihood(state, seqs, _reverse_padded(seqs, lengths), lengths)['obs_x']['log_likelihood']
+    print('Negative Log Likelihood(c)', (-ll.mean(0) / lengths).mean())
+    print('Negative Log Likelihood(b)', -ll.mean(0).sum() / lengths.sum())

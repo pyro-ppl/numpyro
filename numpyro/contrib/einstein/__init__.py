@@ -8,10 +8,10 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
     RBFKernel,
 )
-from numpyro.contrib.einstein.stein import Stein
+from numpyro.contrib.einstein.steinvi import SteinVI
 
 __all__ = [
-    "Stein",
+    "SteinVI",
     "RBFKernel",
     "PrecondMatrix",
     "IMQKernel",

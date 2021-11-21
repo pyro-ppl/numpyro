@@ -9,7 +9,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
-from numpyro.contrib.einstein import Stein, kernels
+from numpyro.contrib.einstein import SteinVI, kernels
 from numpyro.infer import Trace_ELBO, init_to_value, init_with_noise
 from numpyro.infer.autoguide import AutoDelta
 from numpyro.optim import Adagrad
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     star_zs = np.stack(np.meshgrid(star_xs, star_ys), axis=-1)
     star_lps = np.exp(Star().log_prob(star_zs))
 
-    svgd = Stein(
+    svgd = SteinVI(
         model,
         guide,
         Adagrad(step_size=1.0),
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     for i, (name, kernel) in enumerate(kernels.items()):
         j = i + 1
         ax = axs[j // l, j % l]
-        svgd = Stein(
+        svgd = SteinVI(
             model,
             guide,
             Adagrad(step_size=lrs[name]),
