@@ -672,9 +672,6 @@ class AutoDAIS(AutoContinuous):
 
     Note that AutoDAIS cannot be used in conjuction with data subsampling.
 
-    Also note that unlike [1, 2] this implementation integrates out some of the
-    variability associated with the kinetic energy terms, leading to reduced variance.
-
     **Reference:**
 
     1. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
@@ -828,23 +825,19 @@ class AutoDAIS(AutoContinuous):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
             eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
-            z_prev, v_prev, v_prev_mean, log_factor = carry
+            z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
             p_grad = beta * grad(log_density)(z_half)
-            eta_grad = eta * (q_grad + p_grad)
-            v_hat = v_prev + eta_grad
+            v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
-            delta_ke = jnp.dot(eta_grad * inv_mass_matrix, 2.0 * v_prev_mean + eta_grad)
-            v_prev_mean = gamma * (v_prev_mean + eta_grad)
+            delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(v_hat)
             log_factor = log_factor + delta_ke
-            return (z, v, v_prev_mean, log_factor), None
+            return (z, v, log_factor), None
 
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
-        (z, _, _, log_factor), _ = jax.lax.scan(
-            scan_body, (z_0, v_0, jnp.zeros_like(v_0), 0.0), (eps, betas)
-        )
+        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), (eps, betas))
 
         numpyro.factor("{}_factor".format(self.prefix), log_factor)
 
