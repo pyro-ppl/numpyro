@@ -672,7 +672,7 @@ class AutoDAIS(AutoContinuous):
 
     Note that AutoDAIS cannot be used in conjuction with data subsampling.
 
-    Also note that unlike [1, 2] this implementation integrates some of the
+    Also note that unlike [1, 2] this implementation integrates out some of the
     variability associated with the kinetic energy terms, leading to reduced variance.
 
     **Reference:**
