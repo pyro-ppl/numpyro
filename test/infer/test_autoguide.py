@@ -88,6 +88,9 @@ def test_beta_bernoulli(auto_class):
     svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
 
+    final_elbo = -Trace_ELBO(num_particles=5000).loss(random.PRNGKey(1), params, model, guide, data).item()
+    print("final_elbo",final_elbo)
+
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
