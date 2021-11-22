@@ -842,7 +842,9 @@ class AutoDAIS(AutoContinuous):
             return (z, v, v_prev_mean, log_factor), None
 
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
-        (z, _, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, jnp.zeros_like(v_0), 0.0), (eps, betas))
+        (z, _, _, log_factor), _ = jax.lax.scan(
+            scan_body, (z_0, v_0, jnp.zeros_like(v_0), 0.0), (eps, betas)
+        )
 
         numpyro.factor("{}_factor".format(self.prefix), log_factor)
 
