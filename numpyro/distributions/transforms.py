@@ -1121,6 +1121,21 @@ def _transform_to_interval(constraint):
     )
 
 
+@biject_to.register(constraints.open_interval)
+def _transform_to_open_interval(constraint):
+    scale = constraint.upper_bound - constraint.lower_bound
+    return ComposeTransform(
+        [
+            SigmoidTransform(),
+            AffineTransform(
+                constraint.lower_bound,
+                scale,
+                domain=constraints.open_interval(0.0, 1.0),
+            ),
+        ]
+    )
+
+
 @biject_to.register(constraints.l1_ball)
 def _transform_to_l1_ball(constraint):
     return L1BallTransform()
