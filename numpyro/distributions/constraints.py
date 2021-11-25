@@ -319,18 +319,9 @@ class _Interval(Constraint):
         )
 
 
-class _OpenInterval(Constraint):
-    def __init__(self, lower_bound, upper_bound):
-        self.lower_bound = lower_bound
-        self.upper_bound = upper_bound
-
+class _OpenInterval(_Interval):
     def __call__(self, x):
         return (x > self.lower_bound) & (x < self.upper_bound)
-
-    def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(
-            (self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype)
-        )
 
 
 class _LowerCholesky(Constraint):
