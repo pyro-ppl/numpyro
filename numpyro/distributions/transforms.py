@@ -1128,9 +1128,7 @@ def _transform_to_open_interval(constraint):
         [
             SigmoidTransform(),
             AffineTransform(
-                constraint.lower_bound,
-                scale,
-                domain=constraints.open_interval(0.0, 1.0),
+                constraint.lower_bound, scale, domain=constraints.unit_interval
             ),
         ]
     )
