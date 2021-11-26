@@ -8,7 +8,15 @@ import numpy as np
 
 import jax
 import jax.numpy as jnp
+from tensorflow_probability.python.distributions.distribution import (
+    _AutoCompositeTensorDistributionMeta as _OAutoCompositeTensorDistributionMeta,
+    _DistributionMeta as _ODistributionMeta,
+)
 from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
+from tensorflow_probability.substrates.jax.distributions.distribution import (
+    _AutoCompositeTensorDistributionMeta,
+    _DistributionMeta,
+)
 
 import numpyro.distributions as numpyro_dist
 from numpyro.distributions import Distribution as NumPyroDistribution, constraints
@@ -119,7 +127,12 @@ def _onehot_enumerate_support(self, expand=True):
 class _TFPDistributionMeta(type(NumPyroDistribution)):
     @lru_cache(maxsize=None)
     def __getitem__(cls, tfd_class):
-        assert issubclass(tfd_class, tfd.Distribution)
+        assert (
+            isinstance(tfd_class, _DistributionMeta)
+            or isinstance(tfd_class, _AutoCompositeTensorDistributionMeta)
+            or isinstance(tfd_class, _ODistributionMeta)
+            or isinstance(tfd_class, _OAutoCompositeTensorDistributionMeta)
+        )
 
         tfd_class_name = tfd_class.__name__
 
