@@ -12,5 +12,6 @@ sphinx==4.0.3
 sphinx-gallery
 sphinx_rtd_theme==0.5.2
 # TODO: change to tensorflow_probability when it is stable
+tf-nightly
 tfp-nightly
 tqdm
