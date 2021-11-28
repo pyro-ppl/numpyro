@@ -1044,14 +1044,15 @@ class ConstraintRegistry(object):
     def __init__(self):
         self._registry = {}
 
-    def register(self, constraint_list, factory=None):
+    def register(self, constraint, factory=None):
         if factory is None:
-            return lambda factory: self.register(constraint_list, factory)
+            return lambda factory: self.register(constraint, factory)
 
-        for constraint in constraint_list:
-            if isinstance(constraint, constraints.Constraint):
-                constraint = type(constraint)
-            self._registry[constraint] = factory
+        if isinstance(constraint, constraints.Constraint):
+            constraint = type(constraint)
+
+        self._registry[constraint] = factory
+        return factory
 
     def __call__(self, constraint):
         try:
@@ -1065,19 +1066,19 @@ class ConstraintRegistry(object):
 biject_to = ConstraintRegistry()
 
 
-@biject_to.register([constraints.corr_cholesky])
+@biject_to.register(constraints.corr_cholesky)
 def _transform_to_corr_cholesky(constraint):
     return CorrCholeskyTransform()
 
 
-@biject_to.register([constraints.corr_matrix])
+@biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
     return ComposeTransform(
         [CorrCholeskyTransform(), CorrMatrixCholeskyTransform().inv]
     )
 
 
-@biject_to.register([constraints.greater_than])
+@biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
     if constraint is constraints.positive:
         return ExpTransform()
@@ -1089,7 +1090,7 @@ def _transform_to_greater_than(constraint):
     )
 
 
-@biject_to.register([constraints.less_than])
+@biject_to.register(constraints.less_than)
 def _transform_to_less_than(constraint):
     return ComposeTransform(
         [
@@ -1099,14 +1100,15 @@ def _transform_to_less_than(constraint):
     )
 
 
-@biject_to.register([constraints.independent])
+@biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
     return IndependentTransform(
         biject_to(constraint.base_constraint), constraint.reinterpreted_batch_ndims
     )
 
 
-@biject_to.register([constraints.interval, constraints.open_interval])
+@biject_to.register(constraints.open_interval)
+@biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
     if constraint is constraints.unit_interval:
         return SigmoidTransform()
@@ -1121,51 +1123,51 @@ def _transform_to_interval(constraint):
     )
 
 
-@biject_to.register([constraints.l1_ball])
+@biject_to.register(constraints.l1_ball)
 def _transform_to_l1_ball(constraint):
     return L1BallTransform()
 
 
-@biject_to.register([constraints.lower_cholesky])
+@biject_to.register(constraints.lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
 
 
-@biject_to.register([constraints.scaled_unit_lower_cholesky])
+@biject_to.register(constraints.scaled_unit_lower_cholesky)
 def _transform_to_scaled_unit_lower_cholesky(constraint):
     return ScaledUnitLowerCholeskyTransform()
 
 
-@biject_to.register([constraints.ordered_vector])
+@biject_to.register(constraints.ordered_vector)
 def _transform_to_ordered_vector(constraint):
     return OrderedTransform()
 
 
-@biject_to.register([constraints.positive_definite])
+@biject_to.register(constraints.positive_definite)
 def _transform_to_positive_definite(constraint):
     return ComposeTransform([LowerCholeskyTransform(), CholeskyTransform().inv])
 
 
-@biject_to.register([constraints.positive_ordered_vector])
+@biject_to.register(constraints.positive_ordered_vector)
 def _transform_to_positive_ordered_vector(constraint):
     return ComposeTransform([OrderedTransform(), ExpTransform()])
 
 
-@biject_to.register([constraints.real])
+@biject_to.register(constraints.real)
 def _transform_to_real(constraint):
     return IdentityTransform()
 
 
-@biject_to.register([constraints.softplus_positive])
+@biject_to.register(constraints.softplus_positive)
 def _transform_to_softplus_positive(constraint):
     return SoftplusTransform()
 
 
-@biject_to.register([constraints.softplus_lower_cholesky])
+@biject_to.register(constraints.softplus_lower_cholesky)
 def _transform_to_softplus_lower_cholesky(constraint):
     return SoftplusLowerCholeskyTransform()
 
 
-@biject_to.register([constraints.simplex])
+@biject_to.register(constraints.simplex)
 def _transform_to_simplex(constraint):
     return StickBreakingTransform()

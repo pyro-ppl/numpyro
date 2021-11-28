@@ -102,7 +102,7 @@ class BijectorTransform(Transform):
         return batch_shape + in_shape
 
 
-@biject_to.register([BijectorConstraint])
+@biject_to.register(BijectorConstraint)
 def _transform_to_bijector_constraint(constraint):
     return BijectorTransform(constraint.bijector)
 
