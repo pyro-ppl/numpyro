@@ -319,6 +319,11 @@ class _Interval(Constraint):
         )
 
 
+class _OpenInterval(_Interval):
+    def __call__(self, x):
+        return (x > self.lower_bound) & (x < self.upper_bound)
+
+
 class _LowerCholesky(Constraint):
     event_dim = 2
 
@@ -507,3 +512,4 @@ softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _Interval(0.0, 1.0)
+open_interval = _OpenInterval

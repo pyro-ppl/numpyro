@@ -72,10 +72,10 @@ class Beta(Distribution):
         )
         concentration1 = jnp.broadcast_to(concentration1, batch_shape)
         concentration0 = jnp.broadcast_to(concentration0, batch_shape)
+        super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
         self._dirichlet = Dirichlet(
             jnp.stack([concentration1, concentration0], axis=-1)
         )
-        super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -1659,7 +1659,7 @@ class BetaProportion(Beta):
     """
 
     arg_constraints = {
-        "mean": constraints.unit_interval,
+        "mean": constraints.open_interval(0.0, 1.0),
         "concentration": constraints.positive,
     }
     reparametrized_params = ["mean", "concentration"]
