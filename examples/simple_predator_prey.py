@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from jaxinterp.interpreter import _make_jaxpr_with_consts, interpret
 import matplotlib.pyplot as plt
 import numpy.random as npr

@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from abc import abstractmethod
 from collections import namedtuple
 from typing import List
