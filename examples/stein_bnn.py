@@ -3,11 +3,11 @@
 
 import argparse
 from collections import namedtuple
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from time import time
 
-import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import train_test_split
 
@@ -18,7 +18,7 @@ import numpyro
 from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
-from numpyro.infer import SVI, Predictive, Trace_ELBO, init_to_uniform
+from numpyro.infer import Predictive, Trace_ELBO, init_to_uniform
 from numpyro.infer.autoguide import AutoDelta
 from numpyro.optim import Adagrad
 
@@ -80,99 +80,59 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
 
 
 def main(args):
-    data = load_data(args.dataset)
+    data = load_data("boston")
 
     inf_key, pred_key, data_key = random.split(random.PRNGKey(args.rng_key), 3)
     x, xtr_mean, xtr_std = normalize(data.xtr)
     y, ytr_mean, ytr_std = normalize(data.ytr)
 
-    if args.method == 0:  # SVI
-        svi = SVI(model, AutoDelta(model), Adagrad(0.01), Trace_ELBO())
+    rng_key, inf_key = random.split(inf_key)
 
-        start = time()
-        results = svi.run(inf_key, args.max_iter, x, y, 50)
-        print(time() - start)
+    stein = SteinVI(
+        model,
+        AutoDelta(model),
+        Adagrad(0.05),
+        Trace_ELBO(num_particles=20),
+        RBFKernel(),
+        init_strategy=partial(init_to_uniform, radius=0.1),
+        repulsion_temperature=args.repulsion,
+        num_particles=args.num_particles,
+    )
+    start = time()
+    # use keyword params for static (shape etc.)!
+    state, losses = stein.run(
+        rng_key,
+        args.max_iter,
+        x,
+        y,
+        hidden_dim=50,
+        subsample_size=args.subsample_size,
+        callbacks=[Progbar()] if args.progress_bar else None,
+    )
+    time_taken = time() - start
 
-        plt.plot(results.losses)
-        plt.show()
-        pred = Predictive(model, guide=svi.guide, params=results.params, num_samples=1)
+    pred = Predictive(
+        model,
+        guide=stein.guide,
+        params=stein.get_params(state),
+        num_samples=1,
+        num_particles=args.num_particles if args.method != 0 else None,
+    )
+    xte, _, _ = normalize(data.xte, xtr_mean, xtr_std)
+    preds = pred(pred_key, xte, subsample_size=xte.shape[0])["y"].reshape(
+        -1, xte.shape[0]
+    )
 
-    if args.method >= 1:
-        times = []
-        states = []
-        for i in range(21):
-            rng_key, inf_key = random.split(inf_key)
+    y_pred = jnp.mean(preds, 0) * ytr_std + ytr_mean
 
-            stein = SteinVI(
-                model,
-                AutoDelta(model),
-                Adagrad(0.05),
-                Trace_ELBO(num_particles=20),
-                RBFKernel(),
-                init_strategy=partial(init_to_uniform, radius=0.1),
-                repulsion_temperature=args.repulsion,
-                num_particles=args.num_particles,
-            )
-            start = time()
-            # use keyword params for static (shape etc.)!
-            state, losses = stein.run(
-                rng_key,
-                args.max_iter,
-                x,
-                y,
-                hidden_dim=50,
-                subsample_size=args.subsample_size,
-                callbacks=[Progbar()] if args.progress_bar else None,
-            )
-            times.append(time() - start)
-            states.append(state)
+    rmse = jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2))
 
-        scores = []
-        for state in states:
-            pred = Predictive(
-                model,
-                guide=stein.guide,
-                params=stein.get_params(state),
-                num_samples=1,
-                num_particles=args.num_particles if args.method != 0 else None,
-            )
-            xte, _, _ = normalize(data.xte, xtr_mean, xtr_std)
-            preds = pred(pred_key, xte, subsample_size=xte.shape[0])["y"].reshape(
-                -1, xte.shape[0]
-            )
-
-            y_pred = jnp.mean(preds, 0) * ytr_std + ytr_mean
-
-            scores.append(jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2)))
-
-    times = np.array(times)
-    scores = np.array(scores)
-    print(args.dataset)
-    print("all times", times)
-    print("all scores", scores)
-    print(fr"timing {np.mean(times[1:]): .3f}\pm{np.std(times[1:]):.3f}")
-    print(fr"rmse {np.mean(scores[1:]):.3f}\pm{np.std(scores[1:]):.3f}")
+    print(fr"Time taken: {datetime.timedelta(seconds=time_taken)}")
+    print(fr"RMSE: {rmse}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--dataset",
-        choices=[
-            "boston_housing",
-            "concrete",
-            "energy_heating_load",
-            "kin8nm",
-            "naval_compressor_decay",
-            "power",
-            "protein",
-            "wine",
-            "yacht",
-            "year_prediction_msd",
-        ],
-        default="year_prediction_msd",
-    )
-
     parser.add_argument("--subsample_size", type=int, default=100)
     parser.add_argument("--max_iter", type=int, default=2000)
     parser.add_argument("--repulsion", type=float, default=1.0)
@@ -183,9 +143,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_particles", type=int, default=100)
     parser.add_argument("--progress_bar", type=bool, default=True)
     parser.add_argument("--rng_key", type=int, default=142)
+    parser.add_argument("--device", defualt="cpu", choices=["gpu", "cpu"])
 
     args = parser.parse_args()
 
-    numpyro.set_platform("gpu")
+    numpyro.set_platform(args.device)
 
     main(args)

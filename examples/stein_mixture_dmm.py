@@ -49,7 +49,9 @@ def batch_fun(step):
 
 
 def _one_hot_chorales(seqs, num_nodes=88):
-    return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[..., 1:]
+    return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[
+        ..., 1:
+    ]
 
 
 def Emitter(hidden_dim1, hidden_dim2, out_dim):

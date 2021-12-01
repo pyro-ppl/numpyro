@@ -114,9 +114,7 @@ def mmd(p_samples, q_samples):
 
 if __name__ == "__main__":
     num_cols = ceil((len(kernels) + 1) / 2.0)
-    fig, axs = plt.subplots(
-        2, num_cols, figsize=(20, 10), dpi=300
-    )
+    fig, axs = plt.subplots(2, num_cols, figsize=(20, 10), dpi=300)
     rng_key = random.PRNGKey(0)
     p_samples = Star().sample(rng_key, (10_000,))
 
