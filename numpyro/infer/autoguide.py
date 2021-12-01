@@ -11,7 +11,14 @@ import numpy as np
 
 import jax
 from jax import grad, hessian, lax, random, tree_map
-from jax.experimental import stax
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
+
 import jax.numpy as jnp
 
 import numpyro
@@ -478,7 +485,7 @@ def _ravel_dict(x):
     x_flat = []
     for name, value in x.items():
         shape_dict[name] = jnp.shape(value)
-        x_flat.append(value.reshape(-1))
+        x_flat.append(jnp.reshape(value, -1))
     x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
     return x_flat, shape_dict
 
@@ -1205,7 +1212,7 @@ class AutoIAFNormal(AutoContinuous):
     :param bool skip_connections: whether to add skip connections from the input to the
         output of each flow. Defaults to False.
     :param callable nonlinearity: the nonlinearity to use in the feedforward network.
-        Defaults to :func:`jax.experimental.stax.Elu`.
+        Defaults to :func:`jax.example_libraries.stax.Elu`.
     """
 
     def __init__(

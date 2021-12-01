@@ -1593,6 +1593,13 @@ def test_categorical_log_prob_grad():
     assert_allclose(grad_fx, grad_gx, atol=1e-4)
 
 
+def test_beta_proportion_invalid_mean():
+    with dist.distribution.validation_enabled(), pytest.raises(
+        ValueError, match=r"^BetaProportion distribution got invalid mean parameter\.$"
+    ):
+        dist.BetaProportion(1.0, 1.0)
+
+
 ########################################
 # Tests for constraints and transforms #
 ########################################
@@ -1713,6 +1720,11 @@ def test_categorical_log_prob_grad():
             jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
             jnp.array([True, False]),
         ),
+        (
+            constraints.open_interval(0.0, 1.0),
+            jnp.array([-5, 0, 0.5, 1, 7]),
+            jnp.array([False, False, True, False, False]),
+        ),
     ],
 )
 def test_constraints(constraint, x, expected):
@@ -1754,6 +1766,7 @@ def test_constraints(constraint, x, expected):
         constraints.softplus_positive,
         constraints.softplus_lower_cholesky,
         constraints.unit_interval,
+        constraints.open_interval(0.0, 1.0),
     ],
     ids=lambda x: x.__class__,
 )

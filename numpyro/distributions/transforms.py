@@ -1052,6 +1052,7 @@ class ConstraintRegistry(object):
             constraint = type(constraint)
 
         self._registry[constraint] = factory
+        return factory
 
     def __call__(self, constraint):
         try:
@@ -1106,6 +1107,7 @@ def _biject_to_independent(constraint):
     )
 
 
+@biject_to.register(constraints.open_interval)
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
     if constraint is constraints.unit_interval:

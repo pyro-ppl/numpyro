@@ -22,7 +22,7 @@ def optax_to_numpyro(transformation: optax.GradientTransformation) -> _NumPyroOp
     ``optax.GradientTransformation`` so that it can be used with
     ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the
     ``(init_fn, update_fn, get_params_fn)`` interface defined by
-    :mod:`jax.experimental.optimizers`.
+    :mod:`jax.example_libraries.optimizers`.
 
     :param transformation: An ``optax.GradientTransformation`` instance to wrap.
     :return: An instance of ``numpyro.optim._NumPyroOptim`` wrapping the supplied

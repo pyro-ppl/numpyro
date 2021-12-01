@@ -182,6 +182,13 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
         d = TFPDistribution[tfd.Normal](0, 1)
 
+    Note that typical use cases do not require explicitly invoking this wrapper, since
+    NumPyro wraps TFP distributions automatically under the hood in model code, e.g.::
+
+        from tensorflow_probability.substrates.jax import distributions as tfd
+
+        def model():
+            numpyro.sample("x", tfd.Normal(0, 1))
     """
 
     def __getattr__(self, name):

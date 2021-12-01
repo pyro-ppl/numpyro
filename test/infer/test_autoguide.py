@@ -6,8 +6,16 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import jacobian, jit, lax, random
-from jax.experimental.stax import Dense
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries.stax import Dense
+else:
+    from jax.experimental.stax import Dense
+
 import jax.numpy as jnp
 from jax.test_util import check_eq
 
@@ -35,6 +43,7 @@ from numpyro.infer.initialization import (
     init_to_median,
     init_to_sample,
     init_to_uniform,
+    init_to_value,
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import Predictive
@@ -636,3 +645,12 @@ def test_autocontinuous_local_error():
     svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
     with pytest.raises(ValueError, match="local latent variables"):
         svi.init(random.PRNGKey(0))
+
+
+def test_init_to_scalar_value():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    guide = AutoDiagonalNormal(model, init_loc_fn=init_to_value(values={"x": 1.0}))
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    svi.init(random.PRNGKey(0))
