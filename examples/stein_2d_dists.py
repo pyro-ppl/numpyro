@@ -113,8 +113,9 @@ def mmd(p_samples, q_samples):
 
 
 if __name__ == "__main__":
+    num_cols = ceil((len(kernels) + 1) / 2.0)
     fig, axs = plt.subplots(
-        2, ceil((len(kernels) + 1) / 2.0), figsize=(20, 10), dpi=300
+        2, num_cols, figsize=(20, 10), dpi=300
     )
     rng_key = random.PRNGKey(0)
     p_samples = Star().sample(rng_key, (10_000,))
@@ -157,7 +158,7 @@ if __name__ == "__main__":
     mmds = {}
     for i, (name, kernel) in enumerate(kernels.items()):
         j = i + 1
-        ax = axs[j // l, j % l]
+        ax = axs[j // num_cols, j % num_cols]
         svgd = SteinVI(
             model,
             guide,
