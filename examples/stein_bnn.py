@@ -4,11 +4,12 @@ from functools import partial
 from pathlib import Path
 from time import time
 
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from jax import random
 from sklearn.model_selection import train_test_split
+
+from jax import random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.contrib.callbacks import Progbar
@@ -57,11 +58,11 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
     w2 = numpyro.sample("nn_w2", Normal(jnp.zeros(hidden_dim), 1.0 / prec_nn))
 
     with numpyro.plate(
-            "data",
-            x.shape[0],
-            subsample_size=subsample_size,
-            subsample_scale=subsample_size,
-            dim=-1,
+        "data",
+        x.shape[0],
+        subsample_size=subsample_size,
+        subsample_scale=subsample_size,
+        dim=-1,
     ):
         batch_x = numpyro.subsample(x, event_dim=1)
         if y is not None:
@@ -171,7 +172,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--subsample_size", type=int, default=100)
     parser.add_argument("--max_iter", type=int, default=2000)
-    parser.add_argument("--repulsion", type=float, default=1.)
+    parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument(
         "--method", type=int, choices=range(2), metavar="[0-1]", default=1
     )
