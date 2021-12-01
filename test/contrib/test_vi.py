@@ -1,12 +1,13 @@
-import tempfile
 from collections import namedtuple
 from math import floor
+import tempfile
 
-import jax.numpy as jnp
 import numpy as np
-import pytest
-from jax import random
 from numpy.ma.testutils import assert_close
+import pytest
+
+from jax import random
+import jax.numpy as jnp
 
 from numpyro.contrib.callbacks import (
     Checkpoint,
@@ -38,12 +39,12 @@ def test_checkpoint():
         loaded_state = VIState(optim_state, rng_key)
         assert state.optim_state[0] == loaded_state.optim_state[0]
         assert (
-                state.optim_state[1].subtree_defs
-                == loaded_state.optim_state[1].subtree_defs
+            state.optim_state[1].subtree_defs
+            == loaded_state.optim_state[1].subtree_defs
         )
         assert state.optim_state[1].tree_def == loaded_state.optim_state[1].tree_def
         for exp, act in zip(
-                state.optim_state[1].packed_state, loaded_state.optim_state[1].packed_state
+            state.optim_state[1].packed_state, loaded_state.optim_state[1].packed_state
         ):
             assert all(all(e == a) for e, a in zip(exp, act))
         assert all(state.rng_key == loaded_state.rng_key)

@@ -5,17 +5,18 @@
   by Krishnan, Shalit and Sontag. (AAAI 2017)
 """
 
+import matplotlib.pyplot as plt
+
 import jax
+from jax.example_libraries import stax
 import jax.numpy as jnp
 import jax.ops
-import matplotlib.pyplot as plt
-from jax.example_libraries import stax
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import RBFKernel
+import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
@@ -31,9 +32,9 @@ print("Length min: ", min(lengths), "max: ", max(lengths))
 
 
 def _reverse_padded(padded, lengths):
-    def _reverse_single(p, l):
+    def _reverse_single(p, length):
         new = jnp.zeros_like(p)
-        reverse = jnp.roll(p[::-1], l, axis=0)
+        reverse = jnp.roll(p[::-1], length, axis=0)
         return jax.ops.index_update(new, jax.ops.index[:], reverse)
 
     return jax.vmap(_reverse_single)(padded, lengths)
@@ -48,9 +49,7 @@ def batch_fun(step):
 
 
 def _one_hot_chorales(seqs, num_nodes=88):
-    return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[
-           ..., 1:
-           ]
+    return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[..., 1:]
 
 
 def Emitter(hidden_dim1, hidden_dim2, out_dim):
@@ -192,17 +191,17 @@ def GRU(hidden_dim, W_init=stax.glorot_normal()):
 
 
 def model(
-        seqs,
-        seqs_rev,
-        lengths,
-        *,
-        latent_dim=32,
-        emission_dim=100,
-        transition_dim=200,
-        data_dim=88,
-        gru_dim=150,
-        annealing_factor=1.0,
-        predict=False
+    seqs,
+    seqs_rev,
+    lengths,
+    *,
+    latent_dim=32,
+    emission_dim=100,
+    transition_dim=200,
+    data_dim=88,
+    gru_dim=150,
+    annealing_factor=1.0,
+    predict=False
 ):
     batch_size, max_seq_length, *_ = seqs.shape
 
@@ -234,8 +233,8 @@ def model(
             numpyro.sample(
                 "z_aux",
                 dist.Normal(z_loc, z_scale)
-                    .mask(jnp.expand_dims(masks, axis=-1))
-                    .to_event(2),
+                .mask(jnp.expand_dims(masks, axis=-1))
+                .to_event(2),
                 obs=z,
             )
 
@@ -246,24 +245,24 @@ def model(
         numpyro.sample(
             "obs_x",
             dist.Bernoulli(emission_probs)
-                .mask(jnp.expand_dims(masks, axis=-1))
-                .to_event(2),
+            .mask(jnp.expand_dims(masks, axis=-1))
+            .to_event(2),
             obs=oh_x,
         )
 
 
 def guide(
-        seqs,
-        seqs_rev,
-        lengths,
-        *,
-        latent_dim=32,
-        emission_dim=100,
-        transition_dim=200,
-        data_dim=88,
-        gru_dim=150,
-        annealing_factor=1.0,
-        predict=False
+    seqs,
+    seqs_rev,
+    lengths,
+    *,
+    latent_dim=32,
+    emission_dim=100,
+    transition_dim=200,
+    data_dim=88,
+    gru_dim=150,
+    annealing_factor=1.0,
+    predict=False
 ):
     batch_size, max_seq_length, *_ = seqs.shape
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
@@ -287,8 +286,8 @@ def guide(
             numpyro.sample(
                 "z",
                 dist.Normal(z_loc, z_scale)
-                    .mask(jnp.expand_dims(masks, axis=-1))
-                    .to_event(2),
+                .mask(jnp.expand_dims(masks, axis=-1))
+                .to_event(2),
             )
 
 

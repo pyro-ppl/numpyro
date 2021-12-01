@@ -57,7 +57,7 @@ class VI:
     ):
         def bodyfn(_i, info):
             body_state = info[0]
-            return *self.update(body_state, *info[2:], **kwargs), *info[2:]
+            return (*self.update(body_state, *info[2:], **kwargs), *info[2:])
 
         if batch_fun is not None:
             batch_args, batch_kwargs, _, _ = batch_fun(0)
