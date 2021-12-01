@@ -1,4 +1,6 @@
-"""change                 transform=lambda val: val[1],  to                transform=lambda val: val[0], in VI """
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from math import ceil
 
 import matplotlib.pyplot as plt

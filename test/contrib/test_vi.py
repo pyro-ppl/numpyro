@@ -1,13 +1,12 @@
+import tempfile
 from collections import namedtuple
 from math import floor
-import tempfile
 
-import numpy as np
-from numpy.ma.testutils import assert_close
-import pytest
-
-from jax import random
 import jax.numpy as jnp
+import numpy as np
+import pytest
+from jax import random
+from numpy.ma.testutils import assert_close
 
 from numpyro.contrib.callbacks import (
     Checkpoint,
@@ -39,12 +38,12 @@ def test_checkpoint():
         loaded_state = VIState(optim_state, rng_key)
         assert state.optim_state[0] == loaded_state.optim_state[0]
         assert (
-            state.optim_state[1].subtree_defs
-            == loaded_state.optim_state[1].subtree_defs
+                state.optim_state[1].subtree_defs
+                == loaded_state.optim_state[1].subtree_defs
         )
         assert state.optim_state[1].tree_def == loaded_state.optim_state[1].tree_def
         for exp, act in zip(
-            state.optim_state[1].packed_state, loaded_state.optim_state[1].packed_state
+                state.optim_state[1].packed_state, loaded_state.optim_state[1].packed_state
         ):
             assert all(all(e == a) for e, a in zip(exp, act))
         assert all(state.rng_key == loaded_state.rng_key)
@@ -85,16 +84,19 @@ def test_early_stopping(smoothing, patience):
             break
 
 
-def test_history():
-    num_steps = 100
-
-    train_info = lambda loss: {
+def train_info(loss):
+    return {
         "num_steps": 100,
         "state": {},
         "loss": loss,
         "model_args": (),
         "model_kwargs": {},
     }
+
+
+def test_history():
+    num_steps = 100
+
     h = History()
     key = random.PRNGKey(0)
 
@@ -112,13 +114,6 @@ def test_history():
 def test_progbar(capsys):
     num_steps = 100
 
-    train_info = lambda loss: {
-        "num_steps": 100,
-        "state": {},
-        "loss": loss,
-        "model_args": (),
-        "model_kwargs": {},
-    }
     vi = namedtuple("vi", ["name"])
 
     pb = Progbar()
@@ -134,14 +129,6 @@ def test_progbar(capsys):
 
 
 def test_terminate_on_nan():
-    train_info = lambda loss: {
-        "num_steps": 100,
-        "state": {},
-        "loss": loss,
-        "model_args": (),
-        "model_kwargs": {},
-    }
-
     try:
         TerminateOnNaN().on_train_step_end(
             0, train_info(jnp.array([1, 2, 3, 4.523, 43214]))
