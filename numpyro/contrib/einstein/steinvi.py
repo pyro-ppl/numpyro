@@ -26,9 +26,6 @@ from numpyro.infer.initialization import get_parameter_transform
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.util import ravel_pytree
 
-# TODO
-# Fix MCMC updates to work reasonably with optimizer
-# Refactor Stein Point MCMC to compose
 
 VIState = namedtuple("CurrentState", ["optim_state", "rng_key"])
 
@@ -53,17 +50,6 @@ class SteinVI(VI):
     :param enum: whether to apply automatic marginalization of discrete variables
     :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
                                    without Stein (E.g. parameters for large normal networks or other transformation)
-    :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand'
-                         for random (EXPERIMENTAL)  # TODO: @Ola add last crieteria
-    :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local'
-                    for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
-    :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC
-                               (should be a subset of number of Stein particles) (EXPERIMENTAL)
-    :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
-    :param num_mcmc_samples: Number of MCMC update steps at each iteration (EXPERIMENTAL)
-    :param mcmc_kernel: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
-    :param mcmc_kernel_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
-    :param mcmc_kwargs: Keyword arguments provided to the MCMC interface (EXPERIMENTAL)
     :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     """
@@ -82,14 +68,6 @@ class SteinVI(VI):
         repulsion_temperature: float = 1.0,
         classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
         enum=True,
-        sp_mcmc_crit="infl",
-        sp_mode="local",
-        num_mcmc_particles: int = 0,
-        num_mcmc_warmup: int = 100,
-        num_mcmc_samples: int = 10,
-        mcmc_kernel=NUTS,
-        mcmc_kernel_kwargs=None,
-        mcmc_kwargs=None,
         **static_kwargs
     ):
 
@@ -97,9 +75,6 @@ class SteinVI(VI):
             guide, reinit_hide_fn=reinit_hide_fn, init_strategy=init_strategy
         )
         super().__init__(model, guide, optim, loss, name="Stein", **static_kwargs)
-        assert sp_mcmc_crit == "infl" or sp_mcmc_crit == "rand"
-        assert sp_mode == "local" or sp_mode == "global"
-        assert 0 <= num_mcmc_particles <= num_particles
 
         self._inference_model = model
         self.model = model
@@ -113,15 +88,6 @@ class SteinVI(VI):
         self.repulsion_temperature = repulsion_temperature
         self.enum = enum
         self.classic_guide_params_fn = classic_guide_params_fn
-        self.sp_mcmc_crit = sp_mcmc_crit
-        self.sp_mode = sp_mode
-        self.num_mcmc_particles = num_mcmc_particles
-        self.num_mcmc_warmup = num_mcmc_warmup
-        self.num_mcmc_updates = num_mcmc_samples
-        self.mcmc_kernel = mcmc_kernel
-        self.mcmc_kernel_kwargs = mcmc_kernel_kwargs or dict()
-        self.mcmc_kwargs = mcmc_kwargs or dict()
-        self.mcmc: MCMC = None
         self.guide_param_names = None
         self.constrain_fn = None
         self.uconstrain_fn = None
@@ -287,125 +253,6 @@ class SteinVI(VI):
         res_grads = tree_map(lambda x: -x, {**classic_param_grads, **stein_param_grads})
         return -jnp.mean(loss), res_grads
 
-    def _score_sp_mcmc(
-        self,
-        rng_key,
-        subset_idxs,
-        stein_uparams,
-        sp_mcmc_subset_uparams,
-        classic_uparams,
-        *args,
-        **kwargs
-    ):
-        if self.sp_mode == "local":
-            _, ksd = self._svgd_loss_and_grads(
-                rng_key, {**sp_mcmc_subset_uparams, **classic_uparams}, *args, **kwargs
-            )
-        else:
-            stein_uparams = {
-                p: ops.index_update(v, subset_idxs, sp_mcmc_subset_uparams[p])
-                for p, v in stein_uparams.items()
-            }
-            _, ksd = self._svgd_loss_and_grads(
-                rng_key, {**stein_uparams, **classic_uparams}, *args, **kwargs
-            )
-        ksd_res = jnp.sum(jnp.concatenate([jnp.ravel(v) for v in ksd.values()]))
-        return ksd_res
-
-    def _sp_mcmc(self, rng_key, unconstr_params, *args, **kwargs):
-        # 0. Separate classical and stein parameters
-        classic_uparams = {
-            p: v
-            for p, v in unconstr_params.items()
-            if p not in self.guide_param_names or self.classic_guide_params_fn(p)
-        }
-        stein_uparams = {
-            p: v for p, v in unconstr_params.items() if p not in classic_uparams
-        }
-
-        # 1. Run warmup on a subset of particles to tune the MCMC state
-        warmup_key, mcmc_key = jax.random.split(rng_key)
-        sampler = self.mcmc_kernel(
-            potential_fn=lambda params: self.loss.loss(
-                warmup_key,
-                {**params, **self.constrain_fn(classic_uparams)},
-                self._inference_model,
-                self.guide,
-                *args,
-                **kwargs
-            )
-        )
-        mcmc = MCMC(
-            sampler,
-            num_warmup=self.num_mcmc_warmup,
-            num_samples=self.num_mcmc_updates,
-            num_chains=self.num_mcmc_particles,
-            progress_bar=False,
-            chain_method="vectorized",
-            **self.mcmc_kwargs
-        )
-        stein_params = self.constrain_fn(stein_uparams)
-        stein_subset_params = {
-            p: v[0 : self.num_mcmc_particles] for p, v in stein_params.items()
-        }
-        mcmc.warmup(warmup_key, *args, init_params=stein_subset_params, **kwargs)
-
-        # 2. Choose MCMC particles
-        mcmc_key, choice_key = jax.random.split(mcmc_key)
-        if self.num_mcmc_particles == self.num_particles:
-            idxs = jnp.arange(self.num_particles)
-        else:
-            if self.sp_mcmc_crit == "rand":
-                idxs = jax.random.permutation(
-                    choice_key, jnp.arange(self.num_particles)
-                )[: self.num_mcmc_particles]
-            elif self.sp_mcmc_crit == "infl":
-                _, grads = self._svgd_loss_and_grads(
-                    choice_key, unconstr_params, *args, **kwargs
-                )
-                ksd = jnp.linalg.norm(
-                    jnp.concatenate(
-                        [
-                            jnp.reshape(grads[p], (self.num_particles, -1))
-                            for p in stein_uparams.keys()
-                        ],
-                        axis=-1,
-                    ),
-                    ord=2,
-                    axis=-1,
-                )
-                idxs = jnp.argsort(ksd)[: self.num_mcmc_particles]
-            else:
-                assert False, "Unsupported SP MCMC criterion: {}".format(
-                    self.sp_mcmc_crit
-                )
-
-        # 3. Run MCMC on chosen particles
-        stein_params = self.constrain_fn(stein_uparams)
-        stein_subset_params = {p: v[idxs] for p, v in stein_params.items()}
-        mcmc.run(mcmc_key, *args, init_params=stein_subset_params, **kwargs)
-        samples_subset_stein_params = mcmc.get_samples(group_by_chain=True)
-        sss_uparams = self.uconstrain_fn(samples_subset_stein_params)
-
-        # 4. Select best MCMC iteration to update particles
-        scores = jax.vmap(
-            lambda i: self._score_sp_mcmc(
-                mcmc_key,
-                idxs,
-                stein_uparams,
-                {p: v[:, i] for p, v in sss_uparams.items()},
-                classic_uparams,
-                *args,
-                **kwargs
-            )
-        )(jnp.arange(self.num_mcmc_particles))
-        mcmc_idx = jnp.argmax(scores)
-        stein_uparams = {
-            p: ops.index_update(v, idxs, sss_uparams[p][:, mcmc_idx])
-            for p, v in stein_uparams.items()
-        }
-        return {**stein_uparams, **classic_uparams}
-
     def init(self, rng_key, *args, **kwargs):
         """
         :param jax.random.PRNGKey rng_key: random number generator seed.
@@ -510,16 +357,7 @@ class SteinVI(VI):
         """
         rng_key, rng_key_mcmc, rng_key_step = jax.random.split(state.rng_key, num=3)
         params = self.optim.get_params(state.optim_state)
-        # Run Stein Point MCMC
-        if self.num_mcmc_particles > 0:
-            new_params = self._sp_mcmc(
-                rng_key_mcmc, params, *args, **kwargs, **self.static_kwargs
-            )
-            grads = {p: new_params[p] - params[p] for p in params}
-            optim_state = self.optim.update(grads, state.optim_state)
-            params = self.optim.get_params(state.optim_state)
-        else:
-            optim_state = state.optim_state
+        optim_state = state.optim_state
         loss_val, grads = self._svgd_loss_and_grads(
             rng_key_step, params, *args, **kwargs, **self.static_kwargs
         )

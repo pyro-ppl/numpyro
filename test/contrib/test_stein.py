@@ -184,41 +184,6 @@ def test_steinvi_smoke(kernel, auto_guide, init_strategy, problem):
     stein.run(random.PRNGKey(0), 1, *data)
 
 
-# @pytest.mark.parametrize("kernel", KERNELS)
-# @pytest.mark.parametrize("sp_criterion", ("infl", "rand"))
-# @pytest.mark.parametrize("sp_mode", ("local", "global"))
-# @pytest.mark.parametrize("num_mcmc_particles", (1, 2, 10))
-# @pytest.mark.parametrize("mcmc_warmup", (1, 2, 100))
-# @pytest.mark.parametrize("mcmc_samples", (1, 2, 100))
-# @pytest.mark.parametrize("mcmc_kernel", (HMC, NUTS))
-# @pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-# @pytest.mark.parametrize("problem", (uniform_normal, regression))
-# def test_stein_point(
-#         kernel,
-#         sp_criterion,
-#         auto_guide,
-#         sp_mode,
-#         num_mcmc_particles,
-#         mcmc_warmup,
-#         mcmc_samples,
-#         mcmc_kernel,
-#         problem,
-# ):
-#     true_coefs, data, model = problem()
-#     stein = Stein(
-#         model,
-#         auto_guide(model),
-#         Adam(1e-1),
-#         Trace_ELBO(),
-#         kernel,
-#         sp_mode=sp_mode,
-#         sp_mcmc_crit=sp_criterion,
-#         mcmc_kernel=mcmc_kernel,
-#     )
-#     state, loss = stein.run(random.PRNGKey(0), 100, *data)
-#     stein.get_params(state)
-
-
 ########################################
 # Stein Interior
 ########################################
