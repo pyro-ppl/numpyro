@@ -78,7 +78,6 @@ from numpyro.distributions.distribution import (
     Unit,
 )
 from numpyro.distributions.kl import kl_divergence
-from numpyro.distributions.mixture import NormalMixture
 from numpyro.distributions.mixtures import MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
@@ -149,7 +148,6 @@ __all__ = [
     "NegativeBinomialProbs",
     "NegativeBinomialLogits",
     "NegativeBinomial2",
-    "NormalMixture",
     "OrderedLogistic",
     "Pareto",
     "Poisson",
