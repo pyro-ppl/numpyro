@@ -11,7 +11,7 @@ from typing import Optional
 import numpy as np
 from tqdm import tqdm, trange
 
-from jax.experimental.optimizers import pack_optimizer_state, unpack_optimizer_state
+from jax.example_libraries.optimizers import pack_optimizer_state, unpack_optimizer_state
 
 __all__ = [
     "Checkpoint",

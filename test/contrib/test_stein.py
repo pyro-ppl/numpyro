@@ -141,12 +141,12 @@ def uniform_normal():
             )
         numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
-    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    data = true_coef + random.normal(random.PRNGKey(0), (10,))
     return true_coef, (data,), model
 
 
 def regression():
-    N, dim = 1000, 3
+    N, dim = 10, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
@@ -164,29 +164,26 @@ def regression():
 #  Stein Exterior (Smoke tests)
 ########################################
 
-# # init_with_noise(),  # consider
-# # init_to_value()))
-# @pytest.mark.parametrize("kernel", KERNELS)
-# @pytest.mark.parametrize(
-#     "init_strategy",
-#     (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
-# )
-# @pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-# @pytest.mark.parametrize("problem", (uniform_normal, regression))
-# def test_init_strategy(kernel, auto_guide, init_strategy, problem):
-#     true_coefs, data, model = problem()
-#     stein = Stein(
-#         model,
-#         auto_guide(model),
-#         Adam(1e-1),
-#         Trace_ELBO(),
-#         kernel,
-#         init_strategy=init_strategy,
-#     )
-#     state, loss = stein.run(random.PRNGKey(0), 100, *data)
-#     stein.get_params(state)
-#
-#
+@pytest.mark.parametrize("kernel", KERNELS)
+@pytest.mark.parametrize(
+    "init_strategy",
+    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
+)
+@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
+@pytest.mark.parametrize("problem", (uniform_normal, regression))
+def test_steinvi_smoke(kernel, auto_guide, init_strategy, problem):
+    true_coefs, data, model = problem()
+    stein = SteinVI(
+        model,
+        auto_guide(model),
+        Adam(1e-1),
+        Trace_ELBO(),
+        kernel,
+        init_strategy=init_strategy,
+    )
+    stein.run(random.PRNGKey(0), 1, *data)
+
+
 # @pytest.mark.parametrize("kernel", KERNELS)
 # @pytest.mark.parametrize("sp_criterion", ("infl", "rand"))
 # @pytest.mark.parametrize("sp_mode", ("local", "global"))
