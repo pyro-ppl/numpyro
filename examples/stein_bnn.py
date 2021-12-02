@@ -1,6 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Example: Bayesian Neural Network for with SteinVI
+=================================================
+
+"""
+
 import argparse
 from collections import namedtuple
 from datetime import datetime
@@ -15,7 +21,6 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
 from numpyro.infer import Predictive, Trace_ELBO, init_to_uniform
@@ -107,7 +112,7 @@ def main(args):
         y,
         hidden_dim=50,
         subsample_size=args.subsample_size,
-        callbacks=[Progbar()] if args.progress_bar else None,
+        callbacks=args.progress_bar,
     )
     time_taken = time() - start
 
@@ -136,9 +141,6 @@ if __name__ == "__main__":
     parser.add_argument("--subsample_size", type=int, default=100)
     parser.add_argument("--max_iter", type=int, default=2000)
     parser.add_argument("--repulsion", type=float, default=1.0)
-    parser.add_argument(
-        "--method", type=int, choices=range(2), metavar="[0-1]", default=1
-    )
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num_particles", type=int, default=100)
     parser.add_argument("--progress_bar", type=bool, default=True)

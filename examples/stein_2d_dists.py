@@ -1,6 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Example: 2D distributions inferred using SteinVI
+================================================
+
+"""
+
 from math import ceil
 
 import matplotlib.pyplot as plt

@@ -1,6 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Example: LDA using SteinVI for inference
+========================================
+
+"""
+
 import matplotlib.pyplot as plt
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
@@ -11,7 +17,6 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.contrib.funsor import config_enumerate
 import numpyro.distributions as dist
@@ -111,7 +116,7 @@ def run_stein(docs, rng_key, num_words=300, num_topics=20, num_particles=1):
         init_strategy=init_to_sample,
         subsample_size=32,
     )
-    state, losses = stein.run(inf_key, 100, docs, callbacks=[Progbar()])
+    state, losses = stein.run(inf_key, 100, docs)
     plt.plot(losses)
     plt.show()
     plt.clf()

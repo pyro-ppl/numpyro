@@ -1,7 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-"""  Based on "Structured Inference Networks for Nonlinear State Space Models"
+"""
+Example: Deep Markov Model inferred using SteinVI
+=================================================
+
+Based on "Structured Inference Networks for Nonlinear State Space Models"
   by Krishnan, Shalit and Sontag. (AAAI 2017)
 """
 
