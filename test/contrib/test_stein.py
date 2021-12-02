@@ -164,6 +164,7 @@ def regression():
 #  Stein Exterior (Smoke tests)
 ########################################
 
+
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize(
     "init_strategy",

@@ -13,7 +13,6 @@ import jax.numpy as jnp
 import jax.ops
 
 import numpyro
-from numpyro.contrib.callbacks import Progbar
 from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import RBFKernel
 import numpyro.distributions as dist
@@ -306,9 +305,7 @@ if __name__ == "__main__":
 
     num_epochs = 1000
     rng_key = jax.random.PRNGKey(seed=142)
-    state, losses = svgd.run(
-        rng_key, num_epochs * ds_count, callbacks=[Progbar()], batch_fun=batch_fun
-    )
+    state, losses = svgd.run(rng_key, num_epochs * ds_count)
 
     plt.plot(losses)
     plt.show()
@@ -317,10 +314,3 @@ if __name__ == "__main__":
     lengths, seqs = get_batch()
 
     negative_elbo = svgd.evaluate(state, seqs, _reverse_padded(seqs, lengths), lengths)
-
-    print("ELBO", -negative_elbo / lengths.sum())
-    ll = svgd.log_likelihood(state, seqs, _reverse_padded(seqs, lengths), lengths)[
-        "obs_x"
-    ]["log_likelihood"]
-    print("Negative Log Likelihood(c)", (-ll.mean(0) / lengths).mean())
-    print("Negative Log Likelihood(b)", -ll.mean(0).sum() / lengths.sum())

@@ -9,7 +9,6 @@ import operator
 from typing import Callable
 
 import jax
-from jax import ops
 import jax.numpy as jnp
 import jax.random
 from jax.tree_util import tree_map
@@ -18,23 +17,22 @@ from numpyro import handlers
 from numpyro.contrib.einstein.kernels import SteinKernel
 from numpyro.contrib.einstein.reinit_guide import WrappedGuide
 from numpyro.contrib.funsor import config_enumerate, enum
-from numpyro.contrib.vi import VI
 from numpyro.distributions import Distribution
 from numpyro.distributions.transforms import IdentityTransform
-from numpyro.infer import MCMC, NUTS, init_to_uniform
+from numpyro.infer import init_to_uniform
 from numpyro.infer.initialization import get_parameter_transform
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
-from numpyro.util import ravel_pytree
+from numpyro.util import fori_collect, ravel_pytree
 
-
-VIState = namedtuple("CurrentState", ["optim_state", "rng_key"])
+SteinVIState = namedtuple("SteinVIState", ["optim_state", "rng_key"])
+SteinVIRunResult = namedtuple("SteinRunResult", ["params", "state", "losses"])
 
 
 def _numel(shape):
     return functools.reduce(operator.mul, shape, 1)
 
 
-class SteinVI(VI):
+class SteinVI:
     """
     Stein Variational Gradient Descent for Non-parametric Inference.
     :param model: Python callable with Pyro primitives for the model.
@@ -68,13 +66,12 @@ class SteinVI(VI):
         repulsion_temperature: float = 1.0,
         classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
         enum=True,
-        **static_kwargs
+        **static_kwargs,
     ):
 
         guide = WrappedGuide(
             guide, reinit_hide_fn=reinit_hide_fn, init_strategy=init_strategy
         )
-        super().__init__(model, guide, optim, loss, name="Stein", **static_kwargs)
 
         self._inference_model = model
         self.model = model
@@ -159,7 +156,7 @@ class SteinVI(VI):
                 handlers.scale(self._inference_model, self.loss_temperature),
                 self.guide,
                 *args,
-                **kwargs
+                **kwargs,
             )
             return -loss_val
 
@@ -260,7 +257,7 @@ class SteinVI(VI):
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
-        :return: initial :data:`CurrentState`
+        :return: initial :data:`SteinVIState`
         """
         rng_key, kernel_seed, model_seed, guide_seed = jax.random.split(rng_key, 4)
         model_init = handlers.seed(self.model, model_seed)
@@ -334,9 +331,9 @@ class SteinVI(VI):
         )
 
         self.kernel_fn.init(kernel_seed, stein_particles.shape)
-        return SteinVI.CurrentState(self.optim.init(params), rng_key)
+        return SteinVIState(self.optim.init(params), rng_key)
 
-    def get_params(self, state: VIState):
+    def get_params(self, state: SteinVIState):
         """
         Gets values at `param` sites of the `model` and `guide`.
         :param state: current state of the optimizer.
@@ -344,7 +341,7 @@ class SteinVI(VI):
         params = self.constrain_fn(self.optim.get_params(state.optim_state))
         return params
 
-    def update(self, state: VIState, *args, **kwargs):
+    def update(self, state: SteinVIState, *args, **kwargs):
         """
         Take a single step of Stein (possibly on a batch / minibatch of data),
         using the optimizer.
@@ -362,7 +359,38 @@ class SteinVI(VI):
             rng_key_step, params, *args, **kwargs, **self.static_kwargs
         )
         optim_state = self.optim.update(grads, optim_state)
-        return SteinVI.CurrentState(optim_state, rng_key), loss_val
+        return SteinVIState(optim_state, rng_key), loss_val
+
+    def run(
+        self,
+        rng_key,
+        num_steps,
+        *args,
+        progress_bar=True,
+        init_state=None,
+        collect_fn=lambda val: val[1],  # TODO: refactor
+        **kwargs,
+    ):
+        def bodyfn(_i, info):
+            body_state = info[0]
+            return (*self.update(body_state, *info[2:], **kwargs), *info[2:])
+
+        if init_state is None:
+            state = self.init(rng_key, *args, **kwargs)
+        else:
+            state = init_state
+        loss = self.evaluate(state, *args, **kwargs)
+        auxiliaries, last_res = fori_collect(
+            0,
+            num_steps,
+            lambda info: bodyfn(0, info),
+            (state, loss, *args),
+            progbar=progress_bar,
+            transform=collect_fn,
+            return_last_val=True,
+        )
+        state = last_res[0]
+        return SteinVIRunResult(self.get_params(state), state, auxiliaries)
 
     def evaluate(self, state, *args, **kwargs):
         """
@@ -380,42 +408,3 @@ class SteinVI(VI):
             rng_key_eval, params, *args, **kwargs, **self.static_kwargs
         )
         return loss_val
-
-    def predict(self, state, *args, num_samples=1, **kwargs):
-        _, rng_key_predict = jax.random.split(state.rng_key)
-        params = self.get_params(state)
-        classic_params = {
-            p: v
-            for p, v in params.items()
-            if p not in self.guide_param_names or self.classic_guide_params_fn(p)
-        }
-        stein_params = {p: v for p, v in params.items() if p not in classic_params}
-        if num_samples == 1:
-            return jax.vmap(
-                lambda sp: self._predict_model(
-                    rng_key_predict, {**sp, **classic_params}, *args, **kwargs
-                )
-            )(stein_params)
-        else:
-            return jax.vmap(
-                lambda rk: jax.vmap(
-                    lambda sp: self._predict_model(
-                        rk, {**sp, **classic_params}, *args, **kwargs
-                    )
-                )(stein_params)
-            )(jax.random.split(rng_key_predict, num_samples))
-
-    def log_likelihood(self, state, *args, **kwargs):
-        _, rng_key_predict = jax.random.split(state.rng_key)
-        params = self.get_params(state)
-        classic_params = {
-            p: v
-            for p, v in params.items()
-            if p not in self.guide_param_names or self.classic_guide_params_fn(p)
-        }
-        stein_params = {p: v for p, v in params.items() if p not in classic_params}
-        return jax.vmap(
-            lambda sp: self._log_likelihood(
-                rng_key_predict, {**sp, **classic_params}, *args, **kwargs
-            )
-        )(stein_params)
