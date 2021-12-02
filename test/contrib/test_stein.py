@@ -32,7 +32,7 @@ from numpyro.contrib.einstein.utils import posdef, sqrth, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
 from numpyro.distributions import Poisson
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import HMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDelta, AutoNormal
 from numpyro.infer.initialization import (
     init_to_feasible,
