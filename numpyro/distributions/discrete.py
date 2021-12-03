@@ -441,7 +441,7 @@ class DiscreteUniform(Distribution):
 
     @property
     def variance(self):
-        return (self.high - 1 - self.low) ** 2 / 12.0
+        return ((self.high - self.low) ** 2 - 1) / 12.0
 
     @staticmethod
     def infer_shapes(low=(), high=()):
