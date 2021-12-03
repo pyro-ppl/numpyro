@@ -1573,11 +1573,11 @@ class Uniform(Distribution):
 
     @property
     def mean(self):
-        return self.low + (self.high - self.low) / 2.0
+        return self.low + (self.high - 1 - self.low) / 2.0
 
     @property
     def variance(self):
-        return (self.high - self.low) ** 2 / 12.0
+        return (self.high - 1 - self.low) ** 2 / 12.0
 
     def tree_flatten(self):
         if isinstance(self._support.lower_bound, (int, float)) and isinstance(
