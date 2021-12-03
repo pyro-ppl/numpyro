@@ -614,6 +614,8 @@ DISCRETE = [
     T(dist.NegativeBinomial2, jnp.array([10.2, 7, 31]), jnp.array([10.2, 20.7, 2.1])),
     T(dist.OrderedLogistic, -2, jnp.array([-10.0, 4.0, 9.0])),
     T(dist.OrderedLogistic, jnp.array([-4, 3, 4, 5]), jnp.array([-1.5])),
+    T(dist.DiscreteUniform, -2, jnp.array([-1.0, 4.0, 9.0])),
+    T(dist.DiscreteUniform, jnp.array([-4, 3, 4, 5]), jnp.array([6])),
     T(dist.Poisson, 2.0),
     T(dist.Poisson, jnp.array([2.0, 3.0, 5.0])),
     T(SparsePoisson, 2.0),

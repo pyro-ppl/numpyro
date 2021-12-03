@@ -405,6 +405,59 @@ def Categorical(probs=None, logits=None, validate_args=None):
         raise ValueError("One of `probs` or `logits` must be specified.")
 
 
+class DiscreteUniform(Distribution):
+    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    has_enumerate_support = True
+
+    def __init__(self, low=0.0, high=1.0, validate_args=None):
+        self.low, self.high = promote_shapes(low, high)
+        batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
+        self._support = constraints.integer_interval(low, high - 1)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
+    def support(self):
+        return self._support
+
+    def sample(self, key, sample_shape=()):
+        shape = sample_shape + self.batch_shape
+        return random.randint(key, shape=shape, minval=self.low, maxval=self.high)
+
+    @validate_sample
+    def log_prob(self, value):
+        shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
+        return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
+
+    def cdf(self, value):
+        cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low)
+        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+
+    def icdf(self, value):
+        return self.low + value * (self.high - self.low) - 1
+
+    @property
+    def mean(self):
+        return self.low + (self.high - self.low) / 2.0
+
+    @property
+    def variance(self):
+        return (self.high - self.low) ** 2 / 12.0
+
+    @staticmethod
+    def infer_shapes(low=(), high=()):
+        batch_shape = lax.broadcast_shapes(low, high)
+        event_shape = ()
+        return batch_shape, event_shape
+
+    def enumerate_support(self, expand=True):
+        values = jnp.arange(self.high - self.low).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        if expand:
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
+
 class OrderedLogistic(CategoricalProbs):
     """
     A categorical distribution with ordered outcomes.
