@@ -402,11 +402,25 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     for k, v in model_trace.items():
         if v["type"] == "sample" and not v["is_observed"]:
             if v["fn"].support.is_discrete:
+                if not v["infer"].get("enumerate", True):
+                    raise RuntimeError(
+                        "This MCMC kernel only supports discrete sites with enumerate"
+                        " support. But the site {k} is marked with {'enumerate': False}."
+                    )
                 has_enumerate_support = True
                 if not v["fn"].has_enumerate_support:
+                    dist_name = type(v["fn"]).__name__
                     raise RuntimeError(
-                        "MCMC only supports continuous sites or discrete sites "
-                        f"with enumerate support, but got {type(v['fn']).__name__}."
+                        "This MCMC kernel only supports discrete sites with enumerate"
+                        f" support. But the {dist_name} distribution at site {k} does"
+                        " not have enumerate support."
+                    )
+                if v["infer"].get("enumerate", False):
+                    warnings.warn(
+                        f"The discrete site {k} will be enumerated. In the future,"
+                        " enumerated sites need to be marked with"
+                        " `infer={'enumerate': False}`.",
+                        FutureWarning,
                     )
             else:
                 support = v["fn"].support
