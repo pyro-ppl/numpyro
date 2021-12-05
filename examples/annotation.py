@@ -167,9 +167,7 @@ def mace(positions, annotations):
         theta = numpyro.sample("theta", dist.Beta(0.5, 0.5))
 
     with numpyro.plate("item", num_items, dim=-2):
-        # NB: using constant logits for discrete uniform prior
-        # (NumPyro does not have DiscreteUniform distribution yet)
-        c = numpyro.sample("c", dist.Categorical(logits=jnp.zeros(num_classes)))
+        c = numpyro.sample("c", dist.DiscreteUniform(0, num_classes - 1))
 
         with numpyro.plate("position", num_positions):
             s = numpyro.sample("s", dist.Bernoulli(1 - theta[positions]))
