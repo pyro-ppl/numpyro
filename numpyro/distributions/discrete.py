@@ -446,17 +446,15 @@ class DiscreteUniform(Distribution):
     def enumerate_support(self, expand=True):
         if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
             raise NotImplementedError("Both `low` and `high` must not be a JAX Tracer.")
-        low = np.amax(self.low)
-        if np.amin(low) != self.low:
+        if np.any(np.amax(self.low) != self.low):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
             raise NotImplementedError(
                 "Inhomogeneous `low` not supported by `enumerate_support`."
             )
-        high = np.amax(self.high)
-        if np.amin(high) != self.high:
+        if np.any(np.amax(self.high) != self.high):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
             raise NotImplementedError(
-                "Inhomogeneous `low` not supported by `enumerate_support`."
+                "Inhomogeneous `high` not supported by `enumerate_support`."
             )
         values = (self.low + jnp.arange(np.amax(self.high - self.low) + 1)).reshape(
             (-1,) + (1,) * len(self.batch_shape)
