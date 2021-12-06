@@ -56,6 +56,7 @@ NumPyro documentation
    tutorials/bayesian_imputation
    examples/gp
    examples/bnn
+   examples/stein_bnn
    examples/dais_demo
    examples/sparse_regression
    examples/horseshoe_regression
