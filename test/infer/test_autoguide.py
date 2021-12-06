@@ -69,10 +69,11 @@ init_strategy = init_to_median(num_samples=2)
 )
 def test_beta_bernoulli(auto_class):
     data = jnp.array([[1.0] * 8 + [0.0] * 2, [1.0] * 4 + [0.0] * 6]).T
+    N = len(data)
 
     def model(data):
-        f = numpyro.sample("beta", dist.Beta(jnp.ones(2), jnp.ones(2)))
-        with numpyro.plate("N", len(data)):
+        f = numpyro.sample("beta", dist.Beta(jnp.ones(2), jnp.ones(2)).to_event())
+        with numpyro.plate("N", N):
             numpyro.sample("obs", dist.Bernoulli(f).to_event(1), obs=data)
 
     adam = optim.Adam(0.01)
@@ -105,12 +106,12 @@ def test_beta_bernoulli(auto_class):
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
     predictive_samples = predictive(random.PRNGKey(1), None)
-    assert predictive_samples["obs"].shape == (1000, 2)
+    assert predictive_samples["obs"].shape == (1000, N, 2)
 
     # ... or from the guide + params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
     predictive_samples = predictive(random.PRNGKey(1), None)
-    assert predictive_samples["obs"].shape == (1000, 2)
+    assert predictive_samples["obs"].shape == (1000, N, 2)
 
 
 @pytest.mark.parametrize(
@@ -136,12 +137,10 @@ def test_logistic_regression(auto_class, Elbo):
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(data, labels):
-        coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
+        coefs = numpyro.sample("coefs", dist.Normal(0, 1).expand([dim]).to_event())
         logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
         with numpyro.plate("N", len(data)):
-            return numpyro.sample(
-                "obs", dist.Bernoulli(logits=logits).to_event(1), obs=labels
-            )
+            return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
