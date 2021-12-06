@@ -235,7 +235,9 @@ def test_check_model_guide_match():
 
     # 5. Check shapes agree
     def model():
-        numpyro.sample("x", dist.Normal().expand((3, 2)))
+        with numpyro.plate("a", 3, dim=-2):
+            with numpyro.plate("b", 2, dim=-1):
+                numpyro.sample("x", dist.Normal().expand((3, 2)))
 
     def guide():
         numpyro.sample("x", dist.Normal().expand((3, 5)))
@@ -244,10 +246,11 @@ def test_check_model_guide_match():
 
     # 6. Check subsample sites introduced by plate
     def model():
-        numpyro.sample("x", dist.Normal().expand((10,)))
+        with numpyro.plate("a", 10):
+            numpyro.sample("x", dist.Normal().expand((10,)))
 
     def guide():
-        with numpyro.handlers.plate("data", 100, subsample_size=10):
+        with numpyro.plate("data", 100, subsample_size=10):
             numpyro.sample("x", dist.Normal())
 
     _run_svi_check_warnings(

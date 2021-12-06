@@ -72,7 +72,8 @@ def test_beta_bernoulli(auto_class):
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(jnp.ones(2), jnp.ones(2)))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
     if auto_class == AutoDAIS:
@@ -137,7 +138,8 @@ def test_logistic_regression(auto_class, Elbo):
     def model(data, labels):
         coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
         logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
-        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+        with numpyro.plate("N", len(data)):
+            return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
@@ -242,7 +244,8 @@ def test_uniform_normal():
                     dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)
                 ),
             )
-        numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
@@ -317,7 +320,8 @@ def test_dynamic_supports():
                     dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)
                 ),
             )
-        numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     def expected_model(data):
         alpha = numpyro.sample("alpha", dist.Uniform(0, 1))
@@ -357,7 +361,8 @@ def test_laplace_approximation_warning():
         a = numpyro.sample("a", dist.Normal(0, 10))
         b = numpyro.sample("b", dist.Normal(0, 10), sample_shape=(3,))
         mu = a + b[0] * x + b[1] * x ** 2 + b[2] * x ** 3
-        numpyro.sample("y", dist.Normal(mu, 0.001), obs=y)
+        with numpyro.plate("N", len(x)):
+            numpyro.sample("y", dist.Normal(mu, 0.001), obs=y)
 
     x = random.normal(random.PRNGKey(0), (3,))
     y = 1 + 2 * x + 3 * x ** 2 + 4 * x ** 3
@@ -375,7 +380,8 @@ def test_laplace_approximation_custom_hessian():
         a = numpyro.sample("a", dist.Normal(0, 10))
         b = numpyro.sample("b", dist.Normal(0, 10))
         mu = a + b * x
-        numpyro.sample("y", dist.Normal(mu, 1), obs=y)
+        with numpyro.plate("N", len(x)):
+            numpyro.sample("y", dist.Normal(mu, 1), obs=y)
 
     x = random.normal(random.PRNGKey(0), (100,))
     y = 1 + 2 * x
@@ -401,7 +407,8 @@ def test_improper():
             "sigma", dist.ImproperUniform(dist.constraints.positive, (), ())
         )
         mu = numpyro.deterministic("mu", lambda1 + lambda2)
-        numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+        with numpyro.plate("N", len(y)):
+            numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
 
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, optim.Adam(0.003), Trace_ELBO(), y=y)
@@ -417,7 +424,8 @@ def test_module():
         nn = numpyro.module("nn", Dense(1), (10,))
         mu = nn(x).squeeze(-1)
         sigma = numpyro.sample("sigma", dist.HalfNormal(1))
-        numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+        with numpyro.plate("N", len(y)):
+            numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
 
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, optim.Adam(0.003), Trace_ELBO(), x=x, y=y)
@@ -497,7 +505,8 @@ def test_autoguide_deterministic(auto_class):
         mu = numpyro.sample("mu", dist.Normal(0, 5))
         sigma = numpyro.param("sigma", 1, constraint=constraints.positive)
 
-        y = numpyro.sample("y", dist.Normal(mu, sigma).expand((n,)), obs=y)
+        with numpyro.plate("N", len(y)):
+            y = numpyro.sample("y", dist.Normal(mu, sigma).expand((n,)), obs=y)
         numpyro.deterministic("z", (y - mu) / sigma)
 
     mu, sigma = 2, 3
