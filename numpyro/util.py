@@ -623,7 +623,8 @@ def check_model_guide_match(model_trace, guide_trace):
                 if batch_shape[dim] > 1 and (dim not in plate_dims):
                     warnings.warn(
                         f"Missing a plate statement for batch dimension {dim}"
-                        f" at site '{name}'."
+                        f" at site '{name}'. You can use `numpyro.util.format_shapes`"
+                        " utility to check shapes at all sites of your model."
                     )
 
 
