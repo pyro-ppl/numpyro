@@ -510,10 +510,8 @@ def format_shapes(
 
 def check_model_guide_match(model_trace, guide_trace):
     """
-    :param dict model_trace: The model trace to check.
-    :param dict guide_trace: The guide trace to check.
-    :raises: RuntimeWarning, ValueError
     Checks the following assumptions:
+
     1. Each sample site in the model also appears in the guide and is not
         marked auxiliary.
     2. Each sample site in the guide either appears in the model or is marked,
@@ -522,6 +520,10 @@ def check_model_guide_match(model_trace, guide_trace):
         appears in the model.
     4. At each sample site that appears in both the model and guide, the model
         and guide agree on sample shape.
+
+    :param dict model_trace: The model trace to check.
+    :param dict guide_trace: The guide trace to check.
+    :raises: RuntimeWarning, ValueError
     """
     # Check ordinary sample sites.
     guide_vars = set(
@@ -605,6 +607,24 @@ def check_model_guide_match(model_trace, guide_trace):
                 guide_vars - model_vars
             )
         )
+
+    # Check if plate is missing in the model.
+    for name, site in model_trace.items():
+        if site["type"] == "sample":
+            value_ndim = jnp.ndim(site["value"])
+            batch_shape = lax.broadcast_shapes(
+                site["fn"].batch_shape,
+                jnp.shape(site["value"])[: value_ndim - len(site["fn"].event_shape)],
+            )
+            plate_dims = set(f.dim for f in site["cond_indep_stack"])
+            batch_ndim = len(batch_shape)
+            for i in range(batch_ndim):
+                dim = -i - 1
+                if batch_shape[dim] > 1 and (dim not in plate_dims):
+                    warnings.warn(
+                        f"Missing a plate statement for batch dimension {dim}"
+                        f" at site '{name}'."
+                    )
 
 
 def _format_table(rows):
