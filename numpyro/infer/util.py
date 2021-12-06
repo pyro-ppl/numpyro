@@ -402,10 +402,11 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     for k, v in model_trace.items():
         if v["type"] == "sample" and not v["is_observed"]:
             if v["fn"].support.is_discrete:
-                if not v["infer"].get("enumerate", True):
+                enum_type = v["infer"].get("enumerate")
+                if enum_type is not None and (enum_type != "parallel"):
                     raise RuntimeError(
                         "This MCMC kernel only supports discrete sites with enumerate"
-                        " support. But the site {k} is marked with {'enumerate': False}."
+                        f" in parallel. But the site {k} is marked with {enum_type}."
                     )
                 has_enumerate_support = True
                 if not v["fn"].has_enumerate_support:
@@ -415,11 +416,11 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                         f" support. But the {dist_name} distribution at site {k} does"
                         " not have enumerate support."
                     )
-                if v["infer"].get("enumerate", False):
+                if enum_type is None:
                     warnings.warn(
                         f"The discrete site {k} will be enumerated. In the future,"
                         " enumerated sites need to be marked with"
-                        " `infer={'enumerate': False}`.",
+                        " `infer={'enumerate': 'parallel'}`.",
                         FutureWarning,
                     )
             else:
