@@ -73,7 +73,7 @@ def test_beta_bernoulli(auto_class):
     def model(data):
         f = numpyro.sample("beta", dist.Beta(jnp.ones(2), jnp.ones(2)))
         with numpyro.plate("N", len(data)):
-            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+            numpyro.sample("obs", dist.Bernoulli(f).to_event(1), obs=data)
 
     adam = optim.Adam(0.01)
     if auto_class == AutoDAIS:
@@ -139,7 +139,9 @@ def test_logistic_regression(auto_class, Elbo):
         coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
         logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
         with numpyro.plate("N", len(data)):
-            return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Bernoulli(logits=logits).to_event(1), obs=labels
+            )
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
@@ -326,7 +328,8 @@ def test_dynamic_supports():
     def expected_model(data):
         alpha = numpyro.sample("alpha", dist.Uniform(0, 1))
         loc = numpyro.sample("loc", dist.Uniform(0, 1)) * alpha
-        numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
@@ -359,7 +362,7 @@ def test_dynamic_supports():
 def test_laplace_approximation_warning():
     def model(x, y):
         a = numpyro.sample("a", dist.Normal(0, 10))
-        b = numpyro.sample("b", dist.Normal(0, 10), sample_shape=(3,))
+        b = numpyro.sample("b", dist.Normal(0, 10).expand([3]).to_event())
         mu = a + b[0] * x + b[1] * x ** 2 + b[2] * x ** 3
         with numpyro.plate("N", len(x)):
             numpyro.sample("y", dist.Normal(mu, 0.001), obs=y)
