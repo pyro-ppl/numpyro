@@ -26,13 +26,6 @@ from numpyro.optim import Adam
 
 numpyro.set_platform("gpu")
 
-batch_size = 77
-init, get_batch = load_dataset(JSB_CHORALES, batch_size=batch_size)
-ds_count, ds_indxs = init()
-lengths, seqs = get_batch(0, ds_indxs)
-print("Sequences: ", seqs.shape)
-print("Length min: ", min(lengths), "max: ", max(lengths))
-
 
 def _reverse_padded(padded, lengths):
     def _reverse_single(p, length):
@@ -43,12 +36,10 @@ def _reverse_padded(padded, lengths):
     return jax.vmap(_reverse_single)(padded, lengths)
 
 
-def batch_fun(step):
-    i = step % ds_count
-    epoch = step // ds_count
-    is_last = i == (ds_count - 1)
-    lengths, seqs = get_batch(i, ds_indxs)
-    return (seqs, _reverse_padded(seqs, lengths), lengths), {}, epoch, is_last
+def load_data(split="train"):
+    _, fetch = load_dataset(JSB_CHORALES, split=split)
+    lengths, seqs = fetch(0)
+    return (seqs, _reverse_padded(seqs, lengths), lengths)
 
 
 def _one_hot_chorales(seqs, num_nodes=88):
@@ -200,6 +191,8 @@ def model(
     seqs_rev,
     lengths,
     *,
+    max_seq_length=129,
+    subsample_size=77,
     latent_dim=32,
     emission_dim=100,
     transition_dim=200,
@@ -208,26 +201,28 @@ def model(
     annealing_factor=1.0,
     predict=False
 ):
-    batch_size, max_seq_length, *_ = seqs.shape
-
     transition = numpyro.module(
         "transition",
         Transition(transition_dim, transition_dim, latent_dim),
-        input_shape=(batch_size, latent_dim),
+        input_shape=(subsample_size, latent_dim),
     )
     emitter = numpyro.module(
         "emitter",
         Emitter(emission_dim, emission_dim, data_dim),
-        input_shape=(batch_size, latent_dim),
+        input_shape=(subsample_size, latent_dim),
     )
 
-    z0 = numpyro.param("z0", jnp.zeros((batch_size, 1, latent_dim)))
-    ones = jnp.ones((batch_size, max_seq_length, latent_dim))
+    z0 = numpyro.param("z0", jnp.zeros((subsample_size, 1, latent_dim)))
+    with numpyro.plate(
+        "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
+    ) as idx:
+        seqs_batch = seqs[idx]
+        lengths_batch = lengths[idx]
 
-    masks = jnp.repeat(
-        jnp.expand_dims(jnp.arange(max_seq_length), axis=0), batch_size, axis=0
-    ) < jnp.expand_dims(lengths, axis=-1)
-    with numpyro.plate("data", batch_size):
+        ones = jnp.ones((subsample_size, max_seq_length, latent_dim))
+        masks = jnp.repeat(
+            jnp.expand_dims(jnp.arange(max_seq_length), axis=0), subsample_size, axis=0
+        ) < jnp.expand_dims(lengths_batch, axis=-1)
         # NB: Mask is to avoid scoring 'z' using distribution at this point
         z = numpyro.sample("z", dist.Normal(0.0, ones).mask(False).to_event(2))
         z_shift = jnp.concatenate([z0, z[:, :-1, :]], axis=-2)
@@ -244,7 +239,7 @@ def model(
             )
 
         emission_probs = emitter(z)
-        oh_x = _one_hot_chorales(seqs)
+        oh_x = _one_hot_chorales(seqs_batch)
         if predict:
             oh_x = None
         numpyro.sample(
@@ -261,6 +256,8 @@ def guide(
     seqs_rev,
     lengths,
     *,
+    max_seq_length=129,
+    subsample_size=77,
     latent_dim=32,
     emission_dim=100,
     transition_dim=200,
@@ -269,24 +266,28 @@ def guide(
     annealing_factor=1.0,
     predict=False
 ):
-    batch_size, max_seq_length, *_ = seqs.shape
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
-    gru = numpyro.module(
-        "gru", GRU(gru_dim), input_shape=(max_seq_length, batch_size, data_dim)
-    )
     combiner = numpyro.module(
-        "combiner", Combiner(gru_dim, latent_dim), input_shape=(batch_size, gru_dim)
+        "combiner", Combiner(gru_dim, latent_dim), input_shape=(subsample_size, gru_dim)
     )
 
-    masks = jnp.repeat(
-        jnp.expand_dims(jnp.arange(max_seq_length), axis=0), batch_size, axis=0
-    ) < jnp.expand_dims(lengths, axis=-1)
+    with numpyro.plate(
+        "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
+    ) as idx:
+        seqs_rev_batch = seqs_rev[:, idx, :]
+        lengths_batch = lengths[idx]
 
-    h0 = numpyro.param("h0", jnp.zeros((batch_size, gru_dim)))
-    _, hs = gru((_one_hot_chorales(seqs_rev), lengths, h0))
-    hs = _reverse_padded(jnp.transpose(hs, axes=(1, 0, 2)), lengths)
-    z_loc, z_scale = combiner(hs)
-    with numpyro.plate("data", batch_size):
+        gru = numpyro.module(
+            "gru", GRU(gru_dim), input_shape=(max_seq_length, subsample_size, data_dim)
+        )
+        masks = jnp.repeat(
+            jnp.expand_dims(jnp.arange(max_seq_length), axis=0), subsample_size, axis=0
+        ) < jnp.expand_dims(lengths_batch, axis=-1)
+
+        h0 = numpyro.param("h0", jnp.zeros((subsample_size, gru_dim)))
+        _, hs = gru((_one_hot_chorales(seqs_rev_batch), lengths_batch, h0))
+        hs = _reverse_padded(jnp.transpose(hs, axes=(1, 0, 2)), lengths_batch)
+        z_loc, z_scale = combiner(hs)
         with numpyro.handlers.scale(scale=annealing_factor):
             numpyro.sample(
                 "z",
@@ -309,12 +310,22 @@ if __name__ == "__main__":
 
     num_epochs = 1000
     rng_key = jax.random.PRNGKey(seed=142)
-    state, losses = svgd.run(rng_key, num_epochs * ds_count)
+    seqs, rev_seqs, lengths = load_data()
+    subsample_size = 77
+    results = svgd.run(
+        rng_key, num_epochs * (seqs.shape[0] // subsample_size), seqs, rev_seqs, lengths
+    )
 
-    plt.plot(losses)
+    plt.plot(results.losses)
     plt.show()
 
-    init, get_batch = load_dataset(JSB_CHORALES, split="test")
-    lengths, seqs = get_batch()
+    test_seqs, test_rev_seqs, test_lengths = load_data("test")
 
-    negative_elbo = svgd.evaluate(state, seqs, _reverse_padded(seqs, lengths), lengths)
+    negative_elbo = svgd.evaluate(
+        results.state,
+        test_seqs,
+        test_rev_seqs,
+        test_lengths,
+        max_seq_length=jnp.max(test_lengths),
+    )
+    print(negative_elbo)
