@@ -405,20 +405,22 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                 enum_type = v["infer"].get("enumerate")
                 if enum_type is not None and (enum_type != "parallel"):
                     raise RuntimeError(
-                        "This MCMC kernel only supports discrete sites with enumerate"
-                        f" in parallel. But the site {k} is marked with {enum_type}."
+                        "This algorithm might only work for discrete sites with"
+                        f" enumerate marked 'parallel'. But the site {k} is marked"
+                        f" as '{enum_type}'."
                     )
                 has_enumerate_support = True
                 if not v["fn"].has_enumerate_support:
                     dist_name = type(v["fn"]).__name__
                     raise RuntimeError(
-                        "This MCMC kernel only supports discrete sites with enumerate"
-                        f" support. But the {dist_name} distribution at site {k} does"
-                        " not have enumerate support."
+                        "This algorithm might only work for discrete sites with"
+                        f" enumerate support. But the {dist_name} distribution at"
+                        f" site {k} does not have enumerate support."
                     )
                 if enum_type is None:
                     warnings.warn(
-                        f"The discrete site {k} will be enumerated. In the future,"
+                        "Some algorithms will automatically enumerate the discrete"
+                        f" latent site {k} of your model. In the future,"
                         " enumerated sites need to be marked with"
                         " `infer={'enumerate': 'parallel'}`.",
                         FutureWarning,

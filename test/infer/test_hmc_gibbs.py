@@ -281,7 +281,7 @@ def test_block_update_partitioning(num_blocks):
 
 def test_enum_subsample_smoke():
     def model(data):
-        x = numpyro.sample("x", dist.Bernoulli(0.5))
+        x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
         with numpyro.plate("N", data.shape[0], subsample_size=100, dim=-1):
             batch = numpyro.subsample(data, event_dim=0)
             numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
