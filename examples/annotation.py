@@ -174,7 +174,11 @@ def mace(positions, annotations):
         )
 
         with numpyro.plate("position", num_positions):
-            s = numpyro.sample("s", dist.Bernoulli(1 - theta[positions]))
+            s = numpyro.sample(
+                "s",
+                dist.Bernoulli(1 - theta[positions]),
+                infer={"enumerate": "parallel"},
+            )
             probs = jnp.where(
                 s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
             )
