@@ -29,8 +29,6 @@ from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
 
-numpyro.set_platform("gpu")
-
 
 def _reverse_padded(padded, lengths):
     def _reverse_single(p, length):
@@ -41,9 +39,12 @@ def _reverse_padded(padded, lengths):
     return jax.vmap(_reverse_single)(padded, lengths)
 
 
-def load_data(split="train"):
+def load_data(split="train", testing=False):
     _, fetch = load_dataset(JSB_CHORALES, split=split)
     lengths, seqs = fetch(0)
+    if testing:
+        lengths = lengths[:10]
+        seqs = seqs[:10]
     return (seqs, _reverse_padded(seqs, lengths), lengths)
 
 
@@ -331,23 +332,26 @@ def main(args):
     )
 
     rng_key = jax.random.PRNGKey(seed=args.rng_key)
-    seqs, rev_seqs, lengths = load_data()
+    seqs, rev_seqs, lengths = load_data(testing=args.testing)
     results = svgd.run(
         rng_key,
         args.max_iter,
         seqs,
         rev_seqs,
         lengths,
+        subsample_size=args.subsample_size,
+        max_seq_length=seqs.shape[1],
     )
 
-    test_seqs, test_rev_seqs, test_lengths = load_data("test")
+    test_seqs, test_rev_seqs, test_lengths = load_data("test", testing=args.testing)
 
     negative_elbo = svgd.evaluate(
         results.state,
         test_seqs,
         test_rev_seqs,
         test_lengths,
-        max_seq_length=jnp.max(test_lengths),
+        subsample_size=args.subsample_size,
+        max_seq_length=test_seqs.shape[1],
     )
 
     print(f"Negative ELBO: {negative_elbo}")
@@ -356,7 +360,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=77)
-    parser.add_argument("--max-iter", type=int, default=2000)
+    parser.add_argument("--max-iter", type=int, default=10_000)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-particles", type=int, default=5)
@@ -364,6 +368,7 @@ if __name__ == "__main__":
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
     parser.add_argument("--rng-seed", default=142, type=int)
+    parser.add_argument("--testing", default=False, type=bool)
 
     args = parser.parse_args()
 
