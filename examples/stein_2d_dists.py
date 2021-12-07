@@ -9,11 +9,10 @@ Example: 2D distributions inferred using SteinVI
 
 from math import ceil
 
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-
 from jax import lax, random, scipy as jscipy, vmap
-import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
@@ -46,15 +45,105 @@ lrs = {
 }
 
 
-class Star(dist.Distribution):
-    support = dist.constraints.real
+class DoubleBanana(dist.Distribution):
+    support = dist.constraints.independent(dist.constraints.real, 1)
 
     def __init__(
-        self,
-        mu0=jnp.array([0.0, 1.5]),
-        cov0=jnp.diag(jnp.array([1e-2, 1.0])),
-        n_comp=5,
-        validate_args=None,
+            self,
+            y=jnp.log(30.0),
+            sigma1=jnp.array(1.0),
+            sigma2=jnp.array(9e-2),
+            validate_args=None,
+    ):
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(y), jnp.shape(sigma1), jnp.shape(sigma2)
+        )
+        self.y = jnp.broadcast_to(y, batch_shape)
+        self.sigma1 = jnp.broadcast_to(sigma1, batch_shape)
+        self.sigma2 = jnp.broadcast_to(sigma2, batch_shape)
+        super(DoubleBanana, self).__init__(event_shape=(2,),
+                                           batch_shape=batch_shape, validate_args=validate_args
+                                           )
+
+    def log_prob(self, value):
+        fx = jnp.log(
+            (1 - value[..., 0]) ** 2.0
+            + 100 * (value[..., 1] - value[..., 0] ** 2.0) ** 2.0
+        )
+        return -jnp.sqrt(value[..., 0] ** 2.0 + value[..., 1] ** 2.0) ** 2.0 / (
+                2.0 * self.sigma1
+        ) - (self.y - fx) ** 2.0 / (2.0 * self.sigma2)
+
+    def sample(self, key, sample_shape=()):
+        xs = jnp.array(np.linspace(-1.5, 1.5, num=100))
+        ys = jnp.array(np.linspace(-1, 2, num=100))
+        zs = jnp.stack(jnp.meshgrid(xs, ys), axis=-1)
+        logits = jnp.expand_dims(jnp.ravel(self.log_prob(zs)), axis=0)
+        cs = dist.Categorical(logits=logits).sample(key, sample_shape)
+        res = jnp.concatenate(jnp.divmod(cs, zs.shape[0]), axis=-1).astype(
+            "float32"
+        ) / jnp.array(
+            [jnp.max(xs) - jnp.min(xs), jnp.max(ys) - jnp.min(ys)]
+        ) + jnp.array(
+            [jnp.min(xs), jnp.min(ys)]
+        )
+        return res
+
+
+class Sine(dist.Distribution):
+    support = dist.constraints.independent(dist.constraints.real, 1)
+
+    def __init__(
+            self,
+            alpha=jnp.array(1.0),
+            sigma1=jnp.array(3e-3),
+            sigma2=jnp.array(1.0),
+            validate_args=None,
+    ):
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(alpha), jnp.shape(sigma1), jnp.shape(sigma2)
+        )
+        self.alpha = jnp.broadcast_to(alpha, batch_shape)
+        self.sigma1 = jnp.broadcast_to(sigma1, batch_shape)
+        self.sigma2 = jnp.broadcast_to(sigma2, batch_shape)
+        super(Sine, self).__init__(event_shape=(2,), batch_shape=batch_shape, validate_args=validate_args)
+
+    def log_prob(self, value):
+        return jnp.where(
+            jnp.logical_and(
+                jnp.all(-1 <= value, axis=-1), jnp.all(value <= 1, axis=-1)
+            ),
+            -((value[..., 1] + jnp.sin(self.alpha * value[..., 0])) ** 2)
+            / (2 * self.sigma1)
+            - (value[..., 0] ** 2 + value[..., 1] ** 2) / (2 * self.sigma2),
+            -10e3,
+        )
+
+    def sample(self, key, sample_shape=()):
+        xs = jnp.array(np.linspace(-1, 1, num=100))
+        ys = jnp.array(np.linspace(-1, 1, num=100))
+        zs = jnp.stack(jnp.meshgrid(xs, ys), axis=-1)
+        logits = jnp.expand_dims(jnp.ravel(self.log_prob(zs)), axis=0)
+        cs = dist.Categorical(logits=logits).sample(key, sample_shape)
+        res = jnp.concatenate(jnp.divmod(cs, zs.shape[0]), axis=-1).astype(
+            "float32"
+        ) / jnp.array(
+            [jnp.max(xs) - jnp.min(xs), jnp.max(ys) - jnp.min(ys)]
+        ) + jnp.array(
+            [jnp.min(xs), jnp.min(ys)]
+        )
+        return res
+
+
+class Star(dist.Distribution):
+    support = dist.constraints.independent(dist.constraints.real, 1)
+
+    def __init__(
+            self,
+            mu0=jnp.array([0.0, 1.5]),
+            cov0=jnp.diag(jnp.array([1e-2, 1.0])),
+            n_comp=5,
+            validate_args=None,
     ):
         batch_shape = lax.broadcast_shapes(jnp.shape(mu0)[:-1], jnp.shape(cov0)[:-2])
         mu0 = jnp.broadcast_to(mu0, batch_shape + jnp.shape(mu0)[-1:])
@@ -73,7 +162,7 @@ class Star(dist.Distribution):
             covs.append(covi)
         self.mus = jnp.stack(mus)
         self.covs = jnp.stack(covs)
-        super(Star, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        super(Star, self).__init__(event_shape=(2,), batch_shape=batch_shape, validate_args=validate_args)
 
     def log_prob(self, value):
         lps = []
@@ -95,10 +184,11 @@ class Star(dist.Distribution):
 
 
 def model():
-    numpyro.sample("x", Star())
+    numpyro.sample("x", DoubleBanana())
 
 
 def mmd(p_samples, q_samples):
+    """ Maximum Mean Discrepancy """
     np = p_samples.shape[0]
     nq = q_samples.shape[0]
     q_samples = q_samples.squeeze()
@@ -112,9 +202,9 @@ def mmd(p_samples, q_samples):
     )
     pq_dist = jnp.linalg.norm(p_samples[None, :] - q_samples[:, None], axis=-1)
     return (
-        jnp.mean(jnp.exp(-(qq_dist ** 2)))
-        + jnp.mean(jnp.exp(-(pp_dist ** 2)))
-        - 2 * jnp.mean(jnp.exp(-(pq_dist ** 2)))
+            jnp.mean(jnp.exp(-(qq_dist ** 2)))
+            + jnp.mean(jnp.exp(-(pp_dist ** 2)))
+            - 2 * jnp.mean(jnp.exp(-(pq_dist ** 2)))
     )
 
 
@@ -175,14 +265,14 @@ if __name__ == "__main__":
                 noise_scale=3.0,
             ),
         )
-        svgd_state, all_states = svgd.run(
-            rng_key, num_iterations, transform=lambda val: val[0]
+        results = svgd.run(
+            rng_key, num_iterations, collect_fn=lambda val: val[0]
         )
         res = svgd.get_params(svgd_state)["x_auto_loc"]
         mmds.update(
             {
                 name: vmap(lambda q_samples: mmd(p_samples, q_samples))(
-                    svgd.get_params(all_states)["x_auto_loc"]
+                    svgd.get_params(results.losses)["x_auto_loc"]  # refactor
                 )
             }
         )
