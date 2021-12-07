@@ -39,12 +39,9 @@ def _reverse_padded(padded, lengths):
     return jax.vmap(_reverse_single)(padded, lengths)
 
 
-def load_data(split="train", testing=False):
+def load_data(split="train"):
     _, fetch = load_dataset(JSB_CHORALES, split=split)
     lengths, seqs = fetch(0)
-    if testing:
-        lengths = lengths[:10]
-        seqs = seqs[:10]
     return (seqs, _reverse_padded(seqs, lengths), lengths)
 
 
@@ -332,24 +329,26 @@ def main(args):
     )
 
     rng_key = jax.random.PRNGKey(seed=args.rng_key)
-    seqs, rev_seqs, lengths = load_data(testing=args.testing)
+    seqs, rev_seqs, lengths = load_data()
     results = svgd.run(
         rng_key,
         args.max_iter,
         seqs,
         rev_seqs,
         lengths,
+        gru_dim=args.gru_dim,
         subsample_size=args.subsample_size,
         max_seq_length=seqs.shape[1],
     )
 
-    test_seqs, test_rev_seqs, test_lengths = load_data("test", testing=args.testing)
+    test_seqs, test_rev_seqs, test_lengths = load_data("test")
 
     negative_elbo = svgd.evaluate(
         results.state,
         test_seqs,
         test_rev_seqs,
         test_lengths,
+        gru_dim=args.gru_dim,
         subsample_size=args.subsample_size,
         max_seq_length=test_seqs.shape[1],
     )
@@ -365,10 +364,10 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-particles", type=int, default=5)
     parser.add_argument("--progress-bar", type=bool, default=True)
+    parser.add_argument("--gru-dim", type=int, default=150)
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
     parser.add_argument("--rng-seed", default=142, type=int)
-    parser.add_argument("--testing", default=False, type=bool)
 
     args = parser.parse_args()
 
