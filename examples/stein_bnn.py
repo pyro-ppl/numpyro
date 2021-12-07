@@ -49,7 +49,7 @@ def normalize(val, mean=None, std=None):
 
 
 def model(x, y=None, hidden_dim=50, subsample_size=100):
-    """BNN described in [1].
+    """BNN described in section 5 of [1].
 
     **References:**
         1. *Stein variational gradient descent: A general purpose bayesian inference algorithm*
@@ -132,7 +132,7 @@ def main(args):
         args.max_iter,
         x,
         y,
-        hidden_dim=50,
+        hidden_dim=args.hidden_dim,
         subsample_size=args.subsample_size,
         progress_bar=args.progress_bar,
     )
@@ -164,10 +164,11 @@ if __name__ == "__main__":
     parser.add_argument("--max-iter", type=int, default=2000)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
-    parser.add_argument("--num_particles", type=int, default=100)
+    parser.add_argument("--num-particles", type=int, default=100)
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
+    parser.add_argument("--hidden-dim", default=50, type=int)
 
     args = parser.parse_args()
 

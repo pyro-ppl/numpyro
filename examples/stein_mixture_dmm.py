@@ -4,12 +4,17 @@
 """
 Example: Deep Markov Model inferred using SteinVI
 =================================================
+An implementation of a Deep Markov Model in NumPyro based on reference [1][2] and the Pyro DMM example.
+This is essentially the DKS variant outlined in the paper.
 
-Based on "Structured Inference Networks for Nonlinear State Space Models"
-  by Krishnan, Shalit and Sontag. (AAAI 2017)
+
+**Reference:**
+    1. Pathwise Derivatives for Multivariate Distributions
+    Martin Jankowiak and Theofanis Karaletsos (2019)
+    2. Structured Inference Networks for Nonlinear State Space Models [arXiv:1609.09869]
+    Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
 """
-
-import matplotlib.pyplot as plt
+import argparse
 
 import jax
 from jax.example_libraries import stax
@@ -48,7 +53,8 @@ def _one_hot_chorales(seqs, num_nodes=88):
     ]
 
 
-def Emitter(hidden_dim1, hidden_dim2, out_dim):
+def emitter(hidden_dim1, hidden_dim2, out_dim):
+    """Parameterizes the bernoulli observation likelihood `p(x_t | z_t)`"""
     return stax.serial(
         stax.Dense(hidden_dim1),
         stax.Relu,
@@ -59,7 +65,14 @@ def Emitter(hidden_dim1, hidden_dim2, out_dim):
     )
 
 
-def Transition(gate_hidden_dim, prop_mean_hidden_dim, out_dim):
+def transition(gate_hidden_dim, prop_mean_hidden_dim, out_dim):
+    """Parameterizes the gaussian latent transition probability `p(z_t | z_{t-1})`
+    See section 5 in [1].
+
+    **Reference:**
+        1. Structured Inference Networks for Nonlinear State Space Models [arXiv:1609.09869]
+        Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
+    """
     gate_init_fun, gate_apply_fun = stax.serial(
         stax.Dense(gate_hidden_dim), stax.Relu, stax.Dense(out_dim), stax.Sigmoid
     )
@@ -99,7 +112,16 @@ def Transition(gate_hidden_dim, prop_mean_hidden_dim, out_dim):
     return init_fun, apply_fun
 
 
-def Combiner(hidden_dim, out_dim):
+def combiner(hidden_dim, out_dim):
+    """
+    Parameterizes `q(z_t | z_{t-1}, x_{t:T})`, which is the basic building block
+    of the guide (i.e. the variational distribution). The dependence on `x_{t:T}` is
+    through the hidden state of a Gated Recurrent Unit (GRU) [1], see the `gru` method below.
+
+    **Reference**
+        1. Empirical Evaluation of Gated Recurrent Neural Networks on Sequence Modeling
+        Junyoung Chung, Caglar Gulcehre, KyungHyun Cho and Yoshua Bengio (2014)
+    """
     mean_init_fun, mean_apply_fun = stax.Dense(out_dim)
 
     stddev_init_fun, stddev_apply_fun = stax.serial(stax.Dense(out_dim), stax.Softplus)
@@ -120,8 +142,8 @@ def Combiner(hidden_dim, out_dim):
     return init_fun, apply_fun
 
 
-def GRU(hidden_dim, W_init=stax.glorot_normal()):
-    # Inspired by https://github.com/google/jax/pull/2298
+def gru(hidden_dim, W_init=stax.glorot_normal()):
+    """RNN with GRU. Based on https://github.com/google/jax/pull/2298"""
     input_update_init_fun, input_update_apply_fun = stax.Dense(hidden_dim)
     input_reset_init_fun, input_reset_apply_fun = stax.Dense(hidden_dim)
     input_output_init_fun, input_output_apply_fun = stax.Dense(hidden_dim)
@@ -199,16 +221,16 @@ def model(
     data_dim=88,
     gru_dim=150,
     annealing_factor=1.0,
-    predict=False
+    predict=False,
 ):
-    transition = numpyro.module(
+    transition_fn = numpyro.module(
         "transition",
-        Transition(transition_dim, transition_dim, latent_dim),
+        transition(transition_dim, transition_dim, latent_dim),
         input_shape=(subsample_size, latent_dim),
     )
-    emitter = numpyro.module(
+    emitter_fn = numpyro.module(
         "emitter",
-        Emitter(emission_dim, emission_dim, data_dim),
+        emitter(emission_dim, emission_dim, data_dim),
         input_shape=(subsample_size, latent_dim),
     )
 
@@ -226,7 +248,7 @@ def model(
         # NB: Mask is to avoid scoring 'z' using distribution at this point
         z = numpyro.sample("z", dist.Normal(0.0, ones).mask(False).to_event(2))
         z_shift = jnp.concatenate([z0, z[:, :-1, :]], axis=-2)
-        z_loc, z_scale = transition(z_shift)
+        z_loc, z_scale = transition_fn(z_shift)
 
         with numpyro.handlers.scale(scale=annealing_factor):
             # Actually score 'z'
@@ -238,7 +260,7 @@ def model(
                 obs=z,
             )
 
-        emission_probs = emitter(z)
+        emission_probs = emitter_fn(z)
         oh_x = _one_hot_chorales(seqs_batch)
         if predict:
             oh_x = None
@@ -264,11 +286,11 @@ def guide(
     data_dim=88,
     gru_dim=150,
     annealing_factor=1.0,
-    predict=False
+    predict=False,
 ):
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
-    combiner = numpyro.module(
-        "combiner", Combiner(gru_dim, latent_dim), input_shape=(subsample_size, gru_dim)
+    combiner_fn = numpyro.module(
+        "combiner", combiner(gru_dim, latent_dim), input_shape=(subsample_size, gru_dim)
     )
 
     with numpyro.plate(
@@ -277,17 +299,17 @@ def guide(
         seqs_rev_batch = seqs_rev[:, idx, :]
         lengths_batch = lengths[idx]
 
-        gru = numpyro.module(
-            "gru", GRU(gru_dim), input_shape=(max_seq_length, subsample_size, data_dim)
+        gru_fn = numpyro.module(
+            "gru", gru(gru_dim), input_shape=(max_seq_length, subsample_size, data_dim)
         )
         masks = jnp.repeat(
             jnp.expand_dims(jnp.arange(max_seq_length), axis=0), subsample_size, axis=0
         ) < jnp.expand_dims(lengths_batch, axis=-1)
 
         h0 = numpyro.param("h0", jnp.zeros((subsample_size, gru_dim)))
-        _, hs = gru((_one_hot_chorales(seqs_rev_batch), lengths_batch, h0))
+        _, hs = gru_fn((_one_hot_chorales(seqs_rev_batch), lengths_batch, h0))
         hs = _reverse_padded(jnp.transpose(hs, axes=(1, 0, 2)), lengths_batch)
-        z_loc, z_scale = combiner(hs)
+        z_loc, z_scale = combiner_fn(hs)
         with numpyro.handlers.scale(scale=annealing_factor):
             numpyro.sample(
                 "z",
@@ -297,7 +319,7 @@ def guide(
             )
 
 
-if __name__ == "__main__":
+def main(args):
     svgd = SteinVI(
         model,
         guide,
@@ -305,19 +327,18 @@ if __name__ == "__main__":
         Trace_ELBO(),
         RBFKernel(),
         reinit_hide_fn=lambda site: site["name"].endswith("$params"),
-        num_particles=5,
+        num_particles=args.num_particles,
     )
 
-    num_epochs = 1000
-    rng_key = jax.random.PRNGKey(seed=142)
+    rng_key = jax.random.PRNGKey(seed=args.rng_key)
     seqs, rev_seqs, lengths = load_data()
-    subsample_size = 77
     results = svgd.run(
-        rng_key, num_epochs * (seqs.shape[0] // subsample_size), seqs, rev_seqs, lengths
+        rng_key,
+        args.max_iter,
+        seqs,
+        rev_seqs,
+        lengths,
     )
-
-    plt.plot(results.losses)
-    plt.show()
 
     test_seqs, test_rev_seqs, test_lengths = load_data("test")
 
@@ -328,4 +349,24 @@ if __name__ == "__main__":
         test_lengths,
         max_seq_length=jnp.max(test_lengths),
     )
-    print(negative_elbo)
+
+    print(f"Negative ELBO: {negative_elbo}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--subsample-size", type=int, default=77)
+    parser.add_argument("--max-iter", type=int, default=2000)
+    parser.add_argument("--repulsion", type=float, default=1.0)
+    parser.add_argument("--verbose", type=bool, default=True)
+    parser.add_argument("--num-particles", type=int, default=5)
+    parser.add_argument("--progress-bar", type=bool, default=True)
+    parser.add_argument("--rng-key", type=int, default=142)
+    parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
+    parser.add_argument("--rng-seed", default=142, type=int)
+
+    args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+
+    main(args)
