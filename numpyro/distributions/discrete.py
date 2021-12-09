@@ -33,11 +33,10 @@ import jax
 from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
-from jax.ops import index_add
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
@@ -406,6 +405,65 @@ def Categorical(probs=None, logits=None, validate_args=None):
         raise ValueError("One of `probs` or `logits` must be specified.")
 
 
+class DiscreteUniform(Distribution):
+    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    has_enumerate_support = True
+
+    def __init__(self, low=0, high=1, validate_args=None):
+        self.low, self.high = promote_shapes(low, high)
+        batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
+        self._support = constraints.integer_interval(low, high)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
+    def support(self):
+        return self._support
+
+    def sample(self, key, sample_shape=()):
+        shape = sample_shape + self.batch_shape
+        return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
+
+    @validate_sample
+    def log_prob(self, value):
+        shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
+        return -jnp.broadcast_to(jnp.log(self.high + 1 - self.low), shape)
+
+    def cdf(self, value):
+        cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low + 1)
+        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+
+    def icdf(self, value):
+        return self.low + value * (self.high - self.low + 1) - 1
+
+    @property
+    def mean(self):
+        return self.low + (self.high - self.low) / 2.0
+
+    @property
+    def variance(self):
+        return ((self.high - self.low + 1) ** 2 - 1) / 12.0
+
+    def enumerate_support(self, expand=True):
+        if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
+            raise NotImplementedError("Both `low` and `high` must not be a JAX Tracer.")
+        if np.any(np.amax(self.low) != self.low):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            raise NotImplementedError(
+                "Inhomogeneous `low` not supported by `enumerate_support`."
+            )
+        if np.any(np.amax(self.high) != self.high):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            raise NotImplementedError(
+                "Inhomogeneous `high` not supported by `enumerate_support`."
+            )
+        values = (self.low + jnp.arange(np.amax(self.high - self.low) + 1)).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        if expand:
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
+
 class OrderedLogistic(CategoricalProbs):
     """
     A categorical distribution with ordered outcomes.
@@ -432,11 +490,7 @@ class OrderedLogistic(CategoricalProbs):
             predictor = predictor[..., None]
         predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
-        cumulative_probs = expit(cutpoints - predictor)
-        # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (jnp.ndim(cumulative_probs) - 1) + [(1, 1)]
-        cumulative_probs = jnp.pad(cumulative_probs, pad_width, constant_values=(0, 1))
-        probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
+        probs = transforms.SimplexToOrderedTransform(self.predictor).inv(self.cutpoints)
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
     @staticmethod
@@ -597,6 +651,18 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 
 
 class Poisson(Distribution):
+    r"""
+    Creates a Poisson distribution parameterized by rate, the rate parameter.
+
+    Samples are nonnegative integers, with a pmf given by
+
+    .. math::
+      \mathrm{rate}^k \frac{e^{-\mathrm{rate}}}{k!}
+
+    :param numpy.ndarray rate: The rate parameter
+    :param bool is_sparse: Whether to assume value is mostly zero when computing
+        :meth:`log_prob`, which can speed up computation when data is sparse.
+    """
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
 
@@ -613,7 +679,6 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = jax.device_get(value)
         if (
             self.is_sparse
             and not isinstance(value, jax.core.Tracer)
@@ -621,15 +686,18 @@ class Poisson(Distribution):
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
-            nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
-            return index_add(
-                -rate,
-                nonzero,
-                jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
-            ).reshape(shape)
+            return (
+                jnp.asarray(-rate)
+                .at[nonzero]
+                .add(
+                    jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
+                )
+                .reshape(shape)
+            )
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
@@ -651,7 +719,7 @@ class ZeroInflatedProbs(Distribution):
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
-        assert base_dist.is_discrete
+        assert base_dist.support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
                 "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
@@ -691,6 +759,13 @@ class ZeroInflatedProbs(Distribution):
         return (1 - self.gate) * (
             self.base_dist.mean ** 2 + self.base_dist.variance
         ) - self.mean ** 2
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    def enumerate_support(self, expand=True):
+        return self.base_dist.enumerate_support(expand=expand)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):

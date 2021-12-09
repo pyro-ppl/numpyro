@@ -22,9 +22,9 @@ filenames.sort()
 
 # Update version string.
 pattern1 = re.compile('assert numpyro.__version__.startswith\\("[^"]*"\\)')
-pattern2 = re.compile("assert numpyro.__version__.startswith\\('[^']*'\\)")
+pattern2 = re.compile('assert numpyro.__version__.startswith\\(\\\\"[^"]*\\\\"\\)')
 text1 = f"assert numpyro.__version__.startswith({new_version})"
-text2 = text1.replace('"', "'")
+text2 = text1.replace('"', '\\"')
 for filename in filenames:
     with open(filename) as f:
         old_text = f.read()

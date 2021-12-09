@@ -37,6 +37,7 @@ __all__ = [
     "integer_greater_than",
     "interval",
     "is_dependent",
+    "l1_ball",
     "less_than",
     "lower_cholesky",
     "multinomial",
@@ -46,6 +47,7 @@ __all__ = [
     "positive_integer",
     "real",
     "real_vector",
+    "scaled_unit_lower_cholesky",
     "simplex",
     "sphere",
     "softplus_lower_cholesky",
@@ -317,6 +319,11 @@ class _Interval(Constraint):
         )
 
 
+class _OpenInterval(_Interval):
+    def __call__(self, x):
+        return (x > self.lower_bound) & (x < self.upper_bound)
+
+
 class _LowerCholesky(Constraint):
     event_dim = 2
 
@@ -351,6 +358,23 @@ class _Multinomial(Constraint):
         )
         value = jax.numpy.pad(jax.numpy.expand_dims(self.upper_bound, -1), pad_width)
         return jax.numpy.broadcast_to(value, prototype.shape)
+
+
+class _L1Ball(Constraint):
+    """
+    Constrain to the L1 ball of any dimension.
+    """
+
+    event_dim = 1
+    reltol = 10.0  # Relative to finfo.eps.
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        eps = jnp.finfo(x.dtype).eps
+        return jnp.abs(x).sum(axis=-1) < 1 + self.reltol * eps
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _OrderedVector(Constraint):
@@ -434,6 +458,10 @@ class _SoftplusLowerCholesky(_LowerCholesky):
         )
 
 
+class _ScaledUnitLowerCholesky(_LowerCholesky):
+    pass
+
+
 class _Sphere(Constraint):
     """
     Constrain to the Euclidean sphere of any dimension.
@@ -467,7 +495,9 @@ independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
+l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 ordered_vector = _OrderedVector()
@@ -482,3 +512,4 @@ softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _Interval(0.0, 1.0)
+open_interval = _OpenInterval

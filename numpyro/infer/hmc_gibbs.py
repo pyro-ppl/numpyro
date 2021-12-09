@@ -8,17 +8,7 @@ import warnings
 
 import numpy as np
 
-from jax import (
-    device_put,
-    grad,
-    hessian,
-    jacfwd,
-    jacobian,
-    lax,
-    ops,
-    random,
-    value_and_grad,
-)
+from jax import device_put, grad, hessian, jacfwd, jacobian, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit
@@ -34,7 +24,7 @@ from numpyro.util import cond, fori_loop, identity
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
  - **z** - a dict of the current latent values (both HMC and Gibbs sites)
- - **hmc_state** - current hmc_state
+ - **hmc_state** - current :data:`~numpyro.infer.hmc.HMCState`
  - **rng_key** - random key for the current step
 """
 
@@ -80,9 +70,9 @@ class HMCGibbs(MCMCKernel):
         ...     numpyro.sample("obs", dist.Normal(x + y, 1.0), obs=jnp.array([1.0]))
         ...
         >>> def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
-        ...    y = hmc_sites['y']
-        ...    new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
-        ...    return {'x': new_x}
+        ...     y = hmc_sites['y']
+        ...     new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
+        ...     return {'x': new_x}
         ...
         >>> hmc_kernel = NUTS(model)
         >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
@@ -195,7 +185,7 @@ def _discrete_gibbs_proposal_body_fn(
     rng_key, z, pe, log_weight_sum = val
     rng_key, rng_transition = random.split(rng_key)
     proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
-    z_new_flat = ops.index_update(z_init_flat, idx, proposal)
+    z_new_flat = z_init_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_weight_new = pe_init - pe_new
@@ -279,7 +269,7 @@ def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_si
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
     proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
-    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
@@ -296,7 +286,7 @@ def _discrete_modified_rw_proposal(
     i = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
     proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
     proposal = jnp.where(random.bernoulli(rng_stay, stay_prob), idx, proposal)
-    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
@@ -701,6 +691,10 @@ class HMCECS(HMCGibbs):
 
     @staticmethod
     def taylor_proxy(reference_params):
+        """
+        This is just a convenient static method which calls
+        :func:`~numpyro.infer.hmc_gibbs.taylor_proxy`.
+        """
         return taylor_proxy(reference_params)
 
 
@@ -740,7 +734,7 @@ def taylor_proxy(reference_params):
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
 
-    ** References: **
+    **References:**
 
     [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
         Bardenet., R., Doucet, A., Holmes, C. (2014)

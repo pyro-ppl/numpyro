@@ -145,7 +145,7 @@ def unif01_goodness_of_fit(samples, *, plot=False):
     if bin_count < 7:
         raise InvalidTest("imprecise test, use more samples")
     probs = np.ones(bin_count) / bin_count
-    binned = (samples * bin_count).astype(np.int)
+    binned = (samples * bin_count).astype(int)
     binned = np.clip(binned, 0, bin_count - 1)
     counts = np.bincount(binned, minlength=bin_count)
     return multinomial_goodness_of_fit(probs, counts, plot=plot)
@@ -186,7 +186,7 @@ def density_goodness_of_fit(samples, probs, plot=False):
     if len(samples) <= 100:
         raise InvalidTest("imprecision; use more samples")
 
-    index = np.argsort(samples, 0, kind="quicksort")
+    index = np.argsort(samples, 0, kind="stable")
     samples = samples[index]
     probs = probs[index]
     gaps = samples[1:] - samples[:-1]

@@ -3,8 +3,16 @@
 
 import numpy as np
 
-from jax import ops, random
-from jax.experimental import stax
+import jax
+from jax import random
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
+
 from jax.nn import sigmoid, softplus
 from jax.nn.initializers import glorot_uniform, normal, uniform
 import jax.numpy as jnp
@@ -43,10 +51,8 @@ def BlockMaskedDense(
         # Initialize each column block using W_init
         W = jnp.zeros((input_dim, out_dim))
         for i in range(num_blocks):
-            W = ops.index_add(
-                W,
-                ops.index[: (i + 1) * in_factor, i * out_factor : (i + 1) * out_factor],
-                W_init(k1[i], ((i + 1) * in_factor, out_factor)),
+            W = W.at[: (i + 1) * in_factor, i * out_factor : (i + 1) * out_factor].set(
+                W_init(k1[i], ((i + 1) * in_factor, out_factor))
             )
 
         # initialize weight scale

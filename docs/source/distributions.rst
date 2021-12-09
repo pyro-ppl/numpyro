@@ -225,6 +225,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+MultivariateStudentT
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowRankMultivariateNormal
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
@@ -361,6 +369,14 @@ DirichletMultinomial
     :show-inheritance:
     :member-order: bysource
 
+DiscreteUniform
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.DiscreteUniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GammaPoisson
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.GammaPoisson
@@ -478,12 +494,40 @@ ZeroInflatedNegativeBinomial2
 .. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
 
 
+Mixture Distributions
+---------------------
+
+MixtureSameFamily
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Directional Distributions
 -------------------------
 
 ProjectedNormal
 ^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SineBivariateVonMises
+^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.directional.SineBivariateVonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SineSkewed
+^^^^^^^^^^
+.. autoclass:: numpyro.distributions.directional.SineSkewed
     :members:
     :undoc-members:
     :show-inheritance:
@@ -579,7 +623,7 @@ boolean
 .. autodata:: numpyro.distributions.constraints.boolean
 
 circular
---------
+^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.circular
 
 corr_cholesky
@@ -609,6 +653,10 @@ integer_greater_than
 interval
 ^^^^^^^^
 .. autofunction:: numpyro.distributions.constraints.interval
+
+l1_ball
+^^^^^^^
+.. autofunction:: numpyro.distributions.constraints.l1_ball
 
 less_than
 ^^^^^^^^^
@@ -653,6 +701,10 @@ real
 real_vector
 ^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.real_vector
+
+scaled_unit_lower_cholesky
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.scaled_unit_lower_cholesky
 
 softplus_positive
 ^^^^^^^^^^^^^^^^^
@@ -762,6 +814,14 @@ InvCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+L1BallTransform
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.L1BallTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowerCholeskyAffine
 ^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.LowerCholeskyAffine
@@ -802,9 +862,25 @@ PowerTransform
     :show-inheritance:
     :member-order: bysource
 
+ScaledUnitLowerCholeskyTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 SigmoidTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.SigmoidTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SimplexToOrderedTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.SimplexToOrderedTransform
     :members:
     :undoc-members:
     :show-inheritance:

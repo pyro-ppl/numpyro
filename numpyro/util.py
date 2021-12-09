@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+from itertools import zip_longest
 import os
 import random
 import re
@@ -13,7 +14,7 @@ import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 
 import jax
-from jax import device_put, jit, lax, ops, vmap
+from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import host_callback
 from jax.flatten_util import ravel_pytree
@@ -322,7 +323,7 @@ def fori_collect(
         collection = cond(
             idx >= 0,
             collection,
-            lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
+            lambda x: x.at[idx].set(ravel_pytree(transform(val))[0]),
             collection,
             identity,
         )
@@ -382,7 +383,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
 
     # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
     num_chunks = batch_size = int(np.prod(batch_shape))
-    prepend_shape = (-1,) if batch_size > 1 else ()
+    prepend_shape = (batch_size,) if batch_size > 1 else ()
     xs = tree_map(
         lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs
     )
@@ -405,6 +406,262 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(
-        lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
+        lambda y: jnp.reshape(
+            y, (int(np.prod(jnp.shape(y)[:map_ndims])),) + jnp.shape(y)[map_ndims:]
+        )[:batch_size],
+        ys,
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def format_shapes(
+    trace,
+    *,
+    compute_log_prob=False,
+    title="Trace Shapes:",
+    last_site=None,
+):
+    """
+    Given the trace of a function, returns a string showing a table of the shapes of
+    all sites in the trace.
+
+    Use :class:`~numpyro.handlers.trace` handler (or funsor
+    :class:`~numpyro.contrib.funsor.enum_messenger.trace` handler for enumeration) to
+    produce the trace.
+
+    :param dict trace: The model trace to format.
+    :param compute_log_prob: Compute log probabilities and display the shapes in the
+        table. Accepts True / False or a function which when given a dictionary
+        containing site-level metadata returns whether the log probability should be
+        calculated and included in the table.
+    :param str title: Title for the table of shapes.
+    :param str last_site: Name of a site in the model. If supplied, subsequent sites
+        are not displayed in the table.
+
+    Usage::
+
+        def model(*args, **kwargs):
+            ...
+
+        with numpyro.handlers.seed(rng_key=1):
+            trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
+        numpyro.util.format_shapes(trace)
+    """
+    if not trace.keys():
+        return title
+    rows = [[title]]
+
+    rows.append(["Param Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "param":
+            rows.append(
+                [name, None]
+                + [str(size) for size in getattr(site["value"], "shape", ())]
+            )
+        if name == last_site:
+            break
+
+    rows.append(["Sample Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "sample":
+            # param shape
+            batch_shape = getattr(site["fn"], "batch_shape", ())
+            event_shape = getattr(site["fn"], "event_shape", ())
+            rows.append(
+                [f"{name} dist", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # value shape
+            event_dim = len(event_shape)
+            shape = getattr(site["value"], "shape", ())
+            batch_shape = shape[: len(shape) - event_dim]
+            event_shape = shape[len(shape) - event_dim :]
+            rows.append(
+                ["value", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # log_prob shape
+            if (not callable(compute_log_prob) and compute_log_prob) or (
+                callable(compute_log_prob) and compute_log_prob(site)
+            ):
+                batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
+                rows.append(
+                    ["log_prob", None]
+                    + [str(size) for size in batch_shape]
+                    + ["|", None]
+                )
+        elif site["type"] == "plate":
+            shape = getattr(site["value"], "shape", ())
+            rows.append(
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
+            )
+
+        if name == last_site:
+            break
+
+    return _format_table(rows)
+
+
+def check_model_guide_match(model_trace, guide_trace):
+    """
+    :param dict model_trace: The model trace to check.
+    :param dict guide_trace: The guide trace to check.
+    :raises: RuntimeWarning, ValueError
+    Checks the following assumptions:
+    1. Each sample site in the model also appears in the guide and is not
+        marked auxiliary.
+    2. Each sample site in the guide either appears in the model or is marked,
+        auxiliary via ``infer={'is_auxiliary': True}``.
+    3. Each :class:`~numpyro.primitives.plate` statement in the guide also
+        appears in the model.
+    4. At each sample site that appears in both the model and guide, the model
+        and guide agree on sample shape.
+    """
+    # Check ordinary sample sites.
+    guide_vars = set(
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample" and not site.get("is_observed", False)
+    )
+    aux_vars = set(
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample"
+        if site["infer"].get("is_auxiliary")
+    )
+    model_vars = set(
+        name
+        for name, site in model_trace.items()
+        if site["type"] == "sample" and not site.get("is_observed", False)
+    )
+    # TODO: Collect enum variables when TraceEnum_ELBO is supported.
+    enum_vars = set()
+
+    if aux_vars & model_vars:
+        warnings.warn(
+            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars)
+        )
+    if not (guide_vars <= model_vars | aux_vars):
+        warnings.warn(
+            "Found non-auxiliary vars in guide but not model, "
+            "consider marking these infer={{'is_auxiliary': True}}:\n{}".format(
+                guide_vars - aux_vars - model_vars
+            )
+        )
+    if not (model_vars <= guide_vars | enum_vars):
+        warnings.warn(
+            "Found vars in model but not guide: {}".format(
+                model_vars - guide_vars - enum_vars
+            )
+        )
+
+    # Check shapes agree.
+    for name in model_vars & guide_vars:
+        model_site = model_trace[name]
+        guide_site = guide_trace[name]
+
+        if hasattr(model_site["fn"], "event_dim") and hasattr(
+            guide_site["fn"], "event_dim"
+        ):
+            if model_site["fn"].event_dim != guide_site["fn"].event_dim:
+                raise ValueError(
+                    "Model and guide event_dims disagree at site '{}': {} vs {}".format(
+                        name, model_site["fn"].event_dim, guide_site["fn"].event_dim
+                    )
+                )
+
+        if hasattr(model_site["fn"], "shape") and hasattr(guide_site["fn"], "shape"):
+            model_shape = model_site["fn"].shape(model_site["kwargs"]["sample_shape"])
+            guide_shape = guide_site["fn"].shape(guide_site["kwargs"]["sample_shape"])
+            if model_shape == guide_shape:
+                continue
+
+            for model_size, guide_size in zip_longest(
+                reversed(model_shape), reversed(guide_shape), fillvalue=1
+            ):
+                if model_size != guide_size:
+                    raise ValueError(
+                        "Model and guide shapes disagree at site '{}': {} vs {}".format(
+                            name, model_shape, guide_shape
+                        )
+                    )
+
+    # Check subsample sites introduced by plate.
+    model_vars = set(
+        name for name, site in model_trace.items() if site["type"] == "plate"
+    )
+    guide_vars = set(
+        name for name, site in guide_trace.items() if site["type"] == "plate"
+    )
+    if not (guide_vars <= model_vars):
+        warnings.warn(
+            "Found plate statements in guide but not model: {}".format(
+                guide_vars - model_vars
+            )
+        )
+
+
+def _format_table(rows):
+    """
+    Formats a right justified table using None as column separator.
+    """
+    # compute column widths
+    column_widths = [0, 0, 0]
+    for row in rows:
+        widths = [0, 0, 0]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                widths[j] += 1
+        for j in range(3):
+            column_widths[j] = max(column_widths[j], widths[j])
+
+    # justify columns
+    for i, row in enumerate(rows):
+        cols = [[], [], []]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                cols[j].append(cell)
+        cols = [
+            [""] * (width - len(col)) + col
+            if direction == "r"
+            else col + [""] * (width - len(col))
+            for width, col, direction in zip(column_widths, cols, "rrl")
+        ]
+        rows[i] = sum(cols, [])
+
+    # compute cell widths
+    cell_widths = [0] * len(rows[0])
+    for row in rows:
+        for j, cell in enumerate(row):
+            cell_widths[j] = max(cell_widths[j], len(cell))
+
+    # justify cells
+    return "\n".join(
+        " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
+        for row in rows
+    )
+
+
+def _versiontuple(version):
+    """
+    :param str version: Version, in string format.
+    Parse version string into tuple of ints.
+
+    Only to be used for the standard 'major.minor.patch' format,
+    such as ``'0.2.13'``.
+
+    Source: https://stackoverflow.com/a/11887825/4451315
+    """
+    return tuple([int(number) for number in version.split(".")])

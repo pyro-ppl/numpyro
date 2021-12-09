@@ -30,6 +30,7 @@ from numpyro.distributions.continuous import (
     LogNormal,
     LowRankMultivariateNormal,
     MultivariateNormal,
+    MultivariateStudentT,
     Normal,
     Pareto,
     SoftLaplace,
@@ -37,7 +38,12 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
 )
-from numpyro.distributions.directional import ProjectedNormal, VonMises
+from numpyro.distributions.directional import (
+    ProjectedNormal,
+    SineBivariateVonMises,
+    SineSkewed,
+    VonMises,
+)
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -48,6 +54,7 @@ from numpyro.distributions.discrete import (
     Categorical,
     CategoricalLogits,
     CategoricalProbs,
+    DiscreteUniform,
     Geometric,
     GeometricLogits,
     GeometricProbs,
@@ -72,6 +79,7 @@ from numpyro.distributions.distribution import (
     Unit,
 )
 from numpyro.distributions.kl import kl_divergence
+from numpyro.distributions.mixtures import MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
@@ -107,6 +115,7 @@ __all__ = [
     "Delta",
     "Dirichlet",
     "DirichletMultinomial",
+    "DiscreteUniform",
     "Distribution",
     "Exponential",
     "ExpandedDistribution",
@@ -130,10 +139,12 @@ __all__ = [
     "Logistic",
     "LogNormal",
     "MaskedDistribution",
+    "MixtureSameFamily",
     "Multinomial",
     "MultinomialLogits",
     "MultinomialProbs",
     "MultivariateNormal",
+    "MultivariateStudentT",
     "LowRankMultivariateNormal",
     "Normal",
     "NegativeBinomialProbs",
@@ -145,6 +156,8 @@ __all__ = [
     "ProjectedNormal",
     "PRNGIdentity",
     "RightTruncatedDistribution",
+    "SineBivariateVonMises",
+    "SineSkewed",
     "SoftLaplace",
     "StudentT",
     "TransformedDistribution",

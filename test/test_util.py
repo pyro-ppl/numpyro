@@ -1,15 +1,19 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from numpy.testing import assert_allclose
 import pytest
 
+from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
 
-from numpyro.util import fori_collect, soft_vmap
+import numpyro
+import numpyro.distributions as dist
+from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
 
 
 def test_fori_collect_thinning():
@@ -101,3 +105,152 @@ def test_soft_vmap(batch_shape, chunk_size):
     assert set(ys.keys()) == {"a", "b"}
     assert_allclose(ys["a"], xs["a"][..., None] * jnp.ones(4))
     assert_allclose(ys["b"], ~xs["b"])
+
+
+def test_format_shapes():
+    data = jnp.arange(100)
+
+    def model_test():
+        mean = numpyro.param("mean", jnp.zeros(len(data)))
+        scale = numpyro.sample("scale", dist.Normal(0, 1).expand([3]).to_event(1))
+        scale = scale.sum()
+        with numpyro.plate("data", len(data), subsample_size=10) as ind:
+            batch = data[ind]
+            mean_batch = mean[ind]
+            numpyro.sample("x", dist.Normal(mean_batch, scale), obs=batch)
+
+    with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as t:
+        model_test()
+
+    assert (
+        format_shapes(t) == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "   data plate 10   |  \n"
+        "       x dist 10   |  \n"
+        "        value 10   |  "
+    )
+    assert (
+        format_shapes(t, compute_log_prob=True) == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "     log_prob      |  \n"
+        "   data plate 10   |  \n"
+        "       x dist 10   |  \n"
+        "        value 10   |  \n"
+        "     log_prob 10   |  "
+    )
+    assert (
+        format_shapes(t, compute_log_prob=lambda site: site["name"] == "scale")
+        == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "     log_prob      |  \n"
+        "   data plate 10   |  \n"
+        "       x dist 10   |  \n"
+        "        value 10   |  "
+    )
+    assert (
+        format_shapes(t, last_site="data") == "Trace Shapes:         \n"
+        " Param Sites:         \n"
+        "         mean    100  \n"
+        "Sample Sites:         \n"
+        "   scale dist      | 3\n"
+        "        value      | 3\n"
+        "   data plate 10   |  "
+    )
+
+
+def test_check_model_guide_match():
+    def _run_svi(model, guide):
+        adam = numpyro.optim.Adam(1e-3)
+        svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
+        svi.run(random.PRNGKey(42), num_steps=50)
+
+    def _run_svi_check_warnings(model, guide, expected_string):
+        with pytest.warns(UserWarning, match=expected_string) as ws:
+            _run_svi(model, guide)
+            assert len(ws) == 1
+            assert expected_string in str(ws[0].message)
+
+    def _create_traces_check_error_string(model, guide, expected_string):
+        model_trace = numpyro.handlers.trace(
+            numpyro.handlers.seed(model, rng_seed=42)
+        ).get_trace()
+        guide_trace = numpyro.handlers.trace(
+            numpyro.handlers.seed(guide, rng_seed=42)
+        ).get_trace()
+        with pytest.raises(ValueError, match=expected_string):
+            check_model_guide_match(model_trace, guide_trace)
+
+    # 1. Auxiliary vars in the model
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    def guide():
+        numpyro.sample("x", dist.Normal(), infer={"is_auxiliary": True})
+
+    _run_svi_check_warnings(model, guide, "Found auxiliary vars in the model")
+
+    # 2. Non-auxiliary vars in guide but not model
+    def model():
+        numpyro.sample("x1", dist.Normal())
+
+    def guide():
+        numpyro.sample("x1", dist.Normal())
+        numpyro.sample("x2", dist.Normal())
+
+    _run_svi_check_warnings(
+        model, guide, "Found non-auxiliary vars in guide but not model"
+    )
+
+    # 3. Vars in model but not guide
+    def model():
+        numpyro.sample("x1", dist.Normal())
+        numpyro.sample("x2", dist.Normal())
+
+    def guide():
+        numpyro.sample("x1", dist.Normal())
+
+    _run_svi_check_warnings(model, guide, "Found vars in model but not guide")
+
+    # 4. Check event_dims agree
+    def model():
+        numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(4), jnp.identity(4)))
+
+    def guide():
+        numpyro.sample("x", dist.Normal().expand((3, 5)))
+
+    _create_traces_check_error_string(
+        model, guide, "Model and guide event_dims disagree"
+    )
+
+    # 5. Check shapes agree
+    def model():
+        numpyro.sample("x", dist.Normal().expand((3, 2)))
+
+    def guide():
+        numpyro.sample("x", dist.Normal().expand((3, 5)))
+
+    _create_traces_check_error_string(model, guide, "Model and guide shapes disagree")
+
+    # 6. Check subsample sites introduced by plate
+    def model():
+        numpyro.sample("x", dist.Normal().expand((10,)))
+
+    def guide():
+        with numpyro.handlers.plate("data", 100, subsample_size=10):
+            numpyro.sample("x", dist.Normal())
+
+    _run_svi_check_warnings(
+        model, guide, "Found plate statements in guide but not model"
+    )

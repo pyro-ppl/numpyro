@@ -7,7 +7,7 @@ import functools
 import warnings
 
 import jax
-from jax import lax, ops, random
+from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
@@ -128,9 +128,13 @@ def sample(
         broadcastable with ``fn.batch_shape``. If provided, events with
         mask=True will be conditioned on ``obs`` and remaining events will be
         imputed by sampling. This introduces a latent sample site named ``name
-        + "_unobserved"`` which should be used by guides.
+        + "_unobserved"`` which should be used by guides in SVI. Note that this
+        argument is not intended to be used with MCMC.
     :return: sample from the stochastic `fn`.
     """
+    assert isinstance(
+        sample_shape, tuple
+    ), "sample_shape needs to be a tuple of integers"
     if not isinstance(fn, numpyro.distributions.Distribution):
         type_error = TypeError(
             "It looks like you tried to use a fn that isn't an instance of "
@@ -201,7 +205,7 @@ def sample(
 def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
-    :mod:`jax.experimental.optimizers`. For an example of how `param` statements
+    :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
     can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
@@ -353,12 +357,12 @@ def get_mask():
 
 def module(name, nn, input_shape=None):
     """
-    Declare a :mod:`~jax.experimental.stax` style neural network inside a
+    Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
-    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.experimental.stax`
+    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.example_libraries.stax`
         constructor function.
     :param tuple input_shape: shape of the input taken by the
         neural network.
@@ -388,17 +392,7 @@ def _subsample_fn(size, subsample_size, rng_key=None):
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
-            val = ops.index_update(
-                val,
-                ops.index[
-                    [i, j],
-                ],
-                val[
-                    ops.index[
-                        [j, i],
-                    ]
-                ],
-            )
+            val = val.at[jnp.array([i, j])].set(val[jnp.array([j, i])])
             return val, None
 
         val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))

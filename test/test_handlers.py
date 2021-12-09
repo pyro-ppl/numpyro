@@ -22,7 +22,7 @@ from numpyro.util import not_jax_tracer, optional
 @pytest.mark.parametrize("use_jit", [False, True])
 def test_mask(mask_last, use_jit):
     N = 10
-    mask = np.ones(N, dtype=np.bool)
+    mask = np.ones(N, dtype=bool)
     mask[-mask_last] = 0
 
     def model(data, mask):
@@ -589,6 +589,26 @@ def test_scope():
 
     assert "a/x" in trace
     assert "b/a/x" in trace
+
+
+def test_scope_frames():
+    def model(y):
+        mu = numpyro.sample("mu", dist.Normal())
+        sigma = numpyro.sample("sigma", dist.HalfNormal())
+
+        with numpyro.plate("plate1", y.shape[0]):
+            numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+
+    scope_prefix = "scope"
+    scoped_model = handlers.scope(model, prefix=scope_prefix)
+
+    obs = np.random.normal(size=(10,))
+
+    trace = handlers.trace(handlers.seed(model, 0)).get_trace(obs)
+    scoped_trace = handlers.trace(handlers.seed(scoped_model, 0)).get_trace(obs)
+
+    assert trace["y"]["cond_indep_stack"][0].name in trace
+    assert scoped_trace[f"{scope_prefix}/y"]["cond_indep_stack"][0].name in scoped_trace
 
 
 def test_lift():

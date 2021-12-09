@@ -304,7 +304,7 @@ def test_compute_downstream_costs_big_model_guide_pair(
 
     for k in dc:
         assert guide_trace[k]["log_prob"].shape == dc[k].shape
-        assert_allclose(dc[k], dc_brute[k])
+        assert_allclose(dc[k], dc_brute[k], rtol=2e-7)
 
 
 def plate_reuse_model_guide(include_obs=True, dim1=3, dim2=2):
@@ -360,10 +360,10 @@ def test_compute_downstream_costs_plate_reuse(dim1, dim2):
 
     for k in dc:
         assert guide_trace[k]["log_prob"].shape == dc[k].shape
-        assert_allclose(dc[k], dc_brute[k])
+        assert_allclose(dc[k], dc_brute[k], rtol=1e-6)
 
     expected_c1 = model_trace["c1"]["log_prob"] - guide_trace["c1"]["log_prob"]
     expected_c1 += (model_trace["b1"]["log_prob"] - guide_trace["b1"]["log_prob"]).sum()
     expected_c1 += model_trace["c2"]["log_prob"] - guide_trace["c2"]["log_prob"]
     expected_c1 += model_trace["obs"]["log_prob"]
-    assert_allclose(expected_c1, dc["c1"])
+    assert_allclose(expected_c1, dc["c1"], rtol=1e-6)

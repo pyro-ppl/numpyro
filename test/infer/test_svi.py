@@ -10,6 +10,13 @@ from jax import jit, random, value_and_grad
 import jax.numpy as jnp
 from jax.test_util import check_close
 
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import optimizers
+else:
+    from jax.experimental import optimizers
+
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
@@ -50,9 +57,7 @@ def test_renyi_elbo(alpha):
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
-@pytest.mark.parametrize(
-    "optimizer", [optim.Adam(0.05), jax.experimental.optimizers.adam(0.05)]
-)
+@pytest.mark.parametrize("optimizer", [optim.Adam(0.05), optimizers.adam(0.05)])
 def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
@@ -231,6 +236,12 @@ def test_stable_run(stable_run):
 
 
 def test_svi_discrete_latent():
+    cont_inf_only_cls = [RenyiELBO(), Trace_ELBO(), TraceMeanField_ELBO()]
+    mixed_inf_cls = [TraceGraph_ELBO()]
+
+    assert not any([c.can_infer_discrete for c in cont_inf_only_cls])
+    assert all([c.can_infer_discrete for c in mixed_inf_cls])
+
     def model():
         numpyro.sample("x", dist.Bernoulli(0.5))
 
@@ -238,9 +249,12 @@ def test_svi_discrete_latent():
         probs = numpyro.param("probs", 0.2)
         numpyro.sample("x", dist.Bernoulli(probs))
 
-    svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
-    with pytest.warns(UserWarning, match="SVI does not support models with discrete"):
-        svi.run(random.PRNGKey(0), 10)
+    for elbo in cont_inf_only_cls:
+        svi = SVI(model, guide, optim.Adam(1), elbo)
+        s_name = type(elbo).__name__
+        w_msg = f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
+        with pytest.warns(UserWarning, match=w_msg):
+            svi.run(random.PRNGKey(0), 10)
 
 
 @pytest.mark.parametrize("stable_update", [True, False])
