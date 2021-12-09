@@ -51,10 +51,23 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
 
+    def _get_dist_name(fn):
+        if isinstance(
+            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
+        ):
+            return _get_dist_name(fn.base_dist)
+        return type(fn).__name__
+
     def get_trace():
         trace = handlers.trace(handlers.seed(model, 0)).get_trace(
             *model_args, **model_kwargs
         )
+        # Work around an issue where jax.eval_shape does not work
+        # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
+        # Here we will remove `fn` and store its name in the trace.
+        for name, site in trace.items():
+            if site["type"] == "sample":
+                site["fn_name"] = _get_dist_name(site.pop("fn"))
         return PytreeTrace(trace)
 
     # We use eval_shape to avoid any array computation.
@@ -64,16 +77,8 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         for name, site in trace.items()
         if site["type"] == "sample" and site["is_observed"]
     ]
-
-    def _get_dist_name(fn):
-        if isinstance(
-            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
-        ):
-            return _get_dist_name(fn.base_dist)
-        return type(fn).__name__
-
     sample_dist = {
-        name: _get_dist_name(site["fn"])
+        name: site["fn_name"]
         for name, site in trace.items()
         if site["type"] == "sample"
     }

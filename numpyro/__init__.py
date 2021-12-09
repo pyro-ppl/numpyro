@@ -44,6 +44,7 @@ __all__ = [
     "handlers",
     "infer",
     "module",
+    "ops",
     "optim",
     "param",
     "plate",
