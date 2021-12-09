@@ -99,9 +99,7 @@ def discrete(prob):
         ),
         (
             discrete_to_continuous,
-            dict(
-                probs=np.array([0.15, 0.3, 0.3, 0.25]), locs=np.array([-2, 0, 2, 4])
-            ),
+            dict(probs=np.array([0.15, 0.3, 0.3, 0.25]), locs=np.array([-2, 0, 2, 4])),
             {
                 "plate_groups": {None: ["c", "x"]},
                 "plate_data": {},

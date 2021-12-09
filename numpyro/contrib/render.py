@@ -8,9 +8,9 @@ import jax
 import jax.numpy as jnp
 
 from numpyro import handlers
-from numpyro.ops.provenance import get_provenance, eval_provenance, ProvenanceArray
-from numpyro.ops.pytree import PytreeTrace
 import numpyro.distributions as dist
+from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provenance
+from numpyro.ops.pytree import PytreeTrace
 
 
 def get_model_relations(model, model_args=None, model_kwargs=None):
@@ -111,19 +111,20 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         return {
             name: site["fn"].log_prob(site["value"])
             for name, site in tr.items()
-            if site["type"] == "sample"}
+            if site["type"] == "sample"
+        }
 
     samples = {
         name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
-        if site["type"] == "sample"
-        and not site["is_observed"]}
+        if site["type"] == "sample" and not site["is_observed"]
+    }
     sample_deps = get_provenance(eval_provenance(get_log_probs, samples))
     sample_sample = {}
     for name in sample_dist:
         sample_sample[name] = [
-                var for var in sample_dist if var in sample_deps[name]
-                and var != name]
+            var for var in sample_dist if var in sample_deps[name] and var != name
+        ]
     return {
         "sample_sample": sample_sample,
         "sample_dist": sample_dist,
@@ -282,7 +283,9 @@ def render_model(
     :param bool render_distributions: Whether to include RV distribution annotations in the plot.
     """
     relations = get_model_relations(
-        model, model_args=model_args, model_kwargs=model_kwargs,
+        model,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
     )
     graph_spec = generate_graph_specification(relations)
     graph = render_graph(graph_spec, render_distributions=render_distributions)
