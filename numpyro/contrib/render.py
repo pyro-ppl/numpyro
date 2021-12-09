@@ -7,10 +7,12 @@ from pathlib import Path
 import jax
 
 from numpyro import handlers
+from numpyro.ops.provenance import get_provenance, eval_provenance, ProvenanceArray
+from numpyro.ops.pytree import PytreeTrace
 import numpyro.distributions as dist
 
 
-def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10):
+def get_model_relations(model, model_args=None, model_kwargs=None):
     """
     Infer relations of RVs and plates from given model and optionally data.
     See https://github.com/pyro-ppl/numpyro/issues/949 for more details.
@@ -43,16 +45,19 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     :param callable model: A model to inspect.
     :param model_args: Optional tuple of model args.
     :param model_kwargs: Optional dict of model kwargs.
-    :param int num_tries: Optional number times to trace model to detect
-        discrete -> continuous dependency.
     :rtype: dict
     """
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
 
-    trace = handlers.trace(handlers.seed(model, 0)).get_trace(
-        *model_args, **model_kwargs
-    )
+    def get_trace():
+        trace = handlers.trace(handlers.seed(model, 0)).get_trace(
+            *model_args, **model_kwargs
+        )
+        return PytreeTrace(trace)
+
+    # We use eval_shape to avoid any array computation.
+    trace = jax.eval_shape(get_trace)
     obs_sites = [
         name
         for name, site in trace.items()
@@ -99,57 +104,24 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         k: [name for name in trace if name in v] for k, v in plate_samples.items()
     }
 
-    def get_log_probs(sample, seed=0):
-        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(
-            data=sample
-        ):
+    def get_log_probs(sample):
+        with handlers.trace() as tr, handlers.substitute(data=sample):
             model(*model_args, **model_kwargs)
         return {
             name: site["fn"].log_prob(site["value"])
             for name, site in tr.items()
-            if site["type"] == "sample"
-        }
+            if site["type"] == "sample"}
 
     samples = {
-        name: site["value"]
+        name: ProvenanceArray(site["value"], frozenset(name))
         for name, site in trace.items()
         if site["type"] == "sample"
-        and not site["is_observed"]
-        and not site["fn"].is_discrete
-    }
-    if samples:
-        log_prob_grads = jax.jacobian(get_log_probs)(samples)
-    else:
-        log_prob_grads = {k: {} for k in get_log_probs(samples)}
-    sample_deps = {}
-    for name, grads in log_prob_grads.items():
-        sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}
-
-    # find discrete -> continuous dependency
-    samples = {
-        name: site["value"] for name, site in trace.items() if site["type"] == "sample"
-    }
-    discrete_sites = [
-        name
-        for name, site in trace.items()
-        if site["type"] == "sample"
-        and not site["is_observed"]
-        and site["fn"].is_discrete
-    ]
-    log_probs_prototype = get_log_probs(samples)
-    for name in discrete_sites:
-        samples_ = samples.copy()
-        samples_.pop(name)
-        for i in range(num_tries):
-            log_probs = get_log_probs(samples_, seed=i + 1)
-            for var in samples:
-                if var == name:
-                    continue
-                if (log_probs[var] != log_probs_prototype[var]).any():
-                    sample_deps[var] |= {name}
+        and not site["is_observed"]}
+    sample_deps = get_provenance(eval_provenance(get_log_probs, samples))
     sample_sample = {}
     for name in samples:
-        sample_sample[name] = [var for var in samples if var in sample_deps[name]]
+        sample_sample[name] = [var for var in samples if var in sample_deps[name]
+                if var != name]
     return {
         "sample_sample": sample_sample,
         "sample_dist": sample_dist,
@@ -294,7 +266,6 @@ def render_model(
     model_kwargs=None,
     filename=None,
     render_distributions=False,
-    num_tries=10,
 ):
     """
     Wrap all functions needed to automatically render a model.
@@ -302,18 +273,14 @@ def render_model(
     .. warning:: This utility does not support the
         :func:`~numpyro.contrib.control_flow.scan` primitive yet.
 
-    .. warning:: Currently, this utility uses a heuristic approach,
-        which will work for most cases, to detect dependencies in a NumPyro model.
-
     :param model: Model to render.
     :param model_args: Positional arguments to pass to the model.
     :param model_kwargs: Keyword arguments to pass to the model.
     :param str filename: File to save rendered model in.
     :param bool render_distributions: Whether to include RV distribution annotations in the plot.
-    :param int num_tries: Times to trace model to detect discrete -> continuous dependency.
     """
     relations = get_model_relations(
-        model, model_args=model_args, model_kwargs=model_kwargs, num_tries=num_tries
+        model, model_args=model_args, model_kwargs=model_kwargs,
     )
     graph_spec = generate_graph_specification(relations)
     graph = render_graph(graph_spec, render_distributions=render_distributions)

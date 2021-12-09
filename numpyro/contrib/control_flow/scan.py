@@ -16,7 +16,7 @@ from jax import (
 import jax.numpy as jnp
 
 from numpyro import handlers
-from numpyro.contrib.control_flow.util import PytreeTrace
+from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
