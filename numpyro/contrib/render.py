@@ -5,7 +5,6 @@ import itertools
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
 
 from numpyro import handlers
 import numpyro.distributions as dist

@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import jax
 from jax.interpreters import partial_eval
 from jax.linear_util import wrap_init
