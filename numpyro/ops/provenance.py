@@ -108,9 +108,6 @@ def eval_provenance(fun, *args, **kwargs):
     out = [jax.ShapeDtypeStruct(x.shape, x.dtype, x.named_shape) for x in out]
     out = jax.tree_util.tree_unflatten(out_tree(), out)
     return jax.tree_util.tree_map(
-        lambda x: ProvenanceArray(
-            jax.ShapeDtypeStruct(x.shape, x.dtype),
-            x.named_shape.get("_provenance", frozenset()),
-        ),
+        lambda x: ProvenanceArray(x, x.named_shape.get("_provenance", frozenset())),
         out,
     )
