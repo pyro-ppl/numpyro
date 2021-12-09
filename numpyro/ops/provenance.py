@@ -12,7 +12,7 @@ class _ProvenanceJaxprTrace(partial_eval.DynamicJaxprTrace):
         out_tracers = super().process_primitive(primitive, tracers, params)
         # add "_provenance" dimensions to arguments again
         for t, p in zip(tracers, provenances):
-            if not p:
+            if p:
                 t.aval.named_shape["_provenance"] = p
 
         # update outputs' provenance
@@ -73,7 +73,7 @@ def get_provenance(data):
     :rtype: frozenset
     """
     return jax.tree_util.tree_map(
-        lambda a: a.named_shape.pop("_provenance", frozenset()), data)
+        lambda a: a.named_shape.get("_provenance", frozenset()), data)
 
 
 def eval_provenance(fun, *args, **kwargs):
@@ -97,7 +97,9 @@ def eval_provenance(fun, *args, **kwargs):
         main.jaxpr_stack = ()
         out = partial_eval.trace_to_subjaxpr_dynamic(fun, main, avals)[1]
 
-    # convert the output to provenance array and unflatten it
-    out = [ProvenanceArray(jax.ShapeDtypeStruct(x.shape, x.dtype),
-        x.named_shape.get("_provenance", frozenset()) for x in out]
-    return jax.tree_util.tree_unflatten(out_tree(), out)
+    # unflatten the output and get its provenance
+    out = [jax.ShapeDtypeStruct(x.shape, x.dtype, x.named_shape) for x in out]
+    out = jax.tree_util.tree_unflatten(out_tree(), out)
+    return jax.tree_util.tree_map(lambda x:
+            ProvenanceArray(jax.ShapeDtypeStruct(x.shape, x.dtype),
+                x.named_shape.get("_provenance", frozenset())), out)

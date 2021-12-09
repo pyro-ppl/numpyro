@@ -436,12 +436,16 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
 
     if not msg["kwargs"].get("enum", False):
         for msg in pytree_trace.trace.values():
+            if msg["type"] == "plate":
+                continue
             apply_stack(msg)
     else:
         from numpyro.contrib.funsor import to_funsor
         from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
 
         for msg in pytree_trace.trace.values():
+            if msg["type"] == "plate":
+                continue
             with LocalNamedMessenger():
                 dim_to_name = msg["infer"].get("dim_to_name")
                 to_funsor(

@@ -5,6 +5,7 @@ import itertools
 from pathlib import Path
 
 import jax
+import jax.numpy as jnp
 
 from numpyro import handlers
 from numpyro.ops.provenance import get_provenance, eval_provenance, ProvenanceArray
@@ -57,7 +58,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         return PytreeTrace(trace)
 
     # We use eval_shape to avoid any array computation.
-    trace = jax.eval_shape(get_trace)
+    trace = jax.eval_shape(get_trace).trace
     obs_sites = [
         name
         for name, site in trace.items()
@@ -113,15 +114,16 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
             if site["type"] == "sample"}
 
     samples = {
-        name: ProvenanceArray(site["value"], frozenset(name))
+        name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
         if site["type"] == "sample"
         and not site["is_observed"]}
     sample_deps = get_provenance(eval_provenance(get_log_probs, samples))
     sample_sample = {}
-    for name in samples:
-        sample_sample[name] = [var for var in samples if var in sample_deps[name]
-                if var != name]
+    for name in sample_dist:
+        sample_sample[name] = [
+                var for var in sample_dist if var in sample_deps[name]
+                and var != name]
     return {
         "sample_sample": sample_sample,
         "sample_dist": sample_dist,

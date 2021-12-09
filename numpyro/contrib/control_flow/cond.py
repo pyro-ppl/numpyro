@@ -157,6 +157,8 @@ def cond(pred, true_fun, false_fun, operand):
     value, pytree_trace = msg["value"]
 
     for msg in pytree_trace.trace.values():
+        if msg["type"] == "plate":
+            continue
         apply_stack(msg)
 
     return value
