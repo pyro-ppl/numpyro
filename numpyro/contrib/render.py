@@ -278,7 +278,9 @@ def render_model(
     Wrap all functions needed to automatically render a model.
 
     .. warning:: This utility does not support the
-        :func:`~numpyro.contrib.control_flow.scan` primitive yet.
+        :func:`~numpyro.contrib.control_flow.scan` primitive.
+        If you want to render a time-series model, you can try
+        to rewrite the code using Python for loop.
 
     :param model: Model to render.
     :param model_args: Positional arguments to pass to the model.
