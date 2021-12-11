@@ -452,8 +452,7 @@ class InverseGamma(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
     def cdf(self, x):
-        inv_transform = PowerTransform(-1.0).inv
-        return 1 - self.base_dist.cdf(inv_transform(x))
+        return 1 - self.base_dist.cdf(1 / x)
 
 
 class Gumbel(Distribution):
@@ -854,8 +853,7 @@ class LogNormal(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
     def cdf(self, x):
-        inv_transform = ExpTransform().inv
-        return self.base_dist.cdf(inv_transform(x))
+        return self.base_dist.cdf(jnp.log(x))
 
 
 class Logistic(Distribution):
