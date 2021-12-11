@@ -281,7 +281,7 @@ def test_block_update_partitioning(num_blocks):
 
 def test_enum_subsample_smoke():
     def model(data):
-        x = numpyro.sample("x", dist.Bernoulli(0.5))
+        x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
         with numpyro.plate("N", data.shape[0], subsample_size=100, dim=-1):
             batch = numpyro.subsample(data, event_dim=0)
             numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
@@ -399,11 +399,10 @@ def test_taylor_proxy_norm(subsample_size):
 @pytest.mark.filterwarnings("ignore::UserWarning")
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 def test_estimate_likelihood(kernel_cls):
-    data_key, tr_key, sub_key, rng_key = random.split(random.PRNGKey(0), 4)
     ref_params = jnp.array([0.1, 0.5, -0.2])
     sigma = 0.1
     data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
-        data_key, (10_000,)
+        random.PRNGKey(0), (2000,)
     )
     n, _ = data.shape
     num_warmup = 200

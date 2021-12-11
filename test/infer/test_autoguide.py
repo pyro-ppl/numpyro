@@ -562,6 +562,7 @@ def test_plate_inconsistent(size, dim):
         init_to_uniform,
     ],
 )
+@pytest.mark.filterwarnings("ignore:.*enumerate.*:FutureWarning")
 def test_discrete_helpful_error(auto_class, init_loc_fn):
     def model():
         p = numpyro.sample("p", dist.Beta(2.0, 2.0))

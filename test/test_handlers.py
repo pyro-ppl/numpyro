@@ -777,4 +777,4 @@ def test_subsample_fn():
         )
 
         # test that values are not duplicated
-        assert len(set(subsamples[k])) == subsample_size
+        assert len(set(subsamples[k].copy())) == subsample_size

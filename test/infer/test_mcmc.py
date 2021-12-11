@@ -1060,3 +1060,12 @@ def test_init_strategy_substituted_model():
     mcmc = MCMC(NUTS(subs_model), num_warmup=10, num_samples=10)
     with pytest.warns(UserWarning, match="skipping initialization"):
         mcmc.run(random.PRNGKey(1))
+
+
+def test_discrete_site_without_infer_enumerate():
+    def model():
+        numpyro.sample("x", dist.Bernoulli(0.5))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    with pytest.warns(FutureWarning, match="enumerated sites"):
+        mcmc.run(random.PRNGKey(0))
