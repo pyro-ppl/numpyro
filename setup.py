@@ -35,6 +35,8 @@ setup(
     install_requires=[
         f"jax{_jax_version_constraints}",
         f"jaxlib{_jaxlib_version_constraints}",
+        "multipledispatch",
+        "numpy",
         "tqdm",
     ],
     extras_require={
