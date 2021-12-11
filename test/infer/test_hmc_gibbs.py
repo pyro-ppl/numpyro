@@ -399,11 +399,10 @@ def test_taylor_proxy_norm(subsample_size):
 @pytest.mark.filterwarnings("ignore::UserWarning")
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 def test_estimate_likelihood(kernel_cls):
-    data_key, tr_key, sub_key, rng_key = random.split(random.PRNGKey(0), 4)
     ref_params = jnp.array([0.1, 0.5, -0.2])
     sigma = 0.1
     data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
-        data_key, (10_000,)
+        random.PRNGKey(0), (2000,)
     )
     n, _ = data.shape
     num_warmup = 200
