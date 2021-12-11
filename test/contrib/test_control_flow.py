@@ -111,7 +111,7 @@ def test_scan_constrain_reparam_compatible():
     fun_params = {"x": jnp.arange(1, T + 1) / 10, "y": -jnp.arange(T) / 5}
     actual_log_joint = potential_energy(fun_model, (T,), {}, fun_params)
     expected_log_joint = potential_energy(model, (T,), {}, params)
-    assert_allclose(actual_log_joint, expected_log_joint)
+    assert_allclose(actual_log_joint, expected_log_joint, rtol=1e-6)
 
 
 def test_scan_without_stack():
