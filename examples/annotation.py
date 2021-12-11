@@ -42,10 +42,10 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.reparam import LocScaleReparam
+from numpyro.ops.indexing import Vindex
 
 
 def get_data():
