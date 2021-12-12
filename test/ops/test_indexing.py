@@ -10,8 +10,8 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.random as random
 
-from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
+from numpyro.ops.indexing import Vindex
 
 
 def z(*shape):
