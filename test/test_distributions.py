@@ -291,11 +291,11 @@ CONTINUOUS = [
     T(dist.LKJCholesky, 5, np.array([0.5, 1.0, 2.0]), "onion"),
     pytest.param(
         *T(dist.LKJCholesky, 5, np.array([0.5, 1.0, 2.0]), "cvine"),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     pytest.param(
         *T(dist.LKJCholesky, 3, np.array([[3.0, 0.6], [0.2, 5.0]]), "onion"),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     T(dist.LKJCholesky, 3, np.array([[3.0, 0.6], [0.2, 5.0]]), "cvine"),
     T(dist.Logistic, 0.0, 1.0),
@@ -493,7 +493,7 @@ DIRECTIONAL = [
             6.0,
             2.0,
         ),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     T(
         dist.SineBivariateVonMises,
@@ -512,7 +512,7 @@ DIRECTIONAL = [
             2.0,
             1.0,
         ),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     pytest.param(
         *T(
@@ -524,7 +524,7 @@ DIRECTIONAL = [
             None,
             np.array([0.5, 0.1]),
         ),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     T(dist.ProjectedNormal, np.array([0.0, 0.0])),
     T(dist.ProjectedNormal, np.array([[2.0, 3.0]])),
