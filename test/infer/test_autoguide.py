@@ -43,6 +43,7 @@ from numpyro.infer.initialization import (
     init_to_median,
     init_to_sample,
     init_to_uniform,
+    init_to_value,
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import Predictive
@@ -561,6 +562,7 @@ def test_plate_inconsistent(size, dim):
         init_to_uniform,
     ],
 )
+@pytest.mark.filterwarnings("ignore:.*enumerate.*:FutureWarning")
 def test_discrete_helpful_error(auto_class, init_loc_fn):
     def model():
         p = numpyro.sample("p", dist.Beta(2.0, 2.0))
@@ -644,3 +646,12 @@ def test_autocontinuous_local_error():
     svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
     with pytest.raises(ValueError, match="local latent variables"):
         svi.init(random.PRNGKey(0))
+
+
+def test_init_to_scalar_value():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    guide = AutoDiagonalNormal(model, init_loc_fn=init_to_value(values={"x": 1.0}))
+    svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
+    svi.init(random.PRNGKey(0))

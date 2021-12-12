@@ -166,7 +166,7 @@ def welford_covariance(diagonal=True):
 
         mean = jnp.zeros(shape[-1])
         m2 = jnp.zeros(shape)
-        n = 0
+        n = jnp.array(0, dtype=jnp.result_type(int))
         return mean, m2, n
 
     def update_fn(sample, state):

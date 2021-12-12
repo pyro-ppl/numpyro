@@ -614,6 +614,8 @@ DISCRETE = [
     T(dist.NegativeBinomial2, jnp.array([10.2, 7, 31]), jnp.array([10.2, 20.7, 2.1])),
     T(dist.OrderedLogistic, -2, jnp.array([-10.0, 4.0, 9.0])),
     T(dist.OrderedLogistic, jnp.array([-4, 3, 4, 5]), jnp.array([-1.5])),
+    T(dist.DiscreteUniform, -2, jnp.array([-1.0, 4.0, 9.0])),
+    T(dist.DiscreteUniform, jnp.array([-4, 3, 4, 5]), jnp.array([6])),
     T(dist.Poisson, 2.0),
     T(dist.Poisson, jnp.array([2.0, 3.0, 5.0])),
     T(SparsePoisson, 2.0),
@@ -1589,8 +1591,15 @@ def test_categorical_log_prob_grad():
     x = 0.5
     fx, grad_fx = jax.value_and_grad(f)(x)
     gx, grad_gx = jax.value_and_grad(g)(x)
-    assert_allclose(fx, gx)
+    assert_allclose(fx, gx, rtol=1e-6)
     assert_allclose(grad_fx, grad_gx, atol=1e-4)
+
+
+def test_beta_proportion_invalid_mean():
+    with dist.distribution.validation_enabled(), pytest.raises(
+        ValueError, match=r"^BetaProportion distribution got invalid mean parameter\.$"
+    ):
+        dist.BetaProportion(1.0, 1.0)
 
 
 ########################################
@@ -1713,6 +1722,11 @@ def test_categorical_log_prob_grad():
             jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
             jnp.array([True, False]),
         ),
+        (
+            constraints.open_interval(0.0, 1.0),
+            jnp.array([-5, 0, 0.5, 1, 7]),
+            jnp.array([False, False, True, False, False]),
+        ),
     ],
 )
 def test_constraints(constraint, x, expected):
@@ -1754,6 +1768,7 @@ def test_constraints(constraint, x, expected):
         constraints.softplus_positive,
         constraints.softplus_lower_cholesky,
         constraints.unit_interval,
+        constraints.open_interval(0.0, 1.0),
     ],
     ids=lambda x: x.__class__,
 )

@@ -102,7 +102,7 @@ SA
 TensorFlow Kernels
 ------------------
 
-Thin wrappers around TensorFlow Probability (TFP) distributions. For details on the TFP distribution interface,
+Thin wrappers around TensorFlow Probability (TFP) MCMC kernels. For details on the TFP MCMC kernel interface,
 see `its TransitionKernel docs <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/TransitionKernel>`_.
 
 .. automodule:: numpyro.contrib.tfp.mcmc

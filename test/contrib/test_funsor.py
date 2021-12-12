@@ -17,15 +17,16 @@ from numpyro.contrib.control_flow import scan
 from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
 from numpyro.contrib.funsor.enum_messenger import NamedMessenger, plate as enum_plate
 from numpyro.contrib.funsor.infer_util import log_density
-from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, init_to_median
+from numpyro.ops.indexing import Vindex
 from numpyro.primitives import _PYRO_STACK
 
 
 def test_gaussian_mixture_model():
     K, N = 3, 1000
 
+    @config_enumerate
     def gmm(data):
         mix_proportions = numpyro.sample("phi", dist.Dirichlet(jnp.ones(K)))
         with numpyro.plate("num_clusters", K, dim=-1):
@@ -60,6 +61,7 @@ def test_gaussian_mixture_model():
 
 
 def test_bernoulli_latent_model():
+    @config_enumerate
     def model(data):
         y_prob = numpyro.sample("y_prob", dist.Beta(1.0, 1.0))
         with numpyro.plate("data", data.shape[0]):
@@ -81,6 +83,7 @@ def test_bernoulli_latent_model():
 
 
 def test_change_point():
+    @config_enumerate
     def model(count_data):
         n_count_data = count_data.shape[0]
         alpha = 1 / jnp.mean(count_data.astype(np.float32))
@@ -93,84 +96,13 @@ def test_change_point():
         with numpyro.plate("data", n_count_data):
             numpyro.sample("obs", dist.Poisson(lambda_), obs=count_data)
 
-    count_data = jnp.array(
-        [
-            13,
-            24,
-            8,
-            24,
-            7,
-            35,
-            14,
-            11,
-            15,
-            11,
-            22,
-            22,
-            11,
-            57,
-            11,
-            19,
-            29,
-            6,
-            19,
-            12,
-            22,
-            12,
-            18,
-            72,
-            32,
-            9,
-            7,
-            13,
-            19,
-            23,
-            27,
-            20,
-            6,
-            17,
-            13,
-            10,
-            14,
-            6,
-            16,
-            15,
-            7,
-            2,
-            15,
-            15,
-            19,
-            70,
-            49,
-            7,
-            53,
-            22,
-            21,
-            31,
-            19,
-            11,
-            1,
-            20,
-            12,
-            35,
-            17,
-            23,
-            17,
-            4,
-            2,
-            31,
-            30,
-            13,
-            27,
-            0,
-            39,
-            37,
-            5,
-            14,
-            13,
-            22,
-        ]
-    )
+    # fmt: off
+    count_data = jnp.array([
+        13, 24, 8, 24, 7, 35, 14, 11, 15, 11, 22, 22, 11, 57, 11, 19, 29, 6, 19, 12, 22,
+        12, 18, 72, 32, 9, 7, 13, 19, 23, 27, 20, 6, 17, 13, 10, 14, 6, 16, 15, 7, 2,
+        15, 15, 19, 70, 49, 7, 53, 22, 21, 31, 19, 11, 1, 20, 12, 35, 17, 23, 17, 4, 2,
+        31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
+    # fmt: on
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500)
@@ -184,6 +116,7 @@ def test_gaussian_hmm():
     dim = 4
     num_steps = 10
 
+    @config_enumerate
     def model(data):
         with numpyro.plate("states", dim):
             transition = numpyro.sample("transition", dist.Dirichlet(jnp.ones(dim)))
@@ -586,6 +519,7 @@ def test_scan_history(history, T):
 def test_missing_plate(monkeypatch):
     K, N = 3, 1000
 
+    @config_enumerate
     def gmm(data):
         mix_proportions = numpyro.sample("phi", dist.Dirichlet(jnp.ones(K)))
         # plate/to_event is missing here
