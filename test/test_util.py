@@ -20,20 +20,20 @@ def test_fori_collect_thinning():
     def f(x):
         return x + 1.0
 
-    actual2 = fori_collect(0, 9, f, jnp.array([-1]), thinning=2)
-    expected2 = jnp.array([[2], [4], [6], [8]])
+    actual2 = fori_collect(0, 9, f, np.array([-1]), thinning=2)
+    expected2 = np.array([[2], [4], [6], [8]])
     check_eq(actual2, expected2)
 
-    actual3 = fori_collect(0, 9, f, jnp.array([-1]), thinning=3)
-    expected3 = jnp.array([[2], [5], [8]])
+    actual3 = fori_collect(0, 9, f, np.array([-1]), thinning=3)
+    expected3 = np.array([[2], [5], [8]])
     check_eq(actual3, expected3)
 
-    actual4 = fori_collect(0, 9, f, jnp.array([-1]), thinning=4)
-    expected4 = jnp.array([[4], [8]])
+    actual4 = fori_collect(0, 9, f, np.array([-1]), thinning=4)
+    expected4 = np.array([[4], [8]])
     check_eq(actual4, expected4)
 
-    actual5 = fori_collect(12, 37, f, jnp.array([-1]), thinning=5)
-    expected5 = jnp.array([[16], [21], [26], [31], [36]])
+    actual5 = fori_collect(12, 37, f, np.array([-1]), thinning=5)
+    expected5 = np.array([[16], [21], [26], [31], [36]])
     check_eq(actual5, expected5)
 
 
@@ -41,8 +41,8 @@ def test_fori_collect():
     def f(x):
         return {"i": x["i"] + x["j"], "j": x["i"] - x["j"]}
 
-    a = {"i": jnp.array([0.0]), "j": jnp.array([1.0])}
-    expected_tree = {"i": jnp.array([[0.0], [2.0]])}
+    a = {"i": np.array([0.0]), "j": np.array([1.0])}
+    expected_tree = {"i": np.array([[0.0], [2.0]])}
     actual_tree = fori_collect(1, 3, f, a, transform=lambda a: {"i": a["i"]})
     check_eq(actual_tree, expected_tree)
 
@@ -62,8 +62,8 @@ def test_fori_collect_return_last(progbar):
         return_last_val=True,
         progbar=progbar,
     )
-    expected_tree = {"i": jnp.array([3, 4])}
-    expected_last_state = {"i": jnp.array(4)}
+    expected_tree = {"i": np.array([3, 4])}
+    expected_last_state = {"i": np.array(4)}
     check_eq(init_state, expected_last_state)
     check_eq(tree, expected_tree)
 
@@ -71,12 +71,12 @@ def test_fori_collect_return_last(progbar):
 @pytest.mark.parametrize(
     "pytree",
     [
-        {"a": jnp.array(0.0), "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        {"a": jnp.array(0), "b": jnp.array([[1, 2], [3, 4]])},
-        {"a": jnp.array(0), "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        {"a": 0.0, "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        {"a": False, "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        [False, True, 0.0, jnp.array([[1.0, 2.0], [3.0, 4.0]])],
+        {"a": np.array(0.0), "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        {"a": np.array(0), "b": np.array([[1, 2], [3, 4]])},
+        {"a": np.array(0), "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        {"a": 0.0, "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        {"a": False, "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        [False, True, 0.0, np.array([[1.0, 2.0], [3.0, 4.0]])],
     ],
 )
 def test_ravel_pytree(pytree):
