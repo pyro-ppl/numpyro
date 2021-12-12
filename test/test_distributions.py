@@ -21,7 +21,6 @@ from jax.scipy.special import expit, logsumexp
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
-from numpyro.distributions.directional import SineBivariateVonMises
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
