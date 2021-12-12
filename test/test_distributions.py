@@ -484,6 +484,17 @@ DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
     T(dist.VonMises, 2.0, np.array([150.0, 10.0])),
     T(dist.VonMises, np.array([1 / 3 * np.pi, -1.0]), np.array([20.0, 30.0])),
+    pytest.param(
+        *T(
+            dist.SineBivariateVonMises,
+            0.0,
+            0.0,
+            5.0,
+            6.0,
+            2.0,
+        ),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+    ),
     T(
         dist.SineBivariateVonMises,
         3.003,
@@ -491,6 +502,17 @@ DIRECTIONAL = [
         5.0,
         6.0,
         2.0,
+    ),
+    pytest.param(
+        *T(
+            dist.SineBivariateVonMises,
+            -1.232,
+            -1.3430,
+            3.4,
+            2.0,
+            1.0,
+        ),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
     ),
     pytest.param(
         *T(
