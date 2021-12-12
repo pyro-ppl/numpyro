@@ -310,7 +310,7 @@ def test_circular(shape):
     # This model is the expected distribution
     def model_exp(loc, concentration):
         with numpyro.plate_stack("plates", shape):
-            with numpyro.plate("particles", 20000):
+            with numpyro.plate("particles", 10000):
                 numpyro.sample("x", dist.VonMises(loc, concentration))
 
     # This model is for inference
