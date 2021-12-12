@@ -1339,7 +1339,11 @@ def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
 
-    n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
+    n = (
+        20000
+        if jax_dist in [dist.LKJ, dist.LKJCholesky, dist.SineBivariateVonMises]
+        else 200000
+    )
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
