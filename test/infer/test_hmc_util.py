@@ -392,8 +392,8 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
     inverse_mass_matrix = jnp.ones(1)
     r = 1.0
     r_sum = 3.0
-    r_ckpts = np.array([1.0, 2.0, 3.0, -2.0])
-    r_sum_ckpts = np.array([2.0, 4.0, 4.0, -1.0])
+    r_ckpts = jnp.array([1.0, 2.0, 3.0, -2.0])
+    r_sum_ckpts = jnp.array([2.0, 4.0, 4.0, -1.0])
 
     actual_turning = _is_iterative_turning(
         inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, *ckpt_idxs
