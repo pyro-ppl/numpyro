@@ -125,7 +125,7 @@ def register_model(init_args):
             p_i={"x": 1.0},
             q_f={"x": jnp.sin(1.0)},
             p_f={"x": jnp.cos(1.0)},
-            m_inv=jnp.array([1.0]),
+            m_inv=np.array([1.0]),
             prec=1e-4,
         )
     ]
@@ -149,7 +149,7 @@ class HarmonicOscillator(object):
             p_i={"x": 0.0, "y": 1.0},
             q_f={"x": 1.0, "y": 0.0},
             p_f={"x": 0.0, "y": 1.0},
-            m_inv=jnp.array([1.0, 1.0]),
+            m_inv=np.array([1.0, 1.0]),
             prec=5.0e-3,
         )
     ]
@@ -174,7 +174,7 @@ class CircularPlanetaryMotion(object):
             p_i={"x": 0.0},
             q_f={"x": -0.02},
             p_f={"x": 0.0},
-            m_inv=jnp.array([1.0]),
+            m_inv=np.array([1.0]),
             prec=1.0e-4,
         )
     ]
@@ -238,7 +238,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
 
     p_generator = lambda prototype, m_inv, rng_key: 1.0  # noqa: E731
     q = 0.0
-    m_inv = jnp.array([1.0])
+    m_inv = np.array([1.0])
 
     fn = (
         jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
@@ -392,8 +392,8 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
     inverse_mass_matrix = jnp.ones(1)
     r = 1.0
     r_sum = 3.0
-    r_ckpts = jnp.array([1.0, 2.0, 3.0, -2.0])
-    r_sum_ckpts = jnp.array([2.0, 4.0, 4.0, -1.0])
+    r_ckpts = np.array([1.0, 2.0, 3.0, -2.0])
+    r_sum_ckpts = np.array([2.0, 4.0, 4.0, -1.0])
 
     actual_turning = _is_iterative_turning(
         inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, *ckpt_idxs
@@ -411,7 +411,7 @@ def test_build_tree(step_size):
 
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     vv_state = vv_init(0.0, 1.0)
-    inverse_mass_matrix = jnp.array([1.0])
+    inverse_mass_matrix = np.array([1.0])
     rng_key = random.PRNGKey(0)
 
     @jit
