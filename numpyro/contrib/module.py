@@ -229,7 +229,7 @@ def _update_params(params, new_params, prior, prefix=""):
                 param_shape = jnp.shape(params[name])
                 params[name] = ParamShape(param_shape)
             if isinstance(prior, dict):
-                d = prior[flatten_name] 
+                d = prior[flatten_name]
             elif callable(prior):
                 d = prior(flatten_name, param_shape)
             else:
@@ -277,7 +277,7 @@ def random_flax_module(
 
         Alternatively, we can use a callable. For example the following are equivalent:
             prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal()),
-            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},input_shape=(4,))
+            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()})
 
     :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
@@ -385,7 +385,7 @@ def random_haiku_module(
 
         Alternatively, we can use a callable. For example the following are equivalent:
             prior=(lambda name, shape: dist.Cauchy() if name.startswith("b") else dist.Normal()),
-            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},input_shape=(4,))
+            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()})
 
     :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
