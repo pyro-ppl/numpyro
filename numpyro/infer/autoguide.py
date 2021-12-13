@@ -306,7 +306,7 @@ class AutoNormal(AutoGuide):
                 site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
                 if site["fn"].support is constraints.real or (
                     isinstance(site["fn"].support, constraints.independent)
-                    and site["fn"].support is constraints.real
+                    and site["fn"].support.base_constraint is constraints.real
                 ):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
