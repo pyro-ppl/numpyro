@@ -235,10 +235,12 @@ class NeuTraReparam(Reparam):
         self._x_unconstrained = {}
 
     def _reparam_config(self, site):
-        if site["name"] in self.guide.prototype_trace and not site.get(
-            "is_observed", False
-        ):
-            return self
+        if site["name"] in self.guide.prototype_trace:
+            # We only reparam if this is an unobserved site in the guide
+            # prototype trace.
+            guide_site = self.guide.prototype_trace[site["name"]]
+            if not guide_site.get("is_observed", False):
+                return self
 
     def reparam(self, fn=None):
         return numpyro.handlers.reparam(fn, config=self._reparam_config)
