@@ -27,6 +27,7 @@
 
 
 from jax import lax
+from jax._src.scipy.special import gammainc
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
@@ -282,6 +283,9 @@ class Gamma(Distribution):
     def variance(self):
         return self.concentration / jnp.power(self.rate, 2)
 
+    def cdf(self, x):
+        return gammainc(self.concentration, self.rate * x)
+
 
 class Chi2(Gamma):
     arg_constraints = {"df": constraints.positive}
@@ -446,6 +450,9 @@ class InverseGamma(TransformedDistribution):
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
+
+    def cdf(self, x):
+        return 1 - self.base_dist.cdf(1 / x)
 
 
 class Gumbel(Distribution):
@@ -844,6 +851,9 @@ class LogNormal(TransformedDistribution):
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
+
+    def cdf(self, x):
+        return self.base_dist.cdf(jnp.log(x))
 
 
 class Logistic(Distribution):
