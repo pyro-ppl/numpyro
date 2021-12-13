@@ -33,10 +33,10 @@ def test_binary_cross_entropy_with_logits(x, y):
 
 @pytest.mark.parametrize("prim", [xlogy, xlog1py])
 def test_binop_batch_rule(prim):
-    bx = jnp.array([1.0, 2.0, 3.0])
-    by = jnp.array([2.0, 3.0, 4.0])
-    x = jnp.array(1.0)
-    y = jnp.array(2.0)
+    bx = np.array([1.0, 2.0, 3.0])
+    by = np.array([2.0, 3.0, 4.0])
+    x = np.array(1.0)
+    y = np.array(2.0)
 
     actual_bx_by = vmap(lambda x, y: prim(x, y))(bx, by)
     for i in range(3):
@@ -66,7 +66,7 @@ def test_categorical_shape(p, shape):
     assert jnp.shape(categorical(rng_key, p, shape)) == expected_shape
 
 
-@pytest.mark.parametrize("p", [jnp.array([0.2, 0.3, 0.5]), jnp.array([0.8, 0.1, 0.1])])
+@pytest.mark.parametrize("p", [np.array([0.2, 0.3, 0.5]), np.array([0.8, 0.1, 0.1])])
 def test_categorical_stats(p):
     rng_key = random.PRNGKey(0)
     n = 10000
@@ -97,7 +97,7 @@ def test_multinomial_inhomogeneous(n, device_array):
     if device_array:
         n = jnp.asarray(n)
 
-    p = jnp.array([0.5, 0.5])
+    p = np.array([0.5, 0.5])
     x = multinomial(random.PRNGKey(0), p, n)
     assert x.shape == jnp.shape(n) + jnp.shape(p)
     assert_allclose(x.sum(-1), n)
