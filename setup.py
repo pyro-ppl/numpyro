@@ -59,7 +59,7 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            "funsor==0.4.1",
+            "funsor[jax] @ git+git://github.com/pyro-ppl/funsor.git@93250f9b937639d35cd841f6964b96ffa9848686",
             "graphviz",
             "jaxns==0.0.7",
             "optax>=0.0.6",
