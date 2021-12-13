@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 import pytest
 
 import jax.numpy as jnp
@@ -36,7 +37,10 @@ def nested_plates():
 
 def discrete_to_continuous(probs, locs):
     c = numpyro.sample("c", dist.Categorical(probs))
-    numpyro.sample("x", dist.Normal(locs[c], 0.5))
+    # We need to make sure that locs is a jax ndarray
+    # because indexing a numpy ndarray with an abstract
+    # index does not work in JAX.
+    numpyro.sample("x", dist.Normal(jnp.asarray(locs)[c], 0.5))
 
 
 def discrete(prob):
@@ -48,7 +52,7 @@ def discrete(prob):
     [
         (
             simple,
-            dict(data=jnp.ones(10)),
+            dict(data=np.ones(10)),
             {
                 "plate_groups": {"N": ["obs"], None: ["x", "sd"]},
                 "plate_data": {"N": {"parent": None}},
@@ -95,9 +99,7 @@ def discrete(prob):
         ),
         (
             discrete_to_continuous,
-            dict(
-                probs=jnp.array([0.15, 0.3, 0.3, 0.25]), locs=jnp.array([-2, 0, 2, 4])
-            ),
+            dict(probs=np.array([0.15, 0.3, 0.3, 0.25]), locs=np.array([-2, 0, 2, 4])),
             {
                 "plate_groups": {None: ["c", "x"]},
                 "plate_data": {},

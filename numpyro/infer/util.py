@@ -402,11 +402,28 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     for k, v in model_trace.items():
         if v["type"] == "sample" and not v["is_observed"]:
             if v["fn"].support.is_discrete:
+                enum_type = v["infer"].get("enumerate")
+                if enum_type is not None and (enum_type != "parallel"):
+                    raise RuntimeError(
+                        "This algorithm might only work for discrete sites with"
+                        f" enumerate marked 'parallel'. But the site {k} is marked"
+                        f" as '{enum_type}'."
+                    )
                 has_enumerate_support = True
                 if not v["fn"].has_enumerate_support:
+                    dist_name = type(v["fn"]).__name__
                     raise RuntimeError(
-                        "MCMC only supports continuous sites or discrete sites "
-                        f"with enumerate support, but got {type(v['fn']).__name__}."
+                        "This algorithm might only work for discrete sites with"
+                        f" enumerate support. But the {dist_name} distribution at"
+                        f" site {k} does not have enumerate support."
+                    )
+                if enum_type is None:
+                    warnings.warn(
+                        "Some algorithms will automatically enumerate the discrete"
+                        f" latent site {k} of your model. In the future,"
+                        " enumerated sites need to be marked with"
+                        " `infer={'enumerate': 'parallel'}`.",
+                        FutureWarning,
                     )
             else:
                 support = v["fn"].support
