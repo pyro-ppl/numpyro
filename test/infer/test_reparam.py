@@ -55,7 +55,7 @@ def circular_moment(x, n):
 
 
 def get_circular_moments(x):
-    return jnp.stack([circular_moment(x, i) for i in range(1, 5)])
+    return jnp.stack([circular_moment(x, i) for i in range(1, 3)])
 
 
 def test_syntax():
@@ -314,7 +314,7 @@ def test_circular(shape):
         return get_circular_moments(trace["x"]["value"])
 
     def get_actual_probe(loc, concentration):
-        kernel = NUTS(model_act)
+        kernel = NUTS(model_act, dense_mass=True)
         mcmc = MCMC(kernel, num_warmup=1000, num_samples=10000, num_chains=1)
         mcmc.run(random.PRNGKey(0), loc, concentration)
         samples = mcmc.get_samples()
