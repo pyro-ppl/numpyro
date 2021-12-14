@@ -275,9 +275,10 @@ def random_flax_module(
                                      prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},
                                      input_shape=(4,))
 
-        Alternatively, we can use a callable. For example the following are equivalent:
-            prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal()),
-            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()})
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
+            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()}
 
     :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
@@ -383,9 +384,10 @@ def random_haiku_module(
                                       prior={"linear.b": dist.Cauchy(), "linear.w": dist.Normal()},
                                       input_shape=(4,))
 
-        Alternatively, we can use a callable. For example the following are equivalent:
-            prior=(lambda name, shape: dist.Cauchy() if name.startswith("b") else dist.Normal()),
-            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()})
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name.startswith("b") else dist.Normal())
+            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()}
 
     :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.

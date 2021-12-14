@@ -212,6 +212,7 @@ def test_random_module_mcmc(backend, init, callable_prior):
         atol=0.22,
     )
 
+
 @pytest.mark.parametrize("dropout", [True, False])
 @pytest.mark.parametrize("batchnorm", [True, False])
 def test_haiku_state_dropout_smoke(dropout, batchnorm):
