@@ -156,7 +156,7 @@ def neals_funnel(dim):
 def dirichlet_categorical(data):
     concentration = jnp.array([1.0, 1.0, 1.0])
     p_latent = numpyro.sample("p", dist.Dirichlet(concentration))
-    with numpyro.plate("N", data.shape[0]):
+    with numpyro.plate("N", data.shape[0] if data is not None else 10):
         numpyro.sample("obs", dist.Categorical(p_latent), obs=data)
     return p_latent
 
@@ -190,7 +190,7 @@ def test_neals_funnel_smoke():
     "model, kwargs",
     [
         (neals_funnel, {"dim": 10}),
-        (dirichlet_categorical, {"data": jnp.ones(10, dtype=jnp.int32)}),
+        (dirichlet_categorical, {"data": np.ones(10, dtype=np.int32)}),
     ],
 )
 def test_reparam_log_joint(model, kwargs):
@@ -210,6 +210,19 @@ def test_reparam_log_joint(model, kwargs):
     log_det_jacobian = neutra.transform.log_abs_det_jacobian(latent_x, latent_y)
     pe = pe_fn(guide._unpack_latent(latent_y))
     assert_allclose(pe_transformed, pe - log_det_jacobian, rtol=2e-7)
+
+
+def test_neutra_reparam_unobserved_model():
+    model = dirichlet_categorical
+    data = jnp.ones(10, dtype=jnp.int32)
+    guide = AutoIAFNormal(model)
+    svi = SVI(model, guide, Adam(1e-3), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0), data)
+    params = svi.get_params(svi_state)
+    neutra = NeuTraReparam(guide, params)
+    reparam_model = neutra.reparam(model)
+    with handlers.seed(rng_seed=0):
+        reparam_model(data=None)
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
