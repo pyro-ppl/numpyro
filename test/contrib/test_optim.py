@@ -69,7 +69,8 @@ def test_beta_bernoulli(elbo):
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
         alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
@@ -100,7 +101,8 @@ def test_jitted_update_fn():
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
         alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
