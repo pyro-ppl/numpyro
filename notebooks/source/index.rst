@@ -16,6 +16,7 @@ Welcome to NumPyro Tutorials!
    ordinal_regression
    bayesian_hierarchical_linear_regression
    discrete_imputation
+   model_rendering
 
 
 Indices

@@ -8,4 +8,5 @@ class UnsupportedAPIWarning(Warning):
     in NumPyro. Unlike raising NotImplementedError, it might be possible in
     such cases to return a dummy object and recover.
     """
+
     pass

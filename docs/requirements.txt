@@ -1,9 +1,17 @@
 dm-haiku
 flax
-funsor
-jax>=0.1.65
-jaxlib>=0.1.45
-nbsphinx
+funsor>=0.4.1
+ipython
+jax>=0.2.11
+jaxlib>=0.1.62
+jaxns>=0.0.7
+multipledispatch
+nbsphinx==0.8.6
+numpy
+optax>=0.0.6
+readthedocs-sphinx-search==0.1.0
+sphinx==4.0.3
 sphinx-gallery
-tfp_nightly  # TODO: change this to stable release
+sphinx_rtd_theme==0.5.2
+tensorflow_probability>=0.15.0
 tqdm

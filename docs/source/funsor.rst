@@ -41,6 +41,8 @@ Inference Utilities
 
 .. autofunction:: numpyro.contrib.funsor.infer_util.config_enumerate
 
+.. autofunction:: numpyro.contrib.funsor.discrete.infer_discrete
+
 .. autofunction:: numpyro.contrib.funsor.infer_util.log_density
 
 .. autofunction:: numpyro.contrib.funsor.infer_util.plate_to_enum_plate

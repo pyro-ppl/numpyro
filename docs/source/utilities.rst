@@ -88,8 +88,23 @@ init_to_value
 Tensor Indexing
 ---------------
 
-.. automodule:: numpyro.contrib.indexing
+.. automodule:: numpyro.ops.indexing
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+Model inspection
+----------------
+.. autofunction:: numpyro.contrib.render.get_model_relations
+
+Visualization Utilities
+=======================
+
+render_model
+------------
+.. autofunction:: numpyro.contrib.render.render_model
+
+Trace inspection
+----------------
+.. autofunction:: numpyro.util.format_shapes

@@ -5,8 +5,15 @@
 
 import numpy as np
 
-from jax import ops
-from jax.experimental import stax
+import jax
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
+
 import jax.numpy as jnp
 
 from numpyro.nn.masked_dense import MaskedDense
@@ -41,7 +48,7 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     """
     # Create mask indices for input, hidden layers, and final layer
     var_index = jnp.zeros(permutation.shape[0])
-    var_index = ops.index_update(var_index, permutation, jnp.arange(input_dim))
+    var_index = var_index.at[permutation].set(jnp.arange(input_dim))
 
     # Create the indices that are assigned to the neurons
     input_indices = 1 + var_index
@@ -63,12 +70,18 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     return masks, mask_skip
 
 
-def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None,
-                     skip_connections=False, nonlinearity=stax.Relu):
+def AutoregressiveNN(
+    input_dim,
+    hidden_dims,
+    param_dims=[1, 1],
+    permutation=None,
+    skip_connections=False,
+    nonlinearity=stax.Relu,
+):
     """
     An implementation of a MADE-like auto-regressive neural network.
 
-    Similar to the purely functional layer implemented in jax.experimental.stax,
+    Similar to the purely functional layer implemented in jax.example_libraries.stax,
     the `AutoregressiveNN` class has `init_fun` and `apply_fun` methods,
     where `init_fun` takes an rng_key key and an input shape and returns an
     (output_shape, params) pair, and `apply_fun` takes params and inputs
@@ -111,15 +124,18 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
     # possible to connect to the outputs correctly
     for h in hidden_dims:
         if h < input_dim:
-            raise ValueError('Hidden dimension must not be less than input dimension.')
+            raise ValueError("Hidden dimension must not be less than input dimension.")
 
     if permutation is None:
         permutation = jnp.arange(input_dim)
 
     # Create masks
-    masks, mask_skip = create_mask(input_dim=input_dim, hidden_dims=hidden_dims,
-                                   permutation=permutation,
-                                   output_dim_multiplier=output_multiplier)
+    masks, mask_skip = create_mask(
+        input_dim=input_dim,
+        hidden_dims=hidden_dims,
+        permutation=permutation,
+        output_dim_multiplier=output_multiplier,
+    )
 
     main_layers = []
     # Create masked layers
@@ -129,10 +145,13 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
             main_layers.append(nonlinearity)
 
     if skip_connections:
-        net_init, net = stax.serial(stax.FanOut(2),
-                                    stax.parallel(stax.serial(*main_layers),
-                                                  MaskedDense(mask_skip, bias=False)),
-                                    stax.FanInSum)
+        net_init, net = stax.serial(
+            stax.FanOut(2),
+            stax.parallel(
+                stax.serial(*main_layers), MaskedDense(mask_skip, bias=False)
+            ),
+            stax.FanInSum,
+        )
     else:
         net_init, net = stax.serial(*main_layers)
 
