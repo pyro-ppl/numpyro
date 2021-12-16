@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.primitives import mutable as numpyro_mutable
 
 __all__ = [
@@ -230,7 +231,7 @@ def _update_params(params, new_params, prior, prefix=""):
                 params[name] = ParamShape(param_shape)
             if isinstance(prior, dict):
                 d = prior[flatten_name]
-            elif callable(prior):
+            elif callable(prior) and not isinstance(prior, dist.Distribution):
                 d = prior(flatten_name, param_shape)
             else:
                 d = prior
