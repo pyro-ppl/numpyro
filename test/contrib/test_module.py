@@ -181,17 +181,14 @@ def test_random_module_mcmc(backend, init, callable_prior):
         kwargs = {kwargs_name: data}
 
     if callable_prior:
-        prior = (lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal())
+        prior = (
+            lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
+        )
     else:
         prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
 
     def model(data, labels):
-        nn = random_module(
-            "nn",
-            linear_module,
-            prior=prior,
-            **kwargs
-        )
+        nn = random_module("nn", linear_module, prior=prior, **kwargs)
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
