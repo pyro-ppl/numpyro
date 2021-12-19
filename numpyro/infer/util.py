@@ -929,8 +929,6 @@ class Predictive(object):
                 model_args=args,
                 model_kwargs=kwargs,
             )
-            print({k: v.shape for k, v in posterior_samples.items()})
-
         model = substitute(self.model, self.params)
         return _predictive(
             rng_key,
