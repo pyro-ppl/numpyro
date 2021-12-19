@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from collections.abc import Iterable
 from contextlib import contextmanager
 from functools import partial
+from typing import Union
 import warnings
 
 import numpy as np
@@ -766,7 +768,7 @@ def _predictive(
     num_samples = int(np.prod(batch_shape))
     if num_samples > 1:
         rng_key = random.split(rng_key, num_samples)
-    rng_key = rng_key.reshape(batch_shape + (2,))
+    rng_key = rng_key.reshape((*batch_shape, 2))
     chunk_size = num_samples if parallel else 1
     return soft_vmap(
         single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size
@@ -840,12 +842,11 @@ class Predictive(object):
         *,
         guide=None,
         params=None,
-        num_samples=None,
+        num_samples: Union[Iterable, int, None] = None,
         return_sites=None,
         infer_discrete=False,
         parallel=False,
         batch_ndims=1,
-        num_particles=None,
     ):
         if posterior_samples is None and num_samples is None:
             raise ValueError(
@@ -882,7 +883,12 @@ class Predictive(object):
             )
 
         if batch_shape is None:
-            batch_shape = (1,) * (batch_ndims - 1) + (num_samples,)
+            sample_shape = (
+                tuple(num_samples)
+                if isinstance(num_samples, Iterable)
+                else (num_samples,)
+            )
+            batch_shape = (1,) * (batch_ndims - len(sample_shape)) + sample_shape
 
         if return_sites is not None:
             assert isinstance(return_sites, (list, tuple, set))
@@ -897,7 +903,6 @@ class Predictive(object):
         self.parallel = parallel
         self.batch_ndims = batch_ndims
         self._batch_shape = batch_shape
-        self.num_particles = num_particles
 
     def __call__(self, rng_key, *args, **kwargs):
         """
@@ -918,29 +923,20 @@ class Predictive(object):
                 guide_rng_key,
                 guide,
                 posterior_samples,
-                self._batch_shape,
+                self._batch_shape[: self.batch_ndims],
                 return_sites="",
                 parallel=self.parallel,
                 model_args=args,
                 model_kwargs=kwargs,
             )
+            print({k: v.shape for k, v in posterior_samples.items()})
 
-        if self.num_particles is not None:
-            batch_shape = (1,) * (self.batch_ndims - 1) + (
-                self.num_samples,
-                self.num_particles,
-            )
-            for name, sample in posterior_samples.items():
-                assert self._batch_shape == sample.shape[: self.batch_ndims]
-                assert sample.shape[self.batch_ndims] == self.num_particles
-        else:
-            batch_shape = self._batch_shape
         model = substitute(self.model, self.params)
         return _predictive(
             rng_key,
             model,
             posterior_samples,
-            batch_shape,
+            self._batch_shape,
             return_sites=self.return_sites,
             infer_discrete=self.infer_discrete,
             parallel=self.parallel,
