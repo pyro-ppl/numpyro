@@ -111,6 +111,7 @@ def test_predictive_with_particles():
         latent_loc = numpyro.param(
             "latent_loc", jnp.ones(fdim), constraint=constraints.real
         )
+        assert latent_loc.ndim == 1
         numpyro.sample("latent", dist.Normal(latent_loc, 1.0).to_event(1))
 
     params = {"latent_loc": jnp.zeros((num_particles, fdim))}
@@ -119,7 +120,7 @@ def test_predictive_with_particles():
         model,
         guide=guide,
         params=params,
-        num_samples=(num_samples, num_particles),
+        num_samples=num_samples,
         batch_ndims=1,
     )(random.PRNGKey(0), x)
     assert predictions["y"].shape == (num_samples, num_particles, num_data)
@@ -157,6 +158,7 @@ def test_prior_predictive(batch_ndims):
 
     # check shapes
     batch_shape = (1,) * (batch_ndims - 1) + (100,)
+    print(batch_shape)
     assert predictive_samples["beta"].shape == batch_shape + true_probs.shape
     assert predictive_samples["obs"].shape == batch_shape + data.shape
 

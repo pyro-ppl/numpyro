@@ -4,12 +4,14 @@
 from collections import namedtuple
 from collections.abc import Iterable
 from contextlib import contextmanager
-from functools import partial
+from functools import partial, reduce
+import operator
 from typing import Union
 import warnings
 
 import numpy as np
 
+import jax
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
@@ -842,16 +844,20 @@ class Predictive(object):
         *,
         guide=None,
         params=None,
-        num_samples: Union[Iterable, int, None] = None,
+        num_samples: Union[int, None] = None,
         return_sites=None,
         infer_discrete=False,
         parallel=False,
-        batch_ndims=1,
+        batch_ndims=None,
     ):
         if posterior_samples is None and num_samples is None:
             raise ValueError(
                 "Either posterior_samples or num_samples must be specified."
             )
+
+        batch_ndims = (
+            batch_ndims if batch_ndims is not None else 1 if guide is None else 0
+        )
 
         posterior_samples = {} if posterior_samples is None else posterior_samples
 
@@ -883,12 +889,7 @@ class Predictive(object):
             )
 
         if batch_shape is None:
-            sample_shape = (
-                tuple(num_samples)
-                if isinstance(num_samples, Iterable)
-                else (num_samples,)
-            )
-            batch_shape = (1,) * (batch_ndims - len(sample_shape)) + sample_shape
+            batch_shape = (1,) * (batch_ndims - 1) + (num_samples,)
 
         if return_sites is not None:
             assert isinstance(return_sites, (list, tuple, set))
@@ -904,7 +905,7 @@ class Predictive(object):
         self.batch_ndims = batch_ndims
         self._batch_shape = batch_shape
 
-    def __call__(self, rng_key, *args, **kwargs):
+    def _call_with_params(self, rng_key, params, args, kwargs):
         """
         Returns dict of samples from the predictive distribution. By default, only sample sites not
         contained in `posterior_samples` are returned. This can be modified by changing the
@@ -918,12 +919,12 @@ class Predictive(object):
         if self.guide is not None:
             rng_key, guide_rng_key = random.split(rng_key)
             # use return_sites='' as a special signal to return all sites
-            guide = substitute(self.guide, self.params)
+            guide = substitute(self.guide, params)
             posterior_samples = _predictive(
                 guide_rng_key,
                 guide,
                 posterior_samples,
-                self._batch_shape[: self.batch_ndims],
+                self._batch_shape,
                 return_sites="",
                 parallel=self.parallel,
                 model_args=args,
@@ -941,6 +942,28 @@ class Predictive(object):
             model_args=args,
             model_kwargs=kwargs,
         )
+
+    def __call__(self, rng_key, *args, **kwargs):
+        if self.batch_ndims == 0 or self.params == {}:
+            return self._call_with_params(rng_key, self.params, args, kwargs)
+        elif self.batch_ndims == 1:
+            param_batch_shape = None
+            for param in self.params.values():
+                if param_batch_shape is None:
+                    assert param.shape[: self.batch_ndims]
+                    param_batch_shape = param.shape[: self.batch_ndims]
+                assert param.shape[: self.batch_ndims] == param_batch_shape
+            rng_keys = random.split(
+                rng_key, reduce(operator.mul, param_batch_shape)
+            ).reshape(*param_batch_shape, 2)
+            return tree_map(
+                partial(jnp.swapaxes, axis1=1, axis2=0),
+                jax.vmap(partial(self._call_with_params, args=args, kwargs=kwargs))(
+                    rng_keys, self.params
+                ),
+            )
+        else:
+            raise NotImplementedError
 
 
 def log_likelihood(
