@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from collections.abc import Iterable
 from contextlib import contextmanager
 from functools import partial, reduce
 import operator
