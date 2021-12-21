@@ -943,7 +943,7 @@ class Predictive(object):
         )
 
     def __call__(self, rng_key, *args, **kwargs):
-        if self.batch_ndims == 0 or self.params == {}:
+        if self.batch_ndims == 0 or self.params == {} or self.guide is None:
             return self._call_with_params(rng_key, self.params, args, kwargs)
         elif self.batch_ndims == 1:
             param_batch_shape = None
@@ -955,12 +955,11 @@ class Predictive(object):
             rng_keys = random.split(
                 rng_key, reduce(operator.mul, param_batch_shape)
             ).reshape(*param_batch_shape, 2)
-            return tree_map(
-                partial(jnp.swapaxes, axis1=1, axis2=0),
-                jax.vmap(partial(self._call_with_params, args=args, kwargs=kwargs))(
-                    rng_keys, self.params
-                ),
-            )
+            return jax.vmap(
+                partial(self._call_with_params, args=args, kwargs=kwargs),
+                in_axes=0,
+                out_axes=1,
+            )(rng_keys, self.params)
         else:
             raise NotImplementedError
 
