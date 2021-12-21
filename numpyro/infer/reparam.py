@@ -132,14 +132,13 @@ class TransformReparam(Reparam):
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
         fn, expand_shape, event_dim = self._unwrap(fn)
-        if isinstance(fn, (dist.Uniform, dist.TruncatedCauchy, dist.TruncatedNormal)):
+        if not isinstance(fn, dist.TransformedDistribution):
             raise ValueError(
                 "TransformReparam does not automatically work with {}"
                 " distribution anymore. Please explicitly using"
                 " TransformedDistribution(base_dist, AffineTransform(...)) pattern"
                 " with TransformReparam.".format(type(fn).__name__)
             )
-        assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
         base_event_dim = event_dim
