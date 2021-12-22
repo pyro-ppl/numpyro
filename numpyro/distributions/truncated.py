@@ -390,7 +390,7 @@ class TruncatedCauchy(LeftTruncatedDistribution):
         return d
 
 
-def TruncatedNormal(*, low=None, high=None, loc=0.0, scale=1.0, validate_args=None):
+def TruncatedNormal(*, loc=0.0, scale=1.0, low=None, high=None, validate_args=None):
     return TruncatedDistribution(
         Normal(loc, scale), low=low, high=high, validate_args=validate_args
     )
