@@ -98,7 +98,7 @@ def _truncnorm_to_scipy(loc, scale, low, high):
 
 
 def _TruncatedNormal(loc, scale, low, high):
-    return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
+    return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
 
 
 _TruncatedNormal.arg_constraints = {}
@@ -425,13 +425,14 @@ CONTINUOUS = [
         np.array([0.0, 1.0]),
         np.array([[1.0], [2.0]]),
     ),
-    T(dist.TruncatedNormal, -1.0, 0.0, 1.0),
-    T(dist.TruncatedNormal, 1.0, -1.0, np.array([1.0, 2.0])),
+    T(_TruncatedNormal, 0.0, 1.0, -1.0, None),
+    T(_TruncatedNormal, -1.0, np.array([1.0, 2.0]), 1.0, None),
     T(
-        dist.TruncatedNormal,
-        np.array([-2.0, 2.0]),
+        _TruncatedNormal,
         np.array([0.0, 1.0]),
         np.array([[1.0], [2.0]]),
+        np.array([-2.0, 2.0]),
+        None,
     ),
     T(_TruncatedNormal, -1.0, 2.0, 1.0, 5.0),
     T(_TruncatedNormal, np.array([-1.0, 4.0]), 2.0, None, 5.0),
