@@ -123,7 +123,6 @@ def test_predictive_with_particles():
         num_samples=num_samples,
         batch_ndims=1,
     )(random.PRNGKey(0), x)
-    print(predictions)
     assert predictions["y"].shape == (num_samples, num_particles, num_data)
 
 
@@ -159,7 +158,6 @@ def test_prior_predictive(batch_ndims):
 
     # check shapes
     batch_shape = (1,) * (batch_ndims - 1) + (100,)
-    print(batch_shape)
     assert predictive_samples["beta"].shape == batch_shape + true_probs.shape
     assert predictive_samples["obs"].shape == batch_shape + data.shape
 

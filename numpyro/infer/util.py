@@ -3,15 +3,14 @@
 
 from collections import namedtuple
 from contextlib import contextmanager
-from functools import partial, reduce
-import operator
-from typing import Union
+from functools import partial
+from typing import Callable, Dict, List, Optional
 import warnings
 
 import numpy as np
 
 import jax
-from jax import device_get, jacfwd, lax, random, value_and_grad
+from jax import device_get, jacfwd, lax, random, tree_flatten, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
 import jax.numpy as jnp
@@ -801,16 +800,24 @@ class Predictive(object):
         Note that this requires ``funsor`` installation.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
-    :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
+    :param batch_ndims: the number of batch dimensions in posterior samples or parameters. If `None` defaults
+        to 0 if guide is set (i.e. not `None`) and 1 otherwise. Usages for batched posterior samples:
 
         + set `batch_ndims=0` to get prediction for 1 single sample
 
         + set `batch_ndims=1` to get prediction for `posterior_samples`
-          with shapes `(num_samples x ...)`
+          with shapes `(num_samples x ...)` (same as`batch_ndims=None` with `guide=None`)
 
         + set `batch_ndims=2` to get prediction for `posterior_samples`
           with shapes `(num_chains x N x ...)`. Note that if `num_samples`
           argument is not None, its value should be equal to `num_chains x N`.
+
+        Usages for batched parameters:
+
+        + set `batch_ndims=0` to get 1 sample from the guide and parameters (same as `batch_ndims=None` with guide)
+
+        + set `batch_ndims=1` to get predictions from a one dimensional batch of the guide and parameters
+          with shapes `(num_samples x batch_size x ...)`
 
     :return: dict of samples from the predictive distribution.
 
@@ -838,16 +845,16 @@ class Predictive(object):
 
     def __init__(
         self,
-        model,
-        posterior_samples=None,
+        model: Callable,
+        posterior_samples: Optional[Dict] = None,
         *,
-        guide=None,
-        params=None,
-        num_samples: Union[int, None] = None,
-        return_sites=None,
-        infer_discrete=False,
-        parallel=False,
-        batch_ndims=None,
+        guide: Optional[Callable] = None,
+        params: Optional[Dict] = None,
+        num_samples: Optional[int] = None,
+        return_sites: Optional[List[str]] = None,
+        infer_discrete: bool = False,
+        parallel: bool = False,
+        batch_ndims: Optional[int] = None,
     ):
         if posterior_samples is None and num_samples is None:
             raise ValueError(
@@ -905,15 +912,6 @@ class Predictive(object):
         self._batch_shape = batch_shape
 
     def _call_with_params(self, rng_key, params, args, kwargs):
-        """
-        Returns dict of samples from the predictive distribution. By default, only sample sites not
-        contained in `posterior_samples` are returned. This can be modified by changing the
-        `return_sites` keyword argument of this :class:`Predictive` instance.
-
-        :param jax.random.PRNGKey rng_key: random key to draw samples.
-        :param args: model arguments.
-        :param kwargs: model kwargs.
-        """
         posterior_samples = self.posterior_samples
         if self.guide is not None:
             rng_key, guide_rng_key = random.split(rng_key)
@@ -943,18 +941,20 @@ class Predictive(object):
         )
 
     def __call__(self, rng_key, *args, **kwargs):
+        """
+        Returns dict of samples from the predictive distribution. By default, only sample sites not
+        contained in `posterior_samples` are returned. This can be modified by changing the
+        `return_sites` keyword argument of this :class:`Predictive` instance.
+
+        :param jax.random.PRNGKey rng_key: random key to draw samples.
+        :param args: model arguments.
+        :param kwargs: model kwargs.
+        """
         if self.batch_ndims == 0 or self.params == {} or self.guide is None:
             return self._call_with_params(rng_key, self.params, args, kwargs)
-        elif self.batch_ndims == 1:
-            param_batch_shape = None
-            for param in self.params.values():
-                if param_batch_shape is None:
-                    assert param.shape[: self.batch_ndims]
-                    param_batch_shape = param.shape[: self.batch_ndims]
-                assert param.shape[: self.batch_ndims] == param_batch_shape
-            rng_keys = random.split(
-                rng_key, reduce(operator.mul, param_batch_shape)
-            ).reshape(*param_batch_shape, 2)
+        elif self.batch_ndims == 1:  # batch over parameters
+            batch_size = jnp.shape(tree_flatten(self.params)[0][0])[0]
+            rng_keys = random.split(rng_key, batch_size)
             return jax.vmap(
                 partial(self._call_with_params, args=args, kwargs=kwargs),
                 in_axes=0,
