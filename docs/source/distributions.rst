@@ -369,6 +369,14 @@ DirichletMultinomial
     :show-inheritance:
     :member-order: bysource
 
+DiscreteUniform
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.DiscreteUniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GammaPoisson
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.GammaPoisson

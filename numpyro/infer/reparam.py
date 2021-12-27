@@ -132,14 +132,13 @@ class TransformReparam(Reparam):
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
         fn, expand_shape, event_dim = self._unwrap(fn)
-        if isinstance(fn, (dist.Uniform, dist.TruncatedCauchy, dist.TruncatedNormal)):
+        if not isinstance(fn, dist.TransformedDistribution):
             raise ValueError(
                 "TransformReparam does not automatically work with {}"
                 " distribution anymore. Please explicitly using"
                 " TransformedDistribution(base_dist, AffineTransform(...)) pattern"
                 " with TransformReparam.".format(type(fn).__name__)
             )
-        assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
         base_event_dim = event_dim
@@ -235,10 +234,12 @@ class NeuTraReparam(Reparam):
         self._x_unconstrained = {}
 
     def _reparam_config(self, site):
-        if site["name"] in self.guide.prototype_trace and not site.get(
-            "is_observed", False
-        ):
-            return self
+        if site["name"] in self.guide.prototype_trace:
+            # We only reparam if this is an unobserved site in the guide
+            # prototype trace.
+            guide_site = self.guide.prototype_trace[site["name"]]
+            if not guide_site.get("is_observed", False):
+                return self
 
     def reparam(self, fn=None):
         return numpyro.handlers.reparam(fn, config=self._reparam_config)

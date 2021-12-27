@@ -148,7 +148,8 @@ def test_update_params():
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
 @pytest.mark.parametrize("init", ["shape", "kwargs"])
-def test_random_module_mcmc(backend, init):
+@pytest.mark.parametrize("callable_prior", [True, False])
+def test_random_module_mcmc(backend, init, callable_prior):
 
     if backend == "flax":
         import flax
@@ -179,13 +180,15 @@ def test_random_module_mcmc(backend, init):
     elif init == "kwargs":
         kwargs = {kwargs_name: data}
 
-    def model(data, labels):
-        nn = random_module(
-            "nn",
-            linear_module,
-            {bias_name: dist.Cauchy(), weight_name: dist.Normal()},
-            **kwargs
+    if callable_prior:
+        prior = (
+            lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
         )
+    else:
+        prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
+
+    def model(data, labels):
+        nn = random_module("nn", linear_module, prior=prior, **kwargs)
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 

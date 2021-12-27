@@ -88,7 +88,7 @@ init_to_value
 Tensor Indexing
 ---------------
 
-.. automodule:: numpyro.contrib.indexing
+.. automodule:: numpyro.ops.indexing
     :members:
     :undoc-members:
     :show-inheritance:
