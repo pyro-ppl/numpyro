@@ -65,27 +65,27 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
 
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
-    auto_guide = (
+    inner_guide = (
         auto_class(model, init_loc_fn=init_loc_fn())
         if auto_class is not None
         else guide
     )
 
-    with handlers.seed(rng_seed=1), handlers.trace() as auto_guide_tr:
-        auto_guide(obs)
+    with handlers.seed(rng_seed=1), handlers.trace() as inner_guide_tr:
+        inner_guide(obs)
 
     # Corresponds to current procedure in `SteinVI.init`
-    wrapped_guide = WrappedGuide(auto_guide, init_loc_fn=init_loc_fn())
+    wrapped_guide = WrappedGuide(inner_guide, init_strategy=init_loc_fn())
     rng_keys = random.split(random.PRNGKey(2), num_particles)
     wrapped_guide.find_params(rng_keys, obs)
     init_params = wrapped_guide.init_params()
 
     for name, (init_value, constraint) in init_params.items():
-        assert name in auto_guide_tr
-        auto_param = auto_guide_tr[name]
-        assert init_value.shape == (num_particles, *auto_param["value"].shape)
+        assert name in inner_guide_tr
+        inner_param = inner_guide_tr[name]
+        assert init_value.shape == (num_particles, *inner_param["value"].shape)
 
-        if "constraint" in auto_param["kwargs"]:
-            assert constraint == auto_param["kwargs"]["constraint"]
+        if "constraint" in inner_param["kwargs"]:
+            assert constraint == inner_param["kwargs"]["constraint"]
         else:
             constraint == _Real()
