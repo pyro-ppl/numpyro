@@ -10,7 +10,13 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein.reinit_guide import WrappedGuide
 from numpyro.distributions import Bernoulli, Normal
-from numpyro.distributions.constraints import _Real, softplus_positive
+from numpyro.distributions.constraints import (
+    circular,
+    interval,
+    positive,
+    real,
+    softplus_positive,
+)
 from numpyro.infer import (
     init_to_feasible,
     init_to_median,
@@ -83,9 +89,40 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
     for name, (init_value, constraint) in init_params.items():
         assert name in inner_guide_tr
         inner_param = inner_guide_tr[name]
-        assert init_value.shape == (num_particles, *inner_param["value"].shape)
+        assert init_value.shape == (num_particles, *jnp.shape(inner_param["value"]))
 
         if "constraint" in inner_param["kwargs"]:
             assert constraint == inner_param["kwargs"]["constraint"]
         else:
-            constraint == _Real()
+            constraint == real
+
+
+def test_reinit_hide_fn():
+    num_particles = 5
+    hide_params = ["b", "c"]
+
+    def guide():
+        numpyro.param("a", 0, constraint=interval(0, 1.0))
+        numpyro.param("b", 0, constraint=circular)
+        numpyro.param("c", 0, constraint=positive)
+
+    with handlers.seed(rng_seed=1), handlers.trace() as guide_tr:
+        guide()
+
+    WrappedGuide(
+        guide,
+    )
+    wrapped_guide = WrappedGuide(
+        guide, reinit_hide_fn=lambda site: site["name"] in hide_params
+    )
+    rng_keys = random.split(random.PRNGKey(0), num_particles)
+    wrapped_guide.find_params(
+        rng_keys,
+    )
+    init_params = wrapped_guide.init_params()
+
+    for name, (init_value, constraint) in init_params.items():
+        assert name in guide_tr
+        inner_param = guide_tr[name]
+        assert init_value.shape == (num_particles, *jnp.shape(inner_param["value"]))
+        assert inner_param["kwargs"]["constraint"] == constraint
