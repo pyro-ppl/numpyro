@@ -27,11 +27,11 @@ class WrappedGuide(ReinitGuide):
         self,
         fn,
         reinit_hide_fn=lambda site: site["name"].endswith("$params"),
-        init_strategy=init_to_uniform,
+        init_loc_fn=init_to_uniform,
     ):
         self.fn = fn
         self._init_params = None
-        self.init_strategy = init_strategy(
+        self.init_loc_fn = init_loc_fn(
             reinit_param=lambda site: not reinit_hide_fn(site)
         )
         self._reinit_hide_fn = reinit_hide_fn
@@ -54,7 +54,7 @@ class WrappedGuide(ReinitGuide):
                 if site["type"] == "param" and not self._reinit_hide_fn(site):
                     site_key, rng_key = jax.random.split(site_key)
                     site["kwargs"]["rng_key"] = rng_key
-                    params[site["name"]] = self.init_strategy(
+                    params[site["name"]] = self.init_loc_fn(
                         site, reinit_param=lambda _: True
                     )
             return params
