@@ -11,6 +11,7 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
+from numpyro.distributions.distribution import Distribution
 from numpyro.util import identity
 
 _PYRO_STACK = []
@@ -501,7 +502,8 @@ class plate(Messenger):
         cond_indep_stack = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        if msg["type"] == "sample":
+        # only expand if fn is Distribution, not a Funsor
+        if msg['type'] == 'sample' and isinstance(msg['fn'], Distribution):
             expected_shape = self._get_batch_shape(cond_indep_stack)
             dist_batch_shape = msg["fn"].batch_shape
             if "sample_shape" in msg["kwargs"]:
