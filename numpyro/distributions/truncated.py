@@ -365,13 +365,13 @@ def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
         )
 
 
-def TruncatedCauchy(*, loc=0.0, scale=1.0, low=None, high=None, validate_args=None):
+def TruncatedCauchy(loc=0.0, scale=1.0, *, low=None, high=None, validate_args=None):
     return TruncatedDistribution(
         Cauchy(loc, scale), low=low, high=high, validate_args=validate_args
     )
 
 
-def TruncatedNormal(*, loc=0.0, scale=1.0, low=None, high=None, validate_args=None):
+def TruncatedNormal(loc=0.0, scale=1.0, *, low=None, high=None, validate_args=None):
     return TruncatedDistribution(
         Normal(loc, scale), low=low, high=high, validate_args=validate_args
     )
