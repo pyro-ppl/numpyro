@@ -18,7 +18,7 @@ from numpyro.distributions import (
     kl_divergence,
 )
 from numpyro.distributions.transforms import Transform, biject_to
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def _get_codomain(bijector):
@@ -134,6 +134,7 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "deprecated. You should import distributions directly from "
                 "tensorflow_probability.substrates.jax.distributions instead.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
             self.tfp_dist = tfd_class(*args, **kwargs)
 

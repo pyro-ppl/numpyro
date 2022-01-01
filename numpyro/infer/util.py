@@ -22,7 +22,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
-from numpyro.util import not_jax_tracer, soft_vmap, while_loop
+from numpyro.util import find_stack_level, not_jax_tracer, soft_vmap, while_loop
 
 __all__ = [
     "find_valid_initial_params",
@@ -426,6 +426,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                         " enumerated sites need to be marked with"
                         " `infer={'enumerate': 'parallel'}`.",
                         FutureWarning,
+                        stacklevel=find_stack_level(),
                     )
             else:
                 support = v["fn"].support
@@ -886,6 +887,7 @@ class Predictive(object):
                             batch_size, num_samples, batch_size
                         ),
                         UserWarning,
+                        stacklevel=find_stack_level(),
                     )
                 num_samples = batch_size
 
@@ -1036,7 +1038,7 @@ def helpful_support_errors(site, raise_warnings=False):
                 + "a reparameterizer, e.g. "
                 + f"numpyro.handlers.reparam(config={{'{name}': CircularReparam()}})."
             )
-            warnings.warn(msg, UserWarning)
+            warnings.warn(msg, UserWarning, stacklevel=find_stack_level())
 
     # Exceptions
     try:
