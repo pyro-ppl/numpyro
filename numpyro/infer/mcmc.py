@@ -16,7 +16,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import print_summary
-from numpyro.util import cached_by, fori_collect, identity
+from numpyro.util import cached_by, find_stack_level, fori_collect, identity
 
 __all__ = [
     "MCMCKernel",
@@ -304,7 +304,8 @@ class MCMC(object):
                 " of your program. You can double-check how many devices are available in"
                 " your system using `jax.local_device_count()`.".format(
                     self.num_chains, local_device_count(), self.num_chains
-                )
+                ),
+                stacklevel=find_stack_level(),
             )
         self.chain_method = chain_method
         self.progress_bar = progress_bar
