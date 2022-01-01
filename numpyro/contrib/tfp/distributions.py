@@ -163,6 +163,13 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "loc": constraints.real,
                 "scale": constraints.positive,
             }
+        elif tfd_class is tfd.TruncatedCauchy:
+            _PyroDist.arg_constraints = {
+                "low": constraints.real,
+                "high": constraints.real,
+                "loc": constraints.real,
+                "scale": constraints.positive,
+            }
         else:
             if hasattr(numpyro_dist, tfd_class_name):
                 numpyro_dist_class = getattr(numpyro_dist, tfd_class_name)
