@@ -81,7 +81,9 @@ def holt_winters(y, n_seasons, future=0):
     noise = numpyro.sample("noise", dist.HalfNormal(1))
     level_init = numpyro.sample("level_init", dist.Normal(0, 1))
     trend_init = numpyro.sample("trend_init", dist.Normal(0, 1))
-    seasonality_init = numpyro.sample("seasonality_init", dist.Normal(0, 1).expand([n_seasons]))
+    seasonality_init = numpyro.sample(
+        "seasonality_init", dist.Normal(0, 1).expand([n_seasons])
+    )
 
     def transition_fn(carry, t):
         previous_level, previous_trend, previous_seasonality = carry
@@ -93,7 +95,8 @@ def holt_winters(y, n_seasons, future=0):
         )
         trend = jnp.where(
             t < T,
-            trend_smoothing * (level - previous_level) + (1 - trend_smoothing) * previous_trend,
+            trend_smoothing * (level - previous_level)
+            + (1 - trend_smoothing) * previous_trend,
             previous_trend,
         )
         new_season = jnp.where(
@@ -106,12 +109,16 @@ def holt_winters(y, n_seasons, future=0):
         mu = previous_level + step * previous_trend + previous_seasonality[0]
         pred = numpyro.sample("pred", dist.Normal(mu, noise))
 
-        seasonality = jnp.concatenate([previous_seasonality[1:], new_season[None]], axis=0)
+        seasonality = jnp.concatenate(
+            [previous_seasonality[1:], new_season[None]], axis=0
+        )
         return (level, trend, seasonality), pred
 
     with numpyro.handlers.condition(data={"pred": y}):
         _, preds = scan(
-            transition_fn, (level_init, trend_init, seasonality_init), jnp.arange(T + future)
+            transition_fn,
+            (level_init, trend_init, seasonality_init),
+            jnp.arange(T + future),
         )
 
     if future > 0:
