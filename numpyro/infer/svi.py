@@ -8,7 +8,7 @@ import tqdm
 
 import jax
 
-from numpyro.util import _versiontuple
+from numpyro.util import _versiontuple, find_stack_level
 
 if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import optimizers
@@ -204,7 +204,8 @@ class SVI(object):
             ):
                 s_name = type(self.loss).__name__
                 warnings.warn(
-                    f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
+                    f"Currently, SVI with {s_name} loss does not support models with discrete latent variables",
+                    stacklevel=find_stack_level(),
                 )
 
         if not mutable_state:
