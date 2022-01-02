@@ -75,15 +75,13 @@ def holt_winters(y, n_seasons, future=0):
     T = y.shape[0]
     level_smoothing = numpyro.sample("level_smoothing", dist.Beta(1, 1))
     trend_smoothing = numpyro.sample("trend_smoothing", dist.Beta(1, 1))
-    seasonality_smoothing = numpyro.sample(
-        "seasonality_smoothing", dist.Uniform(0, 1 - level_smoothing)
-    )
+    seasonality_smoothing = numpyro.sample("seasonality_smoothing", dist.Beta(1, 1))
+    adj_seasonality_smoothing = seasonality_smoothing * (1 - level_smoothing)
     noise = numpyro.sample("noise", dist.HalfNormal(1))
     level_init = numpyro.sample("level_init", dist.Normal(0, 1))
     trend_init = numpyro.sample("trend_init", dist.Normal(0, 1))
-    seasonality_init = numpyro.sample(
-        "seasonality_init", dist.Normal(0, 1).expand([n_seasons])
-    )
+    with numpyro.plate("n_seasons", n_seasons):
+        seasonality_init = numpyro.sample("seasonality_init", dist.Normal(0, 1))
 
     def transition_fn(carry, t):
         previous_level, previous_trend, previous_seasonality = carry
@@ -101,8 +99,8 @@ def holt_winters(y, n_seasons, future=0):
         )
         new_season = jnp.where(
             t < T,
-            seasonality_smoothing * (y[t] - previous_level - previous_trend)
-            + (1 - seasonality_smoothing) * previous_seasonality[0],
+            adj_seasonality_smoothing * (y[t] - (previous_level + previous_trend))
+            + (1 - adj_seasonality_smoothing) * previous_seasonality[0],
             previous_seasonality[0],
         )
         step = jnp.where(t < T, 1, t - T + 1)
