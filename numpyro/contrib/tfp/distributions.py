@@ -4,6 +4,7 @@
 from functools import lru_cache
 import warnings
 
+from multipledispatch import dispatch
 import numpy as np
 
 import jax
@@ -11,7 +12,11 @@ import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
 
 import numpyro.distributions as numpyro_dist
-from numpyro.distributions import Distribution as NumPyroDistribution, constraints
+from numpyro.distributions import (
+    Distribution as NumPyroDistribution,
+    constraints,
+    kl_divergence,
+)
 from numpyro.distributions.transforms import Transform, biject_to
 from numpyro.util import find_stack_level, not_jax_tracer
 
@@ -268,6 +273,11 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             return TFPDistribution[fn.__class__](**fn.parameters)
+
+
+@dispatch(TFPDistribution, TFPDistribution)
+def kl_divergence(p, q):  # noqa: F811
+    return tfd.kl_divergence(p.tfp_dist, q.tfp_dist)
 
 
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]
