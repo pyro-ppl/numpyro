@@ -14,9 +14,11 @@ The idea is that we have some times series
 
 .. math::
 
-    y_1, ..., y_T, y_{T+1}, ..., y_{T+h}
+    y_1, ..., y_T, y_{T+1}, ..., y_{T+H}
 
-where we train on :math:`y_1, ..., y_T` and predict for :math:`y_{T+1}, ..., y_{T+h}`.
+where we train on :math:`y_1, ..., y_T` and predict for :math:`y_{T+1}, ..., y_{T+H}`,
+where :math:`T` is the maximum training timestamp and :math:`H` is the maximum number of
+future timesteps for which we want to forecast.
 
 We will be using the update equations from the excellent book
 `Forecasting Principles and Practice <https://otexts.com/fpp3/holt-winters.html>`_:
@@ -33,11 +35,14 @@ We will be using the update equations from the excellent book
 
 where
 
+* :math:`\hat{y}_t` is the forecast at time :math:`t`;
+* :math:`h` is the number of time steps into the future which we want to predict for;
 * :math:`l_t` is the level, :math:`b_t` is the trend,
   and :math:`s_t` is the seasonality,
 * :math:`\alpha` is the level smoothing, :math:`\beta^*` is the trend
-  smoothing, and :math:`\gamma` is the seasonality smoothing,
-* :math:`h` is the number of time steps into the future which we want to predict for.
+  smoothing, and :math:`\gamma` is the seasonality smoothing.
+* :math:`k` is the integer part of :math:`(h-1)/m` (this looks more complicated than it is,
+  it just takes the latest seasonality estimate for this time point).
 
 .. image:: ../_static/img/examples/holt_winters.png
     :align: center
@@ -66,54 +71,54 @@ matplotlib.use("Agg")
 N_POINTS_PER_UNIT = 10  # number of points to plot for each unit interval
 
 
-def holt_winters(y, seasonality, future=0):
+def holt_winters(y, n_seasons, future=0):
     T = y.shape[0]
     level_smoothing = numpyro.sample("level_smoothing", dist.Beta(1, 1))
     trend_smoothing = numpyro.sample("trend_smoothing", dist.Beta(1, 1))
-    season_smoothing = numpyro.sample(
+    seasonality_smoothing = numpyro.sample(
         "seasonality_smoothing", dist.Uniform(0, 1 - level_smoothing)
     )
     noise = numpyro.sample("noise", dist.HalfNormal(1))
     level_init = numpyro.sample("level_init", dist.Normal(0, 1))
     trend_init = numpyro.sample("trend_init", dist.Normal(0, 1))
-    season_init = numpyro.sample("season_init", dist.Normal(0, 1).expand([seasonality]))
+    seasonality_init = numpyro.sample("seasonality_init", dist.Normal(0, 1).expand([n_seasons]))
 
     def transition_fn(carry, t):
-        level_1, trend_1, season = carry
+        previous_level, previous_trend, previous_seasonality = carry
         level = jnp.where(
             t < T,
-            level_smoothing * (y[t] - season[0])
-            + (1 - level_smoothing) * (level_1 + trend_1),
-            level_1,
+            level_smoothing * (y[t] - previous_seasonality[0])
+            + (1 - level_smoothing) * (previous_level + previous_trend),
+            previous_level,
         )
         trend = jnp.where(
             t < T,
-            trend_smoothing * (level - level_1) + (1 - trend_smoothing) * trend_1,
-            trend_1,
+            trend_smoothing * (level - previous_level) + (1 - trend_smoothing) * previous_trend,
+            previous_trend,
         )
-        newseason = jnp.where(
+        new_season = jnp.where(
             t < T,
-            season_smoothing * (y[t] - level_1 - trend_1)
-            + (1 - season_smoothing) * season[0],
-            season[0],
+            seasonality_smoothing * (y[t] - previous_level - previous_trend)
+            + (1 - seasonality_smoothing) * previous_seasonality[0],
+            previous_seasonality[0],
         )
         step = jnp.where(t < T, 1, t - T + 1)
-        mu = level_1 + step * trend_1 + season[0]
+        mu = previous_level + step * previous_trend + previous_seasonality[0]
         pred = numpyro.sample("pred", dist.Normal(mu, noise))
 
-        season = jnp.concatenate([season[1:], newseason[None]], axis=0)
-        return (level, trend, season), pred
+        seasonality = jnp.concatenate([previous_seasonality[1:], new_season[None]], axis=0)
+        return (level, trend, seasonality), pred
 
     with numpyro.handlers.condition(data={"pred": y}):
         _, preds = scan(
-            transition_fn, (level_init, trend_init, season_init), jnp.arange(T + future)
+            transition_fn, (level_init, trend_init, seasonality_init), jnp.arange(T + future)
         )
 
     if future > 0:
         numpyro.deterministic("y_forecast", preds[-future:])
 
 
-def run_inference(model, args, rng_key, y, seasonality):
+def run_inference(model, args, rng_key, y, n_seasons):
     start = time.time()
     sampler = NUTS(model)
     mcmc = MCMC(
@@ -123,16 +128,16 @@ def run_inference(model, args, rng_key, y, seasonality):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(rng_key, y=y, seasonality=seasonality)
+    mcmc.run(rng_key, y=y, n_seasons=n_seasons)
     mcmc.print_summary()
     print("\nMCMC elapsed time:", time.time() - start)
     return mcmc.get_samples()
 
 
-def predict(model, args, samples, rng_key, y, seasonality):
+def predict(model, args, samples, rng_key, y, n_seasons):
     predictive = Predictive(model, samples, return_sites=["y_forecast"])
     return predictive(
-        rng_key, y=y, seasonality=seasonality, future=args.future * N_POINTS_PER_UNIT
+        rng_key, y=y, n_seasons=n_seasons, future=args.future * N_POINTS_PER_UNIT
     )["y_forecast"]
 
 
@@ -142,17 +147,17 @@ def main(args):
     T = args.T
     t = jnp.linspace(0, T + args.future, (T + args.future) * N_POINTS_PER_UNIT)
     y = jnp.sin(2 * np.pi * t) + 0.3 * t + jax.random.normal(rng_key, t.shape) * 0.1
-    seasonality = N_POINTS_PER_UNIT
+    n_seasons = N_POINTS_PER_UNIT
     y_train = y[: -args.future * N_POINTS_PER_UNIT]
     t_test = t[-args.future * N_POINTS_PER_UNIT :]
 
     # do inference
     rng_key, _ = random.split(random.PRNGKey(1))
-    samples = run_inference(holt_winters, args, rng_key, y_train, seasonality)
+    samples = run_inference(holt_winters, args, rng_key, y_train, n_seasons)
 
     # do prediction
     rng_key, _ = random.split(random.PRNGKey(2))
-    preds = predict(holt_winters, args, samples, rng_key, y_train, seasonality)
+    preds = predict(holt_winters, args, samples, rng_key, y_train, n_seasons)
     mean_preds = preds.mean(axis=0)
     hpdi_preds = hpdi(preds)
 
