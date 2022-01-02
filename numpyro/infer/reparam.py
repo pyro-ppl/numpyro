@@ -187,7 +187,7 @@ class NeuTraReparam(Reparam):
     """
     Neural Transport reparameterizer [1] of multiple latent variables.
 
-    This uses a trained :class:`~pyro.contrib.autoguide.AutoContinuous`
+    This uses a trained :class:`~numpyro.infer.autoguide.AutoContinuous`
     guide to alter the geometry of a model, typically for use e.g. in MCMC.
     Example usage::
 

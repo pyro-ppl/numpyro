@@ -160,6 +160,11 @@ class AbsTransform(Transform):
         return jnp.abs(x)
 
     def _inverse(self, y):
+        warnings.warn(
+            "AbsTransform is not a bijective transform."
+            " The inverse of `y` will be `y`.",
+            stacklevel=find_stack_level(),
+        )
         return y
 
 
