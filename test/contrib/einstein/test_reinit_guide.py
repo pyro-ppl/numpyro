@@ -103,7 +103,7 @@ def test_reinit_hide_fn():
 
     def guide():
         numpyro.param("a", 0, constraint=interval(0, 1.0))
-        numpyro.param("b", 0, constraint=circular)
+        numpyro.param("b", lambda rng_key: Normal(0, .1), constraint=circular)
         numpyro.param("c", 0, constraint=positive)
 
     with handlers.seed(rng_seed=1), handlers.trace() as guide_tr:
