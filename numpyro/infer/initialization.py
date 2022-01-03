@@ -11,8 +11,9 @@ from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import (
     ComposeTransform,
     IdentityTransform,
-    biject_to,
 )
+from numpyro.distributions import biject_to
+from numpyro.util import find_stack_level
 
 
 def init_to_median(site=None, num_samples=15):
@@ -33,6 +34,7 @@ def init_to_median(site=None, num_samples=15):
             warnings.warn(
                 f"init_to_median() skipping initialization of site '{site['name']}'"
                 " which already stores a value.",
+                stacklevel=find_stack_level(),
             )
             return site["value"]
 
@@ -72,6 +74,7 @@ def init_to_uniform(site=None, radius=2):
             warnings.warn(
                 f"init_to_uniform() skipping initialization of site '{site['name']}'"
                 " which already stores a value.",
+                stacklevel=find_stack_level(),
             )
             return site["value"]
 
