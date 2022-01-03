@@ -1,9 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from numpy.testing import assert_array_equal
 import pytest
 
-from jax import random
+from jax import random, vmap
 import jax.numpy as jnp
 
 import numpyro
@@ -99,30 +100,45 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
 
 def test_reinit_hide_fn():
     num_particles = 5
-    hide_params = ["b", "c"]
+    const_params = ["a", "c"]
 
     def guide():
         numpyro.param("a", 0, constraint=interval(0, 1.0))
-        numpyro.param("b", lambda rng_key: Normal(0, .1), constraint=circular)
+        numpyro.param(
+            "b", lambda rng_key: Normal(0, 0.1).sample(rng_key), constraint=circular
+        )
         numpyro.param("c", 0, constraint=positive)
 
-    with handlers.seed(rng_seed=1), handlers.trace() as guide_tr:
+    # SteinVI logic
+    rng_key = random.PRNGKey(0)
+    guide_key, particle_key = random.split(rng_key)
+
+    with handlers.seed(rng_seed=guide_key), handlers.trace() as guide_tr:
         guide()
 
-    WrappedGuide(
-        guide,
-    )
-    wrapped_guide = WrappedGuide(
-        guide, reinit_hide_fn=lambda site: site["name"] in hide_params
-    )
-    rng_keys = random.split(random.PRNGKey(0), num_particles)
-    wrapped_guide.find_params(
-        rng_keys,
-    )
-    init_params = wrapped_guide.init_params()
+    init_params = {}
+    for name, site in guide_tr.items():
+        if site["type"] == "param":
+            site_value = site["value"]
+            if callable(site_value):
+                site_key, particle_key = random.split(particle_key)
+                keys = random.split(site_key, num_particles).reshape((num_particles, 2))
+                init_value = vmap(site["value"])(keys)
+            else:
+                init_value = jnp.full(
+                    (num_particles, *jnp.shape(site_value)), site_value
+                )
+            constraint = site["kwargs"].get("constraint", real)
+
+            init_params[name] = (init_value, constraint)
 
     for name, (init_value, constraint) in init_params.items():
         assert name in guide_tr
         inner_param = guide_tr[name]
         assert init_value.shape == (num_particles, *jnp.shape(inner_param["value"]))
+        if name in const_params:
+            assert_array_equal(init_value, jnp.zeros(num_particles))
+        else:
+            assert jnp.alltrue(init_value != jnp.zeros(num_particles))
+
         assert inner_param["kwargs"]["constraint"] == constraint

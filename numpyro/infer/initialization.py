@@ -7,12 +7,9 @@ import warnings
 import jax.numpy as jnp
 
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import real
-from numpyro.distributions.transforms import (
-    ComposeTransform,
-    IdentityTransform,
-)
 from numpyro.distributions import biject_to
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, IdentityTransform
 from numpyro.util import find_stack_level
 
 
@@ -100,6 +97,7 @@ def init_to_feasible(site=None):
     """
     return init_to_uniform(site, radius=0)
 
+
 def init_to_value(site=None, values={}):
     """
     Initialize to the value specified in `values`. We defer to
@@ -114,6 +112,7 @@ def init_to_value(site=None, values={}):
             return values[site["name"]]
         else:  # defer to default strategy
             return init_to_uniform(site)
+
 
 def get_parameter_transform(site):
     constraint = site["kwargs"].get("constraint", real)
