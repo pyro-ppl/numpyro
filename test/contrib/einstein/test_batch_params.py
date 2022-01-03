@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from copy import copy
+
 from numpy.testing import assert_array_equal
 import pytest
 
@@ -9,15 +11,8 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.einstein.reinit_guide import WrappedGuide
-from numpyro.distributions import Bernoulli, Normal
-from numpyro.distributions.constraints import (
-    circular,
-    interval,
-    positive,
-    real,
-    softplus_positive,
-)
+from numpyro.distributions import Bernoulli, Normal, biject_to
+from numpyro.distributions.constraints import circular, interval, positive, real
 from numpyro.infer import (
     init_to_feasible,
     init_to_median,
@@ -27,6 +22,7 @@ from numpyro.infer import (
 from numpyro.infer.autoguide import (
     AutoDelta,
     AutoDiagonalNormal,
+    AutoGuide,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
@@ -38,21 +34,20 @@ from numpyro.infer.autoguide import (
     "auto_class",
     [
         AutoMultivariateNormal,
-        AutoLaplaceApproximation,
-        AutoLowRankMultivariateNormal,
         AutoNormal,
+        AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation,
         AutoDelta,
         AutoDiagonalNormal,
-        None,
     ],
 )
 @pytest.mark.parametrize(
     "init_loc_fn",
     [
+        init_to_uniform,
         init_to_feasible,
         init_to_median,
         init_to_sample,
-        init_to_uniform,
     ],
 )
 @pytest.mark.parametrize("num_particles", [1, 2, 10])
@@ -63,29 +58,40 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
         a = numpyro.sample("a", Normal(0, 1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
-    def guide(obs):
-        loc_param = numpyro.param("loc_param", jnp.zeros(latent_dim))
-        scale_param = numpyro.param(
-            "scale_param", jnp.full(latent_dim, 0.1), constraint=softplus_positive
-        )
-        numpyro.sample("a", Normal(loc_param, scale_param))
-
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
-    inner_guide = (
-        auto_class(model, init_loc_fn=init_loc_fn())
-        if auto_class is not None
-        else guide
-    )
+    inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
 
-    with handlers.seed(rng_seed=1), handlers.trace() as inner_guide_tr:
+    assert isinstance(inner_guide, AutoGuide)  # branch conditional
+    rng_key = random.PRNGKey(0)
+    guide_key, particle_key = random.split(rng_key)
+
+    with handlers.seed(rng_seed=guide_key), handlers.trace() as inner_guide_tr:
         inner_guide(obs)
 
     # Corresponds to current procedure in `SteinVI.init`
-    wrapped_guide = WrappedGuide(inner_guide, init_strategy=init_loc_fn())
-    rng_keys = random.split(random.PRNGKey(2), num_particles)
-    wrapped_guide.find_params(rng_keys, obs)
-    init_params = wrapped_guide.init_params()
+    init_params = {}
+    for name, site in inner_guide_tr.items():
+        site = copy(site)
+        constraint = site["kwargs"].get("constraint", real)
+        if site["type"] == "param":
+            site_value = site["value"]
+            site_shape = jnp.shape(site_value)
+            if (
+                isinstance(inner_guide, AutoGuide)
+                and "_".join((inner_guide.prefix, "loc")) in name
+            ):
+                site_key, particle_key = random.split(particle_key)
+                unconst_value = site_value[None, ...] + Normal(  # Add gaussian noise
+                    scale=0.1
+                ).sample(particle_key, (num_particles, *site_shape))
+                init_value = biject_to(constraint)(unconst_value)
+            else:
+                init_value = jnp.full(
+                    (num_particles, *jnp.shape(site_value)), site_value
+                )
+
+            init_params[name] = (init_value, constraint)
 
     for name, (init_value, constraint) in init_params.items():
         assert name in inner_guide_tr
