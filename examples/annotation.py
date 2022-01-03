@@ -332,6 +332,24 @@ def main(args):
         print(row_format.format(f"item[{i}]", *row))
 
 
+# %%
+# .. note::
+#     In the above inference code, we marginalized the discrete latent variables `c`
+#     hence `mcmc.get_samples(...)` does not include samples of `c`. We then utilize
+#     `Predictive(..., infer_discrete=True)` to get posterior samples for `c`, which
+#     is stored in `discrete_samples`. To merge those discrete samples into the `mcmc`
+#     instance, we can use the following pattern::
+#
+#         chain_discrete_samples = jax.tree_util.tree_map(
+#             lambda x: x.reshape((args.num_chains, args.num_samples) + x.shape[1:]),
+#             discrete_samples)
+#         mcmc.get_samples().update(discrete_samples)
+#         mcmc.get_samples(group_by_chain=True).update(chain_discrete_samples)
+#
+#     This is useful when we want to pass the `mcmc` instance to `arviz` through
+#     `arviz.from_numpyro(mcmc)`.
+
+
 if __name__ == "__main__":
     assert numpyro.__version__.startswith("0.8.0")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
