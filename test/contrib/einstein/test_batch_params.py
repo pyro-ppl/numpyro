@@ -39,6 +39,7 @@ from numpyro.infer.autoguide import (
         AutoLaplaceApproximation,
         AutoDelta,
         AutoDiagonalNormal,
+        None,
     ],
 )
 @pytest.mark.parametrize(
@@ -58,11 +59,20 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
         a = numpyro.sample("a", Normal(0, 1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
+    def guide(obs):
+        numpyro.param("a", 0, constraint=interval(0, 1.0))
+        numpyro.param(
+            "b", lambda rng_key: Normal(0, 0.1).sample(rng_key), constraint=circular
+        )
+        numpyro.param("c", 0, constraint=positive)
+
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
-    inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
+    if auto_class is None:
+        inner_guide = guide
+    else:
+        inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
 
-    assert isinstance(inner_guide, AutoGuide)  # branch conditional
     rng_key = random.PRNGKey(0)
     guide_key, particle_key = random.split(rng_key)
 
@@ -82,10 +92,15 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                 and "_".join((inner_guide.prefix, "loc")) in name
             ):
                 site_key, particle_key = random.split(particle_key)
-                unconst_value = site_value[None, ...] + Normal(  # Add gaussian noise
+                init_value = site_value[None, ...] + Normal(  # Add gaussian noise
                     scale=0.1
                 ).sample(particle_key, (num_particles, *site_shape))
-                init_value = biject_to(constraint)(unconst_value)
+                init_value = biject_to(constraint)(init_value)
+            elif callable(site_value):  # param(name, lambda rng_key: ...)
+                site_key, particle_key = random.split(particle_key)
+                keys = random.split(site_key, num_particles).reshape((num_particles, 2))
+                init_value = vmap(site["value"])(keys)
+                init_value = biject_to(constraint)(init_value)
             else:
                 init_value = jnp.full(
                     (num_particles, *jnp.shape(site_value)), site_value
@@ -96,55 +111,16 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
     for name, (init_value, constraint) in init_params.items():
         assert name in inner_guide_tr
         inner_param = inner_guide_tr[name]
-        assert init_value.shape == (num_particles, *jnp.shape(inner_param["value"]))
+        expected_shape = (num_particles, *jnp.shape(inner_param["value"]))
+        assert init_value.shape == expected_shape
+        if "auto_loc" in name or name == "b":
+            assert jnp.alltrue(init_value != jnp.zeros(expected_shape))
+        elif "scale" in name:
+            assert_array_equal(init_value, jnp.full(expected_shape, 0.1))
+        else:
+            assert_array_equal(init_value, jnp.zeros(expected_shape))
 
         if "constraint" in inner_param["kwargs"]:
             assert constraint == inner_param["kwargs"]["constraint"]
         else:
             constraint == real
-
-
-def test_reinit_hide_fn():
-    num_particles = 5
-    const_params = ["a", "c"]
-
-    def guide():
-        numpyro.param("a", 0, constraint=interval(0, 1.0))
-        numpyro.param(
-            "b", lambda rng_key: Normal(0, 0.1).sample(rng_key), constraint=circular
-        )
-        numpyro.param("c", 0, constraint=positive)
-
-    # SteinVI logic
-    rng_key = random.PRNGKey(0)
-    guide_key, particle_key = random.split(rng_key)
-
-    with handlers.seed(rng_seed=guide_key), handlers.trace() as guide_tr:
-        guide()
-
-    init_params = {}
-    for name, site in guide_tr.items():
-        if site["type"] == "param":
-            site_value = site["value"]
-            if callable(site_value):
-                site_key, particle_key = random.split(particle_key)
-                keys = random.split(site_key, num_particles).reshape((num_particles, 2))
-                init_value = vmap(site["value"])(keys)
-            else:
-                init_value = jnp.full(
-                    (num_particles, *jnp.shape(site_value)), site_value
-                )
-            constraint = site["kwargs"].get("constraint", real)
-
-            init_params[name] = (init_value, constraint)
-
-    for name, (init_value, constraint) in init_params.items():
-        assert name in guide_tr
-        inner_param = guide_tr[name]
-        assert init_value.shape == (num_particles, *jnp.shape(inner_param["value"]))
-        if name in const_params:
-            assert_array_equal(init_value, jnp.zeros(num_particles))
-        else:
-            assert jnp.alltrue(init_value != jnp.zeros(num_particles))
-
-        assert inner_param["kwargs"]["constraint"] == constraint
