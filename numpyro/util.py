@@ -330,7 +330,8 @@ def fori_collect(
         )
         return val, collection, start_idx, thinning
 
-    collection = jnp.zeros((collection_size,) + init_val_flat.shape)
+    collection = jnp.zeros((collection_size,) + init_val_flat.shape,
+                           dtype=init_val_flat.dtype)
     if not progbar:
         last_val, collection, _, _ = fori_loop(
             0, upper, _body_fn, (init_val, collection, start_idx, thinning)

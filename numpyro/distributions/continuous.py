@@ -27,7 +27,7 @@
 
 
 from jax import lax
-from jax._src.scipy.special import gammainc
+from jax.scipy.special import gammainc
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
