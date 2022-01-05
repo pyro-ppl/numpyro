@@ -749,7 +749,7 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
-        assert enable_subsampling in (True, False, 'stochastic')
+        assert enable_subsampling in (True, False, "stochastic")
         self._enable_subsampling = enable_subsampling
         self.fixed_eta = fixed_eta
         super().__init__(
@@ -776,7 +776,7 @@ class AutoDAIS(AutoContinuous):
     def _sample_latent(self, *args, **kwargs):
         if self._enable_subsampling:
             rng_key = numpyro.prng_key()
-            if self._enable_subsampling == 'stochastic':
+            if self._enable_subsampling == "stochastic":
                 # split the key
                 rng_keys = random.split(rng_key, self.K)
             else:
@@ -793,7 +793,7 @@ class AutoDAIS(AutoContinuous):
                     plates = self._create_plates(*args, **kwargs)
                 plate_data = {k: v._indices for k, v in plates.items()}
                 with handlers.block(), handlers.substitute(data=plate_data):
-                    return -self._potential_fn_gen(*args, **kwargs)
+                    return -self._potential_fn_gen(*args, **kwargs)(x_unpack)
             else:
                 with handlers.block():
                     return -self._potential_fn(x_unpack)
@@ -884,7 +884,8 @@ class AutoDAIS(AutoContinuous):
 
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
         (z, _, log_factor), _ = jax.lax.scan(
-            scan_body, (z_0, v_0, 0.0), (eps, betas, rng_keys))
+            scan_body, (z_0, v_0, 0.0), (eps, betas, rng_keys)
+        )
 
         numpyro.factor("{}_factor".format(self.prefix), log_factor)
 
