@@ -675,7 +675,7 @@ class AutoDAIS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
-        enable_subsampling=False,
+        enable_subsampling=False,  # 'stochastic'
         create_plates=None,
         fixed_eta=False,
     ):
@@ -700,6 +700,7 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
+        assert enable_subsampling in (True, False, 'stochastic')
         self._enable_subsampling = enable_subsampling
         self.fixed_eta = fixed_eta
         super().__init__(
@@ -726,18 +727,27 @@ class AutoDAIS(AutoContinuous):
     def _sample_latent(self, *args, **kwargs):
         if self._enable_subsampling:
             rng_key = numpyro.prng_key()
-            with handlers.block(), handlers.seed(rng_seed=rng_key):
-                plates = self._create_plates(*args, **kwargs)
-            plate_data = {k: v._indices for k, v in plates.items()}
-            potential_fn = self._potential_fn_gen(*args, **kwargs)
+            if self._enable_subsampling == 'stochastic':
+                # split the key
+                rng_keys = random.split(rng_key, self.K)
+            else:
+                # repeat the key
+                rng_keys = jnp.broadcast_to(rng_key, (self.K, 2))
+            assert rng_keys.shape == (self.K, 2)
         else:
-            plate_data = {}
-            potential_fn = self._potential_fn
+            rng_keys = None
 
-        def log_density(x):
+        def log_density(x, rng_key):
             x_unpack = self._unpack_latent(x)
-            with handlers.block(), handlers.substitute(data=plate_data):
-                return -potential_fn(x_unpack)
+            if rng_key is not None:
+                with handlers.block(), handlers.seed(rng_seed=rng_key):
+                    plates = self._create_plates(*args, **kwargs)
+                plate_data = {k: v._indices for k, v in plates.items()}
+                with handlers.block(), handlers.substitute(data=plate_data):
+                    return -self._potential_fn_gen(*args, **kwargs)
+            else:
+                with handlers.block():
+                    return -self._potential_fn(x_unpack)
 
         if not self.fixed_eta:
             eta0 = numpyro.param(
@@ -809,13 +819,13 @@ class AutoDAIS(AutoContinuous):
         )
 
         def scan_body(carry, eps_beta):
-            eps, beta = eps_beta
+            eps, beta, rng_key = eps_beta
             eta = eta0 + eta_coeff * beta
             eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
-            p_grad = beta * grad(log_density)(z_half)
+            p_grad = beta * grad(log_density)(z_half, rng_key)
             v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
@@ -824,7 +834,8 @@ class AutoDAIS(AutoContinuous):
             return (z, v, log_factor), None
 
         v_0 = eps[-1]  # note the return value of scan doesn't depend on eps[-1]
-        (z, _, log_factor), _ = jax.lax.scan(scan_body, (z_0, v_0, 0.0), (eps, betas))
+        (z, _, log_factor), _ = jax.lax.scan(
+            scan_body, (z_0, v_0, 0.0), (eps, betas, rng_keys))
 
         numpyro.factor("{}_factor".format(self.prefix), log_factor)
 

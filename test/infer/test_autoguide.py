@@ -615,7 +615,9 @@ def test_autodais_subsampling():
     svi.run(random.PRNGKey(1), 2, data)
 
 
-def test_autodais_create_plates():
+@pytest.mark.parametrize('enable_subsampling', [True, 'stochastic'])
+@pytest.mark.filterwarnings("ignore")
+def test_autodais_create_plates(enable_subsampling):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data, subsample_size=3):
@@ -628,7 +630,7 @@ def test_autodais_create_plates():
     def create_plates(data, subsample_size=3):
         return numpyro.plate("plate", 10, subsample_size=subsample_size)
 
-    guide = AutoDAIS(model, enable_subsampling=True, create_plates=create_plates)
+    guide = AutoDAIS(model, enable_subsampling=enable_subsampling, create_plates=create_plates)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(1), 2, data)
     svi.run(random.PRNGKey(0), 3, data, subsample_size=10)
