@@ -95,7 +95,8 @@ templates_path = ["_templates"]
 # You can specify multiple suffix as a list of string:
 #
 # source_suffix = ['.rst', '.md']
-source_suffix = [".rst", ".ipynb"]
+# NOTE: `.rst` is the default suffix of sphinx, and nbsphinx will
+# automatically add support for `.ipynb` suffix.
 
 # do not execute cells
 nbsphinx_execute = "never"

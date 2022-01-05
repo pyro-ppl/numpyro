@@ -225,6 +225,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+MultivariateStudentT
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowRankMultivariateNormal
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
@@ -356,6 +364,14 @@ CategoricalProbs
 DirichletMultinomial
 ^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.DirichletMultinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+DiscreteUniform
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.DiscreteUniform
     :members:
     :undoc-members:
     :show-inheritance:

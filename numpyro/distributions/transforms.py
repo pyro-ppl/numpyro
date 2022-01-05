@@ -7,7 +7,7 @@ import weakref
 
 import numpy as np
 
-from jax import lax, ops, vmap
+from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
@@ -22,7 +22,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "biject_to",
@@ -67,6 +67,7 @@ class Transform(object):
             "transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
             "get input event dim or Transform.codomain.event_dim to get output event dim.",
             FutureWarning,
+            stacklevel=find_stack_level(),
         )
         return self.domain.event_dim
 
@@ -105,6 +106,16 @@ class Transform(object):
         Defaults to preserving shape.
         """
         return shape
+
+    # Allow for pickle serialization of transforms.
+    def __getstate__(self):
+        attrs = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, weakref.ref):
+                attrs[k] = None
+            else:
+                attrs[k] = v
+        return attrs
 
 
 class _InverseTransform(Transform):
@@ -149,6 +160,11 @@ class AbsTransform(Transform):
         return jnp.abs(x)
 
     def _inverse(self, y):
+        warnings.warn(
+            "AbsTransform is not a bijective transform."
+            " The inverse of `y` will be `y`.",
+            stacklevel=find_stack_level(),
+        )
         return y
 
 
@@ -550,6 +566,7 @@ class InvCholeskyTransform(Transform):
             "InvCholeskyTransform is deprecated. Please use CholeskyTransform"
             " or CorrMatrixCholeskyTransform instead.",
             FutureWarning,
+            stacklevel=find_stack_level(),
         )
         assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
         self.domain = domain
@@ -785,10 +802,10 @@ class PermuteTransform(Transform):
 
     def _inverse(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(
-            jnp.zeros(size, dtype=jnp.result_type(int)),
-            self.permutation,
-            jnp.arange(size),
+        permutation_inv = (
+            jnp.zeros(size, dtype=jnp.result_type(int))
+            .at[self.permutation]
+            .set(jnp.arange(size))
         )
         return y[..., permutation_inv]
 
@@ -1011,7 +1028,8 @@ class UnpackTransform(Transform):
         if not_scalar and all(d == d0 for d in leading_dims[1:]):
             warnings.warn(
                 "UnpackTransform.inv might lead to an unexpected behavior because it"
-                " cannot transform a batch of unpacked arrays."
+                " cannot transform a batch of unpacked arrays.",
+                stacklevel=find_stack_level(),
             )
         return ravel_pytree(y)[0]
 
@@ -1042,6 +1060,7 @@ class ConstraintRegistry(object):
             constraint = type(constraint)
 
         self._registry[constraint] = factory
+        return factory
 
     def __call__(self, constraint):
         try:
@@ -1096,6 +1115,7 @@ def _biject_to_independent(constraint):
     )
 
 
+@biject_to.register(constraints.open_interval)
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
     if constraint is constraints.unit_interval:

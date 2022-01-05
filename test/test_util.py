@@ -1,9 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.test_util import check_eq
@@ -11,27 +13,27 @@ from jax.tree_util import tree_flatten, tree_multimap
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import fori_collect, format_shapes, soft_vmap
+from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
 
 
 def test_fori_collect_thinning():
     def f(x):
         return x + 1.0
 
-    actual2 = fori_collect(0, 9, f, jnp.array([-1]), thinning=2)
-    expected2 = jnp.array([[2], [4], [6], [8]])
+    actual2 = fori_collect(0, 9, f, np.array([-1]), thinning=2)
+    expected2 = np.array([[2], [4], [6], [8]])
     check_eq(actual2, expected2)
 
-    actual3 = fori_collect(0, 9, f, jnp.array([-1]), thinning=3)
-    expected3 = jnp.array([[2], [5], [8]])
+    actual3 = fori_collect(0, 9, f, np.array([-1]), thinning=3)
+    expected3 = np.array([[2], [5], [8]])
     check_eq(actual3, expected3)
 
-    actual4 = fori_collect(0, 9, f, jnp.array([-1]), thinning=4)
-    expected4 = jnp.array([[4], [8]])
+    actual4 = fori_collect(0, 9, f, np.array([-1]), thinning=4)
+    expected4 = np.array([[4], [8]])
     check_eq(actual4, expected4)
 
-    actual5 = fori_collect(12, 37, f, jnp.array([-1]), thinning=5)
-    expected5 = jnp.array([[16], [21], [26], [31], [36]])
+    actual5 = fori_collect(12, 37, f, np.array([-1]), thinning=5)
+    expected5 = np.array([[16], [21], [26], [31], [36]])
     check_eq(actual5, expected5)
 
 
@@ -39,8 +41,8 @@ def test_fori_collect():
     def f(x):
         return {"i": x["i"] + x["j"], "j": x["i"] - x["j"]}
 
-    a = {"i": jnp.array([0.0]), "j": jnp.array([1.0])}
-    expected_tree = {"i": jnp.array([[0.0], [2.0]])}
+    a = {"i": np.array([0.0]), "j": np.array([1.0])}
+    expected_tree = {"i": np.array([[0.0], [2.0]])}
     actual_tree = fori_collect(1, 3, f, a, transform=lambda a: {"i": a["i"]})
     check_eq(actual_tree, expected_tree)
 
@@ -60,8 +62,8 @@ def test_fori_collect_return_last(progbar):
         return_last_val=True,
         progbar=progbar,
     )
-    expected_tree = {"i": jnp.array([3, 4])}
-    expected_last_state = {"i": jnp.array(4)}
+    expected_tree = {"i": np.array([3, 4])}
+    expected_last_state = {"i": np.array(4)}
     check_eq(init_state, expected_last_state)
     check_eq(tree, expected_tree)
 
@@ -69,12 +71,12 @@ def test_fori_collect_return_last(progbar):
 @pytest.mark.parametrize(
     "pytree",
     [
-        {"a": jnp.array(0.0), "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        {"a": jnp.array(0), "b": jnp.array([[1, 2], [3, 4]])},
-        {"a": jnp.array(0), "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        {"a": 0.0, "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        {"a": False, "b": jnp.array([[1.0, 2.0], [3.0, 4.0]])},
-        [False, True, 0.0, jnp.array([[1.0, 2.0], [3.0, 4.0]])],
+        {"a": np.array(0.0), "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        {"a": np.array(0), "b": np.array([[1, 2], [3, 4]])},
+        {"a": np.array(0), "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        {"a": 0.0, "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        {"a": False, "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+        [False, True, 0.0, np.array([[1.0, 2.0], [3.0, 4.0]])],
     ],
 )
 def test_ravel_pytree(pytree):
@@ -166,3 +168,102 @@ def test_format_shapes():
         "        value      | 3\n"
         "   data plate 10   |  "
     )
+
+
+def _run_svi_check_warnings(model, guide, expected_string):
+    with pytest.warns(UserWarning, match=expected_string) as ws:
+        adam = numpyro.optim.Adam(1e-3)
+        svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
+        svi.run(random.PRNGKey(42), num_steps=5)
+        assert len(ws) == 1
+        assert expected_string in str(ws[0].message)
+
+
+def _create_traces_check_error_string(model, guide, expected_string):
+    model_trace = numpyro.handlers.trace(
+        numpyro.handlers.seed(model, rng_seed=42)
+    ).get_trace()
+    guide_trace = numpyro.handlers.trace(
+        numpyro.handlers.seed(guide, rng_seed=42)
+    ).get_trace()
+    with pytest.raises(ValueError, match=expected_string):
+        check_model_guide_match(model_trace, guide_trace)
+
+
+def test_check_model_guide_match():
+    # 1. Auxiliary vars in the model
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    def guide():
+        numpyro.sample("x", dist.Normal(), infer={"is_auxiliary": True})
+
+    _run_svi_check_warnings(model, guide, "Found auxiliary vars in the model")
+
+    # 2. Non-auxiliary vars in guide but not model
+    def model():
+        numpyro.sample("x1", dist.Normal())
+
+    def guide():
+        numpyro.sample("x1", dist.Normal())
+        numpyro.sample("x2", dist.Normal())
+
+    _run_svi_check_warnings(
+        model, guide, "Found non-auxiliary vars in guide but not model"
+    )
+
+    # 3. Vars in model but not guide
+    def model():
+        numpyro.sample("x1", dist.Normal())
+        numpyro.sample("x2", dist.Normal())
+
+    def guide():
+        numpyro.sample("x1", dist.Normal())
+
+    _run_svi_check_warnings(model, guide, "Found vars in model but not guide")
+
+    # 4. Check event_dims agree
+    def model():
+        numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(4), jnp.identity(4)))
+
+    def guide():
+        numpyro.sample("x", dist.Normal().expand((3, 5)))
+
+    _create_traces_check_error_string(
+        model, guide, "Model and guide event_dims disagree"
+    )
+
+    # 5. Check shapes agree
+    def model():
+        with numpyro.plate("a", 3, dim=-2):
+            with numpyro.plate("b", 2, dim=-1):
+                numpyro.sample("x", dist.Normal().expand((3, 2)))
+
+    def guide():
+        numpyro.sample("x", dist.Normal().expand((3, 5)))
+
+    _create_traces_check_error_string(model, guide, "Model and guide shapes disagree")
+
+    # 6. Check subsample sites introduced by plate
+    def model():
+        with numpyro.plate("a", 10):
+            numpyro.sample("x", dist.Normal().expand((10,)))
+
+    def guide():
+        with numpyro.plate("data", 100, subsample_size=10):
+            numpyro.sample("x", dist.Normal())
+
+    _run_svi_check_warnings(
+        model, guide, "Found plate statements in guide but not model"
+    )
+
+
+def test_missing_plate_in_model():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(10))
+
+    def guide():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    _run_svi_check_warnings(model, guide, "Missing a plate statement")

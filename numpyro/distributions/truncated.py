@@ -61,7 +61,10 @@ class LeftTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return (1 - sign) * loc + sign * self.base_dist.icdf(
@@ -97,6 +100,30 @@ class LeftTruncatedDistribution(Distribution):
         base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
         return cls(base_dist, low=low)
 
+    @property
+    def mean(self):
+        if isinstance(self.base_dist, Normal):
+            low_prob = jnp.exp(self.log_prob(self.low))
+            return self.base_dist.loc + low_prob * self.base_dist.scale ** 2
+        elif isinstance(self.base_dist, Cauchy):
+            return jnp.full(self.batch_shape, jnp.nan)
+        else:
+            return NotImplementedError("mean only available for Normal and Cauchy")
+
+    @property
+    def var(self):
+        if isinstance(self.base_dist, Normal):
+            low_prob = jnp.exp(self.log_prob(self.low))
+            return (self.base_dist.scale ** 2) * (
+                1
+                + (self.low - self.base_dist.loc) * low_prob
+                - (low_prob * self.base_dist.scale) ** 2
+            )
+        elif isinstance(self.base_dist, Cauchy):
+            return jnp.full(self.batch_shape, jnp.nan)
+        else:
+            return NotImplementedError("var only available for Normal and Cauchy")
+
 
 class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
@@ -126,7 +153,10 @@ class RightTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.base_dist.icdf(u * self._cdf_at_high)
 
     @validate_sample
@@ -154,6 +184,30 @@ class RightTruncatedDistribution(Distribution):
             base_cls, base_aux, high = aux_data
         base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
         return cls(base_dist, high=high)
+
+    @property
+    def mean(self):
+        if isinstance(self.base_dist, Normal):
+            high_prob = jnp.exp(self.log_prob(self.high))
+            return self.base_dist.loc - high_prob * self.base_dist.scale ** 2
+        elif isinstance(self.base_dist, Cauchy):
+            return jnp.full(self.batch_shape, jnp.nan)
+        else:
+            return NotImplementedError("mean only available for Normal and Cauchy")
+
+    @property
+    def var(self):
+        if isinstance(self.base_dist, Normal):
+            high_prob = jnp.exp(self.log_prob(self.high))
+            return (self.base_dist.scale ** 2) * (
+                1
+                - (self.high - self.base_dist.loc) * high_prob
+                - (high_prob * self.base_dist.scale) ** 2
+            )
+        elif isinstance(self.base_dist, Cauchy):
+            return jnp.full(self.batch_shape, jnp.nan)
+        else:
+            return NotImplementedError("var only available for Normal and Cauchy")
 
 
 class TwoSidedTruncatedDistribution(Distribution):
@@ -197,7 +251,10 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        u = random.uniform(key, sample_shape + self.batch_shape)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
 
         # NB: we use a more numerically stable formula for a symmetric base distribution
         #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) = icdf[(1 - u) * cdf(low) + u * cdf(high)]
@@ -249,6 +306,35 @@ class TwoSidedTruncatedDistribution(Distribution):
         base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
         return cls(base_dist, low=low, high=high)
 
+    @property
+    def mean(self):
+        if isinstance(self.base_dist, Normal):
+            low_prob = jnp.exp(self.log_prob(self.low))
+            high_prob = jnp.exp(self.log_prob(self.high))
+            return (
+                self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale ** 2
+            )
+        elif isinstance(self.base_dist, Cauchy):
+            return jnp.full(self.batch_shape, jnp.nan)
+        else:
+            return NotImplementedError("mean only available for Normal and Cauchy")
+
+    @property
+    def var(self):
+        if isinstance(self.base_dist, Normal):
+            low_prob = jnp.exp(self.log_prob(self.low))
+            high_prob = jnp.exp(self.log_prob(self.high))
+            return (self.base_dist.scale ** 2) * (
+                1
+                + (self.low - self.base_dist.loc) * low_prob
+                - (self.high - self.base_dist.loc) * high_prob
+                - ((low_prob - high_prob) * self.base_dist.scale) ** 2
+            )
+        elif isinstance(self.base_dist, Cauchy):
+            return jnp.full(self.batch_shape, jnp.nan)
+        else:
+            return NotImplementedError("var only available for Normal and Cauchy")
+
 
 def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
     """
@@ -279,82 +365,16 @@ def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
         )
 
 
-class TruncatedCauchy(LeftTruncatedDistribution):
-    arg_constraints = {
-        "low": constraints.real,
-        "loc": constraints.real,
-        "scale": constraints.positive,
-    }
-    reparametrized_params = ["low", "loc", "scale"]
-
-    def __init__(self, low=0.0, loc=0.0, scale=1.0, validate_args=None):
-        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
-        super().__init__(
-            Cauchy(self.loc, self.scale), low=self.low, validate_args=validate_args
-        )
-
-    @property
-    def mean(self):
-        return jnp.full(self.batch_shape, jnp.nan)
-
-    @property
-    def variance(self):
-        return jnp.full(self.batch_shape, jnp.nan)
-
-    def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)):
-            aux_data = self._support.lower_bound
-        else:
-            aux_data = None
-        return (self.low, self.loc, self.scale), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.greater_than(aux_data)
-        return d
+def TruncatedCauchy(loc=0.0, scale=1.0, *, low=None, high=None, validate_args=None):
+    return TruncatedDistribution(
+        Cauchy(loc, scale), low=low, high=high, validate_args=validate_args
+    )
 
 
-class TruncatedNormal(LeftTruncatedDistribution):
-    arg_constraints = {
-        "low": constraints.real,
-        "loc": constraints.real,
-        "scale": constraints.positive,
-    }
-    reparametrized_params = ["low", "loc", "scale"]
-
-    def __init__(self, low=0.0, loc=0.0, scale=1.0, validate_args=None):
-        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
-        super().__init__(
-            Normal(self.loc, self.scale), low=self.low, validate_args=validate_args
-        )
-
-    @property
-    def mean(self):
-        low_prob = jnp.exp(self.log_prob(self.low))
-        return self.loc + low_prob * self.scale ** 2
-
-    @property
-    def variance(self):
-        low_prob = jnp.exp(self.log_prob(self.low))
-        return (self.scale ** 2) * (
-            1 + (self.low - self.loc) * low_prob - (low_prob * self.scale) ** 2
-        )
-
-    def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)):
-            aux_data = self._support.lower_bound
-        else:
-            aux_data = None
-        return (self.low, self.loc, self.scale), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.greater_than(aux_data)
-        return d
+def TruncatedNormal(loc=0.0, scale=1.0, *, low=None, high=None, validate_args=None):
+    return TruncatedDistribution(
+        Normal(loc, scale), low=low, high=high, validate_args=validate_args
+    )
 
 
 class TruncatedPolyaGamma(Distribution):

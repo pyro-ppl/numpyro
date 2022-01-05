@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.6]
+        python-version: [3.7]
 
     steps:
     - uses: actions/checkout@v2
@@ -50,7 +50,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.6]
+        python-version: [3.7]
 
     steps:
     - uses: actions/checkout@v2
@@ -71,7 +71,7 @@ jobs:
         pip freeze
     - name: Test with pytest
       run: |
-        pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/
+        CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/
 
 
   test-inference:
@@ -80,7 +80,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.6]
+        python-version: [3.7]
 
     steps:
     - uses: actions/checkout@v2
@@ -118,7 +118,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.6]
+        python-version: [3.7]
 
     steps:
     - uses: actions/checkout@v2

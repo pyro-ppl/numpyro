@@ -58,11 +58,11 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.contrib.control_flow import scan
-from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.handlers import mask
 from numpyro.infer import HMC, MCMC, NUTS
+from numpyro.ops.indexing import Vindex
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -313,7 +313,7 @@ def main(args):
     # find all the notes that are present at least once in the training set
     present_notes = (sequences == 1).sum(0).sum(0) > 0
     # remove notes that are never played (we remove 37/88 notes with default args)
-    sequences = sequences[..., present_notes]
+    sequences = sequences[:, :, present_notes]
 
     if args.truncate:
         lengths = lengths.clip(0, args.truncate)

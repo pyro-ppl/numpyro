@@ -17,6 +17,8 @@ import numpy as np
 
 from jax import lax
 
+from numpyro.util import find_stack_level
+
 if "CI" in os.environ:
     DATA_DIR = os.path.expanduser("~/.data")
 else:
@@ -66,6 +68,11 @@ JSB_CHORALES = dset(
 HIGGS = dset(
     "higgs",
     ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
+)
+
+NINE_MERS = dset(
+    "9mers",
+    ["https://github.com/pyro-ppl/datasets/blob/master/9mers_data.pkl?raw=true"],
 )
 
 
@@ -232,7 +239,7 @@ def _load_jsb_chorales():
     for split, data_split in data.items():
         processed_dataset[split] = {}
         n_seqs = len(data_split)
-        processed_dataset[split]["sequence_lengths"] = np.zeros(n_seqs, dtype=np.long)
+        processed_dataset[split]["sequence_lengths"] = np.zeros(n_seqs, dtype=int)
         processed_dataset[split]["sequences"] = []
         for seq in range(n_seqs):
             seq_length = len(data_split[seq])
@@ -253,7 +260,10 @@ def _load_jsb_chorales():
 
 
 def _load_higgs(num_datapoints):
-    warnings.warn("Higgs is a 2.6 GB dataset")
+    warnings.warn(
+        "Higgs is a 2.6 GB dataset",
+        stacklevel=find_stack_level(),
+    )
     _download(HIGGS)
 
     file_path = os.path.join(DATA_DIR, "HIGGS.csv.gz")
@@ -276,6 +286,12 @@ def _load_higgs(num_datapoints):
     }  # standard split -500_000: as test
 
 
+def _load_9mers():
+    _download(NINE_MERS)
+    file_path = os.path.join(DATA_DIR, "9mers_data.pkl")
+    return pickle.load(open(file_path, "rb"))
+
+
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
@@ -295,6 +311,8 @@ def _load(dset, num_datapoints=-1):
         return _load_jsb_chorales()
     elif dset == HIGGS:
         return _load_higgs(num_datapoints)
+    elif dset == NINE_MERS:
+        return _load_9mers()
     raise ValueError("Dataset - {} not found.".format(dset.name))
 
 
@@ -313,9 +331,15 @@ def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
 
 
 def load_dataset(
-    dset, batch_size=None, split="train", shuffle=True, num_datapoints=None
+    dset,
+    batch_size=None,
+    split="train",
+    shuffle=True,
+    num_datapoints=None,
 ):
-    arrays = _load(dset, num_datapoints)[split]
+    data = _load(dset, num_datapoints)
+    if isinstance(data, dict):
+        arrays = data[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
     if not batch_size:

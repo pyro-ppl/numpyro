@@ -13,6 +13,7 @@ from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import get_importance_trace, log_density
+from numpyro.util import check_model_guide_match, find_stack_level
 
 
 class ELBO:
@@ -124,6 +125,7 @@ class Trace_ELBO(ELBO):
             model_log_density, model_trace = log_density(
                 seeded_model, args, kwargs, params
             )
+            check_model_guide_match(model_trace, guide_trace)
             mutable_params.update(
                 {
                     name: site["value"]
@@ -188,8 +190,9 @@ def _check_mean_field_requirement(model_trace, guide_trace):
             + "Model sites:\n  "
             + "\n  ".join(model_sites)
             + "Guide sites:\n  "
-            + "\n  ".join(guide_sites)
-        )
+            + "\n  ".join(guide_sites),
+            stacklevel=find_stack_level(),
+        ),
 
 
 class TraceMeanField_ELBO(ELBO):

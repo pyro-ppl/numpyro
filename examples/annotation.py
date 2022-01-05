@@ -42,10 +42,10 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.reparam import LocScaleReparam
+from numpyro.ops.indexing import Vindex
 
 
 def get_data():
@@ -123,7 +123,7 @@ def multinomial(annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             numpyro.sample("y", dist.Categorical(zeta[c]), obs=annotations)
@@ -144,7 +144,7 @@ def dawid_skene(positions, annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         # here we use Vindex to allow broadcasting for the second index `c`
         # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
@@ -167,12 +167,18 @@ def mace(positions, annotations):
         theta = numpyro.sample("theta", dist.Beta(0.5, 0.5))
 
     with numpyro.plate("item", num_items, dim=-2):
-        # NB: using constant logits for discrete uniform prior
-        # (NumPyro does not have DiscreteUniform distribution yet)
-        c = numpyro.sample("c", dist.Categorical(logits=jnp.zeros(num_classes)))
+        c = numpyro.sample(
+            "c",
+            dist.DiscreteUniform(0, num_classes - 1),
+            infer={"enumerate": "parallel"},
+        )
 
         with numpyro.plate("position", num_positions):
-            s = numpyro.sample("s", dist.Bernoulli(1 - theta[positions]))
+            s = numpyro.sample(
+                "s",
+                dist.Bernoulli(1 - theta[positions]),
+                infer={"enumerate": "parallel"},
+            )
             probs = jnp.where(
                 s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
             )
@@ -209,7 +215,7 @@ def hierarchical_dawid_skene(positions, annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             logits = Vindex(beta)[positions, c, :]
@@ -234,7 +240,7 @@ def item_difficulty(annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(eta[c], chi[c]).to_event(1))
@@ -272,7 +278,7 @@ def logistic_random_effects(positions, annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
@@ -324,6 +330,24 @@ def main(args):
     print(row_format.format("", *["c={}".format(i) for i in range(4)]))
     for i, row in enumerate(item_class):
         print(row_format.format(f"item[{i}]", *row))
+
+
+# %%
+# .. note::
+#     In the above inference code, we marginalized the discrete latent variables `c`
+#     hence `mcmc.get_samples(...)` does not include samples of `c`. We then utilize
+#     `Predictive(..., infer_discrete=True)` to get posterior samples for `c`, which
+#     is stored in `discrete_samples`. To merge those discrete samples into the `mcmc`
+#     instance, we can use the following pattern::
+#
+#         chain_discrete_samples = jax.tree_util.tree_map(
+#             lambda x: x.reshape((args.num_chains, args.num_samples) + x.shape[1:]),
+#             discrete_samples)
+#         mcmc.get_samples().update(discrete_samples)
+#         mcmc.get_samples(group_by_chain=True).update(chain_discrete_samples)
+#
+#     This is useful when we want to pass the `mcmc` instance to `arviz` through
+#     `arviz.from_numpyro(mcmc)`.
 
 
 if __name__ == "__main__":

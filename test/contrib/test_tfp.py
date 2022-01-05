@@ -3,6 +3,7 @@
 
 import os
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -131,6 +132,11 @@ def make_kernel_fn(target_log_prob_fn):
 @pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
 def test_mcmc_kernels(kernel, kwargs):
     from numpyro.contrib.tfp import mcmc
+
+    if ("CI" in os.environ) and kernel == "SliceSampler":
+        # TODO: Look into this issue if some users are using SliceSampler
+        # with NumPyro model.
+        pytest.skip("SliceSampler freezes CI for unknown reason.")
 
     kernel_class = getattr(mcmc, kernel)
 
@@ -295,3 +301,23 @@ def test_mcmc_unwrapped_tfp_distributions():
     samples = mcmc.get_samples()
 
     assert_allclose(jnp.mean(samples["p"]), 4 / 7, atol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
+@pytest.mark.filterwarnings("ignore:Importing distributions from numpyro.contrib")
+@pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
+def test_kl_normal_normal(shape):
+    from tensorflow_probability.substrates.jax import distributions as tfd
+
+    from numpyro.contrib.tfp.distributions import TFPDistribution
+
+    p = TFPDistribution[tfd.Normal](
+        np.random.normal(size=shape), np.exp(np.random.normal(size=shape))
+    )
+    q = TFPDistribution[tfd.Normal](
+        np.random.normal(size=shape), np.exp(np.random.normal(size=shape))
+    )
+    actual = dist.kl_divergence(p, q)
+    x = p.sample(random.PRNGKey(0), (10000,)).copy()
+    expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
+    assert_allclose(actual, expected, rtol=0.05)

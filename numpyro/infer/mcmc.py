@@ -16,7 +16,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import print_summary
-from numpyro.util import cached_by, fori_collect, identity
+from numpyro.util import cached_by, find_stack_level, fori_collect, identity
 
 __all__ = [
     "MCMCKernel",
@@ -239,6 +239,32 @@ class MCMC(object):
         on a same sized but different dataset will not result in additional compilation cost.
         Note that currently, this does not take effect for the case ``num_chains > 1``
         and ``chain_method == 'parallel'``.
+
+    .. note:: It is possible to mix parallel and vectorized sampling, i.e., run vectorized chains
+        on multiple devices using explicit `pmap`. Currently, doing so requires disabling the
+        progress bar. For example,
+
+        .. code-block:: python
+
+            def do_mcmc(rng_key, n_vectorized=8):
+                nuts_kernel = NUTS(model)
+                mcmc = MCMC(
+                    nuts_kernel,
+                    progress_bar=False,
+                    num_chains=n_vectorized,
+                    chain_method='vectorized'
+                )
+                mcmc.run(
+                    rng_key,
+                    extra_fields=("potential_energy",),
+                )
+                return {**mcmc.get_samples(), **mcmc.get_extra_fields()}
+            # Number of devices to pmap over
+            n_parallel = jax.local_device_count()
+            rng_keys = jax.random.split(PRNGKey(rng_seed), n_parallel)
+            traces = pmap(do_mcmc)(rng_keys)
+            # concatenate traces along pmap'ed axis
+            trace = {k: np.concatenate(v) for k, v in traces.items()}
     """
 
     def __init__(
@@ -278,7 +304,8 @@ class MCMC(object):
                 " of your program. You can double-check how many devices are available in"
                 " your system using `jax.local_device_count()`.".format(
                     self.num_chains, local_device_count(), self.num_chains
-                )
+                ),
+                stacklevel=find_stack_level(),
             )
         self.chain_method = chain_method
         self.progress_bar = progress_bar

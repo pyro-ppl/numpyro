@@ -5,8 +5,15 @@
 
 import numpy as np
 
-from jax import ops
-from jax.experimental import stax
+import jax
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
+
 import jax.numpy as jnp
 
 from numpyro.nn.masked_dense import MaskedDense
@@ -41,7 +48,7 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     """
     # Create mask indices for input, hidden layers, and final layer
     var_index = jnp.zeros(permutation.shape[0])
-    var_index = ops.index_update(var_index, permutation, jnp.arange(input_dim))
+    var_index = var_index.at[permutation].set(jnp.arange(input_dim))
 
     # Create the indices that are assigned to the neurons
     input_indices = 1 + var_index
@@ -74,7 +81,7 @@ def AutoregressiveNN(
     """
     An implementation of a MADE-like auto-regressive neural network.
 
-    Similar to the purely functional layer implemented in jax.experimental.stax,
+    Similar to the purely functional layer implemented in jax.example_libraries.stax,
     the `AutoregressiveNN` class has `init_fun` and `apply_fun` methods,
     where `init_fun` takes an rng_key key and an input shape and returns an
     (output_shape, params) pair, and `apply_fun` takes params and inputs
