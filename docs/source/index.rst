@@ -34,6 +34,7 @@ NumPyro documentation
    examples/prodlda
    tutorials/model_rendering
    tutorials/bad_posterior_geometry
+   tutorials/truncated_distributions
 
 .. nbgallery::
    :maxdepth: 1
