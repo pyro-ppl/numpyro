@@ -15,6 +15,7 @@ def init_to_median(site=None, num_samples=15):
     """
     Initialize to the prior median. For priors with no `.sample` method implemented,
     we defer to the :func:`init_to_uniform` strategy.
+
     :param int num_samples: number of prior points to calculate median.
     """
     if site is None:
@@ -55,6 +56,7 @@ def init_to_sample(site=None):
 def init_to_uniform(site=None, radius=2):
     """
     Initialize to a random point in the area `(-radius, radius)` of unconstrained domain.
+
     :param float radius: specifies the range to draw an initial point in the unconstrained domain.
     """
     if site is None:
@@ -100,6 +102,7 @@ def init_to_value(site=None, values={}):
     """
     Initialize to the value specified in `values`. We defer to
     :func:`init_to_uniform` strategy for sites which do not appear in `values`.
+
     :param dict values: dictionary of initial values keyed by site name.
     """
     if site is None:
