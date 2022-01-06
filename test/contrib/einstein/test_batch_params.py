@@ -11,7 +11,8 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.distributions import Bernoulli, Normal, biject_to
+from numpyro.contrib.einstein.util import get_parameter_transform
+from numpyro.distributions import Bernoulli, Normal
 from numpyro.distributions.constraints import circular, interval, positive, real
 from numpyro.infer import (
     init_to_feasible,
@@ -92,18 +93,25 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                 and "_".join((inner_guide.prefix, "loc")) in name
             ):
                 site_key, particle_key = random.split(particle_key)
-                init_value = site_value[None, ...] + Normal(  # Add gaussian noise
+                init_value = jnp.expand_dims(
+                    site_value, 0
+                ) + Normal(  # Add gaussian noise
                     scale=0.1
-                ).sample(particle_key, (num_particles, *site_shape))
-                init_value = biject_to(constraint)(init_value)
+                ).sample(
+                    particle_key, (num_particles, *site_shape)
+                )
+
+                init_value = get_parameter_transform(site)(init_value)
             elif callable(site_value):  # param(name, lambda rng_key: ...)
                 site_key, particle_key = random.split(particle_key)
                 keys = random.split(site_key, num_particles).reshape((num_particles, 2))
                 init_value = vmap(site["value"])(keys)
-                init_value = biject_to(constraint)(init_value)
+                init_value = get_parameter_transform(site)(init_value)
             else:
-                init_value = jnp.full(
-                    (num_particles, *jnp.shape(site_value)), site_value
+                init_value = (
+                    jnp.full(  # site_value in constraint space, no need to transform
+                        (num_particles, *jnp.shape(site_value)), site_value
+                    )
                 )
 
             init_params[name] = (init_value, constraint)
