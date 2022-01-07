@@ -3,16 +3,15 @@
 
 from copy import copy
 
-from numpy.testing import assert_array_equal
-import pytest
-
-from jax import random, vmap
 import jax.numpy as jnp
+import pytest
+from jax import random, vmap
+from numpy.testing import assert_array_equal
 
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein.util import get_parameter_transform
-from numpyro.distributions import Bernoulli, Normal
+from numpyro.distributions import Bernoulli, Normal, biject_to
 from numpyro.distributions.constraints import circular, interval, positive, real
 from numpyro.infer import (
     init_to_feasible,
@@ -61,11 +60,11 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
     def guide(obs):
-        numpyro.param("a", 0, constraint=interval(0, 1.0))
+        numpyro.param("a", 0., constraint=interval(0, 1.0))
         numpyro.param(
             "b", lambda rng_key: Normal(0, 0.1).sample(rng_key), constraint=circular
         )
-        numpyro.param("c", 0, constraint=positive)
+        numpyro.param("c", 0., constraint=positive)
 
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
@@ -89,8 +88,8 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
             site_value = site["value"]
             site_shape = jnp.shape(site_value)
             if (
-                isinstance(inner_guide, AutoGuide)
-                and "_".join((inner_guide.prefix, "loc")) in name
+                    isinstance(inner_guide, AutoGuide)
+                    and "_".join((inner_guide.prefix, "loc")) in name
             ):
                 site_key, particle_key = random.split(particle_key)
                 init_value = jnp.expand_dims(
@@ -102,17 +101,19 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                 )
 
                 init_value = get_parameter_transform(site)(init_value)
-            elif callable(site_value):  # param(name, lambda rng_key: ...)
-                site_key, particle_key = random.split(particle_key)
-                keys = random.split(site_key, num_particles).reshape((num_particles, 2))
-                init_value = vmap(site["value"])(keys)
-                init_value = get_parameter_transform(site)(init_value)
             else:
-                init_value = (
-                    jnp.full(  # site_value in constraint space, no need to transform
-                        (num_particles, *jnp.shape(site_value)), site_value
-                    )
-                )
+                site_fn = site['fn']
+                site_args = site['args']
+                site_key, particle_key = random.split(particle_key)
+
+                def _reinit(seed):
+                    with handlers.seed(rng_seed=seed):
+                        return site_fn(*site_args)
+
+                init_value = vmap(_reinit)(random.split(particle_key, num_particles))
+                init_value = jnp.where(init_value != site_value, get_parameter_transform(site)(init_value), init_value)
+
+                init_params[name] = (init_value, site["kwargs"].get("constraint", real))
 
             init_params[name] = (init_value, constraint)
 
