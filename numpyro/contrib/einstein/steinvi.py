@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from copy import copy
 import functools
 from functools import partial
 from itertools import chain
@@ -15,12 +16,12 @@ from jax.tree_util import tree_map
 
 from numpyro import handlers
 from numpyro.contrib.einstein.kernels import SteinKernel
-from numpyro.contrib.einstein.reinit_guide import WrappedGuide
+from numpyro.contrib.einstein.util import get_parameter_transform
 from numpyro.contrib.funsor import config_enumerate, enum
-from numpyro.distributions import Distribution
+from numpyro.distributions import Distribution, Normal
+from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import IdentityTransform
-from numpyro.infer import init_to_uniform
-from numpyro.infer.initialization import get_parameter_transform
+from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.util import fori_collect, ravel_pytree
 
@@ -35,6 +36,7 @@ def _numel(shape):
 class SteinVI:
     """
     Stein Variational Gradient Descent for Non-parametric Inference.
+
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
@@ -59,8 +61,6 @@ class SteinVI:
         optim,
         loss,
         kernel_fn: SteinKernel,
-        reinit_hide_fn=lambda site: site["name"].endswith("$params"),
-        init_strategy=init_to_uniform,
         num_particles: int = 10,
         loss_temperature: float = 1.0,
         repulsion_temperature: float = 1.0,
@@ -68,11 +68,6 @@ class SteinVI:
         enum=True,
         **static_kwargs,
     ):
-
-        guide = WrappedGuide(
-            guide, reinit_hide_fn=reinit_hide_fn, init_strategy=init_strategy
-        )
-
         self._inference_model = model
         self.model = model
         self.guide = guide
@@ -128,6 +123,45 @@ class SteinVI:
             res[k] = (start_index, end_index)
             start_index = end_index
         return res
+
+    def _find_init_params(self, particle_seed, inner_guide, inner_guide_trace):
+        init_params = {}
+        for name, site in inner_guide_trace.items():
+            site = copy(site)
+            if site["type"] == "param":
+                value = site["value"]
+                constraint = site["kwargs"].get("constraint", real)
+                transform = get_parameter_transform(site)
+                if (
+                    isinstance(inner_guide, AutoGuide)
+                    and "_".join((inner_guide.prefix, "loc")) in name
+                ):
+                    site_key, particle_seed = jax.random.split(particle_seed)
+                    unconstrained_shape = transform.inverse_shape(value.shape)
+                    init_value = jnp.expand_dims(
+                        transform.inv(value), 0
+                    ) + Normal(  # Add gaussian noise
+                        scale=0.1
+                    ).sample(
+                        particle_seed, (self.num_particles, *unconstrained_shape)
+                    )
+                    init_value = transform(init_value)
+
+                else:
+                    site_fn = site["fn"]
+                    site_args = site["args"]
+                    site_key, particle_seed = jax.random.split(particle_seed)
+
+                    def _reinit(seed):
+                        with handlers.seed(rng_seed=seed):
+                            return site_fn(*site_args)
+
+                    init_value = jax.vmap(_reinit)(
+                        jax.random.split(particle_seed, self.num_particles)
+                    )
+
+                init_params[name] = (init_value, constraint)
+            return init_params
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein
@@ -269,11 +303,9 @@ class SteinVI:
             *args, **kwargs, **self.static_kwargs
         )
         rng_key, particle_seed = jax.random.split(rng_key)
-        particle_seeds = jax.random.split(particle_seed, num=self.num_particles)
-        self.guide.find_params(
-            particle_seeds, *args, **kwargs, **self.static_kwargs
-        )  # Get parameter values for each particle
-        guide_init_params = self.guide.init_params()
+        guide_init_params = self._find_init_params(
+            particle_seed, self.guide, guide_trace
+        )
         params = {}
         transforms = {}
         inv_transforms = {}

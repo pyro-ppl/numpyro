@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-from numpyro.contrib.einstein.utils import safe_norm, sqrth_and_inv_sqrth
+from numpyro.contrib.einstein.util import safe_norm, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
 
 
