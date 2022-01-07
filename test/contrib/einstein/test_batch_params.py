@@ -3,15 +3,16 @@
 
 from copy import copy
 
-import jax.numpy as jnp
-import pytest
-from jax import random, vmap
 from numpy.testing import assert_array_equal
+import pytest
+
+from jax import random, vmap
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein.util import get_parameter_transform
-from numpyro.distributions import Bernoulli, Normal, biject_to
+from numpyro.distributions import Bernoulli, Normal
 from numpyro.distributions.constraints import circular, interval, positive, real
 from numpyro.infer import (
     init_to_feasible,
@@ -60,11 +61,11 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
     def guide(obs):
-        numpyro.param("a", 0., constraint=interval(0, 1.0))
+        numpyro.param("a", 0.0, constraint=interval(0, 1.0))
         numpyro.param(
             "b", lambda rng_key: Normal(0, 0.1).sample(rng_key), constraint=circular
         )
-        numpyro.param("c", 0., constraint=positive)
+        numpyro.param("c", 0.0, constraint=positive)
 
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
@@ -83,27 +84,28 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
     init_params = {}
     for name, site in inner_guide_tr.items():
         site = copy(site)
-        constraint = site["kwargs"].get("constraint", real)
         if site["type"] == "param":
-            site_value = site["value"]
-            site_shape = jnp.shape(site_value)
+            value = site["value"]
+            constraint = site["kwargs"].get("constraint", real)
+            transform = get_parameter_transform(site)
             if (
-                    isinstance(inner_guide, AutoGuide)
-                    and "_".join((inner_guide.prefix, "loc")) in name
+                isinstance(inner_guide, AutoGuide)
+                and "_".join((inner_guide.prefix, "loc")) in name
             ):
                 site_key, particle_key = random.split(particle_key)
+                unconstrained_shape = transform.inverse_shape(value.shape)
                 init_value = jnp.expand_dims(
-                    site_value, 0
+                    transform.inv(value), 0
                 ) + Normal(  # Add gaussian noise
                     scale=0.1
                 ).sample(
-                    particle_key, (num_particles, *site_shape)
+                    particle_key, (num_particles, *unconstrained_shape)
                 )
+                init_value = transform(init_value)
 
-                init_value = get_parameter_transform(site)(init_value)
             else:
-                site_fn = site['fn']
-                site_args = site['args']
+                site_fn = site["fn"]
+                site_args = site["args"]
                 site_key, particle_key = random.split(particle_key)
 
                 def _reinit(seed):
@@ -111,9 +113,9 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                         return site_fn(*site_args)
 
                 init_value = vmap(_reinit)(random.split(particle_key, num_particles))
-                init_value = jnp.where(init_value != site_value, get_parameter_transform(site)(init_value), init_value)
 
-                init_params[name] = (init_value, site["kwargs"].get("constraint", real))
+                if jnp.alltrue(init_value != jnp.expand_dims(value, 0)):
+                    init_value = transform(init_value)
 
             init_params[name] = (init_value, constraint)
 
@@ -127,7 +129,7 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
         elif "scale" in name:
             assert_array_equal(init_value, jnp.full(expected_shape, 0.1))
         else:
-            assert_array_equal(init_value, jnp.zeros(expected_shape))
+            assert_array_equal(init_value, jnp.full(expected_shape, 0.0))
 
         if "constraint" in inner_param["kwargs"]:
             assert constraint == inner_param["kwargs"]["constraint"]
