@@ -114,9 +114,6 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
 
                 init_value = vmap(_reinit)(random.split(particle_key, num_particles))
 
-                if jnp.alltrue(init_value != jnp.expand_dims(value, 0)):
-                    init_value = transform(init_value)
-
             init_params[name] = (init_value, constraint)
 
     for name, (init_value, constraint) in init_params.items():
