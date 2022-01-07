@@ -318,6 +318,13 @@ class _Interval(Constraint):
             (self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype)
         )
 
+    def __eq__(self, other):
+        return (
+            isinstance(other, _Interval)
+            and self.lower_bound == other.lower_bound
+            and self.upper_bound == other.upper_bound
+        )
+
 
 class _OpenInterval(_Interval):
     def __call__(self, x):
