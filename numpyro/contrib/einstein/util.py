@@ -1,7 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import jax
 import jax.numpy as jnp
+
+from numpyro.distributions import biject_to
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, IdentityTransform
 
 
 def posdef(m):
@@ -45,3 +50,9 @@ def safe_norm(a, ord=2, axis=None):
         axis=axis,
     )
     return norm
+
+
+def get_parameter_transform(site):
+    constraint = site["kwargs"].get("constraint", real)
+    transform = site["kwargs"].get("particle_transform", IdentityTransform())
+    return ComposeTransform([transform, biject_to(constraint)])

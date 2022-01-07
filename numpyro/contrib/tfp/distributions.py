@@ -4,6 +4,7 @@
 from functools import lru_cache
 import warnings
 
+from multipledispatch import dispatch
 import numpy as np
 
 import jax
@@ -11,9 +12,13 @@ import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
 
 import numpyro.distributions as numpyro_dist
-from numpyro.distributions import Distribution as NumPyroDistribution, constraints
+from numpyro.distributions import (
+    Distribution as NumPyroDistribution,
+    constraints,
+    kl_divergence,
+)
 from numpyro.distributions.transforms import Transform, biject_to
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def _get_codomain(bijector):
@@ -129,6 +134,7 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "deprecated. You should import distributions directly from "
                 "tensorflow_probability.substrates.jax.distributions instead.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
             self.tfp_dist = tfd_class(*args, **kwargs)
 
@@ -157,6 +163,13 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "scale": constraints.positive,
             }
         elif tfd_class is tfd.TruncatedNormal:
+            _PyroDist.arg_constraints = {
+                "low": constraints.real,
+                "high": constraints.real,
+                "loc": constraints.real,
+                "scale": constraints.positive,
+            }
+        elif tfd_class is tfd.TruncatedCauchy:
             _PyroDist.arg_constraints = {
                 "low": constraints.real,
                 "high": constraints.real,
@@ -260,6 +273,11 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             return TFPDistribution[fn.__class__](**fn.parameters)
+
+
+@dispatch(TFPDistribution, TFPDistribution)
+def kl_divergence(p, q):  # noqa: F811
+    return tfd.kl_divergence(p.tfp_dist, q.tfp_dist)
 
 
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]

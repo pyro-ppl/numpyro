@@ -313,7 +313,8 @@ def fori_collect(
     # See: https://github.com/google/jax/issues/6447
     if num_chains > 1 and jax.default_backend() == "gpu":
         warnings.warn(
-            "We will disable progress bar because it does not work yet on multi-GPUs platforms."
+            "We will disable progress bar because it does not work yet on multi-GPUs platforms.",
+            stacklevel=find_stack_level(),
         )
         progbar = False
 
@@ -331,7 +332,9 @@ def fori_collect(
         )
         return val, collection, start_idx, thinning
 
-    collection = jnp.zeros((collection_size,) + init_val_flat.shape)
+    collection = jnp.zeros(
+        (collection_size,) + init_val_flat.shape, dtype=init_val_flat.dtype
+    )
     if not progbar:
         last_val, collection, _, _ = fori_loop(
             0, upper, _body_fn, (init_val, collection, start_idx, thinning)
@@ -491,9 +494,9 @@ def format_shapes(
         def model(*args, **kwargs):
             ...
 
-        with numpyro.handlers.seed(rng_key=1):
+        with numpyro.handlers.seed(rng_seed=1):
             trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
-        numpyro.util.format_shapes(trace)
+        print(numpyro.util.format_shapes(trace))
     """
     if not trace.keys():
         return title
@@ -595,20 +598,23 @@ def check_model_guide_match(model_trace, guide_trace):
 
     if aux_vars & model_vars:
         warnings.warn(
-            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars)
+            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars),
+            stacklevel=find_stack_level(),
         )
     if not (guide_vars <= model_vars | aux_vars):
         warnings.warn(
             "Found non-auxiliary vars in guide but not model, "
             "consider marking these infer={{'is_auxiliary': True}}:\n{}".format(
                 guide_vars - aux_vars - model_vars
-            )
+            ),
+            stacklevel=find_stack_level(),
         )
     if not (model_vars <= guide_vars | enum_vars):
         warnings.warn(
             "Found vars in model but not guide: {}".format(
                 model_vars - guide_vars - enum_vars
-            )
+            ),
+            stacklevel=find_stack_level(),
         )
 
     # Check shapes agree.
@@ -653,7 +659,8 @@ def check_model_guide_match(model_trace, guide_trace):
         warnings.warn(
             "Found plate statements in guide but not model: {}".format(
                 guide_vars - model_vars
-            )
+            ),
+            stacklevel=find_stack_level(),
         )
 
     # Check if plate is missing in the model.
@@ -675,7 +682,8 @@ def check_model_guide_match(model_trace, guide_trace):
                     warnings.warn(
                         f"Missing a plate statement for batch dimension {dim}"
                         f" at site '{name}'. You can use `numpyro.util.format_shapes`"
-                        " utility to check shapes at all sites of your model."
+                        " utility to check shapes at all sites of your model.",
+                        stacklevel=find_stack_level(),
                     )
 
 
@@ -737,3 +745,29 @@ def _versiontuple(version):
     Source: https://stackoverflow.com/a/11887825/4451315
     """
     return tuple([int(number) for number in version.split(".")])
+
+
+def find_stack_level() -> int:
+    """
+    Find the first place in the stack that is not inside numpyro
+    (tests notwithstanding).
+
+    Source:
+    https://github.com/pandas-dev/pandas/blob/9a4fcea8de798938a434fcaf67a0aa5a46b76b5b/pandas/util/_exceptions.py#L27-L45
+    """
+    import inspect
+
+    stack = inspect.stack()
+
+    import numpyro
+
+    pkg_dir = os.path.dirname(numpyro.__file__)
+    test_dir = os.path.join(pkg_dir, "tests")
+
+    for n in range(len(stack)):
+        fname = stack[n].filename
+        if fname.startswith(pkg_dir) and not fname.startswith(test_dir):
+            continue
+        else:
+            break
+    return n

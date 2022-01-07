@@ -411,7 +411,7 @@ class SineBivariateVonMises(Distribution):
     def sample(self, key, sample_shape=()):
         """
         ** References: **
-            1. A New Unified Approach for the Simulation of aWide Class of Directional Distributions
+            1. A New Unified Approach for the Simulation of a Wide Class of Directional Distributions
                John T. Kent, Asaad M. Ganeiber & Kanti V. Mardia (2018)
         """
         assert is_prng_key(key)

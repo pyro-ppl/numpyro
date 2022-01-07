@@ -18,6 +18,8 @@ import scipy
 
 from jax import lax
 
+from numpyro.util import find_stack_level
+
 if "CI" in os.environ:
     DATA_DIR = os.path.expanduser("~/.data")
 else:
@@ -302,7 +304,10 @@ def _load_jsb_chorales():
 
 
 def _load_higgs(num_datapoints):
-    warnings.warn("Higgs is a 2.6 GB dataset")
+    warnings.warn(
+        "Higgs is a 2.6 GB dataset",
+        stacklevel=find_stack_level(),
+    )
     _download(HIGGS)
 
     file_path = os.path.join(DATA_DIR, "HIGGS.csv.gz")

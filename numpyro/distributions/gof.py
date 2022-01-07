@@ -63,6 +63,8 @@ import numpy as np
 
 import jax
 
+from numpyro.util import find_stack_level
+
 HISTOGRAM_WIDTH = 60
 
 
@@ -117,7 +119,10 @@ def multinomial_goodness_of_fit(probs, counts, *, total_count=None, plot=False):
             chi_squared += (c - mean) ** 2 / variance
             dof += 1
         else:
-            warnings.warn("Zero probability in goodness-of-fit test")
+            warnings.warn(
+                "Zero probability in goodness-of-fit test",
+                stacklevel=find_stack_level(),
+            )
             if c > 0:
                 return math.inf
 

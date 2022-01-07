@@ -44,7 +44,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     validate_sample,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints
 
@@ -291,7 +291,8 @@ class Distribution(metaclass=DistributionMeta):
             if not np.all(mask):
                 warnings.warn(
                     "Out-of-support values provided to log prob method. "
-                    "The value argument should be within the support."
+                    "The value argument should be within the support.",
+                    stacklevel=find_stack_level(),
                 )
         return mask
 

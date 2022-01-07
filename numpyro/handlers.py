@@ -93,7 +93,7 @@ from numpyro.primitives import (
     apply_stack,
     plate,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "block",
@@ -207,6 +207,7 @@ class replay(Messenger):
             warnings.warn(
                 "`guide_trace` argument is deprecated. Please replace it by `trace`.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
         if guide_trace is not None:
             trace = guide_trace
@@ -845,6 +846,7 @@ class do(Messenger):
                     "Attempting to intervene on variable {} multiple times,"
                     "this is almost certainly incorrect behavior".format(msg["name"]),
                     RuntimeWarning,
+                    stacklevel=find_stack_level(),
                 )
             msg["_intervener_id"] = self._intervener_id
 
