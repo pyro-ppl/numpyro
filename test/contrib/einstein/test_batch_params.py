@@ -123,6 +123,7 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
         assert init_value.shape == expected_shape
         if "auto_loc" in name or name == "b":
             assert jnp.alltrue(init_value != jnp.zeros(expected_shape))
+            assert jnp.unique(init_value).shape == init_value.reshape(-1).shape
         elif "scale" in name:
             assert_array_equal(init_value, jnp.full(expected_shape, 0.1))
         else:
