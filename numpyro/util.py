@@ -1,9 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
+from functools import reduce
 from itertools import zip_longest
+import operator
 import os
 import random
 import re
@@ -16,10 +17,10 @@ from tqdm.auto import tqdm as tqdm_auto
 import jax
 from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
+from jax.dtypes import canonicalize_dtype
 from jax.experimental import host_callback
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
@@ -415,6 +416,52 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
         ys,
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+pytree_metadata = namedtuple(
+    "pytree_metadata", ["flat", "shape", "event_size", "dtype"]
+)
+
+
+def _ravel_list(*leaves, batch_dims):
+    leaves_metadata = tree_map(
+        lambda l: pytree_metadata(
+            jnp.reshape(l, (*jnp.shape(l)[:batch_dims], -1)),
+            jnp.shape(l),
+            reduce(operator.mul, jnp.shape(l)[batch_dims:], 1),
+            canonicalize_dtype(lax.dtype(l)),
+        ),
+        leaves,
+    )
+    leaves_idx = jnp.cumsum(
+        jnp.array((0,) + tuple(d.event_size for d in leaves_metadata))
+    )
+
+    def unravel_list(arr):
+        return [
+            jnp.reshape(
+                lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.event_size),
+                m.shape[batch_dims:],
+            ).astype(m.dtype)
+            for i, m in enumerate(leaves_metadata)
+        ]
+
+    flat = (
+        jnp.concatenate([m.flat for m in leaves_metadata], axis=-1)
+        if leaves_metadata
+        else jnp.array([])
+    )
+    return flat, unravel_list
+
+
+def ravel_pytree(pytree, *, batch_dims=0):
+    leaves, treedef = tree_flatten(pytree)
+    flat, unravel_list = _ravel_list(*leaves, batch_dims=batch_dims)
+
+    def unravel_pytree(arr):
+        return tree_unflatten(treedef, unravel_list(arr))
+
+    return flat, unravel_pytree
 
 
 def format_shapes(
