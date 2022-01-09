@@ -154,7 +154,7 @@ class trace(Messenger):
             # which has no name
             return
         assert not (
-            msg["type"] == "sample" and msg["name"] in self.trace
+            msg["type"] in ("sample", "deterministic") and msg["name"] in self.trace
         ), "all sites must have unique names but got `{}` duplicated".format(
             msg["name"]
         )
