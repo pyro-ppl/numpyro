@@ -184,6 +184,14 @@ def kl_divergence(p, q):
     return t1 + t2 + t3 - (jnp.euler_gamma + 1)
 
 
+# XXX: This flag is used to approximate the Taylor expansion
+# of KL(Kumaraswamy||Beta) following
+# https://arxiv.org/abs/1605.06197 Formula (12)
+# We follow the paper and set this to 10 but to get more precise KL,
+# we can set this flag to 1000.
+KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 10
+
+
 @dispatch(Kumaraswamy, Beta)
 def kl_divergence(p, q):
     # From https://arxiv.org/abs/1605.06197 Formula (12)
@@ -196,6 +204,6 @@ def kl_divergence(p, q):
     a_ = jnp.expand_dims(a, -1)
     b_ = jnp.expand_dims(b, -1)
     a_b_ = jnp.expand_dims(a_b, -1)
-    m = jnp.arange(1, p.KL_KUMARASWAMY_BETA_TAYLOR_ORDER + 1)
+    m = jnp.arange(1, KL_KUMARASWAMY_BETA_TAYLOR_ORDER + 1)
     t3 = (beta - 1) * b * (jnp.exp(betaln(m / a_, b_)) / (m + a_b_)).sum(-1)
     return t1 + t2 + t3

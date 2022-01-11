@@ -24,6 +24,7 @@ from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
+import numpyro.distributions.kl as dist_kl
 from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
@@ -418,8 +419,8 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, np.array([1.0, 0.5]), np.array([0.3, 2.0])),
     T(dist.Pareto, np.array([[1.0], [3.0]]), np.array([1.0, 0.5])),
-    T(dist.RelaxedBernoulli, 2.0, -10.0),
-    T(dist.RelaxedBernoulli, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
+    T(dist.RelaxedBernoulliLogits, 2.0, -10.0),
+    T(dist.RelaxedBernoulliLogits, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, np.array([-1.0, 50.0]), np.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
@@ -1338,7 +1339,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
-    if jax_dist is dist.RelaxedBernoulli:
+    if jax_dist is dist.RelaxedBernoulliLogits:
         pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
@@ -2361,7 +2362,7 @@ def test_kl_univariate(shape, p_dist, q_dist):
                 raise ValueError(f"Missing pattern for param {k}.")
         d = dist_class(**params)
         if dist_class is dist.Kumaraswamy:
-            d.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
+            dist_kl.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
         return d
 
     p = make_dist(p_dist)

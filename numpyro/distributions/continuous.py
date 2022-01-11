@@ -46,6 +46,7 @@ from jax.scipy.special import (
 )
 
 from numpyro.distributions import constraints
+from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
     AffineTransform,
@@ -514,12 +515,6 @@ class Kumaraswamy(TransformedDistribution):
     }
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
-    # XXX: This flag is used to approximate the Taylor expansion
-    # of KL(Kumaraswamy||Beta) following
-    # https://arxiv.org/abs/1605.06197 Formula (12)
-    # We follow the paper and set this to 10 but to get more precise KL,
-    # we can set this flag to 1000.
-    KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 10
 
     def __init__(self, concentration1, concentration0, validate_args=None):
         self.concentration1, self.concentration0 = promote_shapes(
@@ -1488,8 +1483,8 @@ class Pareto(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
-class RelaxedBernoulli(TransformedDistribution):
-    arg_constraints = {"temperature": constraints.real, "logits": constraints.real}
+class RelaxedBernoulliLogits(TransformedDistribution):
+    arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
 
     def __init__(self, temperature, logits, validate_args=None):
@@ -1500,6 +1495,14 @@ class RelaxedBernoulli(TransformedDistribution):
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
+
+
+def RelaxedBernoulli(temperature, probs=None, logits=None, validate_args=None):
+    if probs is None and logits is None:
+        raise ValueError("One of `probs` or `logits` must be specified.")
+    if probs is not None:
+        logits = _to_logits_bernoulli(probs)
+    return RelaxedBernoulliLogits(temperature, logits, validate_args=validate_args)
 
 
 class SoftLaplace(Distribution):
