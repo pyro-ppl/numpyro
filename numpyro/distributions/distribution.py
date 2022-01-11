@@ -566,7 +566,7 @@ class ExpandedDistribution(Distribution):
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
             sample_shape,
-        )
+        )[0]
 
     @property
     def support(self):
