@@ -177,6 +177,14 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+Kumaraswamy
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Kumaraswamy
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Laplace
 ^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Laplace
@@ -252,6 +260,14 @@ Normal
 Pareto
 ^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Pareto
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RelaxedBernoulli
+^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.RelaxedBernoulli
     :members:
     :undoc-members:
     :show-inheritance:
