@@ -46,6 +46,7 @@ from jax.scipy.special import (
 )
 
 from numpyro.distributions import constraints
+from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
     AffineTransform,
@@ -1482,11 +1483,11 @@ class Pareto(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
-class RelaxedBernoulli(TransformedDistribution):
-    arg_constraints = {"temperature": constraints.real, "logits": constraints.real}
+class RelaxedBernoulliLogits(TransformedDistribution):
+    arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
 
-    def __init__(self, temperature, *, logits, validate_args=None):
+    def __init__(self, temperature, logits, validate_args=None):
         self.temperature, self.logits = promote_shapes(temperature, logits)
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms = [SigmoidTransform()]
@@ -1494,6 +1495,14 @@ class RelaxedBernoulli(TransformedDistribution):
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
+
+
+def RelaxedBernoulli(temperature, probs=None, logits=None, validate_args=None):
+    if probs is None and logits is None:
+        raise ValueError("One of `probs` or `logits` must be specified.")
+    if probs is not None:
+        logits = _to_logits_bernoulli(probs)
+    return RelaxedBernoulliLogits(temperature, logits, validate_args=validate_args)
 
 
 class SoftLaplace(Distribution):

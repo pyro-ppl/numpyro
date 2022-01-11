@@ -105,10 +105,6 @@ def _TruncatedCauchy(loc, scale, low, high):
     return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
 
 
-def _RelaxedBernoulli(temperature, logits):
-    returen dist.RelaxedBernoulli(temperature, logits=logits)
-
-
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
@@ -422,8 +418,8 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, np.array([1.0, 0.5]), np.array([0.3, 2.0])),
     T(dist.Pareto, np.array([[1.0], [3.0]]), np.array([1.0, 0.5])),
-    T(_RelaxedBernoulli, 2.0, -10.0),
-    T(_RelaxedBernoulli, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
+    T(dist.RelaxedBernoulliLogits, 2.0, -10.0),
+    T(dist.RelaxedBernoulliLogits, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, np.array([-1.0, 50.0]), np.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
@@ -1342,7 +1338,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
-    if jax_dist is _RelaxedBernoulli:
+    if jax_dist is dist.RelaxedBernoulliLogits:
         pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")

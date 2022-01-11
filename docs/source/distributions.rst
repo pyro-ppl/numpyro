@@ -267,7 +267,11 @@ Pareto
 
 RelaxedBernoulli
 ^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.continuous.RelaxedBernoulli
+.. autofunction:: numpyro.distributions.continuous.RelaxedBernoulli
+
+RelaxedBernoulliLogits
+^^^^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.continuous.RelaxedBernoulliLogits
     :members:
     :undoc-members:
     :show-inheritance:
