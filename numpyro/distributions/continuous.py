@@ -514,12 +514,6 @@ class Kumaraswamy(TransformedDistribution):
     }
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
-    # XXX: This flag is used to approximate the Taylor expansion
-    # of KL(Kumaraswamy||Beta) following
-    # https://arxiv.org/abs/1605.06197 Formula (12)
-    # We follow the paper and set this to 10 but to get more precise KL,
-    # we can set this flag to 1000.
-    KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 10
 
     def __init__(self, concentration1, concentration0, validate_args=None):
         self.concentration1, self.concentration0 = promote_shapes(
