@@ -24,7 +24,6 @@ from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
-import numpyro.distributions.kl as dist_kl
 from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
@@ -2362,7 +2361,7 @@ def test_kl_univariate(shape, p_dist, q_dist):
                 raise ValueError(f"Missing pattern for param {k}.")
         d = dist_class(**params)
         if dist_class is dist.Kumaraswamy:
-            dist_kl.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
+            d.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
         return d
 
     p = make_dist(p_dist)
