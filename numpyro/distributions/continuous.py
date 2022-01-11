@@ -1486,7 +1486,7 @@ class RelaxedBernoulli(TransformedDistribution):
     arg_constraints = {"temperature": constraints.real, "logits": constraints.real}
     support = constraints.unit_interval
 
-    def __init__(self, temperature, logits, validate_args=None):
+    def __init__(self, temperature, *, logits, validate_args=None):
         self.temperature, self.logits = promote_shapes(temperature, logits)
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms = [SigmoidTransform()]
