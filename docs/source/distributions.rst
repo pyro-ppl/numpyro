@@ -271,7 +271,7 @@ RelaxedBernoulli
 
 RelaxedBernoulliLogits
 ^^^^^^^^^^^^^^^^^^^^^^
-.. autofunction:: numpyro.distributions.continuous.RelaxedBernoulliLogits
+.. autoclass:: numpyro.distributions.continuous.RelaxedBernoulliLogits
     :members:
     :undoc-members:
     :show-inheritance:
