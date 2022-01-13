@@ -14,6 +14,7 @@ import warnings
 import zipfile
 
 import numpy as np
+import scipy
 
 from jax import lax
 
@@ -29,6 +30,11 @@ dset = namedtuple("dset", ["name", "urls"])
 
 BASEBALL = dset(
     "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
+)
+
+BOSTON_HOUSING = dset(
+    "boston_housing",
+    ["https://archive.ics.uci.edu/ml/machine-learning-databases/housing/housing.data"],
 )
 
 COVTYPE = dset(
@@ -70,6 +76,37 @@ HIGGS = dset(
     ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
 )
 
+LR_BANANA = dset(
+    "lr_banana", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_DIABETIS = dset(
+    "lr_diabetis", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_GERMAN = dset(
+    "lr_german", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_IMAGE = dset(
+    "lr_image", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_RINGNORM = dset(
+    "lr_ringnorm", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_SPLICE = dset(
+    "lr_splice", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_TWONORM = dset(
+    "lr_twonorm", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
+
+LR_WAVEFORM = dset(
+    "lr_waveform", ["https://github.com/pyro-ppl/datasets/raw/master/benchmarks.mat"]
+)
 NINE_MERS = dset(
     "9mers",
     ["https://github.com/pyro-ppl/datasets/blob/master/9mers_data.pkl?raw=true"],
@@ -105,6 +142,13 @@ def _load_baseball():
         os.path.join(DATA_DIR, "EfronMorrisBB.txt")
     )
     return {"train": (train, player_names), "test": (test, player_names)}
+
+
+def _load_boston_housing():
+    _download(BOSTON_HOUSING)
+    file_path = os.path.join(DATA_DIR, "housing.data")
+    data = np.loadtxt(file_path)
+    return {"train": (data[:, :-1], data[:, -1])}
 
 
 def _load_covtype():
@@ -286,6 +330,27 @@ def _load_higgs(num_datapoints):
     }  # standard split -500_000: as test
 
 
+def _load_lr_benchmarks(dset, dset_name):
+    _download(dset)
+
+    file_path = os.path.join(DATA_DIR, "benchmarks.mat")
+    data = scipy.io.loadmat(file_path)
+    datasets = {}
+    for k, v in data.items():
+        if k != dset_name:
+            continue
+        datasets["train"] = (
+            v["x"][0, 0][v["train"][0, 0][13, :] - 1],
+            (v["t"][0, 0][v["train"][0, 0][13, :] - 1] == 1).astype("float")[:, 0],
+        )
+        datasets["test"] = (
+            v["x"][0, 0][v["test"][0, 0][13, :] - 1],
+            (v["t"][0, 0][v["test"][0, 0][13, :] - 1] == 1).astype("float")[:, 0],
+        )
+
+    return datasets
+
+
 def _load_9mers():
     _download(NINE_MERS)
     file_path = os.path.join(DATA_DIR, "9mers_data.pkl")
@@ -295,6 +360,8 @@ def _load_9mers():
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
+    elif dset == BOSTON_HOUSING:
+        return _load_boston_housing()
     elif dset == COVTYPE:
         return _load_covtype()
     elif dset == DIPPER_VOLE:
@@ -311,6 +378,8 @@ def _load(dset, num_datapoints=-1):
         return _load_jsb_chorales()
     elif dset == HIGGS:
         return _load_higgs(num_datapoints)
+    elif dset.name.startswith("lr_"):
+        return _load_lr_benchmarks(dset, dset.name.replace("lr_", ""))
     elif dset == NINE_MERS:
         return _load_9mers()
     raise ValueError("Dataset - {} not found.".format(dset.name))
