@@ -1,19 +1,19 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import numpy as np
-from numpy.testing import assert_allclose
-import pytest
-
-from jax import random
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
+import numpy as np
+import pytest
+from jax import random
+# from jax.flatten_util import ravel_pytree
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
+from numpy.testing import assert_allclose
+import jax
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
+from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap, ravel_pytree
 
 
 def test_fori_collect_thinning():
@@ -92,6 +92,25 @@ def test_ravel_pytree(pytree):
     )
 
 
+@pytest.mark.parametrize(
+    "pytree",
+    [
+        {"a": np.array([[1., 0.], [1, 0.]]), "b": np.array([[1.0, 2.0], [3.0, 4.0]])},
+    ],
+)
+def test_ravel_pytree_batched(pytree):
+    flat, unravel_fn = ravel_pytree(pytree, batch_dims=1)
+    unravel = jax.vmap(unravel_fn)(flat)
+    tree_flatten(tree_multimap(lambda x, y: assert_allclose(x, y), unravel, pytree))
+    assert all(
+        tree_flatten(
+            tree_multimap(
+                lambda x, y: jnp.result_type(x) == jnp.result_type(y), unravel, pytree
+            )
+        )[0]
+    )
+
+
 @pytest.mark.parametrize("batch_shape", [(), (1,), (10,), (3, 4)])
 @pytest.mark.parametrize("chunk_size", [None, 1, 5, 16])
 def test_soft_vmap(batch_shape, chunk_size):
@@ -123,50 +142,50 @@ def test_format_shapes():
         model_test()
 
     assert (
-        format_shapes(t) == "Trace Shapes:         \n"
-        " Param Sites:         \n"
-        "         mean    100  \n"
-        "Sample Sites:         \n"
-        "   scale dist      | 3\n"
-        "        value      | 3\n"
-        "   data plate 10   |  \n"
-        "       x dist 10   |  \n"
-        "        value 10   |  "
+            format_shapes(t) == "Trace Shapes:         \n"
+                                " Param Sites:         \n"
+                                "         mean    100  \n"
+                                "Sample Sites:         \n"
+                                "   scale dist      | 3\n"
+                                "        value      | 3\n"
+                                "   data plate 10   |  \n"
+                                "       x dist 10   |  \n"
+                                "        value 10   |  "
     )
     assert (
-        format_shapes(t, compute_log_prob=True) == "Trace Shapes:         \n"
-        " Param Sites:         \n"
-        "         mean    100  \n"
-        "Sample Sites:         \n"
-        "   scale dist      | 3\n"
-        "        value      | 3\n"
-        "     log_prob      |  \n"
-        "   data plate 10   |  \n"
-        "       x dist 10   |  \n"
-        "        value 10   |  \n"
-        "     log_prob 10   |  "
+            format_shapes(t, compute_log_prob=True) == "Trace Shapes:         \n"
+                                                       " Param Sites:         \n"
+                                                       "         mean    100  \n"
+                                                       "Sample Sites:         \n"
+                                                       "   scale dist      | 3\n"
+                                                       "        value      | 3\n"
+                                                       "     log_prob      |  \n"
+                                                       "   data plate 10   |  \n"
+                                                       "       x dist 10   |  \n"
+                                                       "        value 10   |  \n"
+                                                       "     log_prob 10   |  "
     )
     assert (
-        format_shapes(t, compute_log_prob=lambda site: site["name"] == "scale")
-        == "Trace Shapes:         \n"
-        " Param Sites:         \n"
-        "         mean    100  \n"
-        "Sample Sites:         \n"
-        "   scale dist      | 3\n"
-        "        value      | 3\n"
-        "     log_prob      |  \n"
-        "   data plate 10   |  \n"
-        "       x dist 10   |  \n"
-        "        value 10   |  "
+            format_shapes(t, compute_log_prob=lambda site: site["name"] == "scale")
+            == "Trace Shapes:         \n"
+               " Param Sites:         \n"
+               "         mean    100  \n"
+               "Sample Sites:         \n"
+               "   scale dist      | 3\n"
+               "        value      | 3\n"
+               "     log_prob      |  \n"
+               "   data plate 10   |  \n"
+               "       x dist 10   |  \n"
+               "        value 10   |  "
     )
     assert (
-        format_shapes(t, last_site="data") == "Trace Shapes:         \n"
-        " Param Sites:         \n"
-        "         mean    100  \n"
-        "Sample Sites:         \n"
-        "   scale dist      | 3\n"
-        "        value      | 3\n"
-        "   data plate 10   |  "
+            format_shapes(t, last_site="data") == "Trace Shapes:         \n"
+                                                  " Param Sites:         \n"
+                                                  "         mean    100  \n"
+                                                  "Sample Sites:         \n"
+                                                  "   scale dist      | 3\n"
+                                                  "        value      | 3\n"
+                                                  "   data plate 10   |  "
     )
 
 
