@@ -28,7 +28,7 @@ from numpyro.contrib.einstein.kernels import (
     PrecondMatrixKernel,
     RandomFeatureKernel,
 )
-from numpyro.contrib.einstein.utils import posdef, sqrth, sqrth_and_inv_sqrth
+from numpyro.contrib.einstein.util import posdef, sqrth, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
 from numpyro.distributions import Poisson
 from numpyro.distributions.transforms import AffineTransform
