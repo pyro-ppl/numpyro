@@ -464,7 +464,7 @@ def ravel_pytree(pytree, *, batch_dims=0):
     def unravel_pytree(arr):
         return tree_unflatten(treedef, unravel_list(arr))
 
-    return flat, unravel_pytree
+    return flat, unravel_pytree if batch_dims == 0 else vmap(unravel_pytree)
 
 
 def format_shapes(
