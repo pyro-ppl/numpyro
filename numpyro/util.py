@@ -4,6 +4,7 @@
 from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
 from functools import reduce
+import inspect
 from itertools import zip_longest
 import operator
 import os
@@ -753,21 +754,20 @@ def find_stack_level() -> int:
     (tests notwithstanding).
 
     Source:
-    https://github.com/pandas-dev/pandas/blob/9a4fcea8de798938a434fcaf67a0aa5a46b76b5b/pandas/util/_exceptions.py#L27-L45
+    https://github.com/pandas-dev/pandas/blob/ccb25ab1d24c4fb9691270706a59c8d319750870/pandas/util/_exceptions.py#L27-L48
     """
-    import inspect
-
-    stack = inspect.stack()
-
     import numpyro
 
     pkg_dir = os.path.dirname(numpyro.__file__)
-    test_dir = os.path.join(pkg_dir, "tests")
 
-    for n in range(len(stack)):
-        fname = stack[n].filename
-        if fname.startswith(pkg_dir) and not fname.startswith(test_dir):
-            continue
+    # https://stackoverflow.com/questions/17407119/python-inspect-stack-is-slow
+    frame = inspect.currentframe()
+    n = 0
+    while frame:
+        fname = inspect.getfile(frame)
+        if fname.startswith(pkg_dir):
+            frame = frame.f_back
+            n += 1
         else:
             break
     return n
