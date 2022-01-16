@@ -8,6 +8,7 @@ import jax
 
 from numpyro import handlers
 import numpyro.distributions as dist
+from numpyro.infer.initialization import init_to_sample
 from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provenance
 from numpyro.ops.pytree import PytreeTrace
 
@@ -58,9 +59,13 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         return type(fn).__name__
 
     def get_trace():
-        trace = handlers.trace(handlers.seed(model, 0)).get_trace(
-            *model_args, **model_kwargs
+        # We use `init_to_sample` to get around ImproperUniform distribution,
+        # which does not have `sample` method.
+        subs_model = handlers.substitute(
+            handlers.seed(model, 0),
+            substitute_fn=init_to_sample,
         )
+        trace = handlers.trace(subs_model).get_trace(*model_args, **model_kwargs)
         # Work around an issue where jax.eval_shape does not work
         # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
         # Here we will remove `fn` and store its name in the trace.
@@ -110,7 +115,10 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     }
 
     def get_log_probs(sample):
-        with handlers.trace() as tr, handlers.substitute(data=sample):
+        # Note: We use seed 0 for parameter initialization.
+        with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
+            data=sample
+        ):
             model(*model_args, **model_kwargs)
         return {
             name: site["fn"].log_prob(site["value"])
