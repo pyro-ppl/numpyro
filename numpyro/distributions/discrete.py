@@ -49,7 +49,7 @@ from numpyro.distributions.util import (
     promote_shapes,
     validate_sample,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
@@ -512,6 +512,7 @@ class PRNGIdentity(Distribution):
             "PRNGIdentity distribution is deprecated. To get a random "
             "PRNG key, you can use `numpyro.prng_key()` instead.",
             FutureWarning,
+            stacklevel=find_stack_level(),
         )
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 

@@ -12,7 +12,7 @@ import numpy as np
 import jax
 from jax import grad, hessian, lax, random, tree_map
 
-from numpyro.util import _versiontuple
+from numpyro.util import _versiontuple, find_stack_level
 
 if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import stax
@@ -306,7 +306,7 @@ class AutoNormal(AutoGuide):
                 site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
                 if site["fn"].support is constraints.real or (
                     isinstance(site["fn"].support, constraints.independent)
-                    and site["fn"].support is constraints.real
+                    and site["fn"].support.base_constraint is constraints.real
                 ):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
@@ -890,6 +890,7 @@ class AutoDiagonalNormal(AutoContinuous):
                 "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
                 " argument.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
@@ -959,6 +960,7 @@ class AutoMultivariateNormal(AutoContinuous):
                 "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
                 " argument.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
@@ -1032,6 +1034,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
                 "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
                 " argument.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
@@ -1161,7 +1164,8 @@ class AutoLaplaceApproximation(AutoContinuous):
                 warnings.warn(
                     "Hessian of log posterior at the MAP point is singular. Posterior"
                     " samples from AutoLaplaceApproxmiation will be constant (equal to"
-                    " the MAP point). Please consider using an AutoNormal guide."
+                    " the MAP point). Please consider using an AutoNormal guide.",
+                    stacklevel=find_stack_level(),
                 )
         scale_tril = jnp.where(jnp.isnan(scale_tril), 0.0, scale_tril)
         return LowerCholeskyAffine(loc, scale_tril)
@@ -1233,6 +1237,7 @@ class AutoIAFNormal(AutoContinuous):
                 "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
                 " argument.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -1319,6 +1324,7 @@ class AutoBNAFNormal(AutoContinuous):
                 "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
                 " argument.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors

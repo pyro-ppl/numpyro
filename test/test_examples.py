@@ -49,6 +49,7 @@ EXAMPLES = [
     "vae.py -n 1",
     "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2 --num-data 10 --unroll-loop",
+    "holt_winters.py --T 4 --num-samples 10 --num-warmup 10 --num-chains 2",
 ]
 
 

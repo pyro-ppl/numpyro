@@ -170,28 +170,27 @@ def test_format_shapes():
     )
 
 
-def test_check_model_guide_match():
-    def _run_svi(model, guide):
+def _run_svi_check_warnings(model, guide, expected_string):
+    with pytest.warns(UserWarning, match=expected_string) as ws:
         adam = numpyro.optim.Adam(1e-3)
         svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
-        svi.run(random.PRNGKey(42), num_steps=50)
+        svi.run(random.PRNGKey(42), num_steps=5)
+        assert len(ws) == 1
+        assert expected_string in str(ws[0].message)
 
-    def _run_svi_check_warnings(model, guide, expected_string):
-        with pytest.warns(UserWarning, match=expected_string) as ws:
-            _run_svi(model, guide)
-            assert len(ws) == 1
-            assert expected_string in str(ws[0].message)
 
-    def _create_traces_check_error_string(model, guide, expected_string):
-        model_trace = numpyro.handlers.trace(
-            numpyro.handlers.seed(model, rng_seed=42)
-        ).get_trace()
-        guide_trace = numpyro.handlers.trace(
-            numpyro.handlers.seed(guide, rng_seed=42)
-        ).get_trace()
-        with pytest.raises(ValueError, match=expected_string):
-            check_model_guide_match(model_trace, guide_trace)
+def _create_traces_check_error_string(model, guide, expected_string):
+    model_trace = numpyro.handlers.trace(
+        numpyro.handlers.seed(model, rng_seed=42)
+    ).get_trace()
+    guide_trace = numpyro.handlers.trace(
+        numpyro.handlers.seed(guide, rng_seed=42)
+    ).get_trace()
+    with pytest.raises(ValueError, match=expected_string):
+        check_model_guide_match(model_trace, guide_trace)
 
+
+def test_check_model_guide_match():
     # 1. Auxiliary vars in the model
     def model():
         numpyro.sample("x", dist.Normal())
@@ -236,7 +235,9 @@ def test_check_model_guide_match():
 
     # 5. Check shapes agree
     def model():
-        numpyro.sample("x", dist.Normal().expand((3, 2)))
+        with numpyro.plate("a", 3, dim=-2):
+            with numpyro.plate("b", 2, dim=-1):
+                numpyro.sample("x", dist.Normal().expand((3, 2)))
 
     def guide():
         numpyro.sample("x", dist.Normal().expand((3, 5)))
@@ -245,12 +246,24 @@ def test_check_model_guide_match():
 
     # 6. Check subsample sites introduced by plate
     def model():
-        numpyro.sample("x", dist.Normal().expand((10,)))
+        with numpyro.plate("a", 10):
+            numpyro.sample("x", dist.Normal().expand((10,)))
 
     def guide():
-        with numpyro.handlers.plate("data", 100, subsample_size=10):
+        with numpyro.plate("data", 100, subsample_size=10):
             numpyro.sample("x", dist.Normal())
 
     _run_svi_check_warnings(
         model, guide, "Found plate statements in guide but not model"
     )
+
+
+def test_missing_plate_in_model():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(10))
+
+    def guide():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    _run_svi_check_warnings(model, guide, "Missing a plate statement")

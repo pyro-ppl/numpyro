@@ -98,7 +98,11 @@ def _truncnorm_to_scipy(loc, scale, low, high):
 
 
 def _TruncatedNormal(loc, scale, low, high):
-    return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
+    return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
+
+
+def _TruncatedCauchy(loc, scale, low, high):
+    return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
 
 
 _TruncatedNormal.arg_constraints = {}
@@ -417,21 +421,25 @@ CONTINUOUS = [
     T(dist.StudentT, 1.0, 1.0, 0.5),
     T(dist.StudentT, 2.0, np.array([1.0, 2.0]), 2.0),
     T(dist.StudentT, np.array([3.0, 5.0]), np.array([[1.0], [2.0]]), 2.0),
-    T(dist.TruncatedCauchy, -1.0, 0.0, 1.0),
-    T(dist.TruncatedCauchy, 1.0, 0.0, np.array([1.0, 2.0])),
+    T(_TruncatedCauchy, 0.0, 1.0, -1.0, None),
+    T(_TruncatedCauchy, 0.0, np.array([1.0, 2.0]), 1.0, None),
     T(
-        dist.TruncatedCauchy,
-        np.array([-2.0, 2.0]),
+        _TruncatedCauchy,
         np.array([0.0, 1.0]),
         np.array([[1.0], [2.0]]),
+        np.array([-2.0, 2.0]),
+        None,
     ),
-    T(dist.TruncatedNormal, -1.0, 0.0, 1.0),
-    T(dist.TruncatedNormal, 1.0, -1.0, np.array([1.0, 2.0])),
+    T(_TruncatedCauchy, 0.0, 1.0, None, 1.0),
+    T(_TruncatedCauchy, 0.0, 1.0, -1.0, 1.0),
+    T(_TruncatedNormal, 0.0, 1.0, -1.0, None),
+    T(_TruncatedNormal, -1.0, np.array([1.0, 2.0]), 1.0, None),
     T(
-        dist.TruncatedNormal,
-        np.array([-2.0, 2.0]),
+        _TruncatedNormal,
         np.array([0.0, 1.0]),
         np.array([[1.0], [2.0]]),
+        np.array([-2.0, 2.0]),
+        None,
     ),
     T(_TruncatedNormal, -1.0, 2.0, 1.0, 5.0),
     T(_TruncatedNormal, np.array([-1.0, 4.0]), 2.0, None, 5.0),
@@ -983,13 +991,12 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
                     params[1],
                     params[2],
                 )
-                if low is None:
-                    low = -np.inf
-                if high is None:
-                    high = np.inf
             else:
                 # old api
-                low, loc, scale = params
+                loc, scale, low, high = params
+            if low is None:
+                low = -np.inf
+            if high is None:
                 high = np.inf
             sp_dist = get_sp_dist(type(jax_dist.base_dist))(loc, scale)
             expected = sp_dist.logpdf(samples) - jnp.log(
@@ -1331,6 +1338,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
         _TruncatedNormal,
+        _TruncatedCauchy,
         dist.LeftTruncatedDistribution,
         dist.RightTruncatedDistribution,
         dist.TwoSidedTruncatedDistribution,
@@ -1436,7 +1444,12 @@ def test_mean_var(jax_dist, sp_dist, params):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
-    if jax_dist in (_TruncatedNormal, _GaussianMixture, _Gaussian2DMixture):
+    if jax_dist in (
+        _TruncatedNormal,
+        _TruncatedCauchy,
+        _GaussianMixture,
+        _Gaussian2DMixture,
+    ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 

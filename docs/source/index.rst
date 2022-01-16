@@ -61,16 +61,23 @@ NumPyro documentation
    examples/horseshoe_regression
    examples/proportion_test
    examples/ucbadmit
-   examples/hmcecs
    examples/hmm
    examples/hsgp
    examples/ode
    examples/neutra
-   examples/covtype
    examples/thompson_sampling
    tutorials/bayesian_hierarchical_stacking
    examples/ssbvm_mixture
    examples/ar2
+   examples/holt_winters
+
+.. nbgallery::
+   :maxdepth: 1
+   :caption: Other Inference Algorithms
+   :name: other-inference-algorithms
+
+   examples/hmcecs
+   examples/covtype
 
 
 Indices and tables

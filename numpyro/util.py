@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+import inspect
 from itertools import zip_longest
 import os
 import random
@@ -311,7 +312,8 @@ def fori_collect(
     # See: https://github.com/google/jax/issues/6447
     if num_chains > 1 and jax.default_backend() == "gpu":
         warnings.warn(
-            "We will disable progress bar because it does not work yet on multi-GPUs platforms."
+            "We will disable progress bar because it does not work yet on multi-GPUs platforms.",
+            stacklevel=find_stack_level(),
         )
         progbar = False
 
@@ -329,7 +331,9 @@ def fori_collect(
         )
         return val, collection, start_idx, thinning
 
-    collection = jnp.zeros((collection_size,) + init_val_flat.shape)
+    collection = jnp.zeros(
+        (collection_size,) + init_val_flat.shape, dtype=init_val_flat.dtype
+    )
     if not progbar:
         last_val, collection, _, _ = fori_loop(
             0, upper, _body_fn, (init_val, collection, start_idx, thinning)
@@ -443,9 +447,9 @@ def format_shapes(
         def model(*args, **kwargs):
             ...
 
-        with numpyro.handlers.seed(rng_key=1):
+        with numpyro.handlers.seed(rng_seed=1):
             trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
-        numpyro.util.format_shapes(trace)
+        print(numpyro.util.format_shapes(trace))
     """
     if not trace.keys():
         return title
@@ -510,10 +514,8 @@ def format_shapes(
 
 def check_model_guide_match(model_trace, guide_trace):
     """
-    :param dict model_trace: The model trace to check.
-    :param dict guide_trace: The guide trace to check.
-    :raises: RuntimeWarning, ValueError
     Checks the following assumptions:
+
     1. Each sample site in the model also appears in the guide and is not
         marked auxiliary.
     2. Each sample site in the guide either appears in the model or is marked,
@@ -522,6 +524,10 @@ def check_model_guide_match(model_trace, guide_trace):
         appears in the model.
     4. At each sample site that appears in both the model and guide, the model
         and guide agree on sample shape.
+
+    :param dict model_trace: The model trace to check.
+    :param dict guide_trace: The guide trace to check.
+    :raises: RuntimeWarning, ValueError
     """
     # Check ordinary sample sites.
     guide_vars = set(
@@ -545,20 +551,23 @@ def check_model_guide_match(model_trace, guide_trace):
 
     if aux_vars & model_vars:
         warnings.warn(
-            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars)
+            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars),
+            stacklevel=find_stack_level(),
         )
     if not (guide_vars <= model_vars | aux_vars):
         warnings.warn(
             "Found non-auxiliary vars in guide but not model, "
             "consider marking these infer={{'is_auxiliary': True}}:\n{}".format(
                 guide_vars - aux_vars - model_vars
-            )
+            ),
+            stacklevel=find_stack_level(),
         )
     if not (model_vars <= guide_vars | enum_vars):
         warnings.warn(
             "Found vars in model but not guide: {}".format(
                 model_vars - guide_vars - enum_vars
-            )
+            ),
+            stacklevel=find_stack_level(),
         )
 
     # Check shapes agree.
@@ -603,8 +612,32 @@ def check_model_guide_match(model_trace, guide_trace):
         warnings.warn(
             "Found plate statements in guide but not model: {}".format(
                 guide_vars - model_vars
-            )
+            ),
+            stacklevel=find_stack_level(),
         )
+
+    # Check if plate is missing in the model.
+    for name, site in model_trace.items():
+        if site["type"] == "sample":
+            value_ndim = jnp.ndim(site["value"])
+            batch_shape = lax.broadcast_shapes(
+                site["fn"].batch_shape,
+                jnp.shape(site["value"])[: value_ndim - len(site["fn"].event_shape)],
+            )
+            plate_dims = set(f.dim for f in site["cond_indep_stack"])
+            batch_ndim = len(batch_shape)
+            for i in range(batch_ndim):
+                dim = -i - 1
+                if batch_shape[dim] > 1 and (dim not in plate_dims):
+                    # Skip checking if it is the `scan` dimension.
+                    if dim == -batch_ndim and site.get("_control_flow_done", False):
+                        continue
+                    warnings.warn(
+                        f"Missing a plate statement for batch dimension {dim}"
+                        f" at site '{name}'. You can use `numpyro.util.format_shapes`"
+                        " utility to check shapes at all sites of your model.",
+                        stacklevel=find_stack_level(),
+                    )
 
 
 def _format_table(rows):
@@ -665,3 +698,28 @@ def _versiontuple(version):
     Source: https://stackoverflow.com/a/11887825/4451315
     """
     return tuple([int(number) for number in version.split(".")])
+
+
+def find_stack_level() -> int:
+    """
+    Find the first place in the stack that is not inside numpyro
+    (tests notwithstanding).
+
+    Source:
+    https://github.com/pandas-dev/pandas/blob/ccb25ab1d24c4fb9691270706a59c8d319750870/pandas/util/_exceptions.py#L27-L48
+    """
+    import numpyro
+
+    pkg_dir = os.path.dirname(numpyro.__file__)
+
+    # https://stackoverflow.com/questions/17407119/python-inspect-stack-is-slow
+    frame = inspect.currentframe()
+    n = 0
+    while frame:
+        fname = inspect.getfile(frame)
+        if fname.startswith(pkg_dir):
+            frame = frame.f_back
+            n += 1
+        else:
+            break
+    return n

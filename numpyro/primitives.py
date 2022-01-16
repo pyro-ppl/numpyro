@@ -11,7 +11,7 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.util import identity
+from numpyro.util import find_stack_level, identity
 
 _PYRO_STACK = []
 
@@ -463,7 +463,8 @@ class plate(Messenger):
                 "subsample_size does not match len(subsample), {} vs {}.".format(
                     subsample_size, len(subsample)
                 )
-                + " Did you accidentally use different subsample_size in the model and guide?"
+                + " Did you accidentally use different subsample_size in the model and guide?",
+                stacklevel=find_stack_level(),
             )
         cond_indep_stack = msg["cond_indep_stack"]
         occupied_dims = {f.dim for f in cond_indep_stack}

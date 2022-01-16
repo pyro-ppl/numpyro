@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.primitives import mutable as numpyro_mutable
 
 __all__ = [
@@ -223,12 +224,17 @@ def _update_params(params, new_params, prior, prefix=""):
             new_item = new_params[name]
             _update_params(item, new_item, prior, prefix=flatten_name)
         elif (not isinstance(prior, dict)) or flatten_name in prior:
-            d = prior[flatten_name] if isinstance(prior, dict) else prior
             if isinstance(params[name], ParamShape):
                 param_shape = params[name].shape
             else:
                 param_shape = jnp.shape(params[name])
                 params[name] = ParamShape(param_shape)
+            if isinstance(prior, dict):
+                d = prior[flatten_name]
+            elif callable(prior) and not isinstance(prior, dist.Distribution):
+                d = prior(flatten_name, param_shape)
+            else:
+                d = prior
             param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
             # XXX: here we set all dimensions of prior to event dimensions.
             new_params[name] = numpyro.sample(
@@ -270,7 +276,12 @@ def random_flax_module(
                                      prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},
                                      input_shape=(4,))
 
-    :type prior: dict or ~numpyro.distributions.Distribution
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
+            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()}
+
+    :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
     :param list apply_rng: A list to indicate which extra rng _kinds_ are needed for
         ``nn_module``. For example, when ``nn_module`` includes dropout layers, we
@@ -374,7 +385,12 @@ def random_haiku_module(
                                       prior={"linear.b": dist.Cauchy(), "linear.w": dist.Normal()},
                                       input_shape=(4,))
 
-    :type prior: dict or ~numpyro.distributions.Distribution
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name.startswith("b") else dist.Normal())
+            prior={"bias": dist.Cauchy(), "kernel": dist.Normal()}
+
+    :type prior: dict, ~numpyro.distributions.Distribution or callable
     :param tuple input_shape: shape of the input taken by the neural network.
     :param bool apply_rng: A flag to indicate if the returned callable requires
         an rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults

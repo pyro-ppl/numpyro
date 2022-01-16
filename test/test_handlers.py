@@ -12,7 +12,7 @@ import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.util import log_density
 import numpyro.optim as optim
 from numpyro.util import not_jax_tracer, optional
@@ -778,3 +778,14 @@ def test_subsample_fn():
 
         # test that values are not duplicated
         assert len(set(subsamples[k].copy())) == subsample_size
+
+
+def test_sites_have_unique_names():
+    def model():
+        alpha = numpyro.sample("alpha", dist.Normal())
+        numpyro.deterministic("alpha", alpha * 2)
+
+    mcmc = MCMC(NUTS(model), num_chains=1, num_samples=10, num_warmup=10)
+    msg = "all sites must have unique names but got `alpha` duplicated"
+    with pytest.raises(AssertionError, match=msg):
+        mcmc.run(random.PRNGKey(0))

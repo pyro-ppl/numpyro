@@ -96,6 +96,36 @@ def test_predictive_with_guide():
     assert_allclose(jnp.mean(obs_pred), 0.8, atol=0.05)
 
 
+def test_predictive_with_particles():
+    num_particles = 5
+    num_samples = 2
+    fdim = 3
+    num_data = 10
+
+    def model(x, y=None):
+        latent = numpyro.sample("latent", dist.Normal(0.0, jnp.ones(fdim)).to_event(1))
+        with numpyro.plate("data", x.shape[0]):
+            numpyro.sample("y", dist.Normal(jnp.matmul(x, latent), 1.0), obs=y)
+
+    def guide(x, y=None):
+        latent_loc = numpyro.param(
+            "latent_loc", jnp.ones(fdim), constraint=constraints.real
+        )
+        assert latent_loc.ndim == 1
+        numpyro.sample("latent", dist.Normal(latent_loc, 1.0).to_event(1))
+
+    params = {"latent_loc": jnp.zeros((num_particles, fdim))}
+    x = dist.Normal(jnp.full(3, 0.2), 1.0).sample(random.PRNGKey(0), (num_data,))
+    predictions = Predictive(
+        model,
+        guide=guide,
+        params=params,
+        num_samples=num_samples,
+        batch_ndims=1,
+    )(random.PRNGKey(0), x)
+    assert predictions["y"].shape == (num_samples, num_particles, num_data)
+
+
 def test_predictive_with_improper():
     true_coef = 0.9
 
