@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import jax
-import jax.numpy as jnp
+from jax import numpy as jnp, vmap
+from jax.flatten_util import ravel_pytree
+from jax.tree_util import tree_map, tree_multimap
 
 from numpyro.distributions import biject_to
 from numpyro.distributions.constraints import real
@@ -55,3 +57,16 @@ def get_parameter_transform(site):
     constraint = site["kwargs"].get("constraint", real)
     transform = site["kwargs"].get("particle_transform", IdentityTransform())
     return ComposeTransform([transform, biject_to(constraint)])
+
+
+def batch_ravel_pytree(pytree, nbatch_dims=0):
+    if nbatch_dims == 0:
+        return ravel_pytree(pytree)
+
+    shapes = tree_map(lambda x: x.shape, pytree)
+    flat_pytree = tree_map(lambda x: x.reshape(*x.shape[:-nbatch_dims], -1), pytree)
+    flat = vmap(lambda x: ravel_pytree(x)[0])(flat_pytree)
+    unravel_fn = ravel_pytree(tree_map(lambda x: x[0], flat_pytree))[1]
+    return flat, lambda _flat: tree_multimap(
+        lambda x, shape: x.reshape(shape), vmap(unravel_fn)(_flat), shapes
+    )
