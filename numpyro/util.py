@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from contextlib import contextmanager
 import inspect
 from itertools import zip_longest
@@ -417,11 +417,6 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
         ys,
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
-
-
-pytree_metadata = namedtuple(
-    "pytree_metadata", ["flat", "shape", "event_size", "dtype"]
-)
 
 
 def format_shapes(
