@@ -17,6 +17,7 @@ import numpyro
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
+from numpyro.infer.initialization import init_to_sample
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import _unconstrain_reparam
 from numpyro.util import cond, fori_loop, identity
@@ -124,9 +125,11 @@ class HMCGibbs(MCMCKernel):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         if self._prototype_trace is None:
             rng_key, key_u = random.split(rng_key)
-            self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-                *model_args, **model_kwargs
-            )
+            # We use init strategy to get around ImproperUniform which does not have
+            # sample method.
+            self._prototype_trace = trace(
+                substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+            ).get_trace(*model_args, **model_kwargs)
 
         rng_key, key_z = random.split(rng_key)
         gibbs_sites = {
@@ -407,9 +410,11 @@ class DiscreteHMCGibbs(HMCGibbs):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
-        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-            *model_args, **model_kwargs
-        )
+        # We use init strategy to get around ImproperUniform which does not have
+        # sample method.
+        self._prototype_trace = trace(
+            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+        ).get_trace(*model_args, **model_kwargs)
 
         self._support_sizes = {
             name: np.broadcast_to(
@@ -605,9 +610,11 @@ class HMCECS(HMCGibbs):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
-        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-            *model_args, **model_kwargs
-        )
+        # We use init strategy to get around ImproperUniform which does not have
+        # sample method.
+        self._prototype_trace = trace(
+            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+        ).get_trace(*model_args, **model_kwargs)
         self._subsample_plate_sizes = {
             name: site["args"]
             for name, site in self._prototype_trace.items()
