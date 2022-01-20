@@ -5,7 +5,7 @@
 Example: Modelling mortality over space and time
 ================================================
 
-This example is adapted from [1]. The model in the paper estimates death rates for 6,791 small
+This example is adapted from [1]. The model in the paper estimates death rates for 6791 small
 areas in England for 19 age groups (0, 1-4, 5-9, 10-14, ..., 80-84, 85+ years) from 2002-19.
 
 When modelling mortality at high spatial resolutions, the number of deaths in each age group,
