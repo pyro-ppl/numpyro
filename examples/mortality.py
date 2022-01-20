@@ -1,0 +1,276 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Example: Modelling mortality over space and time
+================================================
+
+This example is adapted from [1]. The model in the paper estimates death rates for 6,791 small
+areas in England for 19 age groups (0, 1-4, 5-9, 10-14, ..., 80-84, 85+ years) from 2002-19.
+
+When modelling mortality at high spatial resolutions, the number of deaths in each age group,
+spatial unit and year is small, meaning that death rates calculated from observed data have an
+apparent variability which is larger than the true differences in the risk of dying. A Bayesian
+multilevel modelling framework can overcome small number issues by sharing information across ages,
+space and time to obtain smoothed death rates and capture the uncertainty in the estimate.
+
+As well as a global intercept (:math:`\\alpha_0`) and slope (:math:`\\beta_0`), the model includes
+the following effects:
+
+    - Age (:math:`\\alpha_{2a}`, :math:`\\beta_{2a}`). Each age group has a different intercept
+      and slope with a random-walk structure over age groups to allow for non-linear age associations.
+    - Space (:math:`\\alpha_{1s}`, :math:`\\beta_{1s}`). Each spatial unit has an intercept and slope.
+      The spatial effects are defined by a nested hierarchy of random effects following the
+      administrative hierarchy of local government. The spatial term at the lower level unit is
+      centred on the spatial term of the higher level unit (e.g., :math:`\\alpha_{1s_1}`) that
+      contains that lower level unit.
+
+The model also has an age-space interaction term :math:`\\xi_{as}`, as well as random walk effects
+over time for each age group and spatial unit (:math:`\\gamma_{at}`, :math:`\\nu_{st}`).
+
+Death rates are linked to the death and population data using a beta-binomial likelihood with the
+reparametrisation described in [2], where the variable :math:`\\theta` allow for overdispersion. The
+full generative model of death rates is written as
+
+.. math:: :nowrap:
+
+    \\begin{align}
+        \\alpha_{1s_1} & \\sim \\mathcal{N}(0,\\sigma_{\\alpha_{s_1}}^2) \\\\
+        \\alpha_{1s} & \\sim \\mathcal{N}(\\alpha_{1s_1(s_2)},\\sigma_{\\alpha_{s_2}}^2) \\\\
+        \\beta_{1s_1} & \\sim \\mathcal{N}(0,\\sigma_{\\beta_{s_1}}^2) \\\\
+        \\beta_{1s} & \\sim \\mathcal{N}(\\beta_{1s_1(s_2)},\\sigma_{\\beta_{s_2}}^2) \\\\
+        \\alpha_{2a} & \\sim \\mathcal{N}(\\alpha_{2,a-1},\\sigma_{\\alpha_a}^2) \\quad \\alpha_{2,0} = \\alpha_0 \\\\
+        \\beta_{2a} & \\sim \\mathcal{N}(\\beta_{2,a-1},\\sigma_{\\beta_a}^2) \\quad \\beta_{2,0} = \\beta_0 \\\\
+        \\xi_{as} & \\sim \\mathcal{N}(\\beta_{1s} + \\beta_{2a},\\sigma_{\\xi}^2) \\\\
+        \\nu_{st} & \\sim \\mathcal{N}(\\nu_{s,t-1} + \\beta_{1s},\\sigma_{\\nu}^2), \\quad \\nu_{s1} = 0 \\\\
+        \\gamma_{at} & \\sim \\mathcal{N}(\\gamma_{a,t-1} + \\beta_{2a},\\sigma_{\\gamma}^2), \\quad \\gamma_{a1}=0 \\\\
+        \\text{logit}(m_{ast}) & = \\xi_{as} + \\nu_{st} + \\gamma_{at}
+    \\end{align}
+
+with the hyperpriors
+
+.. math:: :nowrap:
+
+    \\begin{align}
+        \\alpha_0 & \\sim \\mathcal{N}(0,100), \\\\
+        \\beta_0 & \\sim \\mathcal{N}(0,100), \\\\
+        \\sigma_i & \\sim \\mathcal{U}(0,2), \\\\
+        \\theta & \\sim \\text{Exponential}(0.1)
+    \\end{align}
+
+Further detail about the model terms can be found in [1].
+
+The NumPyro implementation below uses :class:`~numpyro.plate` notation to declare the batch
+dimensions of the age, space and time variables. This allows us to efficiently broadcast arrays
+in the likelihood as `xi + nu + gamma`.
+
+As written above, the model includes a lot of centred random effects. The NUTS alogrithm benefits
+from a non-centred reparamatrisation to overcome difficult posterior geometries [3]. Rather than
+manually writing out the non-centred parametrisation, we make use of the NumPyro's automatic
+reparametrisation in :class:`~numpyro.infer.reparam.LocScaleReparam`.
+
+Death data at the spatial resolution in [1] are identifiable, so in this example we are using
+simulated data. Comapred to [1], the data have fewer spatial units and a two-tier (rather than
+three-tier) spatial hierarchy. There are still 19 age groups and 18 years as in the original study.
+The data here have (event) dimensions of `(19, 113, 18)` (`(age, space, time)`).
+
+The original implementation in nimble is at [4].
+
+**References**
+
+    1. Rashid, T., Bennett, J.E. et al. (2021).
+       Life expectancy and risk of death in 6791 communities in England from 2002
+       to 2019: high-resolution spatiotemporal analysis of civil registration data.
+       The Lancet Public Health, 6, e805 - e816.
+    2. McElreath, R. (2018). Statistical Rethinking: A Bayesian Course with Examples in R and Stan.
+       Chapman and Hall/CRC.
+    3. Stan User's Guide. https://mc-stan.org/docs/2_28/stan-users-guide/reparameterization.html
+    4. Mortality using Bayesian hierarchical models. https://github.com/theorashid/mortality-statsmodel
+
+"""
+
+import argparse
+import os
+
+import numpy as np
+import pandas as pd
+
+from jax import random
+import jax.numpy as jnp
+from jax.scipy.special import expit
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.infer import MCMC, NUTS
+from numpyro.infer.initialization import init_to_median
+from numpyro.infer.reparam import LocScaleReparam
+
+
+def get_data():
+    # NEED TO USE from numpyro.examples.datasets import MORTALITY, load_dataset
+    data = pd.read_csv("simulated_mortality.csv")
+    print(data.head())
+
+    grid_lookup = data[["s1", "s2"]].drop_duplicates().sort_values(by="s2")
+
+    return (
+        data["a"].values,
+        data["s2"].values,
+        data["t"].values,
+        grid_lookup["s1"].values,
+        data["population"].values,
+        data["deaths"].values,
+    )
+
+
+reparam_config = {
+    k: LocScaleReparam(0)
+    for k in [
+        "alpha_s1",
+        "beta_s1",
+        "alpha_s2",
+        "beta_s2",
+        "alpha_age_drift",
+        "beta_age_drift",
+        "xi",
+        "nu_drift",
+        "gamma_drift",
+    ]
+}
+
+
+@numpyro.handlers.reparam(config=reparam_config)
+def model(age, space, time, lookup, population, deaths=None):
+    N_s1 = len(np.unique(lookup))
+    N_s2 = len(np.unique(space))
+    N_age = len(np.unique(age))
+    N_t = len(np.unique(time))
+    N = len(population)
+
+    # plates
+    age_plate = numpyro.plate("age_groups", N_age, dim=-3)
+    space_plate = numpyro.plate("space", N_s2, dim=-2)
+    year_plate = numpyro.plate("year", N_t - 1, dim=-1)
+
+    # hyperparameters
+    sigma_alpha_s1 = numpyro.sample("sigma_alpha_s1", dist.Uniform(0.0, 2.0))
+    sigma_beta_s1 = numpyro.sample("sigma_beta_s1", dist.Uniform(0.0, 2.0))
+    sigma_alpha_s2 = numpyro.sample("sigma_alpha_s2", dist.Uniform(0.0, 2.0))
+    sigma_beta_s2 = numpyro.sample("sigma_beta_s2", dist.Uniform(0.0, 2.0))
+    sigma_alpha_age = numpyro.sample("sigma_alpha_age", dist.Uniform(0.0, 2.0))
+    sigma_beta_age = numpyro.sample("sigma_beta_age", dist.Uniform(0.0, 2.0))
+    sigma_xi = numpyro.sample("sigma_xi", dist.Uniform(0.0, 2.0))
+    sigma_nu = numpyro.sample("sigma_nu", dist.Uniform(0.0, 2.0))
+    sigma_gamma = numpyro.sample("sigma_gamma", dist.Uniform(0.0, 2.0))
+    theta = numpyro.sample("theta", dist.Exponential(0.1))
+
+    # spatial hierarchy
+    with numpyro.plate("s1", N_s1, dim=-2):
+        alpha_s1 = numpyro.sample("alpha_s1", dist.Normal(0, sigma_alpha_s1))
+        beta_s1 = numpyro.sample("beta_s1", dist.Normal(0, sigma_beta_s1))
+    with space_plate:
+        alpha_s2 = numpyro.sample(
+            "alpha_s2", dist.Normal(alpha_s1[lookup], sigma_alpha_s2)
+        )
+        beta_s2 = numpyro.sample("beta_s2", dist.Normal(beta_s1[lookup], sigma_beta_s2))
+
+    # age
+    with age_plate:
+        alpha_age_drift_scale = jnp.pad(
+            jnp.broadcast_to(sigma_alpha_age, N_age - 1),
+            (1, 0),
+            constant_values=100.0,  # pad so first term is alpha0, the global intercept with prior N(0, 100)
+        )[:, jnp.newaxis, jnp.newaxis]
+        alpha_age_drift = numpyro.sample(
+            "alpha_age_drift", dist.Normal(0, alpha_age_drift_scale)
+        )
+        alpha_age = jnp.cumsum(alpha_age_drift, -2)
+
+        beta_age_drift_scale = jnp.pad(
+            jnp.broadcast_to(sigma_beta_age, N_age - 1), (1, 0), constant_values=100.0
+        )[:, jnp.newaxis, jnp.newaxis]
+        beta_age_drift = numpyro.sample(
+            "beta_age_drift", dist.Normal(0, beta_age_drift_scale)
+        )
+        beta_age = jnp.cumsum(beta_age_drift, -2)
+
+    # age-space interactions
+    with age_plate, space_plate:
+        xi = numpyro.sample("xi", dist.Normal(alpha_age + alpha_s2, sigma_xi))
+
+    # space-time random walk
+    with space_plate, year_plate:
+        nu_drift = numpyro.sample("nu_drift", dist.Normal(beta_s2, sigma_nu))
+        nu = jnp.pad(jnp.cumsum(nu_drift, -1), [(0, 0), (1, 0)])
+
+    # age-time random walk
+    with age_plate, year_plate:
+        gamma_drift = numpyro.sample("gamma_drift", dist.Normal(beta_age, sigma_gamma))
+        gamma = jnp.pad(jnp.cumsum(gamma_drift, -1), [(0, 0), (0, 0), (1, 0)])
+
+    # likelihood
+    latent_rate = xi + nu + gamma
+    with numpyro.plate("N", N):
+        mu_logit = latent_rate[space, age, time]
+        mu = numpyro.deterministic("mu", expit(mu_logit))
+        numpyro.sample(
+            "deaths",
+            dist.BetaBinomial(mu * theta, (1 - mu) * theta, population),
+            obs=deaths,
+        )
+
+
+def print_model_shape(model, age, space, time, lookup, population):
+    with numpyro.handlers.seed(rng_seed=1):
+        trace = numpyro.handlers.trace(model).get_trace(
+            age=age,
+            space=space,
+            time=time,
+            lookup=lookup,
+            population=population,
+        )
+    print(numpyro.util.format_shapes(trace))
+
+
+def run_inference(model, age, space, time, lookup, population, deaths, rng_key, args):
+    kernel = NUTS(model, init_strategy=init_to_median)
+    mcmc = MCMC(
+        kernel,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
+    mcmc.run(rng_key, age, space, time, lookup, population, deaths)
+    mcmc.print_summary()
+    return mcmc.get_samples()
+
+
+def main(args):
+    print("Fetching simulated data...")
+    a, s2, t, lookup, population, deaths = get_data()
+
+    print("Model shape:")
+    print_model_shape(model, a, s2, t, lookup, population)
+
+    print("Starting inference...")
+    rng_key = random.PRNGKey(args.rng_seed)
+    run_inference(model, a, s2, t, lookup, population, deaths, rng_key, args)
+
+
+if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.8.0")
+
+    parser = argparse.ArgumentParser(description="Mortality regression model")
+    parser.add_argument("-n", "--num-samples", nargs="?", default=100, type=int)
+    parser.add_argument("--num-warmup", nargs="?", default=50, type=int)
+    parser.add_argument("--num-chains", nargs="?", default=1, type=int)
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+    parser.add_argument(
+        "--rng_seed", default=21, type=int, help="random number generator seed"
+    )
+    args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+
+    main(args)
