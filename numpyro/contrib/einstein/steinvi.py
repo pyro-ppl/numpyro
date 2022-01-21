@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from copy import copy
 import functools
 from functools import partial
 from itertools import chain
@@ -125,43 +124,47 @@ class SteinVI:
         return res
 
     def _find_init_params(self, particle_seed, inner_guide, inner_guide_trace):
-        init_params = {}
-        for name, site in inner_guide_trace.items():
-            site = copy(site)
-            if site["type"] == "param":
-                value = site["value"]
-                constraint = site["kwargs"].get("constraint", real)
-                transform = get_parameter_transform(site)
-                if (
-                    isinstance(inner_guide, AutoGuide)
-                    and "_".join((inner_guide.prefix, "loc")) in name
-                ):
-                    site_key, particle_seed = jax.random.split(particle_seed)
-                    unconstrained_shape = transform.inverse_shape(value.shape)
-                    init_value = jnp.expand_dims(
-                        transform.inv(value), 0
-                    ) + Normal(  # Add gaussian noise
-                        scale=0.1
-                    ).sample(
-                        particle_seed, (self.num_particles, *unconstrained_shape)
-                    )
-                    init_value = transform(init_value)
+        def extract_info(site):
+            nonlocal particle_seed
+            name = site["name"]
+            value = site["value"]
+            constraint = site["kwargs"].get("constraint", real)
+            transform = get_parameter_transform(site)
+            if (
+                isinstance(inner_guide, AutoGuide)
+                and "_".join((inner_guide.prefix, "loc")) in name
+            ):
+                site_key, particle_seed = jax.random.split(particle_seed)
+                unconstrained_shape = transform.inverse_shape(value.shape)
+                init_value = jnp.expand_dims(
+                    transform.inv(value), 0
+                ) + Normal(  # Add gaussian noise
+                    scale=0.1
+                ).sample(
+                    particle_seed, (self.num_particles, *unconstrained_shape)
+                )
+                init_value = transform(init_value)
 
-                else:
-                    site_fn = site["fn"]
-                    site_args = site["args"]
-                    site_key, particle_seed = jax.random.split(particle_seed)
+            else:
+                site_fn = site["fn"]
+                site_args = site["args"]
+                site_key, particle_seed = jax.random.split(particle_seed)
 
-                    def _reinit(seed):
-                        with handlers.seed(rng_seed=seed):
-                            return site_fn(*site_args)
+                def _reinit(seed):
+                    with handlers.seed(rng_seed=seed):
+                        return site_fn(*site_args)
 
-                    init_value = jax.vmap(_reinit)(
-                        jax.random.split(particle_seed, self.num_particles)
-                    )
+                init_value = jax.vmap(_reinit)(
+                    jax.random.split(particle_seed, self.num_particles)
+                )
+            return init_value, constraint
 
-                init_params[name] = (init_value, constraint)
-            return init_params
+        init_params = {
+            name: extract_info(site)
+            for name, site in inner_guide_trace.items()
+            if site.get("type") == "param"
+        }
+        return init_params
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein

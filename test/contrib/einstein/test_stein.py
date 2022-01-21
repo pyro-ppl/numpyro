@@ -1,19 +1,21 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import string
 from collections import namedtuple
 from copy import copy
+import string
 
-import jax.numpy as jnp
 import numpy as np
+from numpy.ma.testutils import assert_array_approx_equal
 import numpy.random as nrandom
-import pytest
-from jax import random
 from numpy.testing import assert_allclose
+import pytest
+
+from jax import random
+import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
+from numpyro import handlers
 from numpyro.contrib.einstein import (
     GraphicalKernel,
     IMQKernel,
@@ -29,10 +31,18 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
 )
 from numpyro.contrib.einstein.util import posdef, sqrth, sqrth_and_inv_sqrth
-from numpyro.distributions import Poisson
+import numpyro.distributions as dist
+from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import SVI, Trace_ELBO
-from numpyro.infer.autoguide import AutoDelta, AutoNormal
+from numpyro.infer.autoguide import (
+    AutoDelta,
+    AutoDiagonalNormal,
+    AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
+    AutoMultivariateNormal,
+    AutoNormal,
+)
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
@@ -138,7 +148,8 @@ def uniform_normal():
                     dist.Uniform(0, 1).mask(False), AffineTransform(0, alpha)
                 ),
             )
-        numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
+        with numpyro.plate("data", data.shape[0]):
+            numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (10,))
     return true_coef, (data,), model
@@ -152,9 +163,14 @@ def regression():
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(features, labels):
-        coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
+        coefs = numpyro.sample(
+            "coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)).to_event(1)
+        )
+
         logits = numpyro.deterministic("logits", jnp.sum(coefs * features, axis=-1))
-        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+        with numpyro.plate("data", labels.shape[0]):
+            return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     return true_coefs, (data, labels), model
 
@@ -190,16 +206,20 @@ def test_steinvi_smoke(kernel, auto_guide, init_loc_fn, problem):
 
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize(
-    "init_strategy",
+    "init_loc_fn",
     (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
 )
 @pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
 @pytest.mark.parametrize("problem", (regression, uniform_normal))
-def test_get_params(kernel, auto_guide, init_strategy, problem):
+def test_get_params(kernel, auto_guide, init_loc_fn, problem):
     _, data, model = problem()
-    guide, optim, elbo = auto_guide(model), Adam(1e-1), Trace_ELBO()
+    guide, optim, elbo = (
+        auto_guide(model, init_loc_fn=init_loc_fn),
+        Adam(1e-1),
+        Trace_ELBO(),
+    )
 
-    stein = SteinVI(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
+    stein = SteinVI(model, guide, optim, elbo, kernel)
     stein_params = stein.get_params(stein.init(random.PRNGKey(0), *data))
 
     svi = SVI(model, guide, optim, elbo)
@@ -208,28 +228,73 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
 
     for name, svi_param in svi_params.items():
         assert (
-                stein_params[name].shape
-                == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+            stein_params[name].shape
+            == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
         )
 
 
-@pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize(
-    "init_strategy",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
+    "auto_class",
+    [
+        AutoMultivariateNormal,
+        AutoNormal,
+        AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation,
+        AutoDelta,
+        AutoDiagonalNormal,
+    ],
 )
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-@pytest.mark.parametrize("problem", (regression, uniform_normal))
-def test_update_evaluate(kernel, auto_guide, init_strategy, problem):
-    _, data, model = problem()
-    guide, optim, elbo = auto_guide(model), Adam(1e-1), Trace_ELBO()
+@pytest.mark.parametrize(
+    "init_loc_fn",
+    [
+        init_to_uniform,
+        init_to_feasible,
+        init_to_median,
+        init_to_sample,
+    ],
+)
+@pytest.mark.parametrize("num_particles", [1, 2, 10])
+def test_auto_guide(auto_class, init_loc_fn, num_particles):
+    latent_dim = 3
 
-    stein = SteinVI(model, guide, optim, elbo, kernel, init_strategy=init_strategy)
-    state = stein.init(random.PRNGKey(0), *data)
-    eval_loss = stein.evaluate(state, *data)
-    state = stein.init(random.PRNGKey(0), *data)
-    _, update_loss = stein.update(state, *data)
-    assert eval_loss == update_loss
+    def model(obs):
+        a = numpyro.sample("a", Normal(0, 1))
+        return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
+
+    obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
+
+    rng_key = random.PRNGKey(0)
+    guide_key, stein_key = random.split(rng_key)
+    inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
+
+    with handlers.seed(rng_seed=guide_key), handlers.trace() as inner_guide_tr:
+        inner_guide(obs)
+
+    steinvi = SteinVI(
+        model,
+        auto_class(model, init_loc_fn=init_loc_fn()),
+        Adam(1.0),
+        Trace_ELBO(),
+        RBFKernel(),
+        num_particles=num_particles,
+    )
+    state = steinvi.init(stein_key, obs)
+    init_params = steinvi.get_params(state)
+
+    for name, site in inner_guide_tr.items():
+        if site.get("type") == "param":
+            assert name in init_params
+            inner_param = site
+            init_value = init_params[name]
+            expected_shape = (num_particles, *jnp.shape(inner_param["value"]))
+            assert init_value.shape == expected_shape
+            if "auto_loc" in name or name == "b":
+                assert jnp.alltrue(init_value != jnp.zeros(expected_shape))
+                assert jnp.unique(init_value).shape == init_value.reshape(-1).shape
+            elif "scale" in name:
+                assert_array_approx_equal(init_value, jnp.full(expected_shape, 0.1))
+            else:
+                assert_array_approx_equal(init_value, jnp.full(expected_shape, 0.0))
 
 
 def test_svgd_loss_and_grads():
@@ -267,7 +332,7 @@ def test_svgd_loss_and_grads():
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 def test_apply_kernel(
-        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         pytest.skip()
@@ -337,7 +402,7 @@ def test_calc_particle_info(num_params, num_particles):
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 def test_kernel_forward(
-        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         return
