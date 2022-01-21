@@ -1,19 +1,19 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import string
 from collections import namedtuple
 from copy import copy
-import string
 
+import jax.numpy as jnp
 import numpy as np
 import numpy.random as nrandom
-from numpy.testing import assert_allclose
 import pytest
-
 from jax import random
-import jax.numpy as jnp
+from numpy.testing import assert_allclose
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.contrib.einstein import (
     GraphicalKernel,
     IMQKernel,
@@ -29,7 +29,6 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
 )
 from numpyro.contrib.einstein.util import posdef, sqrth, sqrth_and_inv_sqrth
-import numpyro.distributions as dist
 from numpyro.distributions import Poisson
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import SVI, Trace_ELBO
@@ -167,20 +166,19 @@ def regression():
 
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize(
-    "init_strategy",
+    "init_loc_fn",
     (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
 )
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
+@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_steinvi_smoke(kernel, auto_guide, init_strategy, problem):
+def test_steinvi_smoke(kernel, auto_guide, init_loc_fn, problem):
     true_coefs, data, model = problem()
     stein = SteinVI(
         model,
-        auto_guide(model),
+        auto_guide(model, init_loc_fn=init_loc_fn),
         Adam(1e-1),
         Trace_ELBO(),
         kernel,
-        init_strategy=init_strategy,
     )
     stein.run(random.PRNGKey(0), 1, *data)
 
@@ -210,8 +208,8 @@ def test_get_params(kernel, auto_guide, init_strategy, problem):
 
     for name, svi_param in svi_params.items():
         assert (
-            stein_params[name].shape
-            == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+                stein_params[name].shape
+                == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
         )
 
 
@@ -269,7 +267,7 @@ def test_svgd_loss_and_grads():
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 def test_apply_kernel(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         pytest.skip()
@@ -339,7 +337,7 @@ def test_calc_particle_info(num_params, num_particles):
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 def test_kernel_forward(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+        kernel, particles, particle_info, loss_fn, tparticles, mode, kval
 ):
     if mode not in kval:
         return
