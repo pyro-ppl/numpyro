@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import jax
 from jax import numpy as jnp, vmap
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map, tree_multimap
@@ -42,12 +41,13 @@ def sqrth_and_inv_sqrth(m):
 
 
 def safe_norm(a, ord=2, axis=None):
+    norm_corr = ord if isinstance(ord, int) else 2.0
     if axis is not None:
         is_zero = jnp.expand_dims(jnp.isclose(jnp.sum(a, axis=axis), 0.0), axis=axis)
     else:
         is_zero = jnp.ones_like(a, dtype="bool")
     norm = jnp.linalg.norm(
-        a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5 ** ord, jnp.zeros_like(a)),
+        a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5 ** norm_corr, jnp.zeros_like(a)),
         ord=ord,
         axis=axis,
     )
