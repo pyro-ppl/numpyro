@@ -272,5 +272,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
+    numpyro.enable_x64()
 
     main(args)
