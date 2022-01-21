@@ -6,7 +6,7 @@ from collections import namedtuple
 from numpy.testing import assert_allclose
 import pytest
 
-import jax.numpy as jnp
+from jax import numpy as jnp, random
 
 from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
@@ -19,7 +19,6 @@ from numpyro.contrib.einstein.kernels import (
     RBFKernel,
 )
 
-jnp.set_printoptions(precision=100)
 T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
 
 PARTICLES_2D = jnp.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
@@ -37,7 +36,7 @@ TEST_CASES = [
             "matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
         },
     ),
-    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 12.190277}),
+    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
     T(
         IMQKernel,
         lambda d: {},
@@ -93,7 +92,9 @@ def test_kernel_forward(
     if mode not in kval:
         return
     (d,) = tparticles[0].shape
-    kernel_fn = kernel(mode=mode).compute(particles, particle_info(d), loss_fn)
+    kernel = kernel(mode=mode)
+    kernel.init(random.PRNGKey(0), particles.shape)
+    kernel_fn = kernel.compute(particles, particle_info(d), loss_fn)
     value = kernel_fn(*tparticles)
 
     assert_allclose(value, kval[mode], atol=1e-9)
