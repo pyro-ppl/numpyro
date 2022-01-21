@@ -1,12 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from contextlib import contextmanager
-from functools import reduce
 import inspect
 from itertools import zip_longest
-import operator
 import os
 import random
 import re
@@ -19,10 +17,10 @@ from tqdm.auto import tqdm as tqdm_auto
 import jax
 from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
-from jax.dtypes import canonicalize_dtype
 from jax.experimental import host_callback
+from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map, tree_unflatten
+from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
