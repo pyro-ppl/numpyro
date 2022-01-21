@@ -3,10 +3,11 @@
 
 from collections import namedtuple
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import numpy as jnp, random
+from jax import random
 
 from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
@@ -21,9 +22,9 @@ from numpyro.contrib.einstein.kernels import (
 
 T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
 
-PARTICLES_2D = jnp.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
+PARTICLES_2D = np.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
 
-TPARTICLES_2D = (jnp.array([1.0, 2.0]), jnp.array([10.0, 5.0]))  # transformed particles
+TPARTICLES_2D = (np.array([1.0, 2.0]), np.array([10.0, 5.0]))  # transformed particles
 
 TEST_CASES = [
     T(
@@ -32,8 +33,8 @@ TEST_CASES = [
         lambda x: x,
         {
             "norm": 0.040711474,
-            "vector": jnp.array([0.056071877, 0.7260586]),
-            "matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
+            "vector": np.array([0.056071877, 0.7260586]),
+            "matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
         },
     ),
     T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
@@ -41,18 +42,18 @@ TEST_CASES = [
         IMQKernel,
         lambda d: {},
         lambda x: x,
-        {"norm": 0.104828484, "vector": jnp.array([0.11043153, 0.31622776])},
+        {"norm": 0.104828484, "vector": np.array([0.11043153, 0.31622776])},
     ),
     T(LinearKernel, lambda d: {}, lambda x: x, {"norm": 21.0}),
     T(
         lambda mode: MixtureKernel(
             mode=mode,
-            ws=jnp.array([0.2, 0.8]),
+            ws=np.array([0.2, 0.8]),
             kernel_fns=[RBFKernel(mode), RBFKernel(mode)],
         ),
         lambda d: {},
         lambda x: x,
-        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     T(
         lambda mode: GraphicalKernel(
@@ -60,7 +61,7 @@ TEST_CASES = [
         ),
         lambda d: {"p1": (0, d)},
         lambda x: x,
-        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     T(
         lambda mode: PrecondMatrixKernel(
@@ -69,7 +70,7 @@ TEST_CASES = [
         lambda d: {},
         lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
         {
-            "matrix": jnp.array(
+            "matrix": np.array(
                 [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
             )
         },
