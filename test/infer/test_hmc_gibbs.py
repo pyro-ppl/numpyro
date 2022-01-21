@@ -235,6 +235,18 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
 
 
+def test_improper_uniform():
+    def model():
+        numpyro.sample("c", dist.Bernoulli(0.8))
+        numpyro.sample(
+            "u", dist.ImproperUniform(dist.constraints.unit_interval, (), ())
+        )
+
+    sampler = DiscreteHMCGibbs(NUTS(model))
+    mcmc = MCMC(sampler, num_warmup=10, num_samples=10, progress_bar=False)
+    mcmc.run(random.PRNGKey(0))
+
+
 @pytest.mark.parametrize("modified", [False, True])
 @pytest.mark.parametrize(
     "kernel, inner_kernel, kwargs",
