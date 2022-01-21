@@ -184,7 +184,7 @@ def model(age, space, time, lookup, population, deaths=None):
         alpha_age_drift = numpyro.sample(
             "alpha_age_drift", dist.Normal(0, alpha_age_drift_scale)
         )
-        alpha_age = jnp.cumsum(alpha_age_drift, -2)
+        alpha_age = jnp.cumsum(alpha_age_drift, -3)
 
         beta_age_drift_scale = jnp.pad(
             jnp.broadcast_to(sigma_beta_age, N_age - 1), (1, 0), constant_values=100.0
@@ -192,7 +192,7 @@ def model(age, space, time, lookup, population, deaths=None):
         beta_age_drift = numpyro.sample(
             "beta_age_drift", dist.Normal(0, beta_age_drift_scale)
         )
-        beta_age = jnp.cumsum(beta_age_drift, -2)
+        beta_age = jnp.cumsum(beta_age_drift, -3)
 
     # age-space interactions
     with age_plate, space_plate:
