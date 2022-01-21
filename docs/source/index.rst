@@ -54,7 +54,6 @@ NumPyro documentation
    tutorials/time_series_forecasting
    tutorials/ordinal_regression
    tutorials/bayesian_imputation
-   examples/stein_mixture_dmm
    examples/gp
    examples/bnn
    examples/dais_demo
@@ -77,8 +76,9 @@ NumPyro documentation
    :caption: Other Inference Algorithms
    :name: other-inference-algorithms
 
-   examples/hmcecs
    examples/covtype
+   examples/hmcecs
+   examples/stein_mixture_dmm
 
 
 Indices and tables
