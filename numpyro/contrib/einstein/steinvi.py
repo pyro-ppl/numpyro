@@ -15,7 +15,7 @@ from jax.tree_util import tree_map
 
 from numpyro import handlers
 from numpyro.contrib.einstein.kernels import SteinKernel
-from numpyro.contrib.einstein.util import get_parameter_transform
+from numpyro.contrib.einstein.util import batch_ravel_pytree, get_parameter_transform
 from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution, Normal
 from numpyro.distributions.constraints import real
@@ -178,8 +178,10 @@ class SteinVI:
         }
         # 1. Collect each guide parameter into monolithic particles that capture correlations
         # between parameter values across each individual particle
-        stein_particles, unravel_pytree = ravel_pytree(stein_uparams, batch_dims=1)
-        unravel_pytree_batched = jax.vmap(unravel_pytree)
+        stein_particles, unravel_pytree, unravel_pytree_batched = batch_ravel_pytree(
+            stein_uparams, nbatch_dims=1
+        )
+        # unravel_pytree_batched = jax.vmap(unravel_pytree)
         particle_info = self._calc_particle_info(
             stein_uparams, stein_particles.shape[0]
         )
@@ -356,13 +358,13 @@ class SteinVI:
         self.uconstrain_fn = partial(transform_fn, transforms)
         self.particle_transforms = particle_transforms
         self.particle_transform_fn = partial(transform_fn, particle_transforms)
-        stein_particles, _ = ravel_pytree(
+        stein_particles, _, _ = batch_ravel_pytree(
             {
                 k: params[k]
                 for k, site in guide_trace.items()
                 if site["type"] == "param" and site["name"] in guide_init_params
             },
-            batch_dims=1,
+            nbatch_dims=1,
         )
 
         self.kernel_fn.init(kernel_seed, stein_particles.shape)

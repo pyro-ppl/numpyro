@@ -62,12 +62,17 @@ def get_parameter_transform(site):
 
 def batch_ravel_pytree(pytree, nbatch_dims=0):
     if nbatch_dims == 0:
-        return ravel_pytree(pytree)
+        flat, unravel_fn = ravel_pytree(pytree)
+        return flat, unravel_fn, unravel_fn
 
     shapes = tree_map(lambda x: x.shape, pytree)
     flat_pytree = tree_map(lambda x: x.reshape(*x.shape[:-nbatch_dims], -1), pytree)
     flat = vmap(lambda x: ravel_pytree(x)[0])(flat_pytree)
     unravel_fn = ravel_pytree(tree_map(lambda x: x[0], flat_pytree))[1]
-    return flat, lambda _flat: tree_multimap(
-        lambda x, shape: x.reshape(shape), vmap(unravel_fn)(_flat), shapes
+    return (
+        flat,
+        unravel_fn,
+        lambda _flat: tree_multimap(
+            lambda x, shape: x.reshape(shape), vmap(unravel_fn)(_flat), shapes
+        ),
     )
