@@ -656,7 +656,7 @@ class LowerCholeskyAffine(Transform):
     :param scale_tril: a lower triangular matrix with positive diagonal.
 
     **Example**
-    
+
     .. doctest::
 
        >>> import jax.numpy as jnp
@@ -786,9 +786,9 @@ class OrderedTransform(Transform):
 
     1. *Stan Reference Manual v2.20, section 10.6*,
        Stan Development Team
-       
+
     **Example**
-    
+
     .. doctest::
 
        >>> import jax.numpy as jnp
@@ -796,7 +796,7 @@ class OrderedTransform(Transform):
        >>> base = jnp.ones(3)
        >>> transform = OrderedTransform()
        >>> assert jnp.allclose(transform(base), jnp.array([1., 3.7182817, 6.4365635]), rtol=1e-3, atol=1e-3)
-       
+
     """
 
     domain = constraints.real_vector
@@ -888,7 +888,7 @@ class SimplexToOrderedTransform(Transform):
        M. Betancourt, https://betanalpha.github.io/assets/case_studies/ordinal_regression.html
 
     **Example**
-    
+
     .. doctest::
 
        >>> import jax.numpy as jnp
@@ -896,7 +896,7 @@ class SimplexToOrderedTransform(Transform):
        >>> base = jnp.array([0.3, 0.1, 0.4, 0.2])
        >>> transform = SimplexToOrderedTransform()
        >>> assert jnp.allclose(transform(base), jnp.array([-0.8472978, -0.40546507, 1.3862944]), rtol=1e-3, atol=1e-3)
-       
+
     """
 
     domain = constraints.simplex
