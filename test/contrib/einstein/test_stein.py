@@ -60,11 +60,11 @@ KERNELS = [
     kernels.RandomFeatureKernel(),
 ]
 
-jnp.set_printoptions(precision=100)
+np.set_printoptions(precision=100)
 TKERNEL = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
-PARTICLES_2D = jnp.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
+PARTICLES_2D = np.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
 
-TPARTICLES_2D = (jnp.array([1.0, 2.0]), jnp.array([10.0, 5.0]))  # transformed particles
+TPARTICLES_2D = (np.array([1.0, 2.0]), np.array([10.0, 5.0]))  # transformed particles
 
 
 class WrappedGraphicalKernel(GraphicalKernel):
@@ -83,7 +83,7 @@ class WrappedMixtureKernel(MixtureKernel):
     def __init__(self, mode):
         super().__init__(
             mode=mode,
-            ws=jnp.array([0.2, 0.8]),
+            ws=np.array([0.2, 0.8]),
             kernel_fns=[RBFKernel(mode), RBFKernel(mode)],
         )
 
@@ -95,8 +95,8 @@ KERNEL_TEST_CASES = [
         lambda x: x,
         {
             "norm": 0.040711474,
-            "vector": jnp.array([0.056071877, 0.7260586]),
-            "matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
+            "vector": np.array([0.056071877, 0.7260586]),
+            "matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
         },
     ),
     TKERNEL(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
@@ -104,27 +104,27 @@ KERNEL_TEST_CASES = [
         IMQKernel,
         lambda d: {},
         lambda x: x,
-        {"norm": 0.104828484, "vector": jnp.array([0.11043153, 0.31622776])},
+        {"norm": 0.104828484, "vector": np.array([0.11043153, 0.31622776])},
     ),
     TKERNEL(LinearKernel, lambda d: {}, lambda x: x, {"norm": 21.0}),
     TKERNEL(
         WrappedMixtureKernel,
         lambda d: {},
         lambda x: x,
-        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     TKERNEL(
         WrappedGraphicalKernel,
         lambda d: {"p1": (0, d)},
         lambda x: x,
-        {"matrix": jnp.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     TKERNEL(
         WrappedPrecondMatrixKernel,
         lambda d: {},
         lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
         {
-            "matrix": jnp.array(
+            "matrix": np.array(
                 [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
             )
         },
@@ -158,16 +158,16 @@ def uniform_normal():
 def regression():
     N, dim = 10, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
-    true_coefs = jnp.arange(1.0, dim + 1.0)
-    logits = jnp.sum(true_coefs * data, axis=-1)
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(features, labels):
         coefs = numpyro.sample(
-            "coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)).to_event(1)
+            "coefs", dist.Normal(np.zeros(dim), np.ones(dim)).to_event(1)
         )
 
-        logits = numpyro.deterministic("logits", jnp.sum(coefs * features, axis=-1))
+        logits = numpyro.deterministic("logits", np.sum(coefs * features, axis=-1))
 
         with numpyro.plate("data", labels.shape[0]):
             return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
@@ -229,7 +229,7 @@ def test_get_params(kernel, auto_guide, init_loc_fn, problem):
     for name, svi_param in svi_params.items():
         assert (
             stein_params[name].shape
-            == jnp.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+            == np.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
         )
 
 
@@ -286,15 +286,15 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
             assert name in init_params
             inner_param = site
             init_value = init_params[name]
-            expected_shape = (num_particles, *jnp.shape(inner_param["value"]))
+            expected_shape = (num_particles, *np.shape(inner_param["value"]))
             assert init_value.shape == expected_shape
             if "auto_loc" in name or name == "b":
-                assert jnp.alltrue(init_value != jnp.zeros(expected_shape))
-                assert jnp.unique(init_value).shape == init_value.reshape(-1).shape
+                assert np.alltrue(init_value != np.zeros(expected_shape))
+                assert np.unique(init_value).shape == init_value.reshape(-1).shape
             elif "scale" in name:
-                assert_array_approx_equal(init_value, jnp.full(expected_shape, 0.1))
+                assert_array_approx_equal(init_value, np.full(expected_shape, 0.1))
             else:
-                assert_array_approx_equal(init_value, jnp.full(expected_shape, 0.0))
+                assert_array_approx_equal(init_value, np.full(expected_shape, 0.0))
 
 
 def test_svgd_loss_and_grads():
@@ -302,12 +302,12 @@ def test_svgd_loss_and_grads():
     guide = AutoDelta(model)
     loss = Trace_ELBO()
     stein_uparams = {
-        "alpha_auto_loc": jnp.array(
+        "alpha_auto_loc": np.array(
             [
                 -1.2,
             ]
         ),
-        "loc_base_auto_loc": jnp.array(
+        "loc_base_auto_loc": np.array(
             [
                 1.53,
             ]
@@ -340,12 +340,12 @@ def test_apply_kernel(
     kernel_fn = kernel(mode=mode)
     kernel_fn.init(random.PRNGKey(0), particles.shape)
     kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
-    v = jnp.ones_like(kval[mode])
+    v = np.ones_like(kval[mode])
     stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
     value = stein._apply_kernel(kernel_fn, *tparticles, v)
     kval_ = copy(kval)
     if mode == "matrix":
-        kval_[mode] = jnp.dot(kval_[mode], v)
+        kval_[mode] = np.dot(kval_[mode], v)
     assert_allclose(value, kval_[mode], atol=1e-9)
 
 
@@ -362,7 +362,7 @@ def test_param_size(length, depth, t):
     sizes = Poisson(5).sample(seed, (length, nrandom.randint(0, 10))) + 1
     total_size = sum(map(lambda size: size.prod(), sizes))
     uparam = t(
-        nest(jnp.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes
+        nest(np.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes
     )
     stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
     assert stein._param_size(uparam) == total_size, f"Failed for seed {seed}"
@@ -374,7 +374,7 @@ def test_calc_particle_info(num_params, num_particles):
     seed = random.PRNGKey(nrandom.randint(0, 10_000))
     sizes = Poisson(5).sample(seed, (100, nrandom.randint(0, 10))) + 1
 
-    uparam = tuple(jnp.empty(tuple(size)) for size in sizes)
+    uparam = tuple(np.empty(tuple(size)) for size in sizes)
     uparams = {string.ascii_lowercase[i]: uparam for i in range(num_params)}
 
     par_param_size = sum(map(lambda size: size.prod(), sizes)) // num_particles

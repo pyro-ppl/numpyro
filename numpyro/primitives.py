@@ -424,11 +424,9 @@ class plate(Messenger):
     :param int dim: Optional argument to specify which dimension in the tensor
         is used as the plate dim. If `None` (default), the rightmost available dim
         is allocated.
-    :param float scale: Optional argument to scale subsample.
-        is allocated.
     """
 
-    def __init__(self, name, size, subsample_size=None, dim=None, subsample_scale=1.0):
+    def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         assert size > 0, "size of plate should be positive"
         self.size = size
@@ -438,7 +436,6 @@ class plate(Messenger):
             self.name, self.size, subsample_size, dim
         )
         self.subsample_size = self._indices.shape[0]
-        self.subsample_scale = subsample_scale
         super(plate, self).__init__()
 
     # XXX: different from Pyro, this method returns dim and indices
@@ -520,10 +517,8 @@ class plate(Messenger):
             msg["fn"] = msg["fn"].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1.0 if msg["scale"] is None else msg["scale"]
-            msg["scale"] = (
-                self.subsample_scale
-                * scale
-                * (self.size / self.subsample_size if self.subsample_size else 1)
+            msg["scale"] = scale * (
+                self.size / self.subsample_size if self.subsample_size else 1
             )
 
     def postprocess_message(self, msg):
