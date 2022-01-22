@@ -181,7 +181,6 @@ class SteinVI:
         stein_particles, unravel_pytree, unravel_pytree_batched = batch_ravel_pytree(
             stein_uparams, nbatch_dims=1
         )
-        # unravel_pytree_batched = jax.vmap(unravel_pytree)
         particle_info = self._calc_particle_info(
             stein_uparams, stein_particles.shape[0]
         )

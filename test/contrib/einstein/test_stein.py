@@ -12,7 +12,6 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import random
-import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -361,9 +360,7 @@ def test_param_size(length, depth, t):
     seed = random.PRNGKey(nrandom.randint(0, 10_000))
     sizes = Poisson(5).sample(seed, (length, nrandom.randint(0, 10))) + 1
     total_size = sum(map(lambda size: size.prod(), sizes))
-    uparam = t(
-        nest(np.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes
-    )
+    uparam = t(nest(np.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes)
     stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
     assert stein._param_size(uparam) == total_size, f"Failed for seed {seed}"
 
