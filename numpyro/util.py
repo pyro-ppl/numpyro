@@ -512,6 +512,38 @@ def format_shapes(
     return _format_table(rows)
 
 
+# TODO: follow pyro.util.check_site_shape logics for more complete validation
+def _validate_model(model_trace, plate_warning="loose"):
+    # TODO: Consider exposing global configuration for those strategies.
+    assert plate_warning in ["loose", "strict", "error"]
+    # Check if plate is missing in the model.
+    for name, site in model_trace.items():
+        if site["type"] == "sample":
+            value_ndim = jnp.ndim(site["value"])
+            batch_shape = lax.broadcast_shapes(
+                site["fn"].batch_shape,
+                jnp.shape(site["value"])[: value_ndim - len(site["fn"].event_shape)],
+            )
+            plate_dims = set(f.dim for f in site["cond_indep_stack"])
+            batch_ndim = len(batch_shape)
+            for i in range(batch_ndim):
+                dim = -i - 1
+                if batch_shape[dim] > 1 and (dim not in plate_dims):
+                    # Skip checking if it is the `scan` dimension.
+                    if dim == -batch_ndim and site.get("_control_flow_done", False):
+                        continue
+                    message = (
+                        f"Missing a plate statement for batch dimension {dim}"
+                        f" at site '{name}'. You can use `numpyro.util.format_shapes`"
+                        " utility to check shapes at all sites of your model."
+                    )
+
+                    if plate_warning == "error":
+                        raise ValueError(message)
+                    elif plate_warning == "strict" or (len(plate_dims) > 0):
+                        warnings.warn(message, stacklevel=find_stack_level())
+
+
 def check_model_guide_match(model_trace, guide_trace):
     """
     Checks the following assumptions:
@@ -616,28 +648,7 @@ def check_model_guide_match(model_trace, guide_trace):
             stacklevel=find_stack_level(),
         )
 
-    # Check if plate is missing in the model.
-    for name, site in model_trace.items():
-        if site["type"] == "sample":
-            value_ndim = jnp.ndim(site["value"])
-            batch_shape = lax.broadcast_shapes(
-                site["fn"].batch_shape,
-                jnp.shape(site["value"])[: value_ndim - len(site["fn"].event_shape)],
-            )
-            plate_dims = set(f.dim for f in site["cond_indep_stack"])
-            batch_ndim = len(batch_shape)
-            for i in range(batch_ndim):
-                dim = -i - 1
-                if batch_shape[dim] > 1 and (dim not in plate_dims):
-                    # Skip checking if it is the `scan` dimension.
-                    if dim == -batch_ndim and site.get("_control_flow_done", False):
-                        continue
-                    warnings.warn(
-                        f"Missing a plate statement for batch dimension {dim}"
-                        f" at site '{name}'. You can use `numpyro.util.format_shapes`"
-                        " utility to check shapes at all sites of your model.",
-                        stacklevel=find_stack_level(),
-                    )
+    _validate_model(model_trace, plate_warning="strict")
 
 
 def _format_table(rows):

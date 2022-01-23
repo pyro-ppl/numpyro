@@ -1058,7 +1058,7 @@ def test_loose_warning_for_missing_plate():
             numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones((5, 10)))
 
     mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
-    with pytest.warns(UserWarning, match="Missing plate statement"):
+    with pytest.warns(UserWarning, match="Missing a plate statement"):
         mcmc.run(random.PRNGKey(1))
 
 

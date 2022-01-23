@@ -22,7 +22,13 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
-from numpyro.util import find_stack_level, not_jax_tracer, soft_vmap, while_loop
+from numpyro.util import (
+    _validate_model,
+    find_stack_level,
+    not_jax_tracer,
+    soft_vmap,
+    while_loop,
+)
 
 __all__ = [
     "find_valid_initial_params",
@@ -540,30 +546,6 @@ def _guess_max_plate_nesting(model_trace):
     ]
     max_plate_nesting = -min(dims) if dims else 0
     return max_plate_nesting
-
-
-# TODO: follow pyro.util.check_site_shape logics for more complete validation
-def _validate_model(model_trace, plate_warning="loose"):
-    # TODO: Consider exposing global configuration for the strict strategy.
-    assert plate_warning in ["loose", "strict", "error"]
-    # XXX: this validates plate statements under `enum`
-    sites = [site for site in model_trace.values() if site["type"] == "sample"]
-
-    for site in sites:
-        batch_dims = max(
-            len(site["fn"].batch_shape), jnp.ndim(site["value"]) - site["fn"].event_dim
-        )
-        if site.get("_control_flow_done", False):
-            batch_dims = batch_dims - 1  # remove time dimension under scan
-        plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
-        if plate_dims < batch_dims:
-            message = "Missing plate statement for batch dimensions at site {}".format(
-                site["name"]
-            )
-            if plate_warning == "error":
-                raise ValueError(message)
-            elif plate_warning == "strict" or (plate_dims > 0):
-                warnings.warn(message)
 
 
 def initialize_model(
