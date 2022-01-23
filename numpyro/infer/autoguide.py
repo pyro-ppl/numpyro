@@ -10,7 +10,8 @@ import warnings
 import numpy as np
 
 import jax
-from jax import grad, hessian, lax, random, tree_map
+from jax import grad, hessian, lax, random
+from jax.tree_util import tree_map
 
 from numpyro.util import _versiontuple, find_stack_level
 
