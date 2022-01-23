@@ -92,7 +92,7 @@ def test_safe_norm(axis, ord):
 )
 @pytest.mark.parametrize("nbatch_dims", [0, 1, 2])
 def test_ravel_pytree_batched(pytree, nbatch_dims):
-    flat, unravel_fn = batch_ravel_pytree(pytree, nbatch_dims)
+    flat, _, unravel_fn = batch_ravel_pytree(pytree, nbatch_dims)
     unravel = unravel_fn(flat)
     tree_flatten(tree_multimap(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(
