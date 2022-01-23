@@ -543,20 +543,27 @@ def _guess_max_plate_nesting(model_trace):
 
 
 # TODO: follow pyro.util.check_site_shape logics for more complete validation
-def _validate_model(model_trace):
+def _validate_model(model_trace, plate_warning="loose"):
+    # TODO: Consider exposing global configuration for the strict strategy.
+    assert plate_warning in ["loose", "strict", "error"]
     # XXX: this validates plate statements under `enum`
     sites = [site for site in model_trace.values() if site["type"] == "sample"]
 
     for site in sites:
-        batch_dims = len(site["fn"].batch_shape)
+        batch_dims = max(
+            len(site["fn"].batch_shape), jnp.ndim(site["value"]) - site["fn"].event_dim
+        )
         if site.get("_control_flow_done", False):
             batch_dims = batch_dims - 1  # remove time dimension under scan
         plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
-        assert (
-            plate_dims >= batch_dims
-        ), "Missing plate statement for batch dimensions at site {}".format(
-            site["name"]
-        )
+        if plate_dims < batch_dims:
+            message = "Missing plate statement for batch dimensions at site {}".format(
+                site["name"]
+            )
+            if plate_warning == "error":
+                raise ValueError(message)
+            elif plate_warning == "strict" or (plate_dims > 0):
+                warnings.warn(message)
 
 
 def initialize_model(
@@ -639,8 +646,10 @@ def initialize_model(
 
         if not isinstance(model, enum):
             max_plate_nesting = _guess_max_plate_nesting(model_trace)
-            _validate_model(model_trace)
+            _validate_model(model_trace, plate_warning="error")
             model = enum(config_enumerate(model), -max_plate_nesting - 1)
+    else:
+        _validate_model(model_trace, plate_warning="loose")
 
     potential_fn, postprocess_fn = get_potential_fn(
         model,
