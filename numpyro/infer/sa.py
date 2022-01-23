@@ -401,6 +401,4 @@ class SA(MCMCKernel):
         state = self.__dict__.copy()
         state["_sample_fn"] = None
         state["_init_fn"] = None
-        state["_postprocess_fn"] = None
-        state["_potential_fn_gen"] = None
         return state

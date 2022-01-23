@@ -114,8 +114,6 @@ class AutoGuide(ABC):
     def __getstate__(self):
         state = self.__dict__.copy()
         state.pop("plates", None)
-        # TODO: Make potential_fn_gen pickable.
-        state.pop("_potential_fn_gen", None)
         return state
 
     @abstractmethod
