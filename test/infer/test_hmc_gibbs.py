@@ -317,10 +317,10 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     def model(data, subsample_size):
         mean = numpyro.sample("mean", dist.Normal().expand((3,)).to_event(1))
         with numpyro.plate(
-            "batch", data.shape[0], dim=-2, subsample_size=subsample_size
+            "batch", data.shape[0], dim=-1, subsample_size=subsample_size
         ):
-            sub_data = numpyro.subsample(data, 0)
-            numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
+            sub_data = numpyro.subsample(data, 1)
+            numpyro.sample("obs", dist.Normal(mean, 1).to_event(), obs=sub_data)
 
     ref_params = {
         "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))

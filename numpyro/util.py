@@ -521,7 +521,7 @@ def _validate_model(model_trace, plate_warning="loose"):
         if site["type"] == "sample":
             value_ndim = jnp.ndim(site["value"])
             batch_shape = lax.broadcast_shapes(
-                site["fn"].batch_shape,
+                tuple(site["fn"].batch_shape),
                 jnp.shape(site["value"])[: value_ndim - len(site["fn"].event_shape)],
             )
             plate_dims = set(f.dim for f in site["cond_indep_stack"])
