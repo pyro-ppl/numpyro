@@ -20,6 +20,7 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import handlers
 from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
@@ -62,32 +63,32 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
 
     n, m = x.shape
 
-    b1 = numpyro.sample(
-        "nn_b1",
-        Normal(
-            jnp.zeros(
-                hidden_dim,
+    with numpyro.plate("l1_hidden", hidden_dim):
+        b1 = numpyro.sample(  # prior l1 bias term
+            "nn_b1",
+            Normal(
+                0.0,
+                1.0 / prec_nn,
             ),
-            1.0 / prec_nn,
-        ),
-    )  # prior l1 bias term
+        )
+        assert b1.shape == (hidden_dim,)
+
+        with numpyro.plate("l1_feat", m):
+            w1 = numpyro.sample("nn_w1", Normal(0.0, 1.0 / prec_nn))  # prior l1 weights
+            assert w1.shape == (m, hidden_dim)
+
+    with numpyro.plate("l2_hidden", hidden_dim):
+        w2 = numpyro.sample("nn_w2", Normal(0.0, 1.0 / prec_nn))  # prior output weights
+
     b2 = numpyro.sample("nn_b2", Normal(0.0, 1.0 / prec_nn))  # prior output bias term
 
-    w1 = numpyro.sample(
-        "nn_w1", Normal(jnp.zeros((m, hidden_dim)), 1.0 / prec_nn)
-    )  # prior l1 weights
-    w2 = numpyro.sample(
-        "nn_w2", Normal(jnp.zeros(hidden_dim), 1.0 / prec_nn)
-    )  # prior output weights
-
-    prec_obs = numpyro.sample(
+    prec_obs = numpyro.sample(  # precision prior on observations
         "prec_obs", Gamma(1.0, 0.1)
-    )  # precision prior on observations
-    with numpyro.plate(
+    )
+    with handlers.scale(scale=subsample_size), numpyro.plate(
         "data",
         x.shape[0],
         subsample_size=subsample_size,
-        subsample_scale=subsample_size,  # scale up the subsample factor
         dim=-1,
     ):
         batch_x = numpyro.subsample(x, event_dim=1)
@@ -116,11 +117,10 @@ def main(args):
 
     stein = SteinVI(
         model,
-        AutoDelta(model),
+        AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=0.1)),
         Adagrad(0.05),
         Trace_ELBO(num_particles=20),
         RBFKernel(),
-        init_strategy=partial(init_to_uniform, radius=0.1),
         repulsion_temperature=args.repulsion,
         num_particles=args.num_particles,
     )
@@ -143,7 +143,7 @@ def main(args):
         guide=stein.guide,
         params=stein.get_params(result.state),
         num_samples=1,
-        num_particles=args.num_particles,
+        batch_ndims=1,
     )
     xte, _, _ = normalize(data.xte, xtr_mean, xtr_std)
     preds = pred(pred_key, xte, subsample_size=xte.shape[0])["y"].reshape(
@@ -161,7 +161,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
-    parser.add_argument("--max-iter", type=int, default=2000)
+    parser.add_argument("--max-iter", type=int, default=100)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-particles", type=int, default=100)
