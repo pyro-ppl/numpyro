@@ -443,3 +443,27 @@ def test_estimate_likelihood(kernel_cls):
     )(samples)
 
     assert jnp.var(jnp.exp(-pes - pes_full)) < 1.0
+
+
+def test_hmcecs_multiple_plates():
+    true_loc = jnp.array([0.3, 0.1, 0.9])
+    num_warmup, num_samples = 2, 2
+    data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
+        random.PRNGKey(1), (1000,)
+    )
+
+    def model(data):
+        mean = numpyro.sample("mean", dist.Normal().expand((3,)).to_event(1))
+        with numpyro.plate("batch", data.shape[0], dim=-2, subsample_size=10):
+            sub_data = numpyro.subsample(data, 0)
+            with numpyro.plate("dim", 3):
+                numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
+
+    ref_params = {
+        "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
+    }
+    proxy_fn = HMCECS.taylor_proxy(ref_params)
+
+    kernel = HMCECS(NUTS(model), proxy=proxy_fn)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+    mcmc.run(random.PRNGKey(0), data)
