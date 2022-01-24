@@ -96,6 +96,11 @@ Tensor Indexing
 
 Model inspection
 ----------------
+
+.. automodule:: numpyro.infer.inspect
+    :members:
+    :member-order: bysource
+
 .. autofunction:: numpyro.contrib.render.get_model_relations
 
 Visualization Utilities
