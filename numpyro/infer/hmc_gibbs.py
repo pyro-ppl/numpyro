@@ -618,7 +618,9 @@ class HMCECS(HMCGibbs):
         self._subsample_plate_sizes = {
             name: site["args"]
             for name, site in self._prototype_trace.items()
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]
+            if site["type"] == "plate"
+            and (site["args"][1] is not None)
+            and site["args"][0] > site["args"][1]
         }  # i.e. size > subsample_size
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
@@ -787,7 +789,7 @@ def taylor_proxy(reference_params):
                             log_lik[frame.name] += _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim
                             )
-                        else:
+                        elif frame.name in subsample_indices:
                             log_lik[frame.name] = _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim
                             )
@@ -975,5 +977,9 @@ class estimate_likelihood(numpyro.primitives.Messenger):
                     )
                     # mask the current likelihood
                     msg["fn"] = msg["fn"].mask(False)
-        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
+        elif (
+            msg["type"] == "plate"
+            and (msg["args"][1] is not None)
+            and msg["args"][0] > msg["args"][1]
+        ):
             self.subsample_plates[msg["name"]] = msg["value"]
