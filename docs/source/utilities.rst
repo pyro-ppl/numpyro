@@ -101,14 +101,12 @@ Model inspection
     :members:
     :member-order: bysource
 
-.. autofunction:: numpyro.contrib.render.get_model_relations
-
 Visualization Utilities
 =======================
 
 render_model
 ------------
-.. autofunction:: numpyro.contrib.render.render_model
+.. autofunction:: numpyro.infer.inspect.render_model
 
 Trace inspection
 ----------------
