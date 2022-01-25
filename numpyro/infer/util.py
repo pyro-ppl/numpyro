@@ -446,6 +446,16 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     return inv_transforms, replay_model, has_enumerate_support, model_trace
 
 
+def _partial_args_kwargs(fn, *args, **kwargs):
+    """Returns a partial function of `fn` and args, kwargs."""
+    return partial(fn, args, kwargs)
+
+
+def _drop_args_kwargs(fn, *args, **kwargs):
+    """Returns the input function `fn`, ignoring args and kwargs."""
+    return fn
+
+
 def get_potential_fn(
     model,
     inv_transforms,
@@ -480,20 +490,20 @@ def get_potential_fn(
         `deterministic` sites in the model.
     """
     if dynamic_args:
-
-        def potential_fn(*args, **kwargs):
-            return partial(potential_energy, model, args, kwargs, enum=enum)
-
-        def postprocess_fn(*args, **kwargs):
-            if replay_model:
-                # XXX: we seed to sample discrete sites (but not collect them)
-                model_ = seed(model.fn, 0) if enum else model
-                return partial(
-                    constrain_fn, model_, args, kwargs, return_deterministic=True
-                )
-            else:
-                return partial(transform_fn, inv_transforms)
-
+        potential_fn = partial(
+            _partial_args_kwargs, partial(potential_energy, model, enum=enum)
+        )
+        if replay_model:
+            # XXX: we seed to sample discrete sites (but not collect them)
+            model_ = seed(model.fn, 0) if enum else model
+            postprocess_fn = partial(
+                _partial_args_kwargs,
+                partial(constrain_fn, model, return_deterministic=True),
+            )
+        else:
+            postprocess_fn = partial(
+                _drop_args_kwargs, partial(transform_fn, inv_transforms)
+            )
     else:
         model_kwargs = {} if model_kwargs is None else model_kwargs
         potential_fn = partial(

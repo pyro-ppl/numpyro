@@ -12,10 +12,15 @@ class PytreeTrace:
     def tree_flatten(self):
         trace, aux_trace = {}, {}
         for name, site in self.trace.items():
-            if site["type"] in ["sample", "deterministic"]:
+            if site["type"] in ["sample", "deterministic", "plate"]:
                 trace[name], aux_trace[name] = {}, {"_control_flow_done": True}
                 for key in site:
-                    if key in ["fn", "args", "value", "intermediates"]:
+                    if key == "fn":
+                        if site["type"] == "sample":
+                            trace[name][key] = site[key]
+                        elif site["type"] == "plate":
+                            aux_trace[name][key] = site[key]
+                    elif key in ["args", "value", "intermediates"]:
                         trace[name][key] = site[key]
                     # scanned sites have stop field because we trace them inside a block handler
                     elif key != "stop":

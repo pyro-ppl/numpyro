@@ -10,7 +10,8 @@ import warnings
 import numpy as np
 
 import jax
-from jax import grad, hessian, lax, random, tree_map
+from jax import grad, hessian, lax, random
+from jax.tree_util import tree_map
 
 from numpyro.util import _versiontuple, find_stack_level
 
@@ -147,17 +148,19 @@ class AutoGuide(ABC):
         with handlers.block():
             (
                 init_params,
-                self._potential_fn,
-                postprocess_fn,
+                self._potential_fn_gen,
+                postprocess_fn_gen,
                 self.prototype_trace,
             ) = initialize_model(
                 rng_key,
                 self.model,
                 init_strategy=self.init_loc_fn,
-                dynamic_args=False,
+                dynamic_args=True,
                 model_args=args,
                 model_kwargs=kwargs,
             )
+        self._potential_fn = self._potential_fn_gen(*args, **kwargs)
+        postprocess_fn = postprocess_fn_gen(*args, **kwargs)
         # We apply a fixed seed just in case postprocess_fn requires
         # a random key to generate subsample indices. It does not matter
         # because we only collect deterministic sites.

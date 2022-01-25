@@ -692,7 +692,7 @@ class Poisson(Distribution):
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
             return (
-                jnp.asarray(-rate)
+                jnp.asarray(-rate, dtype=jnp.result_type(float))
                 .at[nonzero]
                 .add(
                     jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
