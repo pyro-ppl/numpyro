@@ -287,6 +287,7 @@ CONTINUOUS = [
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.Kumaraswamy, 10.0, np.array([2.0, 3.0])),
     T(dist.Kumaraswamy, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Kumaraswamy, 0.6, 0.5),
     T(dist.Laplace, 0.0, 1.0),
     T(dist.Laplace, 0.5, np.array([1.0, 2.5])),
     T(dist.Laplace, np.array([1.0, -0.5]), np.array([2.3, 3.0])),
