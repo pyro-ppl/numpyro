@@ -383,7 +383,12 @@ def module(name, nn, input_shape=None):
 
 
 def _subsample_fn(size, subsample_size, rng_key=None):
-    assert rng_key is not None, "Missing random key to generate subsample indices."
+    if rng_key is None:
+        raise ValueError(
+            "Missing random key to generate subsample indices."
+            " Algorithms like HMC/NUTS do not support subsampling."
+            " You might want to use SVI or HMCECS instead."
+        )
     if jax.default_backend() == "cpu":
         # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
         rng_keys = random.split(rng_key, subsample_size)

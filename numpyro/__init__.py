@@ -3,7 +3,7 @@
 
 import logging
 
-from numpyro import compat, diagnostics, distributions, handlers, infer, optim
+from numpyro import compat, diagnostics, distributions, handlers, infer, ops, optim
 from numpyro.contrib.render import render_model
 from numpyro.distributions.distribution import enable_validation, validation_enabled
 import numpyro.patch  # noqa: F401
@@ -44,6 +44,7 @@ __all__ = [
     "handlers",
     "infer",
     "module",
+    "ops",
     "optim",
     "param",
     "plate",

@@ -17,6 +17,7 @@ import numpyro
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
+from numpyro.infer.initialization import init_to_sample
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import _unconstrain_reparam
 from numpyro.util import cond, fori_loop, identity
@@ -124,9 +125,11 @@ class HMCGibbs(MCMCKernel):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         if self._prototype_trace is None:
             rng_key, key_u = random.split(rng_key)
-            self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-                *model_args, **model_kwargs
-            )
+            # We use init strategy to get around ImproperUniform which does not have
+            # sample method.
+            self._prototype_trace = trace(
+                substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+            ).get_trace(*model_args, **model_kwargs)
 
         rng_key, key_z = random.split(rng_key)
         gibbs_sites = {
@@ -407,9 +410,11 @@ class DiscreteHMCGibbs(HMCGibbs):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
-        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-            *model_args, **model_kwargs
-        )
+        # We use init strategy to get around ImproperUniform which does not have
+        # sample method.
+        self._prototype_trace = trace(
+            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+        ).get_trace(*model_args, **model_kwargs)
 
         self._support_sizes = {
             name: np.broadcast_to(
@@ -605,13 +610,17 @@ class HMCECS(HMCGibbs):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
-        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-            *model_args, **model_kwargs
-        )
+        # We use init strategy to get around ImproperUniform which does not have
+        # sample method.
+        self._prototype_trace = trace(
+            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+        ).get_trace(*model_args, **model_kwargs)
         self._subsample_plate_sizes = {
             name: site["args"]
             for name, site in self._prototype_trace.items()
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]
+            if site["type"] == "plate"
+            and (site["args"][1] is not None)
+            and site["args"][0] > site["args"][1]
         }  # i.e. size > subsample_size
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
@@ -780,7 +789,7 @@ def taylor_proxy(reference_params):
                             log_lik[frame.name] += _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim
                             )
-                        else:
+                        elif frame.name in subsample_indices:
                             log_lik[frame.name] = _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim
                             )
@@ -968,5 +977,9 @@ class estimate_likelihood(numpyro.primitives.Messenger):
                     )
                     # mask the current likelihood
                     msg["fn"] = msg["fn"].mask(False)
-        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
+        elif (
+            msg["type"] == "plate"
+            and (msg["args"][1] is not None)
+            and msg["args"][0] > msg["args"][1]
+        ):
             self.subsample_plates[msg["name"]] = msg["value"]
