@@ -29,9 +29,16 @@ from multipledispatch import dispatch
 
 from jax import lax
 import jax.numpy as jnp
-from jax.scipy.special import digamma, gammaln
+from jax.scipy.special import betaln, digamma, gammaln
 
-from numpyro.distributions.continuous import Dirichlet, Normal
+from numpyro.distributions.continuous import (
+    Beta,
+    Dirichlet,
+    Gamma,
+    Kumaraswamy,
+    Normal,
+    Weibull,
+)
 from numpyro.distributions.distribution import (
     Delta,
     Distribution,
@@ -126,6 +133,19 @@ def kl_divergence(p, q):
     return 0.5 * (var_ratio + t1 - 1 - jnp.log(var_ratio))
 
 
+@dispatch(Beta, Beta)
+def kl_divergence(p, q):
+    # From https://en.wikipedia.org/wiki/Beta_distribution#Quantities_of_information_(entropy)
+    a, b = p.concentration1, p.concentration0
+    alpha, beta = q.concentration1, q.concentration0
+    a_diff = alpha - a
+    b_diff = beta - b
+    t1 = betaln(alpha, beta) - betaln(a, b)
+    t2 = a_diff * digamma(a) + b_diff * digamma(b)
+    t3 = (a_diff + b_diff) * digamma(a + b)
+    return t1 - t2 + t3
+
+
 @dispatch(Dirichlet, Dirichlet)
 def kl_divergence(p, q):
     # From http://bariskurt.com/kullback-leibler-divergence-between-two-dirichlet-and-beta-distributions/
@@ -136,3 +156,46 @@ def kl_divergence(p, q):
     t3 = p.concentration - q.concentration
     t4 = digamma(p.concentration) - digamma(sum_p_concentration)[..., None]
     return t1 - t2 + (t3 * t4).sum(-1)
+
+
+@dispatch(Gamma, Gamma)
+def kl_divergence(p, q):
+    # From https://en.wikipedia.org/wiki/Gamma_distribution#Kullback%E2%80%93Leibler_divergence
+    a, b = p.concentration, p.rate
+    alpha, beta = q.concentration, q.rate
+    b_ratio = beta / b
+    t1 = gammaln(alpha) - gammaln(a)
+    t2 = (a - alpha) * digamma(a)
+    t3 = alpha * jnp.log(b_ratio)
+    t4 = a * (b_ratio - 1)
+    return t1 + t2 - t3 + t4
+
+
+@dispatch(Weibull, Gamma)
+def kl_divergence(p, q):
+    # From https://arxiv.org/abs/1401.6853 Formula (28)
+    a, b = p.concentration, p.scale
+    alpha, beta = q.concentration, q.rate
+    a_reciprocal = 1 / a
+    b_beta = b * beta
+    t1 = jnp.log(a) + gammaln(alpha)
+    t2 = alpha * (jnp.euler_gamma * a_reciprocal - jnp.log(b_beta))
+    t3 = b_beta * jnp.exp(gammaln(a_reciprocal + 1))
+    return t1 + t2 + t3 - (jnp.euler_gamma + 1)
+
+
+@dispatch(Kumaraswamy, Beta)
+def kl_divergence(p, q):
+    # From https://arxiv.org/abs/1605.06197 Formula (12)
+    a, b = p.concentration1, p.concentration0
+    alpha, beta = q.concentration1, q.concentration0
+    b_reciprocal = jnp.reciprocal(b)
+    a_b = a * b
+    t1 = (alpha / a - 1) * (jnp.euler_gamma + digamma(b) + b_reciprocal)
+    t2 = jnp.log(a_b) + betaln(alpha, beta) + (b_reciprocal - 1)
+    a_ = jnp.expand_dims(a, -1)
+    b_ = jnp.expand_dims(b, -1)
+    a_b_ = jnp.expand_dims(a_b, -1)
+    m = jnp.arange(1, p.KL_KUMARASWAMY_BETA_TAYLOR_ORDER + 1)
+    t3 = (beta - 1) * b * (jnp.exp(betaln(m / a_, b_)) / (m + a_b_)).sum(-1)
+    return t1 + t2 + t3
