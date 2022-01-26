@@ -2344,7 +2344,11 @@ def test_kl_expanded_normal(batch_shape, event_shape):
 @pytest.mark.parametrize(
     "p_dist, q_dist",
     [
+        (dist.Beta, dist.Beta),
+        (dist.Gamma, dist.Gamma),
+        (dist.Kumaraswamy, dist.Beta),
         (dist.Normal, dist.Normal),
+        (dist.Weibull, dist.Gamma),
     ],
 )
 def test_kl_univariate(shape, p_dist, q_dist):
@@ -2358,6 +2362,8 @@ def test_kl_univariate(shape, p_dist, q_dist):
             else:
                 raise ValueError(f"Missing pattern for param {k}.")
         d = dist_class(**params)
+        if dist_class is dist.Kumaraswamy:
+            d.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
         return d
 
     p = make_dist(p_dist)
