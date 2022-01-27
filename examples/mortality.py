@@ -93,7 +93,6 @@ import argparse
 import os
 
 import numpy as np
-import pandas as pd
 
 from jax import random
 import jax.numpy as jnp
