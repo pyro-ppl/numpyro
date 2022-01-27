@@ -52,9 +52,9 @@ with the hyperpriors
 .. math:: :nowrap:
 
     \\begin{align}
-        \\alpha_0 & \\sim \\mathcal{N}(0,100), \\\\
-        \\beta_0 & \\sim \\mathcal{N}(0,100), \\\\
-        \\sigma_i & \\sim \\mathcal{U}(0,2), \\\\
+        \\alpha_0 & \\sim \\mathcal{N}(0,10), \\\\
+        \\beta_0 & \\sim \\mathcal{N}(0,10), \\\\
+        \\sigma_i & \\sim \\mathcal{N}^{+}(1), \\\\
         \\theta & \\sim \\text{Exponential}(0.1)
     \\end{align}
 
@@ -106,7 +106,6 @@ from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import LocScaleReparam
 
 
-
 def create_lookup(s1, s2):
     """
     Create a map between s1 indices and unique s2 indices
@@ -147,15 +146,15 @@ def model(age, space, time, lookup, population, deaths=None):
     year_plate = numpyro.plate("year", N_t - 1, dim=-1)
 
     # hyperparameters
-    sigma_alpha_s1 = numpyro.sample("sigma_alpha_s1", dist.Uniform(0.0, 2.0))
-    sigma_beta_s1 = numpyro.sample("sigma_beta_s1", dist.Uniform(0.0, 2.0))
-    sigma_alpha_s2 = numpyro.sample("sigma_alpha_s2", dist.Uniform(0.0, 2.0))
-    sigma_beta_s2 = numpyro.sample("sigma_beta_s2", dist.Uniform(0.0, 2.0))
-    sigma_alpha_age = numpyro.sample("sigma_alpha_age", dist.Uniform(0.0, 2.0))
-    sigma_beta_age = numpyro.sample("sigma_beta_age", dist.Uniform(0.0, 2.0))
-    sigma_xi = numpyro.sample("sigma_xi", dist.Uniform(0.0, 2.0))
-    sigma_nu = numpyro.sample("sigma_nu", dist.Uniform(0.0, 2.0))
-    sigma_gamma = numpyro.sample("sigma_gamma", dist.Uniform(0.0, 2.0))
+    sigma_alpha_s1 = numpyro.sample("sigma_alpha_s1", dist.HalfNormal(1.0))
+    sigma_beta_s1 = numpyro.sample("sigma_beta_s1", dist.HalfNormal(1.0))
+    sigma_alpha_s2 = numpyro.sample("sigma_alpha_s2", dist.HalfNormal(1.0))
+    sigma_beta_s2 = numpyro.sample("sigma_beta_s2", dist.HalfNormal(1.0))
+    sigma_alpha_age = numpyro.sample("sigma_alpha_age", dist.HalfNormal(1.0))
+    sigma_beta_age = numpyro.sample("sigma_beta_age", dist.HalfNormal(1.0))
+    sigma_xi = numpyro.sample("sigma_xi", dist.HalfNormal(1.0))
+    sigma_nu = numpyro.sample("sigma_nu", dist.HalfNormal(1.0))
+    sigma_gamma = numpyro.sample("sigma_gamma", dist.HalfNormal(1.0))
     theta = numpyro.sample("theta", dist.Exponential(0.1))
 
     # spatial hierarchy
@@ -173,7 +172,7 @@ def model(age, space, time, lookup, population, deaths=None):
         alpha_age_drift_scale = jnp.pad(
             jnp.broadcast_to(sigma_alpha_age, N_age - 1),
             (1, 0),
-            constant_values=100.0,  # pad so first term is alpha0, the global intercept with prior N(0, 100)
+            constant_values=10.0,  # pad so first term is alpha0, prior N(0, 10)
         )[:, jnp.newaxis, jnp.newaxis]
         alpha_age_drift = numpyro.sample(
             "alpha_age_drift", dist.Normal(0, alpha_age_drift_scale)
@@ -181,7 +180,7 @@ def model(age, space, time, lookup, population, deaths=None):
         alpha_age = jnp.cumsum(alpha_age_drift, -3)
 
         beta_age_drift_scale = jnp.pad(
-            jnp.broadcast_to(sigma_beta_age, N_age - 1), (1, 0), constant_values=100.0
+            jnp.broadcast_to(sigma_beta_age, N_age - 1), (1, 0), constant_values=10.0
         )[:, jnp.newaxis, jnp.newaxis]
         beta_age_drift = numpyro.sample(
             "beta_age_drift", dist.Normal(0, beta_age_drift_scale)
