@@ -101,26 +101,21 @@ from jax.scipy.special import expit
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.examples.datasets import MORTALITY, load_dataset
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import LocScaleReparam
 
 
-def get_data():
-    # NEED TO USE from numpyro.examples.datasets import MORTALITY, load_dataset
-    data = pd.read_csv("simulated_mortality.csv")
-    print(data.head())
 
-    grid_lookup = data[["s1", "s2"]].drop_duplicates().sort_values(by="s2")
-
-    return (
-        data["a"].values,
-        data["s2"].values,
-        data["t"].values,
-        grid_lookup["s1"].values,
-        data["population"].values,
-        data["deaths"].values,
-    )
+def create_lookup(s1, s2):
+    """
+    Create a map between s1 indices and unique s2 indices
+    """
+    lookup = np.column_stack([s1, s2])
+    lookup = np.unique(lookup, axis=0)
+    lookup = lookup[lookup[:, 1].argsort()]
+    return lookup[:, 0]
 
 
 reparam_config = {
@@ -248,7 +243,10 @@ def run_inference(model, age, space, time, lookup, population, deaths, rng_key, 
 
 def main(args):
     print("Fetching simulated data...")
-    a, s2, t, lookup, population, deaths = get_data()
+    _, fetch = load_dataset(MORTALITY, shuffle=False)
+    a, s1, s2, t, deaths, population = fetch()
+
+    lookup = create_lookup(s1, s2)
 
     print("Model shape:")
     print_model_shape(model, a, s2, t, lookup, population)

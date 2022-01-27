@@ -75,6 +75,11 @@ NINE_MERS = dset(
     ["https://github.com/pyro-ppl/datasets/blob/master/9mers_data.pkl?raw=true"],
 )
 
+MORTALITY = dset(
+    "mortality",
+    ["https://github.com/pyro-ppl/datasets/blob/master/simulated_mortality.csv?raw=true"],
+)
+
 
 def _download(dset):
     for url in dset.urls:
@@ -292,6 +297,36 @@ def _load_9mers():
     return pickle.load(open(file_path, "rb"))
 
 
+def _load_mortality():
+    _download(MORTALITY)
+
+    a, s1, s2, t, deaths, population = [], [], [], [], [], []
+    with open(os.path.join(DATA_DIR, "simulated_mortality.csv")) as f:
+        csv_reader = csv.DictReader(
+            f,
+            fieldnames=["age_group", "year", "a", "s1", "s2", "t", "deaths", "population"],
+        )
+        next(csv_reader)  # skip the first row
+        for row in csv_reader:
+            a.append(int(row["a"]))
+            s1.append(int(row["s1"]))
+            s2.append(int(row["s2"]))
+            t.append(int(row["t"]))
+            deaths.append(int(row["deaths"]))
+            population.append(int(row["population"]))
+
+    return {
+        "train": (
+            np.stack(a),
+            np.stack(s1),
+            np.stack(s2),
+            np.stack(t),
+            np.stack(deaths),
+            np.stack(population),
+        )
+    }
+
+
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
@@ -313,6 +348,8 @@ def _load(dset, num_datapoints=-1):
         return _load_higgs(num_datapoints)
     elif dset == NINE_MERS:
         return _load_9mers()
+    elif dset == MORTALITY:
+        return _load_mortality()
     raise ValueError("Dataset - {} not found.".format(dset.name))
 
 
