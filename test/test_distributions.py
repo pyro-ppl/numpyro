@@ -285,6 +285,9 @@ CONTINUOUS = [
     T(_ImproperWrapper, constraints.positive, (), (3,)),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.0], [3.0]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
+    T(dist.Kumaraswamy, 10.0, np.array([2.0, 3.0])),
+    T(dist.Kumaraswamy, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Kumaraswamy, 0.6, 0.5),
     T(dist.Laplace, 0.0, 1.0),
     T(dist.Laplace, 0.5, np.array([1.0, 2.5])),
     T(dist.Laplace, np.array([1.0, -0.5]), np.array([2.3, 3.0])),
@@ -416,6 +419,8 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, np.array([1.0, 0.5]), np.array([0.3, 2.0])),
     T(dist.Pareto, np.array([[1.0], [3.0]]), np.array([1.0, 0.5])),
+    T(dist.RelaxedBernoulliLogits, 2.0, -10.0),
+    T(dist.RelaxedBernoulliLogits, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, np.array([-1.0, 50.0]), np.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
@@ -1335,6 +1340,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if jax_dist is dist.RelaxedBernoulliLogits:
+        pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
@@ -2334,9 +2341,33 @@ def test_kl_expanded_normal(batch_shape, event_shape):
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
-def test_kl_normal_normal(shape):
-    p = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
-    q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+@pytest.mark.parametrize(
+    "p_dist, q_dist",
+    [
+        (dist.Beta, dist.Beta),
+        (dist.Gamma, dist.Gamma),
+        (dist.Kumaraswamy, dist.Beta),
+        (dist.Normal, dist.Normal),
+        (dist.Weibull, dist.Gamma),
+    ],
+)
+def test_kl_univariate(shape, p_dist, q_dist):
+    def make_dist(dist_class):
+        params = {}
+        for k, c in dist_class.arg_constraints.items():
+            if c is constraints.real:
+                params[k] = np.random.normal(size=shape)
+            elif c is constraints.positive:
+                params[k] = np.exp(np.random.normal(size=shape))
+            else:
+                raise ValueError(f"Missing pattern for param {k}.")
+        d = dist_class(**params)
+        if dist_class is dist.Kumaraswamy:
+            d.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
+        return d
+
+    p = make_dist(p_dist)
+    q = make_dist(q_dist)
     actual = kl_divergence(p, q)
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)

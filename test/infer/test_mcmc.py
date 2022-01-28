@@ -183,7 +183,7 @@ def test_improper_normal(max_tree_depth):
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.05)
+    assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.007)
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])

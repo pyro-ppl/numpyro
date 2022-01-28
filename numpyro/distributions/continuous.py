@@ -33,6 +33,7 @@ import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import (
     betainc,
+    betaln,
     expit,
     gammainc,
     gammaln,
@@ -40,15 +41,19 @@ from jax.scipy.special import (
     multigammaln,
     ndtr,
     ndtri,
+    xlog1py,
+    xlogy,
 )
 
 from numpyro.distributions import constraints
+from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
     AffineTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
     PowerTransform,
+    SigmoidTransform,
 )
 from numpyro.distributions.util import (
     cholesky_of_inverse,
@@ -60,8 +65,6 @@ from numpyro.distributions.util import (
     validate_sample,
     vec_to_tril_matrix,
 )
-
-EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
 
 class Beta(Distribution):
@@ -491,7 +494,7 @@ class Gumbel(Distribution):
     @property
     def mean(self):
         return jnp.broadcast_to(
-            self.loc + self.scale * EULER_MASCHERONI, self.batch_shape
+            self.loc + self.scale * jnp.euler_gamma, self.batch_shape
         )
 
     @property
@@ -503,6 +506,66 @@ class Gumbel(Distribution):
 
     def icdf(self, q):
         return self.loc - self.scale * jnp.log(-jnp.log(q))
+
+
+class Kumaraswamy(TransformedDistribution):
+    arg_constraints = {
+        "concentration1": constraints.positive,
+        "concentration0": constraints.positive,
+    }
+    reparametrized_params = ["concentration1", "concentration0"]
+    support = constraints.unit_interval
+    # XXX: This flag is used to approximate the Taylor expansion
+    # of KL(Kumaraswamy||Beta) following
+    # https://arxiv.org/abs/1605.06197 Formula (12)
+    # We follow the paper and set this to 10 but to get more precise KL,
+    # we can set this flag to 1000.
+    KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 10
+
+    def __init__(self, concentration1, concentration0, validate_args=None):
+        self.concentration1, self.concentration0 = promote_shapes(
+            concentration1, concentration0
+        )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration1), jnp.shape(concentration0)
+        )
+        base_dist = Uniform(0, 1).expand(batch_shape)
+        transforms = [
+            PowerTransform(1 / concentration0),
+            AffineTransform(1, -1),
+            PowerTransform(1 / concentration1),
+        ]
+        super().__init__(base_dist, transforms, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        minval = jnp.finfo(jnp.result_type(float)).tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
+        log_sample = jnp.log1p(-(u ** (1 / self.concentration0))) / self.concentration1
+        finfo = jnp.finfo(u)
+        return jnp.clip(jnp.exp(log_sample), a_min=finfo.tiny, a_max=1 - finfo.eps)
+
+    @validate_sample
+    def log_prob(self, value):
+        normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
+        return (
+            xlogy(self.concentration1 - 1, value)
+            + xlog1py(self.concentration0 - 1, -(value ** self.concentration1))
+            + normalize_term
+        )
+
+    @property
+    def mean(self):
+        log_beta = betaln(1 + 1 / self.concentration1, self.concentration0)
+        return self.concentration0 * jnp.exp(log_beta)
+
+    @property
+    def variance(self):
+        log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
+        return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 class Laplace(Distribution):
@@ -1424,6 +1487,28 @@ class Pareto(TransformedDistribution):
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
+
+
+class RelaxedBernoulliLogits(TransformedDistribution):
+    arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
+    support = constraints.unit_interval
+
+    def __init__(self, temperature, logits, validate_args=None):
+        self.temperature, self.logits = promote_shapes(temperature, logits)
+        base_dist = Logistic(logits / temperature, 1 / temperature)
+        transforms = [SigmoidTransform()]
+        super().__init__(base_dist, transforms, validate_args=validate_args)
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
+
+def RelaxedBernoulli(temperature, probs=None, logits=None, validate_args=None):
+    if probs is None and logits is None:
+        raise ValueError("One of `probs` or `logits` must be specified.")
+    if probs is not None:
+        logits = _to_logits_bernoulli(probs)
+    return RelaxedBernoulliLogits(temperature, logits, validate_args=validate_args)
 
 
 class SoftLaplace(Distribution):
