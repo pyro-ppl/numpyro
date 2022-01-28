@@ -45,7 +45,8 @@ def beta_bernoulli():
             beta = numpyro.sample("beta", dist.Beta(1.0, 1.0))
         with numpyro.plate("plate", N, dim=-2):
             numpyro.deterministic("beta_sq", beta ** 2)
-            numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
+            with numpyro.plate("dim", 2):
+                numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
 
     return model, data, true_probs
 

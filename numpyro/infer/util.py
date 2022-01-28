@@ -22,7 +22,13 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
-from numpyro.util import find_stack_level, not_jax_tracer, soft_vmap, while_loop
+from numpyro.util import (
+    _validate_model,
+    find_stack_level,
+    not_jax_tracer,
+    soft_vmap,
+    while_loop,
+)
 
 __all__ = [
     "find_valid_initial_params",
@@ -542,23 +548,6 @@ def _guess_max_plate_nesting(model_trace):
     return max_plate_nesting
 
 
-# TODO: follow pyro.util.check_site_shape logics for more complete validation
-def _validate_model(model_trace):
-    # XXX: this validates plate statements under `enum`
-    sites = [site for site in model_trace.values() if site["type"] == "sample"]
-
-    for site in sites:
-        batch_dims = len(site["fn"].batch_shape)
-        if site.get("_control_flow_done", False):
-            batch_dims = batch_dims - 1  # remove time dimension under scan
-        plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
-        assert (
-            plate_dims >= batch_dims
-        ), "Missing plate statement for batch dimensions at site {}".format(
-            site["name"]
-        )
-
-
 def initialize_model(
     rng_key,
     model,
@@ -639,8 +628,10 @@ def initialize_model(
 
         if not isinstance(model, enum):
             max_plate_nesting = _guess_max_plate_nesting(model_trace)
-            _validate_model(model_trace)
+            _validate_model(model_trace, plate_warning="error")
             model = enum(config_enumerate(model), -max_plate_nesting - 1)
+    else:
+        _validate_model(model_trace, plate_warning="loose")
 
     potential_fn, postprocess_fn = get_potential_fn(
         model,

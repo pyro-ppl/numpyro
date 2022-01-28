@@ -1051,6 +1051,17 @@ def test_initial_inverse_mass_matrix_ndarray(dense_mass):
     assert_allclose(inverse_mass_matrix[("x", "z")], expected_mm)
 
 
+def test_loose_warning_for_missing_plate():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with numpyro.plate("N", 10):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones((5, 10)))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    with pytest.warns(UserWarning, match="Missing a plate statement"):
+        mcmc.run(random.PRNGKey(1))
+
+
 def test_init_strategy_substituted_model():
     def model():
         numpyro.sample("x", dist.Normal(0, 1))
