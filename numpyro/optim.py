@@ -291,3 +291,34 @@ class Minimize(_NumPyroOptim):
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
         return (out, None), state
+
+
+def optax_to_numpyro(transformation) -> _NumPyroOptim:
+    """
+    This function produces a ``numpyro.optim._NumPyroOptim`` instance from an
+    ``optax.GradientTransformation`` so that it can be used with
+    ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the
+    ``(init_fn, update_fn, get_params_fn)`` interface defined by
+    :mod:`jax.example_libraries.optimizers`.
+
+    :param transformation: An ``optax.GradientTransformation`` instance to wrap.
+    :return: An instance of ``numpyro.optim._NumPyroOptim`` wrapping the supplied
+        Optax optimizer.
+    """
+    import optax
+
+    def init_fn(params):
+        opt_state = transformation.init(params)
+        return params, opt_state
+
+    def update_fn(step, grads, state):
+        params, opt_state = state
+        updates, opt_state = transformation.update(grads, opt_state, params)
+        updated_params = optax.apply_updates(params, updates)
+        return updated_params, opt_state
+
+    def get_params_fn(state):
+        params, _ = state
+        return params
+
+    return _NumPyroOptim(lambda x, y, z: (x, y, z), init_fn, update_fn, get_params_fn)
