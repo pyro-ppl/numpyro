@@ -235,7 +235,7 @@ def load_data():
     docs = jnp.array(vectorizer.fit_transform(news["data"]).toarray())
 
     vocab = pd.DataFrame(columns=["word", "index"])
-    vocab["word"] = vectorizer.get_feature_names()
+    vocab["word"] = vectorizer.get_feature_names_out()
     vocab["index"] = vocab.index
 
     return docs, vocab

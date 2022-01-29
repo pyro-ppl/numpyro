@@ -261,7 +261,8 @@ def test_check_model_guide_match():
 def test_missing_plate_in_model():
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))
-        numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(10))
+        with numpyro.plate("N", 10, dim=-2):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones((10, 2)))
 
     def guide():
         numpyro.sample("x", dist.Normal(0, 1))

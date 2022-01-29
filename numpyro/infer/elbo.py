@@ -13,7 +13,7 @@ from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import get_importance_trace, log_density
-from numpyro.util import check_model_guide_match, find_stack_level
+from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 
 class ELBO:
@@ -126,6 +126,7 @@ class Trace_ELBO(ELBO):
                 seeded_model, args, kwargs, params
             )
             check_model_guide_match(model_trace, guide_trace)
+            _validate_model(model_trace, plate_warning="loose")
             mutable_params.update(
                 {
                     name: site["value"]
@@ -238,6 +239,8 @@ class TraceMeanField_ELBO(ELBO):
                     if site["type"] == "mutable"
                 }
             )
+            check_model_guide_match(model_trace, guide_trace)
+            _validate_model(model_trace, plate_warning="loose")
             _check_mean_field_requirement(model_trace, guide_trace)
 
             elbo_particle = 0
@@ -328,9 +331,11 @@ class RenyiELBO(ELBO):
                 k: v for k, v in param_map.items() if k not in guide_trace
             }
             seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, _ = log_density(
+            model_log_density, model_trace = log_density(
                 seeded_model, args, kwargs, model_param_map
             )
+            check_model_guide_match(model_trace, guide_trace)
+            _validate_model(model_trace, plate_warning="loose")
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
@@ -569,6 +574,8 @@ class TraceGraph_ELBO(ELBO):
             model_trace, guide_trace = get_importance_trace(
                 seeded_model, seeded_guide, args, kwargs, param_map
             )
+            check_model_guide_match(model_trace, guide_trace)
+            _validate_model(model_trace, plate_warning="strict")
 
             # XXX: different from Pyro, we don't support baseline_loss here
             non_reparam_nodes = {
