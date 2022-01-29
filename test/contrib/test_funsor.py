@@ -544,7 +544,7 @@ def test_missing_plate(monkeypatch):
 
     nuts_kernel = NUTS(gmm)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
-    with pytest.raises(AssertionError, match="Missing plate statement"):
+    with pytest.raises(ValueError, match="Missing a plate statement"):
         mcmc.run(random.PRNGKey(2), data)
 
     monkeypatch.setattr(numpyro.infer.util, "_validate_model", lambda model_trace: None)

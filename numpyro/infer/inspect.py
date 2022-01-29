@@ -101,7 +101,7 @@ def get_dependencies(
         variables to the latent or observed sits on which they depend in the
         posterior. Posterior dependencies are reversed from the model order.
 
-    Dependencies elide ``pyro.deterministic`` sites and ``pyro.sample(...,
+    Dependencies elide ``numpyro.deterministic`` sites and ``numpyro.sample(...,
     Delta(...))`` sites.
 
     **Examples**

@@ -221,11 +221,13 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
     @property
     def batch_shape(self):
-        return self.tfp_dist.batch_shape
+        # TFP shapes are special tuples that can not be used directly
+        # with lax.broadcast_shapes. So we convert them to tuple.
+        return tuple(self.tfp_dist.batch_shape)
 
     @property
     def event_shape(self):
-        return self.tfp_dist.event_shape
+        return tuple(self.tfp_dist.event_shape)
 
     @property
     def has_rsample(self):
