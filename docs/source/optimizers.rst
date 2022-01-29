@@ -68,4 +68,4 @@ SM3
 
 Optax support
 -------------
-.. autofunction:: numpyro.contrib.optim.optax_to_numpyro
+.. autofunction:: numpyro.optim.optax_to_numpyro

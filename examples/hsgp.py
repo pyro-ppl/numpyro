@@ -108,7 +108,7 @@ def get_thanksgiving_days(dates):
 
 def get_floating_days_indicators(dates):
     def encode(x):
-        return jnp.array(x.values, dtype=jnp.int64)
+        return jnp.array(x.values, dtype=jnp.result_type(int))
 
     return {
         "labour_days_indicator": encode(get_labour_days(dates)),
