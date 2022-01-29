@@ -81,7 +81,7 @@ def run_inference(args, data):
             num_warmup=args.num_warmup,
             num_samples=args.num_samples,
         )
-    mcmc.run(random.PRNGKey(2), **data)
+    mcmc.run(random.PRNGKey(2), **data, enum=args.enum)
     mcmc.print_summary()
     mcmc_samples = mcmc.get_samples()
 
