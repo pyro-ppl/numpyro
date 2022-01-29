@@ -14,7 +14,7 @@ import time
 import matplotlib.pyplot as plt
 
 from jax import jit, lax, random
-from jax.experimental import stax
+from jax.example_libraries import stax
 import jax.numpy as jnp
 from jax.random import PRNGKey
 

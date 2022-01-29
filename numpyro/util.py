@@ -648,8 +648,6 @@ def check_model_guide_match(model_trace, guide_trace):
             stacklevel=find_stack_level(),
         )
 
-    _validate_model(model_trace, plate_warning="strict")
-
 
 def _format_table(rows):
     """

@@ -968,7 +968,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 
     expected = log_likelihood(*params)
     actual = jax.jit(log_likelihood)(*params)
-    assert_allclose(actual, expected, atol=2e-5)
+    assert_allclose(actual, expected, atol=2e-5, rtol=2e-5)
 
 
 @pytest.mark.parametrize(
