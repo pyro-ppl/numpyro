@@ -40,8 +40,18 @@ EXAMPLES = [
     "minipyro.py",
     "neutra.py --num-samples 100 --num-warmup 100",
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
-    "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
-    "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+    pytest.param(
+        "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="This example requires a lot of memory."
+        ),
+    ),
+    pytest.param(
+        "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="This example requires a lot of memory."
+        ),
+    ),
     "sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10",
     "ssbvm_mixture.py --num-samples 10 --num-warmup 10",
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
