@@ -149,7 +149,7 @@ def main(args):
         guide=stein.guide,
         params=stein.get_params(result.state),
         num_samples=1,
-        batch_ndims=1,
+        batch_ndims=1,  # stein particle dimension
     )
     xte, _, _ = normalize(
         data.xte, xtr_mean, xtr_std
