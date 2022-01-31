@@ -372,7 +372,7 @@ def signed_stick_breaking_tril(t):
     # apply stick-breaking on the squared values;
     # we omit the step of computing s = z * z_cumprod by using the fact:
     #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
-    z = r ** 2
+    z = r**2
     z1m_cumprod_sqrt = jnp.cumprod(jnp.sqrt(1 - z), axis=-1)
 
     pad_width = [(0, 0)] * z.ndim
@@ -453,9 +453,9 @@ def _von_mises_centered(key, concentration, shape, dtype):
     }
     s_cutoff = s_cutoff_map.get(dtype)
 
-    r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration ** 2)
+    r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration**2)
     rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * concentration)
-    s_exact = (1.0 + rho ** 2) / (2.0 * rho)
+    s_exact = (1.0 + rho**2) / (2.0 * rho)
 
     s_approximate = 1.0 / concentration
 

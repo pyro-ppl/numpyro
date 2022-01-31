@@ -34,7 +34,7 @@ def sqrth_and_inv_sqrth(m):
     mvec_t = jnp.swapaxes(mvec, -2, -1)
     mlambdasqrt = jnp.maximum(mlambda, 1e-5) ** 0.5
     msqrt = (mvec * jnp.expand_dims(mlambdasqrt, -2)) @ mvec_t
-    mlambdasqrt_inv = jnp.maximum(1 / mlambdasqrt, 1e-5 ** 0.5)
+    mlambdasqrt_inv = jnp.maximum(1 / mlambdasqrt, 1e-5**0.5)
     minv_sqrt = (mvec * jnp.expand_dims(mlambdasqrt_inv, -2)) @ mvec_t
     minv = minv_sqrt @ jnp.swapaxes(minv_sqrt, -2, -1)
     return msqrt, minv, minv_sqrt
@@ -47,7 +47,7 @@ def safe_norm(a, ord=2, axis=None):
     else:
         is_zero = jnp.ones_like(a, dtype="bool")
     norm = jnp.linalg.norm(
-        a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5 ** norm_corr, jnp.zeros_like(a)),
+        a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5**norm_corr, jnp.zeros_like(a)),
         ord=ord,
         axis=axis,
     )
