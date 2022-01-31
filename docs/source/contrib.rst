@@ -9,3 +9,9 @@ Nested Sampling
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Stein Variational Inference
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: numpyro.contrib.einstein.steinvi.SteinVI
