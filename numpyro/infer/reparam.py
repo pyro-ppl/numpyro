@@ -103,7 +103,7 @@ class LocScaleReparam(Reparam):
                 constraint=constraints.unit_interval,
             )
         params["loc"] = fn.loc * centered
-        params["scale"] = fn.scale ** centered
+        params["scale"] = fn.scale**centered
         decentered_fn = self._wrap(type(fn)(**params), expand_shape, event_dim)
 
         # Draw decentered noise.

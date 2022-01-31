@@ -104,7 +104,7 @@ class Beta(Distribution):
     @property
     def variance(self):
         total = self.concentration1 + self.concentration0
-        return self.concentration1 * self.concentration0 / (total ** 2 * (total + 1))
+        return self.concentration1 * self.concentration0 / (total**2 * (total + 1))
 
     def cdf(self, value):
         return betainc(self.concentration1, self.concentration0, value)
@@ -209,7 +209,7 @@ class Dirichlet(Distribution):
     def variance(self):
         con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
         return (
-            self.concentration * (con0 - self.concentration) / (con0 ** 2 * (con0 + 1))
+            self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
         )
 
     @staticmethod
@@ -246,7 +246,7 @@ class Exponential(Distribution):
 
     @property
     def variance(self):
-        return jnp.reciprocal(self.rate ** 2)
+        return jnp.reciprocal(self.rate**2)
 
     def cdf(self, value):
         return -jnp.expm1(-self.rate * value)
@@ -422,7 +422,7 @@ class HalfNormal(Distribution):
 
     @property
     def variance(self):
-        return (1 - 2 / jnp.pi) * self.scale ** 2
+        return (1 - 2 / jnp.pi) * self.scale**2
 
 
 class InverseGamma(TransformedDistribution):
@@ -499,7 +499,7 @@ class Gumbel(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(jnp.pi ** 2 / 6.0 * self.scale ** 2, self.batch_shape)
+        return jnp.broadcast_to(jnp.pi**2 / 6.0 * self.scale**2, self.batch_shape)
 
     def cdf(self, value):
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
@@ -550,7 +550,7 @@ class Kumaraswamy(TransformedDistribution):
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
         return (
             xlogy(self.concentration1 - 1, value)
-            + xlog1py(self.concentration0 - 1, -(value ** self.concentration1))
+            + xlog1py(self.concentration0 - 1, -(value**self.concentration1))
             + normalize_term
         )
 
@@ -599,7 +599,7 @@ class Laplace(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(2 * self.scale ** 2, self.batch_shape)
+        return jnp.broadcast_to(2 * self.scale**2, self.batch_shape)
 
     def cdf(self, value):
         scaled = (value - self.loc) / self.scale
@@ -914,11 +914,11 @@ class LogNormal(TransformedDistribution):
 
     @property
     def mean(self):
-        return jnp.exp(self.loc + self.scale ** 2 / 2)
+        return jnp.exp(self.loc + self.scale**2 / 2)
 
     @property
     def variance(self):
-        return (jnp.exp(self.scale ** 2) - 1) * jnp.exp(2 * self.loc + self.scale ** 2)
+        return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
@@ -956,7 +956,7 @@ class Logistic(Distribution):
 
     @property
     def variance(self):
-        var = (self.scale ** 2) * (jnp.pi ** 2) / 3
+        var = (self.scale**2) * (jnp.pi**2) / 3
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value):
@@ -1000,7 +1000,7 @@ def _batch_mahalanobis(bL, bx):
     # permute to (i, 1, n, -1)
     xt = jnp.moveaxis(xt, 0, -1)
     solve_bL_bx = solve_triangular(bL, xt, lower=True)  # shape: (i, 1, n, -1)
-    M = jnp.sum(solve_bL_bx ** 2, axis=-2)  # shape: (i, 1, -1)
+    M = jnp.sum(solve_bL_bx**2, axis=-2)  # shape: (i, 1, -1)
     # permute back to (-1, i, 1)
     M = jnp.moveaxis(M, -1, 0)
     # reshape back to (..., 1, j, i, 1)
@@ -1102,7 +1102,7 @@ class MultivariateNormal(Distribution):
     @property
     def variance(self):
         return jnp.broadcast_to(
-            jnp.sum(self.scale_tril ** 2, axis=-1), self.batch_shape + self.event_shape
+            jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
 
     def tree_flatten(self):
@@ -1428,7 +1428,7 @@ class Normal(Distribution):
     def log_prob(self, value):
         normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
-        return -0.5 * value_scaled ** 2 - normalize_term
+        return -0.5 * value_scaled**2 - normalize_term
 
     def cdf(self, value):
         scaled = (value - self.loc) / self.scale
@@ -1443,7 +1443,7 @@ class Normal(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(self.scale ** 2, self.batch_shape)
+        return jnp.broadcast_to(self.scale**2, self.batch_shape)
 
 
 class Pareto(TransformedDistribution):
@@ -1470,7 +1470,7 @@ class Pareto(TransformedDistribution):
     def variance(self):
         # var is inf for alpha <= 2
         a = jnp.divide(
-            (self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
+            (self.scale**2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
         )
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
@@ -1606,7 +1606,7 @@ class StudentT(Distribution):
             + gammaln(0.5 * self.df)
             - gammaln(0.5 * (self.df + 1.0))
         )
-        return -0.5 * (self.df + 1.0) * jnp.log1p(y ** 2.0 / self.df) - z
+        return -0.5 * (self.df + 1.0) * jnp.log1p(y**2.0 / self.df) - z
 
     @property
     def mean(self):
@@ -1618,7 +1618,7 @@ class StudentT(Distribution):
     @property
     def variance(self):
         var = jnp.where(
-            self.df > 2, jnp.divide(self.scale ** 2 * self.df, self.df - 2.0), jnp.inf
+            self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
         )
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
@@ -1744,7 +1744,7 @@ class Weibull(Distribution):
 
     @property
     def variance(self):
-        return self.scale ** 2 * (
+        return self.scale**2 * (
             jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )

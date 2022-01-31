@@ -161,8 +161,8 @@ def main(args):
     y_pred = jnp.mean(preds, 0) * ytr_std + ytr_mean
     rmse = jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2))
 
-    print(fr"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
-    print(fr"RMSE: {rmse:.2f}")
+    print(rf"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
+    print(rf"RMSE: {rmse:.2f}")
 
 
 if __name__ == "__main__":
