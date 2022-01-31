@@ -63,24 +63,24 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
 
     n, m = x.shape
 
-    with numpyro.plate("l1_hidden", hidden_dim):
+    with numpyro.plate("l1_hidden", hidden_dim, dim=-1):
         b1 = numpyro.sample(  # prior l1 bias term
             "nn_b1",
             Normal(
                 0.0,
-                1.0 / prec_nn,
+                1.0 / jnp.sqrt(prec_nn),
             ),
         )
         assert b1.shape == (hidden_dim,)
 
-        with numpyro.plate("l1_feat", m):
-            w1 = numpyro.sample("nn_w1", Normal(0.0, 1.0 / prec_nn))  # prior l1 weights
+        with numpyro.plate("l1_feat", m, dim=-2):
+            w1 = numpyro.sample("nn_w1", Normal(0.0, 1.0 / jnp.sqrt(prec_nn)))  # prior l1 weights
             assert w1.shape == (m, hidden_dim)
 
-    with numpyro.plate("l2_hidden", hidden_dim):
-        w2 = numpyro.sample("nn_w2", Normal(0.0, 1.0 / prec_nn))  # prior output weights
+    with numpyro.plate("l2_hidden", hidden_dim, dim=-1):
+        w2 = numpyro.sample("nn_w2", Normal(0.0, 1.0 / jnp.sqrt(prec_nn)))  # prior output weights
 
-    b2 = numpyro.sample("nn_b2", Normal(0.0, 1.0 / prec_nn))  # prior output bias term
+    b2 = numpyro.sample("nn_b2", Normal(0.0, 1.0 / jnp.sqrt(prec_nn)))  # prior output bias term
 
     prec_obs = numpyro.sample(  # precision prior on observations
         "prec_obs", Gamma(1.0, 0.1)
@@ -100,7 +100,7 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
         numpyro.sample(
             "y",
             Normal(
-                jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2, 1.0 / prec_obs
+                jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2, 1.0 / jnp.sqrt(prec_obs)
             ),  # 1 hidden layer with ReLU activation
             obs=batch_y,
         )
