@@ -20,7 +20,6 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro import handlers
 from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
@@ -64,7 +63,8 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
     n, m = x.shape
 
     with numpyro.plate("l1_hidden", hidden_dim, dim=-1):
-        b1 = numpyro.sample(  # prior l1 bias term
+        # prior l1 bias term
+        b1 = numpyro.sample(
             "nn_b1",
             Normal(
                 0.0,
@@ -74,18 +74,23 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
         assert b1.shape == (hidden_dim,)
 
         with numpyro.plate("l1_feat", m, dim=-2):
-            w1 = numpyro.sample("nn_w1", Normal(0.0, 1.0 / jnp.sqrt(prec_nn)))  # prior l1 weights
+            w1 = numpyro.sample(
+                "nn_w1", Normal(0.0, 1.0 / jnp.sqrt(prec_nn))
+            )  # prior on l1 weights
             assert w1.shape == (m, hidden_dim)
 
     with numpyro.plate("l2_hidden", hidden_dim, dim=-1):
-        w2 = numpyro.sample("nn_w2", Normal(0.0, 1.0 / jnp.sqrt(prec_nn)))  # prior output weights
+        w2 = numpyro.sample(
+            "nn_w2", Normal(0.0, 1.0 / jnp.sqrt(prec_nn))
+        )  # prior on output weights
 
-    b2 = numpyro.sample("nn_b2", Normal(0.0, 1.0 / jnp.sqrt(prec_nn)))  # prior output bias term
+    b2 = numpyro.sample(
+        "nn_b2", Normal(0.0, 1.0 / jnp.sqrt(prec_nn))
+    )  # prior on output bias term
 
-    prec_obs = numpyro.sample(  # precision prior on observations
-        "prec_obs", Gamma(1.0, 0.1)
-    )
-    with handlers.scale(scale=subsample_size), numpyro.plate(
+    # precision prior on observations
+    prec_obs = numpyro.sample("prec_obs", Gamma(1.0, 0.1))
+    with numpyro.plate(
         "data",
         x.shape[0],
         subsample_size=subsample_size,
@@ -110,6 +115,7 @@ def main(args):
     data = load_data()
 
     inf_key, pred_key, data_key = random.split(random.PRNGKey(args.rng_key), 3)
+    # normalize data and labels to zero mean unit variance!
     x, xtr_mean, xtr_std = normalize(data.xtr)
     y, ytr_mean, ytr_std = normalize(data.ytr)
 
@@ -119,7 +125,7 @@ def main(args):
         model,
         AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=0.1)),
         Adagrad(0.05),
-        Trace_ELBO(num_particles=20),
+        Trace_ELBO(20),  # estimate elbo with 20 particles (not stein particles!)
         RBFKernel(),
         repulsion_temperature=args.repulsion,
         num_particles=args.num_particles,
@@ -145,23 +151,24 @@ def main(args):
         num_samples=1,
         batch_ndims=1,
     )
-    xte, _, _ = normalize(data.xte, xtr_mean, xtr_std)
+    xte, _, _ = normalize(
+        data.xte, xtr_mean, xtr_std
+    )  # use train data statistics when accessing generalization
     preds = pred(pred_key, xte, subsample_size=xte.shape[0])["y"].reshape(
         -1, xte.shape[0]
     )
 
     y_pred = jnp.mean(preds, 0) * ytr_std + ytr_mean
-
     rmse = jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2))
 
     print(fr"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
-    print(fr"RMSE: {rmse}")
+    print(fr"RMSE: {rmse:.2f}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
-    parser.add_argument("--max-iter", type=int, default=100)
+    parser.add_argument("--max-iter", type=int, default=1000)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-particles", type=int, default=100)
