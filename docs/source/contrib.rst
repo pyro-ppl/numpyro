@@ -13,5 +13,10 @@ Nested Sampling
 
 Stein Variational Inference
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``numpyro.contrib.einstein`` is a framework for stein variational inference based on ELBO-within-Stein.
+
 
 .. autoclass:: numpyro.contrib.einstein.steinvi.SteinVI
+.. autoclass:: numpyro.contrib.einstein.kernels.SteinKernel
+.. autoclass:: numpyro.contrib.einstein.kernel.PrecondMatrix
+
