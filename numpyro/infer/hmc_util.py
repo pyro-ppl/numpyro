@@ -121,7 +121,7 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         #     x_t = argmin{ g_avg . x + loc_t . |x - x0|^2 },
         # hence x_t = x0 - g_avg / (2 * loc_t),
         # where loc_t := beta_t / t, beta_t := (gamma/2) * sqrt(t).
-        x_t = prox_center - (t ** 0.5) / gamma * g_avg
+        x_t = prox_center - (t**0.5) / gamma * g_avg
         # weight for the new x_t
         weight_t = t ** (-kappa)
         x_avg = (1 - weight_t) * x_avg + weight_t * x_t
@@ -352,7 +352,7 @@ def find_reasonable_step_size(
         # Note that the direction is -1 if delta_energy is `NaN`, which may be the
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
-        step_size = (2.0 ** direction) * step_size
+        step_size = (2.0**direction) * step_size
         r = momentum_generator(z, inverse_mass_matrix, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(
             step_size, inverse_mass_matrix, (z, r, potential_energy, z_grad)
@@ -992,7 +992,7 @@ def _iterative_build_subtree(
     r_ckpts,
     r_sum_ckpts,
 ):
-    max_num_proposals = 2 ** prototype_tree.depth
+    max_num_proposals = 2**prototype_tree.depth
 
     def _cond_fn(state):
         tree, turning, _, _, _ = state

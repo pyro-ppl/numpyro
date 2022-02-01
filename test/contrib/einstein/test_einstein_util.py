@@ -67,7 +67,7 @@ def test_safe_norm(axis, ord):
     assert_allclose(
         safe_norm(m, axis=axis),
         jnp.linalg.norm(
-            m + (1e-5 ** ord if axis is None and ord is not None else 0.0),
+            m + (1e-5**ord if axis is None and ord is not None else 0.0),
             ord=ord,
             axis=axis,
         ),
