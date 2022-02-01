@@ -166,7 +166,7 @@ def model_2(sequences, lengths, args, include_prior=True):
 # target hidden dimension.
 def model_3(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
-    hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
+    hidden_dim = int(args.hidden_dim**0.5)  # split between w and x
     with mask(mask=include_prior):
         probs_w = numpyro.sample(
             "probs_w", dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1).to_event(1)
@@ -220,7 +220,7 @@ def model_3(sequences, lengths, args, include_prior=True):
 # Factorial HMM, but this model has more parameters.
 def model_4(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
-    hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
+    hidden_dim = int(args.hidden_dim**0.5)  # split between w and x
     with mask(mask=include_prior):
         probs_w = numpyro.sample(
             "probs_w", dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1).to_event(1)

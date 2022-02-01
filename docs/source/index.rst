@@ -80,7 +80,7 @@ NumPyro documentation
    examples/covtype
    examples/hmcecs
    examples/stein_bnn
-   examples/stein_mixture_dmm
+   examples/stein_dmm
 
 
 Indices and tables

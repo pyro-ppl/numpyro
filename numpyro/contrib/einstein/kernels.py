@@ -115,7 +115,7 @@ class RBFKernel(SteinKernel):
 
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
-            kernel_res = jnp.exp(-(diff ** 2) / bandwidth)
+            kernel_res = jnp.exp(-(diff**2) / bandwidth)
             if self._mode == "matrix":
                 if self.matrix_mode == "norm_diag":
                     return kernel_res * jnp.identity(x.shape[0])
@@ -161,7 +161,7 @@ class IMQKernel(SteinKernel):
     def compute(self, particles, particle_info, loss_fn):
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2, axis=-1) if self._mode == "norm" else x - y
-            return (self.const ** 2 + diff ** 2) ** self.expon
+            return (self.const**2 + diff**2) ** self.expon
 
         return kernel
 

@@ -758,8 +758,8 @@ class ZeroInflatedProbs(Distribution):
     @lazy_property
     def variance(self):
         return (1 - self.gate) * (
-            self.base_dist.mean ** 2 + self.base_dist.variance
-        ) - self.mean ** 2
+            self.base_dist.mean**2 + self.base_dist.variance
+        ) - self.mean**2
 
     @property
     def has_enumerate_support(self):

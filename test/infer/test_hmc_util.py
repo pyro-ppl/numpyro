@@ -158,7 +158,7 @@ class CircularPlanetaryMotion(object):
     @staticmethod
     def kinetic_fn(m_inv, p):
         z = jnp.stack([p["x"], p["y"]], axis=-1)
-        return 0.5 * jnp.dot(m_inv, z ** 2)
+        return 0.5 * jnp.dot(m_inv, z**2)
 
     @staticmethod
     def potential_fn(q):
@@ -231,10 +231,10 @@ def test_velocity_verlet(jitted, example):
 @pytest.mark.parametrize("init_step_size", [0.1, 10.0])
 def test_find_reasonable_step_size(jitted, init_step_size):
     def kinetic_fn(m_inv, p):
-        return 0.5 * jnp.sum(m_inv * p ** 2)
+        return 0.5 * jnp.sum(m_inv * p**2)
 
     def potential_fn(q):
-        return 0.5 * q ** 2
+        return 0.5 * q**2
 
     p_generator = lambda prototype, m_inv, rng_key: 1.0  # noqa: E731
     q = 0.0
@@ -404,10 +404,10 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
 @pytest.mark.parametrize("step_size", [0.01, 1.0, 100.0])
 def test_build_tree(step_size):
     def kinetic_fn(m_inv, p):
-        return 0.5 * jnp.sum(m_inv * p ** 2)
+        return 0.5 * jnp.sum(m_inv * p**2)
 
     def potential_fn(q):
-        return 0.5 * q ** 2
+        return 0.5 * q**2
 
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     vv_state = vv_init(0.0, 1.0)

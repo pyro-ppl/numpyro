@@ -25,12 +25,12 @@ def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
         new_scale = cholesky_update(scale, new_sample - loc, weight)
         proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
         proposal_scale = cholesky_update(
-            proposal_scale, new_sample - samples, -(weight ** 2)
+            proposal_scale, new_sample - samples, -(weight**2)
         )
     else:
         var = jnp.square(scale) + weight * jnp.square(new_sample - loc)
         proposal_var = var - weight * jnp.square(samples - loc)
-        proposal_var = proposal_var - weight ** 2 * jnp.square(new_sample - samples)
+        proposal_var = proposal_var - weight**2 * jnp.square(new_sample - samples)
         proposal_scale = jnp.sqrt(proposal_var)
 
     proposal_loc = loc + weight * (new_sample - samples)

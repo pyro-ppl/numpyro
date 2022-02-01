@@ -730,7 +730,7 @@ def perturbed_method(subsample_plate_sizes, proxy_fn):
             diff = subsample_log_lik - proxy_value_subsample[name]
 
             unbiased_log_lik = proxy_value_all[name] + n * jnp.mean(diff)
-            variance = n ** 2 / m * jnp.var(diff)
+            variance = n**2 / m * jnp.var(diff)
             log_lik_sum += unbiased_log_lik - 0.5 * variance
         return log_lik_sum
 

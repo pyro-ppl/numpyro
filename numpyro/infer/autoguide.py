@@ -834,7 +834,7 @@ class AutoDAIS(AutoContinuous):
             p_grad = beta * grad(log_density)(z_half)
             v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
-            v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+            v = gamma * v_hat + jnp.sqrt(1 - gamma**2) * eps
             delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(v_hat)
             log_factor = log_factor + delta_ke
             return (z, v, log_factor), None
@@ -1048,7 +1048,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         )
 
     def _get_posterior(self, *args, **kwargs):
-        rank = int(round(self.latent_dim ** 0.5)) if self.rank is None else self.rank
+        rank = int(round(self.latent_dim**0.5)) if self.rank is None else self.rank
         loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
         cov_factor = numpyro.param(
             "{}_cov_factor".format(self.prefix), jnp.zeros((self.latent_dim, rank))
