@@ -420,7 +420,7 @@ class SineBivariateVonMises(Distribution):
         corr = self.correlation
         conc = jnp.stack((self.phi_concentration, self.psi_concentration))
 
-        eig = 0.5 * (conc[0] - corr ** 2 / conc[1])
+        eig = 0.5 * (conc[0] - corr**2 / conc[1])
         eig = jnp.stack((jnp.zeros_like(eig), eig))
         eigmin = jnp.where(eig[1] < 0, eig[1], jnp.zeros_like(eig[1], dtype=eig.dtype))
         eig = eig - eigmin
@@ -487,7 +487,7 @@ class SineBivariateVonMises(Distribution):
             assert lf.shape == shape
 
             lg_inv = (
-                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x ** 2).sum(1, keepdims=True))
+                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1, keepdims=True))
             )
             assert lg_inv.shape == lf.shape
 
@@ -627,7 +627,7 @@ def _projected_normal_log_prob_2(concentration, value):
     # Integrate[x/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = (t + Sqrt[2/Pi]/E^(t^2/2) + t Erf[t/Sqrt[2]])/2
     para_part = jnp.log(
-        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5 ** 0.5)))
+        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5**0.5)))
         / 2
     )
 
@@ -651,7 +651,7 @@ def _projected_normal_log_prob_3(concentration, value):
     # = t/(E^(t^2/2) Sqrt[2 Pi]) + ((1 + t^2) (1 + Erf[t/Sqrt[2]]))/2
     para_part = jnp.log(
         t * jnp.exp((-0.5) * t2) / (2 * math.pi) ** 0.5
-        + (1 + t2) * (1 + erf(t * 0.5 ** 0.5)) / 2
+        + (1 + t2) * (1 + erf(t * 0.5**0.5)) / 2
     )
 
     return para_part + perp_part

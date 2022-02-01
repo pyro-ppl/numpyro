@@ -206,7 +206,7 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7), infer={"enumerate": "parallel"})
         y = numpyro.sample("y", dist.Binomial(10, 0.3))
-        numpyro.deterministic("y2", y ** 2)
+        numpyro.deterministic("y2", y**2)
 
     sampler = kernel(inner_kernel(model), **kwargs)
     mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)

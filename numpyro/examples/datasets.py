@@ -31,6 +31,11 @@ BASEBALL = dset(
     "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
 )
 
+BOSTON_HOUSING = dset(
+    "boston_housing",
+    ["https://archive.ics.uci.edu/ml/machine-learning-databases/housing/housing.data"],
+)
+
 COVTYPE = dset(
     "covtype", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip"]
 )
@@ -105,6 +110,13 @@ def _load_baseball():
         os.path.join(DATA_DIR, "EfronMorrisBB.txt")
     )
     return {"train": (train, player_names), "test": (test, player_names)}
+
+
+def _load_boston_housing():
+    _download(BOSTON_HOUSING)
+    file_path = os.path.join(DATA_DIR, "housing.data")
+    data = np.loadtxt(file_path)
+    return {"train": (data[:, :-1], data[:, -1])}
 
 
 def _load_covtype():
@@ -295,6 +307,8 @@ def _load_9mers():
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
+    elif dset == BOSTON_HOUSING:
+        return _load_boston_housing()
     elif dset == COVTYPE:
         return _load_covtype()
     elif dset == DIPPER_VOLE:

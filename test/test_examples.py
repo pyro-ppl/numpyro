@@ -54,6 +54,7 @@ EXAMPLES = [
     ),
     "sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10",
     "ssbvm_mixture.py --num-samples 10 --num-warmup 10",
+    "stein_bnn.py --max-iter 10 --subsample-size 10 --num-particles 5",
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
     "ucbadmit.py --num-chains 2",
     "vae.py -n 1",
