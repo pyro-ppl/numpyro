@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Example: Zero-Infrated Poisson regression model
+Example: Zero-Inflated Poisson regression model
 =============================================
-We evaluate Zero-Infrated Poisson regression model with MLE and MCMC in terms of their predictive
+We evaluate Zero-Inflated Poisson regression model with MLE and MCMC in terms of their predictive
 performances of the number of fish caught.
 """
 
