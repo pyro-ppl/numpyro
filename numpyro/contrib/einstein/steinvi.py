@@ -33,7 +33,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """ Stein variational inference for stein mixtures.
+    """Stein variational inference for stein mixtures.
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
