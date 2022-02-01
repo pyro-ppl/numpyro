@@ -17,14 +17,14 @@ This is essentially the DKS variant outlined in the paper.
 import argparse
 
 import jax
-from jax.example_libraries import stax
 import jax.numpy as jnp
 import jax.ops
+from jax.example_libraries import stax
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import RBFKernel
-import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
@@ -47,8 +47,8 @@ def load_data(split="train"):
 
 def _one_hot_chorales(seqs, num_nodes=88):
     return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[
-        ..., 1:
-    ]
+           ..., 1:
+           ]
 
 
 def emitter(hidden_dim1, hidden_dim2, out_dim):
@@ -207,19 +207,19 @@ def gru(hidden_dim, W_init=stax.glorot_normal()):
 
 
 def model(
-    seqs,
-    seqs_rev,
-    lengths,
-    *,
-    max_seq_length=129,
-    subsample_size=77,
-    latent_dim=32,
-    emission_dim=100,
-    transition_dim=200,
-    data_dim=88,
-    gru_dim=150,
-    annealing_factor=1.0,
-    predict=False,
+        seqs,
+        seqs_rev,
+        lengths,
+        *,
+        max_seq_length=129,
+        subsample_size=77,
+        latent_dim=32,
+        emission_dim=100,
+        transition_dim=200,
+        data_dim=88,
+        gru_dim=150,
+        annealing_factor=1.0,
+        predict=False,
 ):
     transition_fn = numpyro.module(
         "transition",
@@ -234,7 +234,7 @@ def model(
 
     z0 = numpyro.param("z0", jnp.zeros((subsample_size, 1, latent_dim)))
     with numpyro.plate(
-        "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
+            "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
     ) as idx:
         seqs_batch = seqs[idx]
         lengths_batch = lengths[idx]
@@ -253,8 +253,8 @@ def model(
             numpyro.sample(
                 "z_aux",
                 dist.Normal(z_loc, z_scale)
-                .mask(jnp.expand_dims(masks, axis=-1))
-                .to_event(2),
+                    .mask(jnp.expand_dims(masks, axis=-1))
+                    .to_event(2),
                 obs=z,
             )
 
@@ -265,26 +265,26 @@ def model(
         numpyro.sample(
             "obs_x",
             dist.Bernoulli(emission_probs)
-            .mask(jnp.expand_dims(masks, axis=-1))
-            .to_event(2),
+                .mask(jnp.expand_dims(masks, axis=-1))
+                .to_event(2),
             obs=oh_x,
         )
 
 
 def guide(
-    seqs,
-    seqs_rev,
-    lengths,
-    *,
-    max_seq_length=129,
-    subsample_size=77,
-    latent_dim=32,
-    emission_dim=100,
-    transition_dim=200,
-    data_dim=88,
-    gru_dim=150,
-    annealing_factor=1.0,
-    predict=False,
+        seqs,
+        seqs_rev,
+        lengths,
+        *,
+        max_seq_length=129,
+        subsample_size=77,
+        latent_dim=32,
+        emission_dim=100,
+        transition_dim=200,
+        data_dim=88,
+        gru_dim=150,
+        annealing_factor=1.0,
+        predict=False,
 ):
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
     combiner_fn = numpyro.module(
@@ -292,7 +292,7 @@ def guide(
     )
 
     with numpyro.plate(
-        "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
+            "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
     ) as idx:
         seqs_rev_batch = seqs_rev[:, idx, :]
         lengths_batch = lengths[idx]
@@ -304,16 +304,15 @@ def guide(
             jnp.expand_dims(jnp.arange(max_seq_length), axis=0), subsample_size, axis=0
         ) < jnp.expand_dims(lengths_batch, axis=-1)
 
-        h0 = numpyro.param("h0", jnp.zeros((subsample_size, gru_dim)))
+        h0 = numpyro.param("h0", lambda rng_key: dist.Normal(0., 1).sample(rng_key, (subsample_size, gru_dim)))
         _, hs = gru_fn((_one_hot_chorales(seqs_rev_batch), lengths_batch, h0))
         hs = _reverse_padded(jnp.transpose(hs, axes=(1, 0, 2)), lengths_batch)
-        z_loc, z_scale = combiner_fn(hs)
         with numpyro.handlers.scale(scale=annealing_factor):
             numpyro.sample(
                 "z",
-                dist.Normal(z_loc, z_scale)
-                .mask(jnp.expand_dims(masks, axis=-1))
-                .to_event(2),
+                dist.Normal(*combiner_fn(hs))
+                    .mask(jnp.expand_dims(masks, axis=-1))
+                    .to_event(2),
             )
 
 
@@ -324,7 +323,6 @@ def main(args):
         Adam(1e-5),
         Trace_ELBO(),
         RBFKernel(),
-        reinit_hide_fn=lambda site: site["name"].endswith("$params"),
         num_particles=args.num_particles,
     )
 
