@@ -77,8 +77,10 @@ NumPyro documentation
    :caption: Other Inference Algorithms
    :name: other-inference-algorithms
 
-   examples/hmcecs
    examples/covtype
+   examples/hmcecs
+   examples/stein_bnn
+   examples/stein_mixture_dmm
 
 
 Indices and tables
