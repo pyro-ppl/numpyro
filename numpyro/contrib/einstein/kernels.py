@@ -196,10 +196,7 @@ class LinearKernel(SteinKernel):
 
 class RandomFeatureKernel(SteinKernel):
     """
-    Calculates the random kernel
-    :math:`k(x,y)= 1/m\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l),
-    from [1].
-
+    Calculates the random kernel :math:`k(x,y)= 1/m\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l)` from [1].
 
     ** References: **
     1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
@@ -209,7 +206,6 @@ class RandomFeatureKernel(SteinKernel):
     :param random_indices: The set of indices which to do random feature expansion on.
                            (default None, meaning all indices)
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
-
     """
 
     def __init__(
@@ -416,9 +412,7 @@ class PrecondMatrixKernel(SteinKernel):
 
 class GraphicalKernel(SteinKernel):
     """
-    Calculates graphical kernel
-    :math: `k(x,y) = diag({K^(l)(x,y)}_l)
-    from [1].
+    Calculates graphical kernel :math: `k(x,y) = diag({K^(l)(x,y)}_l)` from [1].
 
     ** References: **
     1. *Stein Variational Message Passing for Continuous Graphical Models* by Wang, Zheng and Liu

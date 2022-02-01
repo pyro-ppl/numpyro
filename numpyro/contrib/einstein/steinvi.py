@@ -33,8 +33,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """
-    Stein Variational Gradient Descent for Non-parametric Inference.
+    """ Stein variational inference for stein mixtures.
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
