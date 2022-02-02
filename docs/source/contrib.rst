@@ -32,7 +32,7 @@ high dimensional models.
 
 ``numpyro.contrib.einstein`` mimics the interface from ``numpyro.infer.svi``, so trying SteinVI requires minimal
 change to the code for existing models inferred with SVI. For primary usage, see the
-`Bayesian neural network example <https://num.pyro.ai/examples/stein_bnn.html>`_.
+`Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_.
 
 The framework currently supports several kernels, including:
 
@@ -46,7 +46,7 @@ The framework currently supports several kernels, including:
 
 For example, usage see:
 
-- The `Bayesian neural network example <https://num.pyro.ai/examples/stein_bnn.html>`_
+- The `Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_
 
 SteinVI Interface
 -----------------
