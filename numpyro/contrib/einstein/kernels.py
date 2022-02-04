@@ -70,7 +70,7 @@ class RBFKernel(SteinKernel):
     Calculates the Gaussian RBF kernel function, from [1],
     :math:`k(x,y) = \\exp(\\frac{1}{h} \\|x-y\\|^2)`,
     where the bandwidth h is computed using the median heuristic
-    :math:`h = \\frac{1}{\\log(n)} \\med(\\|x-y\\|)`.
+    :math:`h = \\frac{1}{\\log(n)} \\text{med}(\\|x-y\\|)`.
 
     **References:**
 
@@ -425,11 +425,13 @@ class PrecondMatrixKernel(SteinKernel):
 
 class GraphicalKernel(SteinKernel):
     """
-    Calculates graphical kernel :math:`k(x,y) = diag({K^(l)(x,y)}_l)` (TODO: correct this formula) from [1].
+    Calculates graphical kernel :math:`k(x,y) = diag({K_l(x_l,y_l)})` for local kernels
+    :math:`K_l` from [1][2].
 
     **References:**
 
-    1. *Stein Variational Message Passing for Continuous Graphical Models* by Wang, Zheng and Liu
+    1. *Stein Variational Message Passing for Continuous Graphical Models* by Wang, Zheng, and Liu
+    2. *Stein Variational Gradient Descent with Matrix-Valued Kernels* by Wang, Tang, Bajaj, and Liu
 
     :param local_kernel_fns: A mapping between parameters and a choice of kernel
         function for that parameter (default to default_kernel_fn for each parameter)
