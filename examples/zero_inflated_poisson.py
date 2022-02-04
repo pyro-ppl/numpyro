@@ -5,8 +5,14 @@
 Example: Zero-Inflated Poisson regression model
 ================================================
 
-We evaluate Zero-Inflated Poisson regression model with MAP, VI, and MCMC in terms of their predictive
-performances of the number of fish caught.
+In this example, we model and predict how many fish visitor groups to a state park catch.
+Many groups of visitors have zero of fish caught because they did not fish or did not catch
+any fish. Therefore, we want to know not only the number of fishes caught, but also the prediction
+of the probability that the number of fishes caught is zero, and the variables that contribute to them.
+
+Therefore, we answer this question by estimating a zero-inflated poisson regression model. We use MAP,
+VI and MCMC as estimation methods. Finally, from the MCMC sample, we identify the variables that
+contribute to the probability of having zero fish caught and the number of fishes caught.
 """
 
 import argparse
