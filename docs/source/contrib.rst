@@ -48,8 +48,8 @@ For example, usage see:
 
 - The `Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_
 
-References
-----------
+**References**
+
 1. *Stein's Method Meets Statistics: A Review of Some Recent Developments* (2021)
 Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
 Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,

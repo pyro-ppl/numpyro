@@ -68,9 +68,9 @@ class SteinKernel(ABC):
 class RBFKernel(SteinKernel):
     """
     Calculates the Gaussian RBF kernel function, from [1],
-    :math: `k(x,y) = \\exp(\\frac{1}{h} \\|x-y\\|^2)`,
+    :math:`k(x,y) = \\exp(\\frac{1}{h} \\|x-y\\|^2)`,
     where the bandwidth h is computed using the median heuristic
-    :math: `h = \\frac{1}{\\log(n)} \\med(\\|x-y\\|)`.
+    :math:`h = \\frac{1}{\\log(n)} \\med(\\|x-y\\|)`.
 
     **References:**
 
@@ -425,7 +425,7 @@ class PrecondMatrixKernel(SteinKernel):
 
 class GraphicalKernel(SteinKernel):
     """
-    Calculates graphical kernel :math:`k(x,y) = diag({K^(l)(x,y)}_l)` from [1].
+    Calculates graphical kernel :math:`k(x,y) = diag({K^(l)(x,y)}_l)` (TODO: correct this formula) from [1].
 
     **References:**
 
