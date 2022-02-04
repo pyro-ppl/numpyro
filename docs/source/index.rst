@@ -32,7 +32,6 @@ NumPyro documentation
    examples/funnel
    examples/stochastic_volatility
    examples/prodlda
-   examples/zero_inflated_poisson
    tutorials/model_rendering
    tutorials/bad_posterior_geometry
    tutorials/truncated_distributions
@@ -72,6 +71,7 @@ NumPyro documentation
    examples/ssbvm_mixture
    examples/ar2
    examples/holt_winters
+   examples/zero_inflated_poisson
 
 .. nbgallery::
    :maxdepth: 1
