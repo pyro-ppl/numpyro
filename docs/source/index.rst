@@ -71,6 +71,7 @@ NumPyro documentation
    examples/ssbvm_mixture
    examples/ar2
    examples/holt_winters
+   examples/zero_inflated_poisson
 
 .. nbgallery::
    :maxdepth: 1
