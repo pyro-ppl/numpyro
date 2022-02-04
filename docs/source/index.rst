@@ -32,7 +32,7 @@ NumPyro documentation
    examples/funnel
    examples/stochastic_volatility
    examples/prodlda
-   examples/zero_inflated_possson
+   examples/zero_inflated_poisson
    tutorials/model_rendering
    tutorials/bad_posterior_geometry
    tutorials/truncated_distributions
