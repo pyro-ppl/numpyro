@@ -5,14 +5,14 @@
 Example: Zero-Inflated Poisson regression model
 ================================================
 
-In this example, we model and predict how many fish visitor groups to a state park catch.
-Many groups of visitors have zero of fish caught because they did not fish or did not catch
-any fish. Therefore, we want to know not only the number of fishes caught, but also the prediction
-of the probability that the number of fishes caught is zero, and the variables that contribute to them.
+In this example, we model and predict how many fish are caught by visitors to a state park.
+Many groups of visitors catch zero fish, either because they did not fish at all or because
+they were unlucky. We would like to explicitly model this bimodal behavior (zero versus non-zero)
+and ascertain which variables contribute to each behavior.
 
-Therefore, we answer this question by estimating a zero-inflated poisson regression model. We use MAP,
-VI and MCMC as estimation methods. Finally, from the MCMC sample, we identify the variables that
-contribute to the probability of having zero fish caught and the number of fishes caught.
+We answer this question by fitting a zero-inflated poisson regression model. We use MAP,
+VI and MCMC as estimation methods. Finally, from the MCMC samples, we identify the variables that
+contribute to the zero and non-zero components of the zero-inflated poisson likelihood.
 """
 
 import argparse
@@ -147,8 +147,8 @@ def main(args):
         ax.set_xticks(np.arange(1, len(cols) + 1))
         ax.set_xticklabels(cols, rotation=45, fontsize=10)
 
-    add_fig("b1", "coeffs for probability of catching fishes", axes[0])
-    add_fig("b2", "coeffs for the number of fishes caught", axes[1])
+    add_fig("b1", "Coefficients for probability of catching fish", axes[0])
+    add_fig("b2", "Coefficients for the number of fish caught", axes[1])
 
     plt.savefig("zip_fish.png")
 
