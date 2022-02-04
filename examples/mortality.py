@@ -155,7 +155,6 @@ def model(age, space, time, lookup, population, deaths=None):
     sigma_xi = numpyro.sample("sigma_xi", dist.HalfNormal(1.0))
     sigma_nu = numpyro.sample("sigma_nu", dist.HalfNormal(1.0))
     sigma_gamma = numpyro.sample("sigma_gamma", dist.HalfNormal(1.0))
-    theta = numpyro.sample("theta", dist.Exponential(0.1))
 
     # spatial hierarchy
     with numpyro.plate("s1", N_s1, dim=-2):
@@ -206,11 +205,7 @@ def model(age, space, time, lookup, population, deaths=None):
     with numpyro.plate("N", N):
         mu_logit = latent_rate[space, age, time]
         mu = numpyro.deterministic("mu", expit(mu_logit))
-        numpyro.sample(
-            "deaths",
-            dist.BetaBinomial(mu * theta, (1 - mu) * theta, population),
-            obs=deaths,
-        )
+        numpyro.sample("deaths", dist.Binomial(population, mu), obs=deaths)
 
 
 def print_model_shape(model, age, space, time, lookup, population):
