@@ -5,30 +5,34 @@
 Example: Zero-Inflated Poisson regression model
 ================================================
 
-We evaluate Zero-Inflated Poisson regression model with MLE and MCMC in terms of their predictive
+We evaluate Zero-Inflated Poisson regression model with MAP, VI, and MCMC in terms of their predictive
 performances of the number of fish caught.
 """
 
 import argparse
 import os
+import random
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error
-import statsmodels.api as sm
 
-from jax import random
 import jax.numpy as jnp
+from jax.random import PRNGKey
 import jax.scipy as jsp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
-from numpyro.infer.util import Predictive
+from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, autoguide
 
 matplotlib.use("Agg")  # noqa: E402
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def model(X, Y):
@@ -43,7 +47,7 @@ def model(X, Y):
         numpyro.sample("Y", dist.ZeroInflatedPoisson(gate=q, rate=lam), obs=Y)
 
 
-def run_inference(model, args, X, Y):
+def run_mcmc(model, args, X, Y):
     kernel = NUTS(model)
     mcmc = MCMC(
         kernel,
@@ -52,19 +56,27 @@ def run_inference(model, args, X, Y):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(random.PRNGKey(1), X, Y)
+    mcmc.run(PRNGKey(1), X, Y)
     mcmc.print_summary()
     return mcmc.get_samples()
 
 
-def fit_statsmodel_zip(args, X, Y):
-    zip_model = sm.ZeroInflatedPoisson(endog=Y, exog=X, exog_infl=X, inflation="logit")
-    zip_results = zip_model.fit(maxiter=args.maxiter)
-    print(zip_results.summary())
-    return zip_results
+def run_svi(model, guide_family, args, X, Y):
+    if guide_family == "AutoDelta":
+        guide = autoguide.AutoDelta(model)
+    elif guide_family == "AutoDiagonalNormal":
+        guide = autoguide.AutoDiagonalNormal(model)
+
+    optimizer = numpyro.optim.Adam(0.001)
+    svi = SVI(model, guide, optimizer, Trace_ELBO())
+    svi_results = svi.run(PRNGKey(1), args.maxiter, X=X, Y=Y)
+    params = svi_results.params
+
+    return params, guide
 
 
 def main(args):
+    set_seed(args.seed)
 
     # prepare dataset
     df = pd.read_stata("http://www.stata-press.com/data/r11/fish.dta")
@@ -79,27 +91,43 @@ def main(args):
     X_test = jnp.asarray(df_test[cols].values)
     y_test = jnp.asarray(df_test["count"].values)
 
-    # run inference
-    posterior_samples = run_inference(model, args, X_train, y_train)
+    print("run MAP.")
+    map_params, map_guide = run_svi(model, "AutoDelta", args, X_train, y_train)
 
-    # fit zip model
-    zip_results = fit_statsmodel_zip(args, X_train.to_py(), y_train.to_py())
+    print("run VI.")
+    vi_params, vi_guide = run_svi(model, "AutoDiagonalNormal", args, X_train, y_train)
+
+    print("run MCMC.")
+    posterior_samples = run_mcmc(model, args, X_train, y_train)
 
     # evaluation
+
+    def svi_predict(model, guide, params, args, X):
+        predictive = Predictive(
+            model=model, guide=guide, params=params, num_samples=args.num_samples
+        )
+        predictions = predictive(PRNGKey(1), X=X, Y=None)
+        svi_predictions = jnp.rint(predictions["Y"].mean(0))
+        return svi_predictions
+
+    map_predictions = svi_predict(model, map_guide, map_params, args, X_test)
+    vi_predictions = svi_predict(model, vi_guide, vi_params, args, X_test)
+
     predictive = Predictive(model, posterior_samples=posterior_samples)
-    predictions = predictive(random.PRNGKey(1), X=X_test, Y=None)
+    predictions = predictive(PRNGKey(1), X=X_test, Y=None)
     mcmc_predictions = jnp.rint(predictions["Y"].mean(0))
 
-    sm_predictions = np.rint(
-        zip_results.predict(X_test.to_py(), exog_infl=X_test.to_py())
+    print(
+        "MAP RMSE: ",
+        mean_squared_error(y_test.to_py(), map_predictions.to_py(), squared=False),
+    )
+    print(
+        "VI RMSE: ",
+        mean_squared_error(y_test.to_py(), vi_predictions.to_py(), squared=False),
     )
     print(
         "MCMC RMSE: ",
         mean_squared_error(y_test.to_py(), mcmc_predictions.to_py(), squared=False),
-    )
-    print(
-        "Statsmodels RMSE: ",
-        mean_squared_error(y_test.to_py(), sm_predictions, squared=False),
     )
 
     # make plot
@@ -121,6 +149,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Zero-Inflated Poisson Regression")
+    parser.add_argument("--seed", nargs="?", default=42, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
