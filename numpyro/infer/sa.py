@@ -110,8 +110,9 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         dense_mass=False,
         model_args=(),
         model_kwargs=None,
-        rng_key=random.PRNGKey(0),
+        rng_key=None,
     ):
+        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
         nonlocal wa_steps
         wa_steps = num_warmup
         pe_fn = potential_fn

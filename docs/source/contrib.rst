@@ -48,6 +48,20 @@ For example, usage see:
 
 - The `Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_
 
+References
+----------
+1. *Stein's Method Meets Statistics: A Review of Some Recent Developments* (2021)
+Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
+Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
+Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
+Yvik Swan. https://arxiv.org/abs/2105.03481
+
+2. *Stein variational gradient descent: A general-purpose Bayesian inference algorithm* (2016)
+Qiang Liu, Dilin Wang. NeurIPS
+
+3. *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models* (2019)
+Dilin Wang, Qiang Liu. PMLR
+
 SteinVI Interface
 -----------------
 .. autoclass:: numpyro.contrib.einstein.steinvi.SteinVI
@@ -61,14 +75,3 @@ SteinVI Kernels
 .. autoclass:: numpyro.contrib.einstein.kernels.PrecondMatrixKernel
 .. autoclass:: numpyro.contrib.einstein.kernels.GraphicalKernel
 
-References
-----------
-1. *Stein's Method Meets Statistics: A Review of Some Recent Developments* (2021)
-Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
-Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
-Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
-Yvik Swan. https://arxiv.org/abs/2105.03481
-2. *Stein variational gradient descent: A general-purpose Bayesian inference algorithm* (2016)
-Qiang Liu, Dilin Wang. NeurIPS
-3. *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models* (2019)
-Dilin Wang, Qiang Liu. PMLR
