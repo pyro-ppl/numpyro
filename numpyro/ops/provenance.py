@@ -26,6 +26,9 @@ class _ProvenanceJaxprTrace(partial_eval.DynamicJaxprTrace):
             out_tracers = out_tracers if primitive.multiple_results else [out_tracers]
             for t in out_tracers:
                 t.aval.named_shape["_provenance"] = out_provenance
+                # Also update provenance of the cached tracer -> aval dict.
+                aval_cache = self.frame.tracer_to_var[id(t)].aval
+                aval_cache.named_shape["_provenance"] = out_provenance
             out_tracers = out_tracers if primitive.multiple_results else out_tracers[0]
         return out_tracers
 
