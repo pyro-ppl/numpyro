@@ -77,7 +77,9 @@ NINE_MERS = dset(
 
 MORTALITY = dset(
     "mortality",
-    ["https://github.com/pyro-ppl/datasets/blob/master/simulated_mortality.csv?raw=true"],
+    [
+        "https://github.com/pyro-ppl/datasets/blob/master/simulated_mortality.csv?raw=true"
+    ],
 )
 
 
@@ -304,7 +306,16 @@ def _load_mortality():
     with open(os.path.join(DATA_DIR, "simulated_mortality.csv")) as f:
         csv_reader = csv.DictReader(
             f,
-            fieldnames=["age_group", "year", "a", "s1", "s2", "t", "deaths", "population"],
+            fieldnames=[
+                "age_group",
+                "year",
+                "a",
+                "s1",
+                "s2",
+                "t",
+                "deaths",
+                "population",
+            ],
         )
         next(csv_reader)  # skip the first row
         for row in csv_reader:
