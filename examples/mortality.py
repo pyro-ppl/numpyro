@@ -113,8 +113,6 @@ reparam_config = {
         "alpha_s2",
         "alpha_age_drift",
         "beta_age_drift",
-        "nu_drift",
-        "gamma_drift",
         "pi_drift",
     ]
 }
