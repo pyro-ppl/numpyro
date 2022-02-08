@@ -136,7 +136,7 @@ def model(age, space, time, lookup, population, deaths=None):
     sigma_alpha_s2 = numpyro.sample("sigma_alpha_s2", dist.HalfNormal(1.0))
     sigma_alpha_age = numpyro.sample("sigma_alpha_age", dist.HalfNormal(1.0))
     sigma_beta_age = numpyro.sample("sigma_beta_age", dist.HalfNormal(1.0))
-    sigma_pi = numpyro.sample("sigma_nu", dist.HalfNormal(1.0))
+    sigma_pi = numpyro.sample("sigma_pi", dist.HalfNormal(1.0))
 
     # spatial hierarchy
     with numpyro.plate("s1", N_s1, dim=-2):
@@ -215,6 +215,34 @@ def main(args):
 
     print("Model shape:")
     print_model_shape(model, a, s2, t, lookup, population)
+
+    # START OF TEMPORARY
+    conditioned_model = numpyro.handlers.condition(
+        model, data={
+            "alpha_age_drift_scale[0,0,0]": -5.0,
+            "beta_age_drift_scale[0,0,0]": -0.5,
+            "sigma_alpha_s1": 0.2,
+            "sigma_alpha_s2": 0.1,
+            "sigma_alpha_age": 0.5,
+            "sigma_beta_age": 0.05,
+            "sigma_pi": 0.2,
+        }
+    )
+    with numpyro.handlers.seed(rng_seed=1):
+        trace = numpyro.handlers.trace(conditioned_model).get_trace(
+            age=a,
+            space=s2,
+            time=t,
+            lookup=lookup,
+            population=population,
+        )
+    print(trace["mu"]["value"])
+    print(trace["deaths"]["value"])
+    print(population)
+
+    # use simulated deaths
+    deaths = trace["deaths"]["value"]
+    # END OF TEMPORARY
 
     print("Starting inference...")
     rng_key = random.PRNGKey(args.rng_seed)
