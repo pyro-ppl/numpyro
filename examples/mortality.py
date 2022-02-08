@@ -219,8 +219,8 @@ def main(args):
     # START OF TEMPORARY
     conditioned_model = numpyro.handlers.condition(
         model, data={
-            "alpha_age_drift_scale[0,0,0]": -5.0,
-            "beta_age_drift_scale[0,0,0]": -0.5,
+            "alpha_age_drift[0]": -1.0,
+            "beta_age_drift[0]": -0.05,
             "sigma_alpha_s1": 0.2,
             "sigma_alpha_s2": 0.1,
             "sigma_alpha_age": 0.5,
