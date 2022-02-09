@@ -609,7 +609,9 @@ class MCMC(object):
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
             states_flat = tree_map(
-                lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), states
+                # need to calculate first dimension manually; see issue #1328
+                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
+                states,
             )
         self._last_state = last_state
         self._states = states
