@@ -115,6 +115,7 @@ class SteinVI:
         uparam_keys = list(uparams.keys())
         uparam_keys.sort()
         res = {}
+        end_index = start_index
         for k in uparam_keys:
             if isinstance(uparams[k], dict):
                 res_sub, end_index = self._calc_particle_info(
