@@ -1080,3 +1080,29 @@ def test_discrete_site_without_infer_enumerate():
     mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
     with pytest.warns(FutureWarning, match="enumerated sites"):
         mcmc.run(random.PRNGKey(0))
+
+
+def test_vectorized_sampling_zero_sized():
+    J = 8
+    n = 0
+    sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
+
+    # Modified Eight Schools example
+    def eight_schools(J, sigma):
+        mu = numpyro.sample("mu", dist.Normal(0, 5))
+        tau = numpyro.sample("tau", dist.HalfCauchy(5))
+        with numpyro.plate("J", J):
+            theta = numpyro.sample("theta", dist.Normal(mu, tau))
+            numpyro.sample("scores", dist.Normal(theta, sigma), sample_shape=(n,))
+
+    nuts_kernel = NUTS(eight_schools)
+    mcmc = MCMC(
+        nuts_kernel,
+        num_warmup=50,
+        num_samples=100,
+        num_chains=2,
+        chain_method="vectorized",
+    )
+    rng_key = random.PRNGKey(0)
+    mcmc.run(rng_key, J, sigma, extra_fields=("potential_energy",))
+    assert mcmc.get_samples()["scores"].shape == (200, 0, 8)
