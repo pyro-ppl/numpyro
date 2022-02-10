@@ -25,7 +25,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-
 from jax import lax
 import jax.nn as nn
 import jax.numpy as jnp
@@ -65,6 +64,147 @@ from numpyro.distributions.util import (
     validate_sample,
     vec_to_tril_matrix,
 )
+
+
+class AsymmetricLaplace(Distribution):
+    arg_constraints = {
+        "loc": constraints.real,
+        "scale": constraints.positive,
+        "asymmetry": constraints.positive,
+    }
+    reparametrized_params = ["loc", "scale"]
+    support = constraints.real
+
+    def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, validate_args=None):
+        self.loc, self.scale, self.asymmetry = promote_shapes(loc, scale, asymmetry)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
+        )
+        super(AsymmetricLaplace, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    @lazy_property
+    def left_scale(self):
+        return self.scale * self.asymmetry
+
+    @lazy_property
+    def right_scale(self):
+        return self.scale / self.asymmetry
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        z = value - self.loc
+        z = -jnp.abs(z) / jnp.where(z < 0, self.left_scale, self.right_scale)
+        return z - jnp.log(self.left_scale + self.right_scale)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        shape = (2,) + sample_shape + self.batch_shape + self.event_shape
+        u, v = random.exponential(key, shape=shape)
+        return self.loc - self.left_scale * u + self.right_scale * v
+
+    @property
+    def mean(self):
+        total_scale = self.left_scale + self.right_scale
+        return self.loc + (self.right_scale**2 - self.left_scale**2) / total_scale
+
+    @property
+    def variance(self):
+        left = self.left_scale
+        right = self.right_scale
+        total = left + right
+        p = left / total
+        q = right / total
+        return p * left**2 + q * right**2 + p * q * total**2
+
+    def cdf(self, value):
+        return jnp.where(
+            value <= self.loc,
+            self.asymmetry**2
+            / (1 + self.asymmetry**2)
+            * jnp.exp((self.scale / self.asymmetry) * (value - self.loc)),
+            1
+            - 1
+            / (1 + self.asymmetry**2)
+            * jnp.exp(-self.scale * self.asymmetry * (value - self.loc)),
+        )
+
+
+class AsymmetricLaplaceQuantile(Distribution):
+    arg_constraints = {
+        "loc": constraints.real,
+        "scale": constraints.positive,
+        "quantile": constraints.interval(0.0, 1.0),
+    }
+    reparametrized_params = ["loc", "scale"]
+    support = constraints.real
+
+    def __init__(self, loc=0.0, scale=1.0, quantile=0.5, validate_args=None):
+        self.loc, self.scale, self.quantile = promote_shapes(loc, scale, quantile)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
+        )
+        super(AsymmetricLaplaceQuantile, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    def log_prob(self, value):
+        # following Yu and Moyeed (2001)
+        if self._validate_args:
+            self._validate_sample(value)
+
+        const = self.quantile * (1 - self.quantile) / self.scale
+        z = (value - self.loc) / self.scale
+        check = z * jnp.where(value <= self.loc, -(1 - self.quantile), self.quantile)
+        return jnp.log(const * jnp.exp(-check))
+
+    def sample(self, key, sample_shape=()):
+        # mixture of exponentials following Kozumi and Kobyashi (2009)
+        assert is_prng_key(key)
+        shape = (2,) + sample_shape + self.batch_shape + self.event_shape
+        u, v = random.exponential(key, shape=shape) * self.scale
+        e = u / self.quantile - v / (1 - self.quantile)
+        return self.loc + e
+
+    @property
+    def mean(self):
+        return (
+            self.loc
+            + (1 - 2 * self.quantile)
+            / (self.quantile * (1 - self.quantile))
+            * self.scale
+        )
+
+    @property
+    def variance(self):
+        return (
+            (1 - 2 * self.quantile + 2 * self.quantile**2)
+            / (self.quantile**2 * (1 - self.quantile) ** 2)
+            * self.scale**2
+        )
+
+    def cdf(self, value):
+        # defined following Yu and Zhang 2005
+        return jnp.where(
+            value <= self.loc,
+            self.quantile
+            * jnp.exp(((1 - self.quantile) / self.scale) * (value - self.loc)),
+            1
+            - (1 - self.quantile)
+            * jnp.exp(-self.quantile / self.scale * (value - self.loc)),
+        )
+
+    def icdf(self, value):
+        # defined following Yu and Zhang 2005
+        return jnp.where(
+            value <= self.quantile,
+            self.loc
+            + self.scale / (1 - self.quantile) * jnp.log(value / self.quantile),
+            self.loc
+            - self.scale / self.quantile * jnp.log((1 - value) / (1 - self.quantile)),
+        )
 
 
 class Beta(Distribution):
