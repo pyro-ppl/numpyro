@@ -382,10 +382,33 @@ def test_calc_particle_info(num_params, num_particles):
     expected_pinfo = dict(zip(string.ascii_lowercase[:num_params], expected_start_end))
 
     stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
-    pinfo = stein._calc_particle_info(uparams, num_particles)
+    pinfo, _ = stein._calc_particle_info(uparams, num_particles)
 
     for k in pinfo.keys():
         assert pinfo[k] == expected_pinfo[k], f"Failed for seed {seed}"
+
+
+def test_calc_particle_info_nested():
+    num_params = 3
+    num_particles = 10
+    seed = random.PRNGKey(42)
+    sizes = Poisson(5).sample(seed, (100, nrandom.randint(1, 10))) + 1
+    uparam = tuple(np.empty(tuple(size)) for size in sizes)
+    uparams = {
+        string.ascii_lowercase[i]: {
+            string.ascii_lowercase[j]: uparam for j in range(num_params)
+        }
+        for i in range(num_params)
+    }
+
+    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
+    pinfo, _ = stein._calc_particle_info(uparams, num_particles)
+    start = 0
+    tot_size = sum(map(lambda size: size.prod(), sizes)) // num_particles
+    for val in pinfo.values():
+        for v in val.values():
+            assert v == (start, start + tot_size)
+            start += tot_size
 
 
 ########################################

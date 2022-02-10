@@ -111,16 +111,22 @@ class SteinVI:
             return sum(map(self._param_size, param))
         return param.size
 
-    def _calc_particle_info(self, uparams, num_particles):
+    def _calc_particle_info(self, uparams, num_particles, start_index=0):
         uparam_keys = list(uparams.keys())
         uparam_keys.sort()
-        start_index = 0
         res = {}
+        end_index = start_index
         for k in uparam_keys:
-            end_index = start_index + self._param_size(uparams[k]) // num_particles
-            res[k] = (start_index, end_index)
+            if isinstance(uparams[k], dict):
+                res_sub, end_index = self._calc_particle_info(
+                    uparams[k], num_particles, start_index
+                )
+                res[k] = res_sub
+            else:
+                end_index = start_index + self._param_size(uparams[k]) // num_particles
+                res[k] = (start_index, end_index)
             start_index = end_index
-        return res
+        return res, end_index
 
     def _find_init_params(self, particle_seed, inner_guide, inner_guide_trace):
         def extract_info(site):
@@ -180,7 +186,7 @@ class SteinVI:
         stein_particles, unravel_pytree, unravel_pytree_batched = batch_ravel_pytree(
             stein_uparams, nbatch_dims=1
         )
-        particle_info = self._calc_particle_info(
+        particle_info, _ = self._calc_particle_info(
             stein_uparams, stein_particles.shape[0]
         )
 
