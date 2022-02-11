@@ -252,20 +252,25 @@ class SteinVI:
         )(tstein_particles)
 
         def single_particle_grad(particle, att_forces, rep_forces):
+            def _nontrivial_jac(var_name, var):
+                if isinstance(self.particle_transforms, IdentityTransform):
+                    return None
+                return jax.jacfwd(self.particle_transforms[var_name].inv)(var)
+
+            def _update_force(attr_force, rep_force, jac):
+                force = attr_force.reshape(-1) + rep_force.reshape(-1)
+                if jac is not None:
+                    force = force @ jac.reshape(
+                        (_numel(jac.shape[: len(jac.shape) // 2]), -1)
+                    )
+                return force.reshape(attr_force.shape)
+
             reparam_jac = {
-                k: jax.tree_map(
-                    lambda variable: jax.jacfwd(self.particle_transforms[k].inv)(
-                        variable
-                    ),
-                    variables,
-                )
-                for k, variables in unravel_pytree(particle).items()
+                name: jax.tree_map(lambda var: _nontrivial_jac(name, var), variables)
+                for name, variables in unravel_pytree(particle).items()
             }
             jac_params = jax.tree_multimap(
-                lambda af, rf, rjac: (
-                    (af.reshape(-1) + rf.reshape(-1))
-                    @ rjac.reshape((_numel(rjac.shape[: len(rjac.shape) // 2]), -1))
-                ).reshape(rf.shape),
+                _update_force,
                 unravel_pytree(att_forces),
                 unravel_pytree(rep_forces),
                 reparam_jac,
