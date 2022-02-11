@@ -251,7 +251,7 @@ class SteinVI:
             )
         )(tstein_particles)
 
-        def single_particle_grad(particle, att_forces, rep_forces):
+        def single_particle_grad(particle, attr_forces, rep_forces):
             def _nontrivial_jac(var_name, var):
                 if isinstance(self.particle_transforms, IdentityTransform):
                     return None
@@ -271,7 +271,7 @@ class SteinVI:
             }
             jac_params = jax.tree_multimap(
                 _update_force,
-                unravel_pytree(att_forces),
+                unravel_pytree(attr_forces),
                 unravel_pytree(rep_forces),
                 reparam_jac,
             )
