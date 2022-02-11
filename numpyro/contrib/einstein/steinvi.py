@@ -33,8 +33,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """
-    Stein Variational Gradient Descent for Non-parametric Inference.
+    """Stein variational inference for stein mixtures.
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -112,16 +111,22 @@ class SteinVI:
             return sum(map(self._param_size, param))
         return param.size
 
-    def _calc_particle_info(self, uparams, num_particles):
+    def _calc_particle_info(self, uparams, num_particles, start_index=0):
         uparam_keys = list(uparams.keys())
         uparam_keys.sort()
-        start_index = 0
         res = {}
+        end_index = start_index
         for k in uparam_keys:
-            end_index = start_index + self._param_size(uparams[k]) // num_particles
-            res[k] = (start_index, end_index)
+            if isinstance(uparams[k], dict):
+                res_sub, end_index = self._calc_particle_info(
+                    uparams[k], num_particles, start_index
+                )
+                res[k] = res_sub
+            else:
+                end_index = start_index + self._param_size(uparams[k]) // num_particles
+                res[k] = (start_index, end_index)
             start_index = end_index
-        return res
+        return res, end_index
 
     def _find_init_params(self, particle_seed, inner_guide, inner_guide_trace):
         def extract_info(site):
@@ -181,7 +186,7 @@ class SteinVI:
         stein_particles, unravel_pytree, unravel_pytree_batched = batch_ravel_pytree(
             stein_uparams, nbatch_dims=1
         )
-        particle_info = self._calc_particle_info(
+        particle_info, _ = self._calc_particle_info(
             stein_uparams, stein_particles.shape[0]
         )
 
@@ -252,22 +257,27 @@ class SteinVI:
             )
         )(tstein_particles)
 
-        def single_particle_grad(particle, att_forces, rep_forces):
+        def single_particle_grad(particle, attr_forces, rep_forces):
+            def _nontrivial_jac(var_name, var):
+                if isinstance(self.particle_transforms[var_name], IdentityTransform):
+                    return None
+                return jax.jacfwd(self.particle_transforms[var_name].inv)(var)
+
+            def _update_force(attr_force, rep_force, jac):
+                force = attr_force.reshape(-1) + rep_force.reshape(-1)
+                if jac is not None:
+                    force = force @ jac.reshape(
+                        (_numel(jac.shape[: len(jac.shape) // 2]), -1)
+                    )
+                return force.reshape(attr_force.shape)
+
             reparam_jac = {
-                k: jax.tree_map(
-                    lambda variable: jax.jacfwd(self.particle_transforms[k].inv)(
-                        variable
-                    ),
-                    variables,
-                )
-                for k, variables in unravel_pytree(particle).items()
+                name: jax.tree_map(lambda var: _nontrivial_jac(name, var), variables)
+                for name, variables in unravel_pytree(particle).items()
             }
             jac_params = jax.tree_multimap(
-                lambda af, rf, rjac: (
-                    (af.reshape(-1) + rf.reshape(-1))
-                    @ rjac.reshape((_numel(rjac.shape[: len(rjac.shape) // 2]), -1))
-                ).reshape(rf.shape),
-                unravel_pytree(att_forces),
+                _update_force,
+                unravel_pytree(attr_forces),
                 unravel_pytree(rep_forces),
                 reparam_jac,
             )

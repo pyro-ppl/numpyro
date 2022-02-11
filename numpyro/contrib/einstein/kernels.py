@@ -47,10 +47,12 @@ class SteinKernel(ABC):
         Computes the kernel function given the input Stein particles
 
         :param particles: The Stein particles to compute the kernel from
-        :param particle_info: A mapping from parameter names to the position in the particle matrix
+        :param particle_info: A mapping from parameter names to the position in the
+            particle matrix
         :param loss_fn: Loss function given particles
         :return: The kernel_fn to compute kernel for pair of particles.
-                 Modes: norm `(d,) (d,)-> ()`,  vector `(d,) (d,) -> (d)`, or matrix `(d,) (d,) -> (d,d)`
+            Modes: norm `(d,) (d,)-> ()`, vector `(d,) (d,) -> (d)`, or matrix
+            `(d,) (d,) -> (d,d)`
         """
         raise NotImplementedError
 
@@ -66,18 +68,21 @@ class SteinKernel(ABC):
 class RBFKernel(SteinKernel):
     """
     Calculates the Gaussian RBF kernel function, from [1],
-    :math: `k(x,y) = \\exp(\\frac{1}{h} \\|x-y\\|^2)`,
+    :math:`k(x,y) = \\exp(\\frac{1}{h} \\|x-y\\|^2)`,
     where the bandwidth h is computed using the median heuristic
-    :math: `h = \\frac{1}{\\log(n)} \\med(\\|x-y\\|)`.
+    :math:`h = \\frac{1}{\\log(n)} \\text{med}(\\|x-y\\|)`.
 
-    ** References: **
-    1. *Stein Variational Gradient Descent*  Liu and Wang
+    **References:**
 
-    :param str mode: Either 'norm' (default) specifying to take the norm of each particle, 'vector' to return a
-                 component-wise kernel or 'matrix' to return a matrix-valued kernel
-    :param str matrix_mode: Either 'norm_diag' (default) for diagonal filled with the norm kernel or 'vector_diag'
-                        for diagonal of vector-valued kernel
-    :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
+    1. *Stein Variational Gradient Descent* by Liu and Wang
+
+    :param str mode: Either 'norm' (default) specifying to take the norm of each
+        particle, 'vector' to return a component-wise kernel or 'matrix' to return a
+        matrix-valued kernel
+    :param str matrix_mode: Either 'norm_diag' (default) for diagonal filled with the
+        norm kernel or 'vector_diag' for diagonal of vector-valued kernel
+    :param bandwidth_factor: A multiplier to the bandwidth based on data size n
+        (default 1/log(n))
     """
 
     def __init__(
@@ -137,11 +142,12 @@ class IMQKernel(SteinKernel):
     :math:`k(x,y) = (c^2 + \\|x+y\\|^2_2)^{\\beta},`
     from [1].
 
-    ** References: **
+    **References:**
+
     1. *Measuring Sample Quality with Kernels* by Gorham and Mackey
 
-    :param str mode: Either 'norm' (default) specifying to take the norm of each particle,
-                 or 'vector' to return a component-wise kernel
+    :param str mode: Either 'norm' (default) specifying to take the norm
+        of each particle, or 'vector' to return a component-wise kernel
     :param float const: Positive multi-quadratic constant (c)
     :param float expon: Inverse exponent (beta) between (-1, 0)
     """
@@ -169,11 +175,12 @@ class IMQKernel(SteinKernel):
 class LinearKernel(SteinKernel):
     """
     Calculates the linear kernel
-    :math: `k(x,y) = x \\cdot y + 1`
+    :math:`k(x,y) = x \\cdot y + 1`
     from [1].
 
-    ** References **
-    1. "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
+    **References:**
+
+    1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
     """
 
     def __init__(self, mode="norm"):
@@ -197,11 +204,11 @@ class LinearKernel(SteinKernel):
 class RandomFeatureKernel(SteinKernel):
     """
     Calculates the random kernel
-    :math:`k(x,y)= 1/m\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l),
+    :math:`k(x,y)= 1/m\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l)`
     from [1].
 
+    **References:**
 
-    ** References: **
     1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
 
     :param bandwidth_subset: How many particles should be used to calculate the bandwidth?
@@ -209,7 +216,6 @@ class RandomFeatureKernel(SteinKernel):
     :param random_indices: The set of indices which to do random feature expansion on.
                            (default None, meaning all indices)
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
-
     """
 
     def __init__(
@@ -294,9 +300,10 @@ class RandomFeatureKernel(SteinKernel):
 class MixtureKernel(SteinKernel):
     """
     Calculates a mixture of multiple kernels
-    :math: `k(x,y) = \\sum_i w_ik_i(x,y)`
+    :math:`k(x,y) = \\sum_i w_ik_i(x,y)`
 
-    ** Reference **
+    **References:**
+
     1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
 
     :param ws: Weight of each kernel in the mixture
@@ -337,7 +344,8 @@ class HessianPrecondMatrix(PrecondMatrix):
     """
     Calculates the constant precondition matrix based on the negative Hessian of the loss from [1].
 
-    ** References: **
+    **References:**
+
     1. *Stein Variational Gradient Descent with Matrix-Valued Kernels* by Wang, Tang, Bajaj and Liu
     """
 
@@ -349,12 +357,13 @@ class HessianPrecondMatrix(PrecondMatrix):
 class PrecondMatrixKernel(SteinKernel):
     """
     Calculates the const preconditioned kernel
-    :math: `k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
+    :math:`k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
     or anchor point preconditioned kernel
-    :math: `k(x,y) = \\sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
+    :math:`k(x,y) = \\sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
     both from [1].
 
-    ** References: **
+    **References:**
+
     1. "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
 
     :param precond_matrix_fn: The constant preconditioning matrix
@@ -416,16 +425,18 @@ class PrecondMatrixKernel(SteinKernel):
 
 class GraphicalKernel(SteinKernel):
     """
-    Calculates graphical kernel
-    :math: `k(x,y) = diag({K^(l)(x,y)}_l)
-    from [1].
+    Calculates graphical kernel :math:`k(x,y) = diag({K_l(x_l,y_l)})` for local kernels
+    :math:`K_l` from [1][2].
 
-    ** References: **
-    1. *Stein Variational Message Passing for Continuous Graphical Models* by Wang, Zheng and Liu
+    **References:**
 
-    :param local_kernel_fns: A mapping between parameters and a choice of kernel function for that parameter
-                             (default to default_kernel_fn for each parameter)
-    :param default_kernel_fn: The default choice of kernel function when none is specified for a particular parameter
+    1. *Stein Variational Message Passing for Continuous Graphical Models* by Wang, Zheng, and Liu
+    2. *Stein Variational Gradient Descent with Matrix-Valued Kernels* by Wang, Tang, Bajaj, and Liu
+
+    :param local_kernel_fns: A mapping between parameters and a choice of kernel
+        function for that parameter (default to default_kernel_fn for each parameter)
+    :param default_kernel_fn: The default choice of kernel function when none is
+        specified for a particular parameter
     """
 
     def __init__(

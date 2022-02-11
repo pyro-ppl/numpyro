@@ -199,7 +199,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         regularize_mass_matrix=True,
         model_args=(),
         model_kwargs=None,
-        rng_key=random.PRNGKey(0),
+        rng_key=None,
     ):
         """
         Initializes the HMC sampler.
@@ -264,6 +264,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             randomness.
 
         """
+        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
         if trajectory_length is not None:
             trajectory_length = lax.convert_element_type(

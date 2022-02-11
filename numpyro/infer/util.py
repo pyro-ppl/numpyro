@@ -862,6 +862,10 @@ class Predictive(object):
             raise ValueError(
                 "Either posterior_samples or num_samples must be specified."
             )
+        if posterior_samples is not None and guide is not None:
+            raise ValueError(
+                "Only one of guide or posterior_samples can be provided, not both."
+            )
 
         batch_ndims = (
             batch_ndims if batch_ndims is not None else 1 if guide is None else 0
