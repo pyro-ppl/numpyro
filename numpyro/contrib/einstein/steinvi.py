@@ -253,7 +253,7 @@ class SteinVI:
 
         def single_particle_grad(particle, attr_forces, rep_forces):
             def _nontrivial_jac(var_name, var):
-                if isinstance(self.particle_transforms, IdentityTransform):
+                if isinstance(self.particle_transforms[var_name], IdentityTransform):
                     return None
                 return jax.jacfwd(self.particle_transforms[var_name].inv)(var)
 
