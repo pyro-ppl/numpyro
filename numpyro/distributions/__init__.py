@@ -104,7 +104,7 @@ __all__ = [
     "kl_divergence",
     "transforms",
     "AsymmetricLaplace",
-    "AsymmetricLaplaceuantile",
+    "AsymmetricLaplaceQuantile",
     "Bernoulli",
     "BernoulliLogits",
     "BernoulliProbs",
