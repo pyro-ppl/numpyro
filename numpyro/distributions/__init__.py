@@ -12,6 +12,8 @@ from numpyro.distributions.conjugate import (
 )
 from numpyro.distributions.continuous import (
     LKJ,
+    AsymmetricLaplace,
+    AsymmetricLaplaceQuantile,
     Beta,
     BetaProportion,
     Cauchy,
@@ -101,6 +103,8 @@ __all__ = [
     "constraints",
     "kl_divergence",
     "transforms",
+    "AsymmetricLaplace",
+    "AsymmetricLaplaceuantile",
     "Bernoulli",
     "BernoulliLogits",
     "BernoulliProbs",
