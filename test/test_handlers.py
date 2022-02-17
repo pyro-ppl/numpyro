@@ -577,7 +577,8 @@ def test_block():
 
 def test_scope():
     def fn():
-        return numpyro.sample("x", dist.Normal())
+        with numpyro.plate("N", 10):
+            return numpyro.sample("x", dist.Normal())
 
     with handlers.trace() as trace:
         with handlers.seed(rng_seed=1):
@@ -587,8 +588,7 @@ def test_scope():
                 with handlers.scope(prefix="a"):
                     fn()
 
-    assert "a/x" in trace
-    assert "b/a/x" in trace
+    assert set(trace) == {"a/x", "b/a/x", "N"}
 
 
 def test_scope_frames():
