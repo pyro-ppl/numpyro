@@ -500,29 +500,6 @@ class OrderedLogistic(CategoricalProbs):
         return batch_shape, event_shape
 
 
-class PRNGIdentity(Distribution):
-    """
-    Distribution over :func:`~jax.random.PRNGKey`. This can be used to
-    draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
-    handler. Only `sample` method is supported.
-    """
-
-    def __init__(self):
-        warnings.warn(
-            "PRNGIdentity distribution is deprecated. To get a random "
-            "PRNG key, you can use `numpyro.prng_key()` instead.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-        super(PRNGIdentity, self).__init__(event_shape=(2,))
-
-    def sample(self, key, sample_shape=()):
-        return jnp.reshape(
-            random.split(key, np.prod(sample_shape).astype(np.int32)),
-            sample_shape + self.event_shape,
-        )
-
-
 class MultinomialProbs(Distribution):
     arg_constraints = {
         "probs": constraints.simplex,

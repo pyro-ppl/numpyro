@@ -174,12 +174,12 @@ class trace(Messenger):
 
 class replay(Messenger):
     """
-    Given a callable `fn` and an execution trace `guide_trace`,
+    Given a callable `fn` and an execution trace `trace`,
     return a callable which substitutes `sample` calls in `fn` with
-    values from the corresponding site names in `guide_trace`.
+    values from the corresponding site names in `trace`.
 
     :param fn: Python callable with NumPyro primitives.
-    :param guide_trace: an OrderedDict containing execution metadata.
+    :param trace: an OrderedDict containing execution metadata.
 
     **Example:**
 
@@ -203,14 +203,6 @@ class replay(Messenger):
     """
 
     def __init__(self, fn=None, trace=None, guide_trace=None):
-        if guide_trace is not None:
-            warnings.warn(
-                "`guide_trace` argument is deprecated. Please replace it by `trace`.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
-        if guide_trace is not None:
-            trace = guide_trace
         assert trace is not None
         self.trace = trace
         super(replay, self).__init__(fn)

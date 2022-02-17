@@ -129,13 +129,6 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
         tfd_class_name = tfd_class.__name__
 
         def init(self, *args, **kwargs):
-            warnings.warn(
-                "Importing distributions from numpyro.contrib.tfp.distributions is "
-                "deprecated. You should import distributions directly from "
-                "tensorflow_probability.substrates.jax.distributions instead.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
             self.tfp_dist = tfd_class(*args, **kwargs)
 
         _PyroDist = type(tfd_class_name, (TFPDistribution,), {})

@@ -62,16 +62,6 @@ class Transform(object):
     _inv = None
 
     @property
-    def event_dim(self):
-        warnings.warn(
-            "transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
-            "get input event dim or Transform.codomain.event_dim to get output event dim.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-        return self.domain.event_dim
-
-    @property
     def inv(self):
         inv = None
         if self._inv is not None:
@@ -553,52 +543,6 @@ class IndependentTransform(Transform):
 
     def inverse_shape(self, shape):
         return self.base_transform.inverse_shape(shape)
-
-
-class InvCholeskyTransform(Transform):
-    r"""
-    Transform via the mapping :math:`y = x @ x.T`, where `x` is a lower
-    triangular matrix with positive diagonal.
-    """
-
-    def __init__(self, domain=constraints.lower_cholesky):
-        warnings.warn(
-            "InvCholeskyTransform is deprecated. Please use CholeskyTransform"
-            " or CorrMatrixCholeskyTransform instead.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-        assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
-        self.domain = domain
-
-    @property
-    def codomain(self):
-        if self.domain is constraints.lower_cholesky:
-            return constraints.positive_definite
-        elif self.domain is constraints.corr_cholesky:
-            return constraints.corr_matrix
-
-    def __call__(self, x):
-        return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
-
-    def _inverse(self, y):
-        return jnp.linalg.cholesky(y)
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        if self.domain is constraints.lower_cholesky:
-            # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
-            n = jnp.shape(x)[-1]
-            order = jnp.arange(n, 0, -1)
-            return n * jnp.log(2) + jnp.sum(
-                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
-            )
-        else:
-            # NB: see derivation in LKJCholesky implementation
-            n = jnp.shape(x)[-1]
-            order = jnp.arange(n - 1, -1, -1)
-            return jnp.sum(
-                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
-            )
 
 
 class L1BallTransform(Transform):
