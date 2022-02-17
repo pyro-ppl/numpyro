@@ -605,7 +605,7 @@ class scale(Messenger):
 
 class scope(Messenger):
     """
-    This handler prepend a prefix followed by a divider to the name of messages.
+    This handler prepend a prefix followed by a divider to the name of sample sites.
 
     **Example:**
 
@@ -623,32 +623,23 @@ class scope(Messenger):
         >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
-    :param str prefix: a string to prepend to message names
+    :param str prefix: a string to prepend to sample names
     :param str divider: a string to join the prefix and sample name; default to `'/'`
-    :param tuple types: EXPERIMENTAL types of the messages to apply scope handler to.
-        Typically, each item in the tuple is one of
-        (`"sample"`, `"deterministic"`, `"plate"`, `"param"`).
+    :param bool skip_param: whether to apply scope for `param` sites. Defaults to True.
     """
-    def __init__(self, fn=None, prefix="", divider="/", *, types=("sample", "deterministic")):
+
+    def __init__(self, fn=None, prefix="", divider="/", *, skip_param=True):
         self.prefix = prefix
         self.divider = divider
-        self.types = types
+        self.skip_param = skip_param
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg["type"] not in self.types:
+        if (msg["type"] == "param" and self.skip_param) or (msg["type"] == "plate"):
             return
 
         if msg.get("name"):
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
-
-        if "plate" in self.types and msg.get("cond_indep_stack"):
-            msg["cond_indep_stack"] = [
-                CondIndepStackFrame(
-                    f"{self.prefix}{self.divider}{i.name}", i.dim, i.size
-                )
-                for i in msg["cond_indep_stack"]
-            ]
 
 
 class seed(Messenger):
