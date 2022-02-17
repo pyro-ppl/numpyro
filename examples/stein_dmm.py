@@ -4,8 +4,9 @@
 """
 Example: Deep Markov Model inferred using SteinVI
 =================================================
-An implementation of a Deep Markov Model in NumPyro based on reference [1][2] and the Pyro DMM example.
-This is essentially the DKS variant outlined in the paper.
+An implementation of a Deep Markov Model in NumPyro based on reference [1][2] and the
+[Pyro DMM example](https://github.com/pyro-ppl/pyro/blob/f73df6c1c20bc7b9164d79ce4217557d0aa8e396/examples/dmm/dmm.py).
+This is essentially the DKS variant outlined in [1].
 
 
 **Reference:**
@@ -15,19 +16,21 @@ This is essentially the DKS variant outlined in the paper.
     Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
 """
 import argparse
+import warnings
+
+import numpy as np
 
 import jax
-from jax.example_libraries import stax
-import jax.numpy as jnp
-import jax.ops
+from jax import nn, numpy as jnp, random
+from optax import adam, chain
 
 import numpyro
 from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import RBFKernel
 import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
-from numpyro.infer import Trace_ELBO
-from numpyro.optim import Adam
+from numpyro.infer import Predictive, Trace_ELBO
+from numpyro.optim import optax_to_numpyro
 
 
 def _reverse_padded(padded, lengths):
@@ -45,25 +48,14 @@ def load_data(split="train"):
     return (seqs, _reverse_padded(seqs, lengths), lengths)
 
 
-def _one_hot_chorales(seqs, num_nodes=88):
-    return jnp.sum(jnp.array((seqs[..., None] == jnp.arange(num_nodes + 1))), axis=-2)[
-        ..., 1:
-    ]
-
-
-def emitter(hidden_dim1, hidden_dim2, out_dim):
+def emitter(x, params):
     """Parameterizes the bernoulli observation likelihood `p(x_t | z_t)`"""
-    return stax.serial(
-        stax.Dense(hidden_dim1),
-        stax.Relu,
-        stax.Dense(hidden_dim2),
-        stax.Relu,
-        stax.Dense(out_dim),
-        stax.Sigmoid,
-    )
+    l1 = nn.relu(jnp.matmul(x, params["l1"]))
+    l2 = nn.relu(jnp.matmul(l1, params["l2"]))
+    return jnp.matmul(l2, params["l3"])
 
 
-def transition(gate_hidden_dim, prop_mean_hidden_dim, out_dim):
+def transition(x, params):
     """Parameterizes the gaussian latent transition probability `p(z_t | z_{t-1})`
     See section 5 in [1].
 
@@ -71,139 +63,59 @@ def transition(gate_hidden_dim, prop_mean_hidden_dim, out_dim):
         1. Structured Inference Networks for Nonlinear State Space Models [arXiv:1609.09869]
         Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
     """
-    gate_init_fun, gate_apply_fun = stax.serial(
-        stax.Dense(gate_hidden_dim), stax.Relu, stax.Dense(out_dim), stax.Sigmoid
-    )
 
-    prop_mean_init_fun, prop_mean_apply_fun = stax.serial(
-        stax.Dense(prop_mean_hidden_dim), stax.Relu, stax.Dense(out_dim)
-    )
+    def _gate(x, params):
+        l1 = nn.relu(jnp.matmul(x, params["l1"]))
+        return nn.sigmoid(jnp.matmul(l1, params["l2"]))
 
-    mean_init_fun, mean_apply_fun = stax.Dense(out_dim)
+    def _shared(x, params):
+        l1 = nn.relu(jnp.matmul(x, params["l1"]))
+        return jnp.matmul(l1, params["l2"])
 
-    stddev_init_fun, stddev_apply_fun = stax.serial(
-        stax.Relu, stax.Dense(out_dim), stax.Softplus
-    )
+    def _mean(x, params):
+        return jnp.matmul(x, params["l1"])
 
-    def init_fun(rng, input_shape):
-        output_shape = input_shape[:-1] + (out_dim,)
-        k1, k2, k3, k4 = jax.random.split(rng, num=4)
-        _, gate_params = gate_init_fun(k1, input_shape)
-        prop_mean_output_shape, prop_mean_params = prop_mean_init_fun(k2, input_shape)
-        _, mean_params = mean_init_fun(k3, input_shape)
-        _, stddev_params = stddev_init_fun(k4, prop_mean_output_shape)
-        return (output_shape, output_shape), (
-            gate_params,
-            prop_mean_params,
-            mean_params,
-            stddev_params,
-        )
+    def _std(x, params):
+        l1 = jnp.matmul(nn.relu(x), params["l1"])
+        return nn.softplus(l1)
 
-    def apply_fun(params, inputs, **kwargs):
-        gate_params, prop_mean_params, mean_params, stddev_params = params
-        gt = gate_apply_fun(gate_params, inputs)
-        ht = prop_mean_apply_fun(prop_mean_params, inputs)
-        mut = (1 - gt) * mean_apply_fun(mean_params, inputs) + gt * ht
-        sigmat = stddev_apply_fun(stddev_params, ht)
-        return mut, sigmat
-
-    return init_fun, apply_fun
+    gt = _gate(x, params["gate"])
+    ht = _shared(x, params["shared"])
+    loc = (1 - gt) * _mean(x, params["mean"]) + gt * ht
+    std = _std(ht, params["std"])
+    return loc, std
 
 
-def combiner(hidden_dim, out_dim):
-    """
-    Parameterizes `q(z_t | z_{t-1}, x_{t:T})`, which is the basic building block
-    of the guide (i.e. the variational distribution). The dependence on `x_{t:T}` is
-    through the hidden state of a Gated Recurrent Unit (GRU) [1], see the `gru` method below.
-
-    **Reference**
-        1. Empirical Evaluation of Gated Recurrent Neural Networks on Sequence Modeling
-        Junyoung Chung, Caglar Gulcehre, KyungHyun Cho and Yoshua Bengio (2014)
-    """
-    mean_init_fun, mean_apply_fun = stax.Dense(out_dim)
-
-    stddev_init_fun, stddev_apply_fun = stax.serial(stax.Dense(out_dim), stax.Softplus)
-
-    def init_fun(rng, input_shape):
-        output_shape = input_shape[:-1] + (out_dim,)
-        k1, k2 = jax.random.split(rng, num=2)
-        _, mean_params = mean_init_fun(k1, input_shape)
-        _, stddev_params = stddev_init_fun(k2, input_shape)
-        return (output_shape, output_shape), (mean_params, stddev_params)
-
-    def apply_fun(params, inputs, **kwargs):
-        mean_params, stddev_params = params
-        mut = mean_apply_fun(mean_params, inputs)
-        sigmat = stddev_apply_fun(stddev_params, inputs)
-        return mut, sigmat
-
-    return init_fun, apply_fun
+def combiner(x, params):
+    mean = jnp.matmul(x, params["mean"])
+    std = nn.softplus(jnp.matmul(x, params["std"]))
+    return mean, std
 
 
-def gru(hidden_dim, W_init=stax.glorot_normal()):
+def gru(xs, lengths, init_hidden, params):  # TODO: glotrot normal init
     """RNN with GRU. Based on https://github.com/google/jax/pull/2298"""
-    input_update_init_fun, input_update_apply_fun = stax.Dense(hidden_dim)
-    input_reset_init_fun, input_reset_apply_fun = stax.Dense(hidden_dim)
-    input_output_init_fun, input_output_apply_fun = stax.Dense(hidden_dim)
 
-    def init_fun(rng, input_shape):
-        indv_input_shape = input_shape[1:]
-        output_shape = input_shape[:-1] + (hidden_dim,)
-        rng, k1, k2 = jax.random.split(rng, num=3)
-        hidden_update_w = W_init(k1, (hidden_dim, hidden_dim))
-        _, input_update_params = input_update_init_fun(k2, indv_input_shape)
-
-        rng, k1, k2 = jax.random.split(rng, num=3)
-        hidden_reset_w = W_init(k1, (hidden_dim, hidden_dim))
-        _, input_reset_params = input_reset_init_fun(k2, indv_input_shape)
-
-        rng, k1, k2 = jax.random.split(rng, num=3)
-        hidden_output_w = W_init(k1, (hidden_dim, hidden_dim))
-        _, input_output_params = input_output_init_fun(k2, indv_input_shape)
-
-        return output_shape, (
-            hidden_update_w,
-            input_update_params,
-            hidden_reset_w,
-            input_reset_params,
-            hidden_output_w,
-            input_output_params,
+    def apply_fun_single(state, inputs):
+        i, x = inputs
+        inp_update = jnp.matmul(x, params["update_in"])
+        hidden_update = jnp.dot(state, params["update_weight"])
+        update_gate = nn.sigmoid(inp_update + hidden_update)
+        reset_gate = nn.sigmoid(
+            jnp.matmul(x, params["reset_in"]) + jnp.dot(state, params["reset_weight"])
         )
-
-    def apply_fun(params, inputs, **kwargs):
-        (
-            hidden_update_w,
-            input_update_params,
-            hidden_reset_w,
-            input_reset_params,
-            hidden_output_w,
-            input_output_params,
-        ) = params
-        inps, lengths, init_hidden = inputs
-
-        def apply_fun_single(prev_hidden, inp):
-            i, inpv = inp
-            inp_update = input_update_apply_fun(input_update_params, inpv)
-            hidden_update = jnp.dot(prev_hidden, hidden_update_w)
-            update_gate = stax.sigmoid(inp_update + hidden_update)
-            reset_gate = stax.sigmoid(
-                input_reset_apply_fun(input_reset_params, inpv)
-                + jnp.dot(prev_hidden, hidden_reset_w)
-            )
-            output_gate = update_gate * prev_hidden + (1 - update_gate) * jnp.tanh(
-                input_output_apply_fun(input_output_params, inpv)
-                + jnp.dot(reset_gate * prev_hidden, hidden_output_w)
-            )
-            hidden = jnp.where(
-                (i < lengths)[:, None], output_gate, jnp.zeros_like(prev_hidden)
-            )
-            return hidden, hidden
-
-        return jax.lax.scan(
-            apply_fun_single, init_hidden, (jnp.arange(inps.shape[0]), inps)
+        output_gate = update_gate * state + (1 - update_gate) * jnp.tanh(
+            jnp.matmul(x, params["out_in"])
+            + jnp.dot(reset_gate * state, params["out_weight"])
         )
+        hidden = jnp.where((i < lengths)[:, None], output_gate, jnp.zeros_like(state))
+        return hidden, hidden
 
-    return init_fun, apply_fun
+    init_hidden = jnp.broadcast_to(init_hidden, (xs.shape[1], init_hidden.shape[1]))
+    return jax.lax.scan(apply_fun_single, init_hidden, (jnp.arange(xs.shape[0]), xs))
+
+
+def _normal_init(*shape):
+    return lambda rng_key: dist.Normal().sample(rng_key, shape)
 
 
 def model(
@@ -211,7 +123,6 @@ def model(
     seqs_rev,
     lengths,
     *,
-    max_seq_length=129,
     subsample_size=77,
     latent_dim=32,
     emission_dim=100,
@@ -221,32 +132,54 @@ def model(
     annealing_factor=1.0,
     predict=False,
 ):
-    transition_fn = numpyro.module(
-        "transition",
-        transition(transition_dim, transition_dim, latent_dim),
-        input_shape=(subsample_size, latent_dim),
-    )
-    emitter_fn = numpyro.module(
-        "emitter",
-        emitter(emission_dim, emission_dim, data_dim),
-        input_shape=(subsample_size, latent_dim),
-    )
+    max_seq_length = seqs.shape[1]
 
-    z0 = numpyro.param("z0", jnp.zeros((subsample_size, 1, latent_dim)))
+    emitter_params = {
+        "l1": numpyro.param("emitter_l1", _normal_init(latent_dim, emission_dim)),
+        "l2": numpyro.param("emitter_l2", _normal_init(emission_dim, emission_dim)),
+        "l3": numpyro.param("emitter_l3", _normal_init(emission_dim, data_dim)),
+    }
+
+    trans_params = {
+        "gate": {
+            "l1": numpyro.param("gate_l1", _normal_init(latent_dim, transition_dim)),
+            "l2": numpyro.param("gate_l2", _normal_init(transition_dim, latent_dim)),
+        },
+        "shared": {
+            "l1": numpyro.param("shared_l1", _normal_init(latent_dim, transition_dim)),
+            "l2": numpyro.param("shared_l2", _normal_init(transition_dim, latent_dim)),
+        },
+        "mean": {"l1": numpyro.param("mean_l1", _normal_init(latent_dim, latent_dim))},
+        "std": {"l1": numpyro.param("std_l1", _normal_init(latent_dim, latent_dim))},
+    }
+
+    z0 = numpyro.param(
+        "z0", lambda rng_key: dist.Normal(0, 1.0).sample(rng_key, (latent_dim,))
+    )
+    z0 = jnp.broadcast_to(z0, (subsample_size, 1, latent_dim))
     with numpyro.plate(
         "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
     ) as idx:
-        seqs_batch = seqs[idx]
-        lengths_batch = lengths[idx]
+        if subsample_size == seqs.shape[0]:
+            seqs_batch = seqs
+            lengths_batch = lengths
+        else:
+            seqs_batch = seqs[idx]
+            lengths_batch = lengths[idx]
 
-        ones = jnp.ones((subsample_size, max_seq_length, latent_dim))
         masks = jnp.repeat(
             jnp.expand_dims(jnp.arange(max_seq_length), axis=0), subsample_size, axis=0
         ) < jnp.expand_dims(lengths_batch, axis=-1)
         # NB: Mask is to avoid scoring 'z' using distribution at this point
-        z = numpyro.sample("z", dist.Normal(0.0, ones).mask(False).to_event(2))
+        z = numpyro.sample(
+            "z",
+            dist.Normal(0.0, jnp.ones((max_seq_length, latent_dim)))
+            .mask(False)
+            .to_event(2),
+        )
+
         z_shift = jnp.concatenate([z0, z[:, :-1, :]], axis=-2)
-        z_loc, z_scale = transition_fn(z_shift)
+        z_loc, z_scale = transition(z_shift, params=trans_params)
 
         with numpyro.handlers.scale(scale=annealing_factor):
             # Actually score 'z'
@@ -258,16 +191,17 @@ def model(
                 obs=z,
             )
 
-        emission_probs = emitter_fn(z)
-        oh_x = _one_hot_chorales(seqs_batch)
+        emission_probs = emitter(z, params=emitter_params)
         if predict:
-            oh_x = None
+            tunes = None
+        else:
+            tunes = seqs_batch
         numpyro.sample(
-            "obs_x",
-            dist.Bernoulli(emission_probs)
+            "tunes",
+            dist.Bernoulli(logits=emission_probs)
             .mask(jnp.expand_dims(masks, axis=-1))
             .to_event(2),
-            obs=oh_x,
+            obs=tunes,
         )
 
 
@@ -276,7 +210,6 @@ def guide(
     seqs_rev,
     lengths,
     *,
-    max_seq_length=129,
     subsample_size=77,
     latent_dim=32,
     emission_dim=100,
@@ -286,83 +219,110 @@ def guide(
     annealing_factor=1.0,
     predict=False,
 ):
+    max_seq_length = seqs.shape[1]
     seqs_rev = jnp.transpose(seqs_rev, axes=(1, 0, 2))
-    combiner_fn = numpyro.module(
-        "combiner", combiner(gru_dim, latent_dim), input_shape=(subsample_size, gru_dim)
-    )
+
+    combiner_params = {
+        "mean": numpyro.param("combiner_mean", _normal_init(gru_dim, latent_dim)),
+        "std": numpyro.param("combiner_std", _normal_init(gru_dim, latent_dim)),
+    }
+
+    gru_params = {
+        "update_in": numpyro.param("update_in", _normal_init(data_dim, gru_dim)),
+        "update_weight": numpyro.param("update_weight", _normal_init(gru_dim, gru_dim)),
+        "reset_in": numpyro.param("reset_in", _normal_init(data_dim, gru_dim)),
+        "reset_weight": numpyro.param("reset_weight", _normal_init(gru_dim, gru_dim)),
+        "out_in": numpyro.param("out_in", _normal_init(data_dim, gru_dim)),
+        "out_weight": numpyro.param("out_weight", _normal_init(gru_dim, gru_dim)),
+    }
 
     with numpyro.plate(
         "data", seqs.shape[0], subsample_size=subsample_size, dim=-1
     ) as idx:
-        seqs_rev_batch = seqs_rev[:, idx, :]
-        lengths_batch = lengths[idx]
+        if subsample_size == seqs.shape[0]:
+            seqs_rev_batch = seqs_rev
+            lengths_batch = lengths
+        else:
+            seqs_rev_batch = seqs_rev[:, idx, :]
+            lengths_batch = lengths[idx]
 
-        gru_fn = numpyro.module(
-            "gru", gru(gru_dim), input_shape=(max_seq_length, subsample_size, data_dim)
-        )
         masks = jnp.repeat(
             jnp.expand_dims(jnp.arange(max_seq_length), axis=0), subsample_size, axis=0
         ) < jnp.expand_dims(lengths_batch, axis=-1)
 
         h0 = numpyro.param(
             "h0",
-            lambda rng_key: dist.Normal(0.0, 1).sample(
-                rng_key, (subsample_size, gru_dim)
-            ),
+            lambda rng_key: dist.Normal(0.0, 1).sample(rng_key, (1, gru_dim)),
         )
-        _, hs = gru_fn((_one_hot_chorales(seqs_rev_batch), lengths_batch, h0))
+        _, hs = gru(seqs_rev_batch, lengths_batch, h0, gru_params)
         hs = _reverse_padded(jnp.transpose(hs, axes=(1, 0, 2)), lengths_batch)
         with numpyro.handlers.scale(scale=annealing_factor):
             numpyro.sample(
                 "z",
-                dist.Normal(*combiner_fn(hs))
+                dist.Normal(*combiner(hs, combiner_params))
                 .mask(jnp.expand_dims(masks, axis=-1))
                 .to_event(2),
             )
 
 
+def vis_tune(i, tunes, lengths, name="stein_dmm.pdf"):
+    try:
+        from music21.chord import Chord
+        from music21.pitch import Pitch
+        from music21.stream import Stream
+
+        tune = tunes[i, : lengths[i]]
+        stream = Stream()
+        for chord in tune:
+            stream.append(
+                Chord(list(Pitch(pitch) for pitch in (np.arange(88) + 21)[chord > 0]))
+            )
+        plot = stream.plot(doneAction=None)
+        plot.show()
+    except:
+        pass
+
+
 def main(args):
-    svgd = SteinVI(
+    inf_key, pred_key = random.split(random.PRNGKey(seed=args.rng_seed), 2)
+
+    vi = SteinVI(
         model,
         guide,
-        Adam(1e-5),
+        optax_to_numpyro(chain(adam(1e-2))),
         Trace_ELBO(),
         RBFKernel(),
         num_particles=args.num_particles,
     )
 
-    rng_key = jax.random.PRNGKey(seed=args.rng_key)
     seqs, rev_seqs, lengths = load_data()
-    results = svgd.run(
-        rng_key,
+    results = vi.run(
+        inf_key,
         args.max_iter,
         seqs,
         rev_seqs,
         lengths,
         gru_dim=args.gru_dim,
         subsample_size=args.subsample_size,
-        max_seq_length=seqs.shape[1],
     )
-
-    test_seqs, test_rev_seqs, test_lengths = load_data("test")
-
-    negative_elbo = svgd.evaluate(
-        results.state,
-        test_seqs,
-        test_rev_seqs,
-        test_lengths,
-        gru_dim=args.gru_dim,
-        subsample_size=args.subsample_size,
-        max_seq_length=test_seqs.shape[1],
+    pred = Predictive(
+        model,
+        params=results.params,
+        num_samples=1,
+        batch_ndims=1,
     )
+    seqs, rev_seqs, lengths = load_data("valid")
+    pred_notes = pred(
+        pred_key, seqs, rev_seqs, lengths, subsample_size=seqs.shape[0], predict=True
+    )["tunes"]
 
-    print(f"Negative ELBO: {negative_elbo}")
+    vis_tune(0, pred_notes[0], lengths)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=77)
-    parser.add_argument("--max-iter", type=int, default=10_000)
+    parser.add_argument("--max-iter", type=int, default=1)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-particles", type=int, default=5)
