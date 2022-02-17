@@ -16,7 +16,6 @@ This is essentially the DKS variant outlined in [1].
     Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
 """
 import argparse
-import warnings
 
 import numpy as np
 
@@ -279,7 +278,7 @@ def vis_tune(i, tunes, lengths, name="stein_dmm.pdf"):
             )
         plot = stream.plot(doneAction=None)
         plot.show()
-    except:
+    except ModuleNotFoundError:
         pass
 
 
