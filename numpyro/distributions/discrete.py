@@ -25,8 +25,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-import warnings
-
 import numpy as np
 
 import jax
@@ -49,7 +47,7 @@ from numpyro.distributions.util import (
     promote_shapes,
     validate_sample,
 )
-from numpyro.util import find_stack_level, not_jax_tracer
+from numpyro.util import not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):

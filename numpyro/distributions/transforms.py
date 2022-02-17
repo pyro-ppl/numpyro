@@ -34,7 +34,6 @@ __all__ = [
     "CorrMatrixCholeskyTransform",
     "ExpTransform",
     "IdentityTransform",
-    "InvCholeskyTransform",
     "L1BallTransform",
     "LowerCholeskyTransform",
     "ScaledUnitLowerCholeskyTransform",

@@ -818,14 +818,6 @@ IdentityTransform
     :show-inheritance:
     :member-order: bysource
 
-InvCholeskyTransform
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 L1BallTransform
 ^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.L1BallTransform
