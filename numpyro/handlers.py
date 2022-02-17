@@ -86,12 +86,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
-from numpyro.primitives import (
-    _PYRO_STACK,
-    Messenger,
-    apply_stack,
-    plate,
-)
+from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
