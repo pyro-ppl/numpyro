@@ -88,7 +88,6 @@ import numpyro
 from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
-    CondIndepStackFrame,
     Messenger,
     apply_stack,
     plate,
