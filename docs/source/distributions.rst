@@ -489,14 +489,6 @@ Poisson
     :show-inheritance:
     :member-order: bysource
 
-PRNGIdentity
-^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.discrete.PRNGIdentity
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 ZeroInflatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
@@ -821,14 +813,6 @@ ExpTransform
 IdentityTransform
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.IdentityTransform
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-InvCholeskyTransform
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
