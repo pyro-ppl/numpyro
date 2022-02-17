@@ -25,8 +25,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-import warnings
-
 import numpy as np
 
 import jax
@@ -49,7 +47,7 @@ from numpyro.distributions.util import (
     promote_shapes,
     validate_sample,
 )
-from numpyro.util import find_stack_level, not_jax_tracer
+from numpyro.util import not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
@@ -498,29 +496,6 @@ class OrderedLogistic(CategoricalProbs):
         batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
         event_shape = ()
         return batch_shape, event_shape
-
-
-class PRNGIdentity(Distribution):
-    """
-    Distribution over :func:`~jax.random.PRNGKey`. This can be used to
-    draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
-    handler. Only `sample` method is supported.
-    """
-
-    def __init__(self):
-        warnings.warn(
-            "PRNGIdentity distribution is deprecated. To get a random "
-            "PRNG key, you can use `numpyro.prng_key()` instead.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-        super(PRNGIdentity, self).__init__(event_shape=(2,))
-
-    def sample(self, key, sample_shape=()):
-        return jnp.reshape(
-            random.split(key, np.prod(sample_shape).astype(np.int32)),
-            sample_shape + self.event_shape,
-        )
 
 
 class MultinomialProbs(Distribution):

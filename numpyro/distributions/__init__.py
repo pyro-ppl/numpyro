@@ -66,7 +66,6 @@ from numpyro.distributions.discrete import (
     MultinomialProbs,
     OrderedLogistic,
     Poisson,
-    PRNGIdentity,
     ZeroInflatedDistribution,
     ZeroInflatedPoisson,
 )
@@ -158,7 +157,6 @@ __all__ = [
     "Pareto",
     "Poisson",
     "ProjectedNormal",
-    "PRNGIdentity",
     "RelaxedBernoulli",
     "RelaxedBernoulliLogits",
     "RightTruncatedDistribution",
