@@ -81,7 +81,7 @@ import warnings
 
 import numpy as np
 
-from jax import random
+from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
@@ -98,6 +98,7 @@ from numpyro.util import find_stack_level, not_jax_tracer
 __all__ = [
     "block",
     "collapse",
+    "compute_log_prob",
     "condition",
     "infer_config",
     "lift",
@@ -107,6 +108,7 @@ __all__ = [
     "scale",
     "scope",
     "seed",
+    "stop_gradient",
     "substitute",
     "trace",
     "do",
@@ -333,6 +335,21 @@ class collapse(trace):
         )
         name = reduced_vars[0]
         numpyro.factor(name, log_prob.data)
+
+
+class compute_log_prob(Messenger):
+    """
+    For each sample site under this message handler, we will compute and store
+    'log_prob' field in its message.
+    """
+
+    def process_message(self, msg):
+        if msg["type"] == "sample":
+            msg["reprocess"] = True
+
+    def _reprocess_message(self, msg):
+        if msg["value"] is not None:
+            msg["log_prob"] = msg["fn"].log_prob(msg["value"])
 
 
 class condition(Messenger):
@@ -704,6 +721,60 @@ class seed(Messenger):
                 return
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg["kwargs"]["rng_key"] = rng_key_sample
+
+
+class stop_gradient(Messenger):
+    """
+    A handler to stop gradient of either the distribution or the value of a
+    `sample` statements. See the example below for how to utilize this handler
+    for the "sticking the landing" gradient estimator (ref. [1]).
+
+    Sets `detach_value` to True is equivalent to draw non-reparameterized
+    samples.
+
+    Usage::
+
+        # given model, guide, we want to construct a 'sticking the landing' guide
+        stl_guide = handlers.stop_gradient(guide, detach_fn=True)
+        svi = SVI(model, stl_guide, ...)
+
+    **References**
+
+    1. *Sticking the Landing: Simple, Lower-Variance Gradient Estimators for
+       Variational Inference*, Geoffrey Roeder, Yuhuai Wu, David Duvenaud
+
+    :param fn: Python callable with NumPyro primitives.
+    :param detach_fn: A boolean or a callable that takes in a site dict and
+        detach the site's `fn` (i.e. distribution). If this is True, we
+        will detach gradient of `fn` of all sites.
+    :type detach_fn: bool or callable
+    :param detach_value: A boolean or a callable that takes in a site dict and
+        detach the site's `value`. If this is True, we will detach gradient
+        of `value` fields at all sites.
+    :type detach_value: bool or callable
+    """
+
+    def __init__(self, fn=None, detach_fn=False, detach_value=False):
+        super().__init__(fn)
+        if isinstance(detach_value, bool):
+            self.detach_fn = lambda _: detach_fn
+        else:
+            self.detach_fn = detach_fn
+        if isinstance(detach_value, bool):
+            self.detach_value = lambda _: detach_value
+        else:
+            self.detach_value = detach_value
+
+    def process_message(self, msg):
+        if msg["type"] == "sample" and (self.detach_fn(msg) or self.detach_value(msg)):
+            msg["reprocess"] = True
+
+    def _reprocess_message(self, msg):
+        if self.detach_fn(msg):
+            msg["fn"] = lax.stop_gradient(msg["fn"])
+        if self.detach_value(msg):
+            # This works for None value.
+            msg["value"] = lax.stop_gradient(msg["value"])
 
 
 class substitute(Messenger):

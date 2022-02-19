@@ -19,6 +19,14 @@ collapse
     :show-inheritance:
     :member-order: bysource
 
+compute_log_prob
+----------------
+.. autoclass:: numpyro.handlers.compute_log_prob
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 condition
 ---------
 .. autoclass:: numpyro.handlers.condition
@@ -94,6 +102,14 @@ scope
 seed
 ----
 .. autoclass:: numpyro.handlers.seed
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+stop_gradient
+-------------
+.. autoclass:: numpyro.handlers.stop_gradient
     :members:
     :undoc-members:
     :show-inheritance:

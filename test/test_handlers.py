@@ -5,7 +5,7 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
-from jax import jit, random, tree_multimap, value_and_grad, vmap
+from jax import grad, jit, random, tree_multimap, value_and_grad, vmap
 import jax.numpy as jnp
 
 import numpyro
@@ -609,6 +609,43 @@ def test_scope_frames():
 
     assert trace["y"]["cond_indep_stack"][0].name in trace
     assert scoped_trace[f"{scope_prefix}/y"]["cond_indep_stack"][0].name in scoped_trace
+
+
+def test_stop_gradient_fn():
+    def model(loc):
+        numpyro.sample("x", dist.Normal(loc, 1))
+
+    def fn(loc):
+        with handlers.trace() as tr, handlers.stop_gradient(detach_fn=True):
+            with handlers.seed(rng_seed=0):
+                model(loc)
+        return tr["x"]["fn"].log_prob(1.0)
+
+    assert_allclose(grad(fn)(2.0), 0.0)
+
+
+def test_stop_gradient_value():
+    def model(loc):
+        x = numpyro.sample("x", dist.Normal(loc, 1))
+        return x
+
+    def fn(loc):
+        with handlers.seed(rng_seed=0), handlers.stop_gradient(detach_value=True):
+            return model(loc)
+
+    assert_allclose(grad(fn)(2.0), 0.0)
+
+
+def test_compute_log_prob():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    with handlers.seed(rng_seed=0), handlers.trace() as tr:
+        with handlers.compute_log_prob():
+            model()
+
+    assert "log_prob" in tr["x"]
+    assert_allclose(tr["x"]["fn"].log_prob(tr["x"]["value"]), tr["x"]["log_prob"])
 
 
 def test_lift():
