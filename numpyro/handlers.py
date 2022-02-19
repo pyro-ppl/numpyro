@@ -348,7 +348,7 @@ class compute_log_prob(Messenger):
             msg["reprocess"] = True
 
     def _reprocess_message(self, msg):
-        if msg["value"] is not None:
+        if msg["value"] is not None and msg.get("log_prob", None) is not None:
             msg["log_prob"] = msg["fn"].log_prob(msg["value"])
 
 
