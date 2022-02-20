@@ -341,15 +341,32 @@ class compute_log_prob(Messenger):
     """
     For each sample site under this message handler, we will compute and store
     'log_prob' field in its message.
+
+    :param fn: Python callable with NumPyro primitives.
+    :param callable site_filter: A callable that takes a pair of the name
+        and its site message and returns a boolean. If the returned value is True,
+        we will compute and store log probability to that site.
     """
 
+    def __init__(self, fn=None, site_filter=lambda name, site: True):
+        super().__init__(fn)
+        self.site_filter = site_filter
+
     def process_message(self, msg):
-        if msg["type"] == "sample":
+        if msg["type"] == "sample" and self.site_filter(msg["name"], msg):
             msg["reprocess"] = True
 
     def _reprocess_message(self, msg):
-        if msg["value"] is not None and msg.get("log_prob", None) is not None:
-            msg["log_prob"] = msg["fn"].log_prob(msg["value"])
+        if msg["type"] == "sample" and self.site_filter(msg["name"], msg["value"]):
+            if (msg["value"] is not None) and (msg.get("log_prob") is None):
+                # TODO(fehiepsi): refactor numpyro.infer.util.log_density to
+                # use this utility. This implementation is not optimal for sites
+                # that have `intermediates` field.
+                scale = msg["scale"]
+                log_prob = msg["fn"].log_prob(msg["value"])
+                if scale is not None:
+                    log_prob = scale * log_prob
+                msg["log_prob"] = log_prob
 
 
 class condition(Messenger):

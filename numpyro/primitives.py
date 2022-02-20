@@ -57,7 +57,7 @@ def apply_stack(msg):
 
     handlers = _PYRO_STACK[-pointer - 1 :]
     if msg.get("reprocess", False):
-        for handler in handlers:
+        for handler in reversed(handlers):
             handler._reprocess_message(msg)
 
     # A Messenger that sets msg["stop"] == True also prevents application
