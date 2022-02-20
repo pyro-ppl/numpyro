@@ -454,22 +454,29 @@ class detach(Messenger):
     :param fields: A collection of fields to stop gradient after drawing
         samples. If `"fn"` is in this tuple, we will detach gradient of `fn`
         (which are distributions) at all sites. If `"fn"` is in this tuple,
-        we will detach gradient of `value` at all sites.
-    :type fields: tuple or list
+        we will detach gradient of `value` at all sites. Optionally we can
+        use this argument as a callable that applies to each sample site
+        and returns the fields needed to detach.
+    :type fields: callable or tuple or list
     """
 
     def __init__(self, fn=None, *, fields=()):
         super().__init__(fn)
-        self.fields = fields
+        if not callable(fields):
+            self.fields = lambda msg: fields
+        else:
+            self.fields = fields
 
     def process_message(self, msg):
-        if msg["type"] == "sample" and len(self.fields) > 0:
+        if msg["type"] == "sample" and self.fields(msg):
             msg["reprocess"] = True
 
     def _reprocess_message(self, msg):
         if msg["type"] == "sample":
-            for field in self.fields:
-                msg[field] = lax.stop_gradient(msg[field])
+            fields = self.fields(msg)
+            if fields is not None:
+                for field in fields:
+                    msg[field] = lax.stop_gradient(msg[field])
 
 
 class infer_config(Messenger):
