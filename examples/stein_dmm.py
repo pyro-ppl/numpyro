@@ -7,15 +7,16 @@ Example: Deep Markov Model inferred using SteinVI
 In this example we infer a deep Markov model (DMM) using SteinVI for generating music
 (chorales by Johan Sebastian Bach).
 
-The model DMM based on reference [1][2] and the
-[Pyro DMM example](https://github.com/pyro-ppl/pyro/blob/f73df6c1c20bc7b9164d79ce4217557d0aa8e396/examples/dmm/dmm.py).
-
+The model DMM based on reference [1][2] and the [Pyro DMM example](https://pyro.ai/examples/dmm.html).
 
 **Reference:**
-    1. Pathwise Derivatives for Multivariate Distributions
-    Martin Jankowiak and Theofanis Karaletsos (2019)
+
+    1. Pathwise Derivatives for Multivariate Distributions Martin Jankowiak and Theofanis Karaletsos (2019)
     2. Structured Inference Networks for Nonlinear State Space Models [arXiv:1609.09869]
-    Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
+        Rahul G. Krishnan, Uri Shalit and David Sontag (2016)
+
+.. image:: ../_static/img/examples/stein_dmm.png
+    :align: center
 """
 import argparse
 
@@ -267,21 +268,26 @@ def guide(
 
 
 def vis_tune(i, tunes, lengths, name="stein_dmm.pdf"):
+    tune = tunes[i, : lengths[i]]
     try:
         from music21.chord import Chord
         from music21.pitch import Pitch
         from music21.stream import Stream
 
-        tune = tunes[i, : lengths[i]]
         stream = Stream()
         for chord in tune:
             stream.append(
                 Chord(list(Pitch(pitch) for pitch in (np.arange(88) + 21)[chord > 0]))
             )
         plot = stream.plot(doneAction=None)
-        plot.show()
+        plot.write(name)
     except ModuleNotFoundError:
-        pass
+        import matplotlib.pyplot as plt
+
+        plt.imshow(tune.T, cmap="Greys")
+        plt.ylabel("Pitch")
+        plt.xlabel("Offset")
+        plt.savefig(name)
 
 
 def main(args):
@@ -323,7 +329,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=77)
-    parser.add_argument("--max-iter", type=int, default=1)
+    parser.add_argument("--max-iter", type=int, default=1000)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-particles", type=int, default=5)
