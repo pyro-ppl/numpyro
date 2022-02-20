@@ -87,10 +87,10 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
-    _PYRO_STACK,
     CondIndepStackFrame,
     Messenger,
     apply_stack,
+    get_pyro_stack,
     plate,
 )
 from numpyro.util import find_stack_level, not_jax_tracer
@@ -291,7 +291,7 @@ class collapse(trace):
 
     def __enter__(self):
         self.preserved_plates = frozenset(
-            h.name for h in _PYRO_STACK if isinstance(h, plate)
+            h.name for h in get_pyro_stack() if isinstance(h, plate)
         )
         COERCIONS.append(self._coerce)
         return super().__enter__()

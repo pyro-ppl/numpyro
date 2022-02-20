@@ -918,7 +918,7 @@ class estimate_likelihood(numpyro.primitives.Messenger):
         self.gibbs_state = None
 
     def __enter__(self):
-        for handler in numpyro.primitives._PYRO_STACK[::-1]:
+        for handler in numpyro.primitives.get_pyro_stack()[::-1]:
             # the potential_fn in HMC makes the PYRO_STACK nested like trace(...); so we can extract the
             # unconstrained_params from the _unconstrain_reparam substitute_fn
             if (

@@ -17,7 +17,7 @@ import jax.numpy as jnp
 
 from numpyro import handlers
 from numpyro.ops.pytree import PytreeTrace
-from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
+from numpyro.primitives import Messenger, apply_stack, get_pyro_stack
 from numpyro.util import not_jax_tracer
 
 
@@ -415,7 +415,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         second output of f when scanned over the leading axis of the inputs".
     """
     # if there are no active Messengers, we just run and return it as expected:
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
             f, init, xs, length=length, reverse=reverse
         )
