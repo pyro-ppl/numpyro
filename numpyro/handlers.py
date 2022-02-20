@@ -86,6 +86,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
+from numpyro.distributions.util import is_identically_one
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
@@ -359,12 +360,25 @@ class compute_log_prob(Messenger):
     def _reprocess_message(self, msg):
         if msg["type"] == "sample" and self.site_filter(msg["name"], msg["value"]):
             if (msg["value"] is not None) and (msg.get("log_prob") is None):
-                # TODO(fehiepsi): refactor numpyro.infer.util.log_density to
-                # use this utility. This implementation is not optimal for sites
-                # that have `intermediates` field.
+                value = msg["value"]
+                intermediates = msg["intermediates"]
                 scale = msg["scale"]
-                log_prob = msg["fn"].log_prob(msg["value"])
-                if scale is not None:
+                if intermediates:
+                    log_prob = msg["fn"].log_prob(value, intermediates)
+                else:
+                    value_shape = jnp.shape(value)
+                    fn_shape = msg["fn"].shape()
+                    try:
+                        lax.broadcast_shapes(value_shape, fn_shape)
+                    except ValueError:
+                        raise ValueError(
+                            "`value` and `fn` shapes disagree at site: '{}': {} vs {}".format(
+                                msg["name"], value_shape, fn_shape
+                            )
+                        )
+                    log_prob = msg["fn"].log_prob(value)
+
+                if (scale is not None) and (not is_identically_one(scale)):
                     log_prob = scale * log_prob
                 msg["log_prob"] = log_prob
 

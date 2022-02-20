@@ -20,7 +20,7 @@ import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import condition, replay, seed, substitute, trace
+from numpyro.handlers import compute_log_prob, condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import (
     _validate_model,
@@ -59,35 +59,12 @@ def log_density(model, model_args, model_kwargs, params):
     :return: log of joint density and a corresponding model trace
     """
     model = substitute(model, data=params)
-    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    model_trace = trace(compute_log_prob(model)).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.zeros(())
     for site in model_trace.values():
         if site["type"] == "sample":
-            value = site["value"]
-            intermediates = site["intermediates"]
-            scale = site["scale"]
-            if intermediates:
-                log_prob = site["fn"].log_prob(value, intermediates)
-            else:
-                guide_shape = jnp.shape(value)
-                model_shape = tuple(
-                    site["fn"].shape()
-                )  # TensorShape from tfp needs casting to tuple
-                try:
-                    broadcast_shapes(guide_shape, model_shape)
-                except ValueError:
-                    raise ValueError(
-                        "Model and guide shapes disagree at site: '{}': {} vs {}".format(
-                            site["name"], model_shape, guide_shape
-                        )
-                    )
-                log_prob = site["fn"].log_prob(value)
-
-            if (scale is not None) and (not is_identically_one(scale)):
-                log_prob = scale * log_prob
-
-            log_prob = jnp.sum(log_prob)
-            log_joint = log_joint + log_prob
+            assert "log_prob" in site
+            log_joint = log_joint + site["log_prob"]
     return log_joint, model_trace
 
 
@@ -119,24 +96,9 @@ def get_importance_trace(model, guide, args, kwargs, params):
     """
     guide = substitute(guide, data=params)
     with _without_rsample_stop_gradient():
-        guide_trace = trace(guide).get_trace(*args, **kwargs)
+        guide_trace = trace(compute_log_prob(guide)).get_trace(*args, **kwargs)
     model = substitute(replay(model, guide_trace), data=params)
-    model_trace = trace(model).get_trace(*args, **kwargs)
-    for tr in (guide_trace, model_trace):
-        for site in tr.values():
-            if site["type"] == "sample":
-                if "log_prob" not in site:
-                    value = site["value"]
-                    intermediates = site["intermediates"]
-                    scale = site["scale"]
-                    if intermediates:
-                        log_prob = site["fn"].log_prob(value, intermediates)
-                    else:
-                        log_prob = site["fn"].log_prob(value)
-
-                    if (scale is not None) and (not is_identically_one(scale)):
-                        log_prob = scale * log_prob
-                    site["log_prob"] = log_prob
+    model_trace = trace(compute_log_prob(model)).get_trace(*args, **kwargs)
     return model_trace, guide_trace
 
 
