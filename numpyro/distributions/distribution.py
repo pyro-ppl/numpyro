@@ -762,8 +762,8 @@ class Independent(Distribution):
         return self.base_dist.has_enumerate_support
 
     @property
-    def reparameterized_params(self):
-        return self.base_dist.reparameterized_params
+    def reparametrized_params(self):
+        return self.base_dist.reparametrized_params
 
     @property
     def mean(self):

@@ -68,26 +68,7 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
-class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
-    """
-    Stop gradient for samples at latent sample sites for which has_rsample=False.
-    """
-
-    def postprocess_message(self, msg):
-        if (
-            msg["type"] == "sample"
-            and (not msg["is_observed"])
-            and (not msg["fn"].has_rsample)
-        ):
-            msg["value"] = lax.stop_gradient(msg["value"])
-            # TODO: reconsider this logic
-            # here we clear all the cached value so that gradients of log_prob(value) w.r.t.
-            # all parameters of the transformed distributions match the behavior of
-            # TransformedDistribution(d, transform) in Pyro with transform.cache_size == 0
-            msg["intermediates"] = None
-
-
-def get_importance_trace(model, guide, args, kwargs, params):
+def get_importance_trace(model, guide, args, kwargs, params, detach=False):
     """
     (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
     The returned traces also store the log probability at each site.
@@ -95,8 +76,10 @@ def get_importance_trace(model, guide, args, kwargs, params):
     .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
     """
     guide = substitute(guide, data=params)
-    with _without_rsample_stop_gradient():
-        guide_trace = trace(compute_log_prob(guide)).get_trace(*args, **kwargs)
+    guide = compute_log_prob(guide)
+    if detach:
+        guide = detach(guide, fields=("value",))
+    guide_trace = trace(guide).get_trace(*args, **kwargs)
     model = substitute(replay(model, guide_trace), data=params)
     model_trace = trace(compute_log_prob(model)).get_trace(*args, **kwargs)
     return model_trace, guide_trace
