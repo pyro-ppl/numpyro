@@ -4,9 +4,11 @@
 """
 Example: Deep Markov Model inferred using SteinVI
 =================================================
-An implementation of a Deep Markov Model in NumPyro based on reference [1][2] and the
+In this example we infer a deep Markov model (DMM) using SteinVI for generating music
+(chorales by Johan Sebastian Bach).
+
+The model DMM based on reference [1][2] and the
 [Pyro DMM example](https://github.com/pyro-ppl/pyro/blob/f73df6c1c20bc7b9164d79ce4217557d0aa8e396/examples/dmm/dmm.py).
-This is essentially the DKS variant outlined in [1].
 
 
 **Reference:**
@@ -91,7 +93,7 @@ def combiner(x, params):
     return mean, std
 
 
-def gru(xs, lengths, init_hidden, params):  # TODO: glotrot normal init
+def gru(xs, lengths, init_hidden, params):
     """RNN with GRU. Based on https://github.com/google/jax/pull/2298"""
 
     def apply_fun_single(state, inputs):
