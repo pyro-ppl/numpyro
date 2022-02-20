@@ -619,17 +619,15 @@ class scope(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
     :param str divider: a string to join the prefix and sample name; default to `'/'`
-    :param bool skip_param: whether to apply scope for `param` sites. Defaults to True.
     """
 
-    def __init__(self, fn=None, prefix="", divider="/", *, skip_param=True):
+    def __init__(self, fn=None, prefix="", divider="/"):
         self.prefix = prefix
         self.divider = divider
-        self.skip_param = skip_param
         super().__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] == "param" and self.skip_param) or (msg["type"] == "plate"):
+        if msg["type"] == "plate":
             return
 
         if msg.get("name"):
