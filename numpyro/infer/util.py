@@ -12,14 +12,13 @@ import numpy as np
 import jax
 from jax import device_get, jacfwd, lax, random, tree_flatten, value_and_grad
 from jax.flatten_util import ravel_pytree
-from jax.lax import broadcast_shapes
 import jax.numpy as jnp
 from jax.tree_util import tree_map
 
 import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.distributions.util import is_identically_one, sum_rightmost
+from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import compute_log_prob, condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import (
