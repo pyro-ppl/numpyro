@@ -430,6 +430,48 @@ class condition(Messenger):
             msg["is_observed"] = True
 
 
+class detach(Messenger):
+    """
+    A handler to stop gradient of either the distribution or the value of a
+    `sample` statements. See the example below for how to utilize this handler
+    for the "sticking the landing" gradient estimator (ref. [1]).
+
+    Sets `detach_value` to True is equivalent to draw non-reparameterized
+    samples.
+
+    Usage::
+
+        # given model, guide, we want to construct a 'sticking the landing' guide
+        stl_guide = handlers.detach(guide, fields=("fn",))
+        svi = SVI(model, stl_guide, ...)
+
+    **References**
+
+    1. *Sticking the Landing: Simple, Lower-Variance Gradient Estimators for
+       Variational Inference*, Geoffrey Roeder, Yuhuai Wu, David Duvenaud
+
+    :param fn: Python callable with NumPyro primitives.
+    :param fields: A collection of fields to stop gradient after drawing
+        samples. If `"fn"` is in this tuple, we will detach gradient of `fn`
+        (which are distributions) at all sites. If `"fn"` is in this tuple,
+        we will detach gradient of `value` at all sites.
+    :type fields: tuple or list
+    """
+
+    def __init__(self, fn=None, *, fields=()):
+        super().__init__(fn)
+        self.fields = fields
+
+    def process_message(self, msg):
+        if msg["type"] == "sample" and len(self.fields) > 0:
+            msg["reprocess"] = True
+
+    def _reprocess_message(self, msg):
+        if msg["type"] == "sample":
+            for field in self.fields:
+                msg[field] = lax.stop_gradient(msg[field])
+
+
 class infer_config(Messenger):
     """
     Given a callable `fn` that contains NumPyro primitive calls
@@ -738,60 +780,6 @@ class seed(Messenger):
                 return
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg["kwargs"]["rng_key"] = rng_key_sample
-
-
-class stop_gradient(Messenger):
-    """
-    A handler to stop gradient of either the distribution or the value of a
-    `sample` statements. See the example below for how to utilize this handler
-    for the "sticking the landing" gradient estimator (ref. [1]).
-
-    Sets `detach_value` to True is equivalent to draw non-reparameterized
-    samples.
-
-    Usage::
-
-        # given model, guide, we want to construct a 'sticking the landing' guide
-        stl_guide = handlers.stop_gradient(guide, detach_fn=True)
-        svi = SVI(model, stl_guide, ...)
-
-    **References**
-
-    1. *Sticking the Landing: Simple, Lower-Variance Gradient Estimators for
-       Variational Inference*, Geoffrey Roeder, Yuhuai Wu, David Duvenaud
-
-    :param fn: Python callable with NumPyro primitives.
-    :param detach_fn: A boolean or a callable that takes in a site dict and
-        detach the site's `fn` (i.e. distribution). If this is True, we
-        will detach gradient of `fn` of all sites.
-    :type detach_fn: bool or callable
-    :param detach_value: A boolean or a callable that takes in a site dict and
-        detach the site's `value`. If this is True, we will detach gradient
-        of `value` fields at all sites.
-    :type detach_value: bool or callable
-    """
-
-    def __init__(self, fn=None, detach_fn=False, detach_value=False):
-        super().__init__(fn)
-        if isinstance(detach_value, bool):
-            self.detach_fn = lambda _: detach_fn
-        else:
-            self.detach_fn = detach_fn
-        if isinstance(detach_value, bool):
-            self.detach_value = lambda _: detach_value
-        else:
-            self.detach_value = detach_value
-
-    def process_message(self, msg):
-        if msg["type"] == "sample" and (self.detach_fn(msg) or self.detach_value(msg)):
-            msg["reprocess"] = True
-
-    def _reprocess_message(self, msg):
-        if self.detach_fn(msg):
-            msg["fn"] = lax.stop_gradient(msg["fn"])
-        if self.detach_value(msg):
-            # This works for None value.
-            msg["value"] = lax.stop_gradient(msg["value"])
 
 
 class substitute(Messenger):

@@ -35,6 +35,14 @@ condition
     :show-inheritance:
     :member-order: bysource
 
+detach
+------
+.. autoclass:: numpyro.handlers.detach
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 do
 --
 .. autoclass:: numpyro.handlers.do
@@ -102,14 +110,6 @@ scope
 seed
 ----
 .. autoclass:: numpyro.handlers.seed
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-stop_gradient
--------------
-.. autoclass:: numpyro.handlers.stop_gradient
     :members:
     :undoc-members:
     :show-inheritance:

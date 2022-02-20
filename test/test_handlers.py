@@ -611,12 +611,12 @@ def test_scope_frames():
     assert scoped_trace[f"{scope_prefix}/y"]["cond_indep_stack"][0].name in scoped_trace
 
 
-def test_stop_gradient_fn():
+def test_detach_fn():
     def model(loc):
         numpyro.sample("x", dist.Normal(loc, 1))
 
     def fn(loc):
-        with handlers.trace() as tr, handlers.stop_gradient(detach_fn=True):
+        with handlers.trace() as tr, handlers.detach(fields=("fn",)):
             with handlers.seed(rng_seed=0):
                 model(loc)
         return tr["x"]["fn"].log_prob(1.0)
@@ -624,13 +624,13 @@ def test_stop_gradient_fn():
     assert_allclose(grad(fn)(2.0), 0.0)
 
 
-def test_stop_gradient_value():
+def test_detach_value():
     def model(loc):
         x = numpyro.sample("x", dist.Normal(loc, 1))
         return x
 
     def fn(loc):
-        with handlers.seed(rng_seed=0), handlers.stop_gradient(detach_value=True):
+        with handlers.seed(rng_seed=0), handlers.detach(fields=("value",)):
             return model(loc)
 
     assert_allclose(grad(fn)(2.0), 0.0)
