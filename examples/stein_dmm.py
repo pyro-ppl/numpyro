@@ -7,7 +7,7 @@ Example: Deep Markov Model inferred using SteinVI
 In this example we infer a deep Markov model (DMM) using SteinVI for generating music
 (chorales by Johan Sebastian Bach).
 
-The model DMM based on reference [1][2] and the [Pyro DMM example](https://pyro.ai/examples/dmm.html).
+The model DMM based on reference [1][2] and the Pyro DMM example: https://pyro.ai/examples/dmm.html.
 
 **Reference:**
 
