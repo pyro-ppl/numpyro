@@ -202,14 +202,27 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, trace=None, guide_trace=None):
+    def __init__(self, fn=None, trace=None):
         assert trace is not None
         self.trace = trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
         if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
-            msg["value"] = self.trace[msg["name"]]["value"]
+            name = msg["name"]
+            if msg["type"] in ("sample", "plate") and name in self.trace:
+                guide_msg = self.trace[name]
+                if msg["type"] == "plate":
+                    if guide_msg["type"] != "plate":
+                        raise RuntimeError(f"Site {name} must be a plate in trace.")
+                    msg["value"] = guide_msg["value"]
+                    return None
+                if msg["is_observed"]:
+                    return None
+                if guide_msg["type"] != "sample" or guide_msg["is_observed"]:
+                    raise RuntimeError(f"Site {name} must be sampled in trace.")
+                msg["value"] = guide_msg["value"]
+                msg["infer"] = guide_msg["infer"]
 
 
 class block(Messenger):
