@@ -117,7 +117,7 @@ def gru(xs, lengths, init_hidden, params):
 
 
 def _normal_init(*shape):
-    return lambda rng_key: dist.Normal(scale=.1).sample(rng_key, shape)
+    return lambda rng_key: dist.Normal(scale=0.1).sample(rng_key, shape)
 
 
 def model(
