@@ -162,7 +162,7 @@ class AsymmetricLaplaceQuantile(AsymmetricLaplace):
         "scale": constraints.positive,
         "quantile": constraints.interval(0.0, 1.0),
     }
-    reparametrized_params = ["loc", "qscale"]
+    reparametrized_params = ["loc", "scale"]
     support = constraints.real
 
     def __init__(self, loc=0.0, scale=1.0, quantile=0.5, validate_args=None):
