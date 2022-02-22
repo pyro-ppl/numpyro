@@ -196,6 +196,9 @@ class FoldedNormal(dist.FoldedDistribution):
 
 
 _DIST_MAP = {
+    dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
+        asymmetry, loc=loc, scale=scale
+    ),
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
     dist.Beta: lambda con1, con0: osp.beta(con1, con0),
@@ -253,6 +256,17 @@ def get_sp_dist(jax_dist):
 
 
 CONTINUOUS = [
+    T(dist.AsymmetricLaplace, 0.0, 1.0, 2.0),
+    T(dist.AsymmetricLaplace, 0.0, np.array([1.0, 2.0]), 2.0),
+    T(dist.AsymmetricLaplace, np.array([0.0, 1.0]), np.array([[1.0], [2.0]]), 2.0),
+    T(dist.AsymmetricLaplaceQuantile, 0.0, 1.0, 0.5),
+    T(dist.AsymmetricLaplaceQuantile, 0.0, np.array([1.0, 2.0]), 0.5),
+    T(
+        dist.AsymmetricLaplaceQuantile,
+        np.array([0.0, 1.0]),
+        np.array([[1.0], [2.0]]),
+        0.5,
+    ),
     T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1.0, np.array([2.0, 2.0])),
     T(dist.Beta, 1.0, np.array([[1.0, 1.0], [2.0, 2.0]])),

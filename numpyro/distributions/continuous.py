@@ -124,86 +124,56 @@ class AsymmetricLaplace(Distribution):
             value <= self.loc,
             self.asymmetry**2
             / (1 + self.asymmetry**2)
-            * jnp.exp((self.scale / self.asymmetry) * (value - self.loc)),
+            * jnp.exp(self.right_scale * (value - self.loc)),
             1
             - 1
             / (1 + self.asymmetry**2)
-            * jnp.exp(-self.scale * self.asymmetry * (value - self.loc)),
+            * jnp.exp(-self.left_scale * (value - self.loc)),
+        )
+
+    def icdf(self, value):
+        temp = self.asymmetry**2 / (1 + self.asymmetry**2)
+        return jnp.where(
+            value <= temp,
+            self.loc + self.left_scale * jnp.log(value / temp),
+            self.loc
+            - self.right_scale * (jnp.log1p(self.asymmetry**2) + jnp.log1p(-value)),
         )
 
 
-class AsymmetricLaplaceQuantile(Distribution):
+class AsymmetricLaplaceQuantile(AsymmetricLaplace):
+    """An alternative parameterization of AsymmetricLaplace commonly applied in
+    Bayesian quantile regression.
+
+    Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
+    define the balance between left- versus right-hand sides of the
+    distribution, this class utilizes a `quantile` parameter, which describes
+    the proportion of probability density that falls to the left-hand side of
+    the distribution.
+
+    The `scale` parameter is also interpreted slightly differently than in
+    AsymmetricLaplce. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
+    is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
+    equivalent to Laplace(0,2).
+    """
+
     arg_constraints = {
         "loc": constraints.real,
         "scale": constraints.positive,
         "quantile": constraints.interval(0.0, 1.0),
     }
-    reparametrized_params = ["loc", "scale"]
+    reparametrized_params = ["loc", "qscale"]
     support = constraints.real
 
     def __init__(self, loc=0.0, scale=1.0, quantile=0.5, validate_args=None):
-        self.loc, self.scale, self.quantile = promote_shapes(loc, scale, quantile)
+        asymmetry = jnp.sqrt(1 / ((1 / quantile) - 1))
+        scale = scale * asymmetry / quantile
+        self.loc, self.scale, self.asymmetry = promote_shapes(loc, scale, asymmetry)
         batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
+            jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
         )
-        super(AsymmetricLaplaceQuantile, self).__init__(
+        super(AsymmetricLaplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
-        )
-
-    def log_prob(self, value):
-        # following Yu and Moyeed (2001)
-        if self._validate_args:
-            self._validate_sample(value)
-
-        const = self.quantile * (1 - self.quantile) / self.scale
-        z = (value - self.loc) / self.scale
-        check = z * jnp.where(value <= self.loc, -(1 - self.quantile), self.quantile)
-        return jnp.log(const * jnp.exp(-check))
-
-    def sample(self, key, sample_shape=()):
-        # mixture of exponentials following Kozumi and Kobyashi (2009)
-        assert is_prng_key(key)
-        shape = (2,) + sample_shape + self.batch_shape + self.event_shape
-        u, v = random.exponential(key, shape=shape) * self.scale
-        e = u / self.quantile - v / (1 - self.quantile)
-        return self.loc + e
-
-    @property
-    def mean(self):
-        return (
-            self.loc
-            + (1 - 2 * self.quantile)
-            / (self.quantile * (1 - self.quantile))
-            * self.scale
-        )
-
-    @property
-    def variance(self):
-        return (
-            (1 - 2 * self.quantile + 2 * self.quantile**2)
-            / (self.quantile**2 * (1 - self.quantile) ** 2)
-            * self.scale**2
-        )
-
-    def cdf(self, value):
-        # defined following Yu and Zhang 2005
-        return jnp.where(
-            value <= self.loc,
-            self.quantile
-            * jnp.exp(((1 - self.quantile) / self.scale) * (value - self.loc)),
-            1
-            - (1 - self.quantile)
-            * jnp.exp(-self.quantile / self.scale * (value - self.loc)),
-        )
-
-    def icdf(self, value):
-        # defined following Yu and Zhang 2005
-        return jnp.where(
-            value <= self.quantile,
-            self.loc
-            + self.scale / (1 - self.quantile) * jnp.log(value / self.quantile),
-            self.loc
-            - self.scale / self.quantile * jnp.log((1 - value) / (1 - self.quantile)),
         )
 
 
