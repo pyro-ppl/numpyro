@@ -75,7 +75,7 @@ class AsymmetricLaplace(Distribution):
     reparametrized_params = ["loc", "scale", "asymmetry"]
     support = constraints.real
 
-    def __init__(self, asymmetry=1.0, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, validate_args=None):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
         )
@@ -140,67 +140,6 @@ class AsymmetricLaplace(Distribution):
             self.loc + self.left_scale * jnp.log(value / temp),
             self.loc - self.right_scale * jnp.log((1 + k**2) * (1 - value)),
         )
-
-
-class AsymmetricLaplaceQuantile(Distribution):
-    """An alternative parameterization of AsymmetricLaplace commonly applied in
-    Bayesian quantile regression.
-
-    Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
-    define the balance between left- versus right-hand sides of the
-    distribution, this class utilizes a `quantile` parameter, which describes
-    the proportion of probability density that falls to the left-hand side of
-    the distribution.
-
-    The `scale` parameter is also interpreted slightly differently than in
-    AsymmetricLaplce. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
-    is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
-    equivalent to Laplace(0,2).
-    """
-
-    arg_constraints = {
-        "loc": constraints.real,
-        "scale": constraints.positive,
-        "quantile": constraints.open_interval(0.0, 1.0),
-    }
-    reparametrized_params = ["loc", "scale", "quantile"]
-    support = constraints.real
-
-    def __init__(self, quantile=0.5, loc=0.0, scale=1.0, validate_args=None):
-        batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
-        )
-        self.loc, self.scale, self.quantile = promote_shapes(
-            loc, scale, quantile, shape=batch_shape
-        )
-        super(AsymmetricLaplaceQuantile, self).__init__(
-            batch_shape=batch_shape, validate_args=validate_args
-        )
-        asymmetry = (1 / ((1 / quantile) - 1)) ** 0.5
-        scale_classic = scale * asymmetry / quantile
-        self._ald = AsymmetricLaplace(asymmetry, loc, scale_classic)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        return self._ald.log_prob(value)
-
-    def sample(self, key, sample_shape=()):
-        return self._ald.sample(key, sample_shape=sample_shape)
-
-    @property
-    def mean(self):
-        return self._ald.mean
-
-    @property
-    def variance(self):
-        return self._ald.variance
-
-    def cdf(self, value):
-        return self._ald.cdf(value)
-
-    def icdf(self, value):
-        return self._ald.icdf(value)
 
 
 class Beta(Distribution):
@@ -1913,3 +1852,64 @@ class BetaProportion(Beta):
             (1.0 - mean) * concentration,
             validate_args=validate_args,
         )
+
+
+class AsymmetricLaplaceQuantile(Distribution):
+    """An alternative parameterization of AsymmetricLaplace commonly applied in
+    Bayesian quantile regression.
+
+    Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
+    define the balance between left- versus right-hand sides of the
+    distribution, this class utilizes a `quantile` parameter, which describes
+    the proportion of probability density that falls to the left-hand side of
+    the distribution.
+
+    The `scale` parameter is also interpreted slightly differently than in
+    AsymmetricLaplce. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
+    is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
+    equivalent to Laplace(0,2).
+    """
+
+    arg_constraints = {
+        "loc": constraints.real,
+        "scale": constraints.positive,
+        "quantile": constraints.open_interval(0.0, 1.0),
+    }
+    reparametrized_params = ["loc", "scale", "quantile"]
+    support = constraints.real
+
+    def __init__(self, loc=0.0, scale=1.0, quantile=0.5, validate_args=None):
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
+        )
+        self.loc, self.scale, self.quantile = promote_shapes(
+            loc, scale, quantile, shape=batch_shape
+        )
+        super(AsymmetricLaplaceQuantile, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+        asymmetry = (1 / ((1 / quantile) - 1)) ** 0.5
+        scale_classic = scale * asymmetry / quantile
+        self._ald = AsymmetricLaplace(loc=loc, scale=scale_classic, asymmetry=asymmetry)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return self._ald.log_prob(value)
+
+    def sample(self, key, sample_shape=()):
+        return self._ald.sample(key, sample_shape=sample_shape)
+
+    @property
+    def mean(self):
+        return self._ald.mean
+
+    @property
+    def variance(self):
+        return self._ald.variance
+
+    def cdf(self, value):
+        return self._ald.cdf(value)
+
+    def icdf(self, value):
+        return self._ald.icdf(value)
