@@ -196,7 +196,7 @@ class FoldedNormal(dist.FoldedDistribution):
 
 
 _DIST_MAP = {
-    dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
+    dist.AsymmetricLaplace: lambda asymmetry, loc, scale: osp.laplace_asymmetric(
         asymmetry, loc=loc, scale=scale
     ),
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
@@ -256,16 +256,16 @@ def get_sp_dist(jax_dist):
 
 
 CONTINUOUS = [
-    T(dist.AsymmetricLaplace, 0.0, 1.0, 2.0),
-    T(dist.AsymmetricLaplace, 0.0, np.array([1.0, 2.0]), 2.0),
-    T(dist.AsymmetricLaplace, np.array([0.0, 1.0]), np.array([[1.0], [2.0]]), 2.0),
-    T(dist.AsymmetricLaplaceQuantile, 0.0, 1.0, 0.5),
-    T(dist.AsymmetricLaplaceQuantile, 0.0, np.array([1.0, 2.0]), 0.5),
+    T(dist.AsymmetricLaplace, 1.0, 1.0, 0.5),
+    T(dist.AsymmetricLaplace, 2.0, np.array([1.0, 2.0]), 2.0),
+    T(dist.AsymmetricLaplace, np.array([3.0, 5.0]), np.array([[1.0], [2.0]]), 2.0),
+    T(dist.AsymmetricLaplaceQuantile, 0.5, 0.0, 1.0),
+    T(dist.AsymmetricLaplaceQuantile, 0.7, np.array([1.0, 2.0]), 2.0),
     T(
         dist.AsymmetricLaplaceQuantile,
-        np.array([0.0, 1.0]),
+        np.array([0.2, 0.8]),
         np.array([[1.0], [2.0]]),
-        0.5,
+        2.0,
     ),
     T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1.0, np.array([2.0, 2.0])),
@@ -880,6 +880,8 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "LKJ": ["concentration"],
         "LKJCholesky": ["concentration"],
         "StudentT": ["df"],
+        "AsymmetricLaplace": ["asymmetry"],
+        "AsymmetricLaplaceQuantile": ["quantile"],
     }.get(jax_dist.__name__, [])
 
     dist_args = [

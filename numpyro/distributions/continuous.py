@@ -72,13 +72,15 @@ class AsymmetricLaplace(Distribution):
         "scale": constraints.positive,
         "asymmetry": constraints.positive,
     }
-    reparametrized_params = ["loc", "scale"]
+    reparametrized_params = ["loc", "scale", "asymmetry"]
     support = constraints.real
 
-    def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, validate_args=None):
-        self.loc, self.scale, self.asymmetry = promote_shapes(loc, scale, asymmetry)
+    def __init__(self, asymmetry=1.0, loc=0.0, scale=1.0, validate_args=None):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
+        )
+        self.loc, self.scale, self.asymmetry = promote_shapes(
+            loc, scale, asymmetry, shape=batch_shape
         )
         super(AsymmetricLaplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -108,7 +110,8 @@ class AsymmetricLaplace(Distribution):
     @property
     def mean(self):
         total_scale = self.left_scale + self.right_scale
-        return self.loc + (self.right_scale**2 - self.left_scale**2) / total_scale
+        mean = self.loc + (self.right_scale**2 - self.left_scale**2) / total_scale
+        return jnp.broadcast_to(mean, self.batch_shape)
 
     @property
     def variance(self):
@@ -117,31 +120,29 @@ class AsymmetricLaplace(Distribution):
         total = left + right
         p = left / total
         q = right / total
-        return p * left**2 + q * right**2 + p * q * total**2
+        variance = p * left**2 + q * right**2 + p * q * total**2
+        return jnp.broadcast_to(variance, self.batch_shape)
 
     def cdf(self, value):
+        z = value - self.loc
+        k = self.asymmetry
         return jnp.where(
-            value <= self.loc,
-            self.asymmetry**2
-            / (1 + self.asymmetry**2)
-            * jnp.exp(self.right_scale * (value - self.loc)),
-            1
-            - 1
-            / (1 + self.asymmetry**2)
-            * jnp.exp(-self.left_scale * (value - self.loc)),
+            z >= 0,
+            1 - (1 / (1 + k**2)) * jnp.exp(-jnp.abs(z) / self.right_scale),
+            k**2 / (1 + k**2) * jnp.exp(-jnp.abs(z) / self.left_scale),
         )
 
     def icdf(self, value):
-        temp = self.asymmetry**2 / (1 + self.asymmetry**2)
+        k = self.asymmetry
+        temp = k**2 / (1 + k**2)
         return jnp.where(
             value <= temp,
             self.loc + self.left_scale * jnp.log(value / temp),
-            self.loc
-            - self.right_scale * (jnp.log1p(self.asymmetry**2) + jnp.log1p(-value)),
+            self.loc - self.right_scale * jnp.log((1 + k**2) * (1 - value)),
         )
 
 
-class AsymmetricLaplaceQuantile(AsymmetricLaplace):
+class AsymmetricLaplaceQuantile(Distribution):
     """An alternative parameterization of AsymmetricLaplace commonly applied in
     Bayesian quantile regression.
 
@@ -160,21 +161,46 @@ class AsymmetricLaplaceQuantile(AsymmetricLaplace):
     arg_constraints = {
         "loc": constraints.real,
         "scale": constraints.positive,
-        "quantile": constraints.interval(0.0, 1.0),
+        "quantile": constraints.open_interval(0.0, 1.0),
     }
-    reparametrized_params = ["loc", "scale"]
+    reparametrized_params = ["loc", "scale", "quantile"]
     support = constraints.real
 
-    def __init__(self, loc=0.0, scale=1.0, quantile=0.5, validate_args=None):
-        asymmetry = jnp.sqrt(1 / ((1 / quantile) - 1))
-        scale = scale * asymmetry / quantile
-        self.loc, self.scale, self.asymmetry = promote_shapes(loc, scale, asymmetry)
+    def __init__(self, quantile=0.5, loc=0.0, scale=1.0, validate_args=None):
         batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
+            jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
         )
-        super(AsymmetricLaplace, self).__init__(
+        self.loc, self.scale, self.quantile = promote_shapes(
+            loc, scale, quantile, shape=batch_shape
+        )
+        super(AsymmetricLaplaceQuantile, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
+        asymmetry = (1 / ((1 / quantile) - 1)) ** 0.5
+        scale_classic = scale * asymmetry / quantile
+        self._ald = AsymmetricLaplace(asymmetry, loc, scale_classic)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return self._ald.log_prob(value)
+
+    def sample(self, key, sample_shape=()):
+        return self._ald.sample(key, sample_shape=sample_shape)
+
+    @property
+    def mean(self):
+        return self._ald.mean
+
+    @property
+    def variance(self):
+        return self._ald.variance
+
+    def cdf(self, value):
+        return self._ald.cdf(value)
+
+    def icdf(self, value):
+        return self._ald.icdf(value)
 
 
 class Beta(Distribution):
