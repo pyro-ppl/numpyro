@@ -13,14 +13,29 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.util import find_stack_level, identity
 
-_PYRO_STACK = []
 
+class _StackList(list):
+    def current_stack(self):
+        return self
+
+
+_PYRO_STACK = _StackList()
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
+
+
+def get_pyro_stack():
+    return _PYRO_STACK.current_stack()
+
+
+def set_pyro_stack(stack):
+    global _PYRO_STACK
+    _PYRO_STACK = stack
 
 
 def apply_stack(msg):
     pointer = 0
-    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
+    pyro_stack = get_pyro_stack()
+    for pointer, handler in enumerate(reversed(pyro_stack)):
         handler.process_message(msg)
         # When a Messenger sets the "stop" field of a message,
         # it prevents any Messengers above it on the stack from being applied.
@@ -37,7 +52,7 @@ def apply_stack(msg):
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
     # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer - 1 :]:
+    for handler in pyro_stack[-pointer - 1 :]:
         handler.postprocess_message(msg)
     return msg
 
@@ -53,12 +68,13 @@ class Messenger(object):
         functools.update_wrapper(self, fn, updated=[])
 
     def __enter__(self):
-        _PYRO_STACK.append(self)
+        get_pyro_stack().append(self)
 
     def __exit__(self, exc_type, exc_value, traceback):
+        pyro_stack = get_pyro_stack()
         if exc_type is None:
-            assert _PYRO_STACK[-1] is self
-            _PYRO_STACK.pop()
+            assert pyro_stack[-1] is self
+            pyro_stack.pop()
         else:
             # NB: this mimics Pyro exception handling
             # the wrapped function or block raised an exception
@@ -66,10 +82,10 @@ class Messenger(object):
             # when the callee or enclosed block raises an exception,
             # find this handler's position in the stack,
             # then remove it and everything below it in the stack.
-            if self in _PYRO_STACK:
-                loc = _PYRO_STACK.index(self)
-                for i in range(loc, len(_PYRO_STACK)):
-                    _PYRO_STACK.pop()
+            if self in pyro_stack:
+                loc = pyro_stack.index(self)
+                for i in range(loc, len(pyro_stack)):
+                    pyro_stack.pop()
 
     def process_message(self, msg):
         pass
@@ -174,7 +190,7 @@ def sample(
                 raise type_error
 
     # if there are no active Messengers, we just draw a sample and return it as expected:
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         return fn(rng_key=rng_key, sample_shape=sample_shape)
 
     if obs_mask is not None:
@@ -228,7 +244,7 @@ def param(name, init_value=None, **kwargs):
         return the initial value.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         assert not callable(
             init_value
         ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
@@ -270,7 +286,7 @@ def deterministic(name, value):
     :param str name: name of the deterministic site.
     :param numpy.ndarray value: deterministic value to record in the trace.
     """
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         return value
 
     initial_msg = {"type": "deterministic", "name": name, "value": value}
@@ -295,7 +311,7 @@ def mutable(name, init_value=None):
     :param str name: name of the mutable site.
     :param init_value: mutable value to record in the trace.
     """
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         return init_value
 
     initial_msg = {
@@ -593,7 +609,7 @@ def prng_key():
 
     :return: a PRNG key of shape (2,) and dtype unit32.
     """
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         return
 
     initial_msg = {
@@ -635,7 +651,7 @@ def subsample(data, event_dim):
     :returns: A subsampled version of ``data``
     :rtype: ~numpy.ndarray
     """
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         return data
 
     assert isinstance(event_dim, int) and event_dim >= 0

@@ -7,7 +7,7 @@ from jax import device_put, lax
 
 from numpyro import handlers
 from numpyro.ops.pytree import PytreeTrace
-from numpyro.primitives import _PYRO_STACK, apply_stack
+from numpyro.primitives import apply_stack, get_pyro_stack
 
 
 def _subs_wrapper(subs_map, site):
@@ -141,7 +141,7 @@ def cond(pred, true_fun, false_fun, operand):
         be any JAX PyTree (e.g. list / dict of arrays).
     :return: Output of the applied branch function.
     """
-    if not _PYRO_STACK:
+    if not get_pyro_stack():
         value, _ = cond_wrapper(pred, true_fun, false_fun, operand)
         return value
 
