@@ -80,6 +80,22 @@ Unit
 Continuous Distributions
 ------------------------
 
+AsymmetricLaplace
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AsymmetricLaplaceQuantile
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplaceQuantile
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Beta
 ^^^^
 .. autoclass:: numpyro.distributions.continuous.Beta
@@ -809,7 +825,7 @@ ExpTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-    
+
 IdentityTransform
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.IdentityTransform
