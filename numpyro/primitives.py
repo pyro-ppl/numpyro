@@ -18,14 +18,7 @@ _PYRO_STACK = []
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def apply_stack(msg):
-    pointer = 0
-    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
-        handler.process_message(msg)
-        # When a Messenger sets the "stop" field of a message,
-        # it prevents any Messengers above it on the stack from being applied.
-        if msg.get("stop"):
-            break
+def default_process_message(msg):
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -33,6 +26,31 @@ def apply_stack(msg):
             )
         else:
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
+
+
+def apply_stack(msg):
+    """
+    Execute the effect stack at a single site according to the following scheme:
+
+        1. For each ``Messenger`` in the stack from bottom to top,
+           execute ``Messenger.process_message`` with the message;
+           if the message field "stop" is True, stop;
+           otherwise, continue
+        2. Apply default behavior (``default_process_message``) to finish remaining
+           site execution
+        3. For each ``Messenger`` in the stack from top to bottom,
+           execute ``Messenger.postprocess_message`` to update the message
+           and internal messenger state with the site results
+    """
+    pointer = 0
+    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
+        handler.process_message(msg)
+        # When a Messenger sets the "stop" field of a message,
+        # it prevents any Messengers above it on the stack from being applied.
+        if msg.get("stop"):
+            break
+
+    default_process_message(msg)
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
