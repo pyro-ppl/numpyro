@@ -745,7 +745,7 @@ def taylor_proxy(reference_params):
 
     **References:**
 
-    [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
+    [1] Towards scaling up Markov chain Monte Carlo: an adaptive subsampling approach
         Bardenet., R., Doucet, A., Holmes, C. (2014)
     """
 

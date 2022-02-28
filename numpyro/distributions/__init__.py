@@ -12,6 +12,8 @@ from numpyro.distributions.conjugate import (
 )
 from numpyro.distributions.continuous import (
     LKJ,
+    AsymmetricLaplace,
+    AsymmetricLaplaceQuantile,
     Beta,
     BetaProportion,
     Cauchy,
@@ -66,7 +68,6 @@ from numpyro.distributions.discrete import (
     MultinomialProbs,
     OrderedLogistic,
     Poisson,
-    PRNGIdentity,
     ZeroInflatedDistribution,
     ZeroInflatedPoisson,
 )
@@ -101,6 +102,8 @@ __all__ = [
     "constraints",
     "kl_divergence",
     "transforms",
+    "AsymmetricLaplace",
+    "AsymmetricLaplaceQuantile",
     "Bernoulli",
     "BernoulliLogits",
     "BernoulliProbs",
@@ -158,7 +161,6 @@ __all__ = [
     "Pareto",
     "Poisson",
     "ProjectedNormal",
-    "PRNGIdentity",
     "RelaxedBernoulli",
     "RelaxedBernoulliLogits",
     "RightTruncatedDistribution",

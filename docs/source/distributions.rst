@@ -80,6 +80,22 @@ Unit
 Continuous Distributions
 ------------------------
 
+AsymmetricLaplace
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AsymmetricLaplaceQuantile
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplaceQuantile
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Beta
 ^^^^
 .. autoclass:: numpyro.distributions.continuous.Beta
@@ -489,14 +505,6 @@ Poisson
     :show-inheritance:
     :member-order: bysource
 
-PRNGIdentity
-^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.discrete.PRNGIdentity
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 ZeroInflatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
@@ -817,18 +825,10 @@ ExpTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-    
+
 IdentityTransform
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.IdentityTransform
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-InvCholeskyTransform
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:

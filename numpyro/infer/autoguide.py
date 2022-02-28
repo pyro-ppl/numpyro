@@ -885,16 +885,7 @@ class AutoDiagonalNormal(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -955,16 +946,7 @@ class AutoMultivariateNormal(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -1029,16 +1011,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         rank=None,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -1232,16 +1205,7 @@ class AutoIAFNormal(AutoContinuous):
         hidden_dims=None,
         skip_connections=False,
         nonlinearity=stax.Elu,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
         # IAF paper (https://arxiv.org/abs/1606.04934)
@@ -1319,16 +1283,7 @@ class AutoBNAFNormal(AutoContinuous):
         init_loc_fn=init_to_uniform,
         num_flows=1,
         hidden_factors=[8, 8],
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
         super(AutoBNAFNormal, self).__init__(

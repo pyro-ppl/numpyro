@@ -196,6 +196,9 @@ class FoldedNormal(dist.FoldedDistribution):
 
 
 _DIST_MAP = {
+    dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
+        asymmetry, loc=loc, scale=scale
+    ),
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
     dist.Beta: lambda con1, con0: osp.beta(con1, con0),
@@ -253,6 +256,17 @@ def get_sp_dist(jax_dist):
 
 
 CONTINUOUS = [
+    T(dist.AsymmetricLaplace, 1.0, 0.5, 1.0),
+    T(dist.AsymmetricLaplace, np.array([1.0, 2.0]), 2.0, 2.0),
+    T(dist.AsymmetricLaplace, np.array([[1.0], [2.0]]), 2.0, np.array([3.0, 5.0])),
+    T(dist.AsymmetricLaplaceQuantile, 0.0, 1.0, 0.5),
+    T(dist.AsymmetricLaplaceQuantile, np.array([1.0, 2.0]), 2.0, 0.7),
+    T(
+        dist.AsymmetricLaplaceQuantile,
+        np.array([[1.0], [2.0]]),
+        2.0,
+        np.array([0.2, 0.8]),
+    ),
     T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1.0, np.array([2.0, 2.0])),
     T(dist.Beta, 1.0, np.array([[1.0, 1.0], [2.0, 2.0]])),
@@ -880,23 +894,23 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     params_dict = dict(zip(dist_args[: len(params)], params))
 
     jax_class = type(jax_dist(**params_dict))
-    reparameterized_params = [
+    reparametrized_params = [
         p for p in jax_class.reparametrized_params if p not in gamma_derived_params
     ]
-    if not reparameterized_params:
+    if not reparametrized_params:
         pytest.skip("{} not reparametrized.".format(jax_class.__name__))
 
     nonrepara_params_dict = {
-        k: v for k, v in params_dict.items() if k not in reparameterized_params
+        k: v for k, v in params_dict.items() if k not in reparametrized_params
     }
     repara_params = tuple(
-        v for k, v in params_dict.items() if k in reparameterized_params
+        v for k, v in params_dict.items() if k in reparametrized_params
     )
 
     rng_key = random.PRNGKey(0)
 
     def fn(args):
-        args_dict = dict(zip(reparameterized_params, args))
+        args_dict = dict(zip(reparametrized_params, args))
         return jnp.sum(
             jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key)
         )
