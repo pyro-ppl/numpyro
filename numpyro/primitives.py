@@ -601,7 +601,7 @@ def factor(name, log_factor):
     """
     unit_dist = numpyro.distributions.distribution.Unit(log_factor)
     unit_value = unit_dist.sample(None)
-    sample(name, unit_dist, obs=unit_value)
+    sample(name, unit_dist, obs=unit_value, infer={"is_auxiliary": True})
 
 
 def prng_key():
