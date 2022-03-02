@@ -47,7 +47,7 @@ def ar2_scan(y):
     alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
     alpha_2 = numpyro.sample("alpha_2", dist.Normal(0, 1))
     const = numpyro.sample("const", dist.Normal(0, 1))
-    sigma = numpyro.sample("sigma", dist.HalfNormal(0, 1))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(1))
 
     def transition(carry, _):
         y_prev, y_prev_prev = carry
@@ -67,7 +67,7 @@ def ar2_for_loop(y):
     alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
     alpha_2 = numpyro.sample("alpha_2", dist.Normal(0, 1))
     const = numpyro.sample("const", dist.Normal(0, 1))
-    sigma = numpyro.sample("sigma", dist.HalfNormal(0, 1))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(1))
 
     y_prev = y[1]
     y_prev_prev = y[0]
