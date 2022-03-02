@@ -39,16 +39,15 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.contrib.control_flow import scan
-from numpyro.handlers import condition
+import numpyro.distributions as dist
 
 
 def ar2_scan(y):
     alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
     alpha_2 = numpyro.sample("alpha_2", dist.Normal(0, 1))
     const = numpyro.sample("const", dist.Normal(0, 1))
-    sigma = numpyro.sample("sigma", dist.Normal(0, 1))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(0, 1))
 
     def transition(carry, _):
         y_prev, y_prev_prev = carry
@@ -58,8 +57,8 @@ def ar2_scan(y):
         return carry, None
 
     timesteps = jnp.arange(y.shape[0] - 2)
-    init = (y[0], y[1])
- 
+    init = (y[1], y[0])
+
     with numpyro.handlers.condition(data={"y": y[2:]}):
         scan(transition, init, timesteps)
 
@@ -68,16 +67,16 @@ def ar2_for_loop(y):
     alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
     alpha_2 = numpyro.sample("alpha_2", dist.Normal(0, 1))
     const = numpyro.sample("const", dist.Normal(0, 1))
-    sigma = numpyro.sample("sigma", dist.Normal(0, 1))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(0, 1))
 
-    y_prev = y[0]
-    y_prev_prev = y[1]
+    y_prev = y[1]
+    y_prev_prev = y[0]
 
     for i in range(2, len(y)):
         m_t = const + alpha_1 * y_prev + alpha_2 * y_prev_prev
         y_t = numpyro.sample("y_{}".format(i), dist.Normal(m_t, sigma), obs=y[i])
         y_prev_prev = y_prev
-        y_prev = y_t 
+        y_prev = y_t
 
 
 def run_inference(model, args, rng_key, y):
@@ -107,7 +106,7 @@ def main(args):
     if args.unroll_loop:
         # slower
         model = ar2_for_loop
-    else: 
+    else:
         # faster
         model = ar2_scan
 
