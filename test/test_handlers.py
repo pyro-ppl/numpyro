@@ -585,10 +585,10 @@ def test_scope():
             with handlers.scope(prefix="a"):
                 fn()
             with handlers.scope(prefix="b"):
-                with handlers.scope(prefix="a"):
+                with handlers.scope(prefix="a", hide_types=["plate"]):
                     fn()
 
-    assert set(trace) == {"a/x", "b/a/x", "N"}
+    assert set(trace) == {"a/x", "b/a/x", "a/N", "b/N"}
 
 
 def test_scope_frames():

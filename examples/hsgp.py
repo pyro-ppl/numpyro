@@ -221,7 +221,7 @@ def approx_se_ncp(x, alpha, length, L, M):
     """
     phi = eigenfunctions(x, L, M)
     spd = jnp.sqrt(diag_spectral_density(alpha, length, L, M))
-    with plate(f"basis_{M}", M):
+    with plate(f"basis", M):
         beta = sample("beta", dist.Normal(0, 1))
 
     f = deterministic("f", phi @ (spd * beta))
