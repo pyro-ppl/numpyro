@@ -36,7 +36,9 @@ class MixtureSameFamily(Distribution):
        ()
     """
 
-    def __init__(self, mixing_distribution, component_distribution, validate_args=None):
+    def __init__(
+        self, mixing_distribution, component_distribution, *, validate_args=None
+    ):
         # Check arguments
         if not isinstance(mixing_distribution, (CategoricalLogits, CategoricalProbs)):
             raise ValueError(

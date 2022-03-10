@@ -30,7 +30,7 @@ class LeftTruncatedDistribution(Distribution):
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
-    def __init__(self, base_dist, low=0.0, validate_args=None):
+    def __init__(self, base_dist, low=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
         assert (
             base_dist.support is constraints.real
@@ -130,7 +130,7 @@ class RightTruncatedDistribution(Distribution):
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
-    def __init__(self, base_dist, high=0.0, validate_args=None):
+    def __init__(self, base_dist, high=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
         assert (
             base_dist.support is constraints.real
@@ -215,7 +215,7 @@ class TwoSidedTruncatedDistribution(Distribution):
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
-    def __init__(self, base_dist, low=0.0, high=1.0, validate_args=None):
+    def __init__(self, base_dist, low=0.0, high=1.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
         assert (
             base_dist.support is constraints.real
@@ -336,7 +336,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             return NotImplementedError("var only available for Normal and Cauchy")
 
 
-def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
+def TruncatedDistribution(base_dist, low=None, high=None, *, validate_args=None):
     """
     A function to generate a truncated distribution.
 
@@ -386,7 +386,7 @@ class TruncatedPolyaGamma(Distribution):
     arg_constraints = {}
     support = constraints.interval(0.0, truncation_point)
 
-    def __init__(self, batch_shape=(), validate_args=None):
+    def __init__(self, batch_shape=(), *, validate_args=None):
         super(TruncatedPolyaGamma, self).__init__(
             batch_shape, validate_args=validate_args
         )

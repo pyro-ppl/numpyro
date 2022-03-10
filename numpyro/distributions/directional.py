@@ -99,7 +99,7 @@ class VonMises(Distribution):
     reparametrized_params = ["loc"]
     support = constraints.circular
 
-    def __init__(self, loc, concentration, validate_args=None):
+    def __init__(self, loc, concentration, *, validate_args=None):
         """von Mises distribution for sampling directions.
 
         :param loc: center of distribution
@@ -217,7 +217,7 @@ class SineSkewed(Distribution):
 
     support = constraints.independent(constraints.circular, 1)
 
-    def __init__(self, base_dist: Distribution, skewness, validate_args=None):
+    def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
         assert (
             base_dist.event_shape == skewness.shape[-1:]
         ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
@@ -373,7 +373,7 @@ class SineBivariateVonMises(Distribution):
             jnp.shape(psi_concentration),
             jnp.shape(correlation),
         )
-        super().__init__(batch_shape, (2,), validate_args)
+        super().__init__(batch_shape, (2,), validate_args=validate_args)
 
     @lazy_property
     def norm_const(self):
