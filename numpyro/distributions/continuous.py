@@ -75,7 +75,7 @@ class AsymmetricLaplace(Distribution):
     reparametrized_params = ["loc", "scale", "asymmetry"]
     support = constraints.real
 
-    def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
         )
@@ -150,7 +150,7 @@ class Beta(Distribution):
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
 
-    def __init__(self, concentration1, concentration0, validate_args=None):
+    def __init__(self, concentration1, concentration0, *, validate_args=None):
         self.concentration1, self.concentration0 = promote_shapes(
             concentration1, concentration0
         )
@@ -190,7 +190,7 @@ class Cauchy(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Cauchy, self).__init__(
@@ -233,7 +233,7 @@ class Dirichlet(Distribution):
     reparametrized_params = ["concentration"]
     support = constraints.simplex
 
-    def __init__(self, concentration, validate_args=None):
+    def __init__(self, concentration, *, validate_args=None):
         if jnp.ndim(concentration) < 1:
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."
@@ -299,7 +299,7 @@ class Exponential(Distribution):
     arg_constraints = {"rate": constraints.positive}
     support = constraints.positive
 
-    def __init__(self, rate=1.0, validate_args=None):
+    def __init__(self, rate=1.0, *, validate_args=None):
         self.rate = rate
         super(Exponential, self).__init__(
             batch_shape=jnp.shape(rate), validate_args=validate_args
@@ -338,7 +338,7 @@ class Gamma(Distribution):
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
 
-    def __init__(self, concentration, rate=1.0, validate_args=None):
+    def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
         super(Gamma, self).__init__(
@@ -377,7 +377,7 @@ class Chi2(Gamma):
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
 
-    def __init__(self, df, validate_args=None):
+    def __init__(self, df, *, validate_args=None):
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
@@ -387,7 +387,7 @@ class GaussianRandomWalk(Distribution):
     support = constraints.real_vector
     reparametrized_params = ["scale"]
 
-    def __init__(self, scale=1.0, num_steps=1, validate_args=None):
+    def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
         assert (
             isinstance(num_steps, int) and num_steps > 0
         ), "`num_steps` argument should be an positive integer."
@@ -435,7 +435,7 @@ class HalfCauchy(Distribution):
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
 
-    def __init__(self, scale=1.0, validate_args=None):
+    def __init__(self, scale=1.0, *, validate_args=None):
         self._cauchy = Cauchy(0.0, scale)
         self.scale = scale
         super(HalfCauchy, self).__init__(
@@ -470,7 +470,7 @@ class HalfNormal(Distribution):
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
 
-    def __init__(self, scale=1.0, validate_args=None):
+    def __init__(self, scale=1.0, *, validate_args=None):
         self._normal = Normal(0.0, scale)
         self.scale = scale
         super(HalfNormal, self).__init__(
@@ -514,7 +514,7 @@ class InverseGamma(TransformedDistribution):
     reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
 
-    def __init__(self, concentration, rate=1.0, validate_args=None):
+    def __init__(self, concentration, rate=1.0, *, validate_args=None):
         base_dist = Gamma(concentration, rate)
         self.concentration = base_dist.concentration
         self.rate = base_dist.rate
@@ -546,7 +546,7 @@ class Gumbel(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
 
@@ -597,7 +597,7 @@ class Kumaraswamy(TransformedDistribution):
     # we can set this flag to 1000.
     KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 10
 
-    def __init__(self, concentration1, concentration0, validate_args=None):
+    def __init__(self, concentration1, concentration0, *, validate_args=None):
         self.concentration1, self.concentration0 = promote_shapes(
             concentration1, concentration0
         )
@@ -648,7 +648,7 @@ class Laplace(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Laplace, self).__init__(
@@ -736,7 +736,7 @@ class LKJ(TransformedDistribution):
     support = constraints.corr_matrix
 
     def __init__(
-        self, dimension, concentration=1.0, sample_method="onion", validate_args=None
+        self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
     ):
         base_dist = LKJCholesky(dimension, concentration, sample_method)
         self.dimension, self.concentration = (
@@ -819,7 +819,7 @@ class LKJCholesky(Distribution):
     support = constraints.corr_cholesky
 
     def __init__(
-        self, dimension, concentration=1.0, sample_method="onion", validate_args=None
+        self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
     ):
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
@@ -980,7 +980,7 @@ class LogNormal(TransformedDistribution):
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         base_dist = Normal(loc, scale)
         self.loc, self.scale = base_dist.loc, base_dist.scale
         super(LogNormal, self).__init__(
@@ -1007,7 +1007,7 @@ class Logistic(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
@@ -1354,7 +1354,7 @@ class LowRankMultivariateNormal(Distribution):
     support = constraints.real_vector
     reparametrized_params = ["loc", "cov_factor", "cov_diag"]
 
-    def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
+    def __init__(self, loc, cov_factor, cov_diag, *, validate_args=None):
         if jnp.ndim(loc) < 1:
             raise ValueError("`loc` must be at least one-dimensional.")
         event_shape = jnp.shape(loc)[-1:]
@@ -1485,7 +1485,7 @@ class Normal(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(
@@ -1525,7 +1525,7 @@ class Pareto(TransformedDistribution):
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
 
-    def __init__(self, scale, alpha, validate_args=None):
+    def __init__(self, scale, alpha, *, validate_args=None):
         self.scale, self.alpha = promote_shapes(scale, alpha)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
         scale, alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(
@@ -1568,7 +1568,7 @@ class RelaxedBernoulliLogits(TransformedDistribution):
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
 
-    def __init__(self, temperature, logits, validate_args=None):
+    def __init__(self, temperature, logits, *, validate_args=None):
         self.temperature, self.logits = promote_shapes(temperature, logits)
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms = [SigmoidTransform()]
@@ -1578,7 +1578,7 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
-def RelaxedBernoulli(temperature, probs=None, logits=None, validate_args=None):
+def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
     if probs is None and logits is None:
         raise ValueError("One of `probs` or `logits` must be specified.")
     if probs is not None:
@@ -1652,7 +1652,7 @@ class StudentT(Distribution):
     support = constraints.real
     reparametrized_params = ["df", "loc", "scale"]
 
-    def __init__(self, df, loc=0.0, scale=1.0, validate_args=None):
+    def __init__(self, df, loc=0.0, scale=1.0, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(df), jnp.shape(loc), jnp.shape(scale)
         )
@@ -1723,7 +1723,7 @@ class Uniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     reparametrized_params = ["low", "high"]
 
-    def __init__(self, low=0.0, high=1.0, validate_args=None):
+    def __init__(self, low=0.0, high=1.0, *, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         self._support = constraints.interval(low, high)
@@ -1788,7 +1788,7 @@ class Weibull(Distribution):
     support = constraints.positive
     reparametrized_params = ["scale", "concentration"]
 
-    def __init__(self, scale, concentration, validate_args=None):
+    def __init__(self, scale, concentration, *, validate_args=None):
         self.concentration, self.scale = promote_shapes(concentration, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -1843,7 +1843,7 @@ class BetaProportion(Beta):
     reparametrized_params = ["mean", "concentration"]
     support = constraints.unit_interval
 
-    def __init__(self, mean, concentration, validate_args=None):
+    def __init__(self, mean, concentration, *, validate_args=None):
         self.concentration = jnp.broadcast_to(
             concentration, lax.broadcast_shapes(jnp.shape(concentration))
         )
@@ -1878,7 +1878,7 @@ class AsymmetricLaplaceQuantile(Distribution):
     reparametrized_params = ["loc", "scale", "quantile"]
     support = constraints.real
 
-    def __init__(self, loc=0.0, scale=1.0, quantile=0.5, validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, quantile=0.5, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
         )
