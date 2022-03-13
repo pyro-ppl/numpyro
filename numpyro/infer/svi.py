@@ -58,11 +58,15 @@ def _make_loss_fn(
         params = constrain_fn(params)
         if mutable_state is not None:
             params.update(mutable_state)
-            result = elbo.loss_with_mutable_state(rng_key, params, model, guide, *args, **kwargs, **static_kwargs)
+            result = elbo.loss_with_mutable_state(
+                rng_key, params, model, guide, *args, **kwargs, **static_kwargs
+            )
             return result["loss"], result["mutable_state"]
         else:
             return (
-                elbo.loss(rng_key, params, model, guide, *args, **kwargs, **static_kwargs),
+                elbo.loss(
+                    rng_key, params, model, guide, *args, **kwargs, **static_kwargs
+                ),
                 None,
             )
 
@@ -268,7 +272,9 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(*args, **kwargs, **self.static_kwargs)
+        model_trace = trace(replay(model_init, guide_trace)).get_trace(
+            *args, **kwargs, **self.static_kwargs
+        )
         params = {}
         inv_transforms = {}
         mutable_state = {}
@@ -339,7 +345,9 @@ class SVI(object):
             self.static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
-        (loss_val, mutable_state), optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
+            loss_fn, svi_state.optim_state
+        )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def stable_update(self, svi_state, *args, **kwargs):
@@ -366,7 +374,9 @@ class SVI(object):
             self.static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
-        (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(loss_fn, svi_state.optim_state)
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
+            loss_fn, svi_state.optim_state
+        )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def run(
