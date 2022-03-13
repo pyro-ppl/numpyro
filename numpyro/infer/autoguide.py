@@ -82,9 +82,7 @@ class AutoGuide(ABC):
         automatically as usual. This is useful for data subsampling.
     """
 
-    def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None
-    ):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None):
         self.model = model
         self.prefix = prefix
         self.init_loc_fn = init_loc_fn
@@ -100,16 +98,12 @@ class AutoGuide(ABC):
             plates = self.create_plates(*args, **kwargs)
             if isinstance(plates, numpyro.plate):
                 plates = [plates]
-            assert all(
-                isinstance(p, numpyro.plate) for p in plates
-            ), "create_plates() returned a non-plate"
+            assert all(isinstance(p, numpyro.plate) for p in plates), "create_plates() returned a non-plate"
             self.plates = {p.name: p for p in plates}
         for name, frame in sorted(self._prototype_frames.items()):
             if name not in self.plates:
                 full_size = self._prototype_frame_full_sizes[name]
-                self.plates[name] = numpyro.plate(
-                    name, full_size, dim=frame.dim, subsample_size=frame.size
-                )
+                self.plates[name] = numpyro.plate(name, full_size, dim=frame.dim, subsample_size=frame.size)
         return self.plates
 
     def __getstate__(self):
@@ -146,12 +140,7 @@ class AutoGuide(ABC):
     def _setup_prototype(self, *args, **kwargs):
         rng_key = numpyro.prng_key()
         with handlers.block():
-            (
-                init_params,
-                self._potential_fn_gen,
-                postprocess_fn_gen,
-                self.prototype_trace,
-            ) = initialize_model(
+            (init_params, self._potential_fn_gen, postprocess_fn_gen, self.prototype_trace,) = initialize_model(
                 rng_key,
                 self.model,
                 init_strategy=self.init_loc_fn,
@@ -252,9 +241,7 @@ class AutoNormal(AutoGuide):
     ):
         self._init_scale = init_scale
         self._event_dims = {}
-        super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
-        )
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -263,11 +250,7 @@ class AutoNormal(AutoGuide):
             if site["type"] != "sample" or site["is_observed"]:
                 continue
 
-            event_dim = (
-                site["fn"].event_dim
-                + jnp.ndim(self._init_locs[name])
-                - jnp.ndim(site["value"])
-            )
+            event_dim = site["fn"].event_dim + jnp.ndim(self._init_locs[name]) - jnp.ndim(site["value"])
             self._event_dims[name] = event_dim
 
             # If subsampling, repeat init_value to full size.
@@ -275,9 +258,7 @@ class AutoNormal(AutoGuide):
                 full_size = self._prototype_frame_full_sizes[frame.name]
                 if full_size != frame.size:
                     dim = frame.dim - event_dim
-                    self._init_locs[name] = periodic_repeat(
-                        self._init_locs[name], full_size, dim
-                    )
+                    self._init_locs[name] = periodic_repeat(self._init_locs[name], full_size, dim)
 
     def __call__(self, *args, **kwargs):
         if self.prototype_trace is None:
@@ -296,9 +277,7 @@ class AutoNormal(AutoGuide):
                 for frame in site["cond_indep_stack"]:
                     stack.enter_context(plates[frame.name])
 
-                site_loc = numpyro.param(
-                    "{}_{}_loc".format(name, self.prefix), init_loc, event_dim=event_dim
-                )
+                site_loc = numpyro.param("{}_{}_loc".format(name, self.prefix), init_loc, event_dim=event_dim)
                 site_scale = numpyro.param(
                     "{}_{}_scale".format(name, self.prefix),
                     jnp.full(jnp.shape(init_loc), self._init_scale),
@@ -344,16 +323,11 @@ class AutoNormal(AutoGuide):
         with handlers.seed(rng_seed=rng_key):
             latent_samples = {}
             for k in locs:
-                latent_samples[k] = numpyro.sample(
-                    k, dist.Normal(locs[k], scales[k]).expand_by(sample_shape)
-                )
+                latent_samples[k] = numpyro.sample(k, dist.Normal(locs[k], scales[k]).expand_by(sample_shape))
         return self._constrain(latent_samples)
 
     def median(self, params):
-        locs = {
-            k: params["{}_{}_loc".format(k, self.prefix)]
-            for k, v in self._init_locs.items()
-        }
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k, v in self._init_locs.items()}
         return self._constrain(locs)
 
     def quantiles(self, params, quantiles):
@@ -361,10 +335,7 @@ class AutoNormal(AutoGuide):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
         latent = {
-            k: dist.Normal(locs[k], scales[k]).icdf(
-                quantiles.reshape((-1,) + (1,) * jnp.ndim(locs[k]))
-            )
-            for k in locs
+            k: dist.Normal(locs[k], scales[k]).icdf(quantiles.reshape((-1,) + (1,) * jnp.ndim(locs[k]))) for k in locs
         }
         return self._constrain(latent)
 
@@ -392,22 +363,14 @@ class AutoDelta(AutoGuide):
         automatically as usual. This is useful for data subsampling.
     """
 
-    def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_median, create_plates=None
-    ):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_median, create_plates=None):
         self._event_dims = {}
-        super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
-        )
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
         with numpyro.handlers.block():
-            self._init_locs = {
-                k: v
-                for k, v in self._postprocess_fn(self._init_locs).items()
-                if k in self._init_locs
-            }
+            self._init_locs = {k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs}
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue
@@ -420,9 +383,7 @@ class AutoDelta(AutoGuide):
                 full_size = self._prototype_frame_full_sizes[frame.name]
                 if full_size != frame.size:
                     dim = frame.dim - event_dim
-                    self._init_locs[name] = periodic_repeat(
-                        self._init_locs[name], full_size, dim
-                    )
+                    self._init_locs[name] = periodic_repeat(self._init_locs[name], full_size, dim)
 
     def __call__(self, *args, **kwargs):
         if self.prototype_trace is None:
@@ -455,9 +416,7 @@ class AutoDelta(AutoGuide):
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
-        latent_samples = {
-            k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
-        }
+        latent_samples = {k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()}
         return latent_samples
 
     def median(self, params):
@@ -524,19 +483,12 @@ class AutoContinuous(AutoGuide):
         self._unpack_latent = UnpackTransform(unpack_latent)
         self.latent_dim = jnp.size(self._init_latent)
         if self.latent_dim == 0:
-            raise RuntimeError(
-                "{} found no latent variables; Use an empty guide instead".format(
-                    type(self).__name__
-                )
-            )
+            raise RuntimeError("{} found no latent variables; Use an empty guide instead".format(type(self).__name__))
         for site in self.prototype_trace.values():
             if site["type"] == "sample" and not site["is_observed"]:
                 for frame in site["cond_indep_stack"]:
                     if frame.size != self._prototype_frame_full_sizes[frame.name]:
-                        raise ValueError(
-                            "AutoContinuous guide does not support"
-                            " local latent variables."
-                        )
+                        raise ValueError("AutoContinuous guide does not support" " local latent variables.")
 
     @abstractmethod
     def _get_posterior(self):
@@ -570,15 +522,9 @@ class AutoContinuous(AutoGuide):
             if numpyro.get_mask() is False:
                 log_density = 0.0
             else:
-                log_density = -transform.log_abs_det_jacobian(
-                    unconstrained_value, value
-                )
-                log_density = sum_rightmost(
-                    log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
-                )
-            delta_dist = dist.Delta(
-                value, log_density=log_density, event_dim=event_ndim
-            )
+                log_density = -transform.log_abs_det_jacobian(unconstrained_value, value)
+                log_density = sum_rightmost(log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
+            delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
         return result
@@ -591,8 +537,7 @@ class AutoContinuous(AutoGuide):
                 {
                     k: v
                     for k, v in params.items()
-                    if k in self.prototype_trace
-                    and self.prototype_trace[k]["type"] == "param"
+                    if k in self.prototype_trace and self.prototype_trace[k]["type"] == "param"
                 }
             )
             samples = self._postprocess_fn(unpacked_samples)
@@ -600,15 +545,12 @@ class AutoContinuous(AutoGuide):
             return {
                 k: v
                 for k, v in samples.items()
-                if k in self.prototype_trace
-                and self.prototype_trace[k]["type"] != "param"
+                if k in self.prototype_trace and self.prototype_trace[k]["type"] != "param"
             }
 
         sample_shape = jnp.shape(latent_sample)[:-1]
         if sample_shape:
-            latent_sample = jnp.reshape(
-                latent_sample, (-1, jnp.shape(latent_sample)[-1])
-            )
+            latent_sample = jnp.reshape(latent_sample, (-1, jnp.shape(latent_sample)[-1]))
             unpacked_samples = lax.map(unpack_single_latent, latent_sample)
             return tree_map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
@@ -637,9 +579,7 @@ class AutoContinuous(AutoGuide):
         :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
         posterior = handlers.substitute(self._get_posterior, params)()
-        assert isinstance(
-            posterior, dist.TransformedDistribution
-        ), "posterior is not a transformed distribution"
+        assert isinstance(posterior, dist.TransformedDistribution), "posterior is not a transformed distribution"
         if len(posterior.transforms) > 0:
             return ComposeTransform(posterior.transforms)
         else:
@@ -658,9 +598,9 @@ class AutoContinuous(AutoGuide):
         return dist.TransformedDistribution(base_dist, transform)
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
-        latent_sample = handlers.substitute(
-            handlers.seed(self._sample_latent, rng_key), params
-        )(sample_shape=sample_shape)
+        latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng_key), params)(
+            sample_shape=sample_shape
+        )
         return self._unpack_and_constrain(latent_sample, params)
 
 
@@ -725,9 +665,7 @@ class AutoDAIS(AutoContinuous):
         if base_dist not in ["diagonal", "cholesky"]:
             raise ValueError('base_dist must be one of "diagonal" or "cholesky".')
         if eta_init <= 0.0 or eta_init >= eta_max:
-            raise ValueError(
-                "eta_init must be positive and satisfy eta_init < eta_max."
-            )
+            raise ValueError("eta_init must be positive and satisfy eta_init < eta_max.")
         if eta_max <= 0.0:
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
@@ -747,14 +685,8 @@ class AutoDAIS(AutoContinuous):
         super()._setup_prototype(*args, **kwargs)
 
         for name, site in self.prototype_trace.items():
-            if (
-                site["type"] == "plate"
-                and isinstance(site["args"][1], int)
-                and site["args"][0] > site["args"][1]
-            ):
-                raise NotImplementedError(
-                    "AutoDAIS cannot be used in conjuction with data subsampling."
-                )
+            if site["type"] == "plate" and isinstance(site["args"][1], int) and site["args"][0] > site["args"][1]:
+                raise NotImplementedError("AutoDAIS cannot be used in conjuction with data subsampling.")
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -848,9 +780,7 @@ class AutoDAIS(AutoContinuous):
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
-            latent_sample = handlers.substitute(
-                handlers.seed(self._sample_latent, _rng_key), params
-            )(sample_shape=())
+            latent_sample = handlers.substitute(handlers.seed(self._sample_latent, _rng_key), params)(sample_shape=())
             return self._unpack_and_constrain(latent_sample, params)
 
         if sample_shape:
@@ -983,9 +913,7 @@ class AutoMultivariateNormal(AutoContinuous):
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(
-            quantiles
-        )
+        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -1016,16 +944,12 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
         self.rank = rank
-        super(AutoLowRankMultivariateNormal, self).__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn
-        )
+        super(AutoLowRankMultivariateNormal, self).__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self, *args, **kwargs):
         rank = int(round(self.latent_dim**0.5)) if self.rank is None else self.rank
         loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
-        cov_factor = numpyro.param(
-            "{}_cov_factor".format(self.prefix), jnp.zeros((self.latent_dim, rank))
-        )
+        cov_factor = numpyro.param("{}_cov_factor".format(self.prefix), jnp.zeros((self.latent_dim, rank)))
         scale = numpyro.param(
             "{}_scale".format(self.prefix),
             jnp.full(self.latent_dim, self._init_scale),
@@ -1072,8 +996,8 @@ class AutoLaplaceApproximation(AutoContinuous):
     Laplace approximation (quadratic approximation) approximates the posterior
     :math:`\log p(z | x)` by a multivariate normal distribution in the
     unconstrained space. Under the hood, it uses Delta distributions to
-    construct a MAP guide over the entire (unconstrained) latent space. Its
-    covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
+    construct a MAP (i.e. point estimate) guide over the entire (unconstrained) latent space.
+    Its covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
     at the MAP point of `z`.
 
     Usage::
@@ -1100,21 +1024,15 @@ class AutoLaplaceApproximation(AutoContinuous):
         create_plates=None,
         hessian_fn=None,
     ):
-        super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
-        )
-        self._hessian_fn = (
-            hessian_fn if hessian_fn is not None else (lambda f, x: hessian(f)(x))
-        )
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
+        self._hessian_fn = hessian_fn if hessian_fn is not None else (lambda f, x: hessian(f)(x))
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
 
         def loss_fn(params):
             # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
-            return Trace_ELBO().loss(
-                random.PRNGKey(0), params, self.model, self, *args, **kwargs
-            )
+            return Trace_ELBO().loss(random.PRNGKey(0), params, self.model, self, *args, **kwargs)
 
         self._loss_fn = loss_fn
 
@@ -1164,9 +1082,7 @@ class AutoLaplaceApproximation(AutoContinuous):
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(
-            quantiles
-        )
+        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -1213,20 +1129,12 @@ class AutoIAFNormal(AutoContinuous):
         self._hidden_dims = hidden_dims
         self._skip_connections = skip_connections
         self._nonlinearity = nonlinearity
-        super(AutoIAFNormal, self).__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn
-        )
+        super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
         if self.latent_dim == 1:
-            raise ValueError(
-                "latent dim = 1. Consider using AutoDiagonalNormal instead"
-            )
-        hidden_dims = (
-            [self.latent_dim, self.latent_dim]
-            if self._hidden_dims is None
-            else self._hidden_dims
-        )
+            raise ValueError("latent dim = 1. Consider using AutoDiagonalNormal instead")
+        hidden_dims = [self.latent_dim, self.latent_dim] if self._hidden_dims is None else self._hidden_dims
         flows = []
         for i in range(self.num_flows):
             if i > 0:
@@ -1238,9 +1146,7 @@ class AutoIAFNormal(AutoContinuous):
                 skip_connections=self._skip_connections,
                 nonlinearity=self._nonlinearity,
             )
-            arnn = numpyro.module(
-                "{}_arn__{}".format(self.prefix, i), arn, (self.latent_dim,)
-            )
+            arnn = numpyro.module("{}_arn__{}".format(self.prefix, i), arn, (self.latent_dim,))
             flows.append(InverseAutoregressiveTransform(arnn))
         return dist.TransformedDistribution(self.get_base_dist(), flows)
 
@@ -1286,26 +1192,18 @@ class AutoBNAFNormal(AutoContinuous):
     ):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
-        super(AutoBNAFNormal, self).__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn
-        )
+        super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
         if self.latent_dim == 1:
-            raise ValueError(
-                "latent dim = 1. Consider using AutoDiagonalNormal instead"
-            )
+            raise ValueError("latent dim = 1. Consider using AutoDiagonalNormal instead")
         flows = []
         for i in range(self.num_flows):
             if i > 0:
                 flows.append(PermuteTransform(jnp.arange(self.latent_dim)[::-1]))
             residual = "gated" if i < (self.num_flows - 1) else None
-            arn = BlockNeuralAutoregressiveNN(
-                self.latent_dim, self._hidden_factors, residual
-            )
-            arnn = numpyro.module(
-                "{}_arn__{}".format(self.prefix, i), arn, (self.latent_dim,)
-            )
+            arn = BlockNeuralAutoregressiveNN(self.latent_dim, self._hidden_factors, residual)
+            arnn = numpyro.module("{}_arn__{}".format(self.prefix, i), arn, (self.latent_dim,))
             flows.append(BlockNeuralAutoregressiveTransform(arnn))
         return dist.TransformedDistribution(self.get_base_dist(), flows)
 
