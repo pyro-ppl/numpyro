@@ -58,15 +58,11 @@ def _make_loss_fn(
         params = constrain_fn(params)
         if mutable_state is not None:
             params.update(mutable_state)
-            result = elbo.loss_with_mutable_state(
-                rng_key, params, model, guide, *args, **kwargs, **static_kwargs
-            )
+            result = elbo.loss_with_mutable_state(rng_key, params, model, guide, *args, **kwargs, **static_kwargs)
             return result["loss"], result["mutable_state"]
         else:
             return (
-                elbo.loss(
-                    rng_key, params, model, guide, *args, **kwargs, **static_kwargs
-                ),
+                elbo.loss(rng_key, params, model, guide, *args, **kwargs, **static_kwargs),
                 None,
             )
 
@@ -86,33 +82,127 @@ class SVI(object):
 
     .. doctest::
 
-        >>> from jax import random
         >>> import jax.numpy as jnp
+        >>> from jax import random
+
         >>> import numpyro
         >>> import numpyro.distributions as dist
-        >>> from numpyro.distributions import constraints
-        >>> from numpyro.infer import Predictive, SVI, Trace_ELBO
+        >>> import numpyro.optim as optim
+        >>> from numpyro.infer import SVI, Trace_ELBO, Predictive
+        >>> from numpyro.infer.autoguide import AutoNormal
 
-        >>> def model(data):
-        ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
-        ...     with numpyro.plate("N", data.shape[0]):
-        ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        >>> # Modeling person's weight from a 10-observation snippet
+        >>> # of 'Howell1' dataset from Statistical Rethinking 2nd ed. (R code 5.45)
 
-        >>> def guide(data):
-        ...     alpha_q = numpyro.param("alpha_q", 15., constraint=constraints.positive)
-        ...     beta_q = numpyro.param("beta_q", lambda rng_key: random.exponential(rng_key),
-        ...                            constraint=constraints.positive)
-        ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+        >>> # Person's age, scalar, normalized
+        >>> A = jnp.array([12.0, 8.0, 6.5, 7.0, 11.0, 8.0, 12.0, 5.0, 9.0, 5.0])
+        >>> A = A - A.mean()
 
-        >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
-        >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
-        >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-        >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
+        >>> # Male or female, categorical
+        >>> M = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0])
+
+        >>> # Person's weight, scalar
+        >>> W = jnp.array([19.62, 13.95, 10.49, 15.99, 17.86, 20.41, 23.36, 13.27, 15.42, 12.76])
+
+        # model with basic implementation of 'index encoding' for categoricals:
+        >>> def model(A, M, W=None):
+        ...     M_nunique = np.unique(M).shape[0]
+        ...     alpha_W = numpyro.sample("alpha_W", dist.Normal(178, 20).expand([M_nunique]))
+        ...     beta_W = numpyro.sample("beta_W", dist.LogNormal(0, 1).expand([M_nunique]))
+        ...
+        ...     sigma_W = numpyro.sample("sigma_W", dist.Uniform(0, 50))
+        ...     mu_W = alpha_W[M] + beta_W[M] * A
+        ...
+        ...     numpyro.sample("W", dist.Normal(mu_W, sigma_W), obs=W)
+
+        # model with advanced implementation of 'index encoding' for categoricals
+        # - via plate notation:
+        >>> def model(A, M, W=None):
+        ...     M_nunique = np.unique(M).shape[0]
+        ...     with numpyro.plate("category_dependant_vars", M_nunique):
+        ...         alpha_W = numpyro.sample("alpha_W", dist.Normal(178, 20))
+        ...         beta_W = numpyro.sample("beta_W", dist.LogNormal(0, 1))
+        ...
+        ...     sigma_W = numpyro.sample("sigma_W", dist.Uniform(0, 50))
+        ...     mu_W = alpha_W[M] + beta_W[M] * A
+        ...
+        ...     numpyro.sample("W", dist.Normal(mu_W, sigma_W), obs=W)
+
+        >>> guide = AutoNormal(model)
+        >>> optimizer = optim.Adam(0.1)
+        >>> svi = SVI(
+        ...     model,
+        ...     guide,
+        ...     optimizer,
+        ...     Trace_ELBO(),
+        ...     A=A,
+        ...     M=M,
+        ...     W=W,
+        ... )
+        >>> num_steps = 10_000
+        >>> svi_result = svi.run(random.PRNGKey(0), num_steps)
+
         >>> params = svi_result.params
-        >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
-        >>> # get posterior samples
-        >>> predictive = Predictive(guide, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(1), data)
+
+        >>> # sampling from guide for quick diagnostics
+        >>> samples = guide.sample_posterior(random.PRNGKey(1), params, (1000,))
+        >>> numpyro.diagnostics.print_summary(samples, prob=0.89, group_by_chain=False)
+
+        >>> # posterior predictive samples, from a slice of dataset
+        >>> num_samples = 1000
+        >>> dist_posterior_predictive = Predictive(
+        ...     model=model,
+        ...     guide=guide,
+        ...     params=params,
+        ...     num_samples=num_samples,
+        ... )
+
+        >>> samples_posterior_predictive = dist_posterior_predictive(
+        ...     random.PRNGKey(1),
+        ...     A=A[:5],
+        ...     M=M[:5],
+        ...     W=None,
+        ... )
+
+        >>> # prior predictive samples, from a slice of dataset
+        >>> num_samples = 1000
+        >>> dist_prior_predictive = Predictive(
+        ...     model=model,
+        ...     params=None,
+        ...     num_samples=num_samples,
+        ... )
+
+        >>> samples_prior_predictive = dist_prior_predictive(
+        ...     random.PRNGKey(1),
+        ...     A=A[:5],
+        ...     M=M[:5],
+        ...     W=None,
+        ... )
+
+        >>> # posterior samples
+        >>> num_samples = 1000
+        >>> dist_posterior = Predictive(
+        ...     model=guide,
+        ...     params=params,
+        ...     num_samples=num_samples,
+        ... )
+        >>> samples_posterior = dist_posterior(random.PRNGKey(1))
+
+        >>> # prior samples, full dataset
+        >>> num_samples = 1000
+        >>> dist_prior = Predictive(
+        ...     model=guide,
+        ...     params=None,
+        ...     num_samples=num_samples,
+        ... )
+
+        >>> samples_prior = dist_prior(
+        ...     random.PRNGKey(1),
+        ...     A=A,
+        ...     M=M,
+        ...     W=None,
+        ... )
+
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -178,9 +268,7 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(
-            *args, **kwargs, **self.static_kwargs
-        )
+        model_trace = trace(replay(model_init, guide_trace)).get_trace(*args, **kwargs, **self.static_kwargs)
         params = {}
         inv_transforms = {}
         mutable_state = {}
@@ -251,9 +339,7 @@ class SVI(object):
             self.static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
-        (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state
-        )
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def stable_update(self, svi_state, *args, **kwargs):
@@ -280,9 +366,7 @@ class SVI(object):
             self.static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
-        (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
-            loss_fn, svi_state.optim_state
-        )
+        (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def run(
