@@ -1114,11 +1114,11 @@ def test_fixed_num_steps():
     data['y'] = data['x'] + np.random.rand(10) * 0.1
 
     def model(data):
-        w = numpyro.sample("w", dist.Normal(10,1))
-        b = numpyro.sample("b", dist.Normal(1,1))
-        sigma = numpyro.sample("sigma", dist.Gamma(1,2))
+        w = numpyro.sample("w", dist.Normal(10, 1))
+        b = numpyro.sample("b", dist.Normal(1, 1))
+        sigma = numpyro.sample("sigma", dist.Gamma(1, 2))
         with numpyro.plate("size", np.size(data['y'])):
-            numpyro.sample("obs", dist.Normal(w*data['x']+b,sigma), obs=data['y'])
+            numpyro.sample("obs", dist.Normal(w*data['x'] + b, sigma), obs=data['y'])
 
     hmc_kernel = HMC(model, num_steps=5)
     mcmc = MCMC(
