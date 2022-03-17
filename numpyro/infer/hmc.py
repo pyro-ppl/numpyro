@@ -210,6 +210,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             be consistent with the input type to `potential_fn`.
         :param int num_warmup: Number of warmup steps; samples generated
             during warmup are discarded.
+        :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
             dynamics. If not specified, it will be set to 1.
