@@ -323,7 +323,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             wa_state.inverse_mass_matrix, vv_state.r
         )
         zero_int = jnp.array(0, dtype=jnp.result_type(int))
-        print(num_steps)
         hmc_state = HMCState(
             zero_int,
             vv_state.z,
