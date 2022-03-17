@@ -1118,7 +1118,7 @@ def test_fixed_num_steps():
         b = numpyro.sample("b", dist.Normal(1, 1))
         sigma = numpyro.sample("sigma", dist.Gamma(1, 2))
         with numpyro.plate("size", np.size(data['y'])):
-            numpyro.sample("obs", dist.Normal(w*data['x'] + b, sigma), obs=data['y'])
+            numpyro.sample("obs", dist.Normal(w * data['x'] + b, sigma), obs=data['y'])
 
     hmc_kernel = HMC(model, num_steps=5)
     mcmc = MCMC(
@@ -1129,5 +1129,5 @@ def test_fixed_num_steps():
     )
     rng_key = random.PRNGKey(0)
     mcmc.run(rng_key, data, extra_fields=("num_steps",))
-    num_steps_list = np.array(mcmc.get_extra_fields()['num_steps']) 
+    num_steps_list = np.array(mcmc.get_extra_fields()['num_steps'])
     assert all(step == 5 for step in num_steps_list)
