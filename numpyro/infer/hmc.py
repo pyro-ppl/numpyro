@@ -187,13 +187,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         init_params,
         num_warmup,
         *,
-        num_steps=None,
         step_size=1.0,
         inverse_mass_matrix=None,
         adapt_step_size=True,
         adapt_mass_matrix=True,
         dense_mass=False,
         target_accept_prob=0.8,
+        num_steps=None,
         trajectory_length=2 * math.pi,
         max_tree_depth=10,
         find_heuristic_step_size=False,
@@ -210,7 +210,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             be consistent with the input type to `potential_fn`.
         :param int num_warmup: Number of warmup steps; samples generated
             during warmup are discarded.
-        :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
             dynamics. If not specified, it will be set to 1.
@@ -250,6 +249,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Defaults to 0.8.
+        :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
         :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
@@ -578,6 +578,7 @@ class HMC(MCMCKernel):
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Defaults to 0.8.
+    :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
     :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
@@ -603,12 +604,12 @@ class HMC(MCMCKernel):
         potential_fn=None,
         kinetic_fn=None,
         step_size=1.0,
-        num_steps=None,
         inverse_mass_matrix=None,
         adapt_step_size=True,
         adapt_mass_matrix=True,
         dense_mass=False,
         target_accept_prob=0.8,
+        num_steps=None,
         trajectory_length=2 * math.pi,
         init_strategy=init_to_uniform,
         find_heuristic_step_size=False,
