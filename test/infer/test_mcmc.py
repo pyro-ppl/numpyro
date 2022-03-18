@@ -81,7 +81,7 @@ def test_correlated_mvn(regularize):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples), true_mean, atol=0.02)
-    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
+    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D ** 2 < 0.02
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
@@ -1110,15 +1110,15 @@ def test_vectorized_sampling_zero_sized():
 
 def test_fixed_num_steps():
     data = dict()
-    data['x'] = np.random.rand(10)
-    data['y'] = data['x'] + np.random.rand(10) * 0.1
+    data["x"] = np.random.rand(10)
+    data["y"] = data["x"] + np.random.rand(10) * 0.1
 
     def model(data):
         w = numpyro.sample("w", dist.Normal(10, 1))
         b = numpyro.sample("b", dist.Normal(1, 1))
         sigma = numpyro.sample("sigma", dist.Gamma(1, 2))
-        with numpyro.plate("size", np.size(data['y'])):
-            numpyro.sample("obs", dist.Normal(w * data['x'] + b, sigma), obs=data['y'])
+        with numpyro.plate("size", np.size(data["y"])):
+            numpyro.sample("obs", dist.Normal(w * data["x"] + b, sigma), obs=data["y"])
 
     hmc_kernel = HMC(model, num_steps=5)
     mcmc = MCMC(
@@ -1129,5 +1129,5 @@ def test_fixed_num_steps():
     )
     rng_key = random.PRNGKey(0)
     mcmc.run(rng_key, data, extra_fields=("num_steps",))
-    num_steps_list = np.array(mcmc.get_extra_fields()['num_steps'])
+    num_steps_list = np.array(mcmc.get_extra_fields()["num_steps"])
     assert all(step == 5 for step in num_steps_list)
