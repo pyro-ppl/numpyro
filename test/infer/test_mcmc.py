@@ -81,7 +81,7 @@ def test_correlated_mvn(regularize):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples), true_mean, atol=0.02)
-    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D ** 2 < 0.02
+    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
