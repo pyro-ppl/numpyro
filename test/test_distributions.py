@@ -1881,8 +1881,8 @@ def test_biject_to(constraint, shape):
             expected = jnp.log(jnp.abs(grad(transform)(x)))
             inv_expected = jnp.log(jnp.abs(grad(transform.inv)(y)))
 
-        assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
-        assert_allclose(actual, -inv_expected, atol=1e-6, rtol=1e-6)
+        assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+        assert_allclose(actual, -inv_expected, atol=1e-5, rtol=1e-5)
 
 
 # NB: skip transforms which are tested in `test_biject_to`
