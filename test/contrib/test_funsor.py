@@ -256,11 +256,11 @@ def test_scan_enum_one_latent(num_steps):
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[
         0
     ]
-    assert_allclose(actual_log_joint, expected_log_joint)
+    assert_allclose(actual_log_joint, expected_log_joint, rtol=1e-6)
 
     actual_last_x = enum(config_enumerate(fun_model))(data)
     expected_last_x = enum(config_enumerate(model))(data)
-    assert_allclose(actual_last_x, expected_last_x)
+    assert_allclose(actual_last_x, expected_last_x, rtol=1e-6)
 
 
 def test_scan_enum_plate():

@@ -1816,7 +1816,7 @@ def test_biject_to(constraint, shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert_allclose(x, z, atol=1e-5, rtol=1e-5)
 
     # test domain, currently all is constraints.real or constraints.real_vector
     assert_array_equal(transform.domain(z), jnp.ones(batch_shape))
