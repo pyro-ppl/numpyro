@@ -179,19 +179,21 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
     wa_steps = None
     forward_mode_ad = False
     max_delta_energy = 1000.0
+    fixed_num_steps = None
     if algo not in {"HMC", "NUTS"}:
         raise ValueError("`algo` must be one of `HMC` or `NUTS`.")
 
     def init_kernel(
         init_params,
         num_warmup,
-        *,
         step_size=1.0,
         inverse_mass_matrix=None,
         adapt_step_size=True,
         adapt_mass_matrix=True,
         dense_mass=False,
         target_accept_prob=0.8,
+        *,
+        num_steps=None,
         trajectory_length=2 * math.pi,
         max_tree_depth=10,
         find_heuristic_step_size=False,
@@ -247,6 +249,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Defaults to 0.8.
+        :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
         :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
@@ -270,7 +273,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             trajectory_length = lax.convert_element_type(
                 trajectory_length, jnp.result_type(float)
             )
-        nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad
+        nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad, fixed_num_steps
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
         max_treedepth = (
@@ -278,6 +281,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             if isinstance(max_tree_depth, tuple)
             else (max_tree_depth, max_tree_depth)
         )
+        fixed_num_steps = num_steps
         if isinstance(init_params, ParamInfo):
             z, pe, z_grad = init_params
         else:
@@ -351,8 +355,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
+        if fixed_num_steps is not None:
+            num_steps = fixed_num_steps
         # no need to spend too many steps if the state z has 0 size (i.e. z is empty)
-        if len(inverse_mass_matrix) == 0:
+        elif len(inverse_mass_matrix) == 0:
             num_steps = 1
         else:
             num_steps = _get_num_steps(step_size, trajectory_length)
@@ -572,6 +578,7 @@ class HMC(MCMCKernel):
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Defaults to 0.8.
+    :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
     :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
@@ -602,6 +609,7 @@ class HMC(MCMCKernel):
         adapt_mass_matrix=True,
         dense_mass=False,
         target_accept_prob=0.8,
+        num_steps=None,
         trajectory_length=2 * math.pi,
         init_strategy=init_to_uniform,
         find_heuristic_step_size=False,
@@ -615,6 +623,7 @@ class HMC(MCMCKernel):
         self._kinetic_fn = (
             kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
         )
+        self._num_steps = num_steps
         self._step_size = float(step_size) if isinstance(step_size, int) else step_size
         self._inverse_mass_matrix = inverse_mass_matrix
         self._adapt_step_size = adapt_step_size
@@ -718,6 +727,7 @@ class HMC(MCMCKernel):
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
+            num_steps=self._num_steps,
             inverse_mass_matrix=inverse_mass_matrix,
             adapt_step_size=self._adapt_step_size,
             adapt_mass_matrix=self._adapt_mass_matrix,

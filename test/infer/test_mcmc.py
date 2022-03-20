@@ -1106,3 +1106,28 @@ def test_vectorized_sampling_zero_sized():
     rng_key = random.PRNGKey(0)
     mcmc.run(rng_key, J, sigma, extra_fields=("potential_energy",))
     assert mcmc.get_samples()["scores"].shape == (200, 0, 8)
+
+
+def test_fixed_num_steps():
+    data = dict()
+    data["x"] = np.random.rand(10)
+    data["y"] = data["x"] + np.random.rand(10) * 0.1
+
+    def model(data):
+        w = numpyro.sample("w", dist.Normal(10, 1))
+        b = numpyro.sample("b", dist.Normal(1, 1))
+        sigma = numpyro.sample("sigma", dist.Gamma(1, 2))
+        with numpyro.plate("size", np.size(data["y"])):
+            numpyro.sample("obs", dist.Normal(w * data["x"] + b, sigma), obs=data["y"])
+
+    hmc_kernel = HMC(model, num_steps=5)
+    mcmc = MCMC(
+        hmc_kernel,
+        num_samples=1000,
+        num_warmup=1000,
+        num_chains=1,
+    )
+    rng_key = random.PRNGKey(0)
+    mcmc.run(rng_key, data, extra_fields=("num_steps",))
+    num_steps_list = np.array(mcmc.get_extra_fields()["num_steps"])
+    assert all(step == 5 for step in num_steps_list)
