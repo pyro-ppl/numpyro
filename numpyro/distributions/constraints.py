@@ -77,6 +77,9 @@ class Constraint(object):
     def __call__(self, x):
         raise NotImplementedError
 
+    def __repr__(self):
+        return self.__class__.__name__[1:] + "()"
+
     def check(self, value):
         """
         Returns a byte tensor of `sample_shape + batch_shape` indicating
@@ -217,6 +220,11 @@ class _GreaterThan(Constraint):
     def __call__(self, x):
         return x > self.lower_bound
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={})".format(self.lower_bound)
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
 
@@ -263,6 +271,13 @@ class _IndependentConstraint(Constraint):
         result = result.all(-1)
         return result
 
+    def __repr__(self):
+        return "{}({}, {})".format(
+            self.__class__.__name__[1:],
+            repr(self.base_constraint),
+            self.reinterpreted_batch_ndims,
+        )
+
     def feasible_like(self, prototype):
         return self.base_constraint.feasible_like(prototype)
 
@@ -273,6 +288,11 @@ class _LessThan(Constraint):
 
     def __call__(self, x):
         return x < self.upper_bound
+
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(upper_bound={})".format(self.upper_bound)
+        return fmt_string
 
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
@@ -288,6 +308,13 @@ class _IntegerInterval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={}, upper_bound={})".format(
+            self.lower_bound, self.upper_bound
+        )
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
@@ -301,6 +328,11 @@ class _IntegerGreaterThan(Constraint):
     def __call__(self, x):
         return (x % 1 == 0) & (x >= self.lower_bound)
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={})".format(self.lower_bound)
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
@@ -312,6 +344,13 @@ class _Interval(Constraint):
 
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound)
+
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={}, upper_bound={})".format(
+            self.lower_bound, self.upper_bound
+        )
+        return fmt_string
 
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(
@@ -329,6 +368,13 @@ class _Interval(Constraint):
 class _OpenInterval(_Interval):
     def __call__(self, x):
         return (x > self.lower_bound) & (x < self.upper_bound)
+
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={}, upper_bound={})".format(
+            self.lower_bound, self.upper_bound
+        )
+        return fmt_string
 
 
 class _LowerCholesky(Constraint):
