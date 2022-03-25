@@ -1,3 +1,4 @@
+from re import L
 import jax 
 import jax.numpy as jnp
 import numpyro
@@ -113,3 +114,15 @@ class AR1Model2(StateSpaceModel):
         y_t = sample("y", dist.Normal(m_t, self.params['sigma']))
         return (y_t, ), None
 
+
+if __name__=='__main__':
+    rng_key = jax.random.PRNGKey(100)
+    n = 1000 
+    tmp = jax.random.normal(rng_key, (10000, ))
+    data = tmp[:(-1)] + tmp[1:]
+
+    ar1_model = AR1Model()
+    ar1_model.fit(data)
+
+    ar1_model_2 = AR1Model2()
+    ar1_model_2.fit(data)
