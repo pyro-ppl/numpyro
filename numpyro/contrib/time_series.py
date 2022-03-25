@@ -28,7 +28,6 @@ class NUTModelTrainer(object):
                     num_samples=num_steps)
         self.mcmc.run(rng_key=self.rng_key, data=data) 
         self.trained = True
-        return self.mcmc
 
     def predict(self, data, num_samples=100): 
         posterior = Predictive(self.model, num_samples=num_samples)
