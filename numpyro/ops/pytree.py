@@ -12,7 +12,7 @@ class PytreeTrace:
     def tree_flatten(self):
         trace, aux_trace = {}, {}
         for name, site in self.trace.items():
-            if site["type"] in ["sample", "deterministic", "plate"]:
+            if site["type"] in ["sample", "deterministic", "plate", "param"]:
                 trace[name], aux_trace[name] = {}, {"_control_flow_done": True}
                 for key in site:
                     if key == "fn":
