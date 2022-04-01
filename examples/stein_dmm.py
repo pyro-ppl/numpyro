@@ -39,7 +39,7 @@ def _reverse_padded(padded, lengths):
     def _reverse_single(p, length):
         new = jnp.zeros_like(p)
         reverse = jnp.roll(p[::-1], length, axis=0)
-        return jax.ops.index_update(new, jax.ops.index[:], reverse)
+        return new.at[:].set(reverse)
 
     return jax.vmap(_reverse_single)(padded, lengths)
 
