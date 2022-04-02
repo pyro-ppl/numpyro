@@ -8,7 +8,6 @@ import jax
 
 from numpyro import handlers
 import numpyro.distributions as dist
-import numpyro.distributions.constraints as constraints
 from numpyro.infer.initialization import init_to_sample
 from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provenance
 from numpyro.ops.pytree import PytreeTrace
@@ -138,7 +137,9 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     }
 
     params = {
-        name: ProvenanceArray(site["value"], frozenset({name}))
+        name: jax.tree_util.tree_map(
+            lambda x: ProvenanceArray(x, frozenset({name})), site["value"]
+        )
         for name, site in trace.items()
         if site["type"] == "param"
     }
@@ -163,7 +164,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         if "constraint" in trace[param]["kwargs"]:
             param_constraint[param] = str(trace[param]["kwargs"]["constraint"])
         else:
-            param_constraint[param] = str(constraints.real)
+            param_constraint[param] = ""
 
     return {
         "sample_sample": sample_sample,

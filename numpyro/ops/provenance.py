@@ -4,6 +4,7 @@
 import jax
 from jax.interpreters import partial_eval
 from jax.linear_util import wrap_init
+import jax.numpy as jnp
 
 
 class _ProvenanceJaxprTrace(partial_eval.DynamicJaxprTrace):
@@ -68,8 +69,8 @@ class ProvenanceArray:
     """
 
     def __init__(self, data, provenance=frozenset()):
-        self.shape = data.shape
-        self.dtype = data.dtype
+        self.shape = jnp.shape(data)
+        self.dtype = jnp.dtype(data)
         self.named_shape = {"_provenance": provenance}
 
 
