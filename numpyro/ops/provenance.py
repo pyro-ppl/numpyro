@@ -70,7 +70,7 @@ class ProvenanceArray:
 
     def __init__(self, data, provenance=frozenset()):
         self.shape = jnp.shape(data)
-        self.dtype = data.dtype
+        self.dtype = jnp.result_type(data)
         self.named_shape = {"_provenance": provenance}
 
 

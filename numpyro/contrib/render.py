@@ -295,11 +295,18 @@ def render_graph(graph_specification, render_distributions=False):
             # For sample_nodes - ellipse
             if node_data[rv]["distribution"]:
                 shape = "ellipse"
+                rv_label = rv
 
             # For param_nodes - No shape
             else:
                 shape = "plain"
-            cur_graph.node(rv, label=rv, shape=shape, style="filled", fillcolor=color)
+                rv_label = rv.replace(
+                    "$params", ""
+                )  # incase of neural network parameters
+
+            cur_graph.node(
+                rv, label=rv_label, shape=shape, style="filled", fillcolor=color
+            )
 
     # add leaf nodes first
     while len(plate_data) >= 1:
