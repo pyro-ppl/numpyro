@@ -22,7 +22,11 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
 
     -  "sample_sample" map each downstream sample site to a list of the upstream
        sample sites on which it depend;
+    -  "sample_param" map each downstream sample site to a list of the upstream
+       param sites on which it depend;
     -  "sample_dist" maps each sample site to the name of the distribution at
+       that site;
+    -  "param_constraint" maps each param site to the name of the constraints at
        that site;
     -  "plate_sample" maps each plate name to a lists of the sample sites
        within that plate; and
@@ -129,26 +133,55 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     samples = {
         name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
-        if site["type"] == "sample" and not site["is_observed"]
+        if (site["type"] == "sample" and not site["is_observed"])
     }
-    sample_deps = get_provenance(eval_provenance(get_log_probs, samples))
+
+    params = {
+        name: jax.tree_util.tree_map(
+            lambda x: ProvenanceArray(x, frozenset({name})), site["value"]
+        )
+        for name, site in trace.items()
+        if site["type"] == "param"
+    }
+
+    sample_and_params = {**samples, **params}
+    sample_params_deps = get_provenance(
+        eval_provenance(get_log_probs, sample_and_params)
+    )
+
     sample_sample = {}
+    sample_param = {}
     for name in sample_dist:
         sample_sample[name] = [
-            var for var in sample_dist if var in sample_deps[name] and var != name
+            var
+            for var in sample_dist
+            if var in sample_params_deps[name] and var != name
         ]
+        sample_param[name] = [var for var in sample_params_deps[name] if var in params]
+
+    param_constraint = {}
+    for param in params:
+        if "constraint" in trace[param]["kwargs"]:
+            param_constraint[param] = str(trace[param]["kwargs"]["constraint"])
+        else:
+            param_constraint[param] = ""
+
     return {
         "sample_sample": sample_sample,
+        "sample_param": sample_param,
         "sample_dist": sample_dist,
+        "param_constraint": param_constraint,
         "plate_sample": plate_samples,
         "observed": obs_sites,
     }
 
 
-def generate_graph_specification(model_relations):
+def generate_graph_specification(model_relations, render_params=False):
     """
     Convert model relations into data structure which can be readily
     converted into a network.
+
+    :param bool render_params: Whether to add nodes of params.
     """
     # group nodes by plate
     plate_groups = dict(model_relations["plate_sample"])
@@ -157,6 +190,14 @@ def generate_graph_specification(model_relations):
         rv for rv in model_relations["sample_sample"] if rv not in plate_rvs
     ]  # RVs which are in no plate
 
+    # get set of params
+    params = set()
+    if render_params:
+        for rv, params_list in model_relations["sample_param"].items():
+            for param in params_list:
+                params.add(param)
+        plate_groups[None].extend(params)
+
     # retain node metadata
     node_data = {}
     for rv in model_relations["sample_sample"]:
@@ -164,6 +205,14 @@ def generate_graph_specification(model_relations):
             "is_observed": rv in model_relations["observed"],
             "distribution": model_relations["sample_dist"][rv],
         }
+
+    if render_params:
+        for param, constraint in model_relations["param_constraint"].items():
+            node_data[param] = {
+                "is_observed": False,
+                "constraint": constraint,
+                "distribution": None,
+            }
 
     # infer plate structure
     # (when the order of plates cannot be determined from subset relations,
@@ -189,6 +238,10 @@ def generate_graph_specification(model_relations):
     edge_list = []
     for target, source_list in model_relations["sample_sample"].items():
         edge_list.extend([(source, target) for source in source_list])
+
+    if render_params:
+        for target, source_list in model_relations["sample_param"].items():
+            edge_list.extend([(source, target) for source in source_list])
 
     return {
         "plate_groups": plate_groups,
@@ -238,8 +291,21 @@ def render_graph(graph_specification, render_distributions=False):
 
         for rv in rv_list:
             color = "grey" if node_data[rv]["is_observed"] else "white"
+
+            # For sample_nodes - ellipse
+            if node_data[rv]["distribution"]:
+                shape = "ellipse"
+                rv_label = rv
+
+            # For param_nodes - No shape
+            else:
+                shape = "plain"
+                rv_label = rv.replace(
+                    "$params", ""
+                )  # incase of neural network parameters
+
             cur_graph.node(
-                rv, label=rv, shape="ellipse", style="filled", fillcolor=color
+                rv, label=rv_label, shape=shape, style="filled", fillcolor=color
             )
 
     # add leaf nodes first
@@ -262,12 +328,16 @@ def render_graph(graph_specification, render_distributions=False):
     for source, target in edge_list:
         graph.edge(source, target)
 
-    # render distributions if requested
+    # render distributions and constraints if requested
     if render_distributions:
         dist_label = ""
         for rv, data in node_data.items():
             rv_dist = data["distribution"]
-            dist_label += rf"{rv} ~ {rv_dist}\l"
+            if rv_dist:
+                dist_label += rf"{rv} ~ {rv_dist}\l"
+
+            if "constraint" in data and data["constraint"]:
+                dist_label += rf"{rv} ∈ {data['constraint']}\l"
 
         graph.node("distribution_description_node", label=dist_label, shape="plaintext")
 
@@ -281,6 +351,7 @@ def render_model(
     model_kwargs=None,
     filename=None,
     render_distributions=False,
+    render_params=False,
 ):
     """
     Wrap all functions needed to automatically render a model.
@@ -295,13 +366,14 @@ def render_model(
     :param model_kwargs: Keyword arguments to pass to the model.
     :param str filename: File to save rendered model in.
     :param bool render_distributions: Whether to include RV distribution annotations in the plot.
+    :param bool render_params: Whether to show params in the plot.
     """
     relations = get_model_relations(
         model,
         model_args=model_args,
         model_kwargs=model_kwargs,
     )
-    graph_spec = generate_graph_specification(relations)
+    graph_spec = generate_graph_specification(relations, render_params=render_params)
     graph = render_graph(graph_spec, render_distributions=render_distributions)
 
     if filename is not None:
