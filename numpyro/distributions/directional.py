@@ -3,7 +3,6 @@
 
 from collections import namedtuple
 import functools
-from functools import partial
 import math
 from math import pi
 import operator
@@ -371,19 +370,22 @@ class SineBivariateVonMises(Distribution):
             self.phi_concentration,
             self.psi_concentration,
             self.correlation,
-        ) = map(
-            partial(jnp.broadcast_to, shape=batch_shape),
-            promote_shapes(
-                phi_loc,
-                psi_loc,
-                phi_concentration,
-                psi_concentration,
-                correlation,
-                shape=batch_shape,
-            ),
+        ) = promote_shapes(
+            phi_loc,
+            psi_loc,
+            phi_concentration,
+            psi_concentration,
+            correlation,
+            shape=batch_shape,
         )
 
         super().__init__(batch_shape, (2,), validate_args=validate_args)
+
+        self.phi_loc = jnp.broadcast_to(self.phi_loc, batch_shape)
+        self.psi_loc = jnp.broadcast_to(self.psi_loc, batch_shape)
+        self.phi_concentration = jnp.broadcast_to(self.phi_concentration, batch_shape)
+        self.psi_concentration = jnp.broadcast_to(self.psi_concentration, batch_shape)
+        self.correlation = jnp.broadcast_to(self.correlation, batch_shape)
 
     @lazy_property
     def norm_const(self):
