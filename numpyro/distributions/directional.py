@@ -4,6 +4,7 @@
 from collections import namedtuple
 import functools
 import math
+from functools import partial
 from math import pi
 import operator
 
@@ -357,15 +358,6 @@ class SineBivariateVonMises(Distribution):
                 + 1e-8
             )
 
-        (
-            self.phi_loc,
-            self.psi_loc,
-            self.phi_concentration,
-            self.psi_concentration,
-            self.correlation,
-        ) = promote_shapes(
-            phi_loc, psi_loc, phi_concentration, psi_concentration, correlation
-        )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(phi_loc),
             jnp.shape(psi_loc),
@@ -373,6 +365,15 @@ class SineBivariateVonMises(Distribution):
             jnp.shape(psi_concentration),
             jnp.shape(correlation),
         )
+        (
+            self.phi_loc,
+            self.psi_loc,
+            self.phi_concentration,
+            self.psi_concentration,
+            self.correlation,
+        ) = map(partial(jnp.broadcast_to, shape=batch_shape), promote_shapes(
+            phi_loc, psi_loc, phi_concentration, psi_concentration, correlation, shape=batch_shape ))
+
         super().__init__(batch_shape, (2,), validate_args=validate_args)
 
     @lazy_property
@@ -443,17 +444,17 @@ class SineBivariateVonMises(Distribution):
 
         phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
-        alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
-        beta = jnp.arctan(corr / conc[1] * jnp.sin(phi))
+        alpha = jnp.sqrt(conc[1].reshape(-1) ** 2 + (corr.reshape(-1) * jnp.sin(phi)) ** 2)
+        beta = jnp.arctan(corr.reshape(-1) / conc[1].reshape(-1) * jnp.sin(phi))
 
         psi = VonMises(beta, alpha).sample(psi_key)
 
         phi_psi = jnp.concatenate(
             (
-                (phi + self.phi_loc + pi) % (2 * pi) - pi,
-                (psi + self.psi_loc + pi) % (2 * pi) - pi,
+                (phi + jnp.reshape(self.phi_loc, -1) + pi) % (2 * pi) - pi,
+                (psi + jnp.reshape(self.psi_loc, -1) + pi) % (2 * pi) - pi,
             ),
-            axis=1,
+            axis=-1,
         )
         phi_psi = jnp.transpose(phi_psi, (0, 2, 1))
         return phi_psi.reshape(*sample_shape, *self.batch_shape, *self.event_shape)

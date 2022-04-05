@@ -20,7 +20,7 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 
 import numpyro.distributions as dist
-from numpyro.distributions import constraints, kl_divergence, transforms
+from numpyro.distributions import constraints, kl_divergence, transforms, SineBivariateVonMises
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -2202,6 +2202,21 @@ def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
     samples = expanded_dist.sample(random.PRNGKey(1), sample_shape)
     expected_mean = jnp.broadcast_to(loc, sample_shape[1:] + expanded_dist.shape())
     assert_allclose(samples.mean(0), expected_mean, atol=0.1)
+
+@pytest.mark.parametrize('batch_shape', [(), (4,), (10,3)])
+def test_sine_bivariate_von_mises_batch_shape(batch_shape):
+    phi_loc = jnp.broadcast_to(jnp.array(0.), batch_shape)
+    psi_loc = jnp.array(0.)
+    phi_conc = jnp.array(1.)
+    psi_conc = jnp.array(1.)
+    corr = jnp.array(.1)
+
+    sine = SineBivariateVonMises(phi_loc, psi_loc, phi_conc, psi_conc, corr)
+    assert sine.batch_shape == batch_shape
+
+    samples = sine.sample(random.PRNGKey(0))
+    assert samples.shape == (*batch_shape, 2)
+
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
