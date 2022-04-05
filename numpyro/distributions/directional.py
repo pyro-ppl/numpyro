@@ -3,8 +3,8 @@
 
 from collections import namedtuple
 import functools
-import math
 from functools import partial
+import math
 from math import pi
 import operator
 
@@ -371,8 +371,17 @@ class SineBivariateVonMises(Distribution):
             self.phi_concentration,
             self.psi_concentration,
             self.correlation,
-        ) = map(partial(jnp.broadcast_to, shape=batch_shape), promote_shapes(
-            phi_loc, psi_loc, phi_concentration, psi_concentration, correlation, shape=batch_shape ))
+        ) = map(
+            partial(jnp.broadcast_to, shape=batch_shape),
+            promote_shapes(
+                phi_loc,
+                psi_loc,
+                phi_concentration,
+                psi_concentration,
+                correlation,
+                shape=batch_shape,
+            ),
+        )
 
         super().__init__(batch_shape, (2,), validate_args=validate_args)
 
@@ -444,7 +453,9 @@ class SineBivariateVonMises(Distribution):
 
         phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
-        alpha = jnp.sqrt(conc[1].reshape(-1) ** 2 + (corr.reshape(-1) * jnp.sin(phi)) ** 2)
+        alpha = jnp.sqrt(
+            conc[1].reshape(-1) ** 2 + (corr.reshape(-1) * jnp.sin(phi)) ** 2
+        )
         beta = jnp.arctan(corr.reshape(-1) / conc[1].reshape(-1) * jnp.sin(phi))
 
         psi = VonMises(beta, alpha).sample(psi_key)
