@@ -272,10 +272,10 @@ class SteinVI:
                 return force.reshape(attr_force.shape)
 
             reparam_jac = {
-                name: jax.tree_map(lambda var: _nontrivial_jac(name, var), variables)
+                name: tree_map(lambda var: _nontrivial_jac(name, var), variables)
                 for name, variables in unravel_pytree(particle).items()
             }
-            jac_params = jax.tree_multimap(
+            jac_params = tree_map(
                 _update_force,
                 unravel_pytree(attr_forces),
                 unravel_pytree(rep_forces),

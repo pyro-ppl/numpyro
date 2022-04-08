@@ -14,7 +14,7 @@ import scipy
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import grad, lax, tree_map, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
@@ -780,7 +780,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
-    assert isinstance(samples, jax.interpreters.xla.DeviceArray)
+    assert isinstance(samples, jnp.ndarray)
     assert jnp.shape(samples) == expected_shape
     if (
         sp_dist
@@ -1046,7 +1046,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     except ValueError as e:
         # precision issue: jnp.sum(x / jnp.sum(x)) = 0.99999994 != 1
         if "The input vector 'x' must lie within the normal simplex." in str(e):
-            samples = samples.copy().astype("float64")
+            samples = jax.device_get(samples).astype("float64")
             samples = samples / samples.sum(axis=-1, keepdims=True)
             expected = sp_dist.logpdf(samples)
         else:
@@ -2335,7 +2335,7 @@ def test_expand_pytree():
         return dist.Normal(x, 1).expand([10, 3])
 
     assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
-    assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
+    assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
