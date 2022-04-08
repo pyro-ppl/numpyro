@@ -187,13 +187,9 @@ def _collect_fn(collect_fields):
 
 # XXX: Is there a better hash key that we can use?
 def _hashable(x):
-    # When the arguments are JITed, ShapedArray is hashable.
-    if isinstance(x, Tracer):
-        return x
-    elif isinstance(x, DeviceArray):
-        return x.copy().tobytes()
-    elif isinstance(x, (np.ndarray, jnp.ndarray)):
-        return x.tobytes()
+    # NOTE: When the arguments are JITed, ShapedArray is hashable.
+    if isinstance(x, (np.ndarray, jnp.ndarray)):
+        return id(x)
     return x
 
 
