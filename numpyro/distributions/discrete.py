@@ -185,12 +185,13 @@ class BinomialProbs(Distribution):
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
+        probs = clamp_probs(self.probs)
         return (
             log_factorial_n
             - log_factorial_k
             - log_factorial_nmk
-            + xlogy(value, self.probs)
-            + xlog1py(self.total_count - value, -self.probs)
+            + xlogy(value, probs)
+            + xlog1py(self.total_count - value, -probs)
         )
 
     @lazy_property
