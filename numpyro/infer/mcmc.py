@@ -13,7 +13,7 @@ from jax import jit, lax, local_device_count, pmap, random, vmap
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import print_summary
 from numpyro.util import cached_by, find_stack_level, fori_collect, identity
@@ -161,7 +161,7 @@ def _laxmap(f, xs):
         x = jit(_get_value_from_index)(xs, i)
         ys.append(f(x))
 
-    return tree_multimap(lambda *args: jnp.stack(args), *ys)
+    return tree_map(lambda *args: jnp.stack(args), *ys)
 
 
 def _sample_fn_jit_args(state, sampler):

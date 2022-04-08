@@ -14,7 +14,7 @@ import scipy
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import grad, lax, tree_map, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
@@ -2335,7 +2335,7 @@ def test_expand_pytree():
         return dist.Normal(x, 1).expand([10, 3])
 
     assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
-    assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
+    assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
