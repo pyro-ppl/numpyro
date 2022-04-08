@@ -5,6 +5,7 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
+import jax
 from jax import jit, random, tree_map, value_and_grad, vmap
 import jax.numpy as jnp
 
@@ -777,7 +778,7 @@ def test_subsample_fn():
         )
 
         # test that values are not duplicated
-        assert len(set(subsamples[k].copy())) == subsample_size
+        assert len(set(jax.device_get(subsamples[k]))) == subsample_size
 
 
 def test_sites_have_unique_names():

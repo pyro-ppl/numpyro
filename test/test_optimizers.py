@@ -57,6 +57,7 @@ def step(opt_state, optim):
     ]
     + optax_optimizers,
 )
+@pytest.mark.filterwarnings("ignore:.*tree_multimap:FutureWarning")
 def test_optim_multi_params(optim_class, args, kwargs):
     params = {"x": jnp.array([1.0, 1.0, 1.0]), "y": jnp.array([-1, -1.0, -1.0])}
     opt = optim_class(*args, **kwargs)
@@ -84,6 +85,7 @@ def test_optim_multi_params(optim_class, args, kwargs):
     ]
     + optax_optimizers,
 )
+@pytest.mark.filterwarnings("ignore:.*tree_multimap:FutureWarning")
 def test_numpyrooptim_no_double_jit(optim_class, args, kwargs):
 
     opt = optim_class(*args, **kwargs)

@@ -1046,7 +1046,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     except ValueError as e:
         # precision issue: jnp.sum(x / jnp.sum(x)) = 0.99999994 != 1
         if "The input vector 'x' must lie within the normal simplex." in str(e):
-            samples = samples.copy().astype("float64")
+            samples = jax.device_get(samples).astype("float64")
             samples = samples / samples.sum(axis=-1, keepdims=True)
             expected = sp_dist.logpdf(samples)
         else:
