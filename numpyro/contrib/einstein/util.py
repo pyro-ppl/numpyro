@@ -3,7 +3,7 @@
 
 from jax import numpy as jnp, vmap
 from jax.flatten_util import ravel_pytree
-from jax.tree_util import tree_map, tree_multimap
+from jax.tree_util import tree_map
 
 from numpyro.distributions import biject_to
 from numpyro.distributions.constraints import real
@@ -82,7 +82,7 @@ def batch_ravel_pytree(pytree, nbatch_dims=0):
     return (
         flat,
         unravel_fn,
-        lambda _flat: tree_multimap(
+        lambda _flat: tree_map(
             lambda x, shape: x.reshape(shape), vmap(unravel_fn)(_flat), shapes
         ),
     )

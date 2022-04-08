@@ -8,7 +8,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
-from jax.tree_util import tree_flatten, tree_map, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 import numpyro.distributions as dist
 from numpyro.util import cond, identity, while_loop
@@ -289,15 +289,15 @@ def velocity_verlet(potential_fn, kinetic_fn, forward_mode_differentiation=False
         :return: new state for the integrator.
         """
         z, r, _, z_grad = state
-        r = tree_multimap(
+        r = tree_map(
             lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad
         )  # r(n+1/2)
         r_grad = _kinetic_grad(kinetic_fn, inverse_mass_matrix, r)
-        z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
+        z = tree_map(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = _value_and_grad(
             potential_fn, z, forward_mode_differentiation
         )
-        r = tree_multimap(
+        r = tree_map(
             lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad
         )  # r(n+1)
         return IntegratorState(z, r, potential_energy, z_grad)
@@ -784,7 +784,7 @@ def _combine_tree(
             trees[1].z_right_grad,
         ),
     )
-    r_sum = tree_multimap(jnp.add, current_tree.r_sum, new_tree.r_sum)
+    r_sum = tree_map(jnp.add, current_tree.r_sum, new_tree.r_sum)
 
     if biased_transition:
         transition_prob = _biased_transition_kernel(current_tree, new_tree)
@@ -1240,7 +1240,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
         a collection of `num_draws` samples with the same data structure as each subposterior.
     """
     # stack subposteriors
-    joined_subposteriors = tree_multimap(lambda *args: jnp.stack(args), *subposteriors)
+    joined_subposteriors = tree_map(lambda *args: jnp.stack(args), *subposteriors)
     # shape of joined_subposteriors: n_subs x n_samples x sample_shape
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(
         joined_subposteriors
@@ -1295,7 +1295,7 @@ def parametric(subposteriors, diagonal=False):
         `False` (using covariance).
     :return: the estimated mean and variance/covariance parameters of the joined posterior
     """
-    joined_subposteriors = tree_multimap(lambda *args: jnp.stack(args), *subposteriors)
+    joined_subposteriors = tree_map(lambda *args: jnp.stack(args), *subposteriors)
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(
         joined_subposteriors
     )

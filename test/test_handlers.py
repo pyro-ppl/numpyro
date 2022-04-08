@@ -5,7 +5,8 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
-from jax import jit, random, tree_multimap, value_and_grad, vmap
+import jax
+from jax import jit, random, tree_map, value_and_grad, vmap
 import jax.numpy as jnp
 
 import numpyro
@@ -434,7 +435,7 @@ def test_subsample_gradient(scale, subsample):
                 svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
             )
         )(params)
-        grads = tree_multimap(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        grads = tree_map(lambda *vals: vals[0] + vals[1], grads1, grads2)
         loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])
@@ -777,7 +778,7 @@ def test_subsample_fn():
         )
 
         # test that values are not duplicated
-        assert len(set(subsamples[k].copy())) == subsample_size
+        assert len(set(jax.device_get(subsamples[k]))) == subsample_size
 
 
 def test_sites_have_unique_names():
