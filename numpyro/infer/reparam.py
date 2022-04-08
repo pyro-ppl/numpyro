@@ -102,8 +102,12 @@ class LocScaleReparam(Reparam):
                 jnp.full(event_shape, 0.5),
                 constraint=constraints.unit_interval,
             )
-        params["loc"] = fn.loc * centered
-        params["scale"] = fn.scale**centered
+        if self.centered in [0, 0.]:
+            params["loc"] = jnp.zeros_like(fn.loc)
+            params["scale"] = jnp.ones_like(fn.scale)
+        else:
+            params["loc"] = fn.loc * centered
+            params["scale"] = fn.scale**centered
         decentered_fn = self._wrap(type(fn)(**params), expand_shape, event_dim)
 
         # Draw decentered noise.
