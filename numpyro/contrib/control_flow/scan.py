@@ -4,14 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import (
-    device_put,
-    lax,
-    random,
-    tree_flatten,
-    tree_map,
-    tree_unflatten
-)
+from jax import device_put, lax, random, tree_flatten, tree_map, tree_unflatten
 import jax.numpy as jnp
 
 from numpyro import handlers
