@@ -10,8 +10,6 @@ import warnings
 import numpy as np
 
 from jax import jit, lax, local_device_count, pmap, random, vmap
-from jax.core import Tracer
-from jax.interpreters.xla import DeviceArray
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
