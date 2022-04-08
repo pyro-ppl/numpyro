@@ -102,7 +102,7 @@ class LocScaleReparam(Reparam):
                 jnp.full(event_shape, 0.5),
                 constraint=constraints.unit_interval,
             )
-        if self.centered in [0, 0.]:
+        if self.centered in [0, 0.0]:
             params["loc"] = jnp.zeros_like(fn.loc)
             params["scale"] = jnp.ones_like(fn.scale)
         else:
