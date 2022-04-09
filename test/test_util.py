@@ -9,7 +9,7 @@ from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.test_util import check_eq
-from jax.tree_util import tree_flatten, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -82,10 +82,10 @@ def test_fori_collect_return_last(progbar):
 def test_ravel_pytree(pytree):
     flat, unravel_fn = ravel_pytree(pytree)
     unravel = unravel_fn(flat)
-    tree_flatten(tree_multimap(lambda x, y: assert_allclose(x, y), unravel, pytree))
+    tree_flatten(tree_map(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(
         tree_flatten(
-            tree_multimap(
+            tree_map(
                 lambda x, y: jnp.result_type(x) == jnp.result_type(y), unravel, pytree
             )
         )[0]

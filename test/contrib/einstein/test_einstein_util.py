@@ -9,7 +9,7 @@ import pytest
 import scipy
 
 from jax import numpy as jnp
-from jax.tree_util import tree_flatten, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.contrib.einstein.util import (
     batch_ravel_pytree,
@@ -94,10 +94,10 @@ def test_safe_norm(axis, ord):
 def test_ravel_pytree_batched(pytree, nbatch_dims):
     flat, _, unravel_fn = batch_ravel_pytree(pytree, nbatch_dims)
     unravel = unravel_fn(flat)
-    tree_flatten(tree_multimap(lambda x, y: assert_allclose(x, y), unravel, pytree))
+    tree_flatten(tree_map(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(
         tree_flatten(
-            tree_multimap(
+            tree_map(
                 lambda x, y: jnp.result_type(x) == jnp.result_type(y), unravel, pytree
             )
         )[0]
