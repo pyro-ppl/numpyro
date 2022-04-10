@@ -177,8 +177,12 @@ class NestedSampler:
         termination_kwargs=None,
     ):
         self.model = model
-        self.constructor_kwargs = constructor_kwargs if constructor_kwargs is not None else {}
-        self.termination_kwargs = termination_kwargs if termination_kwargs is not None else {}
+        self.constructor_kwargs = (
+            constructor_kwargs if constructor_kwargs is not None else {}
+        )
+        self.termination_kwargs = (
+            termination_kwargs if termination_kwargs is not None else {}
+        )
         self._samples = None
         self._log_weights = None
         self._results = None
@@ -230,8 +234,10 @@ class NestedSampler:
         loglik_fn_def = """def loglik_fn({}):\n
         \tparams = dict({})\n
         \treturn log_density_(reparam_model, args, kwargs, params)[0]
-        """.format(", ".join([f"{name}_base" for name in param_names]),
-                   ", ".join([f"{name}_base={name}_base" for name in param_names]))
+        """.format(
+            ", ".join([f"{name}_base" for name in param_names]),
+            ", ".join([f"{name}_base={name}_base" for name in param_names]),
+        )
         exec(loglik_fn_def, locals(), local_dict)
         loglik_fn = local_dict["loglik_fn"]
 
