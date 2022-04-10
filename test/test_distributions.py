@@ -879,6 +879,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     gamma_derived_params = {
         "Gamma": ["concentration"],
         "Beta": ["concentration1", "concentration0"],
+        "BetaProportion": ["mean", "concentration"],
         "Chi2": ["df"],
         "Dirichlet": ["concentration"],
         "InverseGamma": ["concentration"],
