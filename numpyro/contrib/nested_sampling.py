@@ -136,9 +136,6 @@ class NestedSampler:
        Joshua G. Albert (https://arxiv.org/abs/2012.15286)
 
     :param callable model: a call with NumPyro primitives
-    :param int max_samples: the maximum number of iterations and samples
-    :param int num_live_points: the number of live points. As a rule-of-thumb, we should
-        allocate around 50 live points per possible mode.
     :param dict constructor_kwargs: additional keyword arguments to construct an upstream
         :class:`jaxns.NestedSampler` instance.
     :param dict termination_kwargs: keyword arguments to terminate the sampler. Please
