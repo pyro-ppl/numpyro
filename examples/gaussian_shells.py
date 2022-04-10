@@ -22,7 +22,6 @@ import argparse
 
 import matplotlib.pyplot as plt
 
-import jax
 from jax import random
 import jax.numpy as jnp
 
