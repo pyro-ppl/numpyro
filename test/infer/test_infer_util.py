@@ -87,7 +87,7 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(1), 3000, data)
+    svi_result = svi.run(random.PRNGKey(1), 5000, data)
     params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(
         random.PRNGKey(2), data=None
