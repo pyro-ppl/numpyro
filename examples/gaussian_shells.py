@@ -63,9 +63,7 @@ def run_inference(args, data):
     print("=== Performing Nested Sampling ===")
     ns = NestedSampler(model)
     ns.run(random.PRNGKey(0), **data, enum=args.enum)
-    # TODO: Remove this condition when jaxns is compatible with the latest jax version.
-    if jax.__version__ < "0.2.21":
-        ns.print_summary()
+    ns.print_summary()
     # samples obtained from nested sampler are weighted, so
     # we need to provide random key to resample from those weighted samples
     ns_samples = ns.get_samples(random.PRNGKey(1), num_samples=args.num_samples)

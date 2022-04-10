@@ -69,7 +69,6 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
 
 
 @pytest.mark.parametrize("rho", [-0.7, 0.8])
-@pytest.mark.filterwarnings("ignore:.*tree_multimap:FutureWarning")
 def test_dense_mass(rho):
     true_cov = jnp.array([[10.0, rho], [rho, 0.1]])
 

@@ -7,12 +7,10 @@ from jax import nn, random, tree_util
 import jax.numpy as jnp
 
 try:
-    from jaxns.nested_sampler.nested_sampler import NestedSampler as OrigNestedSampler
-    from jaxns.nested_sampler.plotting import plot_cornerplot, plot_diagnostics
-    from jaxns.nested_sampler.utils import summary
-    from jaxns.prior_transforms.common import ContinuousPrior
+    from jaxns import NestedSampler as OrigNestedSampler
+    from jaxns import plot_cornerplot, plot_diagnostics, summary
+    from jaxns.prior_transforms import ContinuousPrior, PriorChain
     from jaxns.prior_transforms.prior import UniformBase
-    from jaxns.prior_transforms.prior_chain import PriorChain
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
@@ -116,6 +114,8 @@ class UniformReparam(Reparam):
         return None, transform(x)
 
 
+# TODO: Consider deprecating this wrapper. It might be better to only provide some
+# utilities to help converting a NumPyro model to a Jaxns loglikelihood function.
 class NestedSampler:
     """
     (EXPERIMENTAL) A wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_ ,
@@ -228,18 +228,15 @@ class NestedSampler:
         else:
             log_density_ = log_density
 
-        loglik_fn_def = """
-        def loglik_fn(**params):
-            return log_density_(reparam_model, args, kwargs, params)[0]
-        """
-
-        # Ref:
-        loglik_fn =
-        fakefunc_code = compile(fakefunc, "fakesource", "exec")
-        fakeglobals = {}
-        eval(fakefunc_code, {"real_func": f}, fakeglobals)
-        f_with_good_sig = fakeglobals["func"]
-
+        # Jaxns requires loglikelihood function to have explicit signatures.
+        local_dict = {}
+        loglik_fn_def = """def loglik_fn({}):\n
+        \tparams = dict({})\n
+        \treturn log_density_(reparam_model, args, kwargs, params)[0]
+        """.format(", ".join([f"{name}_base" for name in param_names]),
+                   ", ".join([f"{name}_base={name}_base" for name in param_names]))
+        exec(loglik_fn_def, locals(), local_dict)
+        loglik_fn = local_dict["loglik_fn"]
 
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
@@ -258,7 +255,7 @@ class NestedSampler:
         # Here we only transform the first valid num_samples samples
         # NB: the number of weighted samples obtained from jaxns is results.num_samples
         # and only the first num_samples values of results.samples are valid.
-        num_samples = results.num_samples
+        num_samples = results.total_num_samples
         samples = tree_util.tree_map(lambda x: x[:num_samples], results.samples)
         predictive = Predictive(
             reparam_model, samples, return_sites=param_names + deterministics
@@ -294,8 +291,8 @@ class NestedSampler:
                 "NestedSampler.run(...) method should be called first to obtain results."
             )
 
-        num_samples = self._results.num_samples
-        return self._results.samples, self._results.log_p[:num_samples]
+        num_samples = self._results.total_num_samples
+        return self._results.samples, self._results.log_dp_mean[:num_samples]
 
     def print_summary(self):
         """
