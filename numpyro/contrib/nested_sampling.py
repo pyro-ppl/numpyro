@@ -7,8 +7,12 @@ from jax import nn, random, tree_util
 import jax.numpy as jnp
 
 try:
-    from jaxns import NestedSampler as OrigNestedSampler
-    from jaxns import plot_cornerplot, plot_diagnostics, summary
+    from jaxns import (
+        NestedSampler as OrigNestedSampler,
+        plot_cornerplot,
+        plot_diagnostics,
+        summary,
+    )
     from jaxns.prior_transforms import ContinuousPrior, PriorChain
     from jaxns.prior_transforms.prior import UniformBase
 except ImportError as e:
