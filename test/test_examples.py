@@ -38,6 +38,7 @@ EXAMPLES = [
     "horseshoe_regression.py --num-samples 10 --num-warmup 10 --num-data 5",
     "hsgp.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "minipyro.py",
+    "mortality.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "neutra.py --num-samples 100 --num-warmup 100",
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
     "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
