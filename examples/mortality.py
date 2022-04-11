@@ -224,8 +224,8 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith("0.8.0")
 
     parser = argparse.ArgumentParser(description="Mortality regression model")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=100, type=int)
-    parser.add_argument("--num-warmup", nargs="?", default=50, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
+    parser.add_argument("--num-warmup", nargs="?", default=200, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     parser.add_argument(
