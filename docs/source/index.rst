@@ -72,6 +72,7 @@ NumPyro documentation
    examples/ssbvm_mixture
    examples/ar2
    examples/holt_winters
+   examples/mortality
 
 
 Indices and tables
