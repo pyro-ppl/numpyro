@@ -157,7 +157,7 @@ class Distribution(metaclass=DistributionMeta):
             raise ValueError
         Distribution._validate_args = value
 
-    def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
+    def __init__(self, batch_shape=(), event_shape=(), *, validate_args=None):
         self._batch_shape = batch_shape
         self._event_shape = event_shape
         if validate_args is not None:
@@ -566,7 +566,7 @@ class ExpandedDistribution(Distribution):
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
             sample_shape,
-        )
+        )[0]
 
     @property
     def support(self):
@@ -679,7 +679,7 @@ class ImproperUniform(Distribution):
     arg_constraints = {}
     support = constraints.dependent
 
-    def __init__(self, support, batch_shape, event_shape, validate_args=None):
+    def __init__(self, support, batch_shape, event_shape, *, validate_args=None):
         self.support = constraints.independent(
             support, len(event_shape) - support.event_dim
         )
@@ -733,7 +733,7 @@ class Independent(Distribution):
 
     arg_constraints = {}
 
-    def __init__(self, base_dist, reinterpreted_batch_ndims, validate_args=None):
+    def __init__(self, base_dist, reinterpreted_batch_ndims, *, validate_args=None):
         if reinterpreted_batch_ndims > len(base_dist.batch_shape):
             raise ValueError(
                 "Expected reinterpreted_batch_ndims <= len(base_distribution.batch_shape), "
@@ -762,8 +762,8 @@ class Independent(Distribution):
         return self.base_dist.has_enumerate_support
 
     @property
-    def reparameterized_params(self):
-        return self.base_dist.reparameterized_params
+    def reparametrized_params(self):
+        return self.base_dist.reparametrized_params
 
     @property
     def mean(self):
@@ -921,7 +921,7 @@ class TransformedDistribution(Distribution):
 
     arg_constraints = {}
 
-    def __init__(self, base_distribution, transforms, validate_args=None):
+    def __init__(self, base_distribution, transforms, *, validate_args=None):
         if isinstance(transforms, Transform):
             transforms = [transforms]
         elif isinstance(transforms, list):
@@ -1063,7 +1063,7 @@ class FoldedDistribution(TransformedDistribution):
 
     support = constraints.positive
 
-    def __init__(self, base_dist, validate_args=None):
+    def __init__(self, base_dist, *, validate_args=None):
         if base_dist.event_shape:
             raise ValueError("Only univariate distributions can be folded.")
         super().__init__(base_dist, AbsTransform(), validate_args=validate_args)
@@ -1092,7 +1092,7 @@ class Delta(Distribution):
     }
     reparametrized_params = ["v", "log_density"]
 
-    def __init__(self, v=0.0, log_density=0.0, event_dim=0, validate_args=None):
+    def __init__(self, v=0.0, log_density=0.0, event_dim=0, *, validate_args=None):
         if event_dim > jnp.ndim(v):
             raise ValueError(
                 "Expected event_dim <= v.dim(), actual {} vs {}".format(
@@ -1151,7 +1151,7 @@ class Unit(Distribution):
     arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
 
-    def __init__(self, log_factor, validate_args=None):
+    def __init__(self, log_factor, *, validate_args=None):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
         self.log_factor = log_factor

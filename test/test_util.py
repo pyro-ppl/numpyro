@@ -9,7 +9,7 @@ from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.test_util import check_eq
-from jax.tree_util import tree_flatten, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -82,10 +82,10 @@ def test_fori_collect_return_last(progbar):
 def test_ravel_pytree(pytree):
     flat, unravel_fn = ravel_pytree(pytree)
     unravel = unravel_fn(flat)
-    tree_flatten(tree_multimap(lambda x, y: assert_allclose(x, y), unravel, pytree))
+    tree_flatten(tree_map(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(
         tree_flatten(
-            tree_multimap(
+            tree_map(
                 lambda x, y: jnp.result_type(x) == jnp.result_type(y), unravel, pytree
             )
         )[0]
@@ -261,7 +261,8 @@ def test_check_model_guide_match():
 def test_missing_plate_in_model():
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))
-        numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones(10))
+        with numpyro.plate("N", 10, dim=-2):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones((10, 2)))
 
     def guide():
         numpyro.sample("x", dist.Normal(0, 1))

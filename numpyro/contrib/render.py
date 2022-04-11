@@ -8,9 +8,12 @@ import jax
 
 from numpyro import handlers
 import numpyro.distributions as dist
+from numpyro.infer.initialization import init_to_sample
+from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provenance
+from numpyro.ops.pytree import PytreeTrace
 
 
-def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10):
+def get_model_relations(model, model_args=None, model_kwargs=None):
     """
     Infer relations of RVs and plates from given model and optionally data.
     See https://github.com/pyro-ppl/numpyro/issues/949 for more details.
@@ -19,7 +22,11 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
 
     -  "sample_sample" map each downstream sample site to a list of the upstream
        sample sites on which it depend;
+    -  "sample_param" map each downstream sample site to a list of the upstream
+       param sites on which it depend;
     -  "sample_dist" maps each sample site to the name of the distribution at
+       that site;
+    -  "param_constraint" maps each param site to the name of the constraints at
        that site;
     -  "plate_sample" maps each plate name to a lists of the sample sites
        within that plate; and
@@ -43,21 +50,10 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     :param callable model: A model to inspect.
     :param model_args: Optional tuple of model args.
     :param model_kwargs: Optional dict of model kwargs.
-    :param int num_tries: Optional number times to trace model to detect
-        discrete -> continuous dependency.
     :rtype: dict
     """
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
-
-    trace = handlers.trace(handlers.seed(model, 0)).get_trace(
-        *model_args, **model_kwargs
-    )
-    obs_sites = [
-        name
-        for name, site in trace.items()
-        if site["type"] == "sample" and site["is_observed"]
-    ]
 
     def _get_dist_name(fn):
         if isinstance(
@@ -66,8 +62,31 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
             return _get_dist_name(fn.base_dist)
         return type(fn).__name__
 
+    def get_trace():
+        # We use `init_to_sample` to get around ImproperUniform distribution,
+        # which does not have `sample` method.
+        subs_model = handlers.substitute(
+            handlers.seed(model, 0),
+            substitute_fn=init_to_sample,
+        )
+        trace = handlers.trace(subs_model).get_trace(*model_args, **model_kwargs)
+        # Work around an issue where jax.eval_shape does not work
+        # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
+        # Here we will remove `fn` and store its name in the trace.
+        for name, site in trace.items():
+            if site["type"] == "sample":
+                site["fn_name"] = _get_dist_name(site.pop("fn"))
+        return PytreeTrace(trace)
+
+    # We use eval_shape to avoid any array computation.
+    trace = jax.eval_shape(get_trace).trace
+    obs_sites = [
+        name
+        for name, site in trace.items()
+        if site["type"] == "sample" and site["is_observed"]
+    ]
     sample_dist = {
-        name: _get_dist_name(site["fn"])
+        name: site["fn_name"]
         for name, site in trace.items()
         if site["type"] == "sample"
     }
@@ -99,8 +118,9 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         k: [name for name in trace if name in v] for k, v in plate_samples.items()
     }
 
-    def get_log_probs(sample, seed=0):
-        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(
+    def get_log_probs(sample):
+        # Note: We use seed 0 for parameter initialization.
+        with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
             data=sample
         ):
             model(*model_args, **model_kwargs)
@@ -111,57 +131,57 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         }
 
     samples = {
-        name: site["value"]
+        name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
-        if site["type"] == "sample"
-        and not site["is_observed"]
-        and not site["fn"].is_discrete
+        if (site["type"] == "sample" and not site["is_observed"])
     }
-    if samples:
-        log_prob_grads = jax.jacobian(get_log_probs)(samples)
-    else:
-        log_prob_grads = {k: {} for k in get_log_probs(samples)}
-    sample_deps = {}
-    for name, grads in log_prob_grads.items():
-        sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}
 
-    # find discrete -> continuous dependency
-    samples = {
-        name: site["value"] for name, site in trace.items() if site["type"] == "sample"
-    }
-    discrete_sites = [
-        name
+    params = {
+        name: jax.tree_util.tree_map(
+            lambda x: ProvenanceArray(x, frozenset({name})), site["value"]
+        )
         for name, site in trace.items()
-        if site["type"] == "sample"
-        and not site["is_observed"]
-        and site["fn"].is_discrete
-    ]
-    log_probs_prototype = get_log_probs(samples)
-    for name in discrete_sites:
-        samples_ = samples.copy()
-        samples_.pop(name)
-        for i in range(num_tries):
-            log_probs = get_log_probs(samples_, seed=i + 1)
-            for var in samples:
-                if var == name:
-                    continue
-                if (log_probs[var] != log_probs_prototype[var]).any():
-                    sample_deps[var] |= {name}
+        if site["type"] == "param"
+    }
+
+    sample_and_params = {**samples, **params}
+    sample_params_deps = get_provenance(
+        eval_provenance(get_log_probs, sample_and_params)
+    )
+
     sample_sample = {}
-    for name in samples:
-        sample_sample[name] = [var for var in samples if var in sample_deps[name]]
+    sample_param = {}
+    for name in sample_dist:
+        sample_sample[name] = [
+            var
+            for var in sample_dist
+            if var in sample_params_deps[name] and var != name
+        ]
+        sample_param[name] = [var for var in sample_params_deps[name] if var in params]
+
+    param_constraint = {}
+    for param in params:
+        if "constraint" in trace[param]["kwargs"]:
+            param_constraint[param] = str(trace[param]["kwargs"]["constraint"])
+        else:
+            param_constraint[param] = ""
+
     return {
         "sample_sample": sample_sample,
+        "sample_param": sample_param,
         "sample_dist": sample_dist,
+        "param_constraint": param_constraint,
         "plate_sample": plate_samples,
         "observed": obs_sites,
     }
 
 
-def generate_graph_specification(model_relations):
+def generate_graph_specification(model_relations, render_params=False):
     """
     Convert model relations into data structure which can be readily
     converted into a network.
+
+    :param bool render_params: Whether to add nodes of params.
     """
     # group nodes by plate
     plate_groups = dict(model_relations["plate_sample"])
@@ -170,6 +190,14 @@ def generate_graph_specification(model_relations):
         rv for rv in model_relations["sample_sample"] if rv not in plate_rvs
     ]  # RVs which are in no plate
 
+    # get set of params
+    params = set()
+    if render_params:
+        for rv, params_list in model_relations["sample_param"].items():
+            for param in params_list:
+                params.add(param)
+        plate_groups[None].extend(params)
+
     # retain node metadata
     node_data = {}
     for rv in model_relations["sample_sample"]:
@@ -177,6 +205,14 @@ def generate_graph_specification(model_relations):
             "is_observed": rv in model_relations["observed"],
             "distribution": model_relations["sample_dist"][rv],
         }
+
+    if render_params:
+        for param, constraint in model_relations["param_constraint"].items():
+            node_data[param] = {
+                "is_observed": False,
+                "constraint": constraint,
+                "distribution": None,
+            }
 
     # infer plate structure
     # (when the order of plates cannot be determined from subset relations,
@@ -202,6 +238,10 @@ def generate_graph_specification(model_relations):
     edge_list = []
     for target, source_list in model_relations["sample_sample"].items():
         edge_list.extend([(source, target) for source in source_list])
+
+    if render_params:
+        for target, source_list in model_relations["sample_param"].items():
+            edge_list.extend([(source, target) for source in source_list])
 
     return {
         "plate_groups": plate_groups,
@@ -251,8 +291,21 @@ def render_graph(graph_specification, render_distributions=False):
 
         for rv in rv_list:
             color = "grey" if node_data[rv]["is_observed"] else "white"
+
+            # For sample_nodes - ellipse
+            if node_data[rv]["distribution"]:
+                shape = "ellipse"
+                rv_label = rv
+
+            # For param_nodes - No shape
+            else:
+                shape = "plain"
+                rv_label = rv.replace(
+                    "$params", ""
+                )  # incase of neural network parameters
+
             cur_graph.node(
-                rv, label=rv, shape="ellipse", style="filled", fillcolor=color
+                rv, label=rv_label, shape=shape, style="filled", fillcolor=color
             )
 
     # add leaf nodes first
@@ -275,12 +328,16 @@ def render_graph(graph_specification, render_distributions=False):
     for source, target in edge_list:
         graph.edge(source, target)
 
-    # render distributions if requested
+    # render distributions and constraints if requested
     if render_distributions:
         dist_label = ""
         for rv, data in node_data.items():
             rv_dist = data["distribution"]
-            dist_label += rf"{rv} ~ {rv_dist}\l"
+            if rv_dist:
+                dist_label += rf"{rv} ~ {rv_dist}\l"
+
+            if "constraint" in data and data["constraint"]:
+                dist_label += rf"{rv} ∈ {data['constraint']}\l"
 
         graph.node("distribution_description_node", label=dist_label, shape="plaintext")
 
@@ -294,28 +351,29 @@ def render_model(
     model_kwargs=None,
     filename=None,
     render_distributions=False,
-    num_tries=10,
+    render_params=False,
 ):
     """
     Wrap all functions needed to automatically render a model.
 
     .. warning:: This utility does not support the
-        :func:`~numpyro.contrib.control_flow.scan` primitive yet.
-
-    .. warning:: Currently, this utility uses a heuristic approach,
-        which will work for most cases, to detect dependencies in a NumPyro model.
+        :func:`~numpyro.contrib.control_flow.scan` primitive.
+        If you want to render a time-series model, you can try
+        to rewrite the code using Python for loop.
 
     :param model: Model to render.
     :param model_args: Positional arguments to pass to the model.
     :param model_kwargs: Keyword arguments to pass to the model.
     :param str filename: File to save rendered model in.
     :param bool render_distributions: Whether to include RV distribution annotations in the plot.
-    :param int num_tries: Times to trace model to detect discrete -> continuous dependency.
+    :param bool render_params: Whether to show params in the plot.
     """
     relations = get_model_relations(
-        model, model_args=model_args, model_kwargs=model_kwargs, num_tries=num_tries
+        model,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
     )
-    graph_spec = generate_graph_specification(relations)
+    graph_spec = generate_graph_specification(relations, render_params=render_params)
     graph = render_graph(graph_spec, render_distributions=render_distributions)
 
     if filename is not None:

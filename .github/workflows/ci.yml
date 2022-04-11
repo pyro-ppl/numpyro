@@ -26,10 +26,10 @@ jobs:
       run: |
         sudo apt install -y pandoc gsfonts
         python -m pip install --upgrade pip
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[doc,test]
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
     - name: Lint with flake8
@@ -64,10 +64,10 @@ jobs:
         python -m pip install --upgrade pip
         # Keep track of pyro-api master branch
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[dev,test]
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip freeze
     - name: Test with pytest
       run: |
@@ -93,10 +93,10 @@ jobs:
         python -m pip install --upgrade pip
         # Keep track of pyro-api master branch
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[dev,test]
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip freeze
     - name: Test with pytest
       run: |
@@ -129,11 +129,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[dev,examples,test]
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip freeze
     - name: Test with pytest
       run: |
-        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example
+        CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example

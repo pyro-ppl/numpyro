@@ -256,11 +256,11 @@ def test_scan_enum_one_latent(num_steps):
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[
         0
     ]
-    assert_allclose(actual_log_joint, expected_log_joint)
+    assert_allclose(actual_log_joint, expected_log_joint, rtol=1e-6)
 
     actual_last_x = enum(config_enumerate(fun_model))(data)
     expected_last_x = enum(config_enumerate(model))(data)
-    assert_allclose(actual_last_x, expected_last_x)
+    assert_allclose(actual_last_x, expected_last_x, rtol=1e-6)
 
 
 def test_scan_enum_plate():
@@ -544,7 +544,7 @@ def test_missing_plate(monkeypatch):
 
     nuts_kernel = NUTS(gmm)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
-    with pytest.raises(AssertionError, match="Missing plate statement"):
+    with pytest.raises(ValueError, match="Missing a plate statement"):
         mcmc.run(random.PRNGKey(2), data)
 
     monkeypatch.setattr(numpyro.infer.util, "_validate_model", lambda model_trace: None)

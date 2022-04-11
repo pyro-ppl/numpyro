@@ -99,7 +99,7 @@ class VonMises(Distribution):
     reparametrized_params = ["loc"]
     support = constraints.circular
 
-    def __init__(self, loc, concentration, validate_args=None):
+    def __init__(self, loc, concentration, *, validate_args=None):
         """von Mises distribution for sampling directions.
 
         :param loc: center of distribution
@@ -217,7 +217,7 @@ class SineSkewed(Distribution):
 
     support = constraints.independent(constraints.circular, 1)
 
-    def __init__(self, base_dist: Distribution, skewness, validate_args=None):
+    def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
         assert (
             base_dist.event_shape == skewness.shape[-1:]
         ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
@@ -357,15 +357,6 @@ class SineBivariateVonMises(Distribution):
                 + 1e-8
             )
 
-        (
-            self.phi_loc,
-            self.psi_loc,
-            self.phi_concentration,
-            self.psi_concentration,
-            self.correlation,
-        ) = promote_shapes(
-            phi_loc, psi_loc, phi_concentration, psi_concentration, correlation
-        )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(phi_loc),
             jnp.shape(psi_loc),
@@ -373,7 +364,28 @@ class SineBivariateVonMises(Distribution):
             jnp.shape(psi_concentration),
             jnp.shape(correlation),
         )
-        super().__init__(batch_shape, (2,), validate_args)
+        (
+            self.phi_loc,
+            self.psi_loc,
+            self.phi_concentration,
+            self.psi_concentration,
+            self.correlation,
+        ) = promote_shapes(
+            phi_loc,
+            psi_loc,
+            phi_concentration,
+            psi_concentration,
+            correlation,
+            shape=batch_shape,
+        )
+
+        super().__init__(batch_shape, (2,), validate_args=validate_args)
+
+        self.phi_loc = jnp.broadcast_to(self.phi_loc, batch_shape)
+        self.psi_loc = jnp.broadcast_to(self.psi_loc, batch_shape)
+        self.phi_concentration = jnp.broadcast_to(self.phi_concentration, batch_shape)
+        self.psi_concentration = jnp.broadcast_to(self.psi_concentration, batch_shape)
+        self.correlation = jnp.broadcast_to(self.correlation, batch_shape)
 
     @lazy_property
     def norm_const(self):
@@ -420,7 +432,7 @@ class SineBivariateVonMises(Distribution):
         corr = self.correlation
         conc = jnp.stack((self.phi_concentration, self.psi_concentration))
 
-        eig = 0.5 * (conc[0] - corr ** 2 / conc[1])
+        eig = 0.5 * (conc[0] - corr**2 / conc[1])
         eig = jnp.stack((jnp.zeros_like(eig), eig))
         eigmin = jnp.where(eig[1] < 0, eig[1], jnp.zeros_like(eig[1], dtype=eig.dtype))
         eig = eig - eigmin
@@ -443,17 +455,19 @@ class SineBivariateVonMises(Distribution):
 
         phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
 
-        alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
-        beta = jnp.arctan(corr / conc[1] * jnp.sin(phi))
+        alpha = jnp.sqrt(
+            conc[1].reshape(-1) ** 2 + (corr.reshape(-1) * jnp.sin(phi)) ** 2
+        )
+        beta = jnp.arctan(corr.reshape(-1) / conc[1].reshape(-1) * jnp.sin(phi))
 
         psi = VonMises(beta, alpha).sample(psi_key)
 
         phi_psi = jnp.concatenate(
             (
-                (phi + self.phi_loc + pi) % (2 * pi) - pi,
-                (psi + self.psi_loc + pi) % (2 * pi) - pi,
+                (phi + jnp.reshape(self.phi_loc, -1) + pi) % (2 * pi) - pi,
+                (psi + jnp.reshape(self.psi_loc, -1) + pi) % (2 * pi) - pi,
             ),
-            axis=1,
+            axis=-1,
         )
         phi_psi = jnp.transpose(phi_psi, (0, 2, 1))
         return phi_psi.reshape(*sample_shape, *self.batch_shape, *self.event_shape)
@@ -487,7 +501,7 @@ class SineBivariateVonMises(Distribution):
             assert lf.shape == shape
 
             lg_inv = (
-                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x ** 2).sum(1, keepdims=True))
+                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1, keepdims=True))
             )
             assert lg_inv.shape == lf.shape
 
@@ -627,7 +641,7 @@ def _projected_normal_log_prob_2(concentration, value):
     # Integrate[x/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = (t + Sqrt[2/Pi]/E^(t^2/2) + t Erf[t/Sqrt[2]])/2
     para_part = jnp.log(
-        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5 ** 0.5)))
+        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5**0.5)))
         / 2
     )
 
@@ -651,7 +665,7 @@ def _projected_normal_log_prob_3(concentration, value):
     # = t/(E^(t^2/2) Sqrt[2 Pi]) + ((1 + t^2) (1 + Erf[t/Sqrt[2]]))/2
     para_part = jnp.log(
         t * jnp.exp((-0.5) * t2) / (2 * math.pi) ** 0.5
-        + (1 + t2) * (1 + erf(t * 0.5 ** 0.5)) / 2
+        + (1 + t2) * (1 + erf(t * 0.5**0.5)) / 2
     )
 
     return para_part + perp_part

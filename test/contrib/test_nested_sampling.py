@@ -22,8 +22,8 @@ def get_moments(x):
     xxx = x * xx
     xxxx = xx * xx
     m2 = jnp.mean(xx, axis=0)
-    m3 = jnp.mean(xxx, axis=0) / m2 ** 1.5
-    m4 = jnp.mean(xxxx, axis=0) / m2 ** 2
+    m3 = jnp.mean(xxx, axis=0) / m2**1.5
+    m4 = jnp.mean(xxxx, axis=0) / m2**2
     return jnp.stack([m1, m2, m3, m4])
 
 
@@ -69,6 +69,7 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
 
 
 @pytest.mark.parametrize("rho", [-0.7, 0.8])
+@pytest.mark.filterwarnings("ignore:.*tree_multimap:FutureWarning")
 def test_dense_mass(rho):
     true_cov = jnp.array([[10.0, rho], [rho, 0.1]])
 

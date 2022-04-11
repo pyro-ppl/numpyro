@@ -14,13 +14,18 @@ import scipy
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import grad, lax, tree_map, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
 
 import numpyro.distributions as dist
-from numpyro.distributions import constraints, kl_divergence, transforms
+from numpyro.distributions import (
+    SineBivariateVonMises,
+    constraints,
+    kl_divergence,
+    transforms,
+)
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -196,6 +201,9 @@ class FoldedNormal(dist.FoldedDistribution):
 
 
 _DIST_MAP = {
+    dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
+        asymmetry, loc=loc, scale=scale
+    ),
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
     dist.Beta: lambda con1, con0: osp.beta(con1, con0),
@@ -253,6 +261,17 @@ def get_sp_dist(jax_dist):
 
 
 CONTINUOUS = [
+    T(dist.AsymmetricLaplace, 1.0, 0.5, 1.0),
+    T(dist.AsymmetricLaplace, np.array([1.0, 2.0]), 2.0, 2.0),
+    T(dist.AsymmetricLaplace, np.array([[1.0], [2.0]]), 2.0, np.array([3.0, 5.0])),
+    T(dist.AsymmetricLaplaceQuantile, 0.0, 1.0, 0.5),
+    T(dist.AsymmetricLaplaceQuantile, np.array([1.0, 2.0]), 2.0, 0.7),
+    T(
+        dist.AsymmetricLaplaceQuantile,
+        np.array([[1.0], [2.0]]),
+        2.0,
+        np.array([0.2, 0.8]),
+    ),
     T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1.0, np.array([2.0, 2.0])),
     T(dist.Beta, 1.0, np.array([[1.0, 1.0], [2.0, 2.0]])),
@@ -285,6 +304,9 @@ CONTINUOUS = [
     T(_ImproperWrapper, constraints.positive, (), (3,)),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.0], [3.0]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
+    T(dist.Kumaraswamy, 10.0, np.array([2.0, 3.0])),
+    T(dist.Kumaraswamy, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Kumaraswamy, 0.6, 0.5),
     T(dist.Laplace, 0.0, 1.0),
     T(dist.Laplace, 0.5, np.array([1.0, 2.5])),
     T(dist.Laplace, np.array([1.0, -0.5]), np.array([2.3, 3.0])),
@@ -416,6 +438,8 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, np.array([1.0, 0.5]), np.array([0.3, 2.0])),
     T(dist.Pareto, np.array([[1.0], [3.0]]), np.array([1.0, 0.5])),
+    T(dist.RelaxedBernoulliLogits, 2.0, -10.0),
+    T(dist.RelaxedBernoulliLogits, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
     T(dist.SoftLaplace, 1.0, 1.0),
     T(dist.SoftLaplace, np.array([-1.0, 50.0]), np.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
@@ -603,6 +627,7 @@ DISCRETE = [
     T(dist.Poisson, np.array([2.0, 3.0, 5.0])),
     T(SparsePoisson, 2.0),
     T(SparsePoisson, np.array([2.0, 3.0, 5.0])),
+    T(SparsePoisson, 2),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
     T(dist.ZeroInflatedPoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
     T(ZeroInflatedPoissonLogits, 2.0, 3.0),
@@ -755,7 +780,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
-    assert isinstance(samples, jax.interpreters.xla.DeviceArray)
+    assert isinstance(samples, jnp.ndarray)
     assert jnp.shape(samples) == expected_shape
     if (
         sp_dist
@@ -854,6 +879,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     gamma_derived_params = {
         "Gamma": ["concentration"],
         "Beta": ["concentration1", "concentration0"],
+        "BetaProportion": ["mean", "concentration"],
         "Chi2": ["df"],
         "Dirichlet": ["concentration"],
         "InverseGamma": ["concentration"],
@@ -874,23 +900,23 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     params_dict = dict(zip(dist_args[: len(params)], params))
 
     jax_class = type(jax_dist(**params_dict))
-    reparameterized_params = [
+    reparametrized_params = [
         p for p in jax_class.reparametrized_params if p not in gamma_derived_params
     ]
-    if not reparameterized_params:
+    if not reparametrized_params:
         pytest.skip("{} not reparametrized.".format(jax_class.__name__))
 
     nonrepara_params_dict = {
-        k: v for k, v in params_dict.items() if k not in reparameterized_params
+        k: v for k, v in params_dict.items() if k not in reparametrized_params
     }
     repara_params = tuple(
-        v for k, v in params_dict.items() if k in reparameterized_params
+        v for k, v in params_dict.items() if k in reparametrized_params
     )
 
     rng_key = random.PRNGKey(0)
 
     def fn(args):
-        args_dict = dict(zip(reparameterized_params, args))
+        args_dict = dict(zip(reparametrized_params, args))
         return jnp.sum(
             jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key)
         )
@@ -931,11 +957,11 @@ def test_pathwise_gradient(jax_dist, params):
 
     def f(params):
         z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
-        return (z + z ** 2).mean(0)
+        return (z + z**2).mean(0)
 
     def g(params):
         d = jax_dist(*params)
-        return d.mean + d.variance + d.mean ** 2
+        return d.mean + d.variance + d.mean**2
 
     actual_grad = grad(f)(params)
     expected_grad = grad(g)(params)
@@ -962,7 +988,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 
     expected = log_likelihood(*params)
     actual = jax.jit(log_likelihood)(*params)
-    assert_allclose(actual, expected, atol=2e-5)
+    assert_allclose(actual, expected, atol=2e-5, rtol=2e-5)
 
 
 @pytest.mark.parametrize(
@@ -1021,7 +1047,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     except ValueError as e:
         # precision issue: jnp.sum(x / jnp.sum(x)) = 0.99999994 != 1
         if "The input vector 'x' must lie within the normal simplex." in str(e):
-            samples = samples.copy().astype("float64")
+            samples = jax.device_get(samples).astype("float64")
             samples = samples / samples.sum(axis=-1, keepdims=True)
             expected = sp_dist.logpdf(samples)
         else:
@@ -1125,7 +1151,7 @@ def test_independent_shape(jax_dist, sp_dist, params):
 
 def _tril_cholesky_to_tril_corr(x):
     w = vec_to_tril_matrix(x, diagonal=-1)
-    diag = jnp.sqrt(1 - jnp.sum(w ** 2, axis=-1))
+    diag = jnp.sqrt(1 - jnp.sum(w**2, axis=-1))
     cholesky = w + jnp.expand_dims(diag, axis=-1) * jnp.identity(w.shape[-1])
     corr = jnp.matmul(cholesky, cholesky.T)
     return matrix_to_tril_vec(corr, diagonal=-1)
@@ -1334,6 +1360,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if jax_dist is dist.RelaxedBernoulliLogits:
+        pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
@@ -1421,7 +1449,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         # circular variance
         x, y = jnp.mean(jnp.cos(samples), 0), jnp.mean(jnp.sin(samples), 0)
 
-        expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
+        expected_variance = 1 - jnp.sqrt(x**2 + y**2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
     elif jax_dist in [dist.SineBivariateVonMises]:
         phi_loc = _circ_mean(samples[..., 0])
@@ -1794,7 +1822,7 @@ def test_biject_to(constraint, shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert_allclose(x, z, atol=1e-5, rtol=1e-5)
 
     # test domain, currently all is constraints.real or constraints.real_vector
     assert_array_equal(transform.domain(z), jnp.ones(batch_shape))
@@ -1859,8 +1887,8 @@ def test_biject_to(constraint, shape):
             expected = jnp.log(jnp.abs(grad(transform)(x)))
             inv_expected = jnp.log(jnp.abs(grad(transform.inv)(y)))
 
-        assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
-        assert_allclose(actual, -inv_expected, atol=1e-6, rtol=1e-6)
+        assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+        assert_allclose(actual, -inv_expected, atol=1e-5, rtol=1e-5)
 
 
 # NB: skip transforms which are tested in `test_biject_to`
@@ -2182,6 +2210,21 @@ def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
     assert_allclose(samples.mean(0), expected_mean, atol=0.1)
 
 
+@pytest.mark.parametrize("batch_shape", [(), (4,), (10, 3)])
+def test_sine_bivariate_von_mises_batch_shape(batch_shape):
+    phi_loc = jnp.broadcast_to(jnp.array(0.0), batch_shape)
+    psi_loc = jnp.array(0.0)
+    phi_conc = jnp.array(1.0)
+    psi_conc = jnp.array(1.0)
+    corr = jnp.array(0.1)
+
+    sine = SineBivariateVonMises(phi_loc, psi_loc, phi_conc, psi_conc, corr)
+    assert sine.batch_shape == batch_shape
+
+    samples = sine.sample(random.PRNGKey(0))
+    assert samples.shape == (*batch_shape, 2)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
 def test_polya_gamma(batch_shape, num_points=20000):
     d = dist.TruncatedPolyaGamma(batch_shape=batch_shape)
@@ -2293,7 +2336,7 @@ def test_expand_pytree():
         return dist.Normal(x, 1).expand([10, 3])
 
     assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
-    assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
+    assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
@@ -2333,9 +2376,33 @@ def test_kl_expanded_normal(batch_shape, event_shape):
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
-def test_kl_normal_normal(shape):
-    p = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
-    q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+@pytest.mark.parametrize(
+    "p_dist, q_dist",
+    [
+        (dist.Beta, dist.Beta),
+        (dist.Gamma, dist.Gamma),
+        (dist.Kumaraswamy, dist.Beta),
+        (dist.Normal, dist.Normal),
+        (dist.Weibull, dist.Gamma),
+    ],
+)
+def test_kl_univariate(shape, p_dist, q_dist):
+    def make_dist(dist_class):
+        params = {}
+        for k, c in dist_class.arg_constraints.items():
+            if c is constraints.real:
+                params[k] = np.random.normal(size=shape)
+            elif c is constraints.positive:
+                params[k] = np.exp(np.random.normal(size=shape))
+            else:
+                raise ValueError(f"Missing pattern for param {k}.")
+        d = dist_class(**params)
+        if dist_class is dist.Kumaraswamy:
+            d.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
+        return d
+
+    p = make_dist(p_dist)
+    q = make_dist(q_dist)
     actual = kl_divergence(p, q)
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)

@@ -41,10 +41,22 @@ EXAMPLES = [
     "mortality.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "neutra.py --num-samples 100 --num-warmup 100",
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
-    "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
-    "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+    pytest.param(
+        "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="This example requires a lot of memory."
+        ),
+    ),
+    pytest.param(
+        "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="This example requires a lot of memory."
+        ),
+    ),
     "sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10",
     "ssbvm_mixture.py --num-samples 10 --num-warmup 10",
+    "stein_bnn.py --max-iter 10 --subsample-size 10 --num-particles 5",
+    "stein_dmm.py --max-iter 5 --subsample-size 77 --gru-dim 10",
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
     "ucbadmit.py --num-chains 2",
     "vae.py -n 1",

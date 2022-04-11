@@ -10,7 +10,8 @@ import warnings
 import numpy as np
 
 import jax
-from jax import grad, hessian, lax, random, tree_map
+from jax import grad, hessian, lax, random
+from jax.tree_util import tree_map
 
 from numpyro.util import _versiontuple, find_stack_level
 
@@ -147,17 +148,19 @@ class AutoGuide(ABC):
         with handlers.block():
             (
                 init_params,
-                self._potential_fn,
-                postprocess_fn,
+                self._potential_fn_gen,
+                postprocess_fn_gen,
                 self.prototype_trace,
             ) = initialize_model(
                 rng_key,
                 self.model,
                 init_strategy=self.init_loc_fn,
-                dynamic_args=False,
+                dynamic_args=True,
                 model_args=args,
                 model_kwargs=kwargs,
             )
+        self._potential_fn = self._potential_fn_gen(*args, **kwargs)
+        postprocess_fn = postprocess_fn_gen(*args, **kwargs)
         # We apply a fixed seed just in case postprocess_fn requires
         # a random key to generate subsample indices. It does not matter
         # because we only collect deterministic sites.
@@ -831,7 +834,7 @@ class AutoDAIS(AutoContinuous):
             p_grad = beta * grad(log_density)(z_half)
             v_hat = v_prev + eta * (q_grad + p_grad)
             z = z_half + v_hat * eta * inv_mass_matrix
-            v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+            v = gamma * v_hat + jnp.sqrt(1 - gamma**2) * eps
             delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(v_hat)
             log_factor = log_factor + delta_ke
             return (z, v, log_factor), None
@@ -882,16 +885,7 @@ class AutoDiagonalNormal(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -952,16 +946,7 @@ class AutoMultivariateNormal(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -1026,16 +1011,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         rank=None,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -1045,7 +1021,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         )
 
     def _get_posterior(self, *args, **kwargs):
-        rank = int(round(self.latent_dim ** 0.5)) if self.rank is None else self.rank
+        rank = int(round(self.latent_dim**0.5)) if self.rank is None else self.rank
         loc = numpyro.param("{}_loc".format(self.prefix), self._init_latent)
         cov_factor = numpyro.param(
             "{}_cov_factor".format(self.prefix), jnp.zeros((self.latent_dim, rank))
@@ -1229,16 +1205,7 @@ class AutoIAFNormal(AutoContinuous):
         hidden_dims=None,
         skip_connections=False,
         nonlinearity=stax.Elu,
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
         # IAF paper (https://arxiv.org/abs/1606.04934)
@@ -1316,16 +1283,7 @@ class AutoBNAFNormal(AutoContinuous):
         init_loc_fn=init_to_uniform,
         num_flows=1,
         hidden_factors=[8, 8],
-        init_strategy=None,
     ):
-        if init_strategy is not None:
-            init_loc_fn = init_strategy
-            warnings.warn(
-                "`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
-                " argument.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
         super(AutoBNAFNormal, self).__init__(

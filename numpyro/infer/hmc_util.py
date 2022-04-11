@@ -8,7 +8,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
-from jax.tree_util import tree_flatten, tree_map, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 import numpyro.distributions as dist
 from numpyro.util import cond, identity, while_loop
@@ -121,7 +121,7 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         #     x_t = argmin{ g_avg . x + loc_t . |x - x0|^2 },
         # hence x_t = x0 - g_avg / (2 * loc_t),
         # where loc_t := beta_t / t, beta_t := (gamma/2) * sqrt(t).
-        x_t = prox_center - (t ** 0.5) / gamma * g_avg
+        x_t = prox_center - (t**0.5) / gamma * g_avg
         # weight for the new x_t
         weight_t = t ** (-kappa)
         x_avg = (1 - weight_t) * x_avg + weight_t * x_t
@@ -289,15 +289,15 @@ def velocity_verlet(potential_fn, kinetic_fn, forward_mode_differentiation=False
         :return: new state for the integrator.
         """
         z, r, _, z_grad = state
-        r = tree_multimap(
+        r = tree_map(
             lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad
         )  # r(n+1/2)
         r_grad = _kinetic_grad(kinetic_fn, inverse_mass_matrix, r)
-        z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
+        z = tree_map(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = _value_and_grad(
             potential_fn, z, forward_mode_differentiation
         )
-        r = tree_multimap(
+        r = tree_map(
             lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad
         )  # r(n+1)
         return IntegratorState(z, r, potential_energy, z_grad)
@@ -352,7 +352,7 @@ def find_reasonable_step_size(
         # Note that the direction is -1 if delta_energy is `NaN`, which may be the
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
-        step_size = (2.0 ** direction) * step_size
+        step_size = (2.0**direction) * step_size
         r = momentum_generator(z, inverse_mass_matrix, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(
             step_size, inverse_mass_matrix, (z, r, potential_energy, z_grad)
@@ -784,7 +784,7 @@ def _combine_tree(
             trees[1].z_right_grad,
         ),
     )
-    r_sum = tree_multimap(jnp.add, current_tree.r_sum, new_tree.r_sum)
+    r_sum = tree_map(jnp.add, current_tree.r_sum, new_tree.r_sum)
 
     if biased_transition:
         transition_prob = _biased_transition_kernel(current_tree, new_tree)
@@ -992,7 +992,7 @@ def _iterative_build_subtree(
     r_ckpts,
     r_sum_ckpts,
 ):
-    max_num_proposals = 2 ** prototype_tree.depth
+    max_num_proposals = 2**prototype_tree.depth
 
     def _cond_fn(state):
         tree, turning, _, _, _ = state
@@ -1240,7 +1240,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
         a collection of `num_draws` samples with the same data structure as each subposterior.
     """
     # stack subposteriors
-    joined_subposteriors = tree_multimap(lambda *args: jnp.stack(args), *subposteriors)
+    joined_subposteriors = tree_map(lambda *args: jnp.stack(args), *subposteriors)
     # shape of joined_subposteriors: n_subs x n_samples x sample_shape
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(
         joined_subposteriors
@@ -1295,7 +1295,7 @@ def parametric(subposteriors, diagonal=False):
         `False` (using covariance).
     :return: the estimated mean and variance/covariance parameters of the joined posterior
     """
-    joined_subposteriors = tree_multimap(lambda *args: jnp.stack(args), *subposteriors)
+    joined_subposteriors = tree_map(lambda *args: jnp.stack(args), *subposteriors)
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(
         joined_subposteriors
     )

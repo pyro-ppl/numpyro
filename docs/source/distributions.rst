@@ -80,6 +80,22 @@ Unit
 Continuous Distributions
 ------------------------
 
+AsymmetricLaplace
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AsymmetricLaplaceQuantile
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplaceQuantile
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Beta
 ^^^^
 .. autoclass:: numpyro.distributions.continuous.Beta
@@ -177,6 +193,14 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+Kumaraswamy
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Kumaraswamy
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Laplace
 ^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Laplace
@@ -252,6 +276,18 @@ Normal
 Pareto
 ^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Pareto
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RelaxedBernoulli
+^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.continuous.RelaxedBernoulli
+
+RelaxedBernoulliLogits
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.RelaxedBernoulliLogits
     :members:
     :undoc-members:
     :show-inheritance:
@@ -464,14 +500,6 @@ NegativeBinomial2
 Poisson
 ^^^^^^^
 .. autoclass:: numpyro.distributions.discrete.Poisson
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-PRNGIdentity
-^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.discrete.PRNGIdentity
     :members:
     :undoc-members:
     :show-inheritance:
@@ -797,18 +825,10 @@ ExpTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-    
+
 IdentityTransform
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.IdentityTransform
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-InvCholeskyTransform
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:

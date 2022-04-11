@@ -10,10 +10,8 @@ import warnings
 import numpy as np
 
 from jax import jit, lax, local_device_count, pmap, random, vmap
-from jax.core import Tracer
-from jax.interpreters.xla import DeviceArray
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import print_summary
 from numpyro.util import cached_by, find_stack_level, fori_collect, identity
@@ -161,7 +159,7 @@ def _laxmap(f, xs):
         x = jit(_get_value_from_index)(xs, i)
         ys.append(f(x))
 
-    return tree_multimap(lambda *args: jnp.stack(args), *ys)
+    return tree_map(lambda *args: jnp.stack(args), *ys)
 
 
 def _sample_fn_jit_args(state, sampler):
@@ -187,13 +185,9 @@ def _collect_fn(collect_fields):
 
 # XXX: Is there a better hash key that we can use?
 def _hashable(x):
-    # When the arguments are JITed, ShapedArray is hashable.
-    if isinstance(x, Tracer):
-        return x
-    elif isinstance(x, DeviceArray):
-        return x.copy().tobytes()
-    elif isinstance(x, (np.ndarray, jnp.ndarray)):
-        return x.tobytes()
+    # NOTE: When the arguments are JITed, ShapedArray is hashable.
+    if isinstance(x, (np.ndarray, jnp.ndarray)):
+        return id(x)
     return x
 
 
@@ -609,7 +603,9 @@ class MCMC(object):
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
             states_flat = tree_map(
-                lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), states
+                # need to calculate first dimension manually; see issue #1328
+                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
+                states,
             )
         self._last_state = last_state
         self._states = states

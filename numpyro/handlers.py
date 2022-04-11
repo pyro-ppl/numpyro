@@ -174,12 +174,12 @@ class trace(Messenger):
 
 class replay(Messenger):
     """
-    Given a callable `fn` and an execution trace `guide_trace`,
+    Given a callable `fn` and an execution trace `trace`,
     return a callable which substitutes `sample` calls in `fn` with
-    values from the corresponding site names in `guide_trace`.
+    values from the corresponding site names in `trace`.
 
     :param fn: Python callable with NumPyro primitives.
-    :param guide_trace: an OrderedDict containing execution metadata.
+    :param trace: an OrderedDict containing execution metadata.
 
     **Example:**
 
@@ -202,22 +202,27 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, trace=None, guide_trace=None):
-        if guide_trace is not None:
-            warnings.warn(
-                "`guide_trace` argument is deprecated. Please replace it by `trace`.",
-                FutureWarning,
-                stacklevel=find_stack_level(),
-            )
-        if guide_trace is not None:
-            trace = guide_trace
+    def __init__(self, fn=None, trace=None):
         assert trace is not None
         self.trace = trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
         if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
-            msg["value"] = self.trace[msg["name"]]["value"]
+            name = msg["name"]
+            if msg["type"] in ("sample", "plate") and name in self.trace:
+                guide_msg = self.trace[name]
+                if msg["type"] == "plate":
+                    if guide_msg["type"] != "plate":
+                        raise RuntimeError(f"Site {name} must be a plate in trace.")
+                    msg["value"] = guide_msg["value"]
+                    return None
+                if msg["is_observed"]:
+                    return None
+                if guide_msg["type"] != "sample" or guide_msg["is_observed"]:
+                    raise RuntimeError(f"Site {name} must be sampled in trace.")
+                msg["value"] = guide_msg["value"]
+                msg["infer"] = guide_msg["infer"]
 
 
 class block(Messenger):

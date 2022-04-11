@@ -4,19 +4,11 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import (
-    device_put,
-    lax,
-    random,
-    tree_flatten,
-    tree_map,
-    tree_multimap,
-    tree_unflatten,
-)
+from jax import device_put, lax, random, tree_flatten, tree_map, tree_unflatten
 import jax.numpy as jnp
 
 from numpyro import handlers
-from numpyro.contrib.control_flow.util import PytreeTrace
+from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
@@ -174,7 +166,7 @@ def scan_enum(
                 carry_shapes.append([jnp.shape(x) for x in tree_flatten(new_carry)[0]])
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?
-            new_carry = tree_multimap(
+            new_carry = tree_map(
                 lambda a, b: jnp.reshape(a, jnp.shape(b)), new_carry, carry
             )
         return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
@@ -192,7 +184,7 @@ def scan_enum(
                 )
                 if i > 0:
                     # reshape y1, y2,... to have the same shape as y0
-                    y0 = tree_multimap(
+                    y0 = tree_map(
                         lambda z0, z: jnp.reshape(z, jnp.shape(z0)), y0s[0], y0
                     )
                 y0s.append(y0)
@@ -204,7 +196,7 @@ def scan_enum(
                     )
             else:
                 # this is the last rolling step
-                y0s = tree_multimap(lambda *z: jnp.stack(z, axis=0), *y0s)
+                y0s = tree_map(lambda *z: jnp.stack(z, axis=0), *y0s)
                 # return early if length = unroll_steps
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
@@ -234,11 +226,11 @@ def scan_enum(
         site["infer"]["dim_to_name"][time_dim] = "_time_{}".format(first_var)
 
     # similar to carry, we need to reshape due to shape alternating in markov
-    ys = tree_multimap(
+    ys = tree_map(
         lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)[1:]), y0s, ys
     )
     # then join with y0s
-    ys = tree_multimap(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
+    ys = tree_map(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
     # we also need to reshape `carry` to match sequential behavior
     i = (length + 1) % (history + 1)
     t, rng_key, carry = wrapped_carry
@@ -436,12 +428,16 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
 
     if not msg["kwargs"].get("enum", False):
         for msg in pytree_trace.trace.values():
+            if msg["type"] == "plate":
+                continue
             apply_stack(msg)
     else:
         from numpyro.contrib.funsor import to_funsor
         from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
 
         for msg in pytree_trace.trace.values():
+            if msg["type"] == "plate":
+                continue
             with LocalNamedMessenger():
                 dim_to_name = msg["infer"].get("dim_to_name")
                 to_funsor(

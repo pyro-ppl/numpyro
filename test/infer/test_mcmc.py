@@ -81,7 +81,7 @@ def test_correlated_mvn(regularize):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples), true_mean, atol=0.02)
-    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D ** 2 < 0.02
+    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
@@ -183,7 +183,7 @@ def test_improper_normal(max_tree_depth):
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.05)
+    assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.007)
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
@@ -1051,6 +1051,17 @@ def test_initial_inverse_mass_matrix_ndarray(dense_mass):
     assert_allclose(inverse_mass_matrix[("x", "z")], expected_mm)
 
 
+def test_loose_warning_for_missing_plate():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with numpyro.plate("N", 10):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones((5, 10)))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    with pytest.warns(UserWarning, match="Missing a plate statement"):
+        mcmc.run(random.PRNGKey(1))
+
+
 def test_init_strategy_substituted_model():
     def model():
         numpyro.sample("x", dist.Normal(0, 1))
@@ -1069,3 +1080,54 @@ def test_discrete_site_without_infer_enumerate():
     mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
     with pytest.warns(FutureWarning, match="enumerated sites"):
         mcmc.run(random.PRNGKey(0))
+
+
+def test_vectorized_sampling_zero_sized():
+    J = 8
+    n = 0
+    sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
+
+    # Modified Eight Schools example
+    def eight_schools(J, sigma):
+        mu = numpyro.sample("mu", dist.Normal(0, 5))
+        tau = numpyro.sample("tau", dist.HalfCauchy(5))
+        with numpyro.plate("J", J):
+            theta = numpyro.sample("theta", dist.Normal(mu, tau))
+            numpyro.sample("scores", dist.Normal(theta, sigma), sample_shape=(n,))
+
+    nuts_kernel = NUTS(eight_schools)
+    mcmc = MCMC(
+        nuts_kernel,
+        num_warmup=50,
+        num_samples=100,
+        num_chains=2,
+        chain_method="vectorized",
+    )
+    rng_key = random.PRNGKey(0)
+    mcmc.run(rng_key, J, sigma, extra_fields=("potential_energy",))
+    assert mcmc.get_samples()["scores"].shape == (200, 0, 8)
+
+
+def test_fixed_num_steps():
+    data = dict()
+    data["x"] = np.random.rand(10)
+    data["y"] = data["x"] + np.random.rand(10) * 0.1
+
+    def model(data):
+        w = numpyro.sample("w", dist.Normal(10, 1))
+        b = numpyro.sample("b", dist.Normal(1, 1))
+        sigma = numpyro.sample("sigma", dist.Gamma(1, 2))
+        with numpyro.plate("size", np.size(data["y"])):
+            numpyro.sample("obs", dist.Normal(w * data["x"] + b, sigma), obs=data["y"])
+
+    hmc_kernel = HMC(model, num_steps=5)
+    mcmc = MCMC(
+        hmc_kernel,
+        num_samples=1000,
+        num_warmup=1000,
+        num_chains=1,
+    )
+    rng_key = random.PRNGKey(0)
+    mcmc.run(rng_key, data, extra_fields=("num_steps",))
+    num_steps_list = np.array(mcmc.get_extra_fields()["num_steps"])
+    assert all(step == 5 for step in num_steps_list)

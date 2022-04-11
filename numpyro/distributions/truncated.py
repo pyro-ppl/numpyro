@@ -30,7 +30,7 @@ class LeftTruncatedDistribution(Distribution):
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
-    def __init__(self, base_dist, low=0.0, validate_args=None):
+    def __init__(self, base_dist, low=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
         assert (
             base_dist.support is constraints.real
@@ -104,7 +104,7 @@ class LeftTruncatedDistribution(Distribution):
     def mean(self):
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
-            return self.base_dist.loc + low_prob * self.base_dist.scale ** 2
+            return self.base_dist.loc + low_prob * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -114,7 +114,7 @@ class LeftTruncatedDistribution(Distribution):
     def var(self):
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
-            return (self.base_dist.scale ** 2) * (
+            return (self.base_dist.scale**2) * (
                 1
                 + (self.low - self.base_dist.loc) * low_prob
                 - (low_prob * self.base_dist.scale) ** 2
@@ -130,7 +130,7 @@ class RightTruncatedDistribution(Distribution):
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
-    def __init__(self, base_dist, high=0.0, validate_args=None):
+    def __init__(self, base_dist, high=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
         assert (
             base_dist.support is constraints.real
@@ -189,7 +189,7 @@ class RightTruncatedDistribution(Distribution):
     def mean(self):
         if isinstance(self.base_dist, Normal):
             high_prob = jnp.exp(self.log_prob(self.high))
-            return self.base_dist.loc - high_prob * self.base_dist.scale ** 2
+            return self.base_dist.loc - high_prob * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -199,7 +199,7 @@ class RightTruncatedDistribution(Distribution):
     def var(self):
         if isinstance(self.base_dist, Normal):
             high_prob = jnp.exp(self.log_prob(self.high))
-            return (self.base_dist.scale ** 2) * (
+            return (self.base_dist.scale**2) * (
                 1
                 - (self.high - self.base_dist.loc) * high_prob
                 - (high_prob * self.base_dist.scale) ** 2
@@ -215,7 +215,7 @@ class TwoSidedTruncatedDistribution(Distribution):
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
-    def __init__(self, base_dist, low=0.0, high=1.0, validate_args=None):
+    def __init__(self, base_dist, low=0.0, high=1.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
         assert (
             base_dist.support is constraints.real
@@ -312,7 +312,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
             return (
-                self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale ** 2
+                self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
             )
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
@@ -324,7 +324,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
-            return (self.base_dist.scale ** 2) * (
+            return (self.base_dist.scale**2) * (
                 1
                 + (self.low - self.base_dist.loc) * low_prob
                 - (self.high - self.base_dist.loc) * high_prob
@@ -336,7 +336,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             return NotImplementedError("var only available for Normal and Cauchy")
 
 
-def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
+def TruncatedDistribution(base_dist, low=None, high=None, *, validate_args=None):
     """
     A function to generate a truncated distribution.
 
@@ -386,7 +386,7 @@ class TruncatedPolyaGamma(Distribution):
     arg_constraints = {}
     support = constraints.interval(0.0, truncation_point)
 
-    def __init__(self, batch_shape=(), validate_args=None):
+    def __init__(self, batch_shape=(), *, validate_args=None):
         super(TruncatedPolyaGamma, self).__init__(
             batch_shape, validate_args=validate_args
         )
@@ -398,7 +398,7 @@ class TruncatedPolyaGamma(Distribution):
             key, jnp.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,))
         )
         x = jnp.sum(x / denom, axis=-1)
-        return jnp.clip(x * (0.5 / jnp.pi ** 2), a_max=self.truncation_point)
+        return jnp.clip(x * (0.5 / jnp.pi**2), a_max=self.truncation_point)
 
     @validate_sample
     def log_prob(self, value):

@@ -5,7 +5,8 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
-from jax import jit, random, tree_multimap, value_and_grad, vmap
+import jax
+from jax import jit, random, tree_map, value_and_grad, vmap
 import jax.numpy as jnp
 
 import numpyro
@@ -224,7 +225,7 @@ def model_nested_plates_0():
         with numpyro.plate("inner", 5):
             y = numpyro.sample("x", dist.Normal(0.0, 1.0))
             assert y.shape == (5, 10)
-            z = numpyro.deterministic("z", x ** 2)
+            z = numpyro.deterministic("z", x**2)
             assert z.shape == (10,)
 
 
@@ -235,7 +236,7 @@ def model_nested_plates_1():
         with numpyro.plate("inner", 5):
             y = numpyro.sample("x", dist.Normal(0.0, 1.0))
             assert y.shape == (10, 5)
-            z = numpyro.deterministic("z", x ** 2)
+            z = numpyro.deterministic("z", x**2)
             assert z.shape == (10, 1)
 
 
@@ -248,7 +249,7 @@ def model_nested_plates_2():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         assert y.shape == (5, 1, 1)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -275,7 +276,7 @@ def model_dist_batch_shape():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, jnp.ones(10)))
         assert y.shape == (5, 1, 10)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -292,7 +293,7 @@ def model_subsample_1():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         assert y.shape == (5, 1, 1)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -310,7 +311,7 @@ def model_subsample_2():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         assert y.shape == (5, 1, 1)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -434,7 +435,7 @@ def test_subsample_gradient(scale, subsample):
                 svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
             )
         )(params)
-        grads = tree_multimap(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        grads = tree_map(lambda *vals: vals[0] + vals[1], grads1, grads2)
         loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])
@@ -777,7 +778,7 @@ def test_subsample_fn():
         )
 
         # test that values are not duplicated
-        assert len(set(subsamples[k].copy())) == subsample_size
+        assert len(set(jax.device_get(subsamples[k]))) == subsample_size
 
 
 def test_sites_have_unique_names():

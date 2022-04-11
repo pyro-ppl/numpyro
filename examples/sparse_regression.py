@@ -73,7 +73,7 @@ def model(X, Y, hypers):
 
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers["c"]) + sigma ** 2 * jnp.eye(N)
+    k = kernel(kX, kX, eta1, eta2, hypers["c"]) + sigma**2 * jnp.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -99,7 +99,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, si
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma**2 * jnp.eye(N)
     k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -130,7 +130,7 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, si
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma**2 * jnp.eye(N)
     k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -188,7 +188,7 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma**2 * jnp.eye(N)
     L = cho_factor(k_xx, lower=True)[0]
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -384,7 +384,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.8.0")
+    assert numpyro.__version__.startswith("0.9.1")
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)

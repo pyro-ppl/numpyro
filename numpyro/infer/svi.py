@@ -23,7 +23,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
-from numpyro.optim import _NumPyroOptim
+from numpyro.optim import _NumPyroOptim, optax_to_numpyro
 
 SVIState = namedtuple("SVIState", ["optim_state", "mutable_state", "rng_key"])
 """
@@ -120,7 +120,7 @@ class SVI(object):
     :param optim: An instance of :class:`~numpyro.optim._NumpyroOptim`, a
         ``jax.example_libraries.optimizers.Optimizer`` or an Optax
         ``GradientTransformation``. If you pass an Optax optimizer it will
-        automatically be wrapped using :func:`numpyro.contrib.optim.optax_to_numpyro`.
+        automatically be wrapped using :func:`numpyro.optim.optax_to_numpyro`.
 
             >>> from optax import adam, chain, clip
             >>> svi = SVI(model, guide, chain(clip(10.0), adam(1e-3)), loss=Trace_ELBO())
@@ -145,8 +145,6 @@ class SVI(object):
         else:
             try:
                 import optax
-
-                from numpyro.contrib.optim import optax_to_numpyro
             except ImportError:
                 raise ImportError(
                     "It looks like you tried to use an optimizer that isn't an "

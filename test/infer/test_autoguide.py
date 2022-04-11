@@ -362,12 +362,12 @@ def test_laplace_approximation_warning():
     def model(x, y):
         a = numpyro.sample("a", dist.Normal(0, 10))
         b = numpyro.sample("b", dist.Normal(0, 10).expand([3]).to_event())
-        mu = a + b[0] * x + b[1] * x ** 2 + b[2] * x ** 3
+        mu = a + b[0] * x + b[1] * x**2 + b[2] * x**3
         with numpyro.plate("N", len(x)):
             numpyro.sample("y", dist.Normal(mu, 0.001), obs=y)
 
     x = random.normal(random.PRNGKey(0), (3,))
-    y = 1 + 2 * x + 3 * x ** 2 + 4 * x ** 3
+    y = 1 + 2 * x + 3 * x**2 + 4 * x**3
     guide = AutoLaplaceApproximation(model)
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
     init_state = svi.init(random.PRNGKey(0))
@@ -578,9 +578,12 @@ def test_discrete_helpful_error(auto_class, init_loc_fn):
     def model():
         p = numpyro.sample("p", dist.Beta(2.0, 2.0))
         x = numpyro.sample("x", dist.Bernoulli(p))
-        numpyro.sample(
-            "obs", dist.Bernoulli(p * x + (1 - p) * (1 - x)), obs=jnp.array([1.0, 0.0])
-        )
+        with numpyro.plate("N", 2):
+            numpyro.sample(
+                "obs",
+                dist.Bernoulli(p * x + (1 - p) * (1 - x)),
+                obs=jnp.array([1.0, 0.0]),
+            )
 
     guide = auto_class(model, init_loc_fn=init_loc_fn)
     with pytest.raises(ValueError, match=".*handle discrete.*"):

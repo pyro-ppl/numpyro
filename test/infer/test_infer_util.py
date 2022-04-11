@@ -44,8 +44,9 @@ def beta_bernoulli():
         with numpyro.plate("dim", 2):
             beta = numpyro.sample("beta", dist.Beta(1.0, 1.0))
         with numpyro.plate("plate", N, dim=-2):
-            numpyro.deterministic("beta_sq", beta ** 2)
-            numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
+            numpyro.deterministic("beta_sq", beta**2)
+            with numpyro.plate("dim", 2):
+                numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
 
     return model, data, true_probs
 
@@ -77,7 +78,7 @@ def test_predictive_with_guide():
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
         with numpyro.plate("plate", 10):
-            numpyro.deterministic("beta_sq", f ** 2)
+            numpyro.deterministic("beta_sq", f**2)
             numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
@@ -86,7 +87,7 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(1), 3000, data)
+    svi_result = svi.run(random.PRNGKey(1), 5000, data)
     params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(
         random.PRNGKey(2), data=None

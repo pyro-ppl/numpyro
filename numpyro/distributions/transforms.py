@@ -34,7 +34,6 @@ __all__ = [
     "CorrMatrixCholeskyTransform",
     "ExpTransform",
     "IdentityTransform",
-    "InvCholeskyTransform",
     "L1BallTransform",
     "LowerCholeskyTransform",
     "ScaledUnitLowerCholeskyTransform",
@@ -60,16 +59,6 @@ class Transform(object):
     domain = constraints.real
     codomain = constraints.real
     _inv = None
-
-    @property
-    def event_dim(self):
-        warnings.warn(
-            "transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
-            "get input event dim or Transform.codomain.event_dim to get output event dim.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-        return self.domain.event_dim
 
     @property
     def inv(self):
@@ -555,52 +544,6 @@ class IndependentTransform(Transform):
         return self.base_transform.inverse_shape(shape)
 
 
-class InvCholeskyTransform(Transform):
-    r"""
-    Transform via the mapping :math:`y = x @ x.T`, where `x` is a lower
-    triangular matrix with positive diagonal.
-    """
-
-    def __init__(self, domain=constraints.lower_cholesky):
-        warnings.warn(
-            "InvCholeskyTransform is deprecated. Please use CholeskyTransform"
-            " or CorrMatrixCholeskyTransform instead.",
-            FutureWarning,
-            stacklevel=find_stack_level(),
-        )
-        assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
-        self.domain = domain
-
-    @property
-    def codomain(self):
-        if self.domain is constraints.lower_cholesky:
-            return constraints.positive_definite
-        elif self.domain is constraints.corr_cholesky:
-            return constraints.corr_matrix
-
-    def __call__(self, x):
-        return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
-
-    def _inverse(self, y):
-        return jnp.linalg.cholesky(y)
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        if self.domain is constraints.lower_cholesky:
-            # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
-            n = jnp.shape(x)[-1]
-            order = jnp.arange(n, 0, -1)
-            return n * jnp.log(2) + jnp.sum(
-                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
-            )
-        else:
-            # NB: see derivation in LKJCholesky implementation
-            n = jnp.shape(x)[-1]
-            order = jnp.arange(n - 1, -1, -1)
-            return jnp.sum(
-                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
-            )
-
-
 class L1BallTransform(Transform):
     r"""
     Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
@@ -654,6 +597,19 @@ class LowerCholeskyAffine(Transform):
 
     :param loc: a real vector.
     :param scale_tril: a lower triangular matrix with positive diagonal.
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> from numpyro.distributions.transforms import LowerCholeskyAffine
+       >>> base = jnp.ones(2)
+       >>> loc = jnp.zeros(2)
+       >>> scale_tril = jnp.array([[0.3, 0.0], [1.0, 0.5]])
+       >>> affine = LowerCholeskyAffine(loc=loc, scale_tril=scale_tril)
+       >>> affine(base)
+       DeviceArray([0.3, 1.5], dtype=float32)
     """
     domain = constraints.real_vector
     codomain = constraints.real_vector
@@ -773,6 +729,17 @@ class OrderedTransform(Transform):
 
     1. *Stan Reference Manual v2.20, section 10.6*,
        Stan Development Team
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> from numpyro.distributions.transforms import OrderedTransform
+       >>> base = jnp.ones(3)
+       >>> transform = OrderedTransform()
+       >>> assert jnp.allclose(transform(base), jnp.array([1., 3.7182817, 6.4365635]), rtol=1e-3, atol=1e-3)
+
     """
 
     domain = constraints.real_vector
@@ -862,6 +829,16 @@ class SimplexToOrderedTransform(Transform):
 
     1. *Ordinal Regression Case Study, section 2.2*,
        M. Betancourt, https://betanalpha.github.io/assets/case_studies/ordinal_regression.html
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> from numpyro.distributions.transforms import SimplexToOrderedTransform
+       >>> base = jnp.array([0.3, 0.1, 0.4, 0.2])
+       >>> transform = SimplexToOrderedTransform()
+       >>> assert jnp.allclose(transform(base), jnp.array([-0.8472978, -0.40546507, 1.3862944]), rtol=1e-3, atol=1e-3)
 
     """
 

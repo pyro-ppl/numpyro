@@ -206,7 +206,7 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7), infer={"enumerate": "parallel"})
         y = numpyro.sample("y", dist.Binomial(10, 0.3))
-        numpyro.deterministic("y2", y ** 2)
+        numpyro.deterministic("y2", y**2)
 
     sampler = kernel(inner_kernel(model), **kwargs)
     mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
@@ -233,6 +233,18 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()["c"]
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
+
+
+def test_improper_uniform():
+    def model():
+        numpyro.sample("c", dist.Bernoulli(0.8))
+        numpyro.sample(
+            "u", dist.ImproperUniform(dist.constraints.unit_interval, (), ())
+        )
+
+    sampler = DiscreteHMCGibbs(NUTS(model))
+    mcmc = MCMC(sampler, num_warmup=10, num_samples=10, progress_bar=False)
+    mcmc.run(random.PRNGKey(0))
 
 
 @pytest.mark.parametrize("modified", [False, True])
@@ -305,10 +317,10 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     def model(data, subsample_size):
         mean = numpyro.sample("mean", dist.Normal().expand((3,)).to_event(1))
         with numpyro.plate(
-            "batch", data.shape[0], dim=-2, subsample_size=subsample_size
+            "batch", data.shape[0], dim=-1, subsample_size=subsample_size
         ):
-            sub_data = numpyro.subsample(data, 0)
-            numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
+            sub_data = numpyro.subsample(data, 1)
+            numpyro.sample("obs", dist.Normal(mean, 1).to_event(), obs=sub_data)
 
     ref_params = {
         "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
@@ -431,3 +443,27 @@ def test_estimate_likelihood(kernel_cls):
     )(samples)
 
     assert jnp.var(jnp.exp(-pes - pes_full)) < 1.0
+
+
+def test_hmcecs_multiple_plates():
+    true_loc = jnp.array([0.3, 0.1, 0.9])
+    num_warmup, num_samples = 2, 2
+    data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
+        random.PRNGKey(1), (1000,)
+    )
+
+    def model(data):
+        mean = numpyro.sample("mean", dist.Normal().expand((3,)).to_event(1))
+        with numpyro.plate("batch", data.shape[0], dim=-2, subsample_size=10):
+            sub_data = numpyro.subsample(data, 0)
+            with numpyro.plate("dim", 3):
+                numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
+
+    ref_params = {
+        "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
+    }
+    proxy_fn = HMCECS.taylor_proxy(ref_params)
+
+    kernel = HMCECS(NUTS(model), proxy=proxy_fn)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+    mcmc.run(random.PRNGKey(0), data)

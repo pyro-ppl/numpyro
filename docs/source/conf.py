@@ -37,9 +37,9 @@ hmc(None, None)
 
 # -- Project information -----------------------------------------------------
 
-project = u"NumPyro"
-copyright = u"2019, Uber Technologies, Inc"
-author = u"Uber AI Labs"
+project = "NumPyro"
+copyright = "2019, Uber Technologies, Inc"
+author = "Uber AI Labs"
 
 version = ""
 
@@ -280,14 +280,14 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "NumPyro.tex", u"NumPyro Documentation", u"Uber AI Labs", "manual")
+    (master_doc, "NumPyro.tex", "NumPyro Documentation", "Uber AI Labs", "manual")
 ]
 
 # -- Options for manual page output ------------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "NumPyro", u"NumPyro Documentation", [author], 1)]
+man_pages = [(master_doc, "NumPyro", "NumPyro Documentation", [author], 1)]
 
 # -- Options for Texinfo output ----------------------------------------------
 
@@ -298,7 +298,7 @@ texinfo_documents = [
     (
         master_doc,
         "NumPyro",
-        u"NumPyro Documentation",
+        "NumPyro Documentation",
         author,
         "NumPyro",
         "Pyro PPL on Numpy",
