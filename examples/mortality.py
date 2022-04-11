@@ -22,8 +22,8 @@ the following effects:
     - Space (:math:`\\alpha_{1s}`). Each spatial unit has an intercept.
       The spatial effects are defined by a nested hierarchy of random effects following the
       administrative hierarchy of local government. The spatial term at the lower level unit is
-      centred on the spatial term of the higher level unit (e.g., :math:`\\alpha_{1s_1}`) that
-      contains that lower level unit.
+      centred on the spatial term of the higher level unit (e.g., :math:`\\alpha_{1s_1}`) containing
+      that lower level unit.
 
 The model also has a random walk effect over time (:math:`\\pi_{t}`).
 
@@ -53,9 +53,9 @@ with the hyperpriors
 
 Further detail about the model terms can be found in [1].
 
-The NumPyro implementation below uses :class:`~numpyro.plate` notation to declare the batch
+The NumPyro implementation below uses :class:`~numpyro.primitives.plate` notation to declare the batch
 dimensions of the age, space and time variables. This allows us to efficiently broadcast arrays
-in the likelihood as `alpha_age + beta_age_cum + alpha_s2 + pi`.
+in the likelihood.
 
 As written above, the model includes a lot of centred random effects. The NUTS alogrithm benefits
 from a non-centred reparamatrisation to overcome difficult posterior geometries [2]. Rather than
@@ -63,9 +63,9 @@ manually writing out the non-centred parametrisation, we make use of the NumPyro
 reparametrisation in :class:`~numpyro.infer.reparam.LocScaleReparam`.
 
 Death data at the spatial resolution in [1] are identifiable, so in this example we are using
-simulated data. Comapred to [1], the data have fewer spatial units and a two-tier (rather than
+simulated data. Compared to [1], the simulated data have fewer spatial units and a two-tier (rather than
 three-tier) spatial hierarchy. There are still 19 age groups and 18 years as in the original study.
-The data here have (event) dimensions of `(19, 113, 18)` `(age, space, time)`.
+The data here have (event) dimensions of ``(19, 113, 18)`` (age, space, time).
 
 The original implementation in nimble is at [3].
 
@@ -175,9 +175,8 @@ def model(age, space, time, lookup, population, deaths=None):
     # likelihood
     latent_rate = alpha_age + beta_age_cum + alpha_s2 + pi
     with numpyro.plate("N", N):
-        mu_logit = latent_rate[space, age, time]
-        mu = numpyro.deterministic("mu", expit(mu_logit))
-        numpyro.sample("deaths", dist.Binomial(population, mu), obs=deaths)
+        mu_logit = latent_rate[age, space, time]
+        numpyro.sample("deaths", dist.Binomial(population, logits=mu_logit), obs=deaths)
 
 
 def print_model_shape(model, age, space, time, lookup, population):
