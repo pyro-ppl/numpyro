@@ -87,7 +87,6 @@ import numpy as np
 
 from jax import random
 import jax.numpy as jnp
-from jax.scipy.special import expit
 
 import numpyro
 import numpyro.distributions as dist
