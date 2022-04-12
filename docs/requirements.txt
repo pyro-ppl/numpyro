@@ -4,7 +4,7 @@ funsor>=0.4.1
 ipython
 jax>=0.2.11
 jaxlib>=0.1.62
-jaxns>=0.0.7
+jaxns==0.0.7
 multipledispatch
 nbsphinx==0.8.6
 numpy
