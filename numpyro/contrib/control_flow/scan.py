@@ -145,7 +145,9 @@ def scan_enum(
 
         if init:
             # handler the name to match the pattern of sakkar_bilmes product
-            with handlers.scope(prefix="_PREV_" * (unroll_steps - i), divider=""):
+            with handlers.scope(
+                prefix="_PREV_" * (unroll_steps - i), divider="", hide_types=["plate"]
+            ):
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
                 trace = {}
         else:

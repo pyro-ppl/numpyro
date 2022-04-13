@@ -578,18 +578,18 @@ def test_block():
 
 def test_scope():
     def fn():
-        return numpyro.sample("x", dist.Normal())
+        with numpyro.plate("N", 10):
+            return numpyro.sample("x", dist.Normal())
 
     with handlers.trace() as trace:
         with handlers.seed(rng_seed=1):
             with handlers.scope(prefix="a"):
                 fn()
             with handlers.scope(prefix="b"):
-                with handlers.scope(prefix="a"):
+                with handlers.scope(prefix="a", hide_types=["plate"]):
                     fn()
 
-    assert "a/x" in trace
-    assert "b/a/x" in trace
+    assert set(trace) == {"a/x", "b/a/x", "a/N", "b/N"}
 
 
 def test_scope_frames():
