@@ -2,23 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import singledispatch
-import warnings
 
-from jax import config, nn, random, tree_util
+from jax import nn, random, tree_util
 import jax.numpy as jnp
 
 try:
-    # jaxns changes the default precision to double precision
-    # so here we undo that action
-    use_x64 = config.jax_enable_x64
-
-    from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
-    from jaxns.plotting import plot_cornerplot, plot_diagnostics
-    from jaxns.prior_transforms.common import ContinuousPrior
-    from jaxns.prior_transforms.prior_chain import PriorChain, UniformBase
-    from jaxns.utils import summary
-
-    config.update("jax_enable_x64", use_x64)
+    from jaxns import (
+        NestedSampler as OrigNestedSampler,
+        plot_cornerplot,
+        plot_diagnostics,
+        summary,
+    )
+    from jaxns.prior_transforms import ContinuousPrior, PriorChain
+    from jaxns.prior_transforms.prior import UniformBase
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
@@ -122,6 +118,8 @@ class UniformReparam(Reparam):
         return None, transform(x)
 
 
+# TODO: Consider deprecating this wrapper. It might be better to only provide some
+# utilities to help converting a NumPyro model to a Jaxns loglikelihood function.
 class NestedSampler:
     """
     (EXPERIMENTAL) A wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_ ,
@@ -142,16 +140,10 @@ class NestedSampler:
        Joshua G. Albert (https://arxiv.org/abs/2012.15286)
 
     :param callable model: a call with NumPyro primitives
-    :param int num_live_points: the number of live points. As a rule-of-thumb, we should
-        allocate around 50 live points per possible mode.
-    :param int max_samples: the maximum number of iterations and samples
-    :param str sampler_name: either "slice" (default value) or "multi_ellipsoid"
-    :param int depth: an integer which determines the maximum number of ellipsoids to
-        construct via hierarchical splitting (typical range: 3 - 9, default to 5)
-    :param int num_slices: the number of slice sampling proposals at each sampling step
-        (typical range: 1 - 5, default to 5)
-    :param float termination_frac: termination condition (typical range: 0.001 - 0.01)
-        (default to 0.01).
+    :param dict constructor_kwargs: additional keyword arguments to construct an upstream
+        :class:`jaxns.NestedSampler` instance.
+    :param dict termination_kwargs: keyword arguments to terminate the sampler. Please
+        refer to the upstream :meth:`jaxns.NestedSampler.__call__` method.
 
     **Example**
 
@@ -185,20 +177,16 @@ class NestedSampler:
         self,
         model,
         *,
-        num_live_points=1000,
-        max_samples=100000,
-        sampler_name="slice",
-        depth=5,
-        num_slices=5,
-        termination_frac=0.01
+        constructor_kwargs=None,
+        termination_kwargs=None,
     ):
         self.model = model
-        self.num_live_points = num_live_points
-        self.max_samples = max_samples
-        self.termination_frac = termination_frac
-        self.sampler_name = sampler_name
-        self.depth = depth
-        self.num_slices = num_slices
+        self.constructor_kwargs = (
+            constructor_kwargs if constructor_kwargs is not None else {}
+        )
+        self.termination_kwargs = (
+            termination_kwargs if termination_kwargs is not None else {}
+        )
         self._samples = None
         self._log_weights = None
         self._results = None
@@ -245,8 +233,17 @@ class NestedSampler:
         else:
             log_density_ = log_density
 
-        def loglik_fn(**params):
-            return log_density_(reparam_model, args, kwargs, params)[0]
+        # Jaxns requires loglikelihood function to have explicit signatures.
+        local_dict = {}
+        loglik_fn_def = """def loglik_fn({}):\n
+        \tparams = dict({})\n
+        \treturn log_density_(reparam_model, args, kwargs, params)[0]
+        """.format(
+            ", ".join([f"{name}_base" for name in param_names]),
+            ", ".join([f"{name}_base={name}_base" for name in param_names]),
+        )
+        exec(loglik_fn_def, locals(), local_dict)
+        loglik_fn = local_dict["loglik_fn"]
 
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
@@ -258,24 +255,14 @@ class NestedSampler:
         ns = OrigNestedSampler(
             loglik_fn,
             prior_chain,
-            sampler_name=self.sampler_name,
-            sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
-            max_samples=self.max_samples,
-            num_live_points=self.num_live_points,
-            collect_samples=True,
+            **self.constructor_kwargs,
         )
-        # some places of jaxns uses float64 and raises some warnings if the default dtype is
-        # float32, so we suppress them here to avoid confusion
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", message=".*will be truncated to dtype float32.*"
-            )
-            results = ns(rng_sampling, termination_frac=self.termination_frac)
+        results = ns(rng_sampling, **self.termination_kwargs)
         # transform base samples back to original domains
         # Here we only transform the first valid num_samples samples
         # NB: the number of weighted samples obtained from jaxns is results.num_samples
         # and only the first num_samples values of results.samples are valid.
-        num_samples = results.num_samples
+        num_samples = results.total_num_samples
         samples = tree_util.tree_map(lambda x: x[:num_samples], results.samples)
         predictive = Predictive(
             reparam_model, samples, return_sites=param_names + deterministics
@@ -311,8 +298,8 @@ class NestedSampler:
                 "NestedSampler.run(...) method should be called first to obtain results."
             )
 
-        num_samples = self._results.num_samples
-        return self._results.samples, self._results.log_p[:num_samples]
+        num_samples = self._results.total_num_samples
+        return self._results.samples, self._results.log_dp_mean[:num_samples]
 
     def print_summary(self):
         """
