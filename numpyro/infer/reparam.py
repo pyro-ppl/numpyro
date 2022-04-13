@@ -4,6 +4,9 @@
 from abc import ABC, abstractmethod
 import math
 
+import numpy as np
+
+import jax
 import jax.numpy as jnp
 
 import numpyro
@@ -11,6 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
 from numpyro.distributions.util import is_identically_one, safe_normalize, sum_rightmost
 from numpyro.infer.autoguide import AutoContinuous
+from numpyro.util import not_jax_tracer
 
 
 class Reparam(ABC):
@@ -78,11 +82,19 @@ class LocScaleReparam(Reparam):
     """
 
     def __init__(self, centered=None, shape_params=()):
-        assert centered is None or isinstance(centered, (int, float))
+        assert centered is None or isinstance(
+            centered, (int, float, np.generic, np.ndarray, jnp.ndarray, jax.core.Tracer)
+        )
         assert isinstance(shape_params, (tuple, list))
         assert all(isinstance(name, str) for name in shape_params)
-        if isinstance(centered, (int, float)):
-            assert 0 <= centered and centered <= 1
+        if centered is not None:
+            is_valid = constraints.unit_interval.check(centered)
+            if not_jax_tracer(is_valid):
+                if not np.all(is_valid):
+                    raise ValueError(
+                        "`centered` argument does not satisfy `0 <= centered <= 1`."
+                    )
+
         self.centered = centered
         self.shape_params = shape_params
 
@@ -102,8 +114,12 @@ class LocScaleReparam(Reparam):
                 jnp.full(event_shape, 0.5),
                 constraint=constraints.unit_interval,
             )
-        params["loc"] = fn.loc * centered
-        params["scale"] = fn.scale**centered
+        if isinstance(centered, (int, float, np.generic)) and centered == 0.0:
+            params["loc"] = jnp.zeros_like(fn.loc)
+            params["scale"] = jnp.ones_like(fn.scale)
+        else:
+            params["loc"] = fn.loc * centered
+            params["scale"] = fn.scale**centered
         decentered_fn = self._wrap(type(fn)(**params), expand_shape, event_dim)
 
         # Draw decentered noise.
