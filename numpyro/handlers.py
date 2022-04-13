@@ -630,18 +630,20 @@ class scope(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
     :param str divider: a string to join the prefix and sample name; default to `'/'`
+    :param list hide_types: an optional list of side types to skip renaming.
     """
 
-    def __init__(self, fn=None, prefix="", divider="/"):
+    def __init__(self, fn=None, prefix="", divider="/", *, hide_types=None):
         self.prefix = prefix
         self.divider = divider
+        self.hide_types = [] if hide_types is None else hide_types
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg.get("name"):
+        if msg.get("name") and msg["type"] not in self.hide_types:
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
 
-        if msg.get("cond_indep_stack"):
+        if msg.get("cond_indep_stack") and "plate" not in self.hide_types:
             msg["cond_indep_stack"] = [
                 CondIndepStackFrame(
                     f"{self.prefix}{self.divider}{i.name}", i.dim, i.size
