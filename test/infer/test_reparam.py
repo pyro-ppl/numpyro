@@ -233,6 +233,8 @@ def test_loc_scale(dist_type, centered, shape, event_dim):
     loc = np.random.uniform(-1.0, 1.0, shape)
     scale = np.random.uniform(0.5, 1.5, shape)
     event_dim = min(event_dim, len(shape))
+    if event_dim == 1 and centered is not None:
+        centered = jnp.broadcast_to(centered, shape[-event_dim:])
 
     def model(loc, scale):
         with numpyro.plate_stack("plates", shape[: len(shape) - event_dim]):
@@ -270,6 +272,22 @@ def test_loc_scale(dist_type, centered, shape, event_dim):
     actual_grad = jacobian(get_actual_probe, argnums=(0, 1))(loc, scale)
     assert_allclose(actual_grad[0], expected_grad[0], atol=0.05)  # loc grad
     assert_allclose(actual_grad[1], expected_grad[1], atol=0.05)  # scale grad
+
+
+@pytest.mark.parametrize("centered", [-0.3, 10.0, np.array([0.1, -2.0])])
+def test_loc_scale_centered_invalid(centered):
+    N = 10
+    loc = np.random.uniform(-1.0, 1.0, size=(N, 2))
+    scale = np.random.uniform(0.5, 1.5, size=(N, 2))
+
+    def model(loc, scale):
+        with numpyro.plate("particles", N):
+            numpyro.sample("x", dist.Normal(loc, scale).to_event(1))
+
+    with pytest.raises(ValueError, match=".*does not satisfy.*"):
+        with handlers.reparam(config=LocScaleReparam(centered)):
+            with handlers.seed(rng_seed=10):
+                model(loc, scale)
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
