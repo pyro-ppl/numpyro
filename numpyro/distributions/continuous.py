@@ -1188,6 +1188,10 @@ class MultivariateNormal(Distribution):
         return batch_shape, event_shape
 
 
+class CAR(Distribution):
+    pass
+
+
 class MultivariateStudentT(Distribution):
     arg_constraints = {
         "df": constraints.positive,
