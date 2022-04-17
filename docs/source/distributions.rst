@@ -249,6 +249,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+CAR
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.CAR
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 MultivariateStudentT
 ^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateStudentT

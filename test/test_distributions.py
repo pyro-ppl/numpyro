@@ -367,6 +367,20 @@ CONTINUOUS = [
         None,
     ),
     T(
+        dist.CAR,
+        0.5,
+        2,
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
+        None,
+    ),
+    T(
         dist.MultivariateStudentT,
         15.0,
         0.0,
@@ -957,11 +971,11 @@ def test_pathwise_gradient(jax_dist, params):
 
     def f(params):
         z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
-        return (z + z**2).mean(0)
+        return (z + z ** 2).mean(0)
 
     def g(params):
         d = jax_dist(*params)
-        return d.mean + d.variance + d.mean**2
+        return d.mean + d.variance + d.mean ** 2
 
     actual_grad = grad(f)(params)
     expected_grad = grad(g)(params)
@@ -1151,7 +1165,7 @@ def test_independent_shape(jax_dist, sp_dist, params):
 
 def _tril_cholesky_to_tril_corr(x):
     w = vec_to_tril_matrix(x, diagonal=-1)
-    diag = jnp.sqrt(1 - jnp.sum(w**2, axis=-1))
+    diag = jnp.sqrt(1 - jnp.sum(w ** 2, axis=-1))
     cholesky = w + jnp.expand_dims(diag, axis=-1) * jnp.identity(w.shape[-1])
     corr = jnp.matmul(cholesky, cholesky.T)
     return matrix_to_tril_vec(corr, diagonal=-1)
@@ -1449,7 +1463,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         # circular variance
         x, y = jnp.mean(jnp.cos(samples), 0), jnp.mean(jnp.sin(samples), 0)
 
-        expected_variance = 1 - jnp.sqrt(x**2 + y**2)
+        expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
     elif jax_dist in [dist.SineBivariateVonMises]:
         phi_loc = _circ_mean(samples[..., 0])

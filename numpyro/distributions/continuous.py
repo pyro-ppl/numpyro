@@ -1202,7 +1202,6 @@ class CAR(Distribution):
         "tau",
     ]
 
-
     def __init__(
         self,
         loc=0.0,
@@ -1211,8 +1210,27 @@ class CAR(Distribution):
         W=None,
         validate_args=None,
     ):
-        pass
+        if jnp.ndim(loc) == 0:
+            (loc,) = promote_shapes(loc, shape=(1,))
+        # temporary append a new axis to loc
+        loc = loc[..., jnp.newaxis]
+        if W is not None:
+            loc, self.W = promote_shapes(loc, W)
 
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-2], jnp.shape(self.W)[:-2])
+        event_shape = jnp.shape(self.W)[-1:]
+        self.loc = loc[..., 0]
+        self.alpha = alpha
+        self.tau = tau
+        super(CAR, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    def sample(self, key, sample_shape=()):
+        # MVN with covariance matrix inv(tau * (D - alpha * W))
+        pass
 
     @validate_sample
     def log_prob(self, value):
@@ -1230,9 +1248,8 @@ class CAR(Distribution):
         phi = value - self.loc
 
         logquad = self.tau * jnp.sum(phi * (D * phi - self.alpha * self.W @ phi))
-        
-        return -0.5 * (logtau + logdet + logquad)
 
+        return -0.5 * (logtau + logdet + logquad)
 
 
 class MultivariateStudentT(Distribution):
@@ -1538,7 +1555,7 @@ class Normal(Distribution):
     def log_prob(self, value):
         normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
-        return -0.5 * value_scaled**2 - normalize_term
+        return -0.5 * value_scaled ** 2 - normalize_term
 
     def cdf(self, value):
         scaled = (value - self.loc) / self.scale
@@ -1553,7 +1570,7 @@ class Normal(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(self.scale**2, self.batch_shape)
+        return jnp.broadcast_to(self.scale ** 2, self.batch_shape)
 
 
 class Pareto(TransformedDistribution):
@@ -1580,7 +1597,7 @@ class Pareto(TransformedDistribution):
     def variance(self):
         # var is inf for alpha <= 2
         a = jnp.divide(
-            (self.scale**2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
+            (self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
         )
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
@@ -1716,7 +1733,7 @@ class StudentT(Distribution):
             + gammaln(0.5 * self.df)
             - gammaln(0.5 * (self.df + 1.0))
         )
-        return -0.5 * (self.df + 1.0) * jnp.log1p(y**2.0 / self.df) - z
+        return -0.5 * (self.df + 1.0) * jnp.log1p(y ** 2.0 / self.df) - z
 
     @property
     def mean(self):
@@ -1728,7 +1745,7 @@ class StudentT(Distribution):
     @property
     def variance(self):
         var = jnp.where(
-            self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
+            self.df > 2, jnp.divide(self.scale ** 2 * self.df, self.df - 2.0), jnp.inf
         )
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
@@ -1854,7 +1871,7 @@ class Weibull(Distribution):
 
     @property
     def variance(self):
-        return self.scale**2 * (
+        return self.scale ** 2 * (
             jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
