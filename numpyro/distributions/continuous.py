@@ -1189,7 +1189,50 @@ class MultivariateNormal(Distribution):
 
 
 class CAR(Distribution):
-    pass
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "alpha": constraints.unit_interval,
+        "tau": constraints.positive,
+        "W": constraints.positive_definite,
+    }
+    support = constraints.real_vector
+    reparametrized_params = [
+        "loc",
+        "alpha",
+        "tau",
+    ]
+
+
+    def __init__(
+        self,
+        loc=0.0,
+        alpha=None,
+        tau=None,
+        W=None,
+        validate_args=None,
+    ):
+        pass
+
+
+    @validate_sample
+    def log_prob(self, value):
+        D = self.W.sum(axis=-1)
+
+        D_rsqrt = D ** (-0.5)
+        W_scaled = self.W * (D_rsqrt * D_rsqrt[:, jnp.newaxis])
+
+        lam = jnp.linalg.eigvalsh(W_scaled)
+
+        n = D.shape[-1]
+
+        logtau = n * jnp.log(self.tau).sum()
+        logdet = jnp.log(1 - self.alpha * lam).sum()
+        phi = value - self.loc
+
+        logquad = self.tau * jnp.sum(phi * (D * phi - self.alpha * self.W @ phi))
+        
+        return -0.5 * (logtau + logdet + logquad)
+
 
 
 class MultivariateStudentT(Distribution):
