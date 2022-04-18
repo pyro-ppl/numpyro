@@ -1202,26 +1202,18 @@ class CAR(Distribution):
         "tau",
     ]
 
-    def __init__(
-        self,
-        loc=0.0,
-        alpha=None,
-        tau=None,
-        W=None,
-        validate_args=None,
-    ):
+    def __init__(self, loc, alpha, tau, W, *, validate_args=None):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
-        # temporary append a new axis to loc
-        loc = loc[..., jnp.newaxis]
+
         if W is not None:
             loc, self.W = promote_shapes(loc, W)
 
-        batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-2], jnp.shape(self.W)[:-2])
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-1], jnp.shape(alpha), jnp.shape(tau), jnp.shape(self.W)[:-2])
         event_shape = jnp.shape(self.W)[-1:]
-        self.loc = loc[..., 0]
-        self.alpha = alpha
-        self.tau = tau
+        self.loc = promote_shapes(loc, shape=batch_shape + event_shape)
+        self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
+
         super(CAR, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
