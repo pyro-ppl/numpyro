@@ -1236,7 +1236,7 @@ class CAR(Distribution):
         n = D.shape[-1]
 
         logtau = n * jnp.log(self.tau)
-        logdet = jnp.log(1 - self.alpha * lam).sum()
+        logdet = jnp.log1p(-jnp.expand_dims(self.alpha, -1) * lam).sum(-1)
         phi = value - self.loc
 
         logquad = self.tau * jnp.sum(phi * (D * phi - jnp.expand_dims(self.alpha, -1) * (self.W @ phi)), -1)
