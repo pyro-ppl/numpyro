@@ -1206,8 +1206,7 @@ class CAR(Distribution):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
-        if W is not None:
-            loc, self.W = promote_shapes(loc, W)
+        self.W = W
 
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-1],
