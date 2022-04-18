@@ -250,7 +250,7 @@ MultivariateNormal
     :member-order: bysource
 
 CAR
-^^^^^^^^^^^^^^^^^^
+^^^
 .. autoclass:: numpyro.distributions.continuous.CAR
     :members:
     :undoc-members:
