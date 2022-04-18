@@ -1191,7 +1191,7 @@ class MultivariateNormal(Distribution):
 class CAR(Distribution):
     arg_constraints = {
         "loc": constraints.real_vector,
-        "alpha": constraints.unit_interval,
+        "alpha": constraints.open_interval(-1, 1),
         "tau": constraints.positive,
         "W": constraints.positive_definite,
     }
@@ -1243,7 +1243,7 @@ class CAR(Distribution):
 
         n = D.shape[-1]
 
-        logtau = n * jnp.log(self.tau).sum()
+        logtau = n * jnp.log(self.tau)
         logdet = jnp.log(1 - self.alpha * lam).sum()
         phi = value - self.loc
 
