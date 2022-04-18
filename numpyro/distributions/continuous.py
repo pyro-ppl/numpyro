@@ -1209,7 +1209,12 @@ class CAR(Distribution):
         if W is not None:
             loc, self.W = promote_shapes(loc, W)
 
-        batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-1], jnp.shape(alpha), jnp.shape(tau), jnp.shape(self.W)[:-2])
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-1],
+            jnp.shape(alpha),
+            jnp.shape(tau),
+            jnp.shape(self.W)[:-2]
+        )
         event_shape = jnp.shape(self.W)[-1:]
         self.loc = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
@@ -1221,8 +1226,12 @@ class CAR(Distribution):
         )
 
     def sample(self, key, sample_shape=()):
-        # MVN with covariance matrix inv(tau * (D - alpha * W))
-        pass
+        D = self.W.sum(axis=-1, keepdims=True) * jnp.eye(self.W.shape[-1])
+        tau = jnp.expand_dims(self.tau, (-2, -1))
+        alpha = jnp.expand_dims(self.alpha, (-2, -1))
+        P = tau * (D - alpha * self.W)
+        mvn = MultivariateNormal(self.loc, precision_matrix=P)
+        return mvn.sample(key, sample_shape=sample_shape)
 
     @validate_sample
     def log_prob(self, value):
