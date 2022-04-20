@@ -25,6 +25,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
+from scipy import sparse
+
 from jax import lax
 import jax.nn as nn
 import jax.numpy as jnp
@@ -1226,6 +1229,10 @@ class CAR(Distribution):
         )
 
     def sample(self, key, sample_shape=()):
+        if self.is_sparse:
+            if not sparse.issparse(self.W):
+                assert isinstance(self.W, np.ndarray)
+            W = sparse.csr_matrix(self.W)
         D = self.W.sum(axis=-1, keepdims=True) * jnp.eye(self.W.shape[-1])
         tau = jnp.expand_dims(self.tau, (-2, -1))
         alpha = jnp.expand_dims(self.alpha, (-2, -1))
@@ -1238,9 +1245,6 @@ class CAR(Distribution):
         phi = value - self.loc
 
         if self.is_sparse:
-            from scipy import sparse
-            import numpy as np
-
             if not sparse.issparse(self.W):
                 assert isinstance(self.W, np.ndarray)
             W = sparse.csr_matrix(self.W)

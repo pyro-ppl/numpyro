@@ -11,12 +11,12 @@ from numpyro.distributions.conjugate import (
     ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
+    CAR,
     LKJ,
     AsymmetricLaplace,
     AsymmetricLaplaceQuantile,
     Beta,
     BetaProportion,
-    CAR,
     Cauchy,
     Chi2,
     Dirichlet,
