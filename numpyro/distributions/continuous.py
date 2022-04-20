@@ -1232,11 +1232,18 @@ class CAR(Distribution):
         if self.is_sparse:
             if not sparse.issparse(self.W):
                 assert isinstance(self.W, np.ndarray)
-            W = sparse.csr_matrix(self.W)
-        D = self.W.sum(axis=-1, keepdims=True) * jnp.eye(self.W.shape[-1])
+                W = self.W
+            else:
+                W = sparse.csr_matrix(self.W)
+                W = np.asarray(W.todense())
+        else:
+            assert not sparse.issparse(self.W)
+            W = self.W
+        
+        D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
         tau = jnp.expand_dims(self.tau, (-2, -1))
         alpha = jnp.expand_dims(self.alpha, (-2, -1))
-        P = tau * (D - alpha * self.W)
+        P = tau * (D - alpha * W)
         mvn = MultivariateNormal(self.loc, precision_matrix=P)
         return mvn.sample(key, sample_shape=sample_shape)
 
