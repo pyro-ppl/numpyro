@@ -1202,7 +1202,7 @@ class CAR(Distribution):
         "tau",
     ]
 
-    def __init__(self, loc, alpha, tau, W, *, validate_args=None):
+    def __init__(self, loc, alpha, tau, W, *, is_sparse=False, validate_args=None):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
@@ -1217,6 +1217,7 @@ class CAR(Distribution):
         event_shape = jnp.shape(self.W)[-1:]
         self.loc = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
+        self.is_sparse = is_sparse
 
         super(CAR, self).__init__(
             batch_shape=batch_shape,
@@ -1234,10 +1235,31 @@ class CAR(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        D = self.W.sum(axis=-1)
+        phi = value - self.loc
 
-        D_rsqrt = D ** (-0.5)
-        W_scaled = self.W * (D_rsqrt * D_rsqrt[:, jnp.newaxis])
+        if self.is_sparse:
+            from scipy import sparse
+            import numpy as np
+
+            if not sparse.issparse(self.W):
+                assert isinstance(self.W, np.ndarray)
+            W = sparse.csr_matrix(self.W)
+
+            D = np.asarray(W.sum(axis=-1)).squeeze()
+            D_rsqrt = np.diag(D ** (-0.5))
+
+            W_scaled = D_rsqrt.dot(W.dot(D_rsqrt))
+
+            Wphi = W.dot(phi)
+        else:
+            assert not sparse.issparse(self.W)
+            W = self.W
+            D = W.sum(axis=-1)
+            D_rsqrt = D ** (-0.5)
+
+            W_scaled = W * (D_rsqrt * D_rsqrt[:, jnp.newaxis])
+
+            Wphi = W @ phi
 
         lam = jnp.linalg.eigvalsh(W_scaled)
 
@@ -1245,9 +1267,8 @@ class CAR(Distribution):
 
         logtau = n * jnp.log(self.tau)
         logdet = jnp.log1p(-jnp.expand_dims(self.alpha, -1) * lam).sum(-1)
-        phi = value - self.loc
 
-        logquad = self.tau * jnp.sum(phi * (D * phi - jnp.expand_dims(self.alpha, -1) * (self.W @ phi)), -1)
+        logquad = self.tau * jnp.sum(phi * (D * phi - jnp.expand_dims(self.alpha, -1) * Wphi), -1)
 
         return -0.5 * (logtau + logdet + logquad)
 
