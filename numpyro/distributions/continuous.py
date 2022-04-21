@@ -1216,7 +1216,7 @@ class CAR(Distribution):
             jnp.shape(loc)[:-1],
             jnp.shape(alpha),
             jnp.shape(tau),
-            jnp.shape(self.W)[:-2]
+            jnp.shape(self.W)[:-2],
         )
         event_shape = jnp.shape(self.W)[-1:]
         self.loc = promote_shapes(loc, shape=batch_shape + event_shape)
@@ -1240,7 +1240,7 @@ class CAR(Distribution):
         else:
             assert not sparse.issparse(self.W)
             W = self.W
-        
+
         D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
         tau = jnp.expand_dims(self.tau, (-2, -1))
         alpha = jnp.expand_dims(self.alpha, (-2, -1))
@@ -1282,10 +1282,11 @@ class CAR(Distribution):
         logtau = n * jnp.log(self.tau)
         logdet = jnp.log1p(-jnp.expand_dims(self.alpha, -1) * lam).sum(-1)
 
-        logquad = self.tau * jnp.sum(phi * (D * phi - jnp.expand_dims(self.alpha, -1) * W @ phi), -1)
+        logquad = self.tau * jnp.sum(
+            phi * (D * phi - jnp.expand_dims(self.alpha, -1) * W @ phi), -1
+        )
 
         return -0.5 * (logtau + logdet + logquad)
-
 
     @property
     def mean(self):
@@ -1303,7 +1304,7 @@ class CAR(Distribution):
         else:
             assert not sparse.issparse(self.W)
             W = self.W
-        
+
         D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
         tau = jnp.expand_dims(self.tau, (-2, -1))
         alpha = jnp.expand_dims(self.alpha, (-2, -1))
@@ -1313,10 +1314,7 @@ class CAR(Distribution):
     def infer_shapes(loc, alpha, tau, W):
         event_shape = jnp.shape(W)[-1:]
         batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc)[:-1],
-            jnp.shape(alpha),
-            jnp.shape(tau),
-            jnp.shape(W)[:-2]
+            jnp.shape(loc)[:-1], jnp.shape(alpha), jnp.shape(tau), jnp.shape(W)[:-2]
         )
         return batch_shape, event_shape
 
@@ -1624,7 +1622,7 @@ class Normal(Distribution):
     def log_prob(self, value):
         normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
-        return -0.5 * value_scaled ** 2 - normalize_term
+        return -0.5 * value_scaled**2 - normalize_term
 
     def cdf(self, value):
         scaled = (value - self.loc) / self.scale
@@ -1639,7 +1637,7 @@ class Normal(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(self.scale ** 2, self.batch_shape)
+        return jnp.broadcast_to(self.scale**2, self.batch_shape)
 
 
 class Pareto(TransformedDistribution):
@@ -1666,7 +1664,7 @@ class Pareto(TransformedDistribution):
     def variance(self):
         # var is inf for alpha <= 2
         a = jnp.divide(
-            (self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
+            (self.scale**2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
         )
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
@@ -1802,7 +1800,7 @@ class StudentT(Distribution):
             + gammaln(0.5 * self.df)
             - gammaln(0.5 * (self.df + 1.0))
         )
-        return -0.5 * (self.df + 1.0) * jnp.log1p(y ** 2.0 / self.df) - z
+        return -0.5 * (self.df + 1.0) * jnp.log1p(y**2.0 / self.df) - z
 
     @property
     def mean(self):
@@ -1814,7 +1812,7 @@ class StudentT(Distribution):
     @property
     def variance(self):
         var = jnp.where(
-            self.df > 2, jnp.divide(self.scale ** 2 * self.df, self.df - 2.0), jnp.inf
+            self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
         )
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
@@ -1940,7 +1938,7 @@ class Weibull(Distribution):
 
     @property
     def variance(self):
-        return self.scale ** 2 * (
+        return self.scale**2 * (
             jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
