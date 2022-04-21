@@ -32,6 +32,7 @@ from jax import lax
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
+from jax.experimental.sparse import BCOO
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import (
     betainc,
@@ -1257,29 +1258,31 @@ class CAR(Distribution):
             W = sparse.csr_matrix(self.W)
 
             D = np.asarray(W.sum(axis=-1)).squeeze()
-            D_rsqrt = np.diag(D ** (-0.5))
+            D_rsqrt = D ** (-0.5)
 
-            W_scaled = D_rsqrt.dot(W.dot(D_rsqrt))
+            W_scaled = W.multiply(D_rsqrt @ D_rsqrt[:, np.newaxis]).toarray()
 
-            Wphi = W.dot(phi)
+            lam = np.linalg.eigvalsh(W_scaled)
+
+            W = BCOO.fromdense(W.todense())
+
         else:
             assert not sparse.issparse(self.W)
             W = self.W
+
             D = W.sum(axis=-1)
             D_rsqrt = D ** (-0.5)
 
             W_scaled = W * (D_rsqrt * D_rsqrt[:, jnp.newaxis])
 
-            Wphi = W @ phi
-
-        lam = jnp.linalg.eigvalsh(W_scaled)
+            lam = jnp.linalg.eigvalsh(W_scaled)
 
         n = D.shape[-1]
 
         logtau = n * jnp.log(self.tau)
         logdet = jnp.log1p(-jnp.expand_dims(self.alpha, -1) * lam).sum(-1)
 
-        logquad = self.tau * jnp.sum(phi * (D * phi - jnp.expand_dims(self.alpha, -1) * Wphi), -1)
+        logquad = self.tau * jnp.sum(phi * (D * phi - jnp.expand_dims(self.alpha, -1) * W @ phi), -1)
 
         return -0.5 * (logtau + logdet + logquad)
 
