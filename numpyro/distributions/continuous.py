@@ -29,10 +29,10 @@ import numpy as np
 from scipy import sparse
 
 from jax import lax
+from jax.experimental.sparse import BCOO
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
-from jax.experimental.sparse import BCOO
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import (
     betainc,
