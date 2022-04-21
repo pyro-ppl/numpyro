@@ -1287,6 +1287,40 @@ class CAR(Distribution):
         return -0.5 * (logtau + logdet + logquad)
 
 
+    @property
+    def mean(self):
+        return self.loc
+
+    @property
+    def precision_matrix(self):
+        if self.is_sparse:
+            if not sparse.issparse(self.W):
+                assert isinstance(self.W, np.ndarray)
+                W = self.W
+            else:
+                W = sparse.csr_matrix(self.W)
+                W = np.asarray(W.todense())
+        else:
+            assert not sparse.issparse(self.W)
+            W = self.W
+        
+        D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
+        tau = jnp.expand_dims(self.tau, (-2, -1))
+        alpha = jnp.expand_dims(self.alpha, (-2, -1))
+        return tau * (D - alpha * W)
+
+    @staticmethod
+    def infer_shapes(loc, alpha, tau, W):
+        event_shape = jnp.shape(W)[-1:]
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-1],
+            jnp.shape(alpha),
+            jnp.shape(tau),
+            jnp.shape(W)[:-2]
+        )
+        return batch_shape, event_shape
+
+
 class MultivariateStudentT(Distribution):
     arg_constraints = {
         "df": constraints.positive,
