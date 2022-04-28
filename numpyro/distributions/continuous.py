@@ -1223,7 +1223,7 @@ class CAR(Distribution):
         "tau",
     ]
 
-    def __init__(self, loc, alpha, tau, W, *, is_sparse=False, validate_args=None):
+    def __init__(self, loc=0.0, alpha, tau, W, *, is_sparse=False, validate_args=None):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
