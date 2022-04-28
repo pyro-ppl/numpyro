@@ -1193,6 +1193,23 @@ class MultivariateNormal(Distribution):
 
 
 class CAR(Distribution):
+    r"""
+    The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
+    normal in which the precision matrix is structured according to the adjacency matrix of
+    sites. The amount of autocorrelation between sites is controlled by :math:`\alpha`. The
+    distribution is a popular prior for areal spatial data.
+
+    :param float or ndarray loc: mean of the multivariate normal
+    :param float alpha: autoregression parameter. For most cases, the value should lie
+        between 0 (sites are independent, collapses to an iid multivariate normal) and
+        1 (perfect autocorrelation between sites), but the specification allows for negative
+        correlations.
+    :param float tau: positive precision for the multivariate normal
+    :param numpy.ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
+        indicates adjacency between sites and 0 otherwise
+    :param bool whether to use a sparse form of W in calculations (must be True is W is a
+        scipy.sparse.csr_matrix)
+    """
     arg_constraints = {
         "loc": constraints.real_vector,
         "alpha": constraints.open_interval(-1, 1),
