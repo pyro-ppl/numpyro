@@ -1210,6 +1210,7 @@ class CAR(Distribution):
     :param bool whether to use a sparse form of W in calculations (must be True is W is a
         scipy.sparse.csr_matrix)
     """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "alpha": constraints.open_interval(-1, 1),
@@ -1255,7 +1256,7 @@ class CAR(Distribution):
 
     def sample(self, key, sample_shape=()):
         if self.is_sparse:
-            W = np.asarray(W.todense())
+            W = np.asarray(self.W.todense())
         else:
             W = self.W
 
@@ -1307,7 +1308,7 @@ class CAR(Distribution):
     @property
     def precision_matrix(self):
         if self.is_sparse:
-            W = np.asarray(W.todense())
+            W = np.asarray(self.W.todense())
         else:
             W = self.W
 
