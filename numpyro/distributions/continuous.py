@@ -1227,7 +1227,15 @@ class CAR(Distribution):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
-        self.W = W
+        self.is_sparse = is_sparse
+
+        if self.is_sparse:
+            if not sparse.issparse(W):
+                assert isinstance(W, np.ndarray)
+            self.W = sparse.csr_matrix(W)
+        else:
+            assert not sparse.issparse(W)
+            self.W = W
 
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-1],
@@ -1238,7 +1246,6 @@ class CAR(Distribution):
         event_shape = jnp.shape(self.W)[-1:]
         self.loc = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
-        self.is_sparse = is_sparse
 
         super(CAR, self).__init__(
             batch_shape=batch_shape,
@@ -1248,14 +1255,8 @@ class CAR(Distribution):
 
     def sample(self, key, sample_shape=()):
         if self.is_sparse:
-            if not sparse.issparse(self.W):
-                assert isinstance(self.W, np.ndarray)
-                W = self.W
-            else:
-                W = sparse.csr_matrix(self.W)
-                W = np.asarray(W.todense())
+            W = np.asarray(W.todense())
         else:
-            assert not sparse.issparse(self.W)
             W = self.W
 
         D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
@@ -1268,12 +1269,9 @@ class CAR(Distribution):
     @validate_sample
     def log_prob(self, value):
         phi = value - self.loc
+        W = self.W
 
         if self.is_sparse:
-            if not sparse.issparse(self.W):
-                assert isinstance(self.W, np.ndarray)
-            W = sparse.csr_matrix(self.W)
-
             D = np.asarray(W.sum(axis=-1)).squeeze()
             D_rsqrt = D ** (-0.5)
 
@@ -1284,9 +1282,6 @@ class CAR(Distribution):
             W = BCOO.fromdense(W.todense())
 
         else:
-            assert not sparse.issparse(self.W)
-            W = self.W
-
             D = W.sum(axis=-1)
             D_rsqrt = D ** (-0.5)
 
@@ -1312,14 +1307,8 @@ class CAR(Distribution):
     @property
     def precision_matrix(self):
         if self.is_sparse:
-            if not sparse.issparse(self.W):
-                assert isinstance(self.W, np.ndarray)
-                W = self.W
-            else:
-                W = sparse.csr_matrix(self.W)
-                W = np.asarray(W.todense())
+            W = np.asarray(W.todense())
         else:
-            assert not sparse.issparse(self.W)
             W = self.W
 
         D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
