@@ -1254,16 +1254,8 @@ class CAR(Distribution):
         )
 
     def sample(self, key, sample_shape=()):
-        if self.is_sparse:
-            W = np.asarray(self.W.todense())
-        else:
-            W = self.W
-
-        D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
-        tau = jnp.expand_dims(self.tau, (-2, -1))
-        alpha = jnp.expand_dims(self.alpha, (-2, -1))
-        P = tau * (D - alpha * W)
-        mvn = MultivariateNormal(self.loc, precision_matrix=P)
+        # TODO: look into a sparse sampling method
+        mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
         return mvn.sample(key, sample_shape=sample_shape)
 
     @validate_sample
@@ -1302,9 +1294,9 @@ class CAR(Distribution):
 
     @property
     def mean(self):
-        return self.loc
+        return jnp.broadcast_to(self.loc, self.shape())
 
-    @property
+    @lazy_property
     def precision_matrix(self):
         if self.is_sparse:
             W = np.asarray(self.W.todense())
