@@ -1255,6 +1255,21 @@ class CAR(Distribution):
             validate_args=validate_args,
         )
 
+        if self._validate_args:
+            assert (
+                self.W.sum(axis=-1) > 0
+            ), "all sites in adjacency matrix of W must have neighbours"
+
+            if sparse.issparse(self.W):
+                assert(
+                    (self.W!=self.W.T).nnz==0
+                ), "W must be symmetric"
+            else:
+                assert(
+                    np.array_equal(self.W, self.W.T)
+                ), "W must be symmetric"
+
+
     def sample(self, key, sample_shape=()):
         # TODO: look into a sparse sampling method
         mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
