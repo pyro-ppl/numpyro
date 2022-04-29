@@ -1246,7 +1246,7 @@ class CAR(Distribution):
             jnp.shape(self.W)[:-2],
         )
         event_shape = jnp.shape(self.W)[-1:]
-        self.loc, = promote_shapes(loc, shape=batch_shape + event_shape)
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
 
         super(CAR, self).__init__(
@@ -1261,14 +1261,9 @@ class CAR(Distribution):
             ), "all sites in adjacency matrix W must have neighbours"
 
             if sparse.issparse(self.W):
-                assert(
-                    (self.W!=self.W.T).nnz==0
-                ), "W must be symmetric"
+                assert (self.W != self.W.T).nnz == 0, "W must be symmetric"
             else:
-                assert(
-                    np.array_equal(self.W, self.W.T)
-                ), "W must be symmetric"
-
+                assert np.array_equal(self.W, self.W.T), "W must be symmetric"
 
     def sample(self, key, sample_shape=()):
         # TODO: look into a sparse sampling method
