@@ -1312,10 +1312,8 @@ class CAR(Distribution):
 
     @staticmethod
     def infer_shapes(loc, alpha, tau, W):
-        event_shape = jnp.shape(W)[-1:]
-        batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc)[:-1], jnp.shape(alpha), jnp.shape(tau), jnp.shape(W)[:-2]
-        )
+        event_shape = W[-1:]
+        batch_shape = lax.broadcast_shapes(loc[:-1], alpha, tau, W[:-2])
         return batch_shape, event_shape
 
 
