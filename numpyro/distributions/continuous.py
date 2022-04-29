@@ -1246,7 +1246,7 @@ class CAR(Distribution):
             jnp.shape(self.W)[:-2],
         )
         event_shape = jnp.shape(self.W)[-1:]
-        self.loc = promote_shapes(loc, shape=batch_shape + event_shape)
+        self.loc, = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
 
         super(CAR, self).__init__(
