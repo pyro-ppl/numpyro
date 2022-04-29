@@ -1271,7 +1271,7 @@ class CAR(Distribution):
 
             lam = np.linalg.eigvalsh(W_scaled)
 
-            W = BCOO.fromdense(W.toarray())
+            W = BCOO.from_scipy_sparse(W)
 
         else:
             D = W.sum(axis=-1)
