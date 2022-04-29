@@ -1205,10 +1205,10 @@ class CAR(Distribution):
         1 (perfect autocorrelation between sites), but the specification allows for negative
         correlations.
     :param float tau: positive precision for the multivariate normal
-    :param numpy.ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
+    :param ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
         indicates adjacency between sites and 0 otherwise
-    :param bool whether to use a sparse form of W in calculations (must be True is W is a
-        scipy.sparse.csr_matrix)
+    :param bool is_sparse: whether to use a sparse form of W in calculations (must be True is W is a
+        :class:`scipy.sparse.spmatrix`)
     """
 
     arg_constraints = {
