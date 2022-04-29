@@ -1271,7 +1271,7 @@ class CAR(Distribution):
 
             lam = np.linalg.eigvalsh(W_scaled)
 
-            W = BCOO.fromdense(W.todense())
+            W = BCOO.fromdense(W.toarray())
 
         else:
             D = W.sum(axis=-1)
@@ -1299,7 +1299,7 @@ class CAR(Distribution):
     @lazy_property
     def precision_matrix(self):
         if self.is_sparse:
-            W = np.asarray(self.W.todense())
+            W = self.W.toarray()
         else:
             W = self.W
 
