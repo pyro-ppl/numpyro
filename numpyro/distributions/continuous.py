@@ -1258,7 +1258,7 @@ class CAR(Distribution):
         if self._validate_args:
             assert (
                 self.W.sum(axis=-1) > 0
-            ), "all sites in adjacency matrix of W must have neighbours"
+            ), "all sites in adjacency matrix W must have neighbours"
 
             if sparse.issparse(self.W):
                 assert(
