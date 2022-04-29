@@ -1267,7 +1267,7 @@ class CAR(Distribution):
             D = np.asarray(W.sum(axis=-1)).squeeze()
             D_rsqrt = D ** (-0.5)
 
-            W_scaled = W.multiply(D_rsqrt @ D_rsqrt[:, np.newaxis]).toarray()
+            W_scaled = W.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
 
             lam = np.linalg.eigvalsh(W_scaled)
 
