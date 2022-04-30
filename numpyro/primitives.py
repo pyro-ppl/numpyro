@@ -191,9 +191,12 @@ def sample(
                 # still need to raise a type error
                 raise type_error
 
-    # if there are no active Messengers, we just draw a sample and return it as expected:
+    # if no active Messengers, draw a sample or return obs as expected:
     if not _PYRO_STACK:
-        return fn(rng_key=rng_key, sample_shape=sample_shape)
+        if obs is None:
+            return fn(rng_key=rng_key, sample_shape=sample_shape)
+        else:
+            return obs
 
     if obs_mask is not None:
         return _masked_observe(
