@@ -1234,6 +1234,7 @@ class CAR(Distribution):
         if self.is_sparse:
             if not sparse.issparse(W):
                 assert isinstance(W, np.ndarray)
+            # TODO: look into future jax sparse csr functionality and other developments
             self.W = sparse.csr_matrix(W)
         else:
             assert not sparse.issparse(W)
@@ -1281,8 +1282,6 @@ class CAR(Distribution):
 
             W_scaled = W.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
 
-            lam = np.linalg.eigvalsh(W_scaled)
-
             W = BCOO.from_scipy_sparse(W)
 
         else:
@@ -1291,7 +1290,8 @@ class CAR(Distribution):
 
             W_scaled = W * (D_rsqrt * D_rsqrt[:, jnp.newaxis])
 
-            lam = jnp.linalg.eigvalsh(W_scaled)
+        # TODO: look into sparse eignvalue methods
+        lam = np.linalg.eigvalsh(W_scaled)
 
         n = D.shape[-1]
 
