@@ -7,9 +7,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, tree_multimap, tree_map
-from jax._src.tree_util import tree_all
+from jax import random, tree_map, tree_multimap
 import jax.numpy as jnp
+from jax.tree_util import tree_all
 
 import numpyro
 import numpyro.distributions as dist
@@ -49,9 +49,7 @@ def test_pickle_hmc(kernel):
     mcmc = MCMC(kernel(normal_model), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(
-        tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
-    )
+    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
 
 
 @pytest.mark.parametrize("kernel", [DiscreteHMCGibbs, MixedHMC])
@@ -59,9 +57,7 @@ def test_pickle_discrete_hmc(kernel):
     mcmc = MCMC(kernel(HMC(bernoulli_model)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(
-        tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
-    )
+    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
 
 
 def test_pickle_hmcecs():

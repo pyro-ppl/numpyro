@@ -6,10 +6,9 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import random
-from jax.tree_util import tree_all
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import tree_all, tree_flatten, tree_map
 
 import numpyro
 import numpyro.distributions as dist
