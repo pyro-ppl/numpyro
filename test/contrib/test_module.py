@@ -7,7 +7,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, test_util
+from jax import random, tree_multimap
+from jax._src.tree_util import tree_all
 
 import numpyro
 from numpyro import handlers
@@ -135,14 +136,18 @@ def test_update_params():
     assert params == {
         "a": {"b": {"c": {"d": ParamShape(())}, "e": 2}, "f": ParamShape((4,))}
     }
-    test_util.check_eq(
-        new_params,
-        {
-            "a": {
-                "b": {"c": {"d": np.array(4.0)}, "e": np.array(2)},
-                "f": np.full((4,), 5.0),
-            }
-        },
+
+    tree_all(
+        tree_multimap(
+            assert_allclose,
+            new_params,
+            {
+                "a": {
+                    "b": {"c": {"d": np.array(4.0)}, "e": np.array(2)},
+                    "f": np.full((4,), 5.0),
+                }
+            },
+        )
     )
 
 

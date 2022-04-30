@@ -4,9 +4,11 @@
 import pickle
 
 import numpy as np
+from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, test_util
+from jax import random, tree_multimap
+from jax._src.tree_util import tree_all
 import jax.numpy as jnp
 
 import numpyro
@@ -47,7 +49,9 @@ def test_pickle_hmc(kernel):
     mcmc = MCMC(kernel(normal_model), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    test_util.check_close(mcmc.get_samples(), pickled_mcmc.get_samples())
+    tree_all(
+        tree_multimap(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 @pytest.mark.parametrize("kernel", [DiscreteHMCGibbs, MixedHMC])
@@ -55,14 +59,18 @@ def test_pickle_discrete_hmc(kernel):
     mcmc = MCMC(kernel(HMC(bernoulli_model)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    test_util.check_close(mcmc.get_samples(), pickled_mcmc.get_samples())
+    tree_all(
+        tree_multimap(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 def test_pickle_hmcecs():
     mcmc = MCMC(HMCECS(NUTS(logistic_regression)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    test_util.check_close(mcmc.get_samples(), pickled_mcmc.get_samples())
+    tree_all(
+        tree_multimap(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 def poisson_regression(x, N):

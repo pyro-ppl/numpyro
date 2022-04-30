@@ -1,14 +1,15 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+from functools import partial
 
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import jit, random, value_and_grad
+from jax import jit, random, tree_multimap, value_and_grad
+from jax._src.tree_util import tree_all
 import jax.numpy as jnp
-from jax.test_util import check_close
 
 from numpyro.util import _versiontuple
 
@@ -137,10 +138,11 @@ def test_jitted_update_fn():
     adam = optim.Adam(0.05)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
-    expected = svi.get_params(svi.update(svi_state, data)[0])
 
+    expected = svi.get_params(svi.update(svi_state, data)[0])
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
-    check_close(actual, expected, atol=1e-5)
+
+    tree_all(tree_multimap(partial(assert_allclose, atol=1e-5), actual, expected))
 
 
 def test_param():
