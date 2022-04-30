@@ -7,8 +7,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, tree_multimap
-from jax._src.tree_util import tree_all
+from jax import random, tree_map
+from jax.tree_util import tree_all
 
 import numpyro
 from numpyro import handlers
@@ -138,7 +138,7 @@ def test_update_params():
     }
 
     tree_all(
-        tree_multimap(
+        tree_map(
             assert_allclose,
             new_params,
             {

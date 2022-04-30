@@ -58,7 +58,7 @@ def log_I1(orders: int, value, terms=250):
     lfactorials = lgammas_all[:terms]
     assert lfactorials.shape == (terms,)
 
-    lgammas = lgammas_all.tile(orders).reshape((orders, -1))
+    lgammas = jnp.tile(lgammas_all, orders).reshape((orders, -1))
     assert lgammas.shape == (orders, terms + orders)  # lgamma(0) = inf => start from 1
 
     indices = k[:orders].reshape(-1, 1) + k.reshape(1, -1)
