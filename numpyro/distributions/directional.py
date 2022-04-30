@@ -467,7 +467,7 @@ class SineBivariateVonMises(Distribution):
                 (phi + jnp.reshape(self.phi_loc, -1) + pi) % (2 * pi) - pi,
                 (psi + jnp.reshape(self.psi_loc, -1) + pi) % (2 * pi) - pi,
             ),
-            axis=-1,
+            axis=1,
         )
         phi_psi = jnp.transpose(phi_psi, (0, 2, 1))
         return phi_psi.reshape(*sample_shape, *self.batch_shape, *self.event_shape)
@@ -505,7 +505,9 @@ class SineBivariateVonMises(Distribution):
             )
             assert lg_inv.shape == lf.shape
 
-            accepted = random.uniform(accept_key, shape) < jnp.exp(lf + lg_inv)
+            accepted = random.uniform(accept_key, (shape[0], shape[2]))[
+                :, None
+            ] < jnp.exp(lf + lg_inv)
 
             phi = jnp.where(accepted, x, phi)
             return PhiMarginalState(i + 1, done | accepted, phi, key)

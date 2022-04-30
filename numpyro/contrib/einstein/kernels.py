@@ -4,15 +4,14 @@
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Tuple
 
-import numpy as np
-
-from jax import random
 import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
+import numpy as np
+from jax import random
 
-from numpyro.contrib.einstein.util import safe_norm, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
+from numpyro.contrib.einstein.util import safe_norm, sqrth_and_inv_sqrth
 
 
 class PrecondMatrix(ABC):
@@ -338,6 +337,10 @@ class MixtureKernel(SteinKernel):
         for kf in self.kernel_fns:
             rng_key, krng_key = random.split(rng_key)
             kf.init(krng_key, particles_shape)
+
+
+class GaussianProbabilityProductKernel(SteinKernel):
+    pass
 
 
 class HessianPrecondMatrix(PrecondMatrix):
