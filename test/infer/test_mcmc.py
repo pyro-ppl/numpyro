@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import device_get, jit, lax, pmap, random, tree_multimap, vmap
+from jax import device_get, jit, lax, pmap, random, tree_multimap, vmap, tree_map
 from jax._src.tree_util import tree_all
 import jax.numpy as jnp
 from jax.scipy.special import logit
@@ -456,7 +456,7 @@ def test_mcmc_progbar():
 
     with pytest.raises(AssertionError):
         tree_all(
-            tree_multimap(
+            tree_map(
                 partial(assert_allclose, atol=1e-4, rtol=1e-4),
                 mcmc1.get_samples(),
                 mcmc.get_samples(),
@@ -465,14 +465,14 @@ def test_mcmc_progbar():
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
     tree_all(
-        tree_multimap(
+        tree_map(
             partial(assert_allclose, atol=1e-4, rtol=1e-4),
             mcmc1.get_samples(),
             mcmc.get_samples(),
         )
     )
     tree_all(
-        tree_multimap(
+        tree_map(
             partial(assert_allclose, atol=1e-4, rtol=1e-4),
             mcmc1.post_warmup_state,
             mcmc.post_warmup_state,

@@ -5,8 +5,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, tree_multimap
-from jax._src.tree_util import tree_all
+from jax import random
+from jax.tree_util import tree_all
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
@@ -45,7 +45,7 @@ def test_fori_collect():
     expected_tree = {"i": np.array([[0.0], [2.0]])}
     actual_tree = fori_collect(1, 3, f, a, transform=lambda a: {"i": a["i"]})
 
-    tree_all(tree_multimap(assert_allclose, actual_tree, expected_tree))
+    tree_all(tree_map(assert_allclose, actual_tree, expected_tree))
 
 
 @pytest.mark.parametrize("progbar", [False, True])
@@ -65,8 +65,8 @@ def test_fori_collect_return_last(progbar):
     )
     expected_tree = {"i": np.array([3, 4])}
     expected_last_state = {"i": np.array(4)}
-    tree_all(tree_multimap(assert_allclose, init_state, expected_last_state))
-    tree_all(tree_multimap(assert_allclose, tree, expected_tree))
+    tree_all(tree_map(assert_allclose, init_state, expected_last_state))
+    tree_all(tree_map(assert_allclose, tree, expected_tree))
 
 
 @pytest.mark.parametrize(

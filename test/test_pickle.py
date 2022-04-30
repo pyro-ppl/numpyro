@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, tree_multimap
+from jax import random, tree_multimap, tree_map
 from jax._src.tree_util import tree_all
 import jax.numpy as jnp
 
@@ -50,7 +50,7 @@ def test_pickle_hmc(kernel):
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     tree_all(
-        tree_multimap(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+        tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
     )
 
 
@@ -60,7 +60,7 @@ def test_pickle_discrete_hmc(kernel):
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     tree_all(
-        tree_multimap(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+        tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
     )
 
 

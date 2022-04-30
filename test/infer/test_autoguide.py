@@ -7,8 +7,8 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import jacobian, jit, lax, random, tree_multimap
-from jax._src.tree_util import tree_all
+from jax import jacobian, jit, lax, random, tree_map
+from jax.tree_util import tree_all
 
 from numpyro.util import _versiontuple
 
@@ -230,7 +230,7 @@ def test_iaf():
         transforms.biject_to(constraints.interval(-1, 1))(expected_sample["offset"]),
     )
 
-    tree_all(tree_multimap(assert_allclose, actual_output, expected_output))
+    tree_all(tree_map(assert_allclose, actual_output, expected_output))
 
 
 def test_uniform_normal():
@@ -351,8 +351,8 @@ def test_dynamic_supports():
     expected_loss = svi.evaluate(svi_state, data)
 
     # test auto_loc, auto_scale
-    tree_all(tree_multimap(assert_allclose, actual_opt_params, expected_opt_params))
-    tree_all(tree_multimap(assert_allclose, actual_params, expected_params))
+    tree_all(tree_map(assert_allclose, actual_opt_params, expected_opt_params))
+    tree_all(tree_map(assert_allclose, actual_params, expected_params))
     # test latent values
     assert_allclose(actual_values["alpha"], expected_values["alpha"])
     assert_allclose(actual_values["loc_base"], expected_values["loc"])

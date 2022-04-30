@@ -8,7 +8,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import jit, random, tree_multimap, value_and_grad
+from jax import jit, random, value_and_grad, tree_map
 from jax._src.tree_util import tree_all
 import jax.numpy as jnp
 
@@ -143,7 +143,7 @@ def test_jitted_update_fn():
     expected = svi.get_params(svi.update(svi_state, data)[0])
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
 
-    tree_all(tree_multimap(partial(assert_allclose, atol=1e-5), actual, expected))
+    tree_all(tree_map(partial(assert_allclose, atol=1e-5), actual, expected))
 
 
 def test_param():
