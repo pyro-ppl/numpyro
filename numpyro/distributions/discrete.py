@@ -316,7 +316,9 @@ class CategoricalProbs(Distribution):
         value = jnp.broadcast_to(value, batch_shape + (1,))
         logits = self.logits
         log_pmf = jnp.broadcast_to(logits, batch_shape + jnp.shape(logits)[-1:])
-        return jnp.take_along_axis(log_pmf, jnp.array(value, dtype=int), axis=-1)[..., 0]
+        return jnp.take_along_axis(log_pmf, jnp.array(value, dtype=int), axis=-1)[
+            ..., 0
+        ]
 
     @lazy_property
     def logits(self):
