@@ -1207,8 +1207,8 @@ class CAR(Distribution):
     :param float tau: positive precision for the multivariate normal
     :param numpy.ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
         indicates adjacency between sites and 0 otherwise
-    :param bool is_sparse: whether to use a sparse form of W in calculations (must be True is W is a
-        :class:`scipy.sparse.spmatrix`)
+    :param bool is_sparse: whether to use a sparse form of W in calculations (must be True is
+        W is a :class:`scipy.sparse.spmatrix`)
     """
 
     arg_constraints = {
@@ -1239,7 +1239,9 @@ class CAR(Distribution):
         else:
             assert not sparse.issparse(W)
             # TODO: look into static jax ndarray representation
-            assert isinstance(W, np.ndarray), "only numpy arrays are currently supported"
+            assert isinstance(
+                W, np.ndarray
+            ), "only numpy arrays are currently supported"
             self.W = W
 
         batch_shape = lax.broadcast_shapes(
