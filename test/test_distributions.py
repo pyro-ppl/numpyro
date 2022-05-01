@@ -368,8 +368,9 @@ CONTINUOUS = [
     ),
     T(
         dist.CAR,
-        0.5,
-        2,
+        0.0,
+        0.0,
+        0.1,
         np.array(
             [
                 [0.0, 1.0, 1.0, 0.0],
@@ -378,7 +379,7 @@ CONTINUOUS = [
                 [0.0, 1.0, 1.0, 0.0],
             ]
         ),
-        None,
+        False,
     ),
     T(
         dist.MultivariateStudentT,
