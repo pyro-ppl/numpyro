@@ -1207,7 +1207,7 @@ class CAR(Distribution):
     :param float tau: positive precision for the multivariate normal
     :param numpy.ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
         indicates adjacency between sites and 0 otherwise
-    :param bool is_sparse: whether to use a sparse form of W in calculations (must be True is
+    :param bool is_sparse: whether to use a sparse form of W in calculations (must be True if
         W is a :class:`scipy.sparse.spmatrix`)
     """
 
@@ -1262,7 +1262,7 @@ class CAR(Distribution):
 
         if self._validate_args:
             assert (
-                self.W.sum(axis=-1) > 0
+                self.W.sum(axis=-1).all() > 0
             ), "all sites in adjacency matrix W must have neighbours"
 
             if sparse.issparse(self.W):
@@ -1281,7 +1281,7 @@ class CAR(Distribution):
         W = self.W
 
         if self.is_sparse:
-            D = np.asarray(W.sum(axis=-1)).squeeze()
+            D = np.asarray(W.sum(axis=-1)).squeeze(axis=-1)
             D_rsqrt = D ** (-0.5)
 
             W_scaled = W.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
