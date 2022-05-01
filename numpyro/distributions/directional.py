@@ -453,7 +453,7 @@ class SineBivariateVonMises(Distribution):
             jnp.reshape(phi_den, (batch_size,)),
         )
 
-        phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
+        phi = jnp.arctan2(phi_state.phi[:, 1], phi_state.phi[:, 0])
 
         alpha = jnp.sqrt(
             conc[1].reshape(-1) ** 2 + (corr.reshape(-1) * jnp.sin(phi)) ** 2
@@ -462,24 +462,18 @@ class SineBivariateVonMises(Distribution):
 
         psi = VonMises(beta, alpha).sample(psi_key)
 
-        phi_psi = jnp.concatenate(
+        phi_psi = jnp.stack(
             (
                 (phi + jnp.reshape(self.phi_loc, -1) + pi) % (2 * pi) - pi,
                 (psi + jnp.reshape(self.psi_loc, -1) + pi) % (2 * pi) - pi,
             ),
-            axis=1,
+            axis=-1,
         )
-        phi_psi = jnp.transpose(phi_psi, (0, 2, 1))
+
         return phi_psi.reshape(*sample_shape, *self.batch_shape, *self.event_shape)
 
     @staticmethod
     def _phi_marginal(shape, rng_key, conc, corr, eig, b0, eigmin, phi_den):
-        conc = jnp.broadcast_to(conc, shape)
-        eig = jnp.broadcast_to(eig, shape)
-        b0 = jnp.broadcast_to(b0, shape)
-        eigmin = jnp.broadcast_to(eigmin, shape)
-        phi_den = jnp.broadcast_to(phi_den, shape)
-
         def update_fn(curr):
             i, done, phi, key = curr
             phi_key, key = random.split(key)
@@ -491,23 +485,17 @@ class SineBivariateVonMises(Distribution):
             )  # Angular Central Gaussian distribution
 
             lf = (
-                conc[:, :1] * (x[:, :1] - 1)
+                conc[0] * (x[:, 0] - 1)
                 + eigmin
-                + log_I1(
-                    0, jnp.sqrt(conc[:, 1:] ** 2 + (corr * x[:, 1:]) ** 2)
-                ).squeeze(0)
+                + log_I1(0, jnp.sqrt(conc[1] ** 2 + (corr * x[:, 1]) ** 2)).squeeze(0)
                 - phi_den
             )
-            assert lf.shape == shape
 
-            lg_inv = (
-                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1, keepdims=True))
-            )
+            lg_inv = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
             assert lg_inv.shape == lf.shape
 
-            accepted = random.uniform(accept_key, (shape[0], shape[2]))[
-                :, None
-            ] < jnp.exp(lf + lg_inv)
+            accepted = random.uniform(accept_key, lf.shape) < jnp.exp(lf + lg_inv)
+            accepted = accepted[:, None]
 
             phi = jnp.where(accepted, x, phi)
             return PhiMarginalState(i + 1, done | accepted, phi, key)

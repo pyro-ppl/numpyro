@@ -2225,6 +2225,15 @@ def test_sine_bivariate_von_mises_batch_shape(batch_shape):
     assert samples.shape == (*batch_shape, 2)
 
 
+def test_sine_bivariate_von_mises_sample_mean():
+    loc = jnp.array([[2.0, -1.0], [-2, 1.0]])
+
+    sine = SineBivariateVonMises(*loc, 5000, 5000, 0.0)
+    samples = sine.sample(random.PRNGKey(0), (5000,))
+
+    assert_allclose(_circ_mean(samples).T, loc, rtol=5e-3)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
 def test_polya_gamma(batch_shape, num_points=20000):
     d = dist.TruncatedPolyaGamma(batch_shape=batch_shape)
