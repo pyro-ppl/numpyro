@@ -1205,7 +1205,7 @@ class CAR(Distribution):
         1 (perfect autocorrelation between sites), but the specification allows for negative
         correlations.
     :param float tau: positive precision for the multivariate normal
-    :param ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
+    :param numpy.ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
         indicates adjacency between sites and 0 otherwise
     :param bool is_sparse: whether to use a sparse form of W in calculations (must be True is W is a
         :class:`scipy.sparse.spmatrix`)
@@ -1238,6 +1238,8 @@ class CAR(Distribution):
             self.W = sparse.csr_matrix(W)
         else:
             assert not sparse.issparse(W)
+            # TODO: look into static jax ndarray representation
+            assert isinstance(W, np.ndarray), "only numpy arrays are currently supported"
             self.W = W
 
         batch_shape = lax.broadcast_shapes(
@@ -1288,7 +1290,7 @@ class CAR(Distribution):
             D = W.sum(axis=-1)
             D_rsqrt = D ** (-0.5)
 
-            W_scaled = W * (D_rsqrt * D_rsqrt[:, jnp.newaxis])
+            W_scaled = W * (D_rsqrt * D_rsqrt[:, np.newaxis])
 
         # TODO: look into sparse eignvalue methods
         lam = np.linalg.eigvalsh(W_scaled)
