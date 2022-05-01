@@ -1215,14 +1215,12 @@ class CAR(Distribution):
         "loc": constraints.real_vector,
         "alpha": constraints.open_interval(-1, 1),
         "tau": constraints.positive,
-        "W": constraints.dependent_property(is_discrete=False, event_dim=2),
     }
     support = constraints.real_vector
     reparametrized_params = [
         "loc",
         "alpha",
         "tau",
-        "W",
     ]
 
     def __init__(self, loc, alpha, tau, W, *, is_sparse=False, validate_args=None):
