@@ -1231,15 +1231,14 @@ class CAR(Distribution):
 
         # TODO: support batched W
         if self.is_sparse:
-            assert sparse.issparse(W) or (isinstance(W, np.ndarray), W.ndim == 2)
+            assert sparse.issparse(W) or (isinstance(W, np.ndarray) and W.ndim == 2)
             # TODO: look into future jax sparse csr functionality and other developments
             self.W = sparse.csr_matrix(W)
         else:
             assert not sparse.issparse(W)
             # TODO: look into static jax ndarray representation
             assert (
-                isinstance(W, np.ndarray),
-                W.ndim == 2,
+                isinstance(W, np.ndarray) and W.ndim == 2
             ), "only numpy arrays are currently supported"
             self.W = W
 
