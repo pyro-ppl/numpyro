@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
 import os
 
 import numpy as np
@@ -11,7 +12,7 @@ import jax
 from jax import device_get, jit, lax, pmap, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import logit
-from jax.test_util import check_close
+from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -454,11 +455,29 @@ def test_mcmc_progbar():
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
-        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
+        tree_all(
+            tree_map(
+                partial(assert_allclose, atol=1e-4, rtol=1e-4),
+                mcmc1.get_samples(),
+                mcmc.get_samples(),
+            )
+        )
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
-    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
-    check_close(mcmc1.post_warmup_state, mcmc.post_warmup_state, atol=1e-4, rtol=1e-4)
+    tree_all(
+        tree_map(
+            partial(assert_allclose, atol=1e-4, rtol=1e-4),
+            mcmc1.get_samples(),
+            mcmc.get_samples(),
+        )
+    )
+    tree_all(
+        tree_map(
+            partial(assert_allclose, atol=1e-4, rtol=1e-4),
+            mcmc1.post_warmup_state,
+            mcmc.post_warmup_state,
+        )
+    )
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])

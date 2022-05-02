@@ -454,7 +454,7 @@ def test_distribution_masked(temperature):
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {
-        z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0.0, 1.0]
+        z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0, 1]
     }
 
     # Check  posterior over z.

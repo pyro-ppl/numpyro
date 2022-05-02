@@ -8,8 +8,7 @@ import pytest
 from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.test_util import check_eq
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import tree_all, tree_flatten, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -22,19 +21,19 @@ def test_fori_collect_thinning():
 
     actual2 = fori_collect(0, 9, f, np.array([-1]), thinning=2)
     expected2 = np.array([[2], [4], [6], [8]])
-    check_eq(actual2, expected2)
+    assert_allclose(actual2, expected2)
 
     actual3 = fori_collect(0, 9, f, np.array([-1]), thinning=3)
     expected3 = np.array([[2], [5], [8]])
-    check_eq(actual3, expected3)
+    assert_allclose(actual3, expected3)
 
     actual4 = fori_collect(0, 9, f, np.array([-1]), thinning=4)
     expected4 = np.array([[4], [8]])
-    check_eq(actual4, expected4)
+    assert_allclose(actual4, expected4)
 
     actual5 = fori_collect(12, 37, f, np.array([-1]), thinning=5)
     expected5 = np.array([[16], [21], [26], [31], [36]])
-    check_eq(actual5, expected5)
+    assert_allclose(actual5, expected5)
 
 
 def test_fori_collect():
@@ -44,7 +43,8 @@ def test_fori_collect():
     a = {"i": np.array([0.0]), "j": np.array([1.0])}
     expected_tree = {"i": np.array([[0.0], [2.0]])}
     actual_tree = fori_collect(1, 3, f, a, transform=lambda a: {"i": a["i"]})
-    check_eq(actual_tree, expected_tree)
+
+    tree_all(tree_map(assert_allclose, actual_tree, expected_tree))
 
 
 @pytest.mark.parametrize("progbar", [False, True])
@@ -64,8 +64,8 @@ def test_fori_collect_return_last(progbar):
     )
     expected_tree = {"i": np.array([3, 4])}
     expected_last_state = {"i": np.array(4)}
-    check_eq(init_state, expected_last_state)
-    check_eq(tree, expected_tree)
+    tree_all(tree_map(assert_allclose, init_state, expected_last_state))
+    tree_all(tree_map(assert_allclose, tree, expected_tree))
 
 
 @pytest.mark.parametrize(

@@ -14,10 +14,11 @@ import scipy
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, tree_map, vmap
+from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
+from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.distributions import (
@@ -2223,6 +2224,15 @@ def test_sine_bivariate_von_mises_batch_shape(batch_shape):
 
     samples = sine.sample(random.PRNGKey(0))
     assert samples.shape == (*batch_shape, 2)
+
+
+def test_sine_bivariate_von_mises_sample_mean():
+    loc = jnp.array([[2.0, -1.0], [-2, 1.0]])
+
+    sine = SineBivariateVonMises(*loc, 5000, 5000, 0.0)
+    samples = sine.sample(random.PRNGKey(0), (5000,))
+
+    assert_allclose(_circ_mean(samples).T, loc, rtol=5e-3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
