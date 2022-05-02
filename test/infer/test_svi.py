@@ -8,9 +8,9 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import jit, random, tree_map, value_and_grad
+from jax import jit, random, value_and_grad
 import jax.numpy as jnp
-from jax.tree_util import tree_all
+from jax.tree_util import tree_all, tree_map
 
 from numpyro.util import _versiontuple
 

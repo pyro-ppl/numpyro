@@ -9,8 +9,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import device_put, disable_jit, grad, jit, random, tree_map
+from jax import device_put, disable_jit, grad, jit, random
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.infer.hmc_util import (

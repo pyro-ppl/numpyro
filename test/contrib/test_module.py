@@ -7,8 +7,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, tree_map
-from jax.tree_util import tree_all
+from jax import random
+from jax.tree_util import tree_all, tree_map
 
 import numpyro
 from numpyro import handlers

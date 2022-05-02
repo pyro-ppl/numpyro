@@ -6,8 +6,9 @@ from numpy.testing import assert_allclose, assert_raises
 import pytest
 
 import jax
-from jax import jit, random, tree_map, value_and_grad, vmap
+from jax import jit, random, value_and_grad, vmap
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers

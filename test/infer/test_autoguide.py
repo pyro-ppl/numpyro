@@ -7,8 +7,8 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import jacobian, jit, lax, random, tree_map
-from jax.tree_util import tree_all
+from jax import jacobian, jit, lax, random
+from jax.tree_util import tree_all, tree_map
 
 from numpyro.util import _versiontuple
 

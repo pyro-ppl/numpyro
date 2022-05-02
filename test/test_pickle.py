@@ -7,9 +7,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, tree_map
+from jax import random
 import jax.numpy as jnp
-from jax.tree_util import tree_all
+from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist

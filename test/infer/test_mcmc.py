@@ -9,10 +9,10 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import device_get, jit, lax, pmap, random, tree_map, vmap
+from jax import device_get, jit, lax, pmap, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import logit
-from jax.tree_util import tree_all
+from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist

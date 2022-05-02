@@ -14,10 +14,11 @@ import scipy
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, tree_map, vmap
+from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
+from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.distributions import (
