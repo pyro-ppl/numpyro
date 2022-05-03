@@ -1260,10 +1260,10 @@ class CAR(Distribution):
 
         if self._validate_args:
             assert (
-                self.W.sum(axis=-1).all() > 0
+                (self.W.sum(axis=-1) > 0).all() > 0
             ), "all sites in adjacency matrix W must have neighbours"
 
-            if sparse.issparse(self.W):
+            if self.is_sparse:
                 assert (self.W != self.W.T).nnz == 0, "W must be symmetric"
             else:
                 assert np.array_equal(self.W, self.W.T), "W must be symmetric"
