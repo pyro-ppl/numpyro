@@ -1193,11 +1193,13 @@ class MultivariateNormal(Distribution):
 
 def _is_sparse(W):
     from scipy import sparse
+
     return sparse.issparse(W)
 
 
 def _to_sparse(W):
     from scipy import sparse
+
     return sparse.csr_matrix(W)
 
 
@@ -1240,14 +1242,22 @@ class CAR(Distribution):
 
         # TODO: support batched W
         if W.ndim != 2:
-            raise ValueError("Currently, we only support 2-dimensional W. Please make a feature request if you need higher dimensional W.")
+            raise ValueError(
+                "Currently, we only support 2-dimensional W. Please make a feature request",
+                " if you need higher dimensional W.",
+            )
         if not (isinstance(W, np.ndarray) or _is_sparse(W)):
-            raise ValueError("W needs to be a numpy array or a scipy sparse matrix. Please make a feature request if you need to support jax ndarrays.")
+            raise ValueError(
+                "W needs to be a numpy array or a scipy sparse matrix. Please make a feature",
+                " request if you need to support jax ndarrays.",
+            )
         if self.is_sparse:
             # TODO: look into future jax sparse csr functionality and other developments
             self.W = _to_sparse(W)
         else:
-            assert not _is_sparse(W), "W is a sparse matrix so please specify `is_sparse=True`."
+            assert not _is_sparse(
+                W
+            ), "W is a sparse matrix so please specify `is_sparse=True`."
             # TODO: look into static jax ndarray representation
             self.W = W
 
@@ -1269,8 +1279,8 @@ class CAR(Distribution):
 
         if self._validate_args:
             assert (
-                (self.W.sum(axis=-1) > 0).all() > 0
-            ), "all sites in adjacency matrix W must have neighbours"
+                self.W.sum(axis=-1) > 0
+            ).all() > 0, "all sites in adjacency matrix W must have neighbours"
 
             if self.is_sparse:
                 assert (self.W != self.W.T).nnz == 0, "W must be symmetric"
