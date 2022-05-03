@@ -200,6 +200,11 @@ class FoldedNormal(dist.FoldedDistribution):
         return dist.FoldedDistribution.tree_unflatten(aux_data, params)
 
 
+class _SparseCAR(dist.CAR):
+    def __init__(self, loc, alpha, tau, W):
+        super().__init__(loc, alpha, tau, W, is_sparse=True)
+
+
 _DIST_MAP = {
     dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
         asymmetry, loc=loc, scale=scale
@@ -395,7 +400,7 @@ CONTINUOUS = [
         ),
     ),
     T(
-        partial(dist.CAR, is_sparse=True),
+        _SparseCAR,
         np.array([[0.0, 1.0, 3.0, 4.0], [2.0, -1.0, -3.0, 2.0]]),
         0.0,
         0.1,
