@@ -1320,7 +1320,13 @@ class CAR(Distribution):
         logdet = jnp.log1p(-jnp.expand_dims(self.alpha, -1) * lam).sum(-1)
 
         logquad = self.tau * jnp.sum(
-            phi * (D * phi - jnp.expand_dims(self.alpha, -1) * (W @ phi)), -1
+            phi
+            * (
+                D * phi
+                - jnp.expand_dims(self.alpha, -1)
+                * (W @ phi[..., jnp.newaxis]).squeeze(axis=-1)
+            ),
+            -1,
         )
 
         return -0.5 * (logtau + logdet + logquad)
