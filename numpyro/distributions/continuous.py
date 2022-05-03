@@ -26,7 +26,6 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from scipy import sparse
 
 from jax import lax
 from jax.experimental.sparse import BCOO
@@ -1192,6 +1191,16 @@ class MultivariateNormal(Distribution):
         return batch_shape, event_shape
 
 
+def _is_sparse(W):
+    from scipy import sparse
+    return sparse.issparse(W)
+
+
+def _to_sparse(W):
+    from scipy import sparse
+    return sparse.csr_matrix(W)
+
+
 class CAR(Distribution):
     r"""
     The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
@@ -1230,16 +1239,16 @@ class CAR(Distribution):
         self.is_sparse = is_sparse
 
         # TODO: support batched W
+        if W.ndim != 2:
+            raise ValueError("Currently, we only support 2-dimensional W. Please make a feature request if you need higher dimensional W.")
+        if not (isinstance(W, np.ndarray) or _is_sparse(W)):
+            raise ValueError("W needs to be a numpy array or a scipy sparse matrix. Please make a feature request if you need to support jax ndarrays.")
         if self.is_sparse:
-            assert sparse.issparse(W) or (isinstance(W, np.ndarray) and W.ndim == 2)
             # TODO: look into future jax sparse csr functionality and other developments
-            self.W = sparse.csr_matrix(W)
+            self.W = _to_sparse(W)
         else:
-            assert not sparse.issparse(W)
+            assert not _is_sparse(W), "W is a sparse matrix so please specify `is_sparse=True`."
             # TODO: look into static jax ndarray representation
-            assert (
-                isinstance(W, np.ndarray) and W.ndim == 2
-            ), "only numpy arrays are currently supported"
             self.W = W
 
         batch_shape = lax.broadcast_shapes(
