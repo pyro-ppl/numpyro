@@ -368,7 +368,7 @@ CONTINUOUS = [
     ),
     T(
         dist.CAR,
-        np.array([0.0, 1.0, 3.0, 4.0]),
+        1.2,
         np.array([-0.2, 0.3]),
         0.1,
         np.array(
@@ -396,7 +396,7 @@ CONTINUOUS = [
     ),
     T(
         partial(dist.CAR, is_sparse=True),
-        np.array([0.0, 1.0, 3.0, 4.0]),
+        np.array([[0.0, 1.0, 3.0, 4.0], [2., -1., -3., 2.]]),
         0.0,
         0.1,
         np.array(
