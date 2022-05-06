@@ -4,7 +4,7 @@ import os
 from functools import partial
 
 import numpy as np
-from scipy.special import expit
+from jax.scipy.special import expit
 
 import jax.numpy as jnp
 import jax.random as random
@@ -62,40 +62,38 @@ def _gibbs_fn(data, fixed_params, rng_key, gibbs_sites, hmc_sites):
     counts = data['counts']
     total_reads = data['total_reads']
     guide_observed = data['guide_observed']
+    num_cells, num_genes = counts.shape
 
     transfected = gibbs_sites['transfected']
     target_genes = gibbs_sites['target_genes']
-    beta, gamma = hmc_sites['beta'], hmc_sites['gamma']
-    #logits, log_mu = hmc_sites['logits'], hmc_sites['log_mu']
-    binary_values = jnp.array([0, 1])
+    beta = hmc_sites['beta']
+    gamma = hmc_sites['gamma']
 
     rng_key1, rng_key2 = random.split(rng_key)
 
-    transfected_factor1 = jnp.log(transfection_prob) - jnp.log(1.0 - transfection_prob)
-    logits = jnp.log(beta[0] + beta[1] * total_reads[:, None] + beta[2]) - \
-             jnp.log(beta[0] + beta[1] * total_reads[:, None])
+    # sample transfected from conditional posterior
+    factor1 = jnp.log(transfection_prob) - jnp.log(1.0 - transfection_prob)
+    factor2 = jnp.log(expit(beta[0] + beta[1] * total_reads + beta[2])) - \
+              jnp.log(expit(beta[0] + beta[1] * total_reads))
 
-#
-#        logits = numpyro.deterministic("logits", beta[0] + beta[1] * total_reads[:, None] + beta[2] * transfected)
-#        numpyro.sample(
-#                "guide_observed", dist.Bernoulli(logits=logits), obs=guide_observed[:, None]
-#        )
+    mean1 = jnp.exp(gamma[0] + gamma[1] * total_reads[:, None] + gamma[2] * target_genes)
+    mean0 = jnp.exp(gamma[0] + gamma[1] * total_reads[:, None])
+    factor3 = dist.NegativeBinomial2(concentration=concentration, mean=mean1).log_prob(counts) - \
+              dist.NegativeBinomial2(concentration=concentration, mean=mean0).log_prob(counts)
+    logits = factor1 + factor2 + factor3.sum(-1)
+    transfected = dist.Bernoulli(logits=logits).sample(rng_key1)[:, None]
+    assert transfected.shape == (num_cells, 1)
+
+    # sample target_gene from conditional posterior
+    factor1 = jnp.log(target_prob) - jnp.log(1.0 - target_prob)
+    mean1 = jnp.exp(gamma[0] + gamma[1] * total_reads[:, None] + gamma[2] * transfected)
+    factor2 = dist.NegativeBinomial2(concentration=concentration, mean=mean1).log_prob(counts) - \
+              dist.NegativeBinomial2(concentration=concentration, mean=mean0).log_prob(counts)
+    logits = factor1 + factor2.sum(0)
+    target_genes = dist.Bernoulli(logits=logits).sample(rng_key2)
+    assert target_genes.shape == (num_genes,)
 
     return {'transfected': transfected, 'target_genes': target_genes}
-
-    x_factor = dist.Bernoulli(0.5).log_prob(values)
-    x_factor = x_factor[1] - x_factor[0]
-    beta_factor = dist.Normal(beta + values[:, None, None] + y_curr, 1.0).log_prob(jnp.ones((num_y, num_x))).sum([-2])
-    beta_factor = beta_factor[1] - beta_factor[0]
-    x_new = dist.Bernoulli(logits=x_factor + beta_factor).sample(rng_key_x)
-
-    y_factor = dist.Bernoulli(0.5).log_prob(values)
-    y_factor = y_factor[1] - y_factor[0]
-    beta_factor = dist.Normal(beta + values[:, None, None] + x_curr, 1.0).log_prob(jnp.ones((num_y, num_x))).sum([-1])
-    beta_factor = beta_factor[1] - beta_factor[0]
-    y_new = dist.Bernoulli(logits=y_factor + beta_factor).sample(rng_key_y)
-
-    return {'x': x_new, 'y': y_new[:, None]}
 
 
 def run_inference(model, args, rng_key, data, fixed_params):
@@ -116,8 +114,8 @@ def run_inference(model, args, rng_key, data, fixed_params):
 
 
 def get_data(
-    num_cells=100,
-    num_genes=20,
+    num_cells=8,
+    num_genes=5,
     beta2=3.45,
     gamma0=1.23,
     gamma2=2.34,
@@ -134,7 +132,7 @@ def get_data(
     guide_observed = np.random.RandomState(seed).binomial(1, expit(logits))
     assert guide_observed.shape == (num_cells,)
 
-    target_genes = jnp.concatenate([jnp.ones(20), jnp.zeros(num_genes - 20)])
+    target_genes = jnp.concatenate([jnp.ones(3), jnp.zeros(num_genes - 3)])
     log_mu = gamma0 + gamma2 * target_genes * transfected[:, None]
     counts = dist.NegativeBinomial2(concentration=concentration, mean=jnp.exp(log_mu)).sample(
         random.PRNGKey(seed)
