@@ -1216,10 +1216,11 @@ class CAR(Distribution):
         1 (perfect autocorrelation between sites), but the specification allows for negative
         correlations.
     :param float conditional_precision: positive precision for the multivariate normal
-    :param numpy.ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
-        indicates adjacency between sites and 0 otherwise
-    :param bool is_sparse: whether to use a sparse form of adj_matrix in calculations (must be True if
-        adj_matrix is a :class:`scipy.sparse.spmatrix`)
+    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
+        indicates adjacency between sites and 0 otherwise. :class:`jax.numpy.ndarray` ``adj_matrix`` is
+        supported but is **not** recommended over :class:`numpy.ndarray` or :class:`scipy.sparse.spmatrix`.
+    :param bool is_sparse: whether to use a sparse form of ``adj_matrix`` in calculations (must be True if
+        ``adj_matrix`` is a :class:`scipy.sparse.spmatrix`)
     """
 
     arg_constraints = {
