@@ -1215,7 +1215,7 @@ class CAR(Distribution):
         between 0 (sites are independent, collapses to an iid multivariate normal) and
         1 (perfect autocorrelation between sites), but the specification allows for negative
         correlations.
-    :param float tau: positive precision for the multivariate normal
+    :param float conditional_precision: positive precision for the multivariate normal
     :param numpy.ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
         indicates adjacency between sites and 0 otherwise
     :param bool is_sparse: whether to use a sparse form of adj_matrix in calculations (must be True if
@@ -1225,18 +1225,18 @@ class CAR(Distribution):
     arg_constraints = {
         "loc": constraints.real_vector,
         "correlation": constraints.open_interval(-1, 1),
-        "tau": constraints.positive,
+        "conditional_precision": constraints.positive,
         "adj_matrix": constraints.dependent(is_discrete=False, event_dim=2),
     }
     support = constraints.real_vector
     reparametrized_params = [
         "loc",
         "correlation",
-        "tau",
+        "conditional_precision",
         "adj_matrix",
     ]
 
-    def __init__(self, loc, correlation, tau, adj_matrix, *, is_sparse=False, validate_args=None):
+    def __init__(self, loc, correlation, conditional_precision, adj_matrix, *, is_sparse=False, validate_args=None):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
@@ -1245,7 +1245,7 @@ class CAR(Distribution):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-1],
             jnp.shape(correlation),
-            jnp.shape(tau),
+            jnp.shape(conditional_precision),
             jnp.shape(adj_matrix)[:-2],
         )
 
@@ -1271,7 +1271,7 @@ class CAR(Distribution):
 
         event_shape = jnp.shape(self.adj_matrix)[-1:]
         (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
-        self.correlation, self.tau = promote_shapes(correlation, tau, shape=batch_shape)
+        self.correlation, self.conditional_precision = promote_shapes(correlation, conditional_precision, shape=batch_shape)
 
         super(CAR, self).__init__(
             batch_shape=batch_shape,
@@ -1323,11 +1323,11 @@ class CAR(Distribution):
 
         n = D.shape[-1]
 
-        logtau = n * jnp.log(self.tau)
+        logprec = n * jnp.log(self.conditional_precision)
         logdet = jnp.log1p(-jnp.expand_dims(self.correlation, -1) * lam).sum(-1)
         logdet = logdet + jnp.log(D).sum(-1)
 
-        logquad = self.tau * jnp.sum(
+        logquad = self.conditional_precision * jnp.sum(
             phi
             * (
                 D * phi
@@ -1337,7 +1337,7 @@ class CAR(Distribution):
             -1,
         )
 
-        return 0.5 * (-n * jnp.log(2 * jnp.pi) + logtau + logdet - logquad)
+        return 0.5 * (-n * jnp.log(2 * jnp.pi) + logprec + logdet - logquad)
 
     @property
     def mean(self):
@@ -1351,30 +1351,30 @@ class CAR(Distribution):
             adj_matrix = self.adj_matrix
 
         D = adj_matrix.sum(axis=-1, keepdims=True) * jnp.eye(adj_matrix.shape[-1])
-        tau = jnp.expand_dims(self.tau, (-2, -1))
+        conditional_precision = jnp.expand_dims(self.conditional_precision, (-2, -1))
         correlation = jnp.expand_dims(self.correlation, (-2, -1))
-        return tau * (D - correlation * adj_matrix)
+        return conditional_precision * (D - correlation * adj_matrix)
 
     def tree_flatten(self):
         if self.is_sparse:
-            return (self.loc, self.correlation, self.tau), (self.is_sparse, self.adj_matrix)
+            return (self.loc, self.correlation, self.conditional_precision), (self.is_sparse, self.adj_matrix)
         else:
-            return (self.loc, self.correlation, self.tau, self.adj_matrix), (self.is_sparse,)
+            return (self.loc, self.correlation, self.conditional_precision, self.adj_matrix), (self.is_sparse,)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         is_sparse = aux_data[0]
         if is_sparse:
-            loc, correlation, tau = params
+            loc, correlation, conditional_precision = params
             adj_matrix = aux_data[1]
         else:
-            loc, correlation, tau, adj_matrix = params
-        return cls(loc, correlation, tau, adj_matrix, is_sparse=is_sparse)
+            loc, correlation, conditional_precision, adj_matrix = params
+        return cls(loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse)
 
     @staticmethod
-    def infer_shapes(loc, correlation, tau, adj_matrix):
+    def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
         event_shape = adj_matrix[-1:]
-        batch_shape = lax.broadcast_shapes(loc[:-1], correlation, tau, adj_matrix[:-2])
+        batch_shape = lax.broadcast_shapes(loc[:-1], correlation, conditional_precision, adj_matrix[:-2])
         return batch_shape, event_shape
 
 
