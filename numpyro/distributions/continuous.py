@@ -1285,7 +1285,7 @@ class CAR(Distribution):
             if self.is_sparse:
                 assert (self.W != self.W.T).nnz == 0, "W must be symmetric"
             else:
-                assert np.array_equal(self.W, self.W.T), "W must be symmetric"
+                assert np.array_equal(self.W, np.swapaxes(self.W, -2, -1)), "W must be symmetric"
 
     def sample(self, key, sample_shape=()):
         # TODO: look into a sparse sampling method
