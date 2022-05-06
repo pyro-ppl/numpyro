@@ -1026,6 +1026,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
         "_ImproperWrapper",
         "LKJ",
         "LKJCholesky",
+        "_SparseCAR",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -1380,6 +1381,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if jax_dist is _SparseCAR and i == 3:
+            # skip taking grad w.r.t. W
+            continue
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
@@ -1510,6 +1514,8 @@ def test_mean_var(jax_dist, sp_dist, params):
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+        if isinstance(d_jax, dist.CAR):
+            pytest.skip("CAR distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
             assert_allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
