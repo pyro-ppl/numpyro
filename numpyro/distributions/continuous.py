@@ -1309,7 +1309,7 @@ class CAR(Distribution):
             D = W.sum(axis=-1)
             D_rsqrt = D ** (-0.5)
 
-            W_scaled = W * (D_rsqrt * D_rsqrt[:, np.newaxis])
+            W_scaled = W * (D_rsqrt[..., None, :] * D_rsqrt[..., None])
 
         # TODO: look into sparse eignvalue methods
         lam = np.linalg.eigvalsh(W_scaled)
