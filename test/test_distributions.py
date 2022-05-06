@@ -203,9 +203,9 @@ class FoldedNormal(dist.FoldedDistribution):
 class _SparseCAR(dist.CAR):
     reparametrized_params = ["loc", "alpha", "tau"]
 
-    def __init__(self, loc, alpha, tau, W, *, is_sparse=True, validate_args=None):
+    def __init__(self, loc, alpha, tau, adj_matrix, *, is_sparse=True, validate_args=None):
         super().__init__(
-            loc, alpha, tau, W, is_sparse=True, validate_args=validate_args
+            loc, alpha, tau, adj_matrix, is_sparse=True, validate_args=validate_args
         )
 
 
@@ -1384,7 +1384,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     eps = 1e-3
     for i in range(len(params)):
         if jax_dist is _SparseCAR and i == 3:
-            # skip taking grad w.r.t. W
+            # skip taking grad w.r.t. adj_matrix
             continue
         if isinstance(
             params[i], dist.Distribution

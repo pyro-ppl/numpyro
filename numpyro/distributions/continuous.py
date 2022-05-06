@@ -1191,16 +1191,16 @@ class MultivariateNormal(Distribution):
         return batch_shape, event_shape
 
 
-def _is_sparse(W):
+def _is_sparse(A):
     from scipy import sparse
 
-    return sparse.issparse(W)
+    return sparse.issparse(A)
 
 
-def _to_sparse(W):
+def _to_sparse(A):
     from scipy import sparse
 
-    return sparse.csr_matrix(W)
+    return sparse.csr_matrix(A)
 
 
 class CAR(Distribution):
@@ -1216,27 +1216,27 @@ class CAR(Distribution):
         1 (perfect autocorrelation between sites), but the specification allows for negative
         correlations.
     :param float tau: positive precision for the multivariate normal
-    :param numpy.ndarray or scipy.sparse.csr_matrix W: symmetric adjacency matrix where 1
+    :param numpy.ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
         indicates adjacency between sites and 0 otherwise
-    :param bool is_sparse: whether to use a sparse form of W in calculations (must be True if
-        W is a :class:`scipy.sparse.spmatrix`)
+    :param bool is_sparse: whether to use a sparse form of adj_matrix in calculations (must be True if
+        adj_matrix is a :class:`scipy.sparse.spmatrix`)
     """
 
     arg_constraints = {
         "loc": constraints.real_vector,
         "alpha": constraints.open_interval(-1, 1),
         "tau": constraints.positive,
-        "W": constraints.dependent(is_discrete=False, event_dim=2),
+        "adj_matrix": constraints.dependent(is_discrete=False, event_dim=2),
     }
     support = constraints.real_vector
     reparametrized_params = [
         "loc",
         "alpha",
         "tau",
-        "W",
+        "adj_matrix",
     ]
 
-    def __init__(self, loc, alpha, tau, W, *, is_sparse=False, validate_args=None):
+    def __init__(self, loc, alpha, tau, adj_matrix, *, is_sparse=False, validate_args=None):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
@@ -1246,30 +1246,30 @@ class CAR(Distribution):
             jnp.shape(loc)[:-1],
             jnp.shape(alpha),
             jnp.shape(tau),
-            jnp.shape(W)[:-2],
+            jnp.shape(adj_matrix)[:-2],
         )
 
         if self.is_sparse:
-            if W.ndim != 2:
+            if adj_matrix.ndim != 2:
                 raise ValueError(
-                    "Currently, we only support 2-dimensional W. Please make a feature request",
-                    " if you need higher dimensional W.",
+                    "Currently, we only support 2-dimensional adj_matrix. Please make a feature request",
+                    " if you need higher dimensional adj_matrix.",
                 )
-            if not (isinstance(W, np.ndarray) or _is_sparse(W)):
+            if not (isinstance(adj_matrix, np.ndarray) or _is_sparse(adj_matrix)):
                 raise ValueError(
-                    "W needs to be a numpy array or a scipy sparse matrix. Please make a feature",
+                    "adj_matrix needs to be a numpy array or a scipy sparse matrix. Please make a feature",
                     " request if you need to support jax ndarrays.",
                 )
             # TODO: look into future jax sparse csr functionality and other developments
-            self.W = _to_sparse(W)
+            self.adj_matrix = _to_sparse(adj_matrix)
         else:
             assert not _is_sparse(
-                W
-            ), "W is a sparse matrix so please specify `is_sparse=True`."
+                adj_matrix
+            ), "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
             # TODO: look into static jax ndarray representation
-            (self.W,) = promote_shapes(W, shape=batch_shape + W.shape[-2:])
+            (self.adj_matrix,) = promote_shapes(adj_matrix, shape=batch_shape + adj_matrix.shape[-2:])
 
-        event_shape = jnp.shape(self.W)[-1:]
+        event_shape = jnp.shape(self.adj_matrix)[-1:]
         (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
 
@@ -1279,17 +1279,17 @@ class CAR(Distribution):
             validate_args=validate_args,
         )
 
-        if self._validate_args and (isinstance(W, np.ndarray) or is_sparse):
+        if self._validate_args and (isinstance(adj_matrix, np.ndarray) or is_sparse):
             assert (
-                self.W.sum(axis=-1) > 0
-            ).all() > 0, "all sites in adjacency matrix W must have neighbours"
+                self.adj_matrix.sum(axis=-1) > 0
+            ).all() > 0, "all sites in adjacency matrix must have neighbours"
 
             if self.is_sparse:
-                assert (self.W != self.W.T).nnz == 0, "W must be symmetric"
+                assert (self.adj_matrix != self.adj_matrix.T).nnz == 0, "adjacency matrix must be symmetric"
             else:
                 assert np.array_equal(
-                    self.W, np.swapaxes(self.W, -2, -1)
-                ), "W must be symmetric"
+                    self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
+                ), "adjacency matrix must be symmetric"
 
     def sample(self, key, sample_shape=()):
         # TODO: look into a sparse sampling method
@@ -1299,27 +1299,27 @@ class CAR(Distribution):
     @validate_sample
     def log_prob(self, value):
         phi = value - self.loc
-        W = self.W
+        adj_matrix = self.adj_matrix
 
         if self.is_sparse:
-            D = np.asarray(W.sum(axis=-1)).squeeze(axis=-1)
+            D = np.asarray(adj_matrix.sum(axis=-1)).squeeze(axis=-1)
             D_rsqrt = D ** (-0.5)
 
-            W_scaled = W.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
+            adj_matrix_scaled = adj_matrix.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
 
-            W = BCOO.from_scipy_sparse(W)
+            adj_matrix = BCOO.from_scipy_sparse(adj_matrix)
 
         else:
-            D = W.sum(axis=-1)
+            D = adj_matrix.sum(axis=-1)
             D_rsqrt = D ** (-0.5)
 
-            W_scaled = W * (D_rsqrt[..., None, :] * D_rsqrt[..., None])
+            adj_matrix_scaled = adj_matrix * (D_rsqrt[..., None, :] * D_rsqrt[..., None])
 
         # TODO: look into sparse eignvalue methods
-        if isinstance(W_scaled, np.ndarray):
-            lam = np.linalg.eigvalsh(W_scaled)
+        if isinstance(adj_matrix_scaled, np.ndarray):
+            lam = np.linalg.eigvalsh(adj_matrix_scaled)
         else:
-            lam = jnp.linalg.eigvalsh(W_scaled)
+            lam = jnp.linalg.eigvalsh(adj_matrix_scaled)
 
         n = D.shape[-1]
 
@@ -1332,7 +1332,7 @@ class CAR(Distribution):
             * (
                 D * phi
                 - jnp.expand_dims(self.alpha, -1)
-                * (W @ phi[..., jnp.newaxis]).squeeze(axis=-1)
+                * (adj_matrix @ phi[..., jnp.newaxis]).squeeze(axis=-1)
             ),
             -1,
         )
@@ -1346,35 +1346,35 @@ class CAR(Distribution):
     @lazy_property
     def precision_matrix(self):
         if self.is_sparse:
-            W = self.W.toarray()
+            adj_matrix = self.adj_matrix.toarray()
         else:
-            W = self.W
+            adj_matrix = self.adj_matrix
 
-        D = W.sum(axis=-1, keepdims=True) * jnp.eye(W.shape[-1])
+        D = adj_matrix.sum(axis=-1, keepdims=True) * jnp.eye(adj_matrix.shape[-1])
         tau = jnp.expand_dims(self.tau, (-2, -1))
         alpha = jnp.expand_dims(self.alpha, (-2, -1))
-        return tau * (D - alpha * W)
+        return tau * (D - alpha * adj_matrix)
 
     def tree_flatten(self):
         if self.is_sparse:
-            return (self.loc, self.alpha, self.tau), (self.is_sparse, self.W)
+            return (self.loc, self.alpha, self.tau), (self.is_sparse, self.adj_matrix)
         else:
-            return (self.loc, self.alpha, self.tau, self.W), (self.is_sparse,)
+            return (self.loc, self.alpha, self.tau, self.adj_matrix), (self.is_sparse,)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         is_sparse = aux_data[0]
         if is_sparse:
             loc, alpha, tau = params
-            W = aux_data[1]
+            adj_matrix = aux_data[1]
         else:
-            loc, alpha, tau, W = params
-        return cls(loc, alpha, tau, W, is_sparse=is_sparse)
+            loc, alpha, tau, adj_matrix = params
+        return cls(loc, alpha, tau, adj_matrix, is_sparse=is_sparse)
 
     @staticmethod
-    def infer_shapes(loc, alpha, tau, W):
-        event_shape = W[-1:]
-        batch_shape = lax.broadcast_shapes(loc[:-1], alpha, tau, W[:-2])
+    def infer_shapes(loc, alpha, tau, adj_matrix):
+        event_shape = adj_matrix[-1:]
+        batch_shape = lax.broadcast_shapes(loc[:-1], alpha, tau, adj_matrix[:-2])
         return batch_shape, event_shape
 
 
