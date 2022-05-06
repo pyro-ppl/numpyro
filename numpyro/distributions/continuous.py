@@ -1242,18 +1242,24 @@ class CAR(Distribution):
 
         self.is_sparse = is_sparse
 
-        # TODO: support batched W
-        if W.ndim != 2:
-            raise ValueError(
-                "Currently, we only support 2-dimensional W. Please make a feature request",
-                " if you need higher dimensional W.",
-            )
-        if not (isinstance(W, np.ndarray) or _is_sparse(W)):
-            raise ValueError(
-                "W needs to be a numpy array or a scipy sparse matrix. Please make a feature",
-                " request if you need to support jax ndarrays.",
-            )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-1],
+            jnp.shape(alpha),
+            jnp.shape(tau),
+            jnp.shape(self.W)[:-2],
+        )
+
         if self.is_sparse:
+            if W.ndim != 2:
+                raise ValueError(
+                    "Currently, we only support 2-dimensional W. Please make a feature request",
+                    " if you need higher dimensional W.",
+                )
+            if not (isinstance(W, np.ndarray) or _is_sparse(W)):
+                raise ValueError(
+                    "W needs to be a numpy array or a scipy sparse matrix. Please make a feature",
+                    " request if you need to support jax ndarrays.",
+                )
             # TODO: look into future jax sparse csr functionality and other developments
             self.W = _to_sparse(W)
         else:
@@ -1261,14 +1267,9 @@ class CAR(Distribution):
                 W
             ), "W is a sparse matrix so please specify `is_sparse=True`."
             # TODO: look into static jax ndarray representation
-            self.W = W
+            self.W, = promote_shapes(W, shape=batch_shape + W.shape[-2:])
 
-        batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc)[:-1],
-            jnp.shape(alpha),
-            jnp.shape(tau),
-            jnp.shape(self.W)[:-2],
-        )
+        
         event_shape = jnp.shape(self.W)[-1:]
         (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
