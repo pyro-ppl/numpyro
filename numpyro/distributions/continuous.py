@@ -1226,6 +1226,7 @@ class CAR(Distribution):
         "loc": constraints.real_vector,
         "alpha": constraints.open_interval(-1, 1),
         "tau": constraints.positive,
+        "W": constraints.dependent(is_discrete=False, event_dim=2),
     }
     support = constraints.real_vector
     reparametrized_params = [
