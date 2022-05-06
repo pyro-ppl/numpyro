@@ -1350,6 +1350,22 @@ class CAR(Distribution):
         alpha = jnp.expand_dims(self.alpha, (-2, -1))
         return tau * (D - alpha * W)
 
+    def tree_flatten(self):
+        if self.is_sparse:
+            return (self.loc, self.alpha, self.tau), (self.is_sparse, self.W)
+        else:
+            return (self.loc, self.alpha, self.tau, self.W), (self.is_sparse,)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        is_sparse = aux_data[0]
+        if is_sparse:
+            loc, alpha, tau = params
+            W = aux_data[1]
+        else:
+            loc, alpha, tau, W = params
+        return cls(loc, alpha, tau, W, is_sparse=is_sparse)
+
     @staticmethod
     def infer_shapes(loc, alpha, tau, W):
         event_shape = W[-1:]
