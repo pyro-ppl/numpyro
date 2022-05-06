@@ -1246,7 +1246,7 @@ class CAR(Distribution):
             jnp.shape(loc)[:-1],
             jnp.shape(alpha),
             jnp.shape(tau),
-            jnp.shape(self.W)[:-2],
+            jnp.shape(W)[:-2],
         )
 
         if self.is_sparse:
