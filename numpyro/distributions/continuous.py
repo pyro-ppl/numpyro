@@ -1277,7 +1277,7 @@ class CAR(Distribution):
             validate_args=validate_args,
         )
 
-        if self._validate_args:
+        if self._validate_args and (isinstance(W, np.ndarray) or is_sparse):
             assert (
                 self.W.sum(axis=-1) > 0
             ).all() > 0, "all sites in adjacency matrix W must have neighbours"
