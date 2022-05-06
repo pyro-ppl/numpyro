@@ -25,7 +25,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
+
 from jax import lax
+from jax.experimental.sparse import BCOO
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
@@ -1185,6 +1188,225 @@ class MultivariateNormal(Distribution):
             if matrix is not None:
                 batch_shape = lax.broadcast_shapes(batch_shape, matrix[:-2])
                 event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
+        return batch_shape, event_shape
+
+
+def _is_sparse(A):
+    from scipy import sparse
+
+    return sparse.issparse(A)
+
+
+def _to_sparse(A):
+    from scipy import sparse
+
+    return sparse.csr_matrix(A)
+
+
+class CAR(Distribution):
+    r"""
+    The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
+    normal in which the precision matrix is structured according to the adjacency matrix of
+    sites. The amount of autocorrelation between sites is controlled by ``correlation``. The
+    distribution is a popular prior for areal spatial data.
+
+    :param float or ndarray loc: mean of the multivariate normal
+    :param float correlation: autoregression parameter. For most cases, the value should lie
+        between 0 (sites are independent, collapses to an iid multivariate normal) and
+        1 (perfect autocorrelation between sites), but the specification allows for negative
+        correlations.
+    :param float conditional_precision: positive precision for the multivariate normal
+    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
+        indicates adjacency between sites and 0 otherwise. :class:`jax.numpy.ndarray` ``adj_matrix`` is
+        supported but is **not** recommended over :class:`numpy.ndarray` or :class:`scipy.sparse.spmatrix`.
+    :param bool is_sparse: whether to use a sparse form of ``adj_matrix`` in calculations (must be True if
+        ``adj_matrix`` is a :class:`scipy.sparse.spmatrix`)
+    """
+
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "correlation": constraints.open_interval(-1, 1),
+        "conditional_precision": constraints.positive,
+        "adj_matrix": constraints.dependent(is_discrete=False, event_dim=2),
+    }
+    support = constraints.real_vector
+    reparametrized_params = [
+        "loc",
+        "correlation",
+        "conditional_precision",
+        "adj_matrix",
+    ]
+
+    def __init__(
+        self,
+        loc,
+        correlation,
+        conditional_precision,
+        adj_matrix,
+        *,
+        is_sparse=False,
+        validate_args=None
+    ):
+        if jnp.ndim(loc) == 0:
+            (loc,) = promote_shapes(loc, shape=(1,))
+
+        self.is_sparse = is_sparse
+
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-1],
+            jnp.shape(correlation),
+            jnp.shape(conditional_precision),
+            jnp.shape(adj_matrix)[:-2],
+        )
+
+        if self.is_sparse:
+            if adj_matrix.ndim != 2:
+                raise ValueError(
+                    "Currently, we only support 2-dimensional adj_matrix. Please make a feature request",
+                    " if you need higher dimensional adj_matrix.",
+                )
+            if not (isinstance(adj_matrix, np.ndarray) or _is_sparse(adj_matrix)):
+                raise ValueError(
+                    "adj_matrix needs to be a numpy array or a scipy sparse matrix. Please make a feature",
+                    " request if you need to support jax ndarrays.",
+                )
+            # TODO: look into future jax sparse csr functionality and other developments
+            self.adj_matrix = _to_sparse(adj_matrix)
+        else:
+            assert not _is_sparse(
+                adj_matrix
+            ), "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            # TODO: look into static jax ndarray representation
+            (self.adj_matrix,) = promote_shapes(
+                adj_matrix, shape=batch_shape + adj_matrix.shape[-2:]
+            )
+
+        event_shape = jnp.shape(self.adj_matrix)[-1:]
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
+        self.correlation, self.conditional_precision = promote_shapes(
+            correlation, conditional_precision, shape=batch_shape
+        )
+
+        super(CAR, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+        if self._validate_args and (isinstance(adj_matrix, np.ndarray) or is_sparse):
+            assert (
+                self.adj_matrix.sum(axis=-1) > 0
+            ).all() > 0, "all sites in adjacency matrix must have neighbours"
+
+            if self.is_sparse:
+                assert (
+                    self.adj_matrix != self.adj_matrix.T
+                ).nnz == 0, "adjacency matrix must be symmetric"
+            else:
+                assert np.array_equal(
+                    self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
+                ), "adjacency matrix must be symmetric"
+
+    def sample(self, key, sample_shape=()):
+        # TODO: look into a sparse sampling method
+        mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
+        return mvn.sample(key, sample_shape=sample_shape)
+
+    @validate_sample
+    def log_prob(self, value):
+        phi = value - self.loc
+        adj_matrix = self.adj_matrix
+
+        if self.is_sparse:
+            D = np.asarray(adj_matrix.sum(axis=-1)).squeeze(axis=-1)
+            D_rsqrt = D ** (-0.5)
+
+            adj_matrix_scaled = (
+                adj_matrix.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
+            )
+
+            adj_matrix = BCOO.from_scipy_sparse(adj_matrix)
+
+        else:
+            D = adj_matrix.sum(axis=-1)
+            D_rsqrt = D ** (-0.5)
+
+            adj_matrix_scaled = adj_matrix * (
+                D_rsqrt[..., None, :] * D_rsqrt[..., None]
+            )
+
+        # TODO: look into sparse eignvalue methods
+        if isinstance(adj_matrix_scaled, np.ndarray):
+            lam = np.linalg.eigvalsh(adj_matrix_scaled)
+        else:
+            lam = jnp.linalg.eigvalsh(adj_matrix_scaled)
+
+        n = D.shape[-1]
+
+        logprec = n * jnp.log(self.conditional_precision)
+        logdet = jnp.log1p(-jnp.expand_dims(self.correlation, -1) * lam).sum(-1)
+        logdet = logdet + jnp.log(D).sum(-1)
+
+        logquad = self.conditional_precision * jnp.sum(
+            phi
+            * (
+                D * phi
+                - jnp.expand_dims(self.correlation, -1)
+                * (adj_matrix @ phi[..., jnp.newaxis]).squeeze(axis=-1)
+            ),
+            -1,
+        )
+
+        return 0.5 * (-n * jnp.log(2 * jnp.pi) + logprec + logdet - logquad)
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(self.loc, self.shape())
+
+    @lazy_property
+    def precision_matrix(self):
+        if self.is_sparse:
+            adj_matrix = self.adj_matrix.toarray()
+        else:
+            adj_matrix = self.adj_matrix
+
+        D = adj_matrix.sum(axis=-1, keepdims=True) * jnp.eye(adj_matrix.shape[-1])
+        conditional_precision = jnp.expand_dims(self.conditional_precision, (-2, -1))
+        correlation = jnp.expand_dims(self.correlation, (-2, -1))
+        return conditional_precision * (D - correlation * adj_matrix)
+
+    def tree_flatten(self):
+        if self.is_sparse:
+            return (self.loc, self.correlation, self.conditional_precision), (
+                self.is_sparse,
+                self.adj_matrix,
+            )
+        else:
+            return (
+                self.loc,
+                self.correlation,
+                self.conditional_precision,
+                self.adj_matrix,
+            ), (self.is_sparse,)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        is_sparse = aux_data[0]
+        if is_sparse:
+            loc, correlation, conditional_precision = params
+            adj_matrix = aux_data[1]
+        else:
+            loc, correlation, conditional_precision, adj_matrix = params
+        return cls(
+            loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse
+        )
+
+    @staticmethod
+    def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
+        event_shape = adj_matrix[-1:]
+        batch_shape = lax.broadcast_shapes(
+            loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
+        )
         return batch_shape, event_shape
 
 

@@ -201,6 +201,29 @@ class FoldedNormal(dist.FoldedDistribution):
         return dist.FoldedDistribution.tree_unflatten(aux_data, params)
 
 
+class _SparseCAR(dist.CAR):
+    reparametrized_params = ["loc", "correlation", "conditional_precision"]
+
+    def __init__(
+        self,
+        loc,
+        correlation,
+        conditional_precision,
+        adj_matrix,
+        *,
+        is_sparse=True,
+        validate_args=None,
+    ):
+        super().__init__(
+            loc,
+            correlation,
+            conditional_precision,
+            adj_matrix,
+            is_sparse=True,
+            validate_args=validate_args,
+        )
+
+
 _DIST_MAP = {
     dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
         asymmetry, loc=loc, scale=scale
@@ -366,6 +389,48 @@ CONTINUOUS = [
         None,
         np.broadcast_to(np.identity(3), (2, 3, 3)),
         None,
+    ),
+    T(
+        dist.CAR,
+        1.2,
+        np.array([-0.2, 0.3]),
+        0.1,
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
+    ),
+    T(
+        dist.CAR,
+        np.array([0.0, 1.0, 3.0, 4.0]),
+        0.1,
+        np.array([0.3, 0.7]),
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
+    ),
+    T(
+        _SparseCAR,
+        np.array([[0.0, 1.0, 3.0, 4.0], [2.0, -1.0, -3.0, 2.0]]),
+        0.0,
+        0.1,
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
     ),
     T(
         dist.MultivariateStudentT,
@@ -978,6 +1043,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
         "_ImproperWrapper",
         "LKJ",
         "LKJCholesky",
+        "_SparseCAR",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -1332,6 +1398,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if jax_dist is _SparseCAR and i == 3:
+            # skip taking grad w.r.t. adj_matrix
+            continue
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
@@ -1462,6 +1531,8 @@ def test_mean_var(jax_dist, sp_dist, params):
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+        if isinstance(d_jax, dist.CAR):
+            pytest.skip("CAR distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
             assert_allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2

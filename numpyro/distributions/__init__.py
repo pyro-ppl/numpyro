@@ -11,6 +11,7 @@ from numpyro.distributions.conjugate import (
     ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
+    CAR,
     LKJ,
     AsymmetricLaplace,
     AsymmetricLaplaceQuantile,
@@ -151,6 +152,7 @@ __all__ = [
     "MultinomialLogits",
     "MultinomialProbs",
     "MultivariateNormal",
+    "CAR",
     "MultivariateStudentT",
     "LowRankMultivariateNormal",
     "Normal",
