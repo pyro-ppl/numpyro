@@ -1237,7 +1237,16 @@ class CAR(Distribution):
         "adj_matrix",
     ]
 
-    def __init__(self, loc, correlation, conditional_precision, adj_matrix, *, is_sparse=False, validate_args=None):
+    def __init__(
+        self,
+        loc,
+        correlation,
+        conditional_precision,
+        adj_matrix,
+        *,
+        is_sparse=False,
+        validate_args=None
+    ):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
@@ -1268,11 +1277,15 @@ class CAR(Distribution):
                 adj_matrix
             ), "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
             # TODO: look into static jax ndarray representation
-            (self.adj_matrix,) = promote_shapes(adj_matrix, shape=batch_shape + adj_matrix.shape[-2:])
+            (self.adj_matrix,) = promote_shapes(
+                adj_matrix, shape=batch_shape + adj_matrix.shape[-2:]
+            )
 
         event_shape = jnp.shape(self.adj_matrix)[-1:]
         (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
-        self.correlation, self.conditional_precision = promote_shapes(correlation, conditional_precision, shape=batch_shape)
+        self.correlation, self.conditional_precision = promote_shapes(
+            correlation, conditional_precision, shape=batch_shape
+        )
 
         super(CAR, self).__init__(
             batch_shape=batch_shape,
@@ -1286,7 +1299,9 @@ class CAR(Distribution):
             ).all() > 0, "all sites in adjacency matrix must have neighbours"
 
             if self.is_sparse:
-                assert (self.adj_matrix != self.adj_matrix.T).nnz == 0, "adjacency matrix must be symmetric"
+                assert (
+                    self.adj_matrix != self.adj_matrix.T
+                ).nnz == 0, "adjacency matrix must be symmetric"
             else:
                 assert np.array_equal(
                     self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
@@ -1306,7 +1321,9 @@ class CAR(Distribution):
             D = np.asarray(adj_matrix.sum(axis=-1)).squeeze(axis=-1)
             D_rsqrt = D ** (-0.5)
 
-            adj_matrix_scaled = adj_matrix.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
+            adj_matrix_scaled = (
+                adj_matrix.multiply(D_rsqrt).multiply(D_rsqrt[:, np.newaxis]).toarray()
+            )
 
             adj_matrix = BCOO.from_scipy_sparse(adj_matrix)
 
@@ -1314,7 +1331,9 @@ class CAR(Distribution):
             D = adj_matrix.sum(axis=-1)
             D_rsqrt = D ** (-0.5)
 
-            adj_matrix_scaled = adj_matrix * (D_rsqrt[..., None, :] * D_rsqrt[..., None])
+            adj_matrix_scaled = adj_matrix * (
+                D_rsqrt[..., None, :] * D_rsqrt[..., None]
+            )
 
         # TODO: look into sparse eignvalue methods
         if isinstance(adj_matrix_scaled, np.ndarray):
@@ -1358,9 +1377,17 @@ class CAR(Distribution):
 
     def tree_flatten(self):
         if self.is_sparse:
-            return (self.loc, self.correlation, self.conditional_precision), (self.is_sparse, self.adj_matrix)
+            return (self.loc, self.correlation, self.conditional_precision), (
+                self.is_sparse,
+                self.adj_matrix,
+            )
         else:
-            return (self.loc, self.correlation, self.conditional_precision, self.adj_matrix), (self.is_sparse,)
+            return (
+                self.loc,
+                self.correlation,
+                self.conditional_precision,
+                self.adj_matrix,
+            ), (self.is_sparse,)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -1370,12 +1397,16 @@ class CAR(Distribution):
             adj_matrix = aux_data[1]
         else:
             loc, correlation, conditional_precision, adj_matrix = params
-        return cls(loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse)
+        return cls(
+            loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse
+        )
 
     @staticmethod
     def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
         event_shape = adj_matrix[-1:]
-        batch_shape = lax.broadcast_shapes(loc[:-1], correlation, conditional_precision, adj_matrix[:-2])
+        batch_shape = lax.broadcast_shapes(
+            loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
+        )
         return batch_shape, event_shape
 
 
