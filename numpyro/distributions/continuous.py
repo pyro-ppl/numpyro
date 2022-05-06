@@ -1316,7 +1316,10 @@ class CAR(Distribution):
             W_scaled = W * (D_rsqrt[..., None, :] * D_rsqrt[..., None])
 
         # TODO: look into sparse eignvalue methods
-        lam = np.linalg.eigvalsh(W_scaled)
+        if isinstance(W_scaled, np.ndarray):
+            lam = np.linalg.eigvalsh(W_scaled)
+        else:
+            lam = jnp.linalg.eigvalsh(W_scaled)
 
         n = D.shape[-1]
 
