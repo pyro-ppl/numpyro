@@ -1232,6 +1232,7 @@ class CAR(Distribution):
         "loc",
         "alpha",
         "tau",
+        "W",
     ]
 
     def __init__(self, loc, alpha, tau, W, *, is_sparse=False, validate_args=None):
