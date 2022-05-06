@@ -1267,9 +1267,8 @@ class CAR(Distribution):
                 W
             ), "W is a sparse matrix so please specify `is_sparse=True`."
             # TODO: look into static jax ndarray representation
-            self.W, = promote_shapes(W, shape=batch_shape + W.shape[-2:])
+            (self.W,) = promote_shapes(W, shape=batch_shape + W.shape[-2:])
 
-        
         event_shape = jnp.shape(self.W)[-1:]
         (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
         self.alpha, self.tau = promote_shapes(alpha, tau, shape=batch_shape)
@@ -1288,7 +1287,9 @@ class CAR(Distribution):
             if self.is_sparse:
                 assert (self.W != self.W.T).nnz == 0, "W must be symmetric"
             else:
-                assert np.array_equal(self.W, np.swapaxes(self.W, -2, -1)), "W must be symmetric"
+                assert np.array_equal(
+                    self.W, np.swapaxes(self.W, -2, -1)
+                ), "W must be symmetric"
 
     def sample(self, key, sample_shape=()):
         # TODO: look into a sparse sampling method

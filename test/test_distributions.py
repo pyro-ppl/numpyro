@@ -204,7 +204,9 @@ class _SparseCAR(dist.CAR):
     reparametrized_params = ["loc", "alpha", "tau"]
 
     def __init__(self, loc, alpha, tau, W, *, is_sparse=True, validate_args=None):
-        super().__init__(loc, alpha, tau, W, is_sparse=True, validate_args=validate_args)
+        super().__init__(
+            loc, alpha, tau, W, is_sparse=True, validate_args=validate_args
+        )
 
 
 _DIST_MAP = {
