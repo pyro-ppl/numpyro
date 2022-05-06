@@ -201,11 +201,11 @@ class FoldedNormal(dist.FoldedDistribution):
 
 
 class _SparseCAR(dist.CAR):
-    reparametrized_params = ["loc", "alpha", "tau"]
+    reparametrized_params = ["loc", "correlation", "tau"]
 
-    def __init__(self, loc, alpha, tau, adj_matrix, *, is_sparse=True, validate_args=None):
+    def __init__(self, loc, correlation, tau, adj_matrix, *, is_sparse=True, validate_args=None):
         super().__init__(
-            loc, alpha, tau, adj_matrix, is_sparse=True, validate_args=validate_args
+            loc, correlation, tau, adj_matrix, is_sparse=True, validate_args=validate_args
         )
 
 
