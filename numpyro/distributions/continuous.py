@@ -1320,6 +1320,7 @@ class CAR(Distribution):
 
         logtau = n * jnp.log(self.tau)
         logdet = jnp.log1p(-jnp.expand_dims(self.alpha, -1) * lam).sum(-1)
+        logdet = logdet + jnp.log(D).sum(-1)
 
         logquad = self.tau * jnp.sum(
             phi
@@ -1331,7 +1332,7 @@ class CAR(Distribution):
             -1,
         )
 
-        return -0.5 * (logtau + logdet + logquad)
+        return 0.5 * (-n * jnp.log(2 * jnp.pi) + logtau + logdet - logquad)
 
     @property
     def mean(self):
