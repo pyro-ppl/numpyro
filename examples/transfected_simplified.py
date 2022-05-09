@@ -15,6 +15,15 @@ from numpyro.infer import MCMC, NUTS, HMCGibbs
 import pandas as pd
 
 
+def guide_observed_logits(beta, total_reads, transfected):
+    return beta[0] + beta[1] * total_reads[:, None] + beta[2] * transfected
+
+
+def counts_log_mu(gamma, total_reads, target_genes, transfected):
+    # should this be log(total_reads) below ?
+    return gamma[0] + gamma[1] * total_reads[:, None] + gamma[2] * target_genes * transfected
+
+
 def model(data, fixed_params):
     counts = data["counts"]
     total_reads = data["total_reads"]
@@ -34,7 +43,7 @@ def model(data, fixed_params):
     with numpyro.plate("cells", num_cells, dim=-2):
         transfected = numpyro.sample("transfected", dist.Bernoulli(transfection_prob))
 
-        logits = beta[0] + beta[1] * total_reads[:, None] + beta[2] * transfected
+        logits = guide_observed_logits(beta, total_reads, transfected)
         # noisy link between observed guide and transfection status of cell
         numpyro.sample(
             "guide_observed", dist.Bernoulli(logits=logits), obs=guide_observed[:, None]
@@ -45,12 +54,11 @@ def model(data, fixed_params):
 
     with numpyro.plate("genes", num_genes, dim=-1):
         with numpyro.plate("cells", num_cells, dim=-2):
-            # should this be log(total_reads) below ?
-            log_mu = gamma[0] + gamma[1] * total_reads[:, None] + gamma[2] * target_genes * transfected
             numpyro.sample(
                 "counts",
                 dist.NegativeBinomial2(
-                    concentration=concentration, mean=jnp.exp(log_mu)
+                    concentration=concentration,
+                    mean=jnp.exp(counts_log_mu(gamma, total_reads, target_genes, transfected))
                 ),
                 obs=counts,
             )
@@ -64,7 +72,7 @@ def _gibbs_fn(data, fixed_params, rng_key, gibbs_sites, hmc_sites):
 
     counts = data["counts"]
     total_reads = data["total_reads"]
-    guide_observed = data["guide_observed"]
+    guide_observed = data["guide_observed"][:, None]
     num_cells, num_genes = counts.shape
 
     transfected = gibbs_sites["transfected"]
@@ -76,20 +84,22 @@ def _gibbs_fn(data, fixed_params, rng_key, gibbs_sites, hmc_sites):
 
     # sample transfected from conditional posterior
     factor1 = jnp.log(transfection_prob) - jnp.log(1.0 - transfection_prob)
-    factor2 = dist.Bernoulli(logits=beta[0] + beta[1] * total_reads + beta[2]).log_prob(guide_observed) -\
-        dist.Bernoulli(logits=beta[0] + beta[1] * total_reads).log_prob(guide_observed)
+    logits1 = guide_observed_logits(beta, total_reads, jnp.ones((num_cells, 1)))
+    logits0 = guide_observed_logits(beta, total_reads, jnp.zeros((num_cells, 1)))
+    factor2 = dist.Bernoulli(logits=logits1).log_prob(guide_observed) -\
+        dist.Bernoulli(logits=logits0).log_prob(guide_observed)
 
-    mean1 = jnp.exp(gamma[0] + gamma[1] * total_reads[:, None] + gamma[2] * target_genes)
-    mean0 = jnp.exp(gamma[0] + gamma[1] * total_reads[:, None])
+    mean1 = jnp.exp(counts_log_mu(gamma, total_reads, target_genes, jnp.ones((num_cells, 1))))
+    mean0 = jnp.exp(counts_log_mu(gamma, total_reads, target_genes, jnp.zeros((num_cells, 1))))
     factor3 = dist.NegativeBinomial2(concentration=concentration, mean=mean1).log_prob(counts) -\
         dist.NegativeBinomial2(concentration=concentration, mean=mean0).log_prob(counts)
-    logits = factor1 + factor2 + factor3.sum(-1)
+    logits = (factor1 + factor2 + factor3).sum(-1)
     transfected = dist.Bernoulli(logits=logits).sample(rng_key1)[:, None]
     assert transfected.shape == (num_cells, 1)
 
     # sample target_gene from conditional posterior
     factor1 = jnp.log(target_prob) - jnp.log(1.0 - target_prob)
-    mean1 = jnp.exp(gamma[0] + gamma[1] * total_reads[:, None] + gamma[2] * transfected)
+    mean1 = jnp.exp(counts_log_mu(gamma, total_reads, 1.0, transfected))
     factor2 = dist.NegativeBinomial2(concentration=concentration, mean=mean1).log_prob(counts) -\
         dist.NegativeBinomial2(concentration=concentration, mean=mean0).log_prob(counts)
     logits = factor1 + factor2.sum(0)
