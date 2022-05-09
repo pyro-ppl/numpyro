@@ -12,6 +12,8 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, HMCGibbs
 
+import pandas as pd
+
 
 def model(data, fixed_params):
     counts = data["counts"]
@@ -25,8 +27,9 @@ def model(data, fixed_params):
     target_prob = fixed_params["target_prob"]
     concentration = fixed_params["concentration"]
 
-    gamma = numpyro.sample("gamma", dist.Normal(0.0, 0.5 * jnp.ones(3)).to_event(1))
-    beta = numpyro.sample("beta", dist.Normal(0.0, 0.5 * jnp.ones(3)).to_event(1))
+    # what are reasonable prior assumptions here?
+    gamma = numpyro.sample("gamma", dist.Normal(0.0, 0.1 * jnp.ones(3)).to_event(1))
+    beta = numpyro.sample("beta", dist.Normal(0.0, 0.1 * jnp.ones(3)).to_event(1))
 
     with numpyro.plate("cells", num_cells, dim=-2):
         transfected = numpyro.sample("transfected", dist.Bernoulli(transfection_prob))
@@ -47,7 +50,7 @@ def model(data, fixed_params):
             log_mu = numpyro.deterministic(
                 "log_mu",
                 gamma[0]
-                + gamma[1] * total_reads[:, None]
+                + gamma[1] * total_reads[:, None]  # should this be log(total_reads) ?
                 + gamma[2] * target_genes * transfected,
             )
             numpyro.sample(
@@ -124,7 +127,7 @@ def run_inference(model, args, rng_key, data, fixed_params):
 
 # create fake data that is similar to the generative process
 def get_data(
-    num_cells=800,
+    num_cells=400,
     num_genes=20,
     active_genes=10,
     beta2=2.00,
@@ -159,25 +162,37 @@ def get_data(
 
 def main(args):
     fixed_params = {
-        "transfection_prob": 0.75,
-        "target_prob": 0.2,
+        "transfection_prob": 0.2,
+        "target_prob": 0.1,
         "concentration": 10.0,
     }
 
-    data = get_data(concentration=fixed_params["concentration"])
-    print("mean counts: ", data["counts"].mean().item())
+    use_r_data = False
 
-    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
-    run_inference(model, args, rng_key, data, fixed_params)
+    if not use_r_data:
+        data = get_data(concentration=fixed_params["concentration"])
+    else:
+        total_reads = pd.read_csv('total_reads.csv').values[:, 0]
+        counts = pd.read_csv('counts_tbl.tsv', sep='\t').values
+        guide_observed = pd.read_csv('cell_annot.tsv', sep='\t').values[:, 1]
+        data = {'counts': counts, 'total_reads': total_reads, 'guide_observed': guide_observed}
+
+    print("Starting inference with {} cells and {} genes...".format(*data['counts'].shape))
+
+    run_inference(model, args, random.PRNGKey(args.seed), data, fixed_params)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
+    parser = argparse.ArgumentParser(description="guide transfection model")
+    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--seed", default=0, type=int)
     args = parser.parse_args()
+
+    # should generally use 64 bit precision when doing HMC
+    numpyro.enable_x64()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
