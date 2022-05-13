@@ -184,7 +184,7 @@ Pyro users will note that the API for model specification and inference is large
 
 ## Overview of inference algorithms
 
-We provide an overview of many of the inference algorithms supported by NumPyro and offer guidelines about which inference algorithms may be appropriate for different classes of models.
+We provide an overview of most of the inference algorithms supported by NumPyro and offer some guidelines about which inference algorithms may be appropriate for different classes of models.
 
 ### MCMC
 
@@ -196,19 +196,24 @@ As discussed above, model [reparameterization](http://num.pyro.ai/en/latest/hand
 - [HMCGibbs](https://num.pyro.ai/en/latest/mcmc.html#hmcgibbs) combines HMC/NUTS steps with custom Gibbs updates. Gibbs updates must be specified by the user.
 - [DiscreteHMCGibbs](https://num.pyro.ai/en/latest/mcmc.html#discretehmcgibbs) combines HMC/NUTS steps with Gibbs updates for discrete latent variables. The corresponding Gibbs updates are computed automatically.
 - [SA](https://num.pyro.ai/en/latest/mcmc.html#sa) is the only MCMC method in NumPyro that does not leverage gradients. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities. 
+- [NestedSampler](https://num.pyro.ai/en/latest/contrib.html#nested-sampling) offers a wrapper for [jaxns](https://github.com/Joshuaalbert/jaxns). See [here](https://github.com/pyro-ppl/numpyro/blob/master/examples/gaussian_shells.py) for an example.
 
 ### Stochastic variational inference
 - Variational objectives
     - [Trace_ELBO](https://num.pyro.ai/en/latest/svi.html#trace-elbo) is our basic ELBO implementation.
     - [TraceMeanField_ELBO](https://num.pyro.ai/en/latest/svi.html#tracemeanfield-elbo) is like TraceMeanField_ELBO but computes part of the ELBO analytically if doing so is possible.
-    - [TraceGraph_ELBO](http://num.pyro.ai/en/latest/svi.html#tracegraph-elbo) offers variance reduction strategies for models with discrete latent variables.
+    - [TraceGraph_ELBO](http://num.pyro.ai/en/latest/svi.html#tracegraph-elbo) offers variance reduction strategies for models with discrete latent variables. Generally speaking, this ELBO should always be used for models with discrete latent variables.
 - Automatic guides (appropriate for models with continuous latent variables)
-    - [AutoNormal](https://num.pyro.ai/en/latest/autoguide.html#autonormal) and [AutoDiagonalNormal](https://num.pyro.ai/en/latest/autoguide.html#autodiagonalnormal) are our basic mean-field guides. If the latent space is non-euclidean (due to e.g. a positivity constraint on one of the sample sites) an appropriate bijective transformation is automatically used under the hood to map between the unconstrained space (where the Normal variational distribution is defined) to the corresponding constrained space. These guides are a great place to start when trying to get variational inference to work on a model you are developing.
+    - [AutoNormal](https://num.pyro.ai/en/latest/autoguide.html#autonormal) and [AutoDiagonalNormal](https://num.pyro.ai/en/latest/autoguide.html#autodiagonalnormal) are our basic mean-field guides. If the latent space is non-euclidean (due to e.g. a positivity constraint on one of the sample sites) an appropriate bijective transformation is automatically used under the hood to map between the unconstrained space (where the Normal variational distribution is defined) to the corresponding constrained space (note this is true for all automatic guides). These guides are a great place to start when trying to get variational inference to work on a model you are developing.
     - [AutoMultivariateNormal](https://num.pyro.ai/en/latest/autoguide.html#automultivariatenormal) and [AutoLowRankMultivariateNormal](https://num.pyro.ai/en/latest/autoguide.html#autolowrankmultivariatenormal) also construct Normal variational distributions but offer more flexibility, as they can capture correlations in the posterior. Note that these guides may be difficult to fit in the high-dimensional setting. 
     - [AutoDelta](https://num.pyro.ai/en/latest/autoguide.html#autodelta) is used for computing point estimates via MAP (maximum a posteriori estimation). See [here](https://github.com/pyro-ppl/numpyro/blob/bbe1f879eede79eebfdd16dfc49c77c4d1fc727c/examples/zero_inflated_poisson.py#L101) for example usage.
     - [AutoBNAFNormal](https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoBNAFNormal) and [AutoIAFNormal](https://num.pyro.ai/en/latest/autoguide.html#autoiafnormal) offer flexible variational distributions parameterized by normalizing flows.
     - [AutoDAIS](https://num.pyro.ai/en/latest/autoguide.html#autodais) is a powerful variational inference algorithm that leverages HMC. It can be a good choice for dealing with highly correlated posteriors but may be computationally expensive depending on the nature of the model.
-    - [AutoLaplaceApproximation](https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoLaplaceApproximation) can be uwed to compute a Laplace approximation.
+    - [AutoLaplaceApproximation](https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoLaplaceApproximation) can be used to compute a Laplace approximation.
+
+### Stein Variational Inference
+
+See the [docs](https://num.pyro.ai/en/latest/contrib.html#stein-variational-inference) for more details.
 
 ## Installation
 
