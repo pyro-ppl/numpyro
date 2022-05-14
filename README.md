@@ -198,6 +198,8 @@ As discussed above, model [reparameterization](https://num.pyro.ai/en/latest/rep
 - [SA](https://num.pyro.ai/en/latest/mcmc.html#sa) is the only MCMC method in NumPyro that does not leverage gradients. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities. Note that SA generally requires a *very* large number of samples, as mixing tends to be slow. On the plus side individual steps can be fast.
 - [NestedSampler](https://num.pyro.ai/en/latest/contrib.html#nested-sampling) offers a wrapper for [jaxns](https://github.com/Joshuaalbert/jaxns). See [here](https://github.com/pyro-ppl/numpyro/blob/master/examples/gaussian_shells.py) for an example.
 
+Like HMC/NUTS, all remaining MCMC algorithms support enumeration over discrete latent variables if possible (see [restrictions](https://pyro.ai/examples/enumeration.html#Restriction-1:-conditional-independence)). Enumerated sites need to be marked with `infer={'enumerate': 'parallel'}` like in the [annotation example](https://num.pyro.ai/en/stable/examples/annotation.html).
+
 ### Stochastic variational inference
 - Variational objectives
     - [Trace_ELBO](https://num.pyro.ai/en/latest/svi.html#trace-elbo) is our basic ELBO implementation.
