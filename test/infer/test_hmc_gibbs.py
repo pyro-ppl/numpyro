@@ -304,6 +304,20 @@ def test_enum_subsample_smoke():
     mcmc.run(random.PRNGKey(0), data)
 
 
+def test_enum_subsample_error():
+    def model(data):
+        x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
+        with numpyro.plate("N", data.shape[0], subsample_size=100, dim=-1):
+            batch = numpyro.subsample(data, event_dim=0)
+            numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
+
+    data = random.normal(random.PRNGKey(0), (10000,)) + 1
+    kernel = HMCECS(NUTS(model), num_blocks=10, proxy=HMCECS.taylor_proxy({}))
+    mcmc = MCMC(kernel, num_warmup=10, num_samples=10)
+    with pytest.raises(RuntimeError, match=".*discrete latent.*"):
+        mcmc.run(random.PRNGKey(0), data)
+
+
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 @pytest.mark.parametrize("num_block", [1, 2, 50])
 @pytest.mark.parametrize("subsample_size", [50, 150])
