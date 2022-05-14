@@ -625,6 +625,19 @@ class HMCECS(HMCGibbs):
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
         if self._proxy is not None:
+            if any(
+                {
+                    name
+                    for name, site in self._prototype_trace.items()
+                    if site["type"] == "sample"
+                    and (not site["is_observed"])
+                    and site["fn"].support.is_discrete
+                }
+            ):
+                raise RuntimeError(
+                    "Currently, the proxy does not support models with "
+                    "discrete latent sites."
+                )
             proxy_fn, gibbs_init, self._gibbs_update = self._proxy(
                 self._prototype_trace,
                 self._subsample_plate_sizes,
