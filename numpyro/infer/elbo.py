@@ -59,7 +59,7 @@ class ELBO:
         self, rng_key, param_map, model, guide, *args, **kwargs
     ):
         """
-        Likes :meth:`loss` but also update and return the mutable state, which stores the
+        Like :meth:`loss` but also update and return the mutable state, which stores the
         values at :func:`~numpyro.mutable` sites.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
@@ -71,7 +71,7 @@ class ELBO:
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
-        :return: a tuple of ELBO loss and the mutable state
+        :return: dictionay containing ELBO loss and the mutable state
         """
         raise NotImplementedError("This ELBO objective does not support mutable state.")
 

@@ -735,7 +735,7 @@ class substitute(Messenger):
 
     .. note:: This handler is mainly used for internal algorithms.
         For conditioning a generative model on observed data, please
-        using the :class:`condition` handler.
+        use the :class:`condition` handler.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict data: dictionary of `numpy.ndarray` values keyed by

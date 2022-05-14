@@ -76,7 +76,7 @@ class ProvenanceArray:
 
 def get_provenance(data):
     """
-    Reads the provenance of a recursive datastructure possibly containing ndarray.
+    Reads the provenance of a recursive data structure possibly containing ndarray.
 
     :param data: An input data.
     :returns: A provenance frozenset.
