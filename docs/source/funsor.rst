@@ -1,7 +1,7 @@
 Funsor-based NumPyro
 ====================
 
-See the [GitHub repo](https://github.com/pyro-ppl/funsor) for more information about Funsor.
+See the `GitHub repo <https://github.com/pyro-ppl/funsor>`_ for more information about Funsor.
 
 .. automodule:: numpyro.contrib.funsor
 
