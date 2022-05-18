@@ -498,18 +498,18 @@ class TraceGraph_ELBO(ELBO):
     is constructed along the lines of reference [1] specialized to the case
     of the ELBO. It supports arbitrary dependency structure for the model
     and guide.
-    Where possible, conditional dependency information as recorded in the
+    Fine-grained conditional dependency information as recorded in the
     trace is used to reduce the variance of the gradient estimator.
-    In particular two kinds of conditional dependency information are
-    used to reduce variance:
-
-    - the sequential order of samples (z is sampled after y => y does not depend on z)
-    - :class:`~numpyro.plate` generators
+    In particular provenance tracking [2] is used to find the ``cost`` terms
+    that depend on each non-reparameterizable sample site.
 
     References
 
     [1] `Gradient Estimation Using Stochastic Computation Graphs`,
         John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
+
+    [2] `Nonstandard Interpretations of Probabilistic Programs for Efficient Inference`,
+        David Wingate, Noah Goodman, Andreas Stuhlmüller, Jeffrey Siskind
     """
 
     can_infer_discrete = True
