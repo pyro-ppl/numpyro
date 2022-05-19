@@ -570,8 +570,7 @@ class TraceGraph_ELBO(ELBO):
                         )
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
-                    log_prob_sum = jnp.sum(site["log_prob"])
-                    elbo = elbo - log_prob_sum
+                    elbo = elbo - jnp.sum(site["log_prob"])
                     # add the -log_prob to each non-reparam sample site upstream
                     for key in guide_deps[site["name"]]:
                         downstream_costs[key].add(
