@@ -4,8 +4,9 @@
 import jax
 from jax import lax
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
-from numpyro.distributions import Distribution, constraints
+from numpyro.distributions import Categorical, Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
 from numpyro.distributions.util import is_prng_key, validate_sample
 
@@ -211,3 +212,79 @@ class MixtureSameFamily(Distribution):
         component_log_probs = self.component_distribution.log_prob(value)
         sum_log_probs = self.mixing_distribution.logits + component_log_probs
         return jax.nn.logsumexp(sum_log_probs, axis=-1)
+
+
+class Mixture(Distribution):
+    """
+    Non-marginalized finite mixture of arbitrary distributions.
+
+    :param numpyro.distribution.Distribution distributions:
+        Distributions comprising mixture.
+    :param numpyro.distribution.Distribution weights:
+        Probability for samples to come from each distribution.
+        Weights.shape[-1] should be the same length as distributions
+        and weights.sum(axis=-1) should be 1.0.
+
+    Example - sampling from a mixture of three normal distributions:
+
+    .. doctest::
+
+       >>> import jax
+       >>> import jax.numpy as jnp
+       >>> import numpyro.distributions as dist
+       >>> weights = jnp.array([0.2, 0.3, 0.5])
+       >>> dists = [dist.Normal(loc=1.0 * i) for i in range(3)]
+       >>> mixture = dist.Mixture(dists, weights)
+       >>> mixture.sample(jax.random.PRNGKey(42), sample_shape=(2,)).shape
+       (2,)
+    """
+
+    arg_constraints = {
+        "weights": constraints.simplex,
+    }
+
+    def __init__(self, distributions, weights, validate_args=None):
+        self.distributions = distributions
+        self.weights = weights
+        self.log_weights = jnp.log(weights)
+        self.choices = Categorical(probs=weights)
+
+        # ensure all child distributions have the same event and batch shape
+        batch_shapes = set(d.batch_shape for d in distributions)
+        event_shapes = set(d.event_shape for d in distributions)
+        assert len(batch_shapes) == 1
+        assert len(event_shapes) == 1
+        batch_shape = batch_shapes.pop()
+        event_shape = event_shapes.pop()
+
+        # dimensionality of samples from underlying distribution
+        self.dist_dims = len(batch_shape + event_shape)
+
+        super().__init__(
+            batch_shape=weights.shape[:-1] + batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @constraints.dependent_property
+    def support(self):
+        return self.distributions[0].support
+
+    def sample(self, key, sample_shape=()):
+        n_dist = len(self.distributions)
+        keys = jax.random.split(key, n_dist)
+        choices = self.choices.sample(key, sample_shape=sample_shape)
+
+        all_samples = jnp.array(
+            [
+                dist.expand(sample_shape + self.batch_shape).sample(k)
+                for dist, k in zip(self.distributions, keys)
+            ]
+        )
+        choices = choices.reshape((1,) + choices.shape + (1,) * self.dist_dims)
+
+        return jnp.take_along_axis(all_samples, choices, axis=0)[0]
+
+    def log_prob(self, value):
+        log_probs = jnp.stack([d.log_prob(value) for d in self.distributions], axis=-1)
+        return logsumexp(log_probs + self.log_weights, axis=-1)

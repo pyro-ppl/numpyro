@@ -84,7 +84,7 @@ from numpyro.distributions.distribution import (
     Unit,
 )
 from numpyro.distributions.kl import kl_divergence
-from numpyro.distributions.mixtures import MixtureSameFamily
+from numpyro.distributions.mixtures import Mixture, MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
@@ -148,6 +148,7 @@ __all__ = [
     "LogNormal",
     "MaskedDistribution",
     "MixtureSameFamily",
+    "Mixture",
     "Multinomial",
     "MultinomialLogits",
     "MultinomialProbs",
