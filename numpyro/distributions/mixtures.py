@@ -254,11 +254,14 @@ class Mixture(Distribution):
         event_shapes = set(d.event_shape for d in distributions)
         assert len(batch_shapes) == 1
         assert len(event_shapes) == 1
+        assert weights.shape[-1] == len(distributions)
         batch_shape = batch_shapes.pop()
         event_shape = event_shapes.pop()
 
         # dimensionality of samples from underlying distribution
         self.dist_dims = len(batch_shape + event_shape)
+        # dimensionality of batching due to extra weight dimensions
+        self.weight_dims = len(self.weights.shape) - 1
 
         super().__init__(
             batch_shape=weights.shape[:-1] + batch_shape,
@@ -288,6 +291,14 @@ class Mixture(Distribution):
 
         return cls(distributions, params[-1])
 
+    @property
+    def mean(self):
+        means = jnp.array([d.mean for d in self.distributions])
+        means = means.reshape((1,) * self.weight_dims + means.shape)
+        weights = self.weights.reshape(self.weights.shape + (1,) * self.dist_dims)
+        means, weights = jnp.broadcast_arrays(means, weights)
+        return jnp.average(means, axis=self.weight_dims, weights=weights)
+
     def sample(self, key, sample_shape=()):
         n_dist = len(self.distributions)
         keys = jax.random.split(key, n_dist)
@@ -303,6 +314,7 @@ class Mixture(Distribution):
 
         return jnp.take_along_axis(all_samples, choices, axis=0)[0]
 
+    @validate_sample
     def log_prob(self, value):
         log_probs = jnp.stack([d.log_prob(value) for d in self.distributions], axis=-1)
         return logsumexp(log_probs + self.log_weights, axis=-1)
