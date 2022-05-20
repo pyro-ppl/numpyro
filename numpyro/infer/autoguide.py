@@ -864,6 +864,65 @@ class AutoDAIS(AutoContinuous):
             return _single_sample(rng_key)
 
 
+class AutoSemiDAIS(AutoContinuous):
+    """
+    This implementation of :class:`AutoSemiDAIS` uses Differentiable Annealed
+    Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
+    latent space. Samples from the variational distribution (i.e. guide)
+    are generated using a combination of (uncorrected) Hamiltonian Monte Carlo
+    and Annealed Importance Sampling. The same algorithm is called Uncorrected
+    Hamiltonian Annealing in [1].
+
+    Note that AutoDAIS cannot be used in conjuction with data subsampling.
+
+    **Reference:**
+
+    1. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
+       Tomas Geffner, Justin Domke
+    2. *Differentiable Annealed Importance Sampling and the Perils of Gradient Noise*,
+       Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse
+
+    Usage::
+
+        guide = AutoDAIS(model)
+        svi = SVI(model, guide, ...)
+
+    :param callable model: A NumPyro model.
+    :param str prefix: A prefix that will be prefixed to all param internal sites.
+    :param int K: A positive integer that controls the number of HMC steps used.
+        Defaults to 4.
+    :param str base_dist: Controls whether the base Normal variational distribution
+       is parameterized by a "diagonal" covariance matrix or a full-rank covariance
+       matrix parameterized by a lower-triangular "cholesky" factor. Defaults to "diagonal".
+    :param float eta_init: The initial value of the step size used in HMC. Defaults
+        to 0.01.
+    :param float eta_max: The maximum value of the learnable step size used in HMC.
+        Defaults to 0.1.
+    :param float gamma_init: The initial value of the learnable damping factor used
+        during partial momentum refreshments in HMC. Defaults to 0.9.
+    :param callable init_loc_fn: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param float init_scale: Initial scale for the standard deviation of
+        the base variational distribution for each (unconstrained transformed)
+        latent variable. Defaults to 0.1.
+    """
+    def __init__(
+        self,
+        model,
+        base_guide,
+        *,
+        K=4,
+        base_dist="diagonal",
+        eta_init=0.01,
+        eta_max=0.1,
+        gamma_init=0.9,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+    ):
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+
+
 class AutoDiagonalNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a Normal distribution
