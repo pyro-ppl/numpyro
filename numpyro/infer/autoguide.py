@@ -864,7 +864,7 @@ class AutoDAIS(AutoContinuous):
             return _single_sample(rng_key)
 
 
-class AutoSemiDAIS(AutoContinuous):
+class AutoSemiDAIS(AutoGuide):
     """
     This implementation of :class:`AutoSemiDAIS` uses Differentiable Annealed
     Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
@@ -912,7 +912,6 @@ class AutoSemiDAIS(AutoContinuous):
         base_guide,
         *,
         K=4,
-        base_dist="diagonal",
         eta_init=0.01,
         eta_max=0.1,
         gamma_init=0.9,
@@ -921,6 +920,182 @@ class AutoSemiDAIS(AutoContinuous):
         init_scale=0.1,
     ):
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+        self.base_guide = base_guide
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+        # extract global/local/local_dim/plates
+        subsample_plates = {name: site for name, site in self.prototype_trace.items()
+                            if site["type"] == "plate"
+                            and isinstance(site["args"][1], int)
+                            and site["args"][0] > site["args"][1]}
+        assert len(subsample_plates) == 1, f"this guide assumes 1 subsample plate, but got {len(subsample_plates)}"
+        plate_name = list(subsample_plates.keys())[0]
+        local_vars = []
+        for name, site in self.prototype_trace.items():
+            if site["type"] == "sample":
+                for frame in site["cond_indep_stack"]:
+                    if frame.name == plate_name:
+                        local_vars.append(name)
+                        break
+        assert len(local_vars) > 0, "there is no local variable corresponds to `{plate_name}` plate"
+        local_init_locs = {name: value for name, value in self._init_locs.items()
+                      if name in local_vars}
+        local_init_latent, shape_dict = _ravel_dict(local_init_locs)
+        unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
+        # this is to match the behavior of Pyro, where we can apply
+        # unpack_latent for a batch of samples
+        self._unpack_local_latent = UnpackTransform(unpack_latent)
+        plate_full_size, plate_subsample_size = subsample_plates[plate_name]["args"]
+        self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
+        self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
+
+
+    def _sample_latent(self, *args, **kwargs):
+        global_latents = self.base_guide(*args, **kwargs)
+        plate_name, N, subsample_size = self._local_plate
+        D = self._local_plate_dim
+
+        with numpyro.plate(plate_name, N, subsample_size=subsample_size):
+            eta0 = numpyro.param(
+                "eta0",
+                jnp.ones(N) * self._eta_init,
+                constraint=constraints.interval(0, self._eta_max),
+                event_dim=0,
+            )
+            eta_coeff = numpyro.param("eta_coeff", jnp.zeros(N), event_dim=0)
+
+            gamma = numpyro.param(
+                "gamma",
+                jnp.ones(N) * 0.9,
+                constraint=constraints.interval(0, 1),
+                event_dim=0,
+            )
+            betas = numpyro.param(
+                "beta_increments",
+                jnp.ones((N, K)),
+                constraint=constraints.positive,
+                event_dim=1,
+            )
+            betas = jnp.cumsum(betas, axis=-1)
+            betas = betas / betas[..., -1:]  # K-dimensional with betas[-1] = 1
+
+            mass_matrix = numpyro.param(
+                "mass_matrix",
+                jnp.ones((N, D)),
+                constraint=constraints.positive,
+                event_dim=1,
+            )
+            inv_mass_matrix = 0.5 / mass_matrix
+            assert inv_mass_matrix.shape == (subsample_size, D)
+            z_0_loc_init = jnp.zeros((N, D))
+            z_0_loc = numpyro.param("z_0_loc", z_0_loc_init, event_dim=1)
+            z_0_scale_init = jnp.ones((N, D)) * self._init_scale
+            z_0_scale = numpyro.param(
+                "z_0_scale",
+                z_0_scale_init,
+                constraint=constraints.positive,
+                event_dim=1,
+            )
+            base_z_dist = dist.Normal(z_0_loc, z_0_scale)
+            assert base_z_dist.shape() == (subsample_size, D)
+            z_0 = numpyro.sample("z_0", base_z_dist, infer={"is_auxiliary": True})
+            base_z_dist_log_prob = lambda x: base_z_dist.log_prob(x).sum()
+
+            momentum_dist = dist.Normal(0, mass_matrix).to_event(1)
+            eps = numpyro.sample(
+                "momentum",
+                dist.Normal(0, mass_matrix[..., None])
+                .expand([subsample_size, D, K])
+                .to_event(2)
+                .mask(False),
+                infer={"is_auxiliary": True},
+            )
+        # TODO: rewrite this using substitute, mask global values
+        # We have model, global_values, plates_with_subsample
+        batch_tau_log_density = partial(
+            lo, X_batch, Y_batch, theta, sigma_obs, nu
+        )
+
+        def scan_body(carry, eps_beta):
+            eps, beta = eps_beta
+            assert eps.shape == (subsample_size, D) and beta.shape == (
+                subsample_size,
+            )
+            eta = eta0 + eta_coeff * beta
+            eta = jnp.clip(eta, a_min=0.0, a_max=eta_max)
+            assert eta.shape == (subsample_size,)
+            z_prev, v_prev, log_factor = carry
+            z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
+            q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
+            p_grad = beta[:, None] * grad(batch_tau_log_density)(z_half)
+            assert q_grad.shape == (subsample_size, D) and p_grad.shape == (
+                subsample_size, D
+            )
+            v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
+            z = z_half + v_hat * eta[:, None] * inv_mass_matrix
+            v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
+            delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(
+                v_hat
+            )
+            assert delta_ke.shape == (subsample_size,)
+            log_factor = log_factor + delta_ke
+            return (z, v, log_factor), None
+
+        v_0 = eps[:, :, -1]  # note the return value of scan doesn't depend on eps[-1]
+        assert eps.shape == (subsample_size, D, K) and betas.shape == (
+            subsample_size,
+            K,
+        )
+        eps_T = jnp.moveaxis(eps, -1, 0)
+        betas_T = jnp.moveaxis(betas, -1, 0)
+        (z, _, log_factor), _ = jax.lax.scan(
+            scan_body, (z_0, v_0, jnp.zeros(subsample_size)), (eps_T, betas_T)
+        )
+        assert log_factor.shape == (subsample_size,)
+
+        numpyro.factor("_local_guide", log_factor)
+
+        # unpack continuous latent samples
+        result = {}
+        for name, unconstrained_value in self._unpack_local_latent(z).items():
+            site = self.prototype_trace[name]
+            with helpful_support_errors(site):
+                transform = biject_to(site["fn"].support)
+            value = transform(unconstrained_value)
+            event_ndim = site["fn"].event_dim
+            if numpyro.get_mask() is False:
+                log_density = 0.0
+            else:
+                log_density = -transform.log_abs_det_jacobian(
+                    unconstrained_value, value
+                )
+                log_density = sum_rightmost(
+                    log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
+                )
+            delta_dist = dist.Delta(
+                value, log_density=log_density, event_dim=event_ndim
+            )
+            result[name] = numpyro.sample(name, delta_dist)
+
+        return z
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        def _single_sample(_rng_key):
+            latent_sample = handlers.substitute(
+                handlers.seed(self._sample_latent, _rng_key), params
+            )(sample_shape=())
+            return self._unpack_and_constrain(latent_sample, params)
+
+        if sample_shape:
+            rng_key = random.split(rng_key, int(np.prod(sample_shape)))
+            samples = lax.map(_single_sample, rng_key)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                samples,
+            )
+        else:
+            return _single_sample(rng_key)
 
 
 class AutoDiagonalNormal(AutoContinuous):
