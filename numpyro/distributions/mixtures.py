@@ -270,6 +270,24 @@ class Mixture(Distribution):
     def support(self):
         return self.distributions[0].support
 
+    def tree_flatten(self):
+        distributions = [d.tree_flatten() for d in self.distributions]
+        dist_types = [type(d) for d in self.distributions]
+        dist_params = tuple((d[0],) for d in distributions)
+        dist_aux = tuple(d[1] for d in distributions)
+        params = tuple(p for param_set in dist_params for p in param_set)
+        aux = tuple(subitem for item in zip(dist_types, dist_aux) for subitem in item)
+        return params + (self.weights,), aux
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        distributions = [
+            dist_type.tree_unflatten(aux, param)
+            for param, dist_type, aux in zip(params[:-1], aux_data[::2], aux_data[1::2])
+        ]
+
+        return cls(distributions, params[-1])
+
     def sample(self, key, sample_shape=()):
         n_dist = len(self.distributions)
         keys = jax.random.split(key, n_dist)
