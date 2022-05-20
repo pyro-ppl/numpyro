@@ -673,7 +673,7 @@ class AutoDAIS(AutoContinuous):
     and Annealed Importance Sampling. The same algorithm is called Uncorrected
     Hamiltonian Annealing in [1].
 
-    Note that AutoDAIS cannot be used in conjuction with data subsampling.
+    Note that AutoDAIS cannot be used in conjunction with data subsampling.
 
     **Reference:**
 
@@ -753,7 +753,7 @@ class AutoDAIS(AutoContinuous):
                 and site["args"][0] > site["args"][1]
             ):
                 raise NotImplementedError(
-                    "AutoDAIS cannot be used in conjuction with data subsampling."
+                    "AutoDAIS cannot be used in conjunction with data subsampling."
                 )
 
     def _get_posterior(self):
@@ -866,45 +866,42 @@ class AutoDAIS(AutoContinuous):
 
 class AutoSemiDAIS(AutoGuide):
     """
-    This implementation of :class:`AutoSemiDAIS` uses Differentiable Annealed
-    Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
-    latent space. Samples from the variational distribution (i.e. guide)
-    are generated using a combination of (uncorrected) Hamiltonian Monte Carlo
-    and Annealed Importance Sampling. The same algorithm is called Uncorrected
-    Hamiltonian Annealing in [1].
+    This implementation of :class:`AutoSemiDAIS` [1] combines a parametric
+    variational distribution over global latent variables with Differentiable
+    Annealed Importance Sampling (DAIS) [2, 3] to infer local latent variables.
+    Unlike :class:`AutoDAIS` this guide can be used in conjunction with data subsampling.
+    Note that the resulting ELBO can be understood as a particular realization of a
+    `locally enhanced bound' as described in reference [4].
 
-    Note that AutoDAIS cannot be used in conjuction with data subsampling.
+    **References:**
 
-    **Reference:**
-
-    1. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
+    1. *Surrogate Likelihoods for Variational Annealed Importance Sampling*,
+       Martin Jankowiak, Du Phan
+    2. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
        Tomas Geffner, Justin Domke
-    2. *Differentiable Annealed Importance Sampling and the Perils of Gradient Noise*,
+    3. *Differentiable Annealed Importance Sampling and the Perils of Gradient Noise*,
        Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse
+    4. *Variational Inference with Locally Enhanced Bounds for Hierarchical Models*,
+       Tomas Geffner, Justin Domke
 
     Usage::
 
-        guide = AutoDAIS(model)
+        base_guide = AutoNormal(model)
+        guide = AutoDAIS(model, base_guide)
         svi = SVI(model, guide, ...)
 
     :param callable model: A NumPyro model.
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 4.
-    :param str base_dist: Controls whether the base Normal variational distribution
-       is parameterized by a "diagonal" covariance matrix or a full-rank covariance
-       matrix parameterized by a lower-triangular "cholesky" factor. Defaults to "diagonal".
     :param float eta_init: The initial value of the step size used in HMC. Defaults
         to 0.01.
     :param float eta_max: The maximum value of the learnable step size used in HMC.
         Defaults to 0.1.
     :param float gamma_init: The initial value of the learnable damping factor used
         during partial momentum refreshments in HMC. Defaults to 0.9.
-    :param callable init_loc_fn: A per-site initialization function.
-        See :ref:`init_strategy` section for available functions.
-    :param float init_scale: Initial scale for the standard deviation of
-        the base variational distribution for each (unconstrained transformed)
-        latent variable. Defaults to 0.1.
+    :param float init_scale: Initial scale for the standard deviation of the base
+        variational distribution for each (unconstrained transformed) latent variable. Defaults to 0.1.
     """
     def __init__(
         self,
@@ -916,11 +913,29 @@ class AutoSemiDAIS(AutoGuide):
         eta_max=0.1,
         gamma_init=0.9,
         prefix="auto",
-        init_loc_fn=init_to_uniform,
         init_scale=0.1,
     ):
-        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+        # TODO does the value of init_loc_fn used here matter at all?
+        super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
+        if K < 1:
+            raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
+        if eta_init <= 0.0 or eta_init >= eta_max:
+            raise ValueError(
+                "eta_init must be positive and satisfy eta_init < eta_max."
+            )
+        if eta_max <= 0.0:
+            raise ValueError("eta_max must be positive.")
+        if gamma_init <= 0.0 or gamma_init >= 1.0:
+            raise ValueError("gamma_init must be in the open interval (0, 1).")
+        if init_scale <= 0.0:
+            raise ValueError("init_scale must be positive.")
+
         self.base_guide = base_guide
+        self.eta_init = eta_init
+        self.eta_max = eta_max
+        self.gamma_init = gamma_init
+        self.K = K
+        self._init_scale = init_scale
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -929,7 +944,9 @@ class AutoSemiDAIS(AutoGuide):
                             if site["type"] == "plate"
                             and isinstance(site["args"][1], int)
                             and site["args"][0] > site["args"][1]}
-        assert len(subsample_plates) == 1, f"this guide assumes 1 subsample plate, but got {len(subsample_plates)}"
+        num_plates = len(subsample_plates)
+        assert len(num_plates) == 1, \
+            "This guide assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}"
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
         for name, site in self.prototype_trace.items():
@@ -938,9 +955,9 @@ class AutoSemiDAIS(AutoGuide):
                     if frame.name == plate_name:
                         local_vars.append(name)
                         break
-        assert len(local_vars) > 0, "there is no local variable corresponds to `{plate_name}` plate"
+        assert len(local_vars) > 0, "There are no local variables in the `{plate_name}` plate."
         local_init_locs = {name: value for name, value in self._init_locs.items()
-                      if name in local_vars}
+                           if name in local_vars}
         local_init_latent, shape_dict = _ravel_dict(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
@@ -950,11 +967,10 @@ class AutoSemiDAIS(AutoGuide):
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
 
-
     def _sample_latent(self, *args, **kwargs):
         global_latents = self.base_guide(*args, **kwargs)
         plate_name, N, subsample_size = self._local_plate
-        D = self._local_plate_dim
+        D, K = self._local_plate_dim, self.K
 
         with numpyro.plate(plate_name, N, subsample_size=subsample_size):
             eta0 = numpyro.param(
@@ -978,7 +994,7 @@ class AutoSemiDAIS(AutoGuide):
                 event_dim=1,
             )
             betas = jnp.cumsum(betas, axis=-1)
-            betas = betas / betas[..., -1:]  # K-dimensional with betas[-1] = 1
+            betas = betas / betas[..., -1:]
 
             mass_matrix = numpyro.param(
                 "mass_matrix",
@@ -1013,44 +1029,35 @@ class AutoSemiDAIS(AutoGuide):
             )
         # TODO: rewrite this using substitute, mask global values
         # We have model, global_values, plates_with_subsample
-        batch_tau_log_density = partial(
-            lo, X_batch, Y_batch, theta, sigma_obs, nu
-        )
+        local_log_density = lambda z: z
 
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
-            assert eps.shape == (subsample_size, D) and beta.shape == (
-                subsample_size,
-            )
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=eta_max)
-            assert eta.shape == (subsample_size,)
+            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            assert eps.shape == (subsample_size, D)
+            assert eta.shape == beta.shape == (subsample_size,)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
             q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
-            p_grad = beta[:, None] * grad(batch_tau_log_density)(z_half)
-            assert q_grad.shape == (subsample_size, D) and p_grad.shape == (
-                subsample_size, D
-            )
+            p_grad = beta[:, None] * grad(local_log_density)(z_half)
+            assert q_grad.shape == p_grad.shape == (subsample_size, D)
             v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
             z = z_half + v_hat * eta[:, None] * inv_mass_matrix
             v = gamma * v_hat + jnp.sqrt(1 - gamma ** 2) * eps
-            delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(
-                v_hat
-            )
+            delta_ke = momentum_dist.log_prob(v_prev) - \
+                momentum_dist.log_prob(v_hat)
             assert delta_ke.shape == (subsample_size,)
             log_factor = log_factor + delta_ke
             return (z, v, log_factor), None
 
-        v_0 = eps[:, :, -1]  # note the return value of scan doesn't depend on eps[-1]
-        assert eps.shape == (subsample_size, D, K) and betas.shape == (
-            subsample_size,
-            K,
-        )
+        v_0 = eps[:, :, -1]  # note the return value of scan doesn't depend on eps[:, :, -1]
+        assert eps.shape == (subsample_size, D, K)
+        assert betas.shape == (subsample_size, K)
+
         eps_T = jnp.moveaxis(eps, -1, 0)
-        betas_T = jnp.moveaxis(betas, -1, 0)
         (z, _, log_factor), _ = jax.lax.scan(
-            scan_body, (z_0, v_0, jnp.zeros(subsample_size)), (eps_T, betas_T)
+            scan_body, (z_0, v_0, jnp.zeros(subsample_size)), (eps_T, betas.T)
         )
         assert log_factor.shape == (subsample_size,)
 
