@@ -25,11 +25,12 @@ from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
-from numpyro.handlers import substitute
+from numpyro.handlers import substitute, block
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoDAIS,
+    AutoSemiDAIS,
     AutoDelta,
     AutoDiagonalNormal,
     AutoIAFNormal,
@@ -670,3 +671,19 @@ def test_init_to_scalar_value():
     guide = AutoDiagonalNormal(model, init_loc_fn=init_to_value(values={"x": 1.0}))
     svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
     svi.init(random.PRNGKey(0))
+
+
+def test_autosemidais():
+    def model():
+        theta = numpyro.sample("theta", dist.Normal(0, 1))
+        with numpyro.plate("N", 10, subsample_size=5):
+            sigma = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
+            numpyro.sample("obs", dist.Normal(theta, sigma), obs=jnp.ones(5))
+
+    base_guide = AutoNormal(block(model, lambda site: site['name'] != 'theta'))
+    guide = AutoSemiDAIS(model, base_guide)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 10)
+    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert "theta" in samples
+    assert "sigma" in samples

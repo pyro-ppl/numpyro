@@ -63,6 +63,7 @@ __all__ = [
     "AutoBNAFNormal",
     "AutoIAFNormal",
     "AutoDelta",
+    "AutoSemiDAIS",
 ]
 
 
@@ -945,7 +946,7 @@ class AutoSemiDAIS(AutoGuide):
                             and isinstance(site["args"][1], int)
                             and site["args"][0] > site["args"][1]}
         num_plates = len(subsample_plates)
-        assert len(num_plates) == 1, \
+        assert num_plates == 1, \
             "This guide assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}"
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
@@ -966,6 +967,41 @@ class AutoSemiDAIS(AutoGuide):
         plate_full_size, plate_subsample_size = subsample_plates[plate_name]["args"]
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
+
+    def __call__(self, *args, **kwargs):
+        if self.prototype_trace is None:
+            # run model to inspect the model structure
+            self._setup_prototype(*args, **kwargs)
+
+        latent = self._sample_latent(*args, **kwargs)
+
+        # unpack continuous latent samples
+        result = {}
+
+        for name, unconstrained_value in self._unpack_latent(latent).items():
+            site = self.prototype_trace[name]
+            with helpful_support_errors(site):
+                transform = biject_to(site["fn"].support)
+            value = transform(unconstrained_value)
+            event_ndim = site["fn"].event_dim
+            if numpyro.get_mask() is False:
+                log_density = 0.0
+            else:
+                log_density = -transform.log_abs_det_jacobian(
+                    unconstrained_value, value
+                )
+                log_density = sum_rightmost(
+                    log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
+                )
+            delta_dist = dist.Delta(
+                value, log_density=log_density, event_dim=event_ndim
+            )
+            result[name] = numpyro.sample(name, delta_dist)
+
+        return result
+
+    def _get_posterior(self):
+        raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
         global_latents = self.base_guide(*args, **kwargs)
