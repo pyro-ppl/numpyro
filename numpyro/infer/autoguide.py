@@ -955,7 +955,7 @@ class AutoSemiDAIS(AutoGuide):
                             and site["args"][0] > site["args"][1]}
         num_plates = len(subsample_plates)
         assert num_plates == 1, \
-            "This guide assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}"
+            f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
         subsample_axes = {}
@@ -967,10 +967,11 @@ class AutoSemiDAIS(AutoGuide):
                         if plate_dim is None:
                             plate_dim = frame.dim
                         local_vars.append(name)
-                        if name in self._init_locs:
+                        if name in self._init_locs:  # Q: what is in _init_locs and what is not?
                             subsample_axes[name] = plate_dim - site["fn"].event_dim
                         break
-        assert len(local_vars) > 0, "There are no local variables in the `{plate_name}` plate."
+        assert len(local_vars) > 0, \
+            "There are no local variables in the `{plate_name}` plate. AutoSemiDAIS is appropriate for models with local variables."
         local_init_locs = {name: value for name, value in self._init_locs.items()
                            if name in local_vars}
 
@@ -1045,32 +1046,31 @@ class AutoSemiDAIS(AutoGuide):
             return fn
 
         global_latents = self.base_guide(*args, **kwargs)
-        global_model = self.base_guide.model
         rng_key = numpyro.prng_key()
         with handlers.block(), handlers.seed(rng_seed=rng_key), \
                 handlers.substitute(data=global_latents):
-            global_output = global_model(*args, **kwargs)
+            global_output = self.base_guide.model(*args, **kwargs)
 
         plate_name, N, subsample_size = self._local_plate
         D, K = self._local_latent_dim, self.K
 
         with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
             eta0 = numpyro.param(
-                "eta0",
+                "{}_eta0".format(self.prefix),
                 jnp.ones(N) * self.eta_init,
                 constraint=constraints.interval(0, self.eta_max),
                 event_dim=0,
             )
-            eta_coeff = numpyro.param("eta_coeff", jnp.zeros(N), event_dim=0)
+            eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0)
 
             gamma = numpyro.param(
-                "gamma",
+                "{}_gamma".format(self.prefix),
                 jnp.ones(N) * 0.9,
                 constraint=constraints.interval(0, 1),
                 event_dim=0,
             )
             betas = numpyro.param(
-                "beta_increments",
+                "{}_beta_increments".format(self.prefix),
                 jnp.ones((N, K)),
                 constraint=constraints.positive,
                 event_dim=1,
@@ -1079,7 +1079,7 @@ class AutoSemiDAIS(AutoGuide):
             betas = betas / betas[..., -1:]
 
             mass_matrix = numpyro.param(
-                "mass_matrix",
+                "{}_mass_matrix".format(self.prefix),
                 jnp.ones((N, D)),
                 constraint=constraints.positive,
                 event_dim=1,
@@ -1087,64 +1087,67 @@ class AutoSemiDAIS(AutoGuide):
             inv_mass_matrix = 0.5 / mass_matrix
             assert inv_mass_matrix.shape == (subsample_size, D)
             z_0_loc_init = jnp.zeros((N, D))
-            z_0_loc = numpyro.param("z_0_loc", z_0_loc_init, event_dim=1)
+            z_0_loc = numpyro.param("{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1)
             z_0_scale_init = jnp.ones((N, D)) * self._init_scale
             z_0_scale = numpyro.param(
-                "z_0_scale",
+                "{}_z_0_scale".format(self.prefix),
                 z_0_scale_init,
                 constraint=constraints.positive,
                 event_dim=1,
             )
             base_z_dist = dist.Normal(z_0_loc, z_0_scale).to_event(1)
             assert base_z_dist.shape() == (subsample_size, D)
-            z_0 = numpyro.sample("z_0", base_z_dist, infer={"is_auxiliary": True})
+            z_0 = numpyro.sample("{}_z_0".format(self.prefix), base_z_dist, infer={"is_auxiliary": True})
             base_z_dist_log_prob = lambda x: base_z_dist.log_prob(x).sum()
 
             momentum_dist = dist.Normal(0, mass_matrix).to_event(1)
             eps = numpyro.sample(
-                "momentum",
+                "{}_momentum".format(self.prefix),
                 dist.Normal(0, mass_matrix[..., None])
                 .expand([subsample_size, D, K])
                 .to_event(2)
                 .mask(False),
                 infer={"is_auxiliary": True},
             )
-        local_log_density = make_local_log_density(global_output,
-            _subsample_idx={plate_name: idx})
 
-        def scan_body(carry, eps_beta):
-            eps, beta = eps_beta
-            eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
-            assert eps.shape == (subsample_size, D)
-            assert eta.shape == beta.shape == (subsample_size,)
-            z_prev, v_prev, log_factor = carry
-            z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
-            q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
-            # Note: rescale log_density to be order 1.
-            p_grad = beta[:, None] * (subsample_size / N) * grad(local_log_density)(z_half)
-            assert q_grad.shape == p_grad.shape == (subsample_size, D)
-            v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
-            z = z_half + v_hat * eta[:, None] * inv_mass_matrix
-            v = gamma[:, None] * v_hat + jnp.sqrt(1 - gamma[:, None] ** 2) * eps
-            delta_ke = momentum_dist.log_prob(v_prev) - \
-                momentum_dist.log_prob(v_hat)
-            assert delta_ke.shape == (subsample_size,)
-            log_factor = log_factor + delta_ke
-            return (z, v, log_factor), None
+            local_log_density = make_local_log_density(global_output,
+                _subsample_idx={plate_name: idx})
 
-        v_0 = eps[:, :, -1]  # note the return value of scan doesn't depend on eps[:, :, -1]
-        assert eps.shape == (subsample_size, D, K)
-        assert betas.shape == (subsample_size, K)
+            def scan_body(carry, eps_beta):
+                eps, beta = eps_beta
+                eta = eta0 + eta_coeff * beta
+                eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+                assert eps.shape == (subsample_size, D)
+                assert eta.shape == beta.shape == (subsample_size,)
+                z_prev, v_prev, log_factor = carry
+                z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
+                q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
+                # Note: rescale log_density to be order 1.
+                p_grad = beta[:, None] * (subsample_size / N) * grad(local_log_density)(z_half)
+                assert q_grad.shape == p_grad.shape == (subsample_size, D)
+                v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
+                z = z_half + v_hat * eta[:, None] * inv_mass_matrix
+                v = gamma[:, None] * v_hat + jnp.sqrt(1 - gamma[:, None] ** 2) * eps
+                delta_ke = momentum_dist.log_prob(v_prev) - \
+                    momentum_dist.log_prob(v_hat)
+                assert delta_ke.shape == (subsample_size,)
+                log_factor = log_factor + delta_ke
+                return (z, v, log_factor), None
 
-        eps_T = jnp.moveaxis(eps, -1, 0)
-        (z, _, log_factor), _ = jax.lax.scan(
-            scan_body, (z_0, v_0, jnp.zeros(subsample_size)), (eps_T, betas.T)
-        )
-        assert log_factor.shape == (subsample_size,)
+            v_0 = eps[:, :, -1]  # note the return value of scan doesn't depend on eps[:, :, -1]
+            assert eps.shape == (subsample_size, D, K)
+            assert betas.shape == (subsample_size, K)
 
-        numpyro.factor("_local_guide", log_factor)
-        return global_latents, z
+            eps_T = jnp.moveaxis(eps, -1, 0)
+            (z, _, log_factor), _ = jax.lax.scan(
+                scan_body, (z_0, v_0, jnp.zeros(subsample_size)), (eps_T, betas.T)
+            )
+            assert log_factor.shape == (subsample_size,)
+
+            # Q: is this scaled correctly because it's in the plate?
+            # Q: are we missing a jacobian?
+            numpyro.factor("_local_guide", log_factor)
+            return global_latents, z
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         def _single_sample(_rng_key):
@@ -1156,7 +1159,7 @@ class AutoSemiDAIS(AutoGuide):
                 site = self.prototype_trace[name]
                 transform = biject_to(site["fn"].support)
                 value = transform(unconstrained_value)
-                results[name] =value
+                results[name] = value
             return results
 
         if sample_shape:
