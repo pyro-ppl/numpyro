@@ -558,9 +558,10 @@ class ExpandedDistribution(Distribution):
             event_shape = jnp.shape(x)[batch_ndims:]
             return x.reshape(sample_shape + self.batch_shape + event_shape)
 
+        # TODO: See why we need intermediates here
         intermediates = tree_util.tree_map(reshape_sample, intermediates)
         samples = reshape_sample(samples)
-        return samples, intermediates
+        return samples, []
 
     def rsample(self, key, sample_shape=()):
         return self._sample(

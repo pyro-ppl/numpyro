@@ -259,11 +259,13 @@ class block(Messenger):
        >>> assert 'b' in trace_block_a
     """
 
-    def __init__(self, fn=None, hide_fn=None, hide=None):
+    def __init__(self, fn=None, hide_fn=None, hide=None, expose_types=None):
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
             self.hide_fn = lambda msg: msg.get("name") in hide
+        elif expose_types is not None:
+            self.hide_fn = lambda msg: msg.get("type") not in expose_types
         else:
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)

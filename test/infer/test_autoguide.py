@@ -674,16 +674,33 @@ def test_init_to_scalar_value():
 
 
 def test_autosemidais():
-    def model():
+    def global_model():
         theta = numpyro.sample("theta", dist.Normal(0, 1))
+        return theta
+
+    def local_model(theta):
         with numpyro.plate("N", 10, subsample_size=5):
             sigma = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
             numpyro.sample("obs", dist.Normal(theta, sigma), obs=jnp.ones(5))
 
-    base_guide = AutoNormal(block(model, lambda site: site['name'] != 'theta'))
-    guide = AutoSemiDAIS(model, base_guide)
+    model = lambda: local_model(global_model())
+
+    base_guide = AutoNormal(global_model)
+    guide = AutoSemiDAIS(model, local_model, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert "theta" in samples
     assert "sigma" in samples
+    assert samples["sigma"].shape == (5,)
+
+    with handlers.substitute(data={"N": jnp.array([0, 2, 4, 5, 6])}):
+        samples_one = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert "theta" in samples_one
+    assert "sigma" in samples_one
+
+    with handlers.substitute(data={"N": jnp.array([0, 2, 7, 8, 9])}):
+        samples_two = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert_allclose(samples_one["theta"], samples_two["theta"])
+    assert_allclose(samples_one["sigma"][:2], samples_two["sigma"][:2])
+    assert jnp.min(jnp.abs(samples_one["sigma"][2:] - samples_two["sigma"][2:])) > 1e-5
