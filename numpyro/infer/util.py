@@ -46,12 +46,7 @@ ModelInfo = namedtuple(
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
 
 
-def _sum_all_except_at_dim(x, dim):
-    x = x.reshape((-1,) + x.shape[dim:]).sum(0)
-    return x.reshape(x.shape[:1] + (-1,)).sum(-1)
-
-
-def log_density(model, model_args, model_kwargs, params, keep_plate=None):
+def log_density(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
     latent values ``params``.
@@ -66,7 +61,6 @@ def log_density(model, model_args, model_kwargs, params, keep_plate=None):
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.zeros(())
-    plate_dim = None
     for site in model_trace.values():
         if site["type"] == "sample":
             value = site["value"]
@@ -92,16 +86,7 @@ def log_density(model, model_args, model_kwargs, params, keep_plate=None):
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
 
-            if keep_plate is not None:
-                assert keep_plate in [frame.name for frame in site["cond_indep_stack"]]
-                if plate_dim is None:
-                    for frame in site["cond_indep_stack"]:
-                        if frame.name == keep_plate:
-                            plate_dim = frame.dim
-                            break
-                log_prob = _sum_all_except_at_dim(log_prob, plate_dim)
-            else:
-                log_prob = jnp.sum(log_prob)
+            log_prob = jnp.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
 
@@ -238,7 +223,7 @@ def _unconstrain_reparam(params, site):
         return value
 
 
-def potential_energy(model, model_args, model_kwargs, params, enum=False, keep_plate=None):
+def potential_energy(model, model_args, model_kwargs, params, enum=False):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
     Under the hood, we will transform these unconstrained parameters to the values
@@ -254,7 +239,7 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False, keep_p
     if enum:
         from numpyro.contrib.funsor import log_density as log_density_
     else:
-        log_density_ = partial(log_density, keep_plate=keep_plate)
+        log_density_ = log_density
 
     substituted_model = substitute(
         model, substitute_fn=partial(_unconstrain_reparam, params)
@@ -486,7 +471,6 @@ def get_potential_fn(
     dynamic_args=False,
     model_args=(),
     model_kwargs=None,
-    keep_plate=None,
 ):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
@@ -513,7 +497,7 @@ def get_potential_fn(
     """
     if dynamic_args:
         potential_fn = partial(
-            _partial_args_kwargs, partial(potential_energy, model, enum=enum, keep_plate=keep_plate)
+            _partial_args_kwargs, partial(potential_energy, model, enum=enum)
         )
         if replay_model:
             # XXX: we seed to sample discrete sites (but not collect them)
@@ -574,7 +558,6 @@ def initialize_model(
     model_kwargs=None,
     forward_mode_differentiation=False,
     validate_grad=True,
-    keep_plate=None,
 ):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
@@ -658,7 +641,6 @@ def initialize_model(
         dynamic_args=dynamic_args,
         model_args=model_args,
         model_kwargs=model_kwargs,
-        keep_plate=keep_plate,
     )
 
     init_strategy = (

@@ -995,7 +995,6 @@ class AutoSemiDAIS(AutoGuide):
                 dynamic_args=True,
                 model_args=(global_output,),
                 model_kwargs={"_subsample_idx": {plate_name: subsample_plates[plate_name]["value"]}},
-                keep_plate=None,
             )
 
     def __call__(self, *args, **kwargs):
