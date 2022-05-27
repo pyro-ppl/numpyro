@@ -685,7 +685,6 @@ def test_autosemidais():
 
     model5 = lambda: local_model(5, global_model())
     model9 = lambda: local_model(9, global_model())
-    model10 = lambda: local_model(10, global_model())
 
     base_guide = AutoNormal(global_model)
     guide5 = AutoSemiDAIS(model5, partial(local_model, 5), base_guide)
@@ -706,10 +705,13 @@ def test_autosemidais():
     # FAILING
     #assert_allclose(dais_elbo5, dais_elbo9, atol=0.2)
 
-    mf_guide = AutoNormal(model10)
-    mf_svi = SVI(model10, mf_guide, optim.Adam(0.005), Trace_ELBO())
+    def create_plates():
+        return numpyro.plate("N", 10, subsample_size=5)
+
+    mf_guide = AutoNormal(model5, create_plates=create_plates)
+    mf_svi = SVI(model5, mf_guide, optim.Adam(0.005), Trace_ELBO())
     mf_svi_result = mf_svi.run(random.PRNGKey(0), 3000)
-    mf_elbo = -Trace_ELBO(num_particles=100).loss(random.PRNGKey(0), mf_svi_result.params, model10, mf_guide).item()
+    mf_elbo = -Trace_ELBO(num_particles=100).loss(random.PRNGKey(0), mf_svi_result.params, model5, mf_guide).item()
     print("dais_elbo:", dais_elbo5,"  mf_elbo:", mf_elbo)
     assert dais_elbo5 > mf_elbo + 0.25
 
