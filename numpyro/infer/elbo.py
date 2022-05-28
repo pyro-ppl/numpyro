@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from functools import partial
+from operator import itemgetter
 import warnings
 
 from jax import random, vmap
@@ -456,13 +457,85 @@ def _topological_sort(succ, reverse=False):
     return top_sorted if reverse else list(reversed(top_sorted))
 
 
+def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
+    model_successors = _identify_dense_edges(model_trace)
+    guide_successors = _identify_dense_edges(guide_trace)
+    # recursively compute downstream cost nodes for all sample sites in model and guide
+    # (even though ultimately just need for non-reparameterizable sample sites)
+    # 1. downstream costs used for rao-blackwellization
+    # 2. model observe sites (as well as terms that arise from the model and guide having different
+    # dependency structures) are taken care of via 'children_in_model' below
+    topo_sort_guide_nodes = _topological_sort(guide_successors, reverse=True)
+    topo_sort_guide_nodes = [
+        x for x in topo_sort_guide_nodes if guide_trace[x]["type"] == "sample"
+    ]
+    ordered_guide_nodes_dict = {n: i for i, n in enumerate(topo_sort_guide_nodes)}
+
+    downstream_guide_cost_nodes = {}
+    downstream_costs = {}
+    stacks = _get_plate_stacks(model_trace)
+
+    for node in topo_sort_guide_nodes:
+        downstream_costs[node] = MultiFrameTensor(
+            (
+                stacks[node],
+                model_trace[node]["log_prob"] - guide_trace[node]["log_prob"],
+            )
+        )
+        nodes_included_in_sum = set([node])
+        downstream_guide_cost_nodes[node] = set([node])
+        # make more efficient by ordering children appropriately (higher children first)
+        children = [(k, -ordered_guide_nodes_dict[k]) for k in guide_successors[node]]
+        sorted_children = sorted(children, key=itemgetter(1))
+        for child, _ in sorted_children:
+            child_cost_nodes = downstream_guide_cost_nodes[child]
+            downstream_guide_cost_nodes[node].update(child_cost_nodes)
+            if nodes_included_in_sum.isdisjoint(child_cost_nodes):  # avoid duplicates
+                downstream_costs[node].add(*downstream_costs[child].items())
+                # XXX nodes_included_in_sum logic could be more fine-grained, possibly leading
+                # to speed-ups in case there are many duplicates
+                nodes_included_in_sum.update(child_cost_nodes)
+        missing_downstream_costs = (
+            downstream_guide_cost_nodes[node] - nodes_included_in_sum
+        )
+        # include terms we missed because we had to avoid duplicates
+        for missing_node in missing_downstream_costs:
+            downstream_costs[node].add(
+                (
+                    stacks[missing_node],
+                    model_trace[missing_node]["log_prob"]
+                    - guide_trace[missing_node]["log_prob"],
+                )
+            )
+
+    # finish assembling complete downstream costs
+    # (the above computation may be missing terms from model)
+    for site in non_reparam_nodes:
+        children_in_model = set()
+        for node in downstream_guide_cost_nodes[site]:
+            children_in_model.update(model_successors[node])
+        # remove terms accounted for above
+        children_in_model.difference_update(downstream_guide_cost_nodes[site])
+        for child in children_in_model:
+            assert model_trace[child]["type"] == "sample"
+            downstream_costs[site].add((stacks[child], model_trace[child]["log_prob"]))
+            downstream_guide_cost_nodes[site].update([child])
+
+    for k in non_reparam_nodes:
+        downstream_costs[k] = downstream_costs[k].sum_to(
+            guide_trace[k]["cond_indep_stack"]
+        )
+
+    return downstream_costs, downstream_guide_cost_nodes
+
+
 class track_nonreparam(Messenger):
     def postprocess_message(self, msg):
         # track non-reparameterizable sample sites
         if (
             msg["type"] == "sample"
-            and not msg["is_observed"]
-            and not getattr(msg["fn"], "has_rsample", False)
+            and (not msg["is_observed"])
+            and (not msg["fn"].has_rsample)
         ):
             new_provenance = frozenset({msg["name"]})
             old_provenance = msg["value"].aval.named_shape.get(
@@ -473,19 +546,18 @@ class track_nonreparam(Messenger):
             )
 
 
-def get_importance_log_probs(model, guide, args, kwargs):
+def get_importance_log_probs(model, guide, args, kwargs, params):
     """
     Returns log probabilities at each site for the guide and the model that is run against it.
     """
-    guide_tr = trace(guide).get_trace(*args, **kwargs)
-    model_tr = trace(replay(model, trace=guide_tr)).get_trace(*args, **kwargs)
+    model_tr, guide_tr = get_importance_trace(model, guide, args, kwargs, params)
     model_log_probs = {
-        name: site["fn"].log_prob(site["value"])
+        name: site["log_prob"]
         for name, site in model_tr.items()
         if site["type"] == "sample"
     }
     guide_log_probs = {
-        name: site["fn"].log_prob(site["value"])
+        name: site["log_prob"]
         for name, site in guide_tr.items()
         if site["type"] == "sample"
     }
@@ -553,6 +625,7 @@ class TraceGraph_ELBO(ELBO):
                         seeded_guide,
                         args,
                         kwargs,
+                        param_map,
                     )
                 )
             )
@@ -560,19 +633,22 @@ class TraceGraph_ELBO(ELBO):
             elbo = 0.0
             # mapping from non-reparameterizable sample sites to cost terms influenced by each of them
             downstream_costs = defaultdict(lambda: MultiFrameTensor())
-            for site in model_trace.values():
+            for name, site in model_trace.items():
                 if site["type"] == "sample":
                     elbo = elbo + jnp.sum(site["log_prob"])
                     # add the log_prob to each non-reparam sample site upstream
-                    for key in model_deps[site["name"]]:
+                    for key in model_deps[name]:
                         downstream_costs[key].add(
                             (site["cond_indep_stack"], site["log_prob"])
                         )
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
-                    elbo = elbo - jnp.sum(site["log_prob"])
+                    log_prob_sum = jnp.sum(site["log_prob"])
+                    if not site["fn"].has_rsample:
+                        log_prob_sum = stop_gradient(log_prob_sum)
+                    elbo = elbo - log_prob_sum
                     # add the -log_prob to each non-reparam sample site upstream
-                    for key in guide_deps[site["name"]]:
+                    for key in guide_deps[name]:
                         downstream_costs[key].add(
                             (site["cond_indep_stack"], -site["log_prob"])
                         )
