@@ -1147,7 +1147,7 @@ class AutoSemiDAIS(AutoGuide):
 
             # Q: is this scaled correctly because it's in the plate?
             # Q: are we missing a jacobian?
-            numpyro.factor("_local_guide", log_factor)
+            numpyro.factor("{}_local_dais_factor".format(self.prefix), log_factor)
             return global_latents, z
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
