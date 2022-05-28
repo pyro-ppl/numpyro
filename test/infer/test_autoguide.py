@@ -25,7 +25,7 @@ from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
-from numpyro.handlers import substitute, block
+from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
@@ -50,6 +50,9 @@ from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import Predictive
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.util import fori_loop
+
+import optax
+from optax import piecewise_constant_schedule
 
 init_strategy = init_to_median(num_samples=2)
 
@@ -673,55 +676,75 @@ def test_init_to_scalar_value():
     svi.init(random.PRNGKey(0))
 
 
+def get_optim():
+    scheduler = piecewise_constant_schedule(1.0e-3, {50 * 1000: 1.0e-4, 100 * 1000: 1.0e-5})
+    optimizer = optax.chain(
+        optax.scale_by_adam(),
+        optax.scale_by_schedule(scheduler),
+        optax.scale(-1.0)
+    )
+
+    return optimizer
+
+
 def test_autosemidais():
     def global_model():
-        theta = numpyro.sample("theta", dist.Normal(0, 1))
-        return theta
+        return numpyro.sample("theta", dist.Normal(0, 1))
 
-    def local_model(subsample_size, theta):
-        with numpyro.plate("N", 10, subsample_size=subsample_size):
-            sigma = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
-            numpyro.sample("obs", dist.Normal(theta, sigma), obs=jnp.ones(subsample_size))
+    def local_model(subsample_size, theta, nu=8.0):
+        with numpyro.plate("N", 20, subsample_size=subsample_size):
+            tau = numpyro.sample("tau", dist.Gamma(1.0 + nu / 2, 1.0 + nu / 2))
+            numpyro.sample("obs", dist.Normal(theta, 1.0 / jnp.sqrt(tau)),
+                           obs=jnp.concatenate([jnp.zeros(subsample_size // 2),
+                                                jnp.ones(subsample_size - subsample_size // 2)]))
 
     model5 = lambda: local_model(5, global_model())
-    model9 = lambda: local_model(9, global_model())
+    model10 = lambda: local_model(10, global_model())
 
     base_guide = AutoNormal(global_model)
-    guide5 = AutoSemiDAIS(model5, partial(local_model, 5), base_guide)
-    svi5 = SVI(model5, guide5, optim.Adam(0.005), Trace_ELBO())
-    svi_result5 = svi5.run(random.PRNGKey(0), 3000)
-    samples5 = guide5.sample_posterior(random.PRNGKey(1), svi_result5.params)
-    assert samples5["theta"].shape == () and samples5["sigma"].shape == (5,)
-    dais_elbo5 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result5.params, model5, guide5))(random.split(random.PRNGKey(0), 100)).mean().item()
+    guide10 = AutoSemiDAIS(model10, partial(local_model, 10), base_guide, K=8, eta_max=0.25, eta_init=0.005)
+    svi10 = SVI(model10, guide10, get_optim(), Trace_ELBO())
+    svi_result10 = svi10.run(random.PRNGKey(0), 150000)
+    samples10 = guide10.sample_posterior(random.PRNGKey(1), svi_result10.params)
+    assert samples10["theta"].shape == () and samples10["tau"].shape == (10,)
+    dais_elbo10 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model10, guide10))(random.split(random.PRNGKey(0), 20000)).mean().item()
 
-    guide9 = AutoSemiDAIS(model9, partial(local_model, 9), base_guide)
-    svi9 = SVI(model9, guide9, optim.Adam(0.005), Trace_ELBO())
-    svi_result9 = svi9.run(random.PRNGKey(0), 3000)
-    samples9 = guide9.sample_posterior(random.PRNGKey(1), svi_result9.params)
-    assert samples9["theta"].shape == () and samples9["sigma"].shape == (9,)
-    dais_elbo9 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result9.params, model9, guide9))(random.split(random.PRNGKey(0), 100)).mean().item()
+    betas = svi_result10.params['auto_beta_increments']
+    betas = jnp.cumsum(betas, axis=-1)
+    betas = betas / betas[..., -1:]
 
-    print("dais_elbo5:", dais_elbo5, "  dais_elbo9:", dais_elbo9)
-    assert_allclose(dais_elbo5, dais_elbo9, atol=0.2)
+    print("betas[0]\n", betas[0])
+    print("svi_result10.params[auto_eta_coeff]\n", svi_result10.params['auto_eta_coeff'])
+    print("svi_result10.params[auto_eta0]\n", svi_result10.params['auto_eta0'])
+
+    guide5 = AutoSemiDAIS(model5, partial(local_model, 5), base_guide, K=8, eta_max=0.25, eta_init=0.005)
+    with handlers.seed(rng_seed=0):
+        guide5()
+    samples5 = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
+    assert samples5["theta"].shape == () and samples5["tau"].shape == (5,)
+    dais_elbo5 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model5, guide5))(random.split(random.PRNGKey(0), 20000)).mean().item()
+
+    print("dais_elbo5:", dais_elbo5, "  dais_elbo10:", dais_elbo10)
+    #assert_allclose(dais_elbo5, dais_elbo10, atol=0.05)
 
     def create_plates():
-        return numpyro.plate("N", 10, subsample_size=5)
+        return numpyro.plate("N", 20, subsample_size=10)
 
-    mf_guide = AutoNormal(model5, create_plates=create_plates)
-    mf_svi = SVI(model5, mf_guide, optim.Adam(0.005), Trace_ELBO())
-    mf_svi_result = mf_svi.run(random.PRNGKey(0), 3000)
-    mf_elbo = -Trace_ELBO(num_particles=100).loss(random.PRNGKey(0), mf_svi_result.params, model5, mf_guide).item()
-    print("dais_elbo:", dais_elbo5,"  mf_elbo:", mf_elbo)
-    assert dais_elbo5 > mf_elbo + 0.25
+    mf_guide = AutoNormal(model10, create_plates=create_plates)
+    mf_svi = SVI(model10, mf_guide, get_optim(), Trace_ELBO())
+    mf_svi_result = mf_svi.run(random.PRNGKey(0), 150000)
+    mf_elbo = -Trace_ELBO(num_particles=20000).loss(random.PRNGKey(0), mf_svi_result.params, model10, mf_guide).item()
+    print("dais_elbo:", dais_elbo5, "  mf_elbo:", mf_elbo)
+    #assert dais_elbo5 > mf_elbo + 0.01
 
     with handlers.substitute(data={"N": jnp.array([0, 2, 4, 5, 6])}):
-        samples_one = guide5.sample_posterior(random.PRNGKey(1), svi_result5.params)
+        samples_one = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
 
     with handlers.substitute(data={"N": jnp.array([0, 2, 7, 8, 9])}):
-        samples_two = guide5.sample_posterior(random.PRNGKey(1), svi_result5.params)
+        samples_two = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
     assert_allclose(samples_one["theta"], samples_two["theta"])
-    assert_allclose(samples_one["sigma"][:2], samples_two["sigma"][:2])
-    assert jnp.min(jnp.abs(samples_one["sigma"][2:] - samples_two["sigma"][2:])) > 1e-5
+    assert_allclose(samples_one["tau"][:2], samples_two["tau"][:2])
+    assert jnp.min(jnp.abs(samples_one["tau"][2:] - samples_two["tau"][2:])) > 1e-5
 
 
 def test_autosemidais_admissible_smoke():

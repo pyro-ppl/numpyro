@@ -944,7 +944,7 @@ class AutoSemiDAIS(AutoGuide):
         self.eta_max = eta_max
         self.gamma_init = gamma_init
         self.K = K
-        self._init_scale = init_scale
+        self.init_scale = init_scale
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -967,8 +967,8 @@ class AutoSemiDAIS(AutoGuide):
                         if plate_dim is None:
                             plate_dim = frame.dim
                         local_vars.append(name)
-                        if name in self._init_locs:  # Q: what is in _init_locs and what is not? those not in locs are observed sites
-                            subsample_axes[name] = plate_dim - site["fn"].event_dim
+                        #if name in self._init_locs:  # Q: is it ok i removed this in favor of is_observed?
+                        subsample_axes[name] = plate_dim - site["fn"].event_dim
                         break
         assert len(local_vars) > 0, \
             "There are no local variables in the `{plate_name}` plate. AutoSemiDAIS is appropriate for models with local variables."
@@ -976,9 +976,7 @@ class AutoSemiDAIS(AutoGuide):
         local_init_locs = {name: value for name, value in self._init_locs.items()
                            if name in local_vars}
 
-        one_sample = {}
-        for k, v in local_init_locs.items():
-            one_sample[k] = jnp.take(v, 0, axis=subsample_axes[k])
+        one_sample = {k: jnp.take(v, 0, axis=subsample_axes[k]) for k, v in local_init_locs.items()}
         _, shape_dict = _ravel_dict(one_sample)
         local_init_latent = jax.vmap(lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,))(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
@@ -1033,6 +1031,7 @@ class AutoSemiDAIS(AutoGuide):
             )
             result[name] = numpyro.sample(name, delta_dist)
 
+        # Q: does this need global_latents inside?
         return result
 
     def _get_posterior(self):
@@ -1047,7 +1046,8 @@ class AutoSemiDAIS(AutoGuide):
                 with numpyro.handlers.block():
                     return -self._local_potential_fn_gen(
                             *local_args, **local_kwargs)(x_unpack)
-
+                    # Q: this is the correct sign right? we want { log p(data|locals,globals) + log p(locals|globals) }
+                    # Q: is this in the unconstrained space?
             return fn
 
         global_latents = self.base_guide(*args, **kwargs)
@@ -1093,7 +1093,7 @@ class AutoSemiDAIS(AutoGuide):
             assert inv_mass_matrix.shape == (subsample_size, D)
             z_0_loc_init = jnp.zeros((N, D))
             z_0_loc = numpyro.param("{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1)
-            z_0_scale_init = jnp.ones((N, D)) * self._init_scale
+            z_0_scale_init = jnp.ones((N, D)) * self.init_scale
             z_0_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
                 z_0_scale_init,
@@ -1128,6 +1128,7 @@ class AutoSemiDAIS(AutoGuide):
                 z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
                 q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
                 # Note: rescale log_density to be order 1.
+                # Q: is it true that local_log_density is scaled by (N / subsample_size) because of the plate?
                 p_grad = beta[:, None] * (subsample_size / N) * grad(local_log_density)(z_half)
                 assert q_grad.shape == p_grad.shape == (subsample_size, D)
                 v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
@@ -1149,8 +1150,6 @@ class AutoSemiDAIS(AutoGuide):
             )
             assert log_factor.shape == (subsample_size,)
 
-            # Q: is this scaled correctly because it's in the plate? I think so
-            # Q: are we missing a jacobian? we added jacobian in __call__
             numpyro.factor("{}_local_dais_factor".format(self.prefix), log_factor)
             return global_latents, z
 
