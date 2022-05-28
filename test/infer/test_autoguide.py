@@ -731,7 +731,7 @@ def test_autosemidais_admissible_smoke():
         tau = numpyro.sample("tau", dist.LogNormal(jnp.zeros(2), 1).to_event(1))
         return {"tau": tau.mean(), "theta": theta}
 
-    def local_model(global_latents):
+    def local_model1(global_latents):
         tau = global_latents["tau"]
         theta = global_latents["theta"]
         with numpyro.plate("inner", 10, subsample_size=5, dim=-1):
@@ -742,14 +742,32 @@ def test_autosemidais_admissible_smoke():
                 assert sigma1.shape == (20, 5) and sigma2.shape == (20, 5)
                 numpyro.sample("obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones((20, 5)))
 
-    model = lambda: local_model(global_model())
+    model = lambda: local_model1(global_model())
     base_guide = AutoNormal(global_model)
-    guide = AutoSemiDAIS(model, local_model, base_guide)
+    guide = AutoSemiDAIS(model, local_model1, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert samples["theta"].shape == () and samples["tau"].shape == (2,)
     assert samples["sigma"].shape == (20, 5) and samples["log_sigma"].shape == (20, 5, 2)
+
+    def local_model2(global_latents):
+        tau = global_latents["tau"]
+        theta = global_latents["theta"]
+        with numpyro.plate("inner", 10, subsample_size=5, dim=-1):
+            sigma1 = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
+            sigma2 = numpyro.sample("log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1))
+            sigma2 = jnp.exp(sigma2.mean(-1))
+            numpyro.sample("obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones(5))
+
+    model = lambda: local_model2(global_model())
+    base_guide = AutoNormal(global_model)
+    guide = AutoSemiDAIS(model, local_model2, base_guide)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 10)
+    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    assert samples["theta"].shape == () and samples["tau"].shape == (2,)
+    assert samples["sigma"].shape == (5,) and samples["log_sigma"].shape == (5, 2)
 
 
 def test_autosemidais_inadmissible_smoke():
