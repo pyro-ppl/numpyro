@@ -702,8 +702,7 @@ def test_autosemidais():
     dais_elbo9 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result9.params, model9, guide9))(random.split(random.PRNGKey(0), 100)).mean().item()
 
     print("dais_elbo5:", dais_elbo5, "  dais_elbo9:", dais_elbo9)
-    # FAILING
-    #assert_allclose(dais_elbo5, dais_elbo9, atol=0.2)
+    assert_allclose(dais_elbo5, dais_elbo9, atol=0.2)
 
     def create_plates():
         return numpyro.plate("N", 10, subsample_size=5)

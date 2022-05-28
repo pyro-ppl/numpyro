@@ -967,7 +967,7 @@ class AutoSemiDAIS(AutoGuide):
                         if plate_dim is None:
                             plate_dim = frame.dim
                         local_vars.append(name)
-                        if name in self._init_locs:  # Q: what is in _init_locs and what is not?
+                        if name in self._init_locs:  # Q: what is in _init_locs and what is not? those not in locs are observed sites
                             subsample_axes[name] = plate_dim - site["fn"].event_dim
                         break
         assert len(local_vars) > 0, \
@@ -976,13 +976,16 @@ class AutoSemiDAIS(AutoGuide):
         local_init_locs = {name: value for name, value in self._init_locs.items()
                            if name in local_vars}
 
-        _, shape_dict = _ravel_dict(jax.tree_map(
-            lambda x: jnp.take(x, 0, axis=plate_dim), local_init_locs))
+        one_sample = {}
+        for k, v in local_init_locs.items():
+            one_sample[k] = jnp.take(v, 0, axis=subsample_axes[k])
+        _, shape_dict = _ravel_dict(one_sample)
         local_init_latent = jax.vmap(lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,))(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
-        self._unpack_local_latent = jax.vmap(UnpackTransform(unpack_latent))
+        self._unpack_local_latent = jax.vmap(
+            UnpackTransform(unpack_latent), out_axes=subsample_axes)
         plate_full_size, plate_subsample_size = subsample_plates[plate_name]["args"]
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
@@ -1008,6 +1011,7 @@ class AutoSemiDAIS(AutoGuide):
 
         # unpack continuous latent samples
         result = {}
+        _, N, subsample_size = self._local_plate
 
         for name, unconstrained_value in self._unpack_local_latent(local_latent_flat).items():
             site = self.prototype_trace[name]
@@ -1021,7 +1025,7 @@ class AutoSemiDAIS(AutoGuide):
                 log_density = -transform.log_abs_det_jacobian(
                     unconstrained_value, value
                 )
-                log_density = sum_rightmost(
+                log_density = (N / subsample_size) * sum_rightmost(
                     log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
                 )
             delta_dist = dist.Delta(
@@ -1145,8 +1149,8 @@ class AutoSemiDAIS(AutoGuide):
             )
             assert log_factor.shape == (subsample_size,)
 
-            # Q: is this scaled correctly because it's in the plate?
-            # Q: are we missing a jacobian?
+            # Q: is this scaled correctly because it's in the plate? I think so
+            # Q: are we missing a jacobian? we added jacobian in __call__
             numpyro.factor("{}_local_dais_factor".format(self.prefix), log_factor)
             return global_latents, z
 
