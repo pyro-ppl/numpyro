@@ -725,7 +725,7 @@ def test_autosemidais():
     assert jnp.min(jnp.abs(samples_one["sigma"][2:] - samples_two["sigma"][2:])) > 1e-5
 
 
-def test_autosemidais_smoke():
+def test_autosemidais_admissible_smoke():
     def global_model():
         theta = numpyro.sample("theta", dist.Normal(0, 1))
         tau = numpyro.sample("tau", dist.LogNormal(jnp.zeros(2), 1).to_event(1))
@@ -734,11 +734,13 @@ def test_autosemidais_smoke():
     def local_model(global_latents):
         tau = global_latents["tau"]
         theta = global_latents["theta"]
-        with numpyro.plate("N", 10, subsample_size=5):
-            sigma1 = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
-            sigma2 = numpyro.sample("log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1))
-            sigma2 = jnp.exp(sigma2.mean(-1))
-            numpyro.sample("obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones(5))
+        with numpyro.plate("inner", 10, subsample_size=5, dim=-1):
+            with numpyro.plate("outer", 20, dim=-2):
+                sigma1 = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
+                sigma2 = numpyro.sample("log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1))
+                sigma2 = jnp.exp(sigma2.mean(-1))
+                assert sigma1.shape == (20, 5) and sigma2.shape == (20, 5)
+                numpyro.sample("obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones((20, 5)))
 
     model = lambda: local_model(global_model())
     base_guide = AutoNormal(global_model)
@@ -747,4 +749,33 @@ def test_autosemidais_smoke():
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert samples["theta"].shape == () and samples["tau"].shape == (2,)
-    assert samples["sigma"].shape == (5,) and samples["log_sigma"].shape == (5, 2)
+    assert samples["sigma"].shape == (20, 5) and samples["log_sigma"].shape == (20, 5, 2)
+
+
+def test_autosemidais_inadmissible_smoke():
+    def global_model():
+        return numpyro.sample("theta", dist.Normal(0, 1))
+
+    def local_model1(theta):
+        with numpyro.plate("a", 10, 5):
+            numpyro.sample("x", dist.Normal(0, 1))
+            with numpyro.plate("b", 20, 10):
+                numpyro.sample("y", dist.Normal(0, 1))
+
+    def local_model2(theta):
+        with numpyro.plate("a", 10, 5):
+            numpyro.sample("y", dist.Normal(0, 1), obs=jnp.ones(5))
+
+    model = lambda: local_model1(global_model())
+    base_guide = AutoNormal(global_model)
+    guide = AutoSemiDAIS(model, local_model1, base_guide)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+
+    with pytest.raises(AssertionError, match="contains exactly 1 plate"):
+        svi.run(random.PRNGKey(0), 10)
+
+    model = lambda: local_model2(global_model())
+    guide = AutoSemiDAIS(model, local_model2, base_guide)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    with pytest.raises(AssertionError, match="are no local variables"):
+        svi.run(random.PRNGKey(0), 10)

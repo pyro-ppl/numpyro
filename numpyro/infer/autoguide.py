@@ -961,7 +961,7 @@ class AutoSemiDAIS(AutoGuide):
         subsample_axes = {}
         plate_dim = None
         for name, site in self.prototype_trace.items():
-            if site["type"] == "sample":
+            if site["type"] == "sample" and not site["is_observed"]:
                 for frame in site["cond_indep_stack"]:
                     if frame.name == plate_name:
                         if plate_dim is None:
@@ -972,6 +972,7 @@ class AutoSemiDAIS(AutoGuide):
                         break
         assert len(local_vars) > 0, \
             "There are no local variables in the `{plate_name}` plate. AutoSemiDAIS is appropriate for models with local variables."
+
         local_init_locs = {name: value for name, value in self._init_locs.items()
                            if name in local_vars}
 
