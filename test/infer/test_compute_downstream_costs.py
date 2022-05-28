@@ -369,17 +369,11 @@ def test_compute_downstream_costs_big_model_guide_pair(
         assert guide_trace[k]["log_prob"].shape == dc[k].shape
         assert_allclose(dc[k], dc_brute[k], rtol=2e-7)
         # expected downstream cost provenance
-        downstream_cost_provenance = MultiFrameTensor()
-        downstream_cost_provenance.add(
-            (model_trace[k]["cond_indep_stack"], model_trace[k]["log_prob"])
-        )
-        downstream_cost_provenance.add(
-            (guide_trace[k]["cond_indep_stack"], -guide_trace[k]["log_prob"])
-        )
-        downstream_cost_provenance = downstream_cost_provenance.sum_to(
-            guide_trace[k]["cond_indep_stack"]
-        )
-        assert_allclose(dc_provenance[k], downstream_cost_provenance, rtol=1e-7)
+        expected_dc_provenance = MultiFrameTensor(
+            (model_trace[k]["cond_indep_stack"], model_trace[k]["log_prob"]),
+            (guide_trace[k]["cond_indep_stack"], -guide_trace[k]["log_prob"]),
+        ).sum_to(guide_trace[k]["cond_indep_stack"])
+        assert_allclose(dc_provenance[k], expected_dc_provenance, rtol=1e-7)
 
 
 def plate_reuse_model_guide(include_obs=True, dim1=3, dim2=2):
@@ -453,21 +447,18 @@ def test_compute_downstream_costs_plate_reuse(dim1, dim2):
         assert guide_trace[k]["log_prob"].shape == dc[k].shape
         assert_allclose(dc[k], dc_brute[k], rtol=1e-6)
         # expected downstream cost provenance
-        downstream_cost_provenance = MultiFrameTensor()
-        downstream_cost_provenance.add(
-            (model_trace[k]["cond_indep_stack"], model_trace[k]["log_prob"])
-        )
-        downstream_cost_provenance.add(
-            (guide_trace[k]["cond_indep_stack"], -guide_trace[k]["log_prob"])
+        expected_dc_provenance = MultiFrameTensor(
+            (model_trace[k]["cond_indep_stack"], model_trace[k]["log_prob"]),
+            (guide_trace[k]["cond_indep_stack"], -guide_trace[k]["log_prob"]),
         )
         if k == "c2":
-            downstream_cost_provenance.add(
+            expected_dc_provenance.add(
                 (model_trace["obs"]["cond_indep_stack"], model_trace["obs"]["log_prob"])
             )
-        downstream_cost_provenance = downstream_cost_provenance.sum_to(
+        expected_dc_provenance = expected_dc_provenance.sum_to(
             guide_trace[k]["cond_indep_stack"]
         )
-        assert_allclose(dc_provenance[k], downstream_cost_provenance, rtol=1e-7)
+        assert_allclose(dc_provenance[k], expected_dc_provenance, rtol=1e-7)
 
     expected_c1 = model_trace["c1"]["log_prob"] - guide_trace["c1"]["log_prob"]
     expected_c1 += (model_trace["b1"]["log_prob"] - guide_trace["b1"]["log_prob"]).sum()
