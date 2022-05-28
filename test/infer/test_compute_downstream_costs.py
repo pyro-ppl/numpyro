@@ -77,8 +77,8 @@ def _brute_force_compute_downstream_costs(
 
 
 def _provenance_compute_downstream_costs(model_trace, guide_trace, get_log_probs):
-
     # replicate the logic from TraceGraph_ELBO
+    # additionally compute downstream_guide_cost_nodes
     model_deps, guide_deps = get_provenance(
         eval_provenance(track_nonreparam(get_log_probs))
     )
@@ -101,8 +101,8 @@ def _provenance_compute_downstream_costs(model_trace, guide_trace, get_log_probs
     return downstream_costs, downstream_guide_cost_nodes
 
 
-def _get_log_probs(_get_traces):
-    model_tr, guide_tr = _get_traces()
+def _get_log_probs(get_traces_fn):
+    model_tr, guide_tr = get_traces_fn()
     model_log_probs = {
         name: site["log_prob"]
         for name, site in model_tr.items()
