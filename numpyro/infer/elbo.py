@@ -530,8 +530,43 @@ def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
 
 
 class track_nonreparam(Messenger):
+    """
+    Track non-reparameterizable sample sites. Intended to be used with ``eval_provenance``.
+
+    **Example:**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.infer.elbo import track_nonreparam
+       >>> from numpyro.ops.provenance import eval_provenance, get_provenance
+       >>> from numpyro.handlers import seed, trace
+       ...
+       >>> def model():
+       ...     probs_a = jnp.array([0.3, 0.7])
+       ...     probs_b = jnp.array([[0.1, 0.9], [0.8, 0.2]])
+       ...     probs_c = jnp.array([[0.5, 0.5], [0.6, 0.4]])
+       ...     a = numpyro.sample("a", dist.Categorical(probs_a))
+       ...     b = numpyro.sample("b", dist.Categorical(probs_b[a]))
+       ...     numpyro.sample("c", dist.Categorical(probs_c[b]), obs=jnp.array(0))
+       ...
+       >>> def get_log_probs():
+       ...     seeded_model = seed(model, rng_seed=0)
+       ...     model_tr = trace(seeded_model).get_trace()
+       ...     return {
+       ...         name: site["fn"].log_prob(site["value"])
+       ...         for name, site in model_tr.items()
+       ...         if site["type"] == "sample"
+       ...     }
+       ...
+       ... model_deps = get_provenance(eval_provenance(track_nonreparam(get_log_probs)))
+       ... print(model_deps)  # doctest: +SKIP
+       {'a': frozenset({'a'}), 'b': frozenset({'a', 'b'}), 'c': frozenset({'a', 'b'})}
+    """
+
     def postprocess_message(self, msg):
-        # track non-reparameterizable sample sites
         if (
             msg["type"] == "sample"
             and (not msg["is_observed"])
@@ -659,7 +694,7 @@ class TraceGraph_ELBO(ELBO):
                 surrogate = jnp.sum(
                     guide_site["log_prob"] * stop_gradient(downstream_cost)
                 )
-                elbo += surrogate - stop_gradient(surrogate)
+                elbo = elbo + surrogate - stop_gradient(surrogate)
 
             return elbo
 
