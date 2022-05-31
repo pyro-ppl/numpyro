@@ -533,6 +533,11 @@ class track_nonreparam(Messenger):
     """
     Track non-reparameterizable sample sites. Intended to be used with ``eval_provenance``.
 
+    **References:**
+
+    1. *Nonstandard Interpretations of Probabilistic Programs for Efficient Inference*,
+        David Wingate, Noah Goodman, Andreas Stuhlmüller, Jeffrey Siskind
+
     **Example:**
 
     .. doctest::
@@ -543,7 +548,7 @@ class track_nonreparam(Messenger):
        >>> from numpyro.infer.elbo import track_nonreparam
        >>> from numpyro.ops.provenance import eval_provenance, get_provenance
        >>> from numpyro.handlers import seed, trace
-       ...
+
        >>> def model():
        ...     probs_a = jnp.array([0.3, 0.7])
        ...     probs_b = jnp.array([[0.1, 0.9], [0.8, 0.2]])
@@ -551,7 +556,7 @@ class track_nonreparam(Messenger):
        ...     a = numpyro.sample("a", dist.Categorical(probs_a))
        ...     b = numpyro.sample("b", dist.Categorical(probs_b[a]))
        ...     numpyro.sample("c", dist.Categorical(probs_c[b]), obs=jnp.array(0))
-       ...
+
        >>> def get_log_probs():
        ...     seeded_model = seed(model, rng_seed=0)
        ...     model_tr = trace(seeded_model).get_trace()
@@ -560,9 +565,9 @@ class track_nonreparam(Messenger):
        ...         for name, site in model_tr.items()
        ...         if site["type"] == "sample"
        ...     }
-       ...
-       ... model_deps = get_provenance(eval_provenance(track_nonreparam(get_log_probs)))
-       ... print(model_deps)  # doctest: +SKIP
+
+       >>> model_deps = get_provenance(eval_provenance(track_nonreparam(get_log_probs)))
+       >>> print(model_deps)  # doctest: +SKIP
        {'a': frozenset({'a'}), 'b': frozenset({'a', 'b'}), 'c': frozenset({'a', 'b'})}
     """
 
