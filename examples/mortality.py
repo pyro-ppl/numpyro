@@ -37,8 +37,8 @@ full generative model of death rates is written as
         \\alpha_{1s} & \\sim \\mathcal{N}(\\alpha_{1s_1(s_2)},\\sigma_{\\alpha_{s_2}}^2) \\\\
         \\alpha_{2a} & \\sim \\mathcal{N}(\\alpha_{2,a-1},\\sigma_{\\alpha_a}^2) \\quad \\alpha_{2,0} = \\alpha_0 \\\\
         \\beta_{2a} & \\sim \\mathcal{N}(\\beta_{2,a-1},\\sigma_{\\beta_a}^2) \\quad \\beta_{2,0} = \\beta_0 \\\\
-        \\pi_{t} & \\sim \\mathcal{N}(\\pi_{t-1},\\sigma_{\\pi}^2), \\quad \\pi_{1} = 0 \\\\
-        \\text{logit}(m_{ast}) & = \\alpha_{1s} + \\alpha_{2a} + \\beta_{2a} * t + \\pi_{t}
+        \\pi_{t} & \\sim \\mathcal{N}(\\pi_{t-1},\\sigma_{\\pi}^2), \\quad \\pi_{0} = 0 \\\\
+        \\text{logit}(m_{ast}) & = \\alpha_{1s} + \\alpha_{2a} + \\beta_{2a} t + \\pi_{t}
     \\end{align}
 
 with the hyperpriors
