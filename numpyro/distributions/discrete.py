@@ -65,7 +65,9 @@ def _to_probs_multinom(logits):
 
 def _to_logits_multinom(probs):
     minval = jnp.finfo(jnp.result_type(probs)).min
-    return jnp.clip(jnp.log(probs) - logsumexp(probs, axis=-1, keepdims=True), a_min=minval)
+    return jnp.clip(
+        jnp.log(probs) - logsumexp(probs, axis=-1, keepdims=True), a_min=minval
+    )
 
 
 class BernoulliProbs(Distribution):
