@@ -185,6 +185,8 @@ def _categorical(key, p, shape):
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
     s = jnp.cumsum(p, axis=-1)
+    # Normalize s to deal with numerical issues.
+    s = s[..., :-1] / s[..., -1]
     r = random.uniform(key, shape=shape + (1,))
     # FIXME: replace this computation by using binary search as suggested in the above
     # reference. A while_loop + vmap for a reshaped 2D array would be enough.
