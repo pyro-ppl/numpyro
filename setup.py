@@ -61,7 +61,7 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==1.0.0",
+            "jaxns==1.1.0",
             "optax>=0.0.6",
             "tensorflow_probability>=0.15.0",
         ],
