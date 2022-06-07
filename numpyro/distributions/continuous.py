@@ -1033,6 +1033,33 @@ class Logistic(Distribution):
         return self.loc + self.scale * logit(q)
 
 
+class LogUniform(TransformedDistribution):
+    arg_constraints = {"low": constraints.positive, "high": constraints.positive}
+    support = constraints.positive
+    reparametrized_params = ["low", "high"]
+
+    def __init__(self, low=1., high=10., *, validate_args=None):
+        base_dist = Uniform(jnp.log(low), jnp.log(high))
+        self.low, self.high = low, high
+        super(LogUniform, self).__init__(
+            base_dist, ExpTransform(), validate_args=validate_args
+        )
+
+    @property
+    def mean(self):
+        return (self.high - self.low) / jnp.log(self.high / self.low)
+
+    @property
+    def variance(self):
+        return 0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low) - self.mean**2
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
+    def cdf(self, x):
+        return self.base_dist.cdf(jnp.log(x))
+
+
 def _batch_mahalanobis(bL, bx):
     if bL.shape[:-1] == bx.shape:
         # no need to use the below optimization procedure

@@ -33,6 +33,7 @@ from numpyro.distributions.continuous import (
     Logistic,
     LogNormal,
     LowRankMultivariateNormal,
+    LogUniform,
     MultivariateNormal,
     MultivariateStudentT,
     Normal,
