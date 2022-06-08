@@ -374,7 +374,8 @@ def find_valid_initial_params(
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
-        init_state = (0, rng_key, (prototype_params, 0.0, prototype_params), False)
+        prototype_grads = prototype_params if validate_grad else None
+        init_state = (0, rng_key, (prototype_params, 0.0, prototype_grads), False)
         if exit_early and not_jax_tracer(rng_key):
             # Early return if valid params found. This is only helpful for single chain,
             # where we can avoid compiling body_fn in while_loop.

@@ -869,13 +869,15 @@ def test_forward_mode_differentiation():
     mcmc.run(random.PRNGKey(0))
 
 
-def test_SA_gradient_free():
+@pytest.mark.parametrize("num_chains", [1, 2])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_SA_chain_gradient_free(num_chains):
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))
         y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
         numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
 
-    mcmc = MCMC(SA(model), num_warmup=10, num_samples=10)
+    mcmc = MCMC(SA(model), num_warmup=10, num_samples=10, num_chains=num_chains)
     mcmc.run(random.PRNGKey(0))
 
 
