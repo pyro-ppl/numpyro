@@ -3,6 +3,7 @@
 
 from functools import partial
 
+from numpy.random import RandomState
 from numpy.testing import assert_allclose
 import pytest
 
@@ -687,27 +688,32 @@ def get_optim():
     return optimizer
 
 
-def test_autosemidais():
+def test_autosemidais(N=128, P=8):
+    X = RandomState(0).randn(N, P)
+    #X[:, 2] = X[:, 0] + 0.03 * RandomState(2).randn(N)
+    Y = X[:, 0] - 0.5 * X[:, 1] + 0.5 * RandomState(1).randn(N)
+
     def global_model():
-        return numpyro.sample("theta", dist.Normal(0, 1))
+        return numpyro.sample("theta", dist.Normal(jnp.zeros(P), 1).to_event(1))
 
     def local_model(subsample_size, theta, nu=8.0):
-        with numpyro.plate("N", 20, subsample_size=subsample_size):
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            X_batch = numpyro.subsample(X, event_dim=1)
+            Y_batch = numpyro.subsample(Y, event_dim=0)
             tau = numpyro.sample("tau", dist.Gamma(1.0 + nu / 2, 1.0 + nu / 2))
-            numpyro.sample("obs", dist.Normal(theta, 1.0 / jnp.sqrt(tau)),
-                           obs=jnp.concatenate([jnp.zeros(subsample_size // 2),
-                                                jnp.ones(subsample_size - subsample_size // 2)]))
+            numpyro.sample("obs", dist.Normal(X_batch @ theta, 1.0 / jnp.sqrt(tau)),
+                           obs=Y_batch)
 
     model5 = lambda: local_model(5, global_model())
-    model10 = lambda: local_model(10, global_model())
+    model10 = lambda: local_model(64, global_model())
 
     base_guide = AutoNormal(global_model)
-    guide10 = AutoSemiDAIS(model10, partial(local_model, 10), base_guide, K=8, eta_max=0.25, eta_init=0.005)
+    guide10 = AutoSemiDAIS(model10, partial(local_model, 64), base_guide, K=4, eta_max=0.25, eta_init=0.005)
     svi10 = SVI(model10, guide10, get_optim(), Trace_ELBO())
     svi_result10 = svi10.run(random.PRNGKey(0), 150000)
     samples10 = guide10.sample_posterior(random.PRNGKey(1), svi_result10.params)
-    assert samples10["theta"].shape == () and samples10["tau"].shape == (10,)
-    dais_elbo10 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model10, guide10))(random.split(random.PRNGKey(0), 20000)).mean().item()
+    #assert samples10["theta"].shape == (P,) and samples10["tau"].shape == (10,)
+    dais_elbo10 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model10, guide10))(random.split(random.PRNGKey(0), 10000)).mean().item()
 
     betas = svi_result10.params['auto_beta_increments']
     betas = jnp.cumsum(betas, axis=-1)
@@ -721,14 +727,14 @@ def test_autosemidais():
     with handlers.seed(rng_seed=0):
         guide5()
     samples5 = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
-    assert samples5["theta"].shape == () and samples5["tau"].shape == (5,)
+    assert samples5["theta"].shape == (P,) and samples5["tau"].shape == (5,)
     dais_elbo5 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model5, guide5))(random.split(random.PRNGKey(0), 20000)).mean().item()
 
     print("dais_elbo5:", dais_elbo5, "  dais_elbo10:", dais_elbo10)
     #assert_allclose(dais_elbo5, dais_elbo10, atol=0.05)
 
     def create_plates():
-        return numpyro.plate("N", 20, subsample_size=10)
+        return numpyro.plate("N", N, subsample_size=10)
 
     mf_guide = AutoNormal(model10, create_plates=create_plates)
     mf_svi = SVI(model10, mf_guide, get_optim(), Trace_ELBO())
