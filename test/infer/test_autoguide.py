@@ -678,7 +678,7 @@ def test_init_to_scalar_value():
 
 
 def get_optim():
-    scheduler = piecewise_constant_schedule(1.0e-3, {50 * 1000: 1.0e-4, 100 * 1000: 1.0e-5})
+    scheduler = piecewise_constant_schedule(1.0e-3, {30 * 1000: 1.0e-4, 60 * 1000: 1.0e-5})
     optimizer = optax.chain(
         optax.scale_by_adam(),
         optax.scale_by_schedule(scheduler),
@@ -688,66 +688,59 @@ def get_optim():
     return optimizer
 
 
-def test_autosemidais(N=128, P=8):
+def test_autosemidais(N=32, P=4, sigma_obs=0.1, num_steps=90 * 1000):
     X = RandomState(0).randn(N, P)
-    #X[:, 2] = X[:, 0] + 0.03 * RandomState(2).randn(N)
-    Y = X[:, 0] - 0.5 * X[:, 1] + 0.5 * RandomState(1).randn(N)
+    Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
 
     def global_model():
         return numpyro.sample("theta", dist.Normal(jnp.zeros(P), 1).to_event(1))
 
-    def local_model(subsample_size, theta, nu=8.0):
+    def local_model(subsample_size, theta):
         with numpyro.plate("N", N, subsample_size=subsample_size):
             X_batch = numpyro.subsample(X, event_dim=1)
             Y_batch = numpyro.subsample(Y, event_dim=0)
-            tau = numpyro.sample("tau", dist.Gamma(1.0 + nu / 2, 1.0 + nu / 2))
-            numpyro.sample("obs", dist.Normal(X_batch @ theta, 1.0 / jnp.sqrt(tau)),
+            tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
+            numpyro.sample("obs", dist.Normal(X_batch @ theta, sigma_obs / jnp.sqrt(tau)),
                            obs=Y_batch)
 
-    model5 = lambda: local_model(5, global_model())
-    model10 = lambda: local_model(64, global_model())
+    model8 = lambda: local_model(8, global_model())
+    model16 = lambda: local_model(16, global_model())
 
     base_guide = AutoNormal(global_model)
-    guide10 = AutoSemiDAIS(model10, partial(local_model, 64), base_guide, K=4, eta_max=0.25, eta_init=0.005)
-    svi10 = SVI(model10, guide10, get_optim(), Trace_ELBO())
-    svi_result10 = svi10.run(random.PRNGKey(0), 150000)
-    samples10 = guide10.sample_posterior(random.PRNGKey(1), svi_result10.params)
-    #assert samples10["theta"].shape == (P,) and samples10["tau"].shape == (10,)
-    dais_elbo10 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model10, guide10))(random.split(random.PRNGKey(0), 10000)).mean().item()
+    guide16 = AutoSemiDAIS(model16, partial(local_model, 16), base_guide, K=4, eta_max=0.25, eta_init=0.005)
+    svi_result16 = SVI(model16, guide16, get_optim(), Trace_ELBO()).run(random.PRNGKey(0), num_steps)
+    samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    assert samples16["theta"].shape == (P,) and samples16["tau"].shape == (16,)
+    dais_elbo16 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model16, guide16))(random.split(random.PRNGKey(0), 5000)).mean().item()
 
-    betas = svi_result10.params['auto_beta_increments']
-    betas = jnp.cumsum(betas, axis=-1)
-    betas = betas / betas[..., -1:]
+    print("svi_result16.params[auto_eta_coeff].mean()", svi_result16.params['auto_eta_coeff'].mean(), " (should be positive)")
+    print("svi_result16.params[auto_eta].mean()", svi_result16.params['auto_eta0'].mean())
 
-    print("betas[0]\n", betas[0])
-    print("svi_result10.params[auto_eta_coeff]\n", svi_result10.params['auto_eta_coeff'])
-    print("svi_result10.params[auto_eta0]\n", svi_result10.params['auto_eta0'])
-
-    guide5 = AutoSemiDAIS(model5, partial(local_model, 5), base_guide, K=8, eta_max=0.25, eta_init=0.005)
+    guide8 = AutoSemiDAIS(model8, partial(local_model, 8), base_guide, K=4, eta_max=0.25, eta_init=0.005)
     with handlers.seed(rng_seed=0):
-        guide5()
-    samples5 = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
-    assert samples5["theta"].shape == (P,) and samples5["tau"].shape == (5,)
-    dais_elbo5 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result10.params, model5, guide5))(random.split(random.PRNGKey(0), 20000)).mean().item()
+        guide8()  # initialize guide since we are not training this guide
+        # instead we reuse svi_result16 parameters
+    samples8 = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    assert samples8["theta"].shape == (P,) and samples8["tau"].shape == (8,)
+    dais_elbo8 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model8, guide8))(random.split(random.PRNGKey(0), 5000)).mean().item()
 
-    print("dais_elbo5:", dais_elbo5, "  dais_elbo10:", dais_elbo10)
-    #assert_allclose(dais_elbo5, dais_elbo10, atol=0.05)
+    print("dais_elbo8:", dais_elbo8, "  dais_elbo16:", dais_elbo16, " (should be approximately equal)")
+    #assert_allclose(dais_elbo5, dais_elbo16, atol=0.05)
 
     def create_plates():
-        return numpyro.plate("N", N, subsample_size=10)
+        return numpyro.plate("N", N, subsample_size=16)
 
-    mf_guide = AutoNormal(model10, create_plates=create_plates)
-    mf_svi = SVI(model10, mf_guide, get_optim(), Trace_ELBO())
-    mf_svi_result = mf_svi.run(random.PRNGKey(0), 150000)
-    mf_elbo = -Trace_ELBO(num_particles=20000).loss(random.PRNGKey(0), mf_svi_result.params, model10, mf_guide).item()
-    print("dais_elbo:", dais_elbo5, "  mf_elbo:", mf_elbo)
+    mf_guide = AutoNormal(model16, create_plates=create_plates)
+    mf_svi_result = SVI(model16, mf_guide, get_optim(), Trace_ELBO()).run(random.PRNGKey(0), num_steps)
+    mf_elbo = -Trace_ELBO(num_particles=5000).loss(random.PRNGKey(0), mf_svi_result.params, model16, mf_guide).item()
+    print("dais_elbo:", dais_elbo8, dais_elbo16, "  mf_elbo:", mf_elbo, "  (mf should be worse)")
     #assert dais_elbo5 > mf_elbo + 0.01
 
-    with handlers.substitute(data={"N": jnp.array([0, 2, 4, 5, 6])}):
-        samples_one = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
+    with handlers.substitute(data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8])}):
+        samples_one = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
 
-    with handlers.substitute(data={"N": jnp.array([0, 2, 7, 8, 9])}):
-        samples_two = guide5.sample_posterior(random.PRNGKey(1), svi_result10.params)
+    with handlers.substitute(data={"N": jnp.array([0, 2, 9, 10, 11, 12, 13, 14])}):
+        samples_two = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert_allclose(samples_one["theta"], samples_two["theta"])
     assert_allclose(samples_one["tau"][:2], samples_two["tau"][:2])
     assert jnp.min(jnp.abs(samples_one["tau"][2:] - samples_two["tau"][2:])) > 1e-5

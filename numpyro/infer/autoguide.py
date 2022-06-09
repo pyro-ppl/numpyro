@@ -1023,6 +1023,8 @@ class AutoSemiDAIS(AutoGuide):
                 log_density = -transform.log_abs_det_jacobian(
                     unconstrained_value, value
                 )
+                # Q: is this the right sign?
+                # Q: is (N / subsample_size) correct?
                 log_density = (N / subsample_size) * sum_rightmost(
                     log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
                 )
@@ -1046,8 +1048,6 @@ class AutoSemiDAIS(AutoGuide):
                 with numpyro.handlers.block():
                     return -self._local_potential_fn_gen(
                             *local_args, **local_kwargs)(x_unpack)
-                    # Q: this is the correct sign right? we want { log p(data|locals,globals) + log p(locals|globals) }
-                    # Q: is this in the unconstrained space?
             return fn
 
         global_latents = self.base_guide(*args, **kwargs)
@@ -1150,6 +1150,7 @@ class AutoSemiDAIS(AutoGuide):
             )
             assert log_factor.shape == (subsample_size,)
 
+            # Q: will this be scaled by (N / subsamplesize) because it's in the plate?
             numpyro.factor("{}_local_dais_factor".format(self.prefix), log_factor)
             return global_latents, z
 
