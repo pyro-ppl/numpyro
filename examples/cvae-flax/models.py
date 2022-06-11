@@ -1,9 +1,7 @@
-import functools
-from typing import Any, Callable, Optional
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
 
-from flax import linen as nn, struct
-import jax
-from jax import lax
+from flax import linen as nn
 from jax import numpy as jnp
 
 import numpyro

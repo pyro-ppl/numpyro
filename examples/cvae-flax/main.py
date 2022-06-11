@@ -1,21 +1,18 @@
-import argparse
-from flax import linen as nn
-from flax.core import freeze
-import jax
-from jax import jit, random
-import jax.numpy as jnp
-import matplotlib.pyplot as plt
-import optax
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
 
-import numpyro
-from numpyro.contrib.module import flax_module
-import numpyro.distributions as dist
-from numpyro.examples.datasets import MNIST
+import argparse
 
 from data import load_dataset
+import matplotlib.pyplot as plt
 from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model
 from train_baseline import train_baseline
 from train_cvae import train_cvae
+
+from jax import random
+import jax.numpy as jnp
+
+from numpyro.examples.datasets import MNIST
 
 
 def main(args):

@@ -1,13 +1,15 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+from models import cross_entropy_loss
+
 from flax import traverse_util
-from flax.training.train_state import TrainState
 import jax
 from jax import lax, numpy as jnp, random
 import optax
 
 from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.svi import SVIState
-
-from models import cross_entropy_loss
 
 
 def flattened_traversal(fn):

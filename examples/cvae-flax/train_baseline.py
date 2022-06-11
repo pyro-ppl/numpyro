@@ -1,9 +1,12 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+from models import cross_entropy_loss
+
 from flax.training.train_state import TrainState
 import jax
 from jax import lax, numpy as jnp, random
 import optax
-
-from models import cross_entropy_loss
 
 
 def create_train_state(model, x, learning_rate_fn):
