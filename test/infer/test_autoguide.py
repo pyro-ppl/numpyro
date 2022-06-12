@@ -725,7 +725,7 @@ def test_autosemidais(N=32, P=4, sigma_obs=0.1, num_steps=90 * 1000):
     dais_elbo8 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model8, guide8))(random.split(random.PRNGKey(0), 5000)).mean().item()
 
     print("dais_elbo8:", dais_elbo8, "  dais_elbo16:", dais_elbo16, " (should be approximately equal)")
-    #assert_allclose(dais_elbo5, dais_elbo16, atol=0.05)
+    assert_allclose(dais_elbo8, dais_elbo16, atol=0.05)
 
     def create_plates():
         return numpyro.plate("N", N, subsample_size=16)
@@ -734,7 +734,7 @@ def test_autosemidais(N=32, P=4, sigma_obs=0.1, num_steps=90 * 1000):
     mf_svi_result = SVI(model16, mf_guide, get_optim(), Trace_ELBO()).run(random.PRNGKey(0), num_steps)
     mf_elbo = -Trace_ELBO(num_particles=5000).loss(random.PRNGKey(0), mf_svi_result.params, model16, mf_guide).item()
     print("dais_elbo:", dais_elbo8, dais_elbo16, "  mf_elbo:", mf_elbo, "  (mf should be worse)")
-    #assert dais_elbo5 > mf_elbo + 0.01
+    assert dais_elbo8 > mf_elbo + 0.01
 
     with handlers.substitute(data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8])}):
         samples_one = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)

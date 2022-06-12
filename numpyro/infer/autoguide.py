@@ -1127,9 +1127,8 @@ class AutoSemiDAIS(AutoGuide):
                 z_prev, v_prev, log_factor = carry
                 z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
                 q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
-                # Note: rescale log_density to be order 1.
                 # Q: is it true that local_log_density is scaled by (N / subsample_size) because of the plate?
-                p_grad = beta[:, None] * (subsample_size / N) * grad(local_log_density)(z_half)
+                p_grad = beta[:, None] * grad(local_log_density)(z_half)
                 assert q_grad.shape == p_grad.shape == (subsample_size, D)
                 v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
                 z = z_half + v_hat * eta[:, None] * inv_mass_matrix
