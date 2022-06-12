@@ -910,6 +910,7 @@ class AutoSemiDAIS(AutoGuide):
     :param float init_scale: Initial scale for the standard deviation of the base
         variational distribution for each (unconstrained transformed) latent variable. Defaults to 0.1.
     """
+
     def __init__(
         self,
         model,
@@ -949,13 +950,17 @@ class AutoSemiDAIS(AutoGuide):
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
         # extract global/local/local_dim/plates
-        subsample_plates = {name: site for name, site in self.prototype_trace.items()
-                            if site["type"] == "plate"
-                            and isinstance(site["args"][1], int)
-                            and site["args"][0] > site["args"][1]}
+        subsample_plates = {
+            name: site
+            for name, site in self.prototype_trace.items()
+            if site["type"] == "plate"
+            and isinstance(site["args"][1], int)
+            and site["args"][0] > site["args"][1]
+        }
         num_plates = len(subsample_plates)
-        assert num_plates == 1, \
-            f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
+        assert (
+            num_plates == 1
+        ), f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
         subsample_axes = {}
@@ -967,23 +972,33 @@ class AutoSemiDAIS(AutoGuide):
                         if plate_dim is None:
                             plate_dim = frame.dim
                         local_vars.append(name)
-                        #if name in self._init_locs:  # Q: is it ok i removed this in favor of is_observed?
+                        # if name in self._init_locs:  # Q: is it ok i removed this in favor of is_observed?
                         subsample_axes[name] = plate_dim - site["fn"].event_dim
                         break
-        assert len(local_vars) > 0, \
-            "There are no local variables in the `{plate_name}` plate. AutoSemiDAIS is appropriate for models with local variables."
+        if len(local_vars) == 0:
+            raise RuntimeError(
+                "There are no local variables in the `{plate_name}` plate."
+                " AutoSemiDAIS is appropriate for models with local variables."
+            )
 
-        local_init_locs = {name: value for name, value in self._init_locs.items()
-                           if name in local_vars}
+        local_init_locs = {
+            name: value for name, value in self._init_locs.items() if name in local_vars
+        }
 
-        one_sample = {k: jnp.take(v, 0, axis=subsample_axes[k]) for k, v in local_init_locs.items()}
+        one_sample = {
+            k: jnp.take(v, 0, axis=subsample_axes[k])
+            for k, v in local_init_locs.items()
+        }
         _, shape_dict = _ravel_dict(one_sample)
-        local_init_latent = jax.vmap(lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,))(local_init_locs)
+        local_init_latent = jax.vmap(
+            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,)
+        )(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_local_latent = jax.vmap(
-            UnpackTransform(unpack_latent), out_axes=subsample_axes)
+            UnpackTransform(unpack_latent), out_axes=subsample_axes
+        )
         plate_full_size, plate_subsample_size = subsample_plates[plate_name]["args"]
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
@@ -991,13 +1006,22 @@ class AutoSemiDAIS(AutoGuide):
         rng_key = numpyro.prng_key()
         with handlers.block(), handlers.seed(rng_seed=rng_key):
             global_output = self.base_guide.model(*args, **kwargs)
-            _, self._local_potential_fn_gen, self._local_postprecess_fn, _ = initialize_model(
+            (
+                _,
+                self._local_potential_fn_gen,
+                self._local_postprecess_fn,
+                _,
+            ) = initialize_model(
                 numpyro.prng_key(),
                 partial(_subsample_model, self.local_model),
                 init_strategy=self.init_loc_fn,
                 dynamic_args=True,
                 model_args=(global_output,),
-                model_kwargs={"_subsample_idx": {plate_name: subsample_plates[plate_name]["value"]}},
+                model_kwargs={
+                    "_subsample_idx": {
+                        plate_name: subsample_plates[plate_name]["value"]
+                    }
+                },
             )
 
     def __call__(self, *args, **kwargs):
@@ -1011,7 +1035,9 @@ class AutoSemiDAIS(AutoGuide):
         result = {}
         _, N, subsample_size = self._local_plate
 
-        for name, unconstrained_value in self._unpack_local_latent(local_latent_flat).items():
+        for name, unconstrained_value in self._unpack_local_latent(
+            local_latent_flat
+        ).items():
             site = self.prototype_trace[name]
             with helpful_support_errors(site):
                 transform = biject_to(site["fn"].support)
@@ -1040,20 +1066,23 @@ class AutoSemiDAIS(AutoGuide):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
-        sample_shape = kwargs.pop("sample_shape", ())
+        kwargs.pop("sample_shape", ())
 
         def make_local_log_density(*local_args, **local_kwargs):
             def fn(x):
                 x_unpack = self._unpack_local_latent(x)
                 with numpyro.handlers.block():
-                    return -self._local_potential_fn_gen(
-                            *local_args, **local_kwargs)(x_unpack)
+                    return -self._local_potential_fn_gen(*local_args, **local_kwargs)(
+                        x_unpack
+                    )
+
             return fn
 
         global_latents = self.base_guide(*args, **kwargs)
         rng_key = numpyro.prng_key()
-        with handlers.block(), handlers.seed(rng_seed=rng_key), \
-                handlers.substitute(data=global_latents):
+        with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
+            data=global_latents
+        ):
             global_output = self.base_guide.model(*args, **kwargs)
 
         plate_name, N, subsample_size = self._local_plate
@@ -1066,7 +1095,9 @@ class AutoSemiDAIS(AutoGuide):
                 constraint=constraints.interval(0, self.eta_max),
                 event_dim=0,
             )
-            eta_coeff = numpyro.param("{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0)
+            eta_coeff = numpyro.param(
+                "{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0
+            )
 
             gamma = numpyro.param(
                 "{}_gamma".format(self.prefix),
@@ -1092,7 +1123,9 @@ class AutoSemiDAIS(AutoGuide):
             inv_mass_matrix = 0.5 / mass_matrix
             assert inv_mass_matrix.shape == (subsample_size, D)
             z_0_loc_init = jnp.zeros((N, D))
-            z_0_loc = numpyro.param("{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1)
+            z_0_loc = numpyro.param(
+                "{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1
+            )
             z_0_scale_init = jnp.ones((N, D)) * self.init_scale
             z_0_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
@@ -1102,8 +1135,12 @@ class AutoSemiDAIS(AutoGuide):
             )
             base_z_dist = dist.Normal(z_0_loc, z_0_scale).to_event(1)
             assert base_z_dist.shape() == (subsample_size, D)
-            z_0 = numpyro.sample("{}_z_0".format(self.prefix), base_z_dist, infer={"is_auxiliary": True})
-            base_z_dist_log_prob = lambda x: base_z_dist.log_prob(x).sum()
+            z_0 = numpyro.sample(
+                "{}_z_0".format(self.prefix), base_z_dist, infer={"is_auxiliary": True}
+            )
+
+            def base_z_dist_log_prob(x):
+                return base_z_dist.log_prob(x).sum()
 
             momentum_dist = dist.Normal(0, mass_matrix).to_event(1)
             eps = numpyro.sample(
@@ -1115,8 +1152,9 @@ class AutoSemiDAIS(AutoGuide):
                 infer={"is_auxiliary": True},
             )
 
-            local_log_density = make_local_log_density(global_output,
-                _subsample_idx={plate_name: idx})
+            local_log_density = make_local_log_density(
+                global_output, _subsample_idx={plate_name: idx}
+            )
 
             def scan_body(carry, eps_beta):
                 eps, beta = eps_beta
@@ -1133,13 +1171,16 @@ class AutoSemiDAIS(AutoGuide):
                 v_hat = v_prev + eta[:, None] * (q_grad + p_grad)
                 z = z_half + v_hat * eta[:, None] * inv_mass_matrix
                 v = gamma[:, None] * v_hat + jnp.sqrt(1 - gamma[:, None] ** 2) * eps
-                delta_ke = momentum_dist.log_prob(v_prev) - \
-                    momentum_dist.log_prob(v_hat)
+                delta_ke = momentum_dist.log_prob(v_prev) - momentum_dist.log_prob(
+                    v_hat
+                )
                 assert delta_ke.shape == (subsample_size,)
                 log_factor = log_factor + delta_ke
                 return (z, v, log_factor), None
 
-            v_0 = eps[:, :, -1]  # note the return value of scan doesn't depend on eps[:, :, -1]
+            v_0 = eps[
+                :, :, -1
+            ]  # note the return value of scan doesn't depend on eps[:, :, -1]
             assert eps.shape == (subsample_size, D, K)
             assert betas.shape == (subsample_size, K)
 
@@ -1159,7 +1200,9 @@ class AutoSemiDAIS(AutoGuide):
                 handlers.seed(self._sample_latent, _rng_key), params
             )(*args, **kwargs)
             results = global_latents.copy()
-            for name, unconstrained_value in self._unpack_local_latent(local_flat).items():
+            for name, unconstrained_value in self._unpack_local_latent(
+                local_flat
+            ).items():
                 site = self.prototype_trace[name]
                 transform = biject_to(site["fn"].support)
                 value = transform(unconstrained_value)

@@ -19,6 +19,8 @@ else:
     from jax.experimental.stax import Dense
 
 import jax.numpy as jnp
+import optax
+from optax import piecewise_constant_schedule
 
 import numpyro
 from numpyro import handlers, optim
@@ -31,7 +33,6 @@ from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoDAIS,
-    AutoSemiDAIS,
     AutoDelta,
     AutoDiagonalNormal,
     AutoIAFNormal,
@@ -39,6 +40,7 @@ from numpyro.infer.autoguide import (
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
     AutoNormal,
+    AutoSemiDAIS,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -51,9 +53,6 @@ from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import Predictive
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.util import fori_loop
-
-import optax
-from optax import piecewise_constant_schedule
 
 init_strategy = init_to_median(num_samples=2)
 
@@ -678,11 +677,11 @@ def test_init_to_scalar_value():
 
 
 def get_optim():
-    scheduler = piecewise_constant_schedule(1.0e-3, {30 * 1000: 1.0e-4, 60 * 1000: 1.0e-5})
+    scheduler = piecewise_constant_schedule(
+        1.0e-3, {30 * 1000: 1.0e-4, 60 * 1000: 1.0e-5}
+    )
     optimizer = optax.chain(
-        optax.scale_by_adam(),
-        optax.scale_by_schedule(scheduler),
-        optax.scale(-1.0)
+        optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
     )
 
     return optimizer
@@ -700,40 +699,89 @@ def test_autosemidais(N=32, P=4, sigma_obs=0.1, num_steps=90 * 1000):
             X_batch = numpyro.subsample(X, event_dim=1)
             Y_batch = numpyro.subsample(Y, event_dim=0)
             tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
-            numpyro.sample("obs", dist.Normal(X_batch @ theta, sigma_obs / jnp.sqrt(tau)),
-                           obs=Y_batch)
+            numpyro.sample(
+                "obs",
+                dist.Normal(X_batch @ theta, sigma_obs / jnp.sqrt(tau)),
+                obs=Y_batch,
+            )
 
-    model8 = lambda: local_model(8, global_model())
-    model16 = lambda: local_model(16, global_model())
+    def model8():
+        return local_model(8, global_model())
+
+    def model16():
+        return local_model(16, global_model())
 
     base_guide = AutoNormal(global_model)
-    guide16 = AutoSemiDAIS(model16, partial(local_model, 16), base_guide, K=4, eta_max=0.25, eta_init=0.005)
-    svi_result16 = SVI(model16, guide16, get_optim(), Trace_ELBO()).run(random.PRNGKey(0), num_steps)
+    guide16 = AutoSemiDAIS(
+        model16, partial(local_model, 16), base_guide, K=4, eta_max=0.25, eta_init=0.005
+    )
+    svi_result16 = SVI(model16, guide16, get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(0), num_steps
+    )
     samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples16["theta"].shape == (P,) and samples16["tau"].shape == (16,)
-    dais_elbo16 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model16, guide16))(random.split(random.PRNGKey(0), 5000)).mean().item()
+    dais_elbo16 = (
+        jax.vmap(
+            lambda k: -Trace_ELBO().loss(k, svi_result16.params, model16, guide16)
+        )(random.split(random.PRNGKey(0), 5000))
+        .mean()
+        .item()
+    )
 
-    print("svi_result16.params[auto_eta_coeff].mean()", svi_result16.params['auto_eta_coeff'].mean(), " (should be positive)")
-    print("svi_result16.params[auto_eta].mean()", svi_result16.params['auto_eta0'].mean())
+    print(
+        "svi_result16.params[auto_eta_coeff].mean()",
+        svi_result16.params["auto_eta_coeff"].mean(),
+        " (should be positive)",
+    )
+    print(
+        "svi_result16.params[auto_eta].mean()", svi_result16.params["auto_eta0"].mean()
+    )
 
-    guide8 = AutoSemiDAIS(model8, partial(local_model, 8), base_guide, K=4, eta_max=0.25, eta_init=0.005)
+    guide8 = AutoSemiDAIS(
+        model8, partial(local_model, 8), base_guide, K=4, eta_max=0.25, eta_init=0.005
+    )
     with handlers.seed(rng_seed=0):
         guide8()  # initialize guide since we are not training this guide
         # instead we reuse svi_result16 parameters
     samples8 = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples8["theta"].shape == (P,) and samples8["tau"].shape == (8,)
-    dais_elbo8 = jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model8, guide8))(random.split(random.PRNGKey(0), 5000)).mean().item()
+    dais_elbo8 = (
+        jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model8, guide8))(
+            random.split(random.PRNGKey(0), 5000)
+        )
+        .mean()
+        .item()
+    )
 
-    print("dais_elbo8:", dais_elbo8, "  dais_elbo16:", dais_elbo16, " (should be approximately equal)")
+    print(
+        "dais_elbo8:",
+        dais_elbo8,
+        "  dais_elbo16:",
+        dais_elbo16,
+        " (should be approximately equal)",
+    )
     assert_allclose(dais_elbo8, dais_elbo16, atol=0.05)
 
     def create_plates():
         return numpyro.plate("N", N, subsample_size=16)
 
     mf_guide = AutoNormal(model16, create_plates=create_plates)
-    mf_svi_result = SVI(model16, mf_guide, get_optim(), Trace_ELBO()).run(random.PRNGKey(0), num_steps)
-    mf_elbo = -Trace_ELBO(num_particles=5000).loss(random.PRNGKey(0), mf_svi_result.params, model16, mf_guide).item()
-    print("dais_elbo:", dais_elbo8, dais_elbo16, "  mf_elbo:", mf_elbo, "  (mf should be worse)")
+    mf_svi_result = SVI(model16, mf_guide, get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(0), num_steps
+    )
+    mf_elbo = (
+        -Trace_ELBO(num_particles=5000)
+        .loss(random.PRNGKey(0), mf_svi_result.params, model16, mf_guide)
+        .item()
+    )
+    print(
+        "dais_elbo:",
+        dais_elbo8,
+        dais_elbo16,
+        "  mf_elbo:",
+        mf_elbo,
+        "  (mf should be worse)",
+    )
     assert dais_elbo8 > mf_elbo + 0.01
 
     with handlers.substitute(data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8])}):
@@ -758,30 +806,48 @@ def test_autosemidais_admissible_smoke():
         with numpyro.plate("inner", 10, subsample_size=5, dim=-1):
             with numpyro.plate("outer", 20, dim=-2):
                 sigma1 = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
-                sigma2 = numpyro.sample("log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1))
+                sigma2 = numpyro.sample(
+                    "log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1)
+                )
                 sigma2 = jnp.exp(sigma2.mean(-1))
                 assert sigma1.shape == (20, 5) and sigma2.shape == (20, 5)
-                numpyro.sample("obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones((20, 5)))
+                numpyro.sample(
+                    "obs",
+                    dist.Normal(theta, tau * sigma1 * sigma2),
+                    obs=jnp.ones((20, 5)),
+                )
 
-    model = lambda: local_model1(global_model())
+    def model():
+        return local_model1(global_model())
+
     base_guide = AutoNormal(global_model)
     guide = AutoSemiDAIS(model, local_model1, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert samples["theta"].shape == () and samples["tau"].shape == (2,)
-    assert samples["sigma"].shape == (20, 5) and samples["log_sigma"].shape == (20, 5, 2)
+    assert samples["sigma"].shape == (20, 5) and samples["log_sigma"].shape == (
+        20,
+        5,
+        2,
+    )
 
     def local_model2(global_latents):
         tau = global_latents["tau"]
         theta = global_latents["theta"]
         with numpyro.plate("inner", 10, subsample_size=5, dim=-1):
             sigma1 = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
-            sigma2 = numpyro.sample("log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1))
+            sigma2 = numpyro.sample(
+                "log_sigma", dist.Normal(jnp.zeros(2), 1.0).to_event(1)
+            )
             sigma2 = jnp.exp(sigma2.mean(-1))
-            numpyro.sample("obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones(5))
+            numpyro.sample(
+                "obs", dist.Normal(theta, tau * sigma1 * sigma2), obs=jnp.ones(5)
+            )
 
-    model = lambda: local_model2(global_model())
+    def model():
+        return local_model2(global_model())
+
     base_guide = AutoNormal(global_model)
     guide = AutoSemiDAIS(model, local_model2, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
@@ -805,7 +871,9 @@ def test_autosemidais_inadmissible_smoke():
         with numpyro.plate("a", 10, 5):
             numpyro.sample("y", dist.Normal(0, 1), obs=jnp.ones(5))
 
-    model = lambda: local_model1(global_model())
+    def model():
+        return local_model1(global_model())
+
     base_guide = AutoNormal(global_model)
     guide = AutoSemiDAIS(model, local_model1, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
@@ -813,8 +881,10 @@ def test_autosemidais_inadmissible_smoke():
     with pytest.raises(AssertionError, match="contains exactly 1 plate"):
         svi.run(random.PRNGKey(0), 10)
 
-    model = lambda: local_model2(global_model())
-    guide = AutoSemiDAIS(model, local_model2, base_guide)
-    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    with pytest.raises(AssertionError, match="are no local variables"):
+    def model2():
+        return local_model2(global_model())
+
+    guide = AutoSemiDAIS(model2, local_model2, base_guide)
+    svi = SVI(model2, guide, optim.Adam(0.01), Trace_ELBO())
+    with pytest.raises(RuntimeError, match="are no local variables"):
         svi.run(random.PRNGKey(0), 10)
