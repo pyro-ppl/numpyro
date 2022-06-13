@@ -54,11 +54,8 @@ def main(args):
     x_test, y_test = test_fetch(0, test_idx)
 
     baseline = BaselineNet()
-    _ = baseline.init(random.PRNGKey(0), x_test)
     recognition_net = Encoder()
-    _ = recognition_net.init(random.PRNGKey(0), x_test, y_test)
     generation_net = Decoder()
-    _ = generation_net.init(random.PRNGKey(0), jnp.ones((1, 256), dtype=jnp.float32))
 
     y_hat_base = baseline.apply({"params": cvae_params["baseline$params"]}, x_test)
     z_loc, z_scale = recognition_net.apply(
