@@ -9,9 +9,6 @@ from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model
 from train_baseline import train_baseline
 from train_cvae import train_cvae
 
-from jax import random
-import jax.numpy as jnp
-
 from numpyro.examples.datasets import MNIST
 
 

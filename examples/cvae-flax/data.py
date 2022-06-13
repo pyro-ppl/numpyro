@@ -23,7 +23,7 @@ def load_dataset(
     X = Y.copy()
     _, m, n = X.shape
 
-    X = X[:, (m // 2):, : (n // 2)]
+    X = X[:, (m // 2) :, : (n // 2)]
     arrays = (X, Y)
 
     def init():
