@@ -676,18 +676,7 @@ def test_init_to_scalar_value():
     svi.init(random.PRNGKey(0))
 
 
-def get_optim():
-    scheduler = piecewise_constant_schedule(
-        1.0e-3, {30 * 1000: 1.0e-4, 60 * 1000: 1.0e-5}
-    )
-    optimizer = optax.chain(
-        optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
-    )
-
-    return optimizer
-
-
-def test_autosemidais(N=64, P=4, sigma_obs=0.1, num_steps=90 * 1000):
+def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
 
@@ -705,17 +694,25 @@ def test_autosemidais(N=64, P=4, sigma_obs=0.1, num_steps=90 * 1000):
                 obs=Y_batch,
             )
 
-    def model8():
-        return local_model(8, global_model())
+    def model12():
+        return local_model(12, global_model())
 
     def model16():
         return local_model(16, global_model())
+
+    def _get_optim():
+        scheduler = piecewise_constant_schedule(
+            1.0e-3, {15 * 1000: 1.0e-4, 30 * 1000: 1.0e-5}
+        )
+        return optax.chain(
+            optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
+        )
 
     base_guide = AutoNormal(global_model)
     guide16 = AutoSemiDAIS(
         model16, partial(local_model, 16), base_guide, K=4, eta_max=0.25, eta_init=0.005
     )
-    svi_result16 = SVI(model16, guide16, get_optim(), Trace_ELBO()).run(
+    svi_result16 = SVI(model16, guide16, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
     )
 
@@ -724,72 +721,54 @@ def test_autosemidais(N=64, P=4, sigma_obs=0.1, num_steps=90 * 1000):
     dais_elbo16 = (
         jax.vmap(
             lambda k: -Trace_ELBO().loss(k, svi_result16.params, model16, guide16)
-        )(random.split(random.PRNGKey(0), 5000))
+        )(random.split(random.PRNGKey(0), num_samples))
         .mean()
         .item()
     )
 
-    print(
-        "svi_result16.params[auto_eta_coeff].mean()",
-        svi_result16.params["auto_eta_coeff"].mean(),
-        " (should be positive)",
-    )
-    print(
-        "svi_result16.params[auto_eta].mean()", svi_result16.params["auto_eta0"].mean()
-    )
+    assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
 
-    guide8 = AutoSemiDAIS(
-        model8, partial(local_model, 8), base_guide, K=4, eta_max=0.25, eta_init=0.005
+    guide12 = AutoSemiDAIS(
+        model12, partial(local_model, 12), base_guide, K=4, eta_max=0.25, eta_init=0.005
     )
     with handlers.seed(rng_seed=0):
-        guide8()  # initialize guide since we are not training this guide
+        guide12()  # initialize guide since we are not training this guide
         # instead we reuse svi_result16 parameters
-    samples8 = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
-    assert samples8["theta"].shape == (P,) and samples8["tau"].shape == (8,)
-    dais_elbo8 = (
-        jax.vmap(lambda k: -Trace_ELBO().loss(k, svi_result16.params, model8, guide8))(
-            random.split(random.PRNGKey(0), 5000)
-        )
+    samples12 = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    assert samples12["theta"].shape == (P,) and samples12["tau"].shape == (12,)
+    dais_elbo12 = (
+        jax.vmap(
+            lambda k: -Trace_ELBO().loss(k, svi_result16.params, model12, guide12)
+        )(random.split(random.PRNGKey(0), num_samples))
         .mean()
         .item()
     )
 
-    print(
-        "dais_elbo8:",
-        dais_elbo8,
-        "  dais_elbo16:",
-        dais_elbo16,
-        " (should be approximately equal)",
-    )
-    assert_allclose(dais_elbo8, dais_elbo16, atol=0.05)
+    assert_allclose(dais_elbo12, dais_elbo16, atol=0.05)
 
     def create_plates():
         return numpyro.plate("N", N, subsample_size=16)
 
     mf_guide = AutoNormal(model16, create_plates=create_plates)
-    mf_svi_result = SVI(model16, mf_guide, get_optim(), Trace_ELBO()).run(
+    mf_svi_result = SVI(model16, mf_guide, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
     )
     mf_elbo = (
-        -Trace_ELBO(num_particles=5000)
+        -Trace_ELBO(num_particles=num_samples)
         .loss(random.PRNGKey(0), mf_svi_result.params, model16, mf_guide)
         .item()
     )
-    print(
-        "dais_elbo:",
-        dais_elbo8,
-        dais_elbo16,
-        "  mf_elbo:",
-        mf_elbo,
-        "  (mf should be worse)",
-    )
-    # assert dais_elbo8 > mf_elbo + 0.01
+    assert dais_elbo16 > mf_elbo + 0.1
 
-    with handlers.substitute(data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8])}):
-        samples_one = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    with handlers.substitute(
+        data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}
+    ):
+        samples_one = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
 
-    with handlers.substitute(data={"N": jnp.array([0, 2, 9, 10, 11, 12, 13, 14])}):
-        samples_two = guide8.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    with handlers.substitute(
+        data={"N": jnp.array([0, 2, 9, 10, 11, 12, 13, 14, 3, 4, 5, 6])}
+    ):
+        samples_two = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert_allclose(samples_one["theta"], samples_two["theta"])
     assert_allclose(samples_one["tau"][:2], samples_two["tau"][:2])
     assert jnp.min(jnp.abs(samples_one["tau"][2:] - samples_two["tau"][2:])) > 1e-5
