@@ -806,11 +806,8 @@ def test_autosemidais_admissible_smoke():
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
     assert samples["theta"].shape == () and samples["tau"].shape == (2,)
-    assert samples["sigma"].shape == (20, 5) and samples["log_sigma"].shape == (
-        20,
-        5,
-        2,
-    )
+    assert samples["sigma"].shape == (20, 5)
+    assert samples["log_sigma"].shape == (20, 5, 2)
 
     def local_model2(global_latents):
         tau = global_latents["tau"]

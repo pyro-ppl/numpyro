@@ -893,11 +893,25 @@ class AutoSemiDAIS(AutoGuide):
 
     Usage::
 
-        base_guide = AutoNormal(model)
-        guide = AutoDAIS(model, base_guide)
+        def global_model():
+            return numpyro.sample("theta", dist.Normal(0, 1))
+
+        def local_model(theta):
+            with numpyro.plate("data", 8, subsample_size=2):
+                tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
+                numpyro.sample("obs", dist.Normal(0.0, tau), obs=jnp.ones(2))
+
+        model = lambda: local_model(global_model())
+        base_guide = AutoNormal(global_model)
+        guide = AutoSemiDAIS(model, local_model, base_guide, K=4)
         svi = SVI(model, guide, ...)
 
     :param callable model: A NumPyro model.
+    :param callable local_model: The portion of `model` that includes the local latent variables only.
+        The signature of `local_model` should be the return type of the global model with global latent
+        variables only.
+    :param callable base_guide: A guide for the global latent variables, e.g. an autoguide.
+        The return type should be a dictionary of latent sample sites and corresponding samples.
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 4.
@@ -907,8 +921,8 @@ class AutoSemiDAIS(AutoGuide):
         Defaults to 0.1.
     :param float gamma_init: The initial value of the learnable damping factor used
         during partial momentum refreshments in HMC. Defaults to 0.9.
-    :param float init_scale: Initial scale for the standard deviation of the base
-        variational distribution for each (unconstrained transformed) latent variable. Defaults to 0.1.
+    :param float init_scale: Initial scale for the standard deviation of the variational
+        distribution for each (unconstrained transformed) local latent variable. Defaults to 0.1.
     """
 
     def __init__(
@@ -917,11 +931,11 @@ class AutoSemiDAIS(AutoGuide):
         local_model,
         base_guide,
         *,
+        prefix="auto",
         K=4,
         eta_init=0.01,
         eta_max=0.1,
         gamma_init=0.9,
-        prefix="auto",
         init_scale=0.1,
     ):
         # TODO does the value of init_loc_fn used here matter at all?
