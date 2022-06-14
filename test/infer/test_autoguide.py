@@ -761,7 +761,7 @@ def test_autosemidais(N=64, P=4, sigma_obs=0.1, num_steps=90 * 1000):
         dais_elbo16,
         " (should be approximately equal)",
     )
-    # assert_allclose(dais_elbo8, dais_elbo16, atol=0.05)
+    assert_allclose(dais_elbo8, dais_elbo16, atol=0.05)
 
     def create_plates():
         return numpyro.plate("N", N, subsample_size=16)
