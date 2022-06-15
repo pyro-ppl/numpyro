@@ -906,13 +906,17 @@ class AutoSemiDAIS(AutoGuide):
         guide = AutoSemiDAIS(model, local_model, base_guide, K=4)
         svi = SVI(model, guide, ...)
 
-    :param callable model: A NumPyro model.
+        # sample posterior for particular data subset {3, 7}
+        with handlers.substitute(data={"data": jnp.array([3, 7])}):
+            samples = guide.sample_posterior(random.PRNGKey(1), params)
+
+    :param callable model: A NumPyro model with global and local latent variables.
     :param callable local_model: The portion of `model` that includes the local latent variables only.
         The signature of `local_model` should be the return type of the global model with global latent
         variables only.
     :param callable base_guide: A guide for the global latent variables, e.g. an autoguide.
-        The return type should be a dictionary of latent sample sites and corresponding samples.
-    :param str prefix: A prefix that will be prefixed to all param internal sites.
+        The return type should be a dictionary of latent sample sites names and corresponding samples.
+    :param str prefix: A prefix that will be prefixed to all internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 4.
     :param float eta_init: The initial value of the step size used in HMC. Defaults
@@ -1063,7 +1067,6 @@ class AutoSemiDAIS(AutoGuide):
                 log_density = -transform.log_abs_det_jacobian(
                     unconstrained_value, value
                 )
-                # Q: is (N / subsample_size) correct?
                 log_density = (N / subsample_size) * sum_rightmost(
                     log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
                 )
@@ -1178,7 +1181,6 @@ class AutoSemiDAIS(AutoGuide):
                 z_prev, v_prev, log_factor = carry
                 z_half = z_prev + v_prev * eta[:, None] * inv_mass_matrix
                 q_grad = (1.0 - beta[:, None]) * grad(base_z_dist_log_prob)(z_half)
-                # Q: is it true that local_log_density is scaled by (N / subsample_size) because of the plate?
                 p_grad = (
                     beta[:, None]
                     * (subsample_size / N)
@@ -1207,7 +1209,6 @@ class AutoSemiDAIS(AutoGuide):
             )
             assert log_factor.shape == (subsample_size,)
 
-            # Q: will this be scaled by (N / subsamplesize) because it's in the plate?
             numpyro.factor("{}_local_dais_factor".format(self.prefix), log_factor)
             return global_latents, z
 
