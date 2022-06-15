@@ -14,6 +14,9 @@ import datetime
 from functools import partial
 from time import time
 
+from matplotlib.collections import LineCollection
+import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.model_selection import train_test_split
 
 from jax import random
@@ -148,24 +151,49 @@ def main(args):
         model,
         guide=stein.guide,
         params=stein.get_params(result.state),
-        num_samples=1,
+        num_samples=200,
         batch_ndims=1,  # stein particle dimension
     )
     xte, _, _ = normalize(
         data.xte, xtr_mean, xtr_std
     )  # use train data statistics when accessing generalization
-    preds = pred(pred_key, xte, subsample_size=xte.shape[0])["y"].reshape(
-        -1, xte.shape[0]
-    )
+    preds = pred(
+        pred_key, xte, subsample_size=xte.shape[0], hidden_dim=args.hidden_dim
+    )["y"]
 
-    y_pred = jnp.mean(preds, 0) * ytr_std + ytr_mean
-    rmse = jnp.sqrt(jnp.mean((y_pred - data.yte) ** 2))
+    y_pred = jnp.mean(preds, 1) * ytr_std + ytr_mean
+    rmse = jnp.sqrt(jnp.mean((y_pred.mean(0) - data.yte) ** 2))
 
     print(rf"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
     print(rf"RMSE: {rmse:.2f}")
 
+    # compute mean prediction and confidence interval around median
+    mean_prediction = jnp.mean(y_pred, 0)
+
+    ran = np.arange(mean_prediction.shape[0])
+    percentiles = np.percentile(
+        preds.reshape(-1, xte.shape[0]) * ytr_std + ytr_mean, [5.0, 95.0], axis=0
+    )
+
+    # make plots
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
+    ax.add_collection(
+        LineCollection(
+            zip(zip(ran, percentiles[0]), zip(ran, percentiles[1])), colors="lightblue"
+        )
+    )
+    ax.plot(data.yte, "kx", label="y true")
+    ax.plot(mean_prediction, "ko", label="y pred")
+    ax.set(xlabel="example", ylabel="y", title="Mean predictions with 90% CI")
+    ax.legend()
+    fig.savefig("stein_bnn.pdf")
+
 
 if __name__ == "__main__":
+    from jax.config import config
+
+    config.update("jax_debug_nans", True)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
     parser.add_argument("--max-iter", type=int, default=1000)
@@ -175,7 +203,7 @@ if __name__ == "__main__":
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
-    parser.add_argument("--hidden-dim", default=50, type=int)
+    parser.add_argument("--hidden-dim", default=100, type=int)
 
     args = parser.parse_args()
 

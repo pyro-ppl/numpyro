@@ -7,11 +7,12 @@ from typing import Callable, Dict, List, Tuple
 import numpy as np
 
 from jax import random
+from jax.lax import stop_gradient
 import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-from numpyro.contrib.einstein.util import safe_norm, sqrth_and_inv_sqrth
+from numpyro.contrib.einstein.util import median_bandwidth, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
 
 
@@ -103,24 +104,11 @@ class RBFKernel(SteinKernel):
         )
 
     def compute(self, particles, particle_info, loss_fn):
-
-        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)
-
-        if self._normed() and particles.ndim == 2:
-            diffs = safe_norm(diffs, ord=2, axis=-1)  # N x D -> N
-        diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N (x D)
-        factor = self.bandwidth_factor(particles.shape[0])
-
-        if diffs.ndim == 2:
-            diff_norms = safe_norm(diffs, ord=2, axis=-1)
-        else:
-            diff_norms = diffs
-
-        bandwidth = jnp.median(diff_norms) ** 2 * factor + 1e-5
+        bandwidth = median_bandwidth(particles, self.bandwidth_factor)
 
         def kernel(x, y):
-            diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
-            kernel_res = jnp.exp(-(diff**2) / bandwidth)
+            reduce = jnp.sum if self._normed() else lambda x: x
+            kernel_res = jnp.exp(-reduce(x - y**2) / stop_gradient(bandwidth))
             if self._mode == "matrix":
                 if self.matrix_mode == "norm_diag":
                     return kernel_res * jnp.identity(x.shape[0])
@@ -164,10 +152,13 @@ class IMQKernel(SteinKernel):
     def mode(self):
         return self._mode
 
+    def _normed(self):
+        return self._mode == "norm"
+
     def compute(self, particles, particle_info, loss_fn):
         def kernel(x, y):
-            diff = safe_norm(x - y, ord=2, axis=-1) if self._mode == "norm" else x - y
-            return (self.const**2 + diff**2) ** self.expon
+            reduce = jnp.sum if self._normed() else lambda x: x
+            return (self.const**2 + reduce((x - y) ** 2)) ** self.expon
 
         return kernel
 
@@ -260,21 +251,10 @@ class RandomFeatureKernel(SteinKernel):
                 "Shapes of `particles` and the random weights are mismatched, got {}"
                 " and {}.".format(particles.shape, self._random_weights.shape)
             )
-        factor = self.bandwidth_factor(particles.shape[0])
         if self.bandwidth_subset is not None:
             particles = particles[self._bandwidth_subset_indices]
-        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(
-            particles, axis=1
-        )  # N x N x D
-        if particles.ndim == 2:
-            diffs = safe_norm(diffs, ord=2, axis=-1)  # N x N x D -> N x N
-        diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N x 1
-        if diffs.ndim == 2:
-            diff_norms = safe_norm(diffs, ord=2, axis=-1)
-        else:
-            diff_norms = diffs
-        median = jnp.argsort(diff_norms)[int(diffs.shape[0] / 2)]
-        bandwidth = jnp.abs(diffs)[median] ** 2 * factor + 1e-5
+
+        bandwidth = median_bandwidth(particles, self.bandwidth_factor)
 
         def feature(x, w, b):
             return jnp.sqrt(2) * jnp.cos((x @ w + b) / bandwidth)
