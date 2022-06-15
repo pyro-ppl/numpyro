@@ -872,13 +872,13 @@ def _subsample_model(model, *args, **kwargs):
 
 
 class AutoSemiDAIS(AutoGuide):
-    """
+    r"""
     This implementation of :class:`AutoSemiDAIS` [1] combines a parametric
     variational distribution over global latent variables with Differentiable
     Annealed Importance Sampling (DAIS) [2, 3] to infer local latent variables.
     Unlike :class:`AutoDAIS` this guide can be used in conjunction with data subsampling.
     Note that the resulting ELBO can be understood as a particular realization of a
-    `locally enhanced bound' as described in reference [4].
+    'locally enhanced bound' as described in reference [4].
 
     **References:**
 
