@@ -102,7 +102,7 @@ AutoDAIS
     :member-order: bysource
 
 AutoSemiDAIS
---------
+------------
 .. autoclass:: numpyro.infer.autoguide.AutoSemiDAIS
     :members:
     :undoc-members:
