@@ -2,13 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from copy import copy
 import string
 
 import numpy as np
 from numpy.ma.testutils import assert_array_approx_equal
 import numpy.random as nrandom
-from numpy.testing import assert_allclose
 import pytest
 
 from jax import random
@@ -21,7 +19,6 @@ from numpyro.contrib.einstein.kernels import (
     MixtureKernel,
     PrecondMatrixKernel,
 )
-from numpyro.contrib.einstein.util import posdef, sqrth, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
 from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
@@ -42,7 +39,6 @@ from numpyro.infer.initialization import (
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.optim import Adam
-from test.contrib.einstein.test_einstein_kernels import PARTICLES, TEST_CASES, TEST_IDS
 
 KERNELS = [
     kernels.RBFKernel(),
@@ -54,9 +50,6 @@ KERNELS = [
 
 np.set_printoptions(precision=100)
 TKERNEL = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
-PARTICLES_2D = np.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
-
-TPARTICLES_2D = (np.array([1.0, 2.0]), np.array([10.0, 5.0]))  # transformed particles
 
 
 class WrappedGraphicalKernel(GraphicalKernel):
@@ -270,29 +263,6 @@ def test_svgd_loss_and_grads():
     assert expected_loss == stein_loss
 
 
-@pytest.mark.parametrize(
-    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
-)
-@pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
-@pytest.mark.parametrize("particles, tparticles", PARTICLES)
-def test_apply_kernel(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
-):
-    if mode not in kval:
-        pytest.skip()
-    (d,) = tparticles[0].shape
-    kernel_fn = kernel(mode=mode)
-    kernel_fn.init(random.PRNGKey(0), particles.shape)
-    kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
-    v = np.ones_like(kval[mode])
-    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
-    value = stein._apply_kernel(kernel_fn, *tparticles, v)
-    kval_ = copy(kval)
-    if mode == "matrix":
-        kval_[mode] = np.dot(kval_[mode], v)
-    assert_allclose(value, kval_[mode], atol=1e-9)
-
-
 @pytest.mark.parametrize("length", [1, 2, 3, 6])
 @pytest.mark.parametrize("depth", [1, 3, 5])
 @pytest.mark.parametrize("t", [list, tuple])  # add dict, set
@@ -354,55 +324,3 @@ def test_calc_particle_info_nested():
         for v in val.values():
             assert v == (start, start + tot_size)
             start += tot_size
-
-
-########################################
-# Stein Kernels
-########################################
-
-
-@pytest.mark.parametrize(
-    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
-)
-@pytest.mark.parametrize("particles, tparticles", PARTICLES)
-@pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
-def test_kernel_forward(
-    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
-):
-    if mode not in kval:
-        return
-    (d,) = tparticles[0].shape
-    kernel_fn = kernel(mode=mode)
-    kernel_fn.init(random.PRNGKey(0), particles.shape)
-    kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
-    value = kernel_fn(*tparticles)
-
-    assert_allclose(value, kval[mode], atol=1e-9)
-
-
-@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
-def test_posdef(batch_shape):
-    dim = 4
-    x = np.random.normal(size=batch_shape + (dim, dim + 1))
-    m = x @ np.swapaxes(x, -2, -1)
-    assert_allclose(posdef(m), m, rtol=1e-5)
-
-
-@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
-def test_sqrth(batch_shape):
-    dim = 4
-    x = np.random.normal(size=batch_shape + (dim, dim + 1))
-    m = x @ np.swapaxes(x, -2, -1)
-    s = sqrth(m)
-    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
-
-
-@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
-def test_sqrth_and_inv_sqrth(batch_shape):
-    dim = 4
-    x = np.random.normal(size=batch_shape + (dim, dim + 1))
-    m = x @ np.swapaxes(x, -2, -1)
-    s, i, si = sqrth_and_inv_sqrth(m)
-    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
-    assert_allclose(i, np.linalg.inv(m), rtol=1e-5)
-    assert_allclose(si @ np.swapaxes(si, -2, -1), i, rtol=1e-5)
