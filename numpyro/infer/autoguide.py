@@ -1228,7 +1228,12 @@ class AutoSemiDAIS(AutoGuide):
             return results
 
         if sample_shape:
-            raise ValueError("Currently, only support to draw 1 sample posterior")
+            rng_key = random.split(rng_key, int(np.prod(sample_shape)))
+            samples = lax.map(_single_sample, rng_key)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                samples,
+            )
         else:
             return _single_sample(rng_key)
 

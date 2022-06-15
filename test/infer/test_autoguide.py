@@ -716,34 +716,28 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         random.PRNGKey(0), num_steps
     )
 
+    assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
+
     samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples16["theta"].shape == (P,) and samples16["tau"].shape == (16,)
-    dais_elbo16 = (
-        jax.vmap(
-            lambda k: -Trace_ELBO().loss(k, svi_result16.params, model16, guide16)
-        )(random.split(random.PRNGKey(0), num_samples))
-        .mean()
-        .item()
-    )
 
-    assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
+    dais_elbo16 = Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(0), svi_result16.params, model16, guide16
+    )
+    dais_elbo16 = -dais_elbo16.item()
 
     guide12 = AutoSemiDAIS(
         model12, partial(local_model, 12), base_guide, K=4, eta_max=0.25, eta_init=0.005
     )
     with handlers.seed(rng_seed=0):
         guide12()  # initialize guide since we are not training this guide
-        # instead we reuse svi_result16 parameters
     samples12 = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples12["theta"].shape == (P,) and samples12["tau"].shape == (12,)
-    dais_elbo12 = (
-        jax.vmap(
-            lambda k: -Trace_ELBO().loss(k, svi_result16.params, model12, guide12)
-        )(random.split(random.PRNGKey(0), num_samples))
-        .mean()
-        .item()
-    )
 
+    dais_elbo12 = Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(0), svi_result16.params, model12, guide12
+    )
+    dais_elbo12 = -dais_elbo12.item()
     assert_allclose(dais_elbo12, dais_elbo16, atol=0.05)
 
     def create_plates():
@@ -753,11 +747,11 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     mf_svi_result = SVI(model16, mf_guide, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
     )
-    mf_elbo = (
-        -Trace_ELBO(num_particles=num_samples)
-        .loss(random.PRNGKey(0), mf_svi_result.params, model16, mf_guide)
-        .item()
+
+    mf_elbo = Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(0), mf_svi_result.params, model16, mf_guide
     )
+    mf_elbo = -mf_elbo.item()
     assert dais_elbo16 > mf_elbo + 0.1
 
     with handlers.substitute(
