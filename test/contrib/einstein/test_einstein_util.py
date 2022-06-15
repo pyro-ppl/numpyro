@@ -14,7 +14,6 @@ from jax.tree_util import tree_flatten, tree_map
 from numpyro.contrib.einstein.util import (
     batch_ravel_pytree,
     posdef,
-    safe_norm,
     sqrth,
     sqrth_and_inv_sqrth,
 )
@@ -58,21 +57,6 @@ def test_sqrt_inv_sqrth(m):
     assert_allclose(msqrt, scipy.linalg.sqrtm(m), atol=1e-5)
     assert_allclose(minv, np.linalg.inv(m), atol=1e-4)
     assert_allclose(minv_sqrt, np.linalg.inv(scipy.linalg.sqrtm(m)), atol=1e-5)
-
-
-@pytest.mark.parametrize("axis", [None, 0, 1])
-@pytest.mark.parametrize("ord", [None, 1, 2])
-def test_safe_norm(axis, ord):
-    m = np.array([[1.0e-5, 2e-5, 3e-5], [-1e-5, 1e-5, 0]])
-    assert_allclose(
-        safe_norm(m, axis=axis),
-        jnp.linalg.norm(
-            m + (1e-5**ord if axis is None and ord is not None else 0.0),
-            ord=ord,
-            axis=axis,
-        ),
-        atol=1e-4,
-    )
 
 
 @pytest.mark.parametrize(
