@@ -15,19 +15,11 @@ from jax import random
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.einstein import (
-    GraphicalKernel,
-    IMQKernel,
-    LinearKernel,
-    RBFKernel,
-    SteinVI,
-    kernels,
-)
+from numpyro.contrib.einstein import GraphicalKernel, RBFKernel, SteinVI, kernels
 from numpyro.contrib.einstein.kernels import (
     HessianPrecondMatrix,
     MixtureKernel,
     PrecondMatrixKernel,
-    RandomFeatureKernel,
 )
 from numpyro.contrib.einstein.util import posdef, sqrth, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
@@ -50,6 +42,7 @@ from numpyro.infer.initialization import (
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.optim import Adam
+from test.contrib.einstein.test_einstein_kernels import PARTICLES, TEST_CASES, TEST_IDS
 
 KERNELS = [
     kernels.RBFKernel(),
@@ -85,54 +78,6 @@ class WrappedMixtureKernel(MixtureKernel):
             ws=np.array([0.2, 0.8]),
             kernel_fns=[RBFKernel(mode), RBFKernel(mode)],
         )
-
-
-KERNEL_TEST_CASES = [
-    TKERNEL(
-        RBFKernel,
-        lambda d: {},
-        lambda x: x,
-        {
-            "norm": 0.040711474,
-            "vector": np.array([0.056071877, 0.7260586]),
-            "matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
-        },
-    ),
-    TKERNEL(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
-    TKERNEL(
-        IMQKernel,
-        lambda d: {},
-        lambda x: x,
-        {"norm": 0.104828484, "vector": np.array([0.11043153, 0.31622776])},
-    ),
-    TKERNEL(LinearKernel, lambda d: {}, lambda x: x, {"norm": 21.0}),
-    TKERNEL(
-        WrappedMixtureKernel,
-        lambda d: {},
-        lambda x: x,
-        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
-    ),
-    TKERNEL(
-        WrappedGraphicalKernel,
-        lambda d: {"p1": (0, d)},
-        lambda x: x,
-        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
-    ),
-    TKERNEL(
-        WrappedPrecondMatrixKernel,
-        lambda d: {},
-        lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
-        {
-            "matrix": np.array(
-                [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
-            )
-        },
-    ),
-]
-
-TEST_IDS = [t[0].__name__ for t in KERNEL_TEST_CASES]
-
-PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
 
 
 def uniform_normal():
@@ -326,7 +271,7 @@ def test_svgd_loss_and_grads():
 
 
 @pytest.mark.parametrize(
-    "kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS
+    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
 )
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
@@ -417,7 +362,7 @@ def test_calc_particle_info_nested():
 
 
 @pytest.mark.parametrize(
-    "kernel, particle_info, loss_fn, kval", KERNEL_TEST_CASES, ids=TEST_IDS
+    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
 )
 @pytest.mark.parametrize("particles, tparticles", PARTICLES)
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
