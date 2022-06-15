@@ -40,18 +40,20 @@ def sqrth_and_inv_sqrth(m):
     return msqrt, minv, minv_sqrt
 
 
-def safe_norm(a, ord=2, axis=None):
-    norm_corr = ord if isinstance(ord, int) else 2.0
-    if axis is not None:
-        is_zero = jnp.expand_dims(jnp.isclose(jnp.sum(a, axis=axis), 0.0), axis=axis)
-    else:
-        is_zero = jnp.ones_like(a, dtype="bool")
-    norm = jnp.linalg.norm(
-        a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5**norm_corr, jnp.zeros_like(a)),
-        ord=ord,
-        axis=axis,
+def all_pairs_eucl_dist(a, b):
+    a_sqr = jnp.sum(a**2, 1)[None, :]
+    b_sqr = jnp.sum(b**2, 1)[:, None]
+    diff = jnp.matmul(b, a.T)
+    return jnp.sqrt(jnp.maximum(a_sqr + b_sqr - 2 * diff, 0.0))
+
+
+def median_bandwidth(particles, factor_fn):
+    dists = all_pairs_eucl_dist(particles, particles)
+    bandwidth = (
+        jnp.median(dists) ** 2 * factor_fn(particles.shape[0])
+        + jnp.finfo(dists.dtype).eps
     )
-    return norm
+    return bandwidth
 
 
 def get_parameter_transform(site):
