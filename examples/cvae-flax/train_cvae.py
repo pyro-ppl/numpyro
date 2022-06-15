@@ -1,8 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from models import cross_entropy_loss
-
 from flax import traverse_util
 import jax
 from jax import lax, numpy as jnp, random
@@ -42,20 +40,6 @@ def create_train_state(
         rng_key=state.rng_key,
     )
     return svi, state
-
-
-@jax.jit
-def train_step(state, x_batched, y_batched):
-    def loss_fn(params):
-        y_pred = state.apply_fn(params, x_batched)
-        loss = cross_entropy_loss(y_pred, y_batched)
-        return jnp.sum(loss)
-
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grads = grad_fn(state.params)
-
-    new_state = state.apply_gradients(grads=grads)
-    return new_state, loss
 
 
 def train_epoch(svi, state, train_fetch, num_train, train_idx, epoch_rng):

@@ -16,7 +16,6 @@ def create_train_state(model, x, learning_rate_fn):
     return state
 
 
-@jax.jit
 def train_step(state, x_batched, y_batched):
     def loss_fn(params):
         y_pred = state.apply_fn(params, x_batched)
