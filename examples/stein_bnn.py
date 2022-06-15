@@ -203,7 +203,7 @@ if __name__ == "__main__":
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
-    parser.add_argument("--hidden-dim", default=100, type=int)
+    parser.add_argument("--hidden-dim", default=50, type=int)
 
     args = parser.parse_args()
 
