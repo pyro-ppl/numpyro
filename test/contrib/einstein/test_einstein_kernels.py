@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from copy import copy
 
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import numpy as jnp, random
 
+from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
     HessianPrecondMatrix,
@@ -19,6 +21,8 @@ from numpyro.contrib.einstein.kernels import (
     RandomFeatureKernel,
     RBFKernel,
 )
+from numpyro.infer import Trace_ELBO
+from numpyro.optim import Adam
 
 T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
 
@@ -32,12 +36,12 @@ TEST_CASES = [
         lambda d: {},
         lambda x: x,
         {
-            "norm": 0.040711474,
-            "vector": np.array([0.056071877, 0.7260586]),
-            "matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
+            "norm": 76.6667,
+            "vector": np.array([33.830784, 2.266182]),
+            "matrix": np.array([[76.6667, 0.0], [0.0, 76.6667]]),
         },
     ),
-    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.251404}),
+    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.173317}),
     T(
         IMQKernel,
         lambda d: {},
@@ -53,7 +57,7 @@ TEST_CASES = [
         ),
         lambda d: {},
         lambda x: x,
-        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+        {"matrix": np.array([[76.666745, 0.0], [0.0, 76.666745]])},
     ),
     T(
         lambda mode: GraphicalKernel(
@@ -61,7 +65,7 @@ TEST_CASES = [
         ),
         lambda d: {"p1": (0, d)},
         lambda x: x,
-        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
+        {"matrix": np.array([[76.666745, 0.0], [0.0, 76.666745]])},
     ),
     T(
         lambda mode: PrecondMatrixKernel(
@@ -69,12 +73,8 @@ TEST_CASES = [
         ),
         lambda d: {},
         lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
-        {
-            "matrix": np.array(
-                [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
-            )
-        },
-    ),  # -hess = [[.02x_0^2 1] [1 .5x_1^2]]
+        {"matrix": np.array([[1.789936e8, -1.256096e7], [-1.256096e7, 9.671934e6]])},
+    ),
 ]
 
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
@@ -97,5 +97,27 @@ def test_kernel_forward(
     kernel.init(random.PRNGKey(0), particles.shape)
     kernel_fn = kernel.compute(particles, particle_info(d), loss_fn)
     value = kernel_fn(*tparticles)
+    assert_allclose(value, jnp.array(kval[mode]), rtol=1e-6)
 
-    assert_allclose(value, kval[mode], atol=1e-9)
+
+@pytest.mark.parametrize(
+    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
+)
+@pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
+@pytest.mark.parametrize("particles, tparticles", PARTICLES)
+def test_apply_kernel(
+    kernel, particles, particle_info, loss_fn, tparticles, mode, kval
+):
+    if mode not in kval:
+        pytest.skip()
+    (d,) = tparticles[0].shape
+    kernel_fn = kernel(mode=mode)
+    kernel_fn.init(random.PRNGKey(0), particles.shape)
+    kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
+    v = np.ones_like(kval[mode])
+    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
+    value = stein._apply_kernel(kernel_fn, *tparticles, v)
+    kval_ = copy(kval)
+    if mode == "matrix":
+        kval_[mode] = np.dot(kval_[mode], v)
+    assert_allclose(value, kval_[mode], rtol=2e-6)
