@@ -217,8 +217,6 @@ def _unconstrain_reparam(params, site):
         log_det = sum_rightmost(
             log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site["fn"].event_shape)
         )
-        if site["scale"] is not None:
-            log_det = site["scale"] * log_det
         numpyro.factor("_{}_log_det".format(name), log_det)
         return value
 

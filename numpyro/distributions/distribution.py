@@ -579,7 +579,8 @@ class ExpandedDistribution(Distribution):
     def sample(self, key, sample_shape=()):
         return self.sample_with_intermediates(key, sample_shape)[0]
 
-    def log_prob(self, value):
+    def log_prob(self, value, intermediates=None):
+        # TODO: utilize `intermediates`
         shape = lax.broadcast_shapes(
             self.batch_shape,
             jnp.shape(value)[: max(jnp.ndim(value) - self.event_dim, 0)],

@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
@@ -357,3 +359,34 @@ def test_circular(shape):
     actual_probe = get_actual_probe(loc, concentration)
 
     assert_allclose(actual_probe, expected_probe, atol=0.1)
+
+
+_unconstrain_reparam = numpyro.infer.util._unconstrain_reparam
+
+
+def test_unconstrained_reparam_subsample():
+    def model():
+        with numpyro.plate("N", 10, 2):
+            numpyro.sample("x", dist.HalfNormal(1))
+
+    params = {"x": 3.0}
+    substituted_model = handlers.substitute(
+        handlers.seed(model, rng_seed=0),
+        substitute_fn=partial(_unconstrain_reparam, params),
+    )
+    log_det_site = handlers.trace(substituted_model).get_trace()["_x_log_det"]
+    assert log_det_site["scale"] == 5.0
+
+
+def test_unconstrained_reparam_scale():
+    def model():
+        with handlers.scale(scale=5.0):
+            numpyro.sample("x", dist.HalfNormal(1))
+
+    params = {"x": 3.0}
+    substituted_model = handlers.substitute(
+        handlers.seed(model, rng_seed=0),
+        substitute_fn=partial(_unconstrain_reparam, params),
+    )
+    log_det_site = handlers.trace(substituted_model).get_trace()["_x_log_det"]
+    assert log_det_site["scale"] == 5.0
