@@ -942,7 +942,7 @@ class AutoSemiDAIS(AutoGuide):
         gamma_init=0.9,
         init_scale=0.1,
     ):
-        # TODO does the value of init_loc_fn used here matter at all?
+        # init_loc_fn is only used to inspect the model.
         super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -990,7 +990,6 @@ class AutoSemiDAIS(AutoGuide):
                         if plate_dim is None:
                             plate_dim = frame.dim
                         local_vars.append(name)
-                        # if name in self._init_locs:  # Q: is it ok i removed this in favor of is_observed?
                         subsample_axes[name] = plate_dim - site["fn"].event_dim
                         break
         if len(local_vars) == 0:
@@ -1050,7 +1049,7 @@ class AutoSemiDAIS(AutoGuide):
         global_latents, local_latent_flat = self._sample_latent(*args, **kwargs)
 
         # unpack continuous latent samples
-        result = {}
+        result = global_latents.copy()
         _, N, subsample_size = self._local_plate
 
         for name, unconstrained_value in self._unpack_local_latent(
@@ -1075,7 +1074,6 @@ class AutoSemiDAIS(AutoGuide):
             )
             result[name] = numpyro.sample(name, delta_dist)
 
-        # Q: does this need global_latents inside?
         return result
 
     def _get_posterior(self):

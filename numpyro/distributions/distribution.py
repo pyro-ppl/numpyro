@@ -558,10 +558,9 @@ class ExpandedDistribution(Distribution):
             event_shape = jnp.shape(x)[batch_ndims:]
             return x.reshape(sample_shape + self.batch_shape + event_shape)
 
-        # TODO: See why we need intermediates here
         intermediates = tree_util.tree_map(reshape_sample, intermediates)
         samples = reshape_sample(samples)
-        return samples, []
+        return samples, intermediates
 
     def rsample(self, key, sample_shape=()):
         return self._sample(
@@ -580,7 +579,8 @@ class ExpandedDistribution(Distribution):
     def sample(self, key, sample_shape=()):
         return self.sample_with_intermediates(key, sample_shape)[0]
 
-    def log_prob(self, value):
+    def log_prob(self, value, intermediates=None):
+        # TODO: utilize `intermediates`
         shape = lax.broadcast_shapes(
             self.batch_shape,
             jnp.shape(value)[: max(jnp.ndim(value) - self.event_dim, 0)],
