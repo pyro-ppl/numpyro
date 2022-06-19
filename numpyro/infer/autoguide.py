@@ -886,10 +886,40 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
 
     Usage::
 
+        # logistic regression model for data {X, Y}
+        def model(X, Y):
+            theta = numpyro.sample(
+                "theta", dist.Normal(jnp.zeros(2), jnp.ones(2)).to_event(1)
+            )
+            with numpyro.plate("N", 100, subsample_size=10):
+                X_batch = numpyro.subsample(X, event_dim=1)
+                Y_batch = numpyro.subsample(Y, event_dim=0)
+                numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
+
+        # surrogate model defined by prior and surrogate likelihood.
+        # the latter is specified by computing the likelihood on the data subset
+        # {X_surr, Y_surr} of size 20.
+        def surrogate_model(X_surr, Y_surr):
+            theta = numpyro.sample(
+                "theta", dist.Normal(jnp.zeros(2), jnp.ones(2)).to_event(1)
+            )
+            omegas = numpyro.param(
+                "omegas", 5.0 * jnp.ones(20), constraint=dist.constraints.positive
+            )
+
+            with numpyro.plate("N", 20), numpyro.handlers.scale(scale=omegas):
+                numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_surr.T), obs=Y_surr)
+
         guide = AutoSurrogateLikelihoodDAIS(model, surrogate_model)
         svi = SVI(model, guide, ...)
 
     :param callable model: A NumPyro model.
+    :param callable surrogate_model: A NumPyro model that is used as a surrogate model
+        for guiding the HMC dynamics that define the variational distribution. In particular
+        `surrogate_model` should contain the same prior as `model` but should contain a
+        cheap-to-evaluate parametric ansatz for the likelihood. A simple ansatz for the latter
+        involves computing the likelihood for a fixed subset of the data and scaling the resulting
+        log likelihood by a learnable vector of positive weights. See the usage example above.f
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 4.
