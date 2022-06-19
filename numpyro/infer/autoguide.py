@@ -897,8 +897,8 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
                 numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
 
         # surrogate model defined by prior and surrogate likelihood.
-        # the latter is specified by computing the likelihood on the data subset
-        # {X_surr, Y_surr} of size 20.
+        # a convenient choice for specifying the latter is to computing the likelihood on
+        # a randomly chosen data subset, here {X_surr, Y_surr} of size 20.
         def surrogate_model(X_surr, Y_surr):
             theta = numpyro.sample(
                 "theta", dist.Normal(jnp.zeros(2), jnp.ones(2)).to_event(1)
