@@ -919,7 +919,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         `surrogate_model` should contain the same prior as `model` but should contain a
         cheap-to-evaluate parametric ansatz for the likelihood. A simple ansatz for the latter
         involves computing the likelihood for a fixed subset of the data and scaling the resulting
-        log likelihood by a learnable vector of positive weights. See the usage example above.f
+        log likelihood by a learnable vector of positive weights. See the usage example above.
     :param str prefix: A prefix that will be prefixed to all param internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 4.
