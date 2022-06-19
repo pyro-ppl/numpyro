@@ -897,8 +897,9 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
                 numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
 
         # surrogate model defined by prior and surrogate likelihood.
-        # a convenient choice for specifying the latter is to computing the likelihood on
-        # a randomly chosen data subset, here {X_surr, Y_surr} of size 20.
+        # a convenient choice for specifying the latter is to compute the likelihood on
+        # a randomly chosen data subset (here {X_surr, Y_surr} of size 20) and then use
+        # handlers.scale to scale the log likelihood by a vector of learnable weights.
         def surrogate_model(X_surr, Y_surr):
             theta = numpyro.sample(
                 "theta", dist.Normal(jnp.zeros(2), jnp.ones(2)).to_event(1)
@@ -906,7 +907,6 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
             omegas = numpyro.param(
                 "omegas", 5.0 * jnp.ones(20), constraint=dist.constraints.positive
             )
-
             with numpyro.plate("N", 20), numpyro.handlers.scale(scale=omegas):
                 numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_surr.T), obs=Y_surr)
 
