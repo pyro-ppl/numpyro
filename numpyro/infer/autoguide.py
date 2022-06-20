@@ -870,10 +870,10 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
     """
     This implementation of :class:`AutoSurrogateLikelihoodDAIS` provides a
     mini-batchable family of variational distributions as described in [1].
-    It combines a surrogate likelihood with Differentiable Annealed
-    Importance Sampling (DAIS) [1, 2]. It is not applicable to models with
-    local latent variables. The surrogate likelihood is provided by the user.
-    Unlike :class:`AutoDAIS`, it *can* be used in conjunction with data subsampling.
+    It combines a user-provided surrogate likelihood with Differentiable Annealed
+    Importance Sampling (DAIS) [2, 3]. It is not applicable to models with local
+    latent variables (see :class:`AutoSemiDAIS`), but unlike :class:`AutoDAIS`, it
+    *can* be used in conjunction with data subsampling.
 
     **Reference:**
 
@@ -944,7 +944,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         model,
         surrogate_model,
         *,
-        K=8,
+        K=4,
         eta_init=0.01,
         eta_max=0.1,
         gamma_init=0.9,
