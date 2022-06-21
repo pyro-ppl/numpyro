@@ -985,7 +985,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
     def _sample_latent(self, *args, **kwargs):
         def blocked_surrogate_model(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(expose_types=['param']):
+            with numpyro.handlers.block(expose_types=["param"]):
                 return -self._surrogate_potential_fn(x_unpack)
 
         eta0 = numpyro.param(
