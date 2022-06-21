@@ -862,28 +862,30 @@ def test_autosemidais_inadmissible_smoke():
         svi.run(random.PRNGKey(0), 10)
 
 
-def test_autosldais(N=64, D=3, num_steps=45000, num_samples=2000):
+def test_autosldais(
+    N=64, subsample_size=48, num_surrogate=32, D=3, num_steps=45000, num_samples=2000
+):
     def _model(X, Y):
         theta = numpyro.sample(
             "theta", dist.Normal(jnp.zeros(D), jnp.ones(D)).to_event(1)
         )
-        with numpyro.plate("N", N, subsample_size=2 * N // 3):
+        with numpyro.plate("N", N, subsample_size=subsample_size):
             X_batch = numpyro.subsample(X, event_dim=1)
             Y_batch = numpyro.subsample(Y, event_dim=0)
             numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
 
-    def _surrogate_model(X, Y):
+    def _surrogate_model(X_surr, Y_surr):
         theta = numpyro.sample(
             "theta", dist.Normal(jnp.zeros(D), jnp.ones(D)).to_event(1)
         )
         omegas = numpyro.param(
-            "omegas", 2.0 * jnp.ones(N // 2), constraint=dist.constraints.positive
+            "omegas",
+            2.0 * jnp.ones(num_surrogate),
+            constraint=dist.constraints.positive,
         )
 
-        with numpyro.plate("N", N // 2), numpyro.handlers.scale(scale=omegas):
-            X_batch = numpyro.subsample(X, event_dim=1)
-            Y_batch = numpyro.subsample(Y, event_dim=0)
-            numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
+        with numpyro.plate("N", num_surrogate), numpyro.handlers.scale(scale=omegas):
+            numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_surr.T), obs=Y_surr)
 
     X = RandomState(0).randn(N, D)
     X[:, 2] = X[:, 0] + X[:, 1]
@@ -891,7 +893,7 @@ def test_autosldais(N=64, D=3, num_steps=45000, num_samples=2000):
     Y = dist.Bernoulli(logits=logits).sample(random.PRNGKey(0))
 
     model = partial(_model, X, Y)
-    surrogate_model = partial(_surrogate_model, X[::2], Y[::2])
+    surrogate_model = partial(_surrogate_model, X[:num_surrogate], Y[:num_surrogate])
 
     def _get_optim():
         scheduler = piecewise_constant_schedule(
@@ -917,7 +919,7 @@ def test_autosldais(N=64, D=3, num_steps=45000, num_samples=2000):
     dais_elbo = -dais_elbo.item()
 
     def create_plates():
-        return numpyro.plate("N", N, subsample_size=2 * N // 3)
+        return numpyro.plate("N", N, subsample_size=subsample_size)
 
     mf_guide = AutoNormal(model, create_plates=create_plates)
     mf_svi_result = SVI(model, mf_guide, _get_optim(), Trace_ELBO()).run(
@@ -925,7 +927,7 @@ def test_autosldais(N=64, D=3, num_steps=45000, num_samples=2000):
     )
 
     mf_elbo = Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(0), mf_svi_result.params, model, mf_guide
+        random.PRNGKey(1), mf_svi_result.params, model, mf_guide
     )
     mf_elbo = -mf_elbo.item()
 
