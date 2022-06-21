@@ -35,10 +35,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = jnp.array(0.0)
-    if kernel_cls is SA:
-        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
-    elif kernel_cls is BarkerMH:
-        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
+    if kernel_cls in [SA, BarkerMH]:
+        kernel = kernel_cls(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(
             potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass
