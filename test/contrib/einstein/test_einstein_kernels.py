@@ -29,16 +29,15 @@ T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"]
 PARTICLES_2D = np.array([[1.0, 2.0], [-10.0, 10.0], [7.0, 3.0], [2.0, -1]])
 
 TPARTICLES_2D = (np.array([1.0, 2.0]), np.array([10.0, 5.0]))  # transformed particles
-
 TEST_CASES = [
     T(
         RBFKernel,
         lambda d: {},
         lambda x: x,
         {
-            "norm": 76.6667,
-            "vector": np.array([33.830784, 2.266182]),
-            "matrix": np.array([[76.6667, 0.0], [0.0, 76.6667]]),
+            "norm": 0.040711474,
+            "vector": np.array([0.056071877, 0.7260586]),
+            "matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]]),
         },
     ),
     T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 15.173317}),
@@ -57,7 +56,7 @@ TEST_CASES = [
         ),
         lambda d: {},
         lambda x: x,
-        {"matrix": np.array([[76.666745, 0.0], [0.0, 76.666745]])},
+        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     T(
         lambda mode: GraphicalKernel(
@@ -65,7 +64,7 @@ TEST_CASES = [
         ),
         lambda d: {"p1": (0, d)},
         lambda x: x,
-        {"matrix": np.array([[76.666745, 0.0], [0.0, 76.666745]])},
+        {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
     T(
         lambda mode: PrecondMatrixKernel(
@@ -73,8 +72,12 @@ TEST_CASES = [
         ),
         lambda d: {},
         lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
-        {"matrix": np.array([[1.789936e8, -1.256096e7], [-1.256096e7, 9.671934e6]])},
-    ),
+        {
+            "matrix": np.array(
+                [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
+            )
+        },
+    ),  # -hess = [[.02x_0^2 1] [1 .5x_1^2]]
 ]
 
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
@@ -97,7 +100,7 @@ def test_kernel_forward(
     kernel.init(random.PRNGKey(0), particles.shape)
     kernel_fn = kernel.compute(particles, particle_info(d), loss_fn)
     value = kernel_fn(*tparticles)
-    assert_allclose(value, jnp.array(kval[mode]), rtol=1e-6)
+    assert_allclose(value, jnp.array(kval[mode]), atol=1e-6)
 
 
 @pytest.mark.parametrize(
@@ -120,4 +123,4 @@ def test_apply_kernel(
     kval_ = copy(kval)
     if mode == "matrix":
         kval_[mode] = np.dot(kval_[mode], v)
-    assert_allclose(value, kval_[mode], rtol=2e-6)
+    assert_allclose(value, kval_[mode], atol=1e-6)

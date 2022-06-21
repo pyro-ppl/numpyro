@@ -108,7 +108,7 @@ class RBFKernel(SteinKernel):
 
         def kernel(x, y):
             reduce = jnp.sum if self._normed() else lambda x: x
-            kernel_res = jnp.exp(-reduce(x - y**2) / stop_gradient(bandwidth))
+            kernel_res = jnp.exp(-reduce((x - y) ** 2) / stop_gradient(bandwidth))
             if self._mode == "matrix":
                 if self.matrix_mode == "norm_diag":
                     return kernel_res * jnp.identity(x.shape[0])
