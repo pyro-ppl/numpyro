@@ -1346,7 +1346,7 @@ class AutoMultivariateNormal(AutoContinuous):
         Returns a multivariate Normal posterior distribution.
         """
         transform = self.get_transform(params)
-        return dist.MultivariateNormal(transform.loc, transform.scale_tril)
+        return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
 
     def median(self, params):
         loc = params["{}_loc".format(self.prefix)]
