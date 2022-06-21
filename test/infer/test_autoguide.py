@@ -863,7 +863,7 @@ def test_autosemidais_inadmissible_smoke():
 
 
 def test_autosldais(
-    N=64, subsample_size=48, num_surrogate=32, D=3, num_steps=45000, num_samples=2000
+    N=64, subsample_size=48, num_surrogate=32, D=3, num_steps=40000, num_samples=2000
 ):
     def _model(X, Y):
         theta = numpyro.sample(
