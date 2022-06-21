@@ -41,6 +41,7 @@ from numpyro.infer.autoguide import (
     AutoMultivariateNormal,
     AutoNormal,
     AutoSemiDAIS,
+    AutoSurrogateLikelihoodDAIS,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -859,3 +860,75 @@ def test_autosemidais_inadmissible_smoke():
     svi = SVI(model2, guide, optim.Adam(0.01), Trace_ELBO())
     with pytest.raises(RuntimeError, match="are no local variables"):
         svi.run(random.PRNGKey(0), 10)
+
+
+def test_autosldais(
+    N=64, subsample_size=48, num_surrogate=32, D=3, num_steps=40000, num_samples=2000
+):
+    def _model(X, Y):
+        theta = numpyro.sample(
+            "theta", dist.Normal(jnp.zeros(D), jnp.ones(D)).to_event(1)
+        )
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            X_batch = numpyro.subsample(X, event_dim=1)
+            Y_batch = numpyro.subsample(Y, event_dim=0)
+            numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_batch.T), obs=Y_batch)
+
+    def _surrogate_model(X_surr, Y_surr):
+        theta = numpyro.sample(
+            "theta", dist.Normal(jnp.zeros(D), jnp.ones(D)).to_event(1)
+        )
+        omegas = numpyro.param(
+            "omegas",
+            2.0 * jnp.ones(num_surrogate),
+            constraint=dist.constraints.positive,
+        )
+
+        with numpyro.plate("N", num_surrogate), numpyro.handlers.scale(scale=omegas):
+            numpyro.sample("obs", dist.Bernoulli(logits=theta @ X_surr.T), obs=Y_surr)
+
+    X = RandomState(0).randn(N, D)
+    X[:, 2] = X[:, 0] + X[:, 1]
+    logits = X[:, 0] - 0.5 * X[:, 1]
+    Y = dist.Bernoulli(logits=logits).sample(random.PRNGKey(0))
+
+    model = partial(_model, X, Y)
+    surrogate_model = partial(_surrogate_model, X[:num_surrogate], Y[:num_surrogate])
+
+    def _get_optim():
+        scheduler = piecewise_constant_schedule(
+            1.0e-3, {15 * 1000: 1.0e-4, 30 * 1000: 1.0e-5}
+        )
+        return optax.chain(
+            optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
+        )
+
+    guide = AutoSurrogateLikelihoodDAIS(
+        model, surrogate_model, K=3, eta_max=0.25, eta_init=0.005
+    )
+    svi_result = SVI(model, guide, _get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(1), num_steps
+    )
+
+    samples = guide.sample_posterior(random.PRNGKey(2), svi_result.params)
+    assert samples["theta"].shape == (D,)
+
+    dais_elbo = Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(0), svi_result.params, model, guide
+    )
+    dais_elbo = -dais_elbo.item()
+
+    def create_plates():
+        return numpyro.plate("N", N, subsample_size=subsample_size)
+
+    mf_guide = AutoNormal(model, create_plates=create_plates)
+    mf_svi_result = SVI(model, mf_guide, _get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(0), num_steps
+    )
+
+    mf_elbo = Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(1), mf_svi_result.params, model, mf_guide
+    )
+    mf_elbo = -mf_elbo.item()
+
+    assert dais_elbo > mf_elbo + 0.1
