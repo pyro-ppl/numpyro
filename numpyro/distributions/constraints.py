@@ -115,7 +115,8 @@ class _CorrCholesky(Constraint):
         )
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         x_norm = jnp.linalg.norm(x, axis=-1)
-        unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
+        tol = jnp.finfo(x.dtype).eps * x.shape[-1] * 10
+        unit_norm_row = jnp.all(jnp.abs(x_norm - 1) <= tol, axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
     def feasible_like(self, prototype):
