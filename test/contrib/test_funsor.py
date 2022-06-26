@@ -520,6 +520,7 @@ def test_scan_history(history, T):
 def test_scan_enum_history_0():
     def model(ys):
         z = numpyro.sample("z", dist.Bernoulli(0.2), infer={"enumerate": "parallel"})
+
         def transition_fn(c, y):
             numpyro.sample("y", dist.Normal(z, 1), obs=y)
             return None, None
@@ -530,7 +531,8 @@ def test_scan_enum_history_0():
         model=enum(model, first_available_dim=-1),
         model_args=(jnp.arange(3),),
         model_kwargs={},
-        params={})
+        params={},
+    )
     z_factor = trace["z"]["fn"].log_prob(trace["z"]["value"])
     prev_y_factor = trace["_PREV_y"]["fn"].log_prob(trace["_PREV_y"]["value"])
     y_factor = trace["y"]["fn"].log_prob(trace["y"]["value"]).sum(0)
