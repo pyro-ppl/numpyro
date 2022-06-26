@@ -8,6 +8,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import random
 import jax.numpy as jnp
 
@@ -514,6 +515,27 @@ def test_scan_history(history, T):
     actual_x_prev, actual_x_curr = enum(config_enumerate(fun_model))()
     assert_allclose(actual_x_prev, expected_x_prev)
     assert_allclose(actual_x_curr, expected_x_curr)
+
+
+def test_scan_enum_history_0():
+    def model(ys):
+        z = numpyro.sample("z", dist.Bernoulli(0.2), infer={"enumerate": "parallel"})
+        def transition_fn(c, y):
+            numpyro.sample("y", dist.Normal(z, 1), obs=y)
+            return None, None
+
+        scan(transition_fn, None, ys)
+
+    actual, trace = log_density(
+        model=enum(model, first_available_dim=-1),
+        model_args=(jnp.arange(3),),
+        model_kwargs={},
+        params={})
+    z_factor = trace["z"]["fn"].log_prob(trace["z"]["value"])
+    prev_y_factor = trace["_PREV_y"]["fn"].log_prob(trace["_PREV_y"]["value"])
+    y_factor = trace["y"]["fn"].log_prob(trace["y"]["value"]).sum(0)
+    expected = jax.nn.logsumexp(z_factor + prev_y_factor + y_factor)
+    assert_allclose(actual, expected)
 
 
 def test_missing_plate(monkeypatch):
