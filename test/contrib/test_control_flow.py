@@ -196,3 +196,17 @@ def test_cond():
         atol=0.1,
     )
     assert_allclose([x.mean(), x.std()], [2.0, jnp.sqrt(5.0)], atol=0.5)
+
+
+def test_scan_promote():
+    def model():
+        def transition_fn(c, val):
+            with numpyro.plate("N", 3, dim=-1):
+                numpyro.sample("x", dist.Normal(0, 1), obs=1.0)
+            return None, None
+
+        scan(transition_fn, None, None, length=10)
+
+    tr = numpyro.handlers.trace(model).get_trace()
+    assert tr["x"]["value"].shape == (10, 1)
+    assert tr["x"]["fn"].log_prob(tr["x"]["value"]).shape == (10, 3)
