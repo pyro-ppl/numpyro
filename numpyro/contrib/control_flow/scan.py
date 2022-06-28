@@ -300,7 +300,15 @@ def scan_wrapper(
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
     wrapped_carry = device_put((0, rng_key, init))
-    return lax.scan(body_fn, wrapped_carry, xs, length=length, reverse=reverse)
+    last_carry, (pytree_trace, ys) = lax.scan(
+        body_fn, wrapped_carry, xs, length=length, reverse=reverse
+    )
+    for name, site in pytree_trace.trace.items():
+        if site["type"] != "sample":
+            continue
+        # we haven't promote shapes of values yet during `lax.scan`, so we do it here
+        site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
+    return last_carry, (pytree_trace, ys)
 
 
 def scan(f, init, xs, length=None, reverse=False, history=1):
