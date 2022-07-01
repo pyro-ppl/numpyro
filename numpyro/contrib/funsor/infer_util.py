@@ -162,7 +162,7 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
     time_to_init_vars = defaultdict(frozenset)  # PP... variables
     time_to_markov_dims = defaultdict(frozenset)  # dimensions at markov sites
     sum_vars, prod_vars = frozenset(), frozenset()
-    history = 1
+    history = 0
     log_measures = {}
     for site in model_trace.values():
         if site["type"] == "sample":
@@ -186,10 +186,14 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
             for dim, name in dim_to_name.items():
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.Bint[log_prob.shape[dim]])
-                    time_to_factors[time_dim].append(log_prob_factor)
                     history = max(
                         history, max(_get_shift(s) for s in dim_to_name.values())
                     )
+                    if history == 0:
+                        log_factors.append(log_prob_factor)
+                        prod_vars |= frozenset({name})
+                    else:
+                        time_to_factors[time_dim].append(log_prob_factor)
                     time_to_init_vars[time_dim] |= frozenset(
                         s for s in dim_to_name.values() if s.startswith("_PREV_")
                     )

@@ -14,6 +14,8 @@ from numpyro.util import not_jax_tracer
 
 
 def _subs_wrapper(subs_map, i, length, site):
+    if site["type"] != "sample":
+        return
     value = None
     if isinstance(subs_map, dict) and site["name"] in subs_map:
         value = subs_map[site["name"]]
