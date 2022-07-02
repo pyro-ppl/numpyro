@@ -112,6 +112,13 @@ BetaProportion
     :show-inheritance:
     :member-order: bysource
 
+CAR
+^^^
+.. autoclass:: numpyro.distributions.continuous.CAR
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Cauchy
 ^^^^^^
@@ -244,14 +251,6 @@ Logistic
 MultivariateNormal
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-CAR
-^^^
-.. autoclass:: numpyro.distributions.continuous.CAR
     :members:
     :undoc-members:
     :show-inheritance:
