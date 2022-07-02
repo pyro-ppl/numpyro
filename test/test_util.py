@@ -17,7 +17,7 @@ from numpyro.util import check_model_guide_match, fori_collect, format_shapes, s
 
 def test_fori_collect_thinning():
     def f(x):
-        return x + 1.0
+        return x + 1
 
     actual2 = fori_collect(0, 9, f, np.array([-1]), thinning=2)
     expected2 = np.array([[2], [4], [6], [8]])
