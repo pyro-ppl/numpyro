@@ -7,7 +7,7 @@ import pytest
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.render import generate_graph_specification, get_model_relations
+from numpyro.infer.inspect import generate_graph_specification, get_model_relations
 import numpyro.distributions as dist
 
 
