@@ -94,16 +94,24 @@ Tensor Indexing
     :show-inheritance:
     :member-order: bysource
 
-Model inspection
+Model Inspection
 ----------------
 
-.. automodule:: numpyro.infer.inspect
-    :members:
-    :member-order: bysource
+get_dependencies
+^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.inspect.get_dependencies
+
+get_model_relations
+^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.inspect.get_model_relations
 
 Visualization Utilities
 =======================
 
-Trace inspection
+render_model
+------------
+.. autofunction:: numpyro.infer.inspect.render_model
+
+Trace Inspection
 ----------------
 .. autofunction:: numpyro.util.format_shapes
