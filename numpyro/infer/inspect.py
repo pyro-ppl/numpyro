@@ -1,8 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import itertools
 from functools import partial
+import itertools
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
