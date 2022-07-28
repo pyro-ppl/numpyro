@@ -540,6 +540,13 @@ MixtureSameFamily
     :show-inheritance:
     :member-order: bysource
 
+MixtureGeneral
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureGeneral
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Directional Distributions
 -------------------------
