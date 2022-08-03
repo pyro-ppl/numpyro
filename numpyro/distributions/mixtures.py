@@ -10,7 +10,7 @@ from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
 from numpyro.distributions.util import is_prng_key, validate_sample
 
 
-def Mixture(mixing_distribution, distributions, *, validate_args=None):
+def Mixture(mixing_distribution, component_distributions, *, validate_args=None):
     """
     Mixture distribution.
 
@@ -20,9 +20,13 @@ def Mixture(mixing_distribution, distributions, *, validate_args=None):
     :return: Either a MixtureGeneral or MixtureSameFamily distribution, depending on the type of
         `distributions`.
     """
-    if isinstance(distributions, Distribution):
-        return MixtureSameFamily(mixing_distribution, distributions, validate_args=validate_args)
-    return MixtureGeneral(mixing_distribution, distributions, validate_args=validate_args)
+    if isinstance(component_distributions, Distribution):
+        return MixtureSameFamily(
+            mixing_distribution, component_distributions, validate_args=validate_args
+        )
+    return MixtureGeneral(
+        mixing_distribution, component_distributions, validate_args=validate_args
+    )
 
 
 class MixtureSameFamily(Distribution):
@@ -227,49 +231,49 @@ class MixtureSameFamily(Distribution):
 
 class MixtureGeneral(Distribution):
     def __init__(
-        self, mixing_distribution, distributions, *, validate_args=None
+        self, mixing_distribution, component_distributions, *, validate_args=None
     ):
         _check_mixing_distribution(mixing_distribution)
 
         self._mixture_size = jnp.shape(mixing_distribution.probs)[-1]
-        if isinstance(distributions, Distribution):
-            distributions = [distributions] * self.mixture_size
         try:
-            distributions = list(distributions)
+            component_distributions = list(component_distributions)
         except TypeError:
             raise ValueError(
-                "The 'distributions' argument must be a list of Distribution objects"
+                "The 'component_distributions' argument must be a list of Distribution objects"
             )
-        for d in distributions:
+        for d in component_distributions:
             if not isinstance(d, Distribution):
                 raise ValueError(
-                    "All elements of 'distributions' must be instaces of "
+                    "All elements of 'component_distributions' must be instaces of "
                     "numpyro.distributions.Distribution subclasses"
                 )
-        if len(distributions) != self.mixture_size:
+        if len(component_distributions) != self.mixture_size:
             raise ValueError(
-                "The number of elements in 'distributions' must match the mixture size; "
-                f"expected {self._mixture_size}, got {len(distributions)}"
+                "The number of elements in 'component_distributions' must match the mixture size; "
+                f"expected {self._mixture_size}, got {len(component_distributions)}"
             )
 
-        # FIXME: It would be good to check the support, but __eq__ isn't implemented
-        #        properly for most constraints...
-        # if any(
-        #     d.support != distributions[0].support for d in distributions[1:]
-        # ):
-        #     raise ValueError("All distributions must have the same support.")
+        # TODO: It would be good to check that the support of all the component
+        # distributions match, but for now we just check the type, since __eq__
+        # isn't consistently implemented for all support types.
+        support_type = type(component_distributions[0].support)
+        if any(type(d.support) != support_type for d in component_distributions[1:]):
+            raise ValueError("All component distributions must have the same support.")
 
         self._mixing_distribution = mixing_distribution
-        self._distributions = distributions
+        self._component_distributions = component_distributions
 
         batch_shape = lax.broadcast_shapes(
             mixing_distribution.batch_shape,
-            *(d.batch_shape for d in distributions),
+            *(d.batch_shape for d in component_distributions),
         )
-        event_shape = lax.broadcast_shapes(
-            mixing_distribution.event_shape,
-            *(d.event_shape for d in distributions),
-        )
+        event_shape = component_distributions[0].event_shape
+        for d in component_distributions[1:]:
+            if d.event_shape != event_shape:
+                raise ValueError(
+                    "All component distributions must have the same event shape"
+                )
 
         super().__init__(
             batch_shape=batch_shape,
@@ -298,14 +302,14 @@ class MixtureGeneral(Distribution):
         return self._mixing_distribution
 
     @property
-    def distributions(self):
+    def component_distributions(self):
         """
         The list of component distributions being mixed
 
         :return: The list of component distributions
         :rtype: List[Distribution]
         """
-        return self._distributions
+        return self._component_distributions
 
     @property
     def mixture_dim(self):
@@ -313,18 +317,23 @@ class MixtureGeneral(Distribution):
 
     @constraints.dependent_property
     def support(self):
-        return self.distributions[0].support
+        return self.component_distributions[0].support
 
     @property
     def is_discrete(self):
-        return self.distributions[0].is_discrete
+        return self.component_distributions[0].is_discrete
 
     def tree_flatten(self):
         mixing_flat, mixing_aux = self.mixing_distribution.tree_flatten()
-        dists_flat, dists_aux = zip(*(d.tree_flatten() for d in self.distributions))
+        dists_flat, dists_aux = zip(
+            *(d.tree_flatten() for d in self.component_distributions)
+        )
         params = (mixing_flat, dists_flat)
         aux_data = (
-        (type(self.mixing_distribution), tuple(type(d) for d in self.distributions)),
+            (
+                type(self.mixing_distribution),
+                tuple(type(d) for d in self.component_distributions),
+            ),
             (mixing_aux, dists_aux),
         )
         return params, aux_data
@@ -335,17 +344,20 @@ class MixtureGeneral(Distribution):
         (cls_mix, cls_dists), (mixing_aux, dists_aux) = aux_data
         mixing_dist = cls_mix.tree_unflatten(mixing_aux, params_mix)
         distributions = [
-            c.tree_unflatten(a, p) for c, a, p in zip(cls_dists, dists_aux, params_dists)
+            c.tree_unflatten(a, p)
+            for c, a, p in zip(cls_dists, dists_aux, params_dists)
         ]
         return cls(
-            mixing_distribution=mixing_dist, distributions=distributions
+            mixing_distribution=mixing_dist, component_distributions=distributions
         )
 
     @property
     def mean(self):
         probs = self.mixing_distribution.probs
         probs = probs.reshape(probs.shape + (1,) * self.event_dim)
-        means = jnp.stack([d.mean for d in self.distributions], axis=self.mixture_dim)
+        means = jnp.stack(
+            [d.mean for d in self.component_distributions], axis=self.mixture_dim
+        )
         return jnp.sum(probs * means, axis=self.mixture_dim)
 
     @property
@@ -353,17 +365,17 @@ class MixtureGeneral(Distribution):
         probs = self.mixing_distribution.probs
         probs = probs.reshape(probs.shape + (1,) * self.event_dim)
 
-        means = jnp.stack([d.mean for d in self.distributions], axis=self.mixture_dim)
-        variances = jnp.stack([d.variance for d in self.distributions], axis=self.mixture_dim)
+        means = jnp.stack(
+            [d.mean for d in self.component_distributions], axis=self.mixture_dim
+        )
+        variances = jnp.stack(
+            [d.variance for d in self.component_distributions], axis=self.mixture_dim
+        )
 
         # E[Var(Y|X)]
-        mean_cond_var = jnp.sum(
-            probs * variances, axis=self.mixture_dim
-        )
+        mean_cond_var = jnp.sum(probs * variances, axis=self.mixture_dim)
         # Variance is the expectation of the squared deviation of a random variable from its mean
-        sq_deviation = (
-            means - jnp.expand_dims(self.mean, axis=self.mixture_dim)
-        ) ** 2
+        sq_deviation = (means - jnp.expand_dims(self.mean, axis=self.mixture_dim)) ** 2
         # Var(E[Y|X])
         var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
         # Law of total variance: Var(Y) = E[Var(Y|X)] + Var(E[Y|X])
@@ -377,16 +389,21 @@ class MixtureGeneral(Distribution):
         :return: output of the cummulative distribution function evaluated at `value`.
         :raises: NotImplementedError if the component distribution does not implement the cdf method.
         """
-        cdfs = jnp.stack([d.cdf(samples) for d in self.distributions], axis=self.mixture_dim)
+        cdfs = jnp.stack(
+            [d.cdf(samples) for d in self.component_distributions],
+            axis=self.mixture_dim,
+        )
         return jnp.sum(cdfs * self.mixing_distribution.probs, axis=-1)
 
     def sample_with_intermediates(self, key, sample_shape=()):
         assert is_prng_key(key)
 
-        key_ind, *key_comp = jax.random.split(key, 1 + len(self.distributions))
+        key_ind, *key_comp = jax.random.split(
+            key, 1 + len(self.component_distributions)
+        )
 
         samples = []
-        for k, d in zip(key_comp, self.distributions):
+        for k, d in zip(key_comp, self.component_distributions):
             samples.append(d.expand(sample_shape + self.batch_shape).sample(k))
         samples = jnp.stack(samples, axis=self.mixture_dim)
 
@@ -403,14 +420,12 @@ class MixtureGeneral(Distribution):
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), indices
 
     def sample(self, key, sample_shape=()):
-        return self.sample_with_intermediates(
-            key=key, sample_shape=sample_shape
-        )[0]
+        return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
     @validate_sample
     def component_log_probs(self, value):
         component_log_probs = jnp.stack(
-            [d.log_prob(value) for d in self.distributions],
+            [d.log_prob(value) for d in self.component_distributions],
             axis=self.mixture_dim,
         )
         return self.mixing_distribution.logits + component_log_probs
