@@ -62,6 +62,9 @@ def stirling_approx_tail(k):
     )
 
 
+_binomial_mu_thresh = 10
+
+
 def _binomial_btrs(key, p, n):
     """
     Based on the transformed rejection sampling algorithm (BTRS) from the
@@ -103,13 +106,19 @@ def _binomial_btrs(key, p, n):
         k, key, u, v = val
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
-        return lax.cond(
+        # when vmapped _binomial_dispatch will convert the cond condition into
+        # a HLO select that will execute both branches. This is a workaround
+        # that avoids the resulting infinite loop when p=0. This should also
+        # improve performance in less catastrophic cases.
+        cond_exclude_small_mu = p * n > _binomial_mu_thresh
+        cond_main = lax.cond(
             early_accept | early_reject,
             (),
             lambda _: ~early_accept,
             (k, u, v),
             lambda x: ~accept_fn(*x),
         )
+        return cond_exclude_small_mu & cond_main
 
     tr_params = _get_tr_params(n, p)
     ret = lax.while_loop(
@@ -129,7 +138,11 @@ def _binomial_inversion(key, p, n):
 
     def _binom_inv_cond_fn(val):
         i, _, geom_acc = val
-        return geom_acc <= n
+        # see the note on cond_exclude_small_mu in _binomial_btrs
+        # this cond_exclude_large_mu is unnecessary for correctness but will
+        # still improve performance.
+        cond_exclude_large_mu = p * n < _binomial_mu_thresh
+        return cond_exclude_large_mu & (geom_acc <= n)
 
     log1_p = jnp.log1p(-p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
@@ -142,7 +155,7 @@ def _binomial_dispatch(key, p, n):
         pq = jnp.where(is_le_mid, p, 1 - p)
         mu = n * pq
         k = lax.cond(
-            mu < 10,
+            mu < _binomial_mu_thresh,
             (key, pq, n),
             lambda x: _binomial_inversion(*x),
             (key, pq, n),
