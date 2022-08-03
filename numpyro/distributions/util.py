@@ -110,7 +110,7 @@ def _binomial_btrs(key, p, n):
         # a HLO select that will execute both branches. This is a workaround
         # that avoids the resulting infinite loop when p=0. This should also
         # improve performance in less catastrophic cases.
-        cond_exclude_small_mu = p * n > _binomial_mu_thresh
+        cond_exclude_small_mu = p * n >= _binomial_mu_thresh
         cond_main = lax.cond(
             early_accept | early_reject,
             (),
