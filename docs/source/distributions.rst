@@ -532,6 +532,10 @@ ZeroInflatedNegativeBinomial2
 Mixture Distributions
 ---------------------
 
+Mixture
+^^^^^^^
+.. autofunction:: numpyro.distributions.mixtures.Mixture
+
 MixtureSameFamily
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily

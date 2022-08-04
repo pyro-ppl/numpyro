@@ -12,13 +12,27 @@ from numpyro.distributions.util import is_prng_key, validate_sample
 
 def Mixture(mixing_distribution, component_distributions, *, validate_args=None):
     """
-    Mixture distribution.
+    A marginalized finite mixture of component distributions
 
-    :param numpyro.distribution.Distribution mixing_distribution:
-        The mixing distribution to select the components. Must be a Categorical.
-    :param distributions: Either a list of component distributions or a single vectorized distribution.
-    :return: Either a MixtureGeneral or MixtureSameFamily distribution, depending on the type of
-        `distributions`.
+    The returned distribution will be either a:
+
+    1. :class:`~numpyro.distributions.MixtureGeneral`, when
+       ``component_distributions`` is a list, or
+    2. :class:`~numpyro.distributions.MixtureSameFamily`, when
+       ``component_distributions`` is a single distribution.
+
+    and more details can be found in the documentation for each of these
+    classes.
+
+    :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
+        specifying the weights for each mixture components. The size of this
+        distribution specifies the number of components in the mixture,
+        ``mixture_size``.
+    :param distributions: Either a list of component distributions or a single
+        vectorized distribution. When a list is provided, the number of elements
+        must equal ``mixture_size``. Otherwise, the last batch dimension of the
+        distribution must equal ``mixture_size``.
+    :return: The mixture distribution.
     """
     if isinstance(component_distributions, Distribution):
         return MixtureSameFamily(
@@ -29,19 +43,133 @@ def Mixture(mixing_distribution, component_distributions, *, validate_args=None)
     )
 
 
-class MixtureSameFamily(Distribution):
+class _MixtureBase(Distribution):
+    """An abstract base class for mixture distributions
+
+    This consolidates all the shared logic for the mixture distributions, and
+    subclasses should implement the ``component_*`` methods to specialize.
     """
-    Marginalized Finite Mixture distribution of vectorized components.
 
-    The components being a vectorized distribution implies that all components are from the same family,
-    represented by a single Distribution object.
+    @property
+    def component_mean(self):
+        raise NotImplementedError
 
-    :param numpyro.distribution.Distribution mixing_distribution:
-        The mixing distribution to select the components. Needs to be a categorical.
-    :param numpyro.distribution.Distribution component_distribution:
-        Vectorized component distribution.
+    @property
+    def component_variance(self):
+        raise NotImplementedError
 
-    As an example:
+    def component_log_probs(self, value):
+        raise NotImplementedError
+
+    def component_sample(self, key, sample_shape=()):
+        raise NotImplementedError
+
+    def component_cdf(self, samples):
+        raise NotImplementedError
+
+    @property
+    def mixture_size(self):
+        """The number of components in the mixture"""
+        return self._mixture_size
+
+    @property
+    def mixing_distribution(self):
+        """The ``Categorical`` distribution over components"""
+        return self._mixing_distribution
+
+    @property
+    def mixture_dim(self):
+        return -self.event_dim - 1
+
+    @property
+    def mean(self):
+        probs = self.mixing_distribution.probs
+        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
+        weighted_component_means = probs * self.component_mean
+        return jnp.sum(weighted_component_means, axis=self.mixture_dim)
+
+    @property
+    def variance(self):
+        probs = self.mixing_distribution.probs
+        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
+        mean_cond_var = jnp.sum(probs * self.component_variance, axis=self.mixture_dim)
+        sq_deviation = (
+            self.component_mean - jnp.expand_dims(self.mean, axis=self.mixture_dim)
+        ) ** 2
+        var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
+        return mean_cond_var + var_cond_mean
+
+    def cdf(self, samples):
+        """The cumulative distribution function
+
+        :param value: samples from this distribution.
+        :return: output of the cumulative distribution function evaluated at
+            `value`.
+        :raises: NotImplementedError if the component distribution does not
+            implement the cdf method.
+        """
+        cdf_components = self.component_cdf(samples)
+        return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
+
+    def sample_with_intermediates(self, key, sample_shape=()):
+        """
+        A version of ``sample`` that also returns the sampled component indices
+
+        :param jax.random.PRNGKey key: the rng_key key to be used for the
+            distribution.
+        :param tuple sample_shape: the sample shape for the distribution.
+        :return: A 2-element tuple with the samples from the distribution, and
+            the indices of the sampled components.
+        :rtype: tuple
+        """
+        assert is_prng_key(key)
+        key_comp, key_ind = jax.random.split(key)
+        samples = self.component_sample(key_comp, sample_shape=sample_shape)
+
+        # Sample selection indices from the categorical (shape will be sample_shape)
+        indices = self.mixing_distribution.expand(
+            sample_shape + self.batch_shape
+        ).sample(key_ind)
+        n_expand = self.event_dim + 1
+        indices_expanded = indices.reshape(indices.shape + (1,) * n_expand)
+
+        # Select samples according to indices samples from categorical
+        samples_selected = jnp.take_along_axis(
+            samples, indices=indices_expanded, axis=self.mixture_dim
+        )
+
+        # Final sample shape (*sample_shape, *batch_shape, *event_shape)
+        return jnp.squeeze(samples_selected, axis=self.mixture_dim), indices
+
+    def sample(self, key, sample_shape=()):
+        return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
+
+    @validate_sample
+    def log_prob(self, value, intermediates=None):
+        del intermediates
+        sum_log_probs = self.component_log_probs(value)
+        return jax.nn.logsumexp(sum_log_probs, axis=-1)
+
+
+class MixtureSameFamily(_MixtureBase):
+    """
+    A finite mixture of component distributions from the same family
+
+    This mixture only supports a mixture of component distributions that are all
+    of the same family. The different components are specified along the last
+    batch dimension of the input ``component_distribution``. If you need a
+    mixture of distributions from different families, use the more general
+    implementation in :class:`~numpyro.distributions.MixtureGeneral`.
+
+    :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
+        specifying the weights for each mixture components. The size of this
+        distribution specifies the number of components in the mixture,
+        ``mixture_size``.
+    :param component_distribution: A single vectorized
+        :class:`~numpyro.distributions.Distribution`, whose last batch dimension
+        equals ``mixture_size`` as specified by ``mixing_distribution``.
+
+    **Example**
 
     .. doctest::
 
@@ -58,9 +186,7 @@ class MixtureSameFamily(Distribution):
     def __init__(
         self, mixing_distribution, component_distribution, *, validate_args=None
     ):
-        # Check arguments
         _check_mixing_distribution(mixing_distribution)
-
         mixture_size = mixing_distribution.probs.shape[-1]
         if not isinstance(component_distribution, Distribution):
             raise ValueError(
@@ -72,7 +198,6 @@ class MixtureSameFamily(Distribution):
             f"(size={component_distribution.batch_shape[-1]}) "
             "needs to correspond to the mixture_size={mixture_size}!"
         )
-        # Assign checked arguments
         self._mixing_distribution = mixing_distribution
         self._component_distribution = component_distribution
         self._mixture_size = mixture_size
@@ -85,30 +210,6 @@ class MixtureSameFamily(Distribution):
             event_shape=component_distribution.event_shape,
             validate_args=validate_args,
         )
-
-    @property
-    def mixture_size(self):
-        """
-        Returns the number of distributions in the mixture
-
-        :return: number of mixtures.
-        :rtype: int
-        """
-        return self._mixture_size
-
-    @property
-    def mixing_distribution(self):
-        """
-        Returns the mixing distribution
-
-        :return: Categorical distribution
-        :rtype: Categorical
-        """
-        return self._mixing_distribution
-
-    @property
-    def mixture_dim(self):
-        return -self.event_dim - 1
 
     @property
     def component_distribution(self):
@@ -151,85 +252,62 @@ class MixtureSameFamily(Distribution):
         )
 
     @property
-    def mean(self):
-        probs = self.mixing_distribution.probs
-        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
-        weighted_component_means = probs * self.component_distribution.mean
-        return jnp.sum(weighted_component_means, axis=self.mixture_dim)
+    def component_mean(self):
+        return self.component_distribution.mean
 
     @property
-    def variance(self):
-        probs = self.mixing_distribution.probs
-        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
-        # E[Var(Y|X)]
-        mean_cond_var = jnp.sum(
-            probs * self.component_distribution.variance, axis=self.mixture_dim
-        )
-        # Variance is the expectation of the squared deviation of a random variable from its mean
-        sq_deviation = (
-            self.component_distribution.mean
-            - jnp.expand_dims(self.mean, axis=self.mixture_dim)
-        ) ** 2
-        # Var(E[Y|X])
-        var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
-        # Law of total variance: Var(Y) = E[Var(Y|X)] + Var(E[Y|X])
-        return mean_cond_var + var_cond_mean
+    def component_variance(self):
+        return self.component_distribution.variance
 
-    def cdf(self, samples):
-        """
-        The cumulative distribution function of this mixture distribution.
-
-        :param value: samples from this distribution.
-        :return: output of the cummulative distribution function evaluated at `value`.
-        :raises: NotImplementedError if the component distribution does not implement the cdf method.
-        """
-        cdf_components = self.component_distribution.cdf(
+    def component_cdf(self, samples):
+        return self.component_distribution.cdf(
             jnp.expand_dims(samples, axis=self.mixture_dim)
         )
-        return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
 
-    def sample_with_intermediates(self, key, sample_shape=()):
-        """
-        Same as ``sample`` except that the sampled mixture components are also returned.
-
-        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
-        :param tuple sample_shape: the sample shape for the distribution.
-        :return: Tuple (samples, indices)
-        :rtype: tuple
-        """
-        assert is_prng_key(key)
-        key_comp, key_ind = jax.random.split(key)
-        # Samples from component distribution will have shape:
-        #  (*sample_shape, *batch_shape, mixture_size, *event_shape)
-        samples = self.component_distribution.expand(
+    def component_sample(self, key, sample_shape=()):
+        return self.component_distribution.expand(
             sample_shape + self.batch_shape + (self.mixture_size,)
-        ).sample(key_comp)
-        # Sample selection indices from the categorical (shape will be sample_shape)
-        indices = self.mixing_distribution.expand(
-            sample_shape + self.batch_shape
-        ).sample(key_ind)
-        n_expand = self.event_dim + 1
-        indices_expanded = indices.reshape(indices.shape + (1,) * n_expand)
-        # Select samples according to indices samples from categorical
-        samples_selected = jnp.take_along_axis(
-            samples, indices=indices_expanded, axis=self.mixture_dim
-        )
-        # Final sample shape (*sample_shape, *batch_shape, *event_shape)
-        return jnp.squeeze(samples_selected, axis=self.mixture_dim), indices
+        ).sample(key)
 
-    def sample(self, key, sample_shape=()):
-        return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
-
-    @validate_sample
-    def log_prob(self, value, intermediates=None):
-        del intermediates
+    def component_log_probs(self, value):
         value = jnp.expand_dims(value, self.mixture_dim)
         component_log_probs = self.component_distribution.log_prob(value)
-        sum_log_probs = self.mixing_distribution.logits + component_log_probs
-        return jax.nn.logsumexp(sum_log_probs, axis=-1)
+        return self.mixing_distribution.logits + component_log_probs
 
 
-class MixtureGeneral(Distribution):
+class MixtureGeneral(_MixtureBase):
+    """
+    A finite mixture of component distributions from different families
+
+    If all of the component distributions are from the same family, the more
+    specific implementation in :class:`~numpyro.distributions.MixtureSameFamily`
+    will be somewhat more efficient.
+
+    :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
+        specifying the weights for each mixture components. The size of this
+        distribution specifies the number of components in the mixture,
+        ``mixture_size``.
+    :param component_distributions: A list of ``mixture_size``
+        :class:`~numpyro.distributions.Distribution` objects.
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax
+       >>> import jax.numpy as jnp
+       >>> import numpyro.distributions as dist
+       >>> mixing_dist = dist.Categorical(probs=jnp.ones(3) / 3.)
+       >>> component_dists = [
+       ...     dist.Normal(loc=0.0, scale=1.0),
+       ...     dist.Normal(loc=-0.5, scale=0.3),
+       ...     dist.Normal(loc=0.6, scale=1.2),
+       ... ]
+       >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists)
+       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       ()
+    """
+
     def __init__(
         self, mixing_distribution, component_distributions, *, validate_args=None
     ):
@@ -282,38 +360,13 @@ class MixtureGeneral(Distribution):
         )
 
     @property
-    def mixture_size(self):
-        """
-        The number of distributions in the mixture
-
-        :return: number of mixtures.
-        :rtype: int
-        """
-        return self._mixture_size
-
-    @property
-    def mixing_distribution(self):
-        """
-        The mixing distribution
-
-        :return: Categorical distribution
-        :rtype: Categorical
-        """
-        return self._mixing_distribution
-
-    @property
     def component_distributions(self):
-        """
-        The list of component distributions being mixed
+        """The list of component distributions in the mixture
 
         :return: The list of component distributions
         :rtype: List[Distribution]
         """
         return self._component_distributions
-
-    @property
-    def mixture_dim(self):
-        return -self.event_dim - 1
 
     @constraints.dependent_property
     def support(self):
@@ -352,89 +405,35 @@ class MixtureGeneral(Distribution):
         )
 
     @property
-    def mean(self):
-        probs = self.mixing_distribution.probs
-        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
-        means = jnp.stack(
+    def component_mean(self):
+        return jnp.stack(
             [d.mean for d in self.component_distributions], axis=self.mixture_dim
         )
-        return jnp.sum(probs * means, axis=self.mixture_dim)
 
     @property
-    def variance(self):
-        probs = self.mixing_distribution.probs
-        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
-
-        means = jnp.stack(
-            [d.mean for d in self.component_distributions], axis=self.mixture_dim
-        )
-        variances = jnp.stack(
+    def component_variance(self):
+        return jnp.stack(
             [d.variance for d in self.component_distributions], axis=self.mixture_dim
         )
 
-        # E[Var(Y|X)]
-        mean_cond_var = jnp.sum(probs * variances, axis=self.mixture_dim)
-        # Variance is the expectation of the squared deviation of a random variable from its mean
-        sq_deviation = (means - jnp.expand_dims(self.mean, axis=self.mixture_dim)) ** 2
-        # Var(E[Y|X])
-        var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
-        # Law of total variance: Var(Y) = E[Var(Y|X)] + Var(E[Y|X])
-        return mean_cond_var + var_cond_mean
-
-    def cdf(self, samples):
-        """
-        The cumulative distribution function of this mixture distribution.
-
-        :param value: samples from this distribution.
-        :return: output of the cummulative distribution function evaluated at `value`.
-        :raises: NotImplementedError if the component distribution does not implement the cdf method.
-        """
-        cdfs = jnp.stack(
+    def component_cdf(self, samples):
+        return jnp.stack(
             [d.cdf(samples) for d in self.component_distributions],
             axis=self.mixture_dim,
         )
-        return jnp.sum(cdfs * self.mixing_distribution.probs, axis=-1)
 
-    def sample_with_intermediates(self, key, sample_shape=()):
-        assert is_prng_key(key)
-
-        key_ind, *key_comp = jax.random.split(
-            key, 1 + len(self.component_distributions)
-        )
-
+    def component_sample(self, key, sample_shape=()):
+        keys = jax.random.split(key, self.mixture_size)
         samples = []
-        for k, d in zip(key_comp, self.component_distributions):
+        for k, d in zip(keys, self.component_distributions):
             samples.append(d.expand(sample_shape + self.batch_shape).sample(k))
-        samples = jnp.stack(samples, axis=self.mixture_dim)
+        return jnp.stack(samples, axis=self.mixture_dim)
 
-        indices = self.mixing_distribution.expand(
-            sample_shape + self.batch_shape
-        ).sample(key_ind)
-        n_expand = self.event_dim + 1
-        indices_expanded = indices.reshape(indices.shape + (1,) * n_expand)
-
-        samples_selected = jnp.take_along_axis(
-            samples, indices=indices_expanded, axis=self.mixture_dim
-        )
-
-        return jnp.squeeze(samples_selected, axis=self.mixture_dim), indices
-
-    def sample(self, key, sample_shape=()):
-        return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
-
-    @validate_sample
     def component_log_probs(self, value):
         component_log_probs = jnp.stack(
-            [d.log_prob(value) for d in self.component_distributions],
-            axis=self.mixture_dim,
+            [d.log_prob(value) for d in self.component_distributions], axis=-1
         )
         return self.mixing_distribution.logits + component_log_probs
-
-    @validate_sample
-    def log_prob(self, value, intermediates=None):
-        del intermediates
-        log_probs = self.component_log_probs(value)
-        return jax.nn.logsumexp(log_probs, axis=self.mixture_dim)
 
 
 def _check_mixing_distribution(mixing_distribution):
