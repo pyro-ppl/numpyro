@@ -15,12 +15,7 @@ def get_normal(batch_shape):
     """Get parameterized Normal with given batch shape."""
     loc = jnp.zeros(batch_shape)
     scale = jnp.ones(batch_shape)
-    # for i, s in enumerate(batch_shape):
-    #     loc = jnp.repeat(jnp.expand_dims(loc, i), s, axis=i)
-    #     scale = jnp.repeat(jnp.expand_dims(scale, i), s, axis=i)
-    # batch_shape = (*batch_shape, nb_mixtures)
     normal = dist.Normal(loc=loc, scale=scale)
-    # assert normal.batch_shape == batch_shape
     return normal
 
 
