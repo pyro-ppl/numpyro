@@ -611,7 +611,7 @@ class lazy_property(object):
 
 def validate_sample(log_prob_fn):
     def wrapper(self, *args, **kwargs):
-        log_prob = log_prob_fn(self, *args, *kwargs)
+        log_prob = log_prob_fn(self, *args, **kwargs)
         if self._validate_args:
             value = kwargs["value"] if "value" in kwargs else args[0]
             mask = self._validate_sample(value)
