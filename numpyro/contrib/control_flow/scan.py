@@ -4,8 +4,9 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import device_put, lax, random, tree_flatten, tree_map, tree_unflatten
+from jax import device_put, lax, random
 import jax.numpy as jnp
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
 from numpyro.ops.pytree import PytreeTrace
