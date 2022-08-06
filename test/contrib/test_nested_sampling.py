@@ -14,6 +14,11 @@ import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:jax.tree_.+ is deprecated:FutureWarning"
+)
+
+
 # Test helper to extract a few central moments from samples.
 def get_moments(x):
     m1 = jnp.mean(x, axis=0)

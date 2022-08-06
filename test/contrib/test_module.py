@@ -23,6 +23,10 @@ from numpyro.contrib.module import (
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:jax.tree_.+ is deprecated:FutureWarning"
+)
+
 
 def haiku_model_by_shape(x, y):
     import haiku as hk

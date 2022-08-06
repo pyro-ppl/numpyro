@@ -5,10 +5,10 @@ import argparse
 
 from data import load_dataset
 import matplotlib.pyplot as plt
-from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model
 from train_baseline import train_baseline
 from train_cvae import train_cvae
 
+from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model
 from numpyro.examples.datasets import MNIST
 
 
