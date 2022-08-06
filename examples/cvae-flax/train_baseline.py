@@ -6,7 +6,7 @@ import jax
 from jax import lax, numpy as jnp, random
 import optax
 
-from models import cross_entropy_loss
+from models import cross_entropy_loss  # isort:skip
 
 
 def create_train_state(model, x, learning_rate_fn):

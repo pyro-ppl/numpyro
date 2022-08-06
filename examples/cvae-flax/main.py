@@ -8,8 +8,10 @@ import matplotlib.pyplot as plt
 from train_baseline import train_baseline
 from train_cvae import train_cvae
 
-from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model
 from numpyro.examples.datasets import MNIST
+
+from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model  # isort:skip
+
 
 
 def main(args):
