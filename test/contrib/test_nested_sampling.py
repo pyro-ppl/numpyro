@@ -13,7 +13,6 @@ from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
-
 pytestmark = pytest.mark.filterwarnings(
     "ignore:jax.tree_.+ is deprecated:FutureWarning"
 )
