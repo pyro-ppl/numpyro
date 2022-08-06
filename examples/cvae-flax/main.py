@@ -13,7 +13,6 @@ from numpyro.examples.datasets import MNIST
 from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model  # isort:skip
 
 
-
 def main(args):
     train_init, train_fetch = load_dataset(
         MNIST, batch_size=args.batch_size, split="train", seed=args.rng_seed
