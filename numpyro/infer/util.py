@@ -10,11 +10,11 @@ import warnings
 import numpy as np
 
 import jax
-from jax import device_get, jacfwd, lax, random, tree_flatten, value_and_grad
+from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
 import jax.numpy as jnp
-from jax.tree_util import tree_map
+from jax.tree_util import tree_flatten, tree_map
 
 import numpyro
 from numpyro.distributions import constraints
