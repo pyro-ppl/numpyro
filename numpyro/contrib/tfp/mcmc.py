@@ -5,9 +5,10 @@ from abc import ABCMeta
 from collections import namedtuple
 import inspect
 
-from jax import random, tree_map, vmap
+from jax import random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 import tensorflow_probability.substrates.jax as tfp
 
 from numpyro.infer import init_to_uniform
