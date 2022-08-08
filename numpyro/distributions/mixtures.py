@@ -28,10 +28,10 @@ def Mixture(mixing_distribution, component_distributions, *, validate_args=None)
         specifying the weights for each mixture components. The size of this
         distribution specifies the number of components in the mixture,
         ``mixture_size``.
-    :param distributions: Either a list of component distributions or a single
-        vectorized distribution. When a list is provided, the number of elements
-        must equal ``mixture_size``. Otherwise, the last batch dimension of the
-        distribution must equal ``mixture_size``.
+    :param component_distributions: Either a list of component distributions or
+        a single vectorized distribution. When a list is provided, the number of
+        elements must equal ``mixture_size``. Otherwise, the last batch
+        dimension of the distribution must equal ``mixture_size``.
     :return: The mixture distribution.
     """
     if isinstance(component_distributions, Distribution):
