@@ -165,6 +165,39 @@ _Gaussian2DMixture.reparametrized_params = []
 _Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
+def _GeneralMixture(mixing_probs, locs, scales):
+    component_dists = [
+        dist.Normal(loc=loc_, scale=scale_) for loc_, scale_ in zip(locs, scales)
+    ]
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_dists,
+    )
+
+
+_GeneralMixture.arg_constraints = {}
+_GeneralMixture.reparametrized_params = []
+_GeneralMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _General2DMixture(mixing_probs, locs, cov_matrices):
+    component_dists = [
+        dist.MultivariateNormal(loc=loc_, covariance_matrix=cov_)
+        for loc_, cov_ in zip(locs, cov_matrices)
+    ]
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_dists,
+    )
+
+
+_General2DMixture.arg_constraints = {}
+_General2DMixture.reparametrized_params = []
+_General2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
 class _ImproperWrapper(dist.ImproperUniform):
     def sample(self, key, sample_shape=()):
         transform = biject_to(self.support)
@@ -557,6 +590,33 @@ CONTINUOUS = [
     ),
     T(
         _Gaussian2DMixture,
+        np.array([0.2, 0.5, 0.3]),
+        np.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        np.array(
+            [
+                [
+                    [0.1, -0.2],
+                    [-0.2, 1.0],
+                ],
+                [
+                    [0.75, 0.0],
+                    [0.0, 0.75],
+                ],
+                [
+                    [1.0, 0.5],
+                    [0.5, 0.27],
+                ],
+            ]
+        ),  # Covariance
+    ),
+    T(
+        _GeneralMixture,
+        np.array([0.2, 0.3, 0.5]),
+        np.array([0.0, 7.7, 2.1]),
+        np.array([4.2, 1.7, 2.1]),
+    ),
+    T(
+        _General2DMixture,
         np.array([0.2, 0.5, 0.3]),
         np.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
         np.array(
@@ -1549,6 +1609,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         _TruncatedCauchy,
         _GaussianMixture,
         _Gaussian2DMixture,
+        _GeneralMixture,
+        _General2DMixture,
     ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]

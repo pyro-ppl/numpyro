@@ -532,6 +532,10 @@ ZeroInflatedNegativeBinomial2
 Mixture Distributions
 ---------------------
 
+Mixture
+^^^^^^^
+.. autofunction:: numpyro.distributions.mixtures.Mixture
+
 MixtureSameFamily
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
@@ -540,6 +544,13 @@ MixtureSameFamily
     :show-inheritance:
     :member-order: bysource
 
+MixtureGeneral
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureGeneral
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Directional Distributions
 -------------------------
