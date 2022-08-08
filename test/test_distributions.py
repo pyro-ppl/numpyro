@@ -2560,3 +2560,13 @@ def test_kl_dirichlet_dirichlet(shape):
     x = p.sample(random.PRNGKey(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+def test_vmapped_binomial_p0():
+    # test that vmapped binomial with p = 0 does not have an infinite loop
+    def sample_binomial_withp0(key):
+        n = 2 * (random.uniform(key) > 0.5)
+        _, key = random.split(key)
+        return dist.Binomial(total_count=n, probs=0).sample(key)
+
+    jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
