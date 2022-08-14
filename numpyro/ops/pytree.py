@@ -32,6 +32,12 @@ class PytreeTrace:
                                 # set to None to avoid leaks during tracing by JAX
                                 kwargs["rng_key"] = None
                             aux_trace[name][key] = kwargs
+                        elif key == "infer":
+                            kwargs = site["infer"].copy()
+                            if "_scan_current_index" in kwargs:
+                                # set to None to avoid leaks during tracing by JAX
+                                kwargs["_scan_current_index"] = None
+                            aux_trace[name][key] = kwargs
                         else:
                             aux_trace[name][key] = site[key]
         # keep the site order information because in JAX, flatten and unflatten do not preserve
