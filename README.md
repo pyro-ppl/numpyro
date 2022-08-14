@@ -238,7 +238,7 @@ pip install numpyro[cpu]
 
 To use **NumPyro on the GPU**, you need to install CUDA first and then use the following pip command:
 ```
-pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_releases.html
+pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/google/jax#pip-installation-gpu-cuda).
 
