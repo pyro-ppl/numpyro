@@ -9,6 +9,7 @@ build
 *.pyo
 /build
 /dist
+/.hypothesis
 
 # IDE
 .idea
