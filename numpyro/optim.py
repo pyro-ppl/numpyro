@@ -18,7 +18,7 @@ from numpyro.util import _versiontuple
 if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import optimizers
 else:
-    from jax.experimental import optimizers
+    from jax.experimental import optimizers  # pytype: disable=import-error
 
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
