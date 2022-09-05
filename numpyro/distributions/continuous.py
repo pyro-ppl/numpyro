@@ -27,6 +27,7 @@
 
 import numpy as np
 
+import jax
 from jax import lax
 from jax.experimental.sparse import BCOO
 import jax.nn as nn
@@ -1909,18 +1910,40 @@ class StudentT(Distribution):
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value):
+        from tensorflow_probability.substrates.jax.math import betainc as tfp_betainc
+
         # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
         # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
         scaled = (value - self.loc) / self.scale
         scaled_squared = scaled * scaled
         beta_value = self.df / (self.df + scaled_squared)
+
+        float_type = (
+            jnp.promote_types(self.df.dtype, beta_value.dtype)
+            if jax.config.read("jax_enable_x64")
+            else jnp.dtype("float32")
+        )
+
         # when scaled < 0, returns 0.5 * Beta(df/2, 0.5).cdf(beta_value)
         # when scaled > 0, returns 1 - 0.5 * Beta(df/2, 0.5).cdf(beta_value)
         scaled_sign_half = 0.5 * jnp.sign(scaled)
         return (
             0.5
             + scaled_sign_half
-            - 0.5 * jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
+            - 0.5
+            * jnp.sign(scaled)
+            * tfp_betainc(
+                0.5
+                * (
+                    self.df.astype(float_type)
+                    if isinstance(self.df, (jnp.ndarray, np.ndarray))
+                    else self.df
+                ),
+                0.5,
+                beta_value.astype(float_type)
+                if isinstance(self.df, (jnp.ndarray, np.ndarray))
+                else beta_value,
+            )
         )
 
     def icdf(self, q):
