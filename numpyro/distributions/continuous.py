@@ -27,7 +27,6 @@
 
 import numpy as np
 
-import jax
 from jax import lax
 from jax.experimental.sparse import BCOO
 import jax.nn as nn
