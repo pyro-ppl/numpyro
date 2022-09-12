@@ -156,7 +156,7 @@ def test_update_params():
 
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
-@pytest.mark.parametrize("init", ["shape", "kwargs"])
+@pytest.mark.parametrize("init", ["args", "shape", "kwargs"])
 @pytest.mark.parametrize("callable_prior", [True, False])
 def test_random_module_mcmc(backend, init, callable_prior):
 
@@ -185,9 +185,14 @@ def test_random_module_mcmc(backend, init, callable_prior):
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     if init == "shape":
+        args = ()
         kwargs = {"input_shape": (3,)}
     elif init == "kwargs":
+        args = ()
         kwargs = {kwargs_name: data}
+    elif init == "args":
+        args = (np.ones(3, dtype=np.float32),)
+        kwargs = {}
 
     if callable_prior:
         prior = (
@@ -197,7 +202,7 @@ def test_random_module_mcmc(backend, init, callable_prior):
         prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
 
     def model(data, labels):
-        nn = random_module("nn", linear_module, prior=prior, **kwargs)
+        nn = random_module("nn", linear_module, prior, *args, **kwargs)
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
