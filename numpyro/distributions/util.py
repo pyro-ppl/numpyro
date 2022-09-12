@@ -414,6 +414,37 @@ def clamp_probs(probs):
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
 
 
+def betainc(a, b, x):
+    try:
+        from tensorflow_probability.substrates.jax.math import betainc as betainc_fn
+    except ImportError:
+        from jax.scipy.special import betainc as betainc_fn
+
+    return betainc_fn(jnp.asarray(a), jnp.asarray(b), jnp.asarray(x))
+
+
+def betaincinv(a, b, y):
+    try:
+        from tensorflow_probability.substrates.jax.math import special as tfp_special
+
+        return tfp_special.betaincinv(jnp.asarray(a), jnp.asarray(b), jnp.asarray(y))
+    except ImportError as e:
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for betaincinv."
+        ) from e
+
+
+def gammaincinv(a, y):
+    try:
+        from tensorflow_probability.substrates.jax import math as tfp_math
+
+        return tfp_math.igammainv(jnp.asarray(a), jnp.asarray(y))
+    except ImportError as e:
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for gammaincinv."
+        ) from e
+
+
 def is_identically_zero(x):
     """
     Check if argument is exactly the number zero. True for the number zero;
