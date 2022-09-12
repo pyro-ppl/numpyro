@@ -429,7 +429,9 @@ def betaincinv(a, b, y):
 
         return tfp_special.betaincinv(jnp.asarray(a), jnp.asarray(b), jnp.asarray(y))
     except ImportError as e:
-        raise ImportError("Please install `tensorflow_probability` for betaincinv.")
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for betaincinv."
+        ) from e
 
 
 def gammaincinv(a, y):
@@ -438,7 +440,9 @@ def gammaincinv(a, y):
 
         return tfp_math.igammainv(jnp.asarray(a), jnp.asarray(y))
     except ImportError as e:
-        raise ImportError("Please install `tensorflow_probability` for gammaincinv.")
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for gammaincinv."
+        ) from e
 
 
 def is_identically_zero(x):

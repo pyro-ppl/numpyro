@@ -1926,9 +1926,9 @@ class StudentT(Distribution):
         # when scaled < 0, returns 0.5 * Beta(df/2, 0.5).cdf(beta_value)
         # when scaled > 0, returns 1 - 0.5 * Beta(df/2, 0.5).cdf(beta_value)
         return 0.5 * (
-            1 + jnp.sign(scaled)
-            - jnp.sign(scaled)
-            * betainc(0.5 * self.df, 0.5, beta_value)
+            1
+            + jnp.sign(scaled)
+            - jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
     def icdf(self, q):
