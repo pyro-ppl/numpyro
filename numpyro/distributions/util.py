@@ -420,14 +420,14 @@ def betainc(a, b, x):
     except ImportError:
         from jax.scipy.special import betainc as betainc_fn
 
-    return betainc_fn(a, b, x)
+    return betainc_fn(jnp.asarray(a), jnp.asarray(b), jnp.asarray(x))
 
 
 def betaincinv(a, b, y):
     try:
         from tensorflow_probability.substrates.jax.math import special as tfp_special
 
-        return tfp_special.betaincinv(a, b, y)
+        return tfp_special.betaincinv(jnp.asarray(a), jnp.asarray(b), jnp.asarray(y))
     except ImportError as e:
         raise ImportError("Please install `tensorflow_probability` for betaincinv.")
 
@@ -436,7 +436,7 @@ def gammaincinv(a, y):
     try:
         from tensorflow_probability.substrates.jax import math as tfp_math
 
-        return tfp_math.igammainv(a, y)
+        return tfp_math.igammainv(jnp.asarray(a), jnp.asarray(y))
     except ImportError as e:
         raise ImportError("Please install `tensorflow_probability` for gammaincinv.")
 

@@ -1187,6 +1187,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     # TODO: add more complete pattern for Discrete.cdf
     CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0]))],
 )
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     if d.event_dim > 0:
@@ -1194,8 +1195,8 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
+        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.StudentT) else 1e-5
         if d.shape() == () and not d.is_discrete:
-            rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
                 jnp.exp(d.log_prob(samples)),
@@ -1209,7 +1210,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
                 rtol=rtol,
             )
         assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
-        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
         pass
 
@@ -1223,7 +1224,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         assert_allclose(actual_cdf, expected_cdf, atol=1e-5, rtol=1e-5)
         actual_icdf = d.icdf(quantiles)
         expected_icdf = sp_dist.ppf(quantiles)
-        assert_allclose(actual_icdf, expected_icdf, atol=1e-5, rtol=1e-4)
+        assert_allclose(actual_icdf, expected_icdf, atol=1e-4, rtol=1e-4)
     except NotImplementedError:
         pass
 

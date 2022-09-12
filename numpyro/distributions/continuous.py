@@ -1928,12 +1928,11 @@ class StudentT(Distribution):
         return 0.5 * (
             1 + jnp.sign(scaled)
             - jnp.sign(scaled)
-            * betainc(0.5 * jnp.asarray(self.df), 0.5, jnp.asarray(beta_value))
+            * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
     def icdf(self, q):
-        q = jnp.asarray(q)
-        beta_value = betaincinv(0.5 * jnp.asarray(self.df), 0.5, 1 - jnp.abs(1 - 2 * q))
+        beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
         scaled_squared = self.df * (1 / beta_value - 1)
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
         return scaled * self.scale + self.loc
