@@ -387,6 +387,28 @@ CONTINUOUS = [
     T(dist.LogNormal, 1.0, 0.2),
     T(dist.LogNormal, -1.0, np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(
+        dist.MatrixNormal,
+        np.arange(6).reshape(3, 2),
+        np.array([[1.0, 0.4], [0.4, 1]]),
+        np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]]),
+    ),
+    T(
+        dist.MatrixNormal,
+        np.arange(18).reshape((2, 3, 3)),
+        np.array([[1.0, 0.4, 0.3], [0.4, 1, 0.5], [0.3, 0.5, 1.25]])
+        * np.ones((2, 3, 3)),
+        np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]])
+        * np.ones((2, 3, 3)),
+    ),
+    T(
+        dist.MatrixNormal,
+        np.reshape(np.arange(54), (2, 3, 3, 3)),
+        np.array([[1.0, 0.4, 0.3], [0.4, 1, 0.5], [0.3, 0.5, 1.25]])
+        * np.ones((2, 3, 3, 3)),
+        np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]])
+        * np.ones((2, 3, 3, 3)),
+    ),
     T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
     T(
         dist.MultivariateNormal,
