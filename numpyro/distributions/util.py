@@ -62,6 +62,9 @@ def stirling_approx_tail(k):
     )
 
 
+_binomial_mu_thresh = 10
+
+
 def _binomial_btrs(key, p, n):
     """
     Based on the transformed rejection sampling algorithm (BTRS) from the
@@ -103,13 +106,19 @@ def _binomial_btrs(key, p, n):
         k, key, u, v = val
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
-        return lax.cond(
+        # when vmapped _binomial_dispatch will convert the cond condition into
+        # a HLO select that will execute both branches. This is a workaround
+        # that avoids the resulting infinite loop when p=0. This should also
+        # improve performance in less catastrophic cases.
+        cond_exclude_small_mu = p * n >= _binomial_mu_thresh
+        cond_main = lax.cond(
             early_accept | early_reject,
             (),
             lambda _: ~early_accept,
             (k, u, v),
             lambda x: ~accept_fn(*x),
         )
+        return cond_exclude_small_mu & cond_main
 
     tr_params = _get_tr_params(n, p)
     ret = lax.while_loop(
@@ -129,7 +138,11 @@ def _binomial_inversion(key, p, n):
 
     def _binom_inv_cond_fn(val):
         i, _, geom_acc = val
-        return geom_acc <= n
+        # see the note on cond_exclude_small_mu in _binomial_btrs
+        # this cond_exclude_large_mu is unnecessary for correctness but will
+        # still improve performance.
+        cond_exclude_large_mu = p * n < _binomial_mu_thresh
+        return cond_exclude_large_mu & (geom_acc <= n)
 
     log1_p = jnp.log1p(-p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
@@ -142,7 +155,7 @@ def _binomial_dispatch(key, p, n):
         pq = jnp.where(is_le_mid, p, 1 - p)
         mu = n * pq
         k = lax.cond(
-            mu < 10,
+            mu < _binomial_mu_thresh,
             (key, pq, n),
             lambda x: _binomial_inversion(*x),
             (key, pq, n),
@@ -185,6 +198,8 @@ def _categorical(key, p, shape):
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
     s = jnp.cumsum(p, axis=-1)
+    # Normalize s to deal with numerical issues.
+    s = s[..., :-1] / s[..., -1:]
     r = random.uniform(key, shape=shape + (1,))
     # FIXME: replace this computation by using binary search as suggested in the above
     # reference. A while_loop + vmap for a reshaped 2D array would be enough.
@@ -399,6 +414,37 @@ def clamp_probs(probs):
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
 
 
+def betainc(a, b, x):
+    try:
+        from tensorflow_probability.substrates.jax.math import betainc as betainc_fn
+    except ImportError:
+        from jax.scipy.special import betainc as betainc_fn
+
+    return betainc_fn(jnp.asarray(a), jnp.asarray(b), jnp.asarray(x))
+
+
+def betaincinv(a, b, y):
+    try:
+        from tensorflow_probability.substrates.jax.math import special as tfp_special
+
+        return tfp_special.betaincinv(jnp.asarray(a), jnp.asarray(b), jnp.asarray(y))
+    except ImportError as e:
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for betaincinv."
+        ) from e
+
+
+def gammaincinv(a, y):
+    try:
+        from tensorflow_probability.substrates.jax import math as tfp_math
+
+        return tfp_math.igammainv(jnp.asarray(a), jnp.asarray(y))
+    except ImportError as e:
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for gammaincinv."
+        ) from e
+
+
 def is_identically_zero(x):
     """
     Check if argument is exactly the number zero. True for the number zero;
@@ -609,7 +655,7 @@ class lazy_property(object):
 
 def validate_sample(log_prob_fn):
     def wrapper(self, *args, **kwargs):
-        log_prob = log_prob_fn(self, *args, *kwargs)
+        log_prob = log_prob_fn(self, *args, **kwargs)
         if self._validate_args:
             value = kwargs["value"] if "value" in kwargs else args[0]
             mask = self._validate_sample(value)

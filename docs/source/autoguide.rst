@@ -8,6 +8,8 @@ We provide a brief overview of the automatically generated guides available in N
 * `AutoDelta <https://num.pyro.ai/en/latest/autoguide.html#autodelta>`_ is used for computing point estimates via MAP (maximum a posteriori estimation). See `here <https://github.com/pyro-ppl/numpyro/blob/bbe1f879eede79eebfdd16dfc49c77c4d1fc727c/examples/zero_inflated_poisson.py#L101>`_ for example usage.
 * `AutoBNAFNormal <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoBNAFNormal>`_ and `AutoIAFNormal <https://num.pyro.ai/en/latest/autoguide.html#autoiafnormal>`_ offer flexible variational distributions parameterized by normalizing flows.
 * `AutoDAIS <https://num.pyro.ai/en/latest/autoguide.html#autodais>`_ is a powerful variational inference algorithm that leverages HMC. It can be a good choice for dealing with highly correlated posteriors but may be computationally expensive depending on the nature of the model.
+* `AutoSurrogateLikelihoodDAIS <https://num.pyro.ai/en/latest/autoguide.html#autosurrogatelikelihooddais>`_ is a powerful variational inference algorithm that leverages HMC and that supports data subsampling.
+* `AutoSemiDAIS <https://num.pyro.ai/en/latest/autoguide.html#autosemidais>`_ constructs a posterior approximation like `AutoDAIS <https://num.pyro.ai/en/latest/autoguide.html#autodais>`_ for local latent variables but provides support for data subsampling during ELBO training by utilizing a parametric guide for global latent variables. 
 * `AutoLaplaceApproximation <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoLaplaceApproximation>`_ can be used to compute a Laplace approximation.
 
 .. automodule:: numpyro.infer.autoguide
@@ -95,6 +97,22 @@ AutoDelta
 AutoDAIS
 --------
 .. autoclass:: numpyro.infer.autoguide.AutoDAIS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AutoSemiDAIS
+------------
+.. autoclass:: numpyro.infer.autoguide.AutoSemiDAIS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AutoSurrogateLikelihoodDAIS
+---------------------------
+.. autoclass:: numpyro.infer.autoguide.AutoSurrogateLikelihoodDAIS
     :members:
     :undoc-members:
     :show-inheritance:

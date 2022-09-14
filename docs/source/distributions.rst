@@ -112,6 +112,13 @@ BetaProportion
     :show-inheritance:
     :member-order: bysource
 
+CAR
+^^^
+.. autoclass:: numpyro.distributions.continuous.CAR
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Cauchy
 ^^^^^^
@@ -244,14 +251,6 @@ Logistic
 MultivariateNormal
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-CAR
-^^^
-.. autoclass:: numpyro.distributions.continuous.CAR
     :members:
     :undoc-members:
     :show-inheritance:
@@ -533,6 +532,10 @@ ZeroInflatedNegativeBinomial2
 Mixture Distributions
 ---------------------
 
+Mixture
+^^^^^^^
+.. autofunction:: numpyro.distributions.mixtures.Mixture
+
 MixtureSameFamily
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
@@ -541,6 +544,13 @@ MixtureSameFamily
     :show-inheritance:
     :member-order: bysource
 
+MixtureGeneral
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureGeneral
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Directional Distributions
 -------------------------

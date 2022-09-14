@@ -13,7 +13,7 @@ from numpyro.util import _versiontuple, find_stack_level
 if _versiontuple(jax.__version__) >= (0, 2, 25):
     from jax.example_libraries import optimizers
 else:
-    from jax.experimental import optimizers
+    from jax.experimental import optimizers  # pytype: disable=import-error
 
 from jax import jit, lax, random
 import jax.numpy as jnp

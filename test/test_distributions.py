@@ -165,6 +165,39 @@ _Gaussian2DMixture.reparametrized_params = []
 _Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
+def _GeneralMixture(mixing_probs, locs, scales):
+    component_dists = [
+        dist.Normal(loc=loc_, scale=scale_) for loc_, scale_ in zip(locs, scales)
+    ]
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_dists,
+    )
+
+
+_GeneralMixture.arg_constraints = {}
+_GeneralMixture.reparametrized_params = []
+_GeneralMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _General2DMixture(mixing_probs, locs, cov_matrices):
+    component_dists = [
+        dist.MultivariateNormal(loc=loc_, covariance_matrix=cov_)
+        for loc_, cov_ in zip(locs, cov_matrices)
+    ]
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_dists,
+    )
+
+
+_General2DMixture.arg_constraints = {}
+_General2DMixture.reparametrized_params = []
+_General2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
 class _ImproperWrapper(dist.ImproperUniform):
     def sample(self, key, sample_shape=()):
         transform = biject_to(self.support)
@@ -557,6 +590,33 @@ CONTINUOUS = [
     ),
     T(
         _Gaussian2DMixture,
+        np.array([0.2, 0.5, 0.3]),
+        np.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        np.array(
+            [
+                [
+                    [0.1, -0.2],
+                    [-0.2, 1.0],
+                ],
+                [
+                    [0.75, 0.0],
+                    [0.0, 0.75],
+                ],
+                [
+                    [1.0, 0.5],
+                    [0.5, 0.27],
+                ],
+            ]
+        ),  # Covariance
+    ),
+    T(
+        _GeneralMixture,
+        np.array([0.2, 0.3, 0.5]),
+        np.array([0.0, 7.7, 2.1]),
+        np.array([4.2, 1.7, 2.1]),
+    ),
+    T(
+        _General2DMixture,
         np.array([0.2, 0.5, 0.3]),
         np.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
         np.array(
@@ -1127,6 +1187,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     # TODO: add more complete pattern for Discrete.cdf
     CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0]))],
 )
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     if d.event_dim > 0:
@@ -1134,8 +1195,8 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
+        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.StudentT) else 1e-5
         if d.shape() == () and not d.is_discrete:
-            rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
                 jnp.exp(d.log_prob(samples)),
@@ -1149,7 +1210,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
                 rtol=rtol,
             )
         assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
-        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
         pass
 
@@ -1163,7 +1224,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         assert_allclose(actual_cdf, expected_cdf, atol=1e-5, rtol=1e-5)
         actual_icdf = d.icdf(quantiles)
         expected_icdf = sp_dist.ppf(quantiles)
-        assert_allclose(actual_icdf, expected_icdf, atol=1e-5, rtol=1e-4)
+        assert_allclose(actual_icdf, expected_icdf, atol=1e-4, rtol=1e-4)
     except NotImplementedError:
         pass
 
@@ -1549,6 +1610,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         _TruncatedCauchy,
         _GaussianMixture,
         _Gaussian2DMixture,
+        _GeneralMixture,
+        _General2DMixture,
     ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
@@ -2498,3 +2561,13 @@ def test_kl_dirichlet_dirichlet(shape):
     x = p.sample(random.PRNGKey(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+def test_vmapped_binomial_p0():
+    # test that vmapped binomial with p = 0 does not have an infinite loop
+    def sample_binomial_withp0(key):
+        n = 2 * (random.uniform(key) > 0.5)
+        _, key = random.split(key)
+        return dist.Binomial(total_count=n, probs=0).sample(key)
+
+    jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))

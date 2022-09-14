@@ -132,6 +132,7 @@ class BarkerMH(MCMCKernel):
         self._dense_mass = dense_mass
         self._target_accept_prob = target_accept_prob
         self._init_strategy = init_strategy
+        self._postprocess_fn = None
 
     @property
     def model(self):

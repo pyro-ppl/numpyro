@@ -4,8 +4,9 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import device_put, lax, random, tree_flatten, tree_map, tree_unflatten
+from jax import device_put, lax, random
 import jax.numpy as jnp
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
 from numpyro.ops.pytree import PytreeTrace
@@ -14,6 +15,8 @@ from numpyro.util import not_jax_tracer
 
 
 def _subs_wrapper(subs_map, i, length, site):
+    if site["type"] != "sample":
+        return
     value = None
     if isinstance(subs_map, dict) and site["name"] in subs_map:
         value = subs_map[site["name"]]
@@ -300,7 +303,15 @@ def scan_wrapper(
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
     wrapped_carry = device_put((0, rng_key, init))
-    return lax.scan(body_fn, wrapped_carry, xs, length=length, reverse=reverse)
+    last_carry, (pytree_trace, ys) = lax.scan(
+        body_fn, wrapped_carry, xs, length=length, reverse=reverse
+    )
+    for name, site in pytree_trace.trace.items():
+        if site["type"] != "sample":
+            continue
+        # we haven't promote shapes of values yet during `lax.scan`, so we do it here
+        site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
+    return last_carry, (pytree_trace, ys)
 
 
 def scan(f, init, xs, length=None, reverse=False, history=1):

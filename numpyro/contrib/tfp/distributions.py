@@ -177,7 +177,8 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "scale": constraints.positive,
             }
         else:
-            if hasattr(numpyro_dist, tfd_class_name):
+            # Mixture distributions in tfp and numpyro are different.
+            if hasattr(numpyro_dist, tfd_class_name) and tfd_class_name != "Mixture":
                 numpyro_dist_class = getattr(numpyro_dist, tfd_class_name)
                 # resolve FooProbs/FooLogits namespaces
                 numpyro_dist_class = getattr(

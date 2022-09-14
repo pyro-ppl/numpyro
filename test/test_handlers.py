@@ -10,6 +10,11 @@ from jax import jit, random, value_and_grad, vmap
 import jax.numpy as jnp
 from jax.tree_util import tree_map
 
+try:
+    import funsor
+except ImportError:
+    funsor = None
+
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
@@ -658,6 +663,7 @@ def test_lift_memoize():
             model()
 
 
+@pytest.mark.skipif(funsor is None, reason="require funsor installation")
 def test_collapse_beta_binomial():
     total_count = 10
     data = 3.0
@@ -696,6 +702,7 @@ def test_collapse_beta_binomial():
     assert_allclose(params1["c0"], params2["c0"])
 
 
+@pytest.mark.skipif(funsor is None, reason="require funsor installation")
 def test_collapse_beta_bernoulli():
     data = 0.0
 

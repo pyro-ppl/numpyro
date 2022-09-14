@@ -35,10 +35,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = jnp.array(0.0)
-    if kernel_cls is SA:
-        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
-    elif kernel_cls is BarkerMH:
-        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
+    if kernel_cls in [SA, BarkerMH]:
+        kernel = kernel_cls(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(
             potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass
@@ -869,13 +867,15 @@ def test_forward_mode_differentiation():
     mcmc.run(random.PRNGKey(0))
 
 
-def test_SA_gradient_free():
+@pytest.mark.parametrize("num_chains", [1, 2])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_SA_chain_gradient_free(num_chains):
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))
         y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
         numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
 
-    mcmc = MCMC(SA(model), num_warmup=10, num_samples=10)
+    mcmc = MCMC(SA(model), num_warmup=10, num_samples=10, num_chains=num_chains)
     mcmc.run(random.PRNGKey(0))
 
 

@@ -10,11 +10,11 @@ import warnings
 import numpy as np
 
 import jax
-from jax import device_get, jacfwd, lax, random, tree_flatten, value_and_grad
+from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
 import jax.numpy as jnp
-from jax.tree_util import tree_map
+from jax.tree_util import tree_flatten, tree_map
 
 import numpyro
 from numpyro.distributions import constraints
@@ -217,8 +217,6 @@ def _unconstrain_reparam(params, site):
         log_det = sum_rightmost(
             log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site["fn"].event_shape)
         )
-        if site["scale"] is not None:
-            log_det = site["scale"] * log_det
         numpyro.factor("_{}_log_det".format(name), log_det)
         return value
 
@@ -374,7 +372,8 @@ def find_valid_initial_params(
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
-        init_state = (0, rng_key, (prototype_params, 0.0, prototype_params), False)
+        prototype_grads = prototype_params if validate_grad else None
+        init_state = (0, rng_key, (prototype_params, 0.0, prototype_grads), False)
         if exit_early and not_jax_tracer(rng_key):
             # Early return if valid params found. This is only helpful for single chain,
             # where we can avoid compiling body_fn in while_loop.

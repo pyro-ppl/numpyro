@@ -235,6 +235,7 @@ class block(Messenger):
     :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
     :param list hide: list of site names to hide.
+    :param list expose_types: list of site types to expose, e.g. `['param']`.
 
     **Example:**
 
@@ -259,11 +260,13 @@ class block(Messenger):
        >>> assert 'b' in trace_block_a
     """
 
-    def __init__(self, fn=None, hide_fn=None, hide=None):
+    def __init__(self, fn=None, hide_fn=None, hide=None, expose_types=None):
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
             self.hide_fn = lambda msg: msg.get("name") in hide
+        elif expose_types is not None:
+            self.hide_fn = lambda msg: msg.get("type") not in expose_types
         else:
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)

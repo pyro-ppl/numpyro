@@ -73,6 +73,7 @@ NumPyro documentation
    examples/holt_winters
    examples/mortality
    examples/zero_inflated_poisson
+   examples/cvae
 
 .. nbgallery::
    :maxdepth: 1
