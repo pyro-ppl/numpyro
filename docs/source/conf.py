@@ -49,7 +49,8 @@ if "READTHEDOCS" not in os.environ:
 
     version = __version__
 
-    html_context = {"github_version": "master"}
+    # Add "Edit on GitHub" button on the upper right corner of local docs.
+    html_context = {"github_version": "master", "display_github": True}
 
 # release version
 release = version
