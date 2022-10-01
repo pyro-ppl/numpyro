@@ -51,6 +51,7 @@ setup(
         "test": [
             "black[jupyter]>=21.8b0",
             "flake8",
+            "hypothesis[numpy]",
             "isort>=5.0",
             "pytest>=4.1",
             "pyro-api>=0.1.1",

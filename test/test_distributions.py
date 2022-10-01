@@ -6,9 +6,15 @@ from functools import partial
 import inspect
 import math
 import os
+from typing import cast
 
+from hypothesis import given, note, settings
+import hypothesis.extra.numpy as hnp
+import hypothesis.strategies as st
+from hypothesis.strategies import DrawFn, SearchStrategy
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
+from numpy.typing import NDArray
 import pytest
 import scipy
 import scipy.stats as osp
@@ -534,6 +540,12 @@ CONTINUOUS = [
     T(dist.Normal, 0.0, 1.0),
     T(dist.Normal, 1.0, np.array([1.0, 2.0])),
     T(dist.Normal, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
+    T(
+        dist.SkewMultivariateNormal,
+        np.array([2.0, 0.0]),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+        np.array([0.0, 0.0]),
+    ),
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, np.array([1.0, 0.5]), np.array([0.3, 2.0])),
     T(dist.Pareto, np.array([[1.0], [3.0]]), np.array([1.0, 0.5])),
@@ -1503,6 +1515,10 @@ def test_mean_var(jax_dist, sp_dist, params):
         dist.TwoSidedTruncatedDistribution,
     ):
         pytest.skip("Truncated distributions do not has mean/var implemented")
+    if jax_dist is dist.SkewMultivariateNormal:
+        pytest.skip(
+            "We check SkewMultivariateNormal against MultivariateNormal elsewhere"
+        )
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
 
@@ -2571,3 +2587,169 @@ def test_vmapped_binomial_p0():
         return dist.Binomial(total_count=n, probs=0).sample(key)
 
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
+
+
+def locs(size: int) -> SearchStrategy[NDArray[float]]:
+    return cast(
+        SearchStrategy[NDArray[float]],
+        hnp.arrays(
+            elements=st.floats(
+                min_value=-1, max_value=1, allow_nan=False, allow_infinity=False
+            ),
+            dtype=np.dtype("float"),
+            shape=size,
+        ),
+    )
+
+
+def skews(size: int) -> SearchStrategy[NDArray[float]]:
+    return cast(
+        SearchStrategy[NDArray[float]],
+        hnp.arrays(
+            elements=st.floats(
+                min_value=-4, max_value=4, allow_nan=False, allow_infinity=False
+            ),
+            dtype=np.dtype("float"),
+            shape=size,
+        ),
+    )
+
+
+def variances(size: int) -> SearchStrategy[NDArray[float]]:
+    return cast(
+        SearchStrategy[NDArray[float]],
+        hnp.arrays(
+            # Variances that are too small make it impossible to test t against normal
+            elements=st.floats(
+                min_value=0.1,
+                max_value=3,
+                allow_nan=False,
+                allow_infinity=False,
+                exclude_min=True,
+            ),
+            dtype=np.dtype("float"),
+            shape=size,
+        ),
+    )
+
+
+def corr_vech_to_matrix(vech: NDArray[float]):
+    width = (math.isqrt(8 * vech.size + 1) + 1) // 2
+    zeros = np.zeros((width, width))
+    zeros[np.tril_indices(width, k=-1)] = vech
+    np.fill_diagonal(zeros, 1)
+    return zeros
+
+
+def correlation_chols(size: int) -> SearchStrategy[NDArray[float]]:
+    return hnp.arrays(
+        # Floating point issues mean we sometimes get arrays which aren't positive semi-definite
+        # if we allow correlations of exactly 1 and -1
+        elements=st.floats(
+            min_value=-0.99, max_value=0.99, allow_nan=False, allow_infinity=False
+        ),
+        dtype=np.dtype("float"),
+        shape=size * (size - 1) // 2,
+    ).map(
+        corr_vech_to_matrix  # type: ignore
+    )
+
+
+@st.composite
+def loc_and_scale(draw: DrawFn):
+    # Would need to generalize meshgrid to relax this restriction
+    size = 2
+    corr = draw(correlation_chols(size))
+    var = draw(variances(size))
+    return (draw(locs(size)), jnp.sqrt(var)[..., None] * corr)
+
+
+@st.composite
+def loc_and_scale_and_skewers(draw: DrawFn):
+    # Would need to generalize meshgrid to relax this restriction
+    size = 2
+    corr = draw(correlation_chols(size))
+    var = draw(variances(size))
+    return (
+        draw(locs(size)),
+        jnp.sqrt(var)[..., None] * corr,
+        draw(skews(size)),
+    )
+
+
+X, Y = np.meshgrid(np.linspace(-3, 3, 100), np.linspace(-3, 3, 100))
+grid = np.dstack((X, Y))
+X_wide, Y_wide = np.meshgrid(np.linspace(-6, 6, 50), np.linspace(-6, 6, 50))
+grid_wide = np.dstack((X_wide, Y_wide))
+
+
+@settings(deadline=None)
+@given(loc_and_scale())
+def test_skew_normal_log_prob_generalizes_normal(
+    loc_scale_tril: tuple[NDArray[float], NDArray[float]]
+):
+    loc, scale_tril = loc_scale_tril
+    mvn = dist.MultivariateNormal(loc=loc, scale_tril=scale_tril)
+    smvn = dist.SkewMultivariateNormal(
+        loc=loc, scale_tril=scale_tril, skewers=np.zeros(scale_tril.shape[-1])
+    )
+    assert_allclose(mvn.log_prob(grid), smvn.log_prob(grid), atol=1e-6)
+
+
+@settings(deadline=None)
+@given(loc_and_scale())
+def test_skew_normal_moments_generalize_normal(
+    loc_scale_tril: tuple[NDArray[float], NDArray[float]]
+):
+    loc, scale_tril = loc_scale_tril
+    mvn = dist.MultivariateNormal(loc=loc, scale_tril=scale_tril)
+    smvn = dist.SkewMultivariateNormal(
+        loc=loc, scale_tril=scale_tril, skewers=np.zeros(scale_tril.shape[-1])
+    )
+    assert_allclose(mvn.mean, smvn.mean, atol=1e-30)
+    assert_allclose(mvn.covariance_matrix, smvn.covariance_matrix, atol=1e-30)
+
+
+@settings(deadline=None, max_examples=10)
+@given(loc_and_scale_and_skewers())
+def test_skew_normal_log_prob_vs_samples(
+    loc_scale_tril_skewers: tuple[NDArray[float], NDArray[float], NDArray[float]]
+):
+    loc, scale_tril, skewers = loc_scale_tril_skewers
+    note(f"Covariance: {scale_tril @ scale_tril.T}")
+    smvn = dist.SkewMultivariateNormal(loc=loc, scale_tril=scale_tril, skewers=skewers)
+    samples = smvn.sample(random.PRNGKey(0), sample_shape=(50_000,))
+    # gaussian_kde needs a different format
+    grid_ = np.vstack([X_wide.ravel(), Y_wide.ravel()])
+    lp = jnp.exp(smvn.log_prob(grid_.T))
+    k = osp.gaussian_kde(samples.T, bw_method="scott")(grid_)
+
+    lp_normed = (lp - lp.min()) / (lp.max() - lp.min())
+    k_normed = (k - k.min()) / (k.max() - k.min())
+    assert_allclose(lp_normed, k_normed, atol=0.07)
+
+
+def split_cov(cov: NDArray[float]) -> tuple[NDArray[float], NDArray[float]]:
+    std_devs = np.sqrt(np.diag(cov))
+    dinv = np.diag(1 / std_devs)
+    corr = dinv @ cov @ dinv
+    tril_i = np.tril_indices(len(std_devs), k=-1)
+    return (std_devs, corr[tril_i])
+
+
+@settings(deadline=None)
+@given(loc_and_scale_and_skewers())
+def test_skew_normal_moments_vs_samples(
+    loc_scale_tril_skewers: tuple[NDArray[float], NDArray[float], NDArray[float]]
+):
+    loc, scale_tril, skewers = loc_scale_tril_skewers
+    note(f"Covariance: {scale_tril @ scale_tril.T}")
+    smvn = dist.SkewMultivariateNormal(loc=loc, scale_tril=scale_tril, skewers=skewers)
+    samples = smvn.sample(random.PRNGKey(0), sample_shape=(500_000,))
+    assert_allclose(np.mean(samples, axis=0), smvn.mean, rtol=0.005, atol=0.001)
+
+    std_devs_sample, corr_sample = split_cov(np.cov(samples.T))
+    std_devs_dist, corr_dist = split_cov(smvn.covariance_matrix)
+    assert_allclose(std_devs_sample, std_devs_dist, rtol=0.003)
+    note(f"Sample corr: {corr_sample}, Distribution corr: {corr_dist}")
+    assert_allclose(corr_sample, corr_dist, atol=0.006)

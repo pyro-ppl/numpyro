@@ -2,12 +2,14 @@ numpyro.egg-info
 __pycache__/
 .ipynb_checkpoints/
 build
+.venv/
 
 # built / compiled
 *.pyc
 *.pyo
 /build
 /dist
+/.hypothesis
 
 # IDE
 .idea
