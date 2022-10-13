@@ -2572,6 +2572,7 @@ def test_vmapped_binomial_p0():
 
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
 
+
 @pytest.mark.parametrize(
     "shape, truth", [(2, 0.30685281944005505), (5, 0.7671320486001374)], ids=str
 )
