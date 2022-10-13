@@ -203,7 +203,9 @@ def kl_divergence(p, q):
 
 
 @dispatch(MultivariateNormal, MultivariateNormal)
-def kl_divergence(p: MultivariateNormal, q: MultivariateNormal) -> jnp.DeviceArray:
+def kl_divergence(
+    p: MultivariateNormal, q: MultivariateNormal
+) -> jnp.DeviceArray:
     """Compute the KL divergence from p to q for two multivariate normals.
 
     Args:
@@ -219,7 +221,10 @@ def kl_divergence(p: MultivariateNormal, q: MultivariateNormal) -> jnp.DeviceArr
 
     # kl is made of three terms
     tr_term = jnp.trace(jnp.matmul(iS1, p.covariance_matrix))
-    det_term = jnp.log(jnp.linalg.det(q.covariance_matrix) / jnp.linalg.det(p.covariance_matrix))
+    det_term = jnp.log(
+        jnp.linalg.det(q.covariance_matrix)
+        / jnp.linalg.det(p.covariance_matrix)
+    )
     quad_term = (
         diff.T @ jnp.linalg.inv(q.covariance_matrix) @ diff
     )  # np.sum( (diff*diff) * iS1, axis=1)
