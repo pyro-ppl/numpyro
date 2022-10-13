@@ -38,6 +38,7 @@ from numpyro.distributions.continuous import (
     Kumaraswamy,
     Normal,
     Weibull,
+    MultivariateNormal,
 )
 from numpyro.distributions.distribution import (
     Delta,
@@ -199,3 +200,28 @@ def kl_divergence(p, q):
     m = jnp.arange(1, p.KL_KUMARASWAMY_BETA_TAYLOR_ORDER + 1)
     t3 = (beta - 1) * b * (jnp.exp(betaln(m / a_, b_)) / (m + a_b_)).sum(-1)
     return t1 + t2 + t3
+
+
+@dispatch(MultivariateNormal, MultivariateNormal)
+def kl_divergence(p: MultivariateNormal, q: MultivariateNormal) -> jnp.DeviceArray:
+    """Compute the KL divergence from p to q for two multivariate normals.
+
+    Args:
+        p (MultivariateNormal): A multivariate normal distribution object.
+        q (MultivariateNormal): A second multivariate normal distribution object.
+
+    Returns:
+        jnp.DeviceArray: The corresponding KL divergence.
+    """
+    N = p.mean.shape[0]
+    iS1 = jnp.linalg.inv(q.covariance_matrix)
+    diff = q.mean - p.mean
+
+    # kl is made of three terms
+    tr_term = jnp.trace(jnp.matmul(iS1, p.covariance_matrix))
+    det_term = jnp.log(jnp.linalg.det(q.covariance_matrix) / jnp.linalg.det(p.covariance_matrix))
+    quad_term = (
+        diff.T @ jnp.linalg.inv(q.covariance_matrix) @ diff
+    )  # np.sum( (diff*diff) * iS1, axis=1)
+    # print(tr_term,det_term,quad_term)
+    return 0.5 * (tr_term + det_term + quad_term - N)
