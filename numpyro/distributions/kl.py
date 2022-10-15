@@ -30,6 +30,7 @@ from multipledispatch import dispatch
 from jax import lax
 import jax.numpy as jnp
 from jax.scipy.special import betaln, digamma, gammaln
+from jax.scipy.linalg import solve_triangular
 
 from numpyro.distributions.continuous import (
     Beta,
@@ -219,10 +220,8 @@ def kl_divergence(p: MultivariateNormal, q: MultivariateNormal) -> jnp.DeviceArr
     diff = q.loc - p.loc
 
     # kl is made of three terms
-    tr_term = jnp.trace(jnp.matmul(iS1, p.covariance_matrix))
-    # det_term = jnp.log(
-    #     jnp.linalg.det(q.covariance_matrix) / jnp.linalg.det(p.covariance_matrix)
-    # )
+    tr_term = tmp = solve_triangular(q.scale_tril, p.scale_tril, lower=True)
+    tr_term = jnp.square(tmp.reshape(tmp.shape[:-2] + (-1,))).sum(-1)
     det_term = 2 * (
         jnp.log(jnp.diagonal(q.scale_tril, axis1=-2, axis2=-1)).sum(-1)
         - jnp.log(jnp.diagonal(p.scale_tril, axis1=-2, axis2=-1)).sum(-1)
