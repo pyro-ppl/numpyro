@@ -38,6 +38,7 @@ setup(
         "multipledispatch",
         "numpy",
         "tqdm",
+        "importlib-metadata<5.0",
     ],
     extras_require={
         "doc": [

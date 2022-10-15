@@ -39,6 +39,7 @@ from numpyro.distributions.continuous import (
     MultivariateNormal,
     Normal,
     Weibull,
+    _batch_mahalanobis,
 )
 from numpyro.distributions.distribution import (
     Delta,
@@ -213,17 +214,19 @@ def kl_divergence(p: MultivariateNormal, q: MultivariateNormal) -> jnp.DeviceArr
     Returns:
         jnp.DeviceArray: The corresponding KL divergence.
     """
-    N = p.mean.shape[0]
+    N = p.loc.shape[-1]
     iS1 = jnp.linalg.inv(q.covariance_matrix)
-    diff = q.mean - p.mean
+    diff = q.loc - p.loc
 
     # kl is made of three terms
     tr_term = jnp.trace(jnp.matmul(iS1, p.covariance_matrix))
-    det_term = jnp.log(
-        jnp.linalg.det(q.covariance_matrix) / jnp.linalg.det(p.covariance_matrix)
+    # det_term = jnp.log(
+    #     jnp.linalg.det(q.covariance_matrix) / jnp.linalg.det(p.covariance_matrix)
+    # )
+    det_term = 2 * (
+        jnp.log(jnp.diagonal(q.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+        - jnp.log(jnp.diagonal(p.scale_tril, axis1=-2, axis2=-1)).sum(-1)
     )
-    quad_term = (
-        diff.T @ jnp.linalg.inv(q.covariance_matrix) @ diff
-    )  # np.sum( (diff*diff) * iS1, axis=1)
-    # print(tr_term,det_term,quad_term)
+
+    quad_term = _batch_mahalanobis(q.scale_tril, diff)
     return 0.5 * (tr_term + det_term + quad_term - N)
