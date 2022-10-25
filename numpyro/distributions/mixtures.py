@@ -139,7 +139,7 @@ class _MixtureBase(Distribution):
         )
 
         # Final sample shape (*sample_shape, *batch_shape, *event_shape)
-        return jnp.squeeze(samples_selected, axis=self.mixture_dim), indices
+        return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
     def sample(self, key, sample_shape=()):
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]

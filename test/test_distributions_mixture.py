@@ -115,7 +115,7 @@ def _test_mixture(mixing_distribution, component_distribution):
     expected_shape = samples.shape[:nb_value_dims]
     assert lp.shape == expected_shape
     # Samples with indices
-    samples_, indices = mixture.sample_with_intermediates(
+    samples_, [indices] = mixture.sample_with_intermediates(
         rng_key, sample_shape=sample_shape
     )
     assert samples_.shape == samples.shape
