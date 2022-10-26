@@ -458,7 +458,9 @@ class ExpTransform(Transform):
 
     @property
     def codomain(self):
-        if self.domain is constraints.real:
+        if self.domain is constraints.ordered_vector:
+            return constraints.positive_ordered_vector
+        elif self.domain is constraints.real:
             return constraints.positive
         elif isinstance(self.domain, constraints.greater_than):
             return constraints.greater_than(self.__call__(self.domain.lower_bound))

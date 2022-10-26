@@ -49,6 +49,7 @@ setup(
             "sphinx-gallery",
         ],
         "test": [
+            "importlib-metadata<5.0",
             "black[jupyter]>=21.8b0",
             "flake8",
             "importlib-metadata<5.0",
