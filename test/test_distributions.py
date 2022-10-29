@@ -1182,6 +1182,15 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+def test_mixture_log_prob():
+    gmm = dist.MixtureSameFamily(
+        dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
+    )
+    actual = gmm.log_prob(0.0)
+    expected = dist.Normal(0, 1).log_prob(0.0)
+    assert_allclose(actual, expected)
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params",
     # TODO: add more complete pattern for Discrete.cdf
