@@ -272,7 +272,7 @@ class MixtureSameFamily(_MixtureBase):
     def component_log_probs(self, value):
         value = jnp.expand_dims(value, self.mixture_dim)
         component_log_probs = self.component_distribution.log_prob(value)
-        return self.mixing_distribution.logits + component_log_probs
+        return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
 class MixtureGeneral(_MixtureBase):
@@ -433,7 +433,7 @@ class MixtureGeneral(_MixtureBase):
         component_log_probs = jnp.stack(
             [d.log_prob(value) for d in self.component_distributions], axis=-1
         )
-        return self.mixing_distribution.logits + component_log_probs
+        return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
 def _check_mixing_distribution(mixing_distribution):
