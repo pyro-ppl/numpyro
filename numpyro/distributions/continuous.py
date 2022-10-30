@@ -1038,7 +1038,7 @@ class LogUniform(TransformedDistribution):
     support = constraints.positive
     reparametrized_params = ["low", "high"]
 
-    def __init__(self, low=1., high=10., *, validate_args=None):
+    def __init__(self, low, high, *, validate_args=None):
         base_dist = Uniform(jnp.log(low), jnp.log(high))
         self.low, self.high = low, high
         super(LogUniform, self).__init__(
@@ -1051,7 +1051,10 @@ class LogUniform(TransformedDistribution):
 
     @property
     def variance(self):
-        return 0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low) - self.mean**2
+        return (
+            0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
+            - self.mean**2
+        )
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
