@@ -251,6 +251,7 @@ _DIST_MAP = {
     dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
     dist.Laplace: lambda loc, scale: osp.laplace(loc=loc, scale=scale),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=jnp.exp(loc)),
+    dist.LogUniform: lambda a, b: osp.loguniform(a, b),
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(
         n=total_count, p=probs
     ),
@@ -354,6 +355,9 @@ CONTINUOUS = [
     T(dist.LogNormal, 1.0, 0.2),
     T(dist.LogNormal, -1.0, np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.LogUniform, 1.0, 2.0),
+    T(dist.LogUniform, 1.0, np.array([2.0, 3.0])),
+    T(dist.LogUniform, np.array([1.0, 2.0]), np.array([[3.0], [4.0]])),
     T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
     T(
         dist.MultivariateNormal,
