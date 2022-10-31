@@ -1035,15 +1035,19 @@ class Logistic(Distribution):
 
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
-    support = constraints.positive
     reparametrized_params = ["low", "high"]
 
     def __init__(self, low, high, *, validate_args=None):
         base_dist = Uniform(jnp.log(low), jnp.log(high))
-        self.low, self.high = low, high
+        self.low, self.high = promote_shapes(low, high)
+        self._support = constraints.interval(self.low, self.high)
         super(LogUniform, self).__init__(
             base_dist, ExpTransform(), validate_args=validate_args
         )
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
 
     @property
     def mean(self):

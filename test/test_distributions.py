@@ -1601,6 +1601,13 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             # we need to ensure this is defined, so force df >= 1
             valid_params[0] += 1
 
+        if jax_dist is dist.LogUniform:
+            # scipy.stats.loguniform take parameter a and b
+            # which is a > 0 and b > a.
+            # gen_values_within_bounds() generates just
+            # a > 0 and b > 0. Then, make b = a + b.
+            valid_params[1] += valid_params[0]
+
     assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
