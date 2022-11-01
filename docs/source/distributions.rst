@@ -233,6 +233,14 @@ LogNormal
     :show-inheritance:
     :member-order: bysource
 
+LogUniform
+^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.LogUniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Logistic
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Logistic
