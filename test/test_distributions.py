@@ -284,6 +284,7 @@ _DIST_MAP = {
     dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
     dist.Laplace: lambda loc, scale: osp.laplace(loc=loc, scale=scale),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=jnp.exp(loc)),
+    dist.LogUniform: lambda a, b: osp.loguniform(a, b),
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(
         n=total_count, p=probs
     ),
@@ -387,6 +388,9 @@ CONTINUOUS = [
     T(dist.LogNormal, 1.0, 0.2),
     T(dist.LogNormal, -1.0, np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.LogUniform, 1.0, 2.0),
+    T(dist.LogUniform, 1.0, np.array([2.0, 3.0])),
+    T(dist.LogUniform, np.array([1.0, 2.0]), np.array([[3.0], [4.0]])),
     T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
     T(
         dist.MultivariateNormal,
@@ -1668,6 +1672,13 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             # scipy.stats.multivariate_t with same mean as jax_dist
             # we need to ensure this is defined, so force df >= 1
             valid_params[0] += 1
+
+        if jax_dist is dist.LogUniform:
+            # scipy.stats.loguniform take parameter a and b
+            # which is a > 0 and b > a.
+            # gen_values_within_bounds() generates just
+            # a > 0 and b > 0. Then, make b = a + b.
+            valid_params[1] += valid_params[0]
 
     assert jax_dist(*oob_params)
 
