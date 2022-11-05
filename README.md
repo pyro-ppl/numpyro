@@ -3,7 +3,7 @@
 [![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 # NumPyro
 
-Probabilistic programming with NumPy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/TPU/CPU.
+Probabilistic programming powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/TPU/CPU.
 
 [Docs and Examples](https://num.pyro.ai) | [Forum](https://forum.pyro.ai/)
 
