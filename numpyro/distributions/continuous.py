@@ -27,7 +27,7 @@
 
 import numpy as np
 
-from jax import lax
+from jax import lax, vmap
 from jax.experimental.sparse import BCOO
 import jax.nn as nn
 import jax.numpy as jnp
@@ -1041,115 +1041,6 @@ class Logistic(Distribution):
         return self.loc + self.scale * logit(q)
 
 
-<<<<<<< HEAD
-def _kron(A, B):
-    D = A[..., :, None, :, None] * B[..., None, :, None, :]
-    ds = D.shape
-    newshape = (*ds[:-4], ds[-4] * ds[-3], ds[-2] * ds[-1])
-    return D.reshape(newshape)
-
-
-class MatrixNormal(Distribution):
-    arg_constraints = {
-        "loc": constraints.real_vector,
-        "scale_columns": constraints.positive_definite,
-        "scale_rows": constraints.positive_definite,
-    }
-    support = constraints.real_matrix
-    reparametrized_params = ["loc", "scale_columns", "scale_rows"]
-
-    def __init__(self, loc, scale_columns, scale_rows, validate_args=None):
-        """_summary_
-
-        Args:
-            loc (_type_): _description_
-            scale_columns (_type_): _description_
-            scale_rows (_type_): _description_
-            validate_args (_type_, optional): _description_. Defaults to None.
-
-        Raises:
-            ValueError: _description_
-        """
-        if not (loc.ndim == scale_columns.ndim == scale_rows.ndim):
-            raise ValueError(
-                "ndim of loc, scale_columns and scale_rows are reuqired to be equal."
-            )
-
-        event_shape = loc.shape[-2:]
-        n, p = event_shape
-        batch_shape = loc.shape[:-2]
-
-        assert scale_rows.shape == batch_shape + (
-            n,
-            n,
-        ), "scale_rows.shape does not match"
-        assert scale_columns.shape == batch_shape + (
-            p,
-            p,
-        ), "scale_rows.shape does not match"
-
-        super(MatrixNormal, self).__init__(
-            batch_shape=batch_shape, event_shape=event_shape
-        )
-
-        self.loc = loc
-        self.scale_columns = scale_columns
-        self.scale_rows = scale_rows
-
-    @property
-    def mean(self):
-        return self.loc
-
-    def sample(self, key, sample_shape=()):
-
-        mvn_dim = np.prod(self.event_shape)
-        loc = jnp.reshape(self.loc, newshape=self.batch_shape + (mvn_dim,), order="F")
-        assert loc.shape == self.batch_shape + (mvn_dim,), "vec shape does not match"
-
-        cov = _kron(self.scale_rows, self.scale_columns)
-        assert cov.shape == self.batch_shape + (
-            mvn_dim,
-            mvn_dim,
-        ), "cov shape does not match"
-
-        mvn = MultivariateNormal(loc=loc, covariance_matrix=cov)
-
-        assert mvn.batch_shape == self.batch_shape, "batch shape of MVN does not match"
-        assert mvn.event_shape == (
-            np.prod(self.event_shape),
-        ), "event shape of MVN does not match"
-
-        samples_mvn = mvn.sample(key, sample_shape=sample_shape)
-        assert samples_mvn.shape == sample_shape + self.batch_shape + (
-            mvn_dim,
-        ), "MVN sample shape does not match"
-        samples_mn = samples_mvn.reshape(
-            sample_shape + self.batch_shape + self.event_shape, order="F"
-        )
-        assert (
-            samples_mn.shape == sample_shape + self.batch_shape + self.event_shape
-        ), "MN sample shape does not match"
-
-        return samples_mn
-
-    def log_prob(self, value):
-        mvn_dim = np.prod(self.event_shape)
-        loc = jnp.reshape(self.loc, newshape=self.batch_shape + (mvn_dim,), order="F")
-        assert loc.shape == self.batch_shape + (mvn_dim,)
-
-        cov = _kron(self.scale_rows, self.scale_coloumns)
-        assert cov.shape == self.batch_shape + (
-            mvn_dim,
-            mvn_dim,
-        ), "cov shape does not match"
-
-        mvn = MultivariateNormal(loc=loc, covariance_matrix=cov)
-        values = jnp.reshape(
-            self.loc, newshape=self.batch_shape + (mvn_dim,), order="F"
-        )
-        log_prob_mvn = mvn.log_prob(values)
-        return log_prob_mvn
-=======
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
@@ -1182,7 +1073,115 @@ class LogUniform(TransformedDistribution):
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
->>>>>>> master
+
+
+class MatrixNormal(Distribution):
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "scale_tril_row": constraints.lower_cholesky,
+        "scale_tril_column": constraints.lower_cholesky,
+    }
+    support = constraints.real_matrix
+    reparametrized_params = [
+        "loc",
+        "scale_tril_row",
+        "scale_tril_column",
+    ]
+
+    def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
+        """_summary_
+
+        Args:
+            loc (_type_): _description_
+            scale_tril_row (_type_): _description_
+            scale_tril_column (_type_): _description_
+            validate_args (_type_, optional): _description_. Defaults to None.
+
+        Raises:
+            ValueError: _description_
+        """
+        if not (loc.ndim == scale_tril_column.ndim == scale_tril_row.ndim):
+            raise ValueError(
+                "ndim of loc, scale_tril_column and scale_tril_row are reuqired to be equal."
+            )
+
+        event_shape = loc.shape[-2:]
+        n, p = event_shape
+        batch_shape = loc.shape[:-2]
+
+        assert scale_tril_row.shape == batch_shape + (
+            n,
+            n,
+        ), "scale_tril_row.shape does not match"
+        assert scale_tril_column.shape == batch_shape + (
+            p,
+            p,
+        ), "scale_tril_row.shape does not match"
+
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-2],
+            jnp.shape(scale_tril_row)[:-2],
+            jnp.shape(scale_tril_column)[:-2],
+        )
+        super(MatrixNormal, self).__init__(
+            batch_shape=batch_shape, event_shape=event_shape
+        )
+
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-2:])
+        (self.scale_tril_row,) = promote_shapes(
+            scale_tril_row, shape=batch_shape + scale_tril_row.shape[-2:]
+        )
+        (self.scale_tril_column,) = promote_shapes(
+            scale_tril_column, shape=batch_shape + scale_tril_column.shape[-2:]
+        )
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(self.loc, self.shape())
+
+    def sample(self, key, sample_shape=()):
+
+        eps = random.normal(
+            key, shape=sample_shape + self.batch_shape + self.event_shape
+        )
+        samples = self.loc + self.scale_tril_row @ eps @ jnp.swapaxes(
+            self.scale_tril_column, -2, -1
+        )
+
+        return samples
+
+    def log_prob(self, values):
+        n, p = self.event_shape()
+
+        row_log_det = jnp.log(
+            jnp.diagonal(self.scale_tril_row, axis1=-2, axis2=-1)
+        ).sum(-1)
+        col_log_det = jnp.log(
+            jnp.diagonal(self.scale_tril_column, axis1=-2, axis2=-1)
+        ).sum(-1)
+        log_det_term = (
+            p * row_log_det + n * col_log_det + 0.5 * n * p * jnp.log(2 * jnp.pi)
+        )
+
+        # compute the trace term
+        diff = values - self.loc
+        diff_row_solve = vmap(
+            lambda x, y: solve_triangular(x, y, lower=True), in_axes=(None, 0)
+        )(self.scale_tril_row, diff)
+        diff_col_solve = vmap(
+            lambda x, y: solve_triangular(x, y, lower=True), in_axes=(None, 0)
+        )(self.scale_tril_column, jnp.swapaxes(diff_row_solve, -2, -1))
+        diff_row_solve = solve_triangular(self.scale_tril_row, diff, lower=True)
+        diff_col_solve = solve_triangular(
+            self.scale_tril_column, jnp.swapaxes(diff_row_solve, -2, -1), lower=True
+        )
+        trace_term = jnp.square(
+            diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
+        ).sum(-1)
+
+        log_prob = -0.5 * trace_term - log_det_term
+
+        return log_prob
 
 
 def _batch_mahalanobis(bL, bx):

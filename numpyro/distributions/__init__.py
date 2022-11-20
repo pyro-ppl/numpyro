@@ -148,11 +148,8 @@ __all__ = [
     "LeftTruncatedDistribution",
     "Logistic",
     "LogNormal",
-<<<<<<< HEAD
-    "MatrixNormal",
-=======
     "LogUniform",
->>>>>>> master
+    "MatrixNormal",
     "MaskedDistribution",
     "Mixture",
     "MixtureSameFamily",
