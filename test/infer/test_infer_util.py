@@ -179,7 +179,9 @@ def test_log_likelihood(batch_shape):
     # check shapes
     assert preds["obs"].shape == batch_shape + data.shape
     assert loglik["obs"].shape == batch_shape + data.shape
-    assert_allclose(loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data))
+    assert_allclose(
+        loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data), rtol=1e-6
+    )
 
 
 def test_model_with_transformed_distribution():

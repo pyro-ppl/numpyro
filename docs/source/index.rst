@@ -74,6 +74,7 @@ NumPyro documentation
    examples/mortality
    examples/zero_inflated_poisson
    examples/cvae
+   tutorials/tbip
 
 .. nbgallery::
    :maxdepth: 1

@@ -49,8 +49,10 @@ setup(
             "sphinx-gallery",
         ],
         "test": [
+            "importlib-metadata<5.0",
             "black[jupyter]>=21.8b0",
             "flake8",
+            "importlib-metadata<5.0",
             "isort>=5.0",
             "pytest>=4.1",
             "pyro-api>=0.1.1",

@@ -32,6 +32,7 @@ from numpyro.distributions.continuous import (
     LKJCholesky,
     Logistic,
     LogNormal,
+    LogUniform,
     LowRankMultivariateNormal,
     MatrixNormal,
     MultivariateNormal,
@@ -147,7 +148,11 @@ __all__ = [
     "LeftTruncatedDistribution",
     "Logistic",
     "LogNormal",
+<<<<<<< HEAD
     "MatrixNormal",
+=======
+    "LogUniform",
+>>>>>>> master
     "MaskedDistribution",
     "Mixture",
     "MixtureSameFamily",

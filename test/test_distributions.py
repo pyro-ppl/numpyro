@@ -284,6 +284,7 @@ _DIST_MAP = {
     dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
     dist.Laplace: lambda loc, scale: osp.laplace(loc=loc, scale=scale),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=jnp.exp(loc)),
+    dist.LogUniform: lambda a, b: osp.loguniform(a, b),
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(
         n=total_count, p=probs
     ),
@@ -387,6 +388,7 @@ CONTINUOUS = [
     T(dist.LogNormal, 1.0, 0.2),
     T(dist.LogNormal, -1.0, np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+<<<<<<< HEAD
     T(
         dist.MatrixNormal,
         np.arange(6).reshape(3, 2),
@@ -409,6 +411,11 @@ CONTINUOUS = [
         np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]])
         * np.ones((2, 3, 3, 3)),
     ),
+=======
+    T(dist.LogUniform, 1.0, 2.0),
+    T(dist.LogUniform, 1.0, np.array([2.0, 3.0])),
+    T(dist.LogUniform, np.array([1.0, 2.0]), np.array([[3.0], [4.0]])),
+>>>>>>> master
     T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
     T(
         dist.MultivariateNormal,
@@ -1204,11 +1211,21 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+def test_mixture_log_prob():
+    gmm = dist.MixtureSameFamily(
+        dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
+    )
+    actual = gmm.log_prob(0.0)
+    expected = dist.Normal(0, 1).log_prob(0.0)
+    assert_allclose(actual, expected)
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params",
     # TODO: add more complete pattern for Discrete.cdf
     CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0]))],
 )
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     if d.event_dim > 0:
@@ -1216,8 +1233,8 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
+        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.StudentT) else 1e-5
         if d.shape() == () and not d.is_discrete:
-            rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
                 jnp.exp(d.log_prob(samples)),
@@ -1231,7 +1248,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
                 rtol=rtol,
             )
         assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
-        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
         pass
 
@@ -1245,7 +1262,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         assert_allclose(actual_cdf, expected_cdf, atol=1e-5, rtol=1e-5)
         actual_icdf = d.icdf(quantiles)
         expected_icdf = sp_dist.ppf(quantiles)
-        assert_allclose(actual_icdf, expected_icdf, atol=1e-5, rtol=1e-4)
+        assert_allclose(actual_icdf, expected_icdf, atol=1e-4, rtol=1e-4)
     except NotImplementedError:
         pass
 
@@ -1680,6 +1697,13 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             # scipy.stats.multivariate_t with same mean as jax_dist
             # we need to ensure this is defined, so force df >= 1
             valid_params[0] += 1
+
+        if jax_dist is dist.LogUniform:
+            # scipy.stats.loguniform take parameter a and b
+            # which is a > 0 and b > a.
+            # gen_values_within_bounds() generates just
+            # a > 0 and b > 0. Then, make b = a + b.
+            valid_params[1] += valid_params[0]
 
     assert jax_dist(*oob_params)
 

@@ -34,7 +34,6 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import (
-    betainc,
     betaln,
     expit,
     gammainc,
@@ -58,7 +57,10 @@ from numpyro.distributions.transforms import (
     SigmoidTransform,
 )
 from numpyro.distributions.util import (
+    betainc,
+    betaincinv,
     cholesky_of_inverse,
+    gammaincinv,
     is_prng_key,
     lazy_property,
     matrix_to_tril_vec,
@@ -186,6 +188,9 @@ class Beta(Distribution):
 
     def cdf(self, value):
         return betainc(self.concentration1, self.concentration0, value)
+
+    def icdf(self, q):
+        return betaincinv(self.concentration1, self.concentration0, q)
 
 
 class Cauchy(Distribution):
@@ -362,6 +367,9 @@ class Gamma(Distribution):
 
     def cdf(self, x):
         return gammainc(self.concentration, self.rate * x)
+
+    def icdf(self, q):
+        return gammaincinv(self.concentration, q) / self.rate
 
 
 class Chi2(Gamma):
@@ -1033,6 +1041,7 @@ class Logistic(Distribution):
         return self.loc + self.scale * logit(q)
 
 
+<<<<<<< HEAD
 def _kron(A, B):
     D = A[..., :, None, :, None] * B[..., None, :, None, :]
     ds = D.shape
@@ -1140,6 +1149,40 @@ class MatrixNormal(Distribution):
         )
         log_prob_mvn = mvn.log_prob(values)
         return log_prob_mvn
+=======
+class LogUniform(TransformedDistribution):
+    arg_constraints = {"low": constraints.positive, "high": constraints.positive}
+    reparametrized_params = ["low", "high"]
+
+    def __init__(self, low, high, *, validate_args=None):
+        base_dist = Uniform(jnp.log(low), jnp.log(high))
+        self.low, self.high = promote_shapes(low, high)
+        self._support = constraints.interval(self.low, self.high)
+        super(LogUniform, self).__init__(
+            base_dist, ExpTransform(), validate_args=validate_args
+        )
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    @property
+    def mean(self):
+        return (self.high - self.low) / jnp.log(self.high / self.low)
+
+    @property
+    def variance(self):
+        return (
+            0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
+            - self.mean**2
+        )
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
+    def cdf(self, x):
+        return self.base_dist.cdf(jnp.log(x))
+>>>>>>> master
 
 
 def _batch_mahalanobis(bL, bx):
@@ -2018,11 +2061,6 @@ class StudentT(Distribution):
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value):
-        try:
-            from tensorflow_probability.substrates.jax.math import betainc as betainc_fn
-        except ImportError:
-            from jax.scipy.special import betainc as betainc_fn
-
         # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
         # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
         scaled = (value - self.loc) / self.scale
@@ -2031,19 +2069,17 @@ class StudentT(Distribution):
 
         # when scaled < 0, returns 0.5 * Beta(df/2, 0.5).cdf(beta_value)
         # when scaled > 0, returns 1 - 0.5 * Beta(df/2, 0.5).cdf(beta_value)
-        scaled_sign_half = 0.5 * jnp.sign(scaled)
-        return (
-            0.5
-            + scaled_sign_half
-            - 0.5
-            * jnp.sign(scaled)
-            * betainc_fn(0.5 * jnp.asarray(self.df), 0.5, jnp.asarray(beta_value))
+        return 0.5 * (
+            1
+            + jnp.sign(scaled)
+            - jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
     def icdf(self, q):
-        # scipy.special.betaincinv is not avaiable yet in JAX
-        # upstream issue: https://github.com/google/jax/issues/2399
-        raise NotImplementedError
+        beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
+        scaled_squared = self.df * (1 / beta_value - 1)
+        scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
+        return scaled * self.scale + self.loc
 
 
 class Uniform(Distribution):
