@@ -27,7 +27,7 @@
 
 import numpy as np
 
-from jax import lax, vmap
+from jax import lax
 from jax.experimental.sparse import BCOO
 import jax.nn as nn
 import jax.numpy as jnp
@@ -1075,6 +1075,41 @@ class LogUniform(TransformedDistribution):
         return self.base_dist.cdf(jnp.log(x))
 
 
+def _batch_solve_triangular(A, B, sample_shape, batch_shape, event_shape):
+    """Extende solve_triangular for the case that B.ndim > A.ndim.
+        This is achived by first flattening the leadind B.ndim - A.ndim axes of B and
+        then moving them to the end.
+
+    Args:
+        A (_type_): A triangular array.
+        B (_type_): _description_
+        sample_shape (_type_): _description_
+        batch_shape (_type_): _description_
+        event_shape (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    n, p = event_shape
+    B_flat = jnp.moveaxis(B.reshape((-1,) + batch_shape + event_shape), 0, -2).reshape(
+        batch_shape + (n,) + (-1,)
+    )
+
+    X_flat = solve_triangular(A, B_flat, lower=True)
+
+    sample_shape_dim = len(sample_shape)
+    src_axes = tuple([-2 - i for i in range(sample_shape_dim)])
+    src_axes = src_axes[::-1]
+    dest_axes = tuple([i for i in range(sample_shape_dim)])
+
+    X = jnp.moveaxis(
+        X_flat.reshape(batch_shape + (n,) + sample_shape + (p,)),
+        src_axes,
+        dest_axes,
+    )
+    return X
+
+
 class MatrixNormal(Distribution):
     arg_constraints = {
         "loc": constraints.real_vector,
@@ -1082,19 +1117,15 @@ class MatrixNormal(Distribution):
         "scale_tril_column": constraints.lower_cholesky,
     }
     support = constraints.real_matrix
-    reparametrized_params = [
-        "loc",
-        "scale_tril_row",
-        "scale_tril_column",
-    ]
+    reparametrized_params = ["loc", "scale_tril_column", "scale_tril_row"]
 
-    def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
+    def __init__(self, loc, scale_tril_column, scale_tril_row, validate_args=None):
         """_summary_
 
         Args:
             loc (_type_): _description_
-            scale_tril_row (_type_): _description_
             scale_tril_column (_type_): _description_
+            scale_tril_row (_type_): _description_
             validate_args (_type_, optional): _description_. Defaults to None.
 
         Raises:
@@ -1126,7 +1157,6 @@ class MatrixNormal(Distribution):
         super(MatrixNormal, self).__init__(
             batch_shape=batch_shape, event_shape=event_shape
         )
-
         (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-2:])
         (self.scale_tril_row,) = promote_shapes(
             scale_tril_row, shape=batch_shape + scale_tril_row.shape[-2:]
@@ -1151,7 +1181,9 @@ class MatrixNormal(Distribution):
         return samples
 
     def log_prob(self, values):
-        n, p = self.event_shape()
+
+        sample_shape = values.shape[: -self.loc.ndim]
+        n, p = self.event_shape
 
         row_log_det = jnp.log(
             jnp.diagonal(self.scale_tril_row, axis1=-2, axis2=-1)
@@ -1165,21 +1197,32 @@ class MatrixNormal(Distribution):
 
         # compute the trace term
         diff = values - self.loc
-        diff_row_solve = vmap(
-            lambda x, y: solve_triangular(x, y, lower=True), in_axes=(None, 0)
-        )(self.scale_tril_row, diff)
-        diff_col_solve = vmap(
-            lambda x, y: solve_triangular(x, y, lower=True), in_axes=(None, 0)
-        )(self.scale_tril_column, jnp.swapaxes(diff_row_solve, -2, -1))
-        diff_row_solve = solve_triangular(self.scale_tril_row, diff, lower=True)
-        diff_col_solve = solve_triangular(
-            self.scale_tril_column, jnp.swapaxes(diff_row_solve, -2, -1), lower=True
+        diff_row_solve = _batch_solve_triangular(
+            A=self.scale_tril_row,
+            B=diff,
+            sample_shape=sample_shape,
+            batch_shape=self.batch_shape,
+            event_shape=self.event_shape,
         )
-        trace_term = jnp.square(
+        diff_col_solve = _batch_solve_triangular(
+            A=self.scale_tril_column,
+            B=jnp.swapaxes(diff_row_solve, -2, -1),
+            sample_shape=sample_shape,
+            batch_shape=self.batch_shape,
+            event_shape=self.event_shape[::-1],
+        )
+        batched_trace_term = jnp.square(
             diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
         ).sum(-1)
+        # diff_row_solve = solve_triangular(self.scale_tril_row, diff, lower=True)
+        # diff_col_solve = solve_triangular(
+        #     self.scale_tril_column, jnp.swapaxes(diff_row_solve, -2, -1), lower=True
+        # )
+        # trace_term = jnp.square(
+        #     diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
+        # ).sum(-1)
 
-        log_prob = -0.5 * trace_term - log_det_term
+        log_prob = -0.5 * batched_trace_term - log_det_term
 
         return log_prob
 
