@@ -4,6 +4,7 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+from itertools import product
 import math
 import os
 
@@ -46,6 +47,12 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
+
+def my_kron(A, B):
+    D = A[..., :, None, :, None] * B[..., None, :, None, :]
+    ds = D.shape
+    newshape = (*ds[:-4], ds[-4] * ds[-3], ds[-2] * ds[-1])
+    return D.reshape(newshape)
 
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
@@ -393,24 +400,24 @@ CONTINUOUS = [
     T(dist.LogUniform, np.array([1.0, 2.0]), np.array([[3.0], [4.0]])),
     T(
         dist.MatrixNormal,
-        np.arange(6).reshape(3, 2),
-        np.array([[1.0, 0.4], [0.4, 1]]),
-        np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]]),
+        1.*np.arange(6).reshape(3, 2),
+        np.array([[1.0, 0], [0.4, 1]]),
+        np.array([[1.0, 0, 0], [0.3, 0.36, 0], [0.4, 0.49, 4]]),
     ),
     T(
         dist.MatrixNormal,
-        np.arange(18).reshape((2, 3, 3)),
-        np.array([[1.0, 0.4, 0.3], [0.4, 1, 0.5], [0.3, 0.5, 1.25]])
+        1.*np.arange(18).reshape((2, 3, 3)),
+        np.array([[1.0, 0, 0], [0.4, 1, 0], [0.3, 0.5, 1.25]])
         * np.ones((2, 3, 3)),
-        np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]])
+        np.array([[1.0, 0, 0], [0.3, 0.36, 0], [0.4, 0.49, 4]])
         * np.ones((2, 3, 3)),
     ),
     T(
         dist.MatrixNormal,
-        np.reshape(np.arange(54), (2, 3, 3, 3)),
-        np.array([[1.0, 0.4, 0.3], [0.4, 1, 0.5], [0.3, 0.5, 1.25]])
+        1.*np.arange(54).reshape((2, 3, 3, 3)),
+        np.array([[1.0, 0, 0], [0.4, 1, 0], [0.3, 0.5, 1.25]])
         * np.ones((2, 3, 3, 3)),
-        np.array([[1.0, 0.3, 0.4], [0.3, 0.36, 0.49], [0.4, 0.49, 4]])
+        np.array([[1.0, 0., 0.], [0.3, 0.36, 0.], [0.4, 0.49, 4]])
         * np.ones((2, 3, 3, 3)),
     ),
     T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
@@ -1278,7 +1285,7 @@ def test_gof(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
     probs = np.exp(d.log_prob(samples))
-
+    
     dim = None
     if jax_dist is dist.ProjectedNormal:
         dim = samples.shape[-1] - 1
@@ -1540,7 +1547,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
-
+    
     n = (
         20000
         if jax_dist in [dist.LKJ, dist.LKJCholesky, dist.SineBivariateVonMises]
@@ -1554,7 +1561,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     if (
         sp_dist
         and not _is_batched_multivariate(d_jax)
-        and jax_dist not in [dist.VonMises, dist.MultivariateStudentT]
+        and jax_dist not in [dist.VonMises, dist.MultivariateStudentT,dist.MatrixNormal]
     ):
         d_sp = sp_dist(*params)
         try:
@@ -1624,6 +1631,42 @@ def test_mean_var(jax_dist, sp_dist, params):
         assert_allclose(
             d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2
         )
+    elif jax_dist in [dist.MatrixNormal]:
+        sample_shape=(200_000,) 
+        # use X ~ MN(loc, U, V) then vec(X) ~ MVN(vec(loc), kron(V, U))
+        if len(d_jax.batch_shape)>0:   
+            axes=[len(sample_shape)+i for i in range(len(d_jax.batch_shape))]
+            axes=tuple(axes)
+            samples_re = jnp.moveaxis(samples, axes, jnp.arange(len(axes)))
+            subshape = samples_re.shape[:len(axes)] 
+            ixi = product(*[range(k) for k in subshape])
+            for ix in ixi:
+                #mean
+                jnp.allclose(
+                    jnp.mean(samples_re[ix], 0),
+                    jnp.squeeze(d_jax.mean[ix]),
+                    rtol=0.5,
+                    atol=1e-2,
+                )
+                # cov
+                samples_mvn = jnp.squeeze(samples_re[ix]).reshape(sample_shape +  (-1,), order="F")
+                scale_tril = my_kron(jnp.squeeze(d_jax.scale_tril_column[ix]), jnp.squeeze(d_jax.scale_tril_row[ix]))
+                sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
+                jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
+        else:# unbatched
+
+            #mean
+            jnp.allclose(
+                jnp.mean(samples, 0),
+                jnp.squeeze(d_jax.mean),
+                rtol=0.5,
+                atol=1e-2,
+            )
+            # cov
+            samples_mvn = jnp.squeeze(samples).reshape(sample_shape +  (-1,), order="F")
+            scale_tril = my_kron(jnp.squeeze(d_jax.scale_tril_column), jnp.squeeze(d_jax.scale_tril_row))
+            sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
+            jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
