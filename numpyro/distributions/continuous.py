@@ -1131,31 +1131,12 @@ class MatrixNormal(Distribution):
         Raises:
             ValueError: _description_
         """
-        if not (loc.ndim == scale_tril_column.ndim == scale_tril_row.ndim):
-            raise ValueError(
-                "ndim of loc, scale_tril_column and scale_tril_row are reuqired to be equal."
-            )
 
         event_shape = loc.shape[-2:]
-        n, p = event_shape
-        batch_shape = loc.shape[:-2]
-
-        assert scale_tril_row.shape == batch_shape + (
-            n,
-            n,
-        ), "scale_tril_row.shape does not match"
-        assert scale_tril_column.shape == batch_shape + (
-            p,
-            p,
-        ), "scale_tril_row.shape does not match"
-
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2],
             jnp.shape(scale_tril_row)[:-2],
             jnp.shape(scale_tril_column)[:-2],
-        )
-        super(MatrixNormal, self).__init__(
-            batch_shape=batch_shape, event_shape=event_shape
         )
         (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-2:])
         (self.scale_tril_row,) = promote_shapes(
@@ -1163,6 +1144,11 @@ class MatrixNormal(Distribution):
         )
         (self.scale_tril_column,) = promote_shapes(
             scale_tril_column, shape=batch_shape + scale_tril_column.shape[-2:]
+        )
+        super(MatrixNormal, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
         )
 
     @property
@@ -1180,6 +1166,7 @@ class MatrixNormal(Distribution):
 
         return samples
 
+    @validate_sample
     def log_prob(self, values):
 
         sample_shape = values.shape[: -self.loc.ndim]
