@@ -306,7 +306,7 @@ class EulerMaruyama(Distribution):
         self.sde_pars = sde_pars
         self.init_dist = init_dist
 
-        batch_shape, event_shape = init_dist.batch_shape, (jnp.shape(t)[-1],)
+        batch_shape, event_shape = init_dist.batch_shape, jnp.shape(t)
 
         super(EulerMaruyama, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
