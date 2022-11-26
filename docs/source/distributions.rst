@@ -144,6 +144,14 @@ Dirichlet
     :show-inheritance:
     :member-order: bysource
 
+EulerMaruyama
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.EulerMaruyama
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Exponential
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Exponential

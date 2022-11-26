@@ -29,6 +29,7 @@ import numpy as np
 
 from jax import lax
 from jax.experimental.sparse import BCOO
+from jax.lax import scan
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
@@ -290,6 +291,62 @@ class Dirichlet(Distribution):
         return batch_shape, event_shape
 
 
+class EulerMaruyama(Distribution):
+    arg_constraints = {"t": constraints.ordered_vector}
+
+    support = constraints.real
+
+    def __init__(self, t, sde_fn, sde_pars, init_dist, validate_args=None):
+        # we use t rather than (dt, num_steps) to make the api simpler and more general,
+        # `init_dist` will define prior for the init value,
+        # event dimensions will be decided by `init_dist`
+        self.t = t
+        self.dt = jnp.diff(t)
+        self.sde_fn = sde_fn
+        self.sde_pars = sde_pars
+        self.init_dist = init_dist
+
+        batch_shape, event_shape = init_dist.batch_shape, (jnp.shape(t)[-1],)
+
+        super(EulerMaruyama, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        noises = random.normal(key, shape=sample_shape + self.event_shape)
+
+        def step(y_curr, xs):
+            t_curr, dt_curr, noise_curr = xs[0], xs[1], xs[2:].T
+
+            f, g = self.sde_fn(y_curr, t_curr, self.sde_pars)
+            mu = y_curr + dt_curr * f
+            sigma = jnp.sqrt(dt_curr) * g
+            y_next = mu + sigma * noise_curr
+            return y_next, y_next
+
+        xs = jnp.hstack(
+            (self.t[..., :-1, jnp.newaxis], self.dt[:, jnp.newaxis], noises[..., :-1].T)
+        )
+
+        _, sde_out = scan(
+            step, self.init_dist.sample(key, sample_shape=sample_shape), xs
+        )
+        print(sde_out)
+        return sde_out
+
+    @validate_sample
+    def log_prob(self, value):
+        xt = value[:-1]
+        f, g = self.sde_fn(value[:-1], self.t[:-1], self.sde_pars)
+        mu = xt + self.dt * f
+        sigma = jnp.sqrt(self.dt) * g
+        sde_log_prob = jnp.sum(Normal(mu, sigma).log_prob(value[1:]))
+        init_log_prob = self.init_dist.log_prob(value[0])
+
+        return sde_log_prob + init_log_prob
+
+
 class Exponential(Distribution):
     reparametrized_params = ["rate"]
     arg_constraints = {"rate": constraints.positive}
@@ -337,6 +394,10 @@ class Gamma(Distribution):
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
+        print(concentration, rate)
+        print(self.concentration, self.rate)
+        print(jnp.shape(concentration), jnp.shape(rate))
+        print(batch_shape)
         super(Gamma, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
