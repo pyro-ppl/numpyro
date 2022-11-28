@@ -1075,7 +1075,7 @@ class LogUniform(TransformedDistribution):
         return self.base_dist.cdf(jnp.log(x))
 
 
-def _batch_solve_triangular(A, B, sample_shape, batch_shape, event_shape):
+def _batch_solve_triangular(A, B):
     """Extende solve_triangular for the case that B.ndim > A.ndim.
         This is achived by first flattening the leadind B.ndim - A.ndim axes of B and
         then moving them to the end.
@@ -1083,14 +1083,19 @@ def _batch_solve_triangular(A, B, sample_shape, batch_shape, event_shape):
     Args:
         A (_type_): A triangular array.
         B (_type_): _description_
-        sample_shape (_type_): _description_
-        batch_shape (_type_): _description_
-        event_shape (_type_): _description_
 
     Returns:
         _type_: _description_
     """
+
+    event_shape = B.shape[-2:]
+    batch_shape = lax.broadcast_shapes(A.shape[:-2], B.shape[-A.ndim : -2])
+    sample_shape = B.shape[: -A.ndim]
     n, p = event_shape
+
+    A = jnp.broadcast_to(A, batch_shape + A.shape[-2:])
+    B = jnp.broadcast_to(B, sample_shape + batch_shape + event_shape)
+
     B_flat = jnp.moveaxis(B.reshape((-1,) + batch_shape + event_shape), 0, -2).reshape(
         batch_shape + (n,) + (-1,)
     )
@@ -1169,7 +1174,6 @@ class MatrixNormal(Distribution):
     @validate_sample
     def log_prob(self, values):
 
-        sample_shape = values.shape[: -self.loc.ndim]
         n, p = self.event_shape
 
         row_log_det = jnp.log(
@@ -1186,28 +1190,15 @@ class MatrixNormal(Distribution):
         diff = values - self.loc
         diff_row_solve = _batch_solve_triangular(
             A=self.scale_tril_row,
-            B=diff,
-            sample_shape=sample_shape,
-            batch_shape=self.batch_shape,
-            event_shape=self.event_shape,
+            B=diff
         )
         diff_col_solve = _batch_solve_triangular(
             A=self.scale_tril_column,
-            B=jnp.swapaxes(diff_row_solve, -2, -1),
-            sample_shape=sample_shape,
-            batch_shape=self.batch_shape,
-            event_shape=self.event_shape[::-1],
+            B=jnp.swapaxes(diff_row_solve, -2, -1)
         )
         batched_trace_term = jnp.square(
             diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
         ).sum(-1)
-        # diff_row_solve = solve_triangular(self.scale_tril_row, diff, lower=True)
-        # diff_col_solve = solve_triangular(
-        #     self.scale_tril_column, jnp.swapaxes(diff_row_solve, -2, -1), lower=True
-        # )
-        # trace_term = jnp.square(
-        #     diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
-        # ).sum(-1)
 
         log_prob = -0.5 * batched_trace_term - log_det_term
 
