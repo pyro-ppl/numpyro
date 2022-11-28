@@ -1188,13 +1188,9 @@ class MatrixNormal(Distribution):
 
         # compute the trace term
         diff = values - self.loc
-        diff_row_solve = _batch_solve_triangular(
-            A=self.scale_tril_row,
-            B=diff
-        )
+        diff_row_solve = _batch_solve_triangular(A=self.scale_tril_row, B=diff)
         diff_col_solve = _batch_solve_triangular(
-            A=self.scale_tril_column,
-            B=jnp.swapaxes(diff_row_solve, -2, -1)
+            A=self.scale_tril_column, B=jnp.swapaxes(diff_row_solve, -2, -1)
         )
         batched_trace_term = jnp.square(
             diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
