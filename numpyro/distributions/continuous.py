@@ -1083,7 +1083,7 @@ def _batch_solve_triangular(A, B):
 
 
     :param jnp.ndarray (...,M,M) A: An array with lower triangular structure in the last two dimensions.
-    :param jnp.ndarray (...,M,) or (...,M,N) B: Right-hand side matrix in A x = B.
+    :param jnp.ndarray (...,M,N) B: Right-hand side matrix in A x = B.
 
     :return: Solution of A x = B.
     """
