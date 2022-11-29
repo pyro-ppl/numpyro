@@ -44,14 +44,6 @@ Independent
     :show-inheritance:
     :member-order: bysource
 
-MatrixNormal
-^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.distribution.MatrixNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 MaskedDistribution
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.distribution.MaskedDistribution
@@ -259,6 +251,14 @@ LogUniform
 Logistic
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Logistic
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+MatrixNormal
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MatrixNormal
     :members:
     :undoc-members:
     :show-inheritance:

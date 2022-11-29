@@ -1076,18 +1076,17 @@ class LogUniform(TransformedDistribution):
 
 
 def _batch_solve_triangular(A, B):
-    """Extende solve_triangular for the case that B.ndim > A.ndim.
-        This is achived by first flattening the leadind B.ndim - A.ndim axes of B and
-        then moving them to the end.
-
-    Args:
-        A (_type_): A triangular array.
-        B (_type_): _description_
-
-    Returns:
-        _type_: _description_
     """
+    Extende solve_triangular for the case that B.ndim > A.ndim.
+    This is achived by first flattening the leading B.ndim - A.ndim dimensions of B and then
+    moving the first dimension to the end.
 
+
+    :param jnp.ndarray (...,M,M) A: An array with lower triangular structure in the last two dimensions.
+    :param jnp.ndarray (...,M,) or (...,M,N) B: Right-hand side matrix in A x = B.
+
+    :return: Solution of A x = B.
+    """
     event_shape = B.shape[-2:]
     batch_shape = lax.broadcast_shapes(A.shape[:-2], B.shape[-A.ndim : -2])
     sample_shape = B.shape[: -A.ndim]
@@ -1116,27 +1115,34 @@ def _batch_solve_triangular(A, B):
 
 
 class MatrixNormal(Distribution):
+    """
+    Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization,
+    i.e. :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`.
+    The distribution is related to the multivariate normal distribution in the following way.
+    If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
+
+    :param array_like loc: Location of the distribution.
+    :param array_like scale_tril_row: Lower cholesky of rows correlation matrix.
+    :param array_like scale_tril_column: Lower cholesky of columns correlation matrix.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Matrix_normal_distribution
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "scale_tril_row": constraints.lower_cholesky,
         "scale_tril_column": constraints.lower_cholesky,
     }
     support = constraints.real_matrix
-    reparametrized_params = ["loc", "scale_tril_column", "scale_tril_row"]
+    reparametrized_params = [
+        "loc",
+        "scale_tril_row",
+        "scale_tril_column",
+    ]
 
-    def __init__(self, loc, scale_tril_column, scale_tril_row, validate_args=None):
-        """_summary_
-
-        Args:
-            loc (_type_): _description_
-            scale_tril_column (_type_): _description_
-            scale_tril_row (_type_): _description_
-            validate_args (_type_, optional): _description_. Defaults to None.
-
-        Raises:
-            ValueError: _description_
-        """
-
+    def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
         event_shape = loc.shape[-2:]
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2],
