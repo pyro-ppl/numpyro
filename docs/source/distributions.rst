@@ -256,6 +256,14 @@ Logistic
     :show-inheritance:
     :member-order: bysource
 
+MatrixNormal
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MatrixNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 MultivariateNormal
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateNormal

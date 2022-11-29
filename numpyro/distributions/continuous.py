@@ -1075,6 +1075,138 @@ class LogUniform(TransformedDistribution):
         return self.base_dist.cdf(jnp.log(x))
 
 
+def _batch_solve_triangular(A, B):
+    """
+    Extende solve_triangular for the case that B.ndim > A.ndim.
+    This is achived by first flattening the leading B.ndim - A.ndim dimensions of B and then
+    moving the first dimension to the end.
+
+
+    :param jnp.ndarray (...,M,M) A: An array with lower triangular structure in the last two dimensions.
+    :param jnp.ndarray (...,M,N) B: Right-hand side matrix in A x = B.
+
+    :return: Solution of A x = B.
+    """
+    event_shape = B.shape[-2:]
+    batch_shape = lax.broadcast_shapes(A.shape[:-2], B.shape[-A.ndim : -2])
+    sample_shape = B.shape[: -A.ndim]
+    n, p = event_shape
+
+    A = jnp.broadcast_to(A, batch_shape + A.shape[-2:])
+    B = jnp.broadcast_to(B, sample_shape + batch_shape + event_shape)
+
+    B_flat = jnp.moveaxis(B.reshape((-1,) + batch_shape + event_shape), 0, -2).reshape(
+        batch_shape + (n,) + (-1,)
+    )
+
+    X_flat = solve_triangular(A, B_flat, lower=True)
+
+    sample_shape_dim = len(sample_shape)
+    src_axes = tuple([-2 - i for i in range(sample_shape_dim)])
+    src_axes = src_axes[::-1]
+    dest_axes = tuple([i for i in range(sample_shape_dim)])
+
+    X = jnp.moveaxis(
+        X_flat.reshape(batch_shape + (n,) + sample_shape + (p,)),
+        src_axes,
+        dest_axes,
+    )
+    return X
+
+
+class MatrixNormal(Distribution):
+    """
+    Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization,
+    i.e. :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`.
+    The distribution is related to the multivariate normal distribution in the following way.
+    If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
+
+    :param array_like loc: Location of the distribution.
+    :param array_like scale_tril_row: Lower cholesky of rows correlation matrix.
+    :param array_like scale_tril_column: Lower cholesky of columns correlation matrix.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Matrix_normal_distribution
+    """
+
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "scale_tril_row": constraints.lower_cholesky,
+        "scale_tril_column": constraints.lower_cholesky,
+    }
+    support = constraints.real_matrix
+    reparametrized_params = [
+        "loc",
+        "scale_tril_row",
+        "scale_tril_column",
+    ]
+
+    def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
+        event_shape = loc.shape[-2:]
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-2],
+            jnp.shape(scale_tril_row)[:-2],
+            jnp.shape(scale_tril_column)[:-2],
+        )
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-2:])
+        (self.scale_tril_row,) = promote_shapes(
+            scale_tril_row, shape=batch_shape + scale_tril_row.shape[-2:]
+        )
+        (self.scale_tril_column,) = promote_shapes(
+            scale_tril_column, shape=batch_shape + scale_tril_column.shape[-2:]
+        )
+        super(MatrixNormal, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(self.loc, self.shape())
+
+    def sample(self, key, sample_shape=()):
+
+        eps = random.normal(
+            key, shape=sample_shape + self.batch_shape + self.event_shape
+        )
+        samples = self.loc + self.scale_tril_row @ eps @ jnp.swapaxes(
+            self.scale_tril_column, -2, -1
+        )
+
+        return samples
+
+    @validate_sample
+    def log_prob(self, values):
+
+        n, p = self.event_shape
+
+        row_log_det = jnp.log(
+            jnp.diagonal(self.scale_tril_row, axis1=-2, axis2=-1)
+        ).sum(-1)
+        col_log_det = jnp.log(
+            jnp.diagonal(self.scale_tril_column, axis1=-2, axis2=-1)
+        ).sum(-1)
+        log_det_term = (
+            p * row_log_det + n * col_log_det + 0.5 * n * p * jnp.log(2 * jnp.pi)
+        )
+
+        # compute the trace term
+        diff = values - self.loc
+        diff_row_solve = _batch_solve_triangular(A=self.scale_tril_row, B=diff)
+        diff_col_solve = _batch_solve_triangular(
+            A=self.scale_tril_column, B=jnp.swapaxes(diff_row_solve, -2, -1)
+        )
+        batched_trace_term = jnp.square(
+            diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
+        ).sum(-1)
+
+        log_prob = -0.5 * batched_trace_term - log_det_term
+
+        return log_prob
+
+
 def _batch_mahalanobis(bL, bx):
     if bL.shape[:-1] == bx.shape:
         # no need to use the below optimization procedure

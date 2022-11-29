@@ -47,6 +47,7 @@ __all__ = [
     "positive_integer",
     "real",
     "real_vector",
+    "real_matrix",
     "scaled_unit_lower_cholesky",
     "simplex",
     "sphere",
@@ -561,6 +562,7 @@ positive_integer = _IntegerGreaterThan(1)
 positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
 real_vector = independent(real, 1)
+real_matrix = independent(real, 2)
 simplex = _Simplex()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
