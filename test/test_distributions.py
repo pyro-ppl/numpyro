@@ -402,20 +402,20 @@ CONTINUOUS = [
     T(
         dist.MatrixNormal,
         1.0 * np.arange(6).reshape(3, 2),
-        np.array([[1.0, 0], [0.4, 1]]),
         np.array([[1.0, 0, 0], [0.3, 0.36, 0], [0.4, 0.49, 4]]),
+        np.array([[1.0, 0], [0.4, 1]]),
     ),
     T(
         dist.MatrixNormal,
         1.0 * np.arange(12).reshape((2, 3, 2)),
-        np.array([[1.0, 0], [0.4, 0.5]]) * np.ones((2, 2, 2)),
         np.array([[1.0, 0, 0], [0.3, 0.36, 0], [0.4, 0.49, 4]]) * np.ones((2, 3, 3)),
+        np.array([[1.0, 0], [0.4, 0.5]]) * np.ones((2, 2, 2)),
     ),
     T(
         dist.MatrixNormal,
         1.0 * np.arange(36).reshape((2, 3, 3, 2)),
-        np.broadcast_to(np.identity(2), (2, 3, 2, 2)),
-        np.broadcast_to(np.identity(3), (2, 3, 3, 3)),
+        np.identity(3),
+        np.identity(2),
     ),
     T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
     T(
@@ -1641,9 +1641,13 @@ def test_mean_var(jax_dist, sp_dist, params):
             ixi = product(*[range(k) for k in subshape])
             for ix in ixi:
                 # mean
+                def get_min_shape(ix, batch_shape):
+                    return min(ix, tuple(map(lambda x: x - 1, batch_shape)))
+
+                ix_loc = get_min_shape(ix, d_jax.loc.shape[: len(ix)])
                 jnp.allclose(
                     jnp.mean(samples_re[ix], 0),
-                    jnp.squeeze(d_jax.mean[ix]),
+                    jnp.squeeze(d_jax.mean[ix_loc]),
                     rtol=0.5,
                     atol=1e-2,
                 )
@@ -1651,9 +1655,11 @@ def test_mean_var(jax_dist, sp_dist, params):
                 samples_mvn = jnp.squeeze(samples_re[ix]).reshape(
                     sample_shape + (-1,), order="F"
                 )
+                ix_col = get_min_shape(ix, d_jax.scale_tril_column.shape[: len(ix)])
+                ix_row = get_min_shape(ix, d_jax.scale_tril_row.shape[: len(ix)])
                 scale_tril = my_kron(
-                    jnp.squeeze(d_jax.scale_tril_column[ix]),
-                    jnp.squeeze(d_jax.scale_tril_row[ix]),
+                    d_jax.scale_tril_column[ix_col],
+                    d_jax.scale_tril_row[ix_row],
                 )
                 sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
                 jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
