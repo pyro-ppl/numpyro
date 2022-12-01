@@ -1680,38 +1680,46 @@ class MultivariateStudentT(Distribution):
         return batch_shape, event_shape
 
 
-class MultivariateBeta(Distribution):
+class GaussianCopula(Distribution):
     arg_constraints = {
-        "concentration1": constraints.positive,
-        "concentration0": constraints.positive,
+        "covariance_matrix": constraints.positive_definite,
+        "precision_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
     }
-    reparametrized_params = ["concentration1", "concentration0"]
+    support = constraints.real_vector
+    reparametrized_params = [
+        "covariance_matrix",
+        "precision_matrix",
+        "scale_tril",
+    ]
+
     support = constraints.unit_interval
 
     def __init__(
         self,
-        mv_normal,
-        concentration1,
-        concentration0,
+        transform_dist,
+        covariance_matrix=None,
+        precision_matrix=None,
+        scale_tril=None,
         validate_args=None,
     ):
-        self.concentration1, self.concentration0 = promote_shapes(
-            concentration1, concentration0
+        self.transform_dist = transform_dist
+        self.base_dist = MultivariateNormal(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
         )
+        self.normal = Normal(scale=jnp.diag(self.base_dist.covariance_matrix))
 
-        self.beta = Beta(self.concentration1, self.concentration0)
-        self.normal = Normal(scale=jnp.diag(mv_normal.covariance_matrix))
-        self.mv_normal = mv_normal
+        event_shape = self.base_dist.event_shape
+        delta_dim = len(event_shape) - len(transform_dist.event_shape)
 
         batch_shape = lax.broadcast_shapes(
-            jnp.shape(concentration1),
-            jnp.shape(concentration0),
-            mv_normal.batch_shape,
+            self.transform_dist.batch_shape[:-delta_dim],
+            self.base_dist.batch_shape,
         )
 
-        event_shape = mv_normal.event_shape
-
-        super(MultivariateBeta, self).__init__(
+        super(GaussianCopula, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
             validate_args=validate_args,
@@ -1720,20 +1728,20 @@ class MultivariateBeta(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
 
-        shape = sample_shape + self.batch_shape[:-len(self.mv_normal.batch_shape)]
-        normal_samples = self.mv_normal.sample(sample_shape=shape, key=key)
+        shape = sample_shape + self.batch_shape[: -len(self.base_dist.batch_shape)]
+        normal_samples = self.base_dist.sample(sample_shape=shape, key=key)
         cdf = self.normal.cdf(normal_samples)
-        return self.beta.icdf(cdf)
+        return self.transform_dist.icdf(cdf)
 
     @validate_sample
     def log_prob(self, value):
-        marginal_lps = self.beta.log_prob(value)
+        marginal_lps = self.transform_dist.log_prob(value)
         quantiles = self.normal.icdf(value)
-        return self.mv_normal.log_prob(quantiles) + marginal_lps.sum(axis=-1)
+        return self.base_dist.log_prob(quantiles) + marginal_lps.sum(axis=-1)
 
     @property
     def mean(self):
-        return jnp.broadcast_to(self.beta.mean, self.shape())
+        return jnp.broadcast_to(self.transform_dist.mean, self.shape())
 
 
 def _batch_mv(bmat, bvec):
