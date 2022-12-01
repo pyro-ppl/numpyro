@@ -1680,6 +1680,62 @@ class MultivariateStudentT(Distribution):
         return batch_shape, event_shape
 
 
+class MultivariateBeta(Distribution):
+    arg_constraints = {
+        "concentration1": constraints.positive,
+        "concentration0": constraints.positive,
+    }
+    reparametrized_params = ["concentration1", "concentration0"]
+    support = constraints.unit_interval
+
+    def __init__(
+        self,
+        mv_normal,
+        concentration1,
+        concentration0,
+        validate_args=None,
+    ):
+        self.concentration1, self.concentration0 = promote_shapes(
+            concentration1, concentration0
+        )
+
+        self.beta = Beta(self.concentration1, self.concentration0)
+        self.normal = Normal(scale=jnp.diag(mv_normal.covariance_matrix))
+        self.mv_normal = mv_normal
+
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration1),
+            jnp.shape(concentration0),
+            mv_normal.batch_shape,
+        )
+
+        event_shape = mv_normal.event_shape
+
+        super(MultivariateBeta, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+
+        shape = sample_shape + self.batch_shape[:-len(self.mv_normal.batch_shape)]
+        normal_samples = self.mv_normal.sample(sample_shape=shape, key=key)
+        cdf = self.normal.cdf(normal_samples)
+        return self.beta.icdf(cdf)
+
+    @validate_sample
+    def log_prob(self, value):
+        marginal_lps = self.beta.log_prob(value)
+        quantiles = self.normal.icdf(value)
+        return self.mv_normal.log_prob(quantiles) + marginal_lps.sum(axis=-1)
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(self.beta.mean, self.shape())
+
+
 def _batch_mv(bmat, bvec):
     r"""
     Performs a batched matrix-vector product, with compatible but different batch shapes.
