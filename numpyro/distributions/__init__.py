@@ -22,7 +22,6 @@ from numpyro.distributions.continuous import (
     Dirichlet,
     Exponential,
     Gamma,
-    GaussianCopula,
     GaussianRandomWalk,
     Gumbel,
     HalfCauchy,
@@ -47,6 +46,7 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
 )
+from numpyro.distributions.copula import GaussianCopula
 from numpyro.distributions.directional import (
     ProjectedNormal,
     SineBivariateVonMises,
