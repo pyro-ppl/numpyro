@@ -69,6 +69,6 @@ class GaussianCopula(Distribution):
     def mean(self):
         return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
 
-    @constraints.dependent_property
+    @constraints.dependent_property(event_dim=1)
     def support(self):
         return constraints.independent(self.marginal_dist.support, 1)
