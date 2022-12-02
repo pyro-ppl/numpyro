@@ -1682,40 +1682,31 @@ class MultivariateStudentT(Distribution):
 
 class GaussianCopula(Distribution):
     arg_constraints = {
-        "covariance_matrix": constraints.positive_definite,
-        "precision_matrix": constraints.positive_definite,
-        "scale_tril": constraints.lower_cholesky,
+        "correlation_matrix": constraints.corr_matrix,
+        "correlation_cholesky": constraints.lower_cholesky,
     }
-    support = constraints.real_vector
     reparametrized_params = [
-        "covariance_matrix",
-        "precision_matrix",
-        "scale_tril",
+        "correlation_matrix",
+        "correlation_cholesky",
     ]
-
-    support = constraints.unit_interval
 
     def __init__(
         self,
-        transform_dist,
-        covariance_matrix=None,
-        precision_matrix=None,
-        scale_tril=None,
+        marginal_dist,
+        correlation_matrix=None,
+        correlation_cholesky=None,
         validate_args=None,
     ):
-        self.transform_dist = transform_dist
+        self.marginal_dist = marginal_dist
         self.base_dist = MultivariateNormal(
-            covariance_matrix=covariance_matrix,
-            precision_matrix=precision_matrix,
-            scale_tril=scale_tril,
+            covariance_matrix=correlation_matrix,
+            scale_tril=correlation_cholesky,
         )
-        self.normal = Normal(scale=jnp.diag(self.base_dist.covariance_matrix))
+        self.normal = Normal()
 
         event_shape = self.base_dist.event_shape
-        delta_dim = len(event_shape) - len(transform_dist.event_shape)
-
         batch_shape = lax.broadcast_shapes(
-            self.transform_dist.batch_shape[:-delta_dim],
+            self.marginal_dist.batch_shape[:-1],
             self.base_dist.batch_shape,
         )
 
@@ -1728,20 +1719,30 @@ class GaussianCopula(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
 
-        shape = sample_shape + self.batch_shape[: -len(self.base_dist.batch_shape)]
-        normal_samples = self.base_dist.sample(sample_shape=shape, key=key)
+        shape = sample_shape + self.batch_shape
+        normal_samples = self.base_dist.expand(shape).sample(key)
         cdf = self.normal.cdf(normal_samples)
-        return self.transform_dist.icdf(cdf)
+        return self.marginal_dist.icdf(cdf)
 
     @validate_sample
     def log_prob(self, value):
-        marginal_lps = self.transform_dist.log_prob(value)
+        marginal_lps = self.marginal_dist.log_prob(value)
         quantiles = self.normal.icdf(value)
-        return self.base_dist.log_prob(quantiles) + marginal_lps.sum(axis=-1)
+        #
+        copula_lp = (
+            self.base_dist.log_prob(quantiles)
+            + 0.5 * (quantiles**2).sum(-1)
+            + 0.5 * jnp.log(2 * jnp.pi) * quantiles.shape[-1]
+        )
+        return copula_lp + marginal_lps.sum(axis=-1)
 
     @property
     def mean(self):
-        return jnp.broadcast_to(self.transform_dist.mean, self.shape())
+        return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
+
+    @constraints.dependent_property
+    def support(self):
+        return constraints.independent(self.marginal_dist.support, 1)
 
 
 def _batch_mv(bmat, bvec):
