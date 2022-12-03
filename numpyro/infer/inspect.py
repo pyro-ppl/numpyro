@@ -316,6 +316,8 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         for name, site in trace.items():
             if site["type"] == "sample":
                 site["fn_name"] = _get_dist_name(site.pop("fn"))
+            elif site["type"] == "deterministic":
+                site["fn_name"] = "Deterministic"
         return PytreeTrace(trace)
 
     # We use eval_shape to avoid any array computation.
@@ -328,7 +330,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     sample_dist = {
         name: site["fn_name"]
         for name, site in trace.items()
-        if site["type"] == "sample"
+        if site["type"] == "sample" or site["type"] == "deterministic"
     }
 
     sample_plates = {
@@ -364,16 +366,24 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
             data=sample
         ):
             model(*model_args, **model_kwargs)
-        return {
-            name: site["fn"].log_prob(site["value"])
-            for name, site in tr.items()
-            if site["type"] == "sample"
-        }
+        # return {
+        #     name: site["fn"].log_prob(site["value"])
+        #     for name, site in tr.items()
+        #     if site["type"] == "sample"
+        # }
+        provenance_arrays = {}
+        for name, site in tr.items():
+            if site["type"] == "sample":
+                provenance_arrays[name] = site["fn"].log_prob(site["value"])
+            elif site["type"] == "deterministic":
+                provenance_arrays[name] = site["value"]
+        return provenance_arrays
 
     samples = {
         name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
         if (site["type"] == "sample" and not site["is_observed"])
+        # or site["type"] == "deterministic"
     }
 
     params = {
