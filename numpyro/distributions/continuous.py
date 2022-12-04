@@ -27,7 +27,7 @@
 
 import numpy as np
 
-from jax import lax
+from jax import lax, vmap
 from jax.experimental.sparse import BCOO
 from jax.lax import scan
 import jax.nn as nn
@@ -294,8 +294,6 @@ class Dirichlet(Distribution):
 class EulerMaruyama(Distribution):
     arg_constraints = {"t": constraints.ordered_vector}
 
-    support = constraints.real
-
     def __init__(self, t, sde_fn, sde_pars, init_dist, validate_args=None):
         # we use t rather than (dt, num_steps) to make the api simpler and more general,
         # `init_dist` will define prior for the init value,
@@ -306,43 +304,76 @@ class EulerMaruyama(Distribution):
         self.sde_pars = sde_pars
         self.init_dist = init_dist
 
-        batch_shape, event_shape = init_dist.batch_shape, jnp.shape(t)
+        if init_dist.batch_shape:
+            raise ValueError("Init distribution is expected to have no batch dimension.")
+        if jnp.ndim(t) != 1:
+            raise ValueError("`t` is expected to have 1 dimension.")
+        event_shape = t.shape + init_dist.event_shape
+        batch_shape = ()
 
         super(EulerMaruyama, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
 
+    @constraints.dependent_property
+    def support(self):
+        return constraints.independent(constraints.real, self.event_dim)
+
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        noises = random.normal(key, shape=sample_shape + self.event_shape)
 
         def step(y_curr, xs):
-            t_curr, dt_curr, noise_curr = xs[0], xs[1], xs[2:].T
+            t_curr, dt_curr, noise_curr = xs
 
-            f, g = self.sde_fn(y_curr, t_curr, self.sde_pars)
+            f, g = self.sde_fn(y_curr, t_curr, *self.sde_pars)
             mu = y_curr + dt_curr * f
             sigma = jnp.sqrt(dt_curr) * g
             y_next = mu + sigma * noise_curr
             return y_next, y_next
 
-        xs = jnp.hstack(
-            (self.t[..., :-1, jnp.newaxis], self.dt[:, jnp.newaxis], noises[..., :-1].T)
-        )
+        sample_size = np.prod(sample_shape)
+        noises = random.normal(key, shape=(sample_size, self.event_shape[0] - 1) + self.event_shape[1:])
+        inits = self.init_dist.sample(key, sample_shape=(sample_size,) if sample_shape else ())
+        scan_fn = lambda init, noise: scan(step, init, (noise, self.t[:-1], self.dt))
+        
+        if sample_shape:
+            _, sde_out = vmap(scan_fn)(inits, noises)
+            sde_out = jnp.concatenate([inits[:, None], sde_out], axis=1)
+            sde_out = jnp.reshape(sde_out, sample_shape + self.event_shape)
+        else:
+            _, sde_out = scan_fn(inits, noises)
+            sde_out = jnp.concatenate([inits[None], sde_out], axis=0)
 
-        _, sde_out = scan(
-            step, self.init_dist.sample(key, sample_shape=sample_shape), xs
-        )
-        print(sde_out)
+
         return sde_out
 
     @validate_sample
     def log_prob(self, value):
-        xt = value[:-1]
-        f, g = self.sde_fn(value[:-1], self.t[:-1], self.sde_pars)
-        mu = xt + self.dt * f
-        sigma = jnp.sqrt(self.dt) * g
-        sde_log_prob = jnp.sum(Normal(mu, sigma).log_prob(value[1:]))
-        init_log_prob = self.init_dist.log_prob(value[0])
+        sample_shape = value.shape[:-len(self.event_shape)]
+        
+        if sample_shape:
+            # Not tested yet.
+            xtm1 = value[:, :-1, ...]
+            xt = value[:, 1:, ...]
+            f, g = vmap(self.sde_fn, (0, None, (None, ) * len(self.sde_pars)))(xtm1.T, self.t[:-1], *self.sde_pars)
+
+            mu = xtm1.T + self.dt[None] * f
+            sigma = jnp.sqrt(self.dt[None]) * g
+
+            sde_log_prob = jnp.sum(Normal(mu.T, sigma.T).log_prob(xt), axis=1)
+            init_log_prob = self.init_dist.log_prob(value[:, 0, ...])
+        else:
+            xtm1 = value[:-1]
+            xt = value[1:]
+            
+            f, g = self.sde_fn(xtm1.T, self.t[:-1], *self.sde_pars)
+            dt = jnp.broadcast_to(self.dt, self.event_shape[1:] + (self.event_shape[0] - 1,))
+
+            mu = xtm1.T + dt * f
+            sigma = jnp.sqrt(dt) * g
+
+            sde_log_prob = jnp.sum(Normal(mu.T, sigma.T).log_prob(xt), axis=0)
+            init_log_prob = self.init_dist.log_prob(value[0])
 
         return sde_log_prob + init_log_prob
 
@@ -394,10 +425,6 @@ class Gamma(Distribution):
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
-        print(concentration, rate)
-        print(self.concentration, self.rate)
-        print(jnp.shape(concentration), jnp.shape(rate))
-        print(batch_shape)
         super(Gamma, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
