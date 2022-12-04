@@ -305,7 +305,9 @@ class EulerMaruyama(Distribution):
         self.init_dist = init_dist
 
         if init_dist.batch_shape:
-            raise ValueError("Init distribution is expected to have no batch dimension.")
+            raise ValueError(
+                "Init distribution is expected to have no batch dimension."
+            )
         if jnp.ndim(t) != 1:
             raise ValueError("`t` is expected to have 1 dimension.")
         event_shape = t.shape + init_dist.event_shape
@@ -322,20 +324,26 @@ class EulerMaruyama(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
 
+        sample_size = np.prod(sample_shape)
+        _sample_shape = (sample_size,) if sample_shape else ()
+
         def step(y_curr, xs):
             t_curr, dt_curr, noise_curr = xs
-
-            f, g = self.sde_fn(y_curr, t_curr, *self.sde_pars)
+            sde_pars = [
+                x.sample(key, sample_shape=_sample_shape) for x in self.sde_pars
+            ]
+            f, g = self.sde_fn(y_curr, t_curr, *sde_pars)
             mu = y_curr + dt_curr * f
             sigma = jnp.sqrt(dt_curr) * g
             y_next = mu + sigma * noise_curr
             return y_next, y_next
 
-        sample_size = np.prod(sample_shape)
-        noises = random.normal(key, shape=(sample_size, self.event_shape[0] - 1) + self.event_shape[1:])
-        inits = self.init_dist.sample(key, sample_shape=(sample_size,) if sample_shape else ())
+        noises = random.normal(
+            key, shape=_sample_shape + (self.event_shape[0] - 1,) + self.event_shape[1:]
+        )
+        inits = self.init_dist.sample(key, sample_shape=_sample_shape)
         scan_fn = lambda init, noise: scan(step, init, (noise, self.t[:-1], self.dt))
-        
+
         if sample_shape:
             _, sde_out = vmap(scan_fn)(inits, noises)
             sde_out = jnp.concatenate([inits[:, None], sde_out], axis=1)
@@ -349,13 +357,15 @@ class EulerMaruyama(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        sample_shape = value.shape[:-len(self.event_shape)]
-        
+        sample_shape = value.shape[: -len(self.event_shape)]
+
         if sample_shape:
             # Not tested yet.
             xtm1 = value[:, :-1, ...]
             xt = value[:, 1:, ...]
-            f, g = vmap(self.sde_fn, (0, None, (None, ) * len(self.sde_pars)))(xtm1.T, self.t[:-1], *self.sde_pars)
+            f, g = vmap(self.sde_fn, (0, None, (None,) * len(self.sde_pars)))(
+                xtm1.T, self.t[:-1], *self.sde_pars
+            )
 
             mu = xtm1.T + self.dt[None] * f
             sigma = jnp.sqrt(self.dt[None]) * g
@@ -365,9 +375,11 @@ class EulerMaruyama(Distribution):
         else:
             xtm1 = value[:-1]
             xt = value[1:]
-            
+
             f, g = self.sde_fn(xtm1.T, self.t[:-1], *self.sde_pars)
-            dt = jnp.broadcast_to(self.dt, self.event_shape[1:] + (self.event_shape[0] - 1,))
+            dt = jnp.broadcast_to(
+                self.dt, self.event_shape[1:] + (self.event_shape[0] - 1,)
+            )
 
             mu = xtm1.T + dt * f
             sigma = jnp.sqrt(dt) * g

@@ -60,6 +60,21 @@ def _circ_mean(angles):
     )
 
 
+def sde_fn1(x, _, lam):
+    sigma2 = 0.1
+    return lam * x, sigma2
+
+
+def sde_fn2(xy, _, τ, a):
+    x, y = xy[0], xy[1]
+    dx = τ * (x - x**3.0 / 3.0 + y)
+    dy = (1.0 / τ) * (a - x)
+    dxy = jnp.vstack([dx, dy]).reshape(xy.shape)
+
+    sigma2 = 0.1
+    return dxy, sigma2
+
+
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
     def __new__(cls, jax_dist, *params):
         sp_dist = get_sp_dist(jax_dist)
@@ -344,6 +359,25 @@ CONTINUOUS = [
     T(dist.Dirichlet, np.array([1.7])),
     T(dist.Dirichlet, np.array([0.2, 1.1])),
     T(dist.Dirichlet, np.array([[0.2, 1.1], [2.0, 2.0]])),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2]),
+        sde_fn1,
+        (dist.Uniform(-1, 1),),
+        dist.Normal(0.1, 1.0),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2]),
+        sde_fn2,
+        (
+            dist.Uniform(0.1, 5.0),
+            dist.Uniform(0.5, 1.5),
+        ),
+        dist.MultivariateNormal(
+            jnp.array([0.0, 1.0]), jnp.array([[0.01, 0.0], [0.0, 0.01]])
+        ),
+    ),
     T(dist.Exponential, 2.0),
     T(dist.Exponential, np.array([4.0, 2.0])),
     T(dist.Gamma, np.array([1.7]), np.array([[2.0], [3.0]])),
