@@ -486,6 +486,12 @@ class _Real(Constraint):
     def feasible_like(self, prototype):
         return jax.numpy.zeros_like(prototype)
 
+    def __reduce__(self):
+        # _Real is a singleton class. Its only instance is pickled by reference
+        # and not by value, which is achieved by returning a string pointing to
+        # the singleton instance of _Real.
+        return "real"
+
 
 class _Simplex(Constraint):
     event_dim = 1
