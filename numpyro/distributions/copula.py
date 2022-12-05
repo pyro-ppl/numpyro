@@ -10,6 +10,15 @@ from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sam
 
 
 class GaussianCopula(Distribution):
+    """
+    A distribution that links the batch_shape[:-1] of marginal distribution `marginal_dist`
+    with a multivariate Gaussian copula modelling the correlation between the axes.
+
+    :param Distribution marginal_dist: Distribution whose last batch axis is to be coupled.
+    :param array_like correlation_matrix: Correlation matrix of coupling multivariate normal distribution.
+    :param array_like correlation_cholesky: Correlation Cholesky factor of coupling multivariate normal distribution.
+    """
+
     arg_constraints = {
         "correlation_matrix": constraints.corr_matrix,
         "correlation_cholesky": constraints.corr_cholesky,
@@ -73,6 +82,10 @@ class GaussianCopula(Distribution):
     @property
     def mean(self):
         return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
+    
+    @property
+    def variance(self):
+        return jnp.broadcast_to(self.marginal_dist.variance, self.shape())
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
     def support(self):
