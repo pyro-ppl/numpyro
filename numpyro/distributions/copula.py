@@ -55,6 +55,8 @@ class GaussianCopula(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
+        # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
         quantiles = self.normal.icdf(value)
         #
