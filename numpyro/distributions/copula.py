@@ -75,7 +75,7 @@ class GaussianCopula(Distribution):
         # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
-        quantiles = Normal().icdf(value)
+        quantiles = Normal().icdf(self.marginal_dist.cdf(value))
         #
         copula_lp = (
             self.base_dist.log_prob(quantiles)
