@@ -12,7 +12,7 @@ from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sam
 class GaussianCopula(Distribution):
     arg_constraints = {
         "correlation_matrix": constraints.corr_matrix,
-        "correlation_cholesky": constraints.lower_cholesky,
+        "correlation_cholesky": constraints.corr_cholesky,
     }
     reparametrized_params = [
         "correlation_matrix",
@@ -24,14 +24,17 @@ class GaussianCopula(Distribution):
         marginal_dist,
         correlation_matrix=None,
         correlation_cholesky=None,
+        *,
         validate_args=None,
     ):
+        if len(marginal_dist.event_shape) > 0:
+            raise ValueError("`marginal_dist` needs to be a univariate distribution.")
+
         self.marginal_dist = marginal_dist
         self.base_dist = MultivariateNormal(
             covariance_matrix=correlation_matrix,
             scale_tril=correlation_cholesky,
         )
-        self.normal = Normal()
 
         event_shape = self.base_dist.event_shape
         batch_shape = lax.broadcast_shapes(
@@ -50,7 +53,7 @@ class GaussianCopula(Distribution):
 
         shape = sample_shape + self.batch_shape
         normal_samples = self.base_dist.expand(shape).sample(key)
-        cdf = self.normal.cdf(normal_samples)
+        cdf = Normal().cdf(normal_samples)
         return self.marginal_dist.icdf(cdf)
 
     @validate_sample
@@ -58,7 +61,7 @@ class GaussianCopula(Distribution):
         # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
-        quantiles = self.normal.icdf(value)
+        quantiles = Normal().icdf(value)
         #
         copula_lp = (
             self.base_dist.log_prob(quantiles)
@@ -71,7 +74,7 @@ class GaussianCopula(Distribution):
     def mean(self):
         return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
 
-    @constraints.dependent_property(event_dim=1)
+    @constraints.dependent_property(is_discrete=False, event_dim=1)
     def support(self):
         return constraints.independent(self.marginal_dist.support, 1)
 
