@@ -4,7 +4,7 @@
 from jax import lax, numpy as jnp
 
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.continuous import MultivariateNormal, Normal, Beta
+from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample
 
