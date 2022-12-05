@@ -361,7 +361,7 @@ CONTINUOUS = [
     T(
         dist.GaussianCopulaBeta,
         np.array([7.0, 2.0]),
-        jnp.array([4.0, 10.0]),
+        np.array([4.0, 10.0]),
         np.array([[1.0, 0.75], [0.75, 1.0]]),
     ),
     T(dist.GaussianCopulaBeta, 2.0, 1.0, np.eye(3)),
