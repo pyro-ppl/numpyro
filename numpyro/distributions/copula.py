@@ -78,8 +78,8 @@ class GaussianCopula(Distribution):
 
 class GaussianCopulaBeta(GaussianCopula):
     arg_constraints = {
-        "concentration0": constraints.positive,
         "concentration1": constraints.positive,
+        "concentration0": constraints.positive,
         "correlation_matrix": constraints.corr_matrix,
         "correlation_cholesky": constraints.corr_cholesky,
     }
@@ -87,19 +87,19 @@ class GaussianCopulaBeta(GaussianCopula):
 
     def __init__(
         self,
-        concentration0,
         concentration1,
+        concentration0,
         correlation_matrix=None,
         correlation_cholesky=None,
         *,
         validate_args=False,
     ):
         super().__init__(
-            Beta(concentration0, concentration1),
+            Beta(concentration1, concentration0),
             correlation_matrix,
             correlation_cholesky,
             validate_args=validate_args,
         )
-        self.concentration0, self.concentration1 = promote_shapes(
-            concentration0, concentration1, shape=self.batch_shape + self.event_shape
+        self.concentration1, self.concentration0 = promote_shapes(
+            concentration1, concentration0, shape=self.batch_shape + self.event_shape
         )
