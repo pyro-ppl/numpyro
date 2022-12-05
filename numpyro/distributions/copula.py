@@ -4,9 +4,9 @@
 from jax import lax, numpy as jnp
 
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.continuous import MultivariateNormal, Normal
+from numpyro.distributions.continuous import MultivariateNormal, Normal, Beta
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import is_prng_key, validate_sample
+from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample
 
 
 class GaussianCopula(Distribution):
@@ -74,3 +74,32 @@ class GaussianCopula(Distribution):
     @constraints.dependent_property(event_dim=1)
     def support(self):
         return constraints.independent(self.marginal_dist.support, 1)
+
+
+class GaussianCopulaBeta(GaussianCopula):
+    arg_constraints = {
+        "concentration0": constraints.positive,
+        "concentration1": constraints.positive,
+        "correlation_matrix": constraints.corr_matrix,
+        "correlation_cholesky": constraints.corr_cholesky,
+    }
+    support = constraints.independent(constraints.unit_interval, 1)
+
+    def __init__(
+        self,
+        concentration0,
+        concentration1,
+        correlation_matrix=None,
+        correlation_cholesky=None,
+        *,
+        validate_args=False,
+    ):
+        super().__init__(
+            Beta(concentration0, concentration1),
+            correlation_matrix,
+            correlation_cholesky,
+            validate_args=validate_args,
+        )
+        self.concentration0, self.concentration1 = promote_shapes(
+            concentration0, concentration1, shape=self.batch_shape + self.event_shape
+        )
