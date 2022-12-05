@@ -280,6 +280,22 @@ MultivariateStudentT
     :show-inheritance:
     :member-order: bysource
 
+GaussianCopula
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopula
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GaussianCopulaBeta
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopulaBeta
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowRankMultivariateNormal
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
