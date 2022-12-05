@@ -6,7 +6,12 @@ from jax import lax, numpy as jnp
 import numpyro.distributions.constraints as constraints
 from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample
+from numpyro.distributions.util import (
+    is_prng_key,
+    lazy_property,
+    promote_shapes,
+    validate_sample,
+)
 
 
 class GaussianCopula(Distribution):
@@ -82,7 +87,7 @@ class GaussianCopula(Distribution):
     @property
     def mean(self):
         return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
-    
+
     @property
     def variance(self):
         return jnp.broadcast_to(self.marginal_dist.variance, self.shape())
@@ -90,6 +95,14 @@ class GaussianCopula(Distribution):
     @constraints.dependent_property(is_discrete=False, event_dim=1)
     def support(self):
         return constraints.independent(self.marginal_dist.support, 1)
+
+    @lazy_property
+    def correlation_matrix(self):
+        return self.base_dist.covariance_matrix
+
+    @lazy_property
+    def correlation_cholesky(self):
+        return self.base_dist.scale_tril
 
 
 class GaussianCopulaBeta(GaussianCopula):
@@ -110,6 +123,9 @@ class GaussianCopulaBeta(GaussianCopula):
         *,
         validate_args=False,
     ):
+        # set initially to allow argument validation
+        self.concentration1, self.concentration0 = concentration1, concentration0
+
         super().__init__(
             Beta(concentration1, concentration0),
             correlation_matrix,
