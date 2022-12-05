@@ -13,6 +13,7 @@ from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions.constraints import real
 from numpyro.infer import (
     HMC,
     HMCECS,
@@ -93,3 +94,11 @@ def test_pickle_autoguide(guide_class):
     )
     samples = predictive(random.PRNGKey(1), None, 1)
     assert set(samples.keys()) == {"param", "x"}
+
+
+def test_pickle_real_constraint():
+    # real is a singleton instance, and is pickled as a reference to the `real`
+    # global variable of numpyro. loading a pickled real constraint should thus
+    # yield the original real constraint, which is checked using `is`.
+    roundtripped_real = pickle.loads(pickle.dumps(real))
+    assert roundtripped_real is real
