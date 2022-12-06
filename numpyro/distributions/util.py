@@ -422,9 +422,9 @@ def betainc(a, b, x):
 
     dtype = jnp.result_type(float)
     return betainc_fn(
-        jnp.asarray(a, dtype=dtype),
-        jnp.asarray(b, dtype=dtype),
-        jnp.asarray(x, dtype=dtype),
+        jnp.array(a, dtype=dtype),
+        jnp.array(b, dtype=dtype),
+        jnp.array(x, dtype=dtype),
     )
 
 
@@ -438,9 +438,9 @@ def betaincinv(a, b, y):
 
     dtype = jnp.result_type(float)
     return tfp_special.betaincinv(
-        jnp.asarray(a, dtype=dtype),
-        jnp.asarray(b, dtype=dtype),
-        jnp.asarray(y, dtype=dtype),
+        jnp.array(a, dtype=dtype),
+        jnp.array(b, dtype=dtype),
+        jnp.array(y, dtype=dtype),
     )
 
 
@@ -448,7 +448,7 @@ def gammaincinv(a, y):
     try:
         from tensorflow_probability.substrates.jax import math as tfp_math
 
-        return tfp_math.igammainv(jnp.asarray(a), jnp.asarray(y))
+        return tfp_math.igammainv(jnp.array(a), jnp.array(y))
     except ImportError as e:
         raise ImportError(
             "Please install `tensorflow_probability>=0.18` for gammaincinv."
