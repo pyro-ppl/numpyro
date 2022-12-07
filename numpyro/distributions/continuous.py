@@ -334,7 +334,8 @@ class EulerMaruyama(Distribution):
             key, shape=sample_shape_ + (self.event_shape[0] - 1,) + self.event_shape[1:]
         )
         inits = self.init_dist.sample(key, sample_shape=sample_shape_)
-        scan_fn = lambda init, noise: scan(step, init, (noise, self.t[:-1], self.dt))
+        def scan_fn(init, noise):
+            return scan(step, init, (noise, self.t[:-1], self.dt))
 
         if sample_shape:
             _, sde_out = vmap(scan_fn)(inits, noises)
