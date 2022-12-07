@@ -20,7 +20,6 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.tree_util import tree_map
 
-from numpyro import sample
 import numpyro.distributions as dist
 from numpyro.distributions import (
     SineBivariateVonMises,
@@ -61,7 +60,6 @@ def _circ_mean(angles):
     )
 
 
-# lam = sample('lam', dist.Uniform(-1, 1), rng_key=jax.random.PRNGKey(0))
 lam = 0.1
 
 
@@ -70,8 +68,6 @@ def sde_fn1(x, _):
     return lam * x, sigma2
 
 
-# tau = sample('tau', dist.Uniform(0.1, 5.0), rng_key=jax.random.PRNGKey(0))
-# a = sample('a', dist.Uniform(0.5, 1.5), rng_key=jax.random.PRNGKey(0))
 tau = 2.0
 a = 1.1
 
@@ -681,24 +677,7 @@ CONTINUOUS = [
         ),  # Covariance
     ),
 ]
-CONTINUOUS = [
-    T(
-        dist.EulerMaruyama,
-        np.array([0.0, 0.1, 0.2, 0.3]),
-        sde_fn1,
-        dist.Normal(0.1, 1.0),
-    ),
-    T(
-        dist.EulerMaruyama,
-        np.array([0.0, 0.1, 0.2, 0.3]),
-        sde_fn2,
-        dist.MultivariateNormal(
-            jnp.array([0.0, 1.0]), jnp.array([[1e-3, 0.0], [0.0, 1e-3]])
-        ),
-    ),
-    # T(dist.GaussianRandomWalk, 0.1, 10),
-    # T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
-]
+
 DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
     T(dist.VonMises, 2.0, np.array([150.0, 10.0])),
@@ -753,7 +732,7 @@ DIRECTIONAL = [
     T(SineSkewedVonMises, np.array([0.342355])),
     T(SineSkewedVonMisesBatched, np.array([[0.342355, -0.0001], [0.91, 0.09]])),
 ]
-DIRECTIONAL = []
+
 DISCRETE = [
     T(dist.BetaBinomial, 2.0, 5.0, 10),
     T(
@@ -824,7 +803,6 @@ DISCRETE = [
         np.array([2.0, -3.0, 5.0]),
     ),
 ]
-DISCRETE = []
 
 
 def _is_batched_multivariate(jax_dist):
