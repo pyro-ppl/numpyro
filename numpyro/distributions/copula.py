@@ -76,7 +76,7 @@ class GaussianCopula(Distribution):
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
         quantiles = Normal().icdf(self.marginal_dist.cdf(value))
-        #
+
         copula_lp = (
             self.base_dist.log_prob(quantiles)
             + 0.5 * (quantiles**2).sum(-1)
@@ -103,6 +103,20 @@ class GaussianCopula(Distribution):
     @lazy_property
     def correlation_cholesky(self):
         return self.base_dist.scale_tril
+
+    def tree_flatten(self):
+        marginal_flatten, marginal_aux = self.marginal_dist.tree_flatten()
+        return (marginal_flatten, self.base_dist.scale_tril), (
+            type(self.marginal_dist),
+            marginal_aux,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        marginal_flatten, correlation_cholesky = params
+        marginal_cls, marginal_aux = aux_data
+        marginal_dist = marginal_cls.tree_unflatten(marginal_aux, marginal_flatten)
+        return cls(marginal_dist, correlation_cholesky=correlation_cholesky)
 
 
 class GaussianCopulaBeta(GaussianCopula):
