@@ -334,6 +334,7 @@ class EulerMaruyama(Distribution):
             key, shape=sample_shape_ + (self.event_shape[0] - 1,) + self.event_shape[1:]
         )
         inits = self.init_dist.sample(key, sample_shape=sample_shape_)
+
         def scan_fn(init, noise):
             return scan(step, init, (noise, self.t[:-1], self.dt))
 
@@ -368,8 +369,7 @@ class EulerMaruyama(Distribution):
             mu = xtm1 + dt * f
             sigma = jnp.sqrt(dt) * g
 
-            sde_log_prob = Normal(mu, sigma).log_prob(xt)
-            sde_log_prob = vmap(jnp.sum)(sde_log_prob)
+            sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
             sde_log_prob = sde_log_prob.reshape(sample_shape)
 
             init_log_prob = self.init_dist.log_prob(value0)
@@ -389,7 +389,7 @@ class EulerMaruyama(Distribution):
             mu = xtm1 + dt * f
             sigma = jnp.sqrt(dt) * g
 
-            sde_log_prob = jnp.sum(Normal(mu, sigma).log_prob(xt))
+            sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
             init_log_prob = self.init_dist.log_prob(value[0])
 
         return sde_log_prob + init_log_prob
