@@ -20,6 +20,7 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.tree_util import tree_map
 
+from numpyro import sample
 import numpyro.distributions as dist
 from numpyro.distributions import (
     SineBivariateVonMises,
@@ -60,18 +61,28 @@ def _circ_mean(angles):
     )
 
 
-def sde_fn1(x, _, lam):
-    sigma2 = 0.1
+# lam = sample('lam', dist.Uniform(-1, 1), rng_key=jax.random.PRNGKey(0))
+lam = 0.1
+
+
+def sde_fn1(x, _):
+    sigma2 = 0.1 * 0.1
     return lam * x, sigma2
 
 
-def sde_fn2(xy, _, τ, a):
+# tau = sample('tau', dist.Uniform(0.1, 5.0), rng_key=jax.random.PRNGKey(0))
+# a = sample('a', dist.Uniform(0.5, 1.5), rng_key=jax.random.PRNGKey(0))
+tau = 2.0
+a = 1.1
+
+
+def sde_fn2(xy, _):
     x, y = xy[0], xy[1]
-    dx = τ * (x - x**3.0 / 3.0 + y)
-    dy = (1.0 / τ) * (a - x)
+    dx = tau * (x - x**3.0 / 3.0 + y)
+    dy = (1.0 / tau) * (a - x)
     dxy = jnp.vstack([dx, dy]).reshape(xy.shape)
 
-    sigma2 = 0.1
+    sigma2 = 0.1 * 0.01
     return dxy, sigma2
 
 
@@ -363,19 +374,14 @@ CONTINUOUS = [
         dist.EulerMaruyama,
         np.array([0.0, 0.1, 0.2]),
         sde_fn1,
-        (dist.Uniform(-1, 1),),
         dist.Normal(0.1, 1.0),
     ),
     T(
         dist.EulerMaruyama,
         np.array([0.0, 0.1, 0.2]),
         sde_fn2,
-        (
-            dist.Uniform(0.1, 5.0),
-            dist.Uniform(0.5, 1.5),
-        ),
         dist.MultivariateNormal(
-            jnp.array([0.0, 1.0]), jnp.array([[0.01, 0.0], [0.0, 0.01]])
+            jnp.array([0.0, 1.0]), jnp.array([[1e-3, 0.0], [0.0, 1e-3]])
         ),
     ),
     T(dist.Exponential, 2.0),
@@ -675,7 +681,24 @@ CONTINUOUS = [
         ),  # Covariance
     ),
 ]
-
+CONTINUOUS = [
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2, 0.3]),
+        sde_fn1,
+        dist.Normal(0.1, 1.0),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2, 0.3]),
+        sde_fn2,
+        dist.MultivariateNormal(
+            jnp.array([0.0, 1.0]), jnp.array([[1e-3, 0.0], [0.0, 1e-3]])
+        ),
+    ),
+    # T(dist.GaussianRandomWalk, 0.1, 10),
+    # T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
+]
 DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
     T(dist.VonMises, 2.0, np.array([150.0, 10.0])),
@@ -730,7 +753,7 @@ DIRECTIONAL = [
     T(SineSkewedVonMises, np.array([0.342355])),
     T(SineSkewedVonMisesBatched, np.array([[0.342355, -0.0001], [0.91, 0.09]])),
 ]
-
+DIRECTIONAL = []
 DISCRETE = [
     T(dist.BetaBinomial, 2.0, 5.0, 10),
     T(
@@ -801,6 +824,7 @@ DISCRETE = [
         np.array([2.0, -3.0, 5.0]),
     ),
 ]
+DISCRETE = []
 
 
 def _is_batched_multivariate(jax_dist):
@@ -1137,6 +1161,7 @@ def test_pathwise_gradient(jax_dist, params):
 )
 def test_jit_log_likelihood(jax_dist, sp_dist, params):
     if jax_dist.__name__ in (
+        "EulerMaruyama",
         "GaussianRandomWalk",
         "_ImproperWrapper",
         "LKJ",
@@ -1506,6 +1531,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if jax_dist is dist.EulerMaruyama and i == 1:
+            # skip taking grad w.r.t. sde_fn
+            continue
         if jax_dist is _SparseCAR and i == 3:
             # skip taking grad w.r.t. adj_matrix
             continue
@@ -1538,6 +1566,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if jax_dist is dist.EulerMaruyama:
+        pytest.skip("EulerMaruyama distribution does not has mean/var implemented")
     if jax_dist is dist.RelaxedBernoulliLogits:
         pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
@@ -1673,6 +1703,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if "SineSkewed" in jax_dist.__name__ and dist_args[i] != "skewness":
+            continue
+        if jax_dist is dist.EulerMaruyama and dist_args[i] != "t":
             continue
         if (
             jax_dist is dist.TwoSidedTruncatedDistribution

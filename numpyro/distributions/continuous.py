@@ -294,14 +294,10 @@ class Dirichlet(Distribution):
 class EulerMaruyama(Distribution):
     arg_constraints = {"t": constraints.ordered_vector}
 
-    def __init__(self, t, sde_fn, sde_pars, init_dist, validate_args=None):
-        # we use t rather than (dt, num_steps) to make the api simpler and more general,
-        # `init_dist` will define prior for the init value,
-        # event dimensions will be decided by `init_dist`
+    def __init__(self, t, sde_fn, init_dist, validate_args=None):
         self.t = t
         self.dt = jnp.diff(t)
         self.sde_fn = sde_fn
-        self.sde_pars = sde_pars
         self.init_dist = init_dist
 
         if init_dist.batch_shape:
@@ -323,25 +319,21 @@ class EulerMaruyama(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-
         sample_size = np.prod(sample_shape)
-        _sample_shape = (sample_size,) if sample_shape else ()
+        sample_shape_ = (sample_size,) if sample_shape else ()
 
         def step(y_curr, xs):
-            t_curr, dt_curr, noise_curr = xs
-            sde_pars = [
-                x.sample(key, sample_shape=_sample_shape) for x in self.sde_pars
-            ]
-            f, g = self.sde_fn(y_curr, t_curr, *sde_pars)
+            noise_curr, t_curr, dt_curr = xs
+            f, g = self.sde_fn(y_curr, t_curr)
             mu = y_curr + dt_curr * f
             sigma = jnp.sqrt(dt_curr) * g
             y_next = mu + sigma * noise_curr
             return y_next, y_next
 
         noises = random.normal(
-            key, shape=_sample_shape + (self.event_shape[0] - 1,) + self.event_shape[1:]
+            key, shape=sample_shape_ + (self.event_shape[0] - 1,) + self.event_shape[1:]
         )
-        inits = self.init_dist.sample(key, sample_shape=_sample_shape)
+        inits = self.init_dist.sample(key, sample_shape=sample_shape_)
         scan_fn = lambda init, noise: scan(step, init, (noise, self.t[:-1], self.dt))
 
         if sample_shape:
@@ -352,42 +344,62 @@ class EulerMaruyama(Distribution):
             _, sde_out = scan_fn(inits, noises)
             sde_out = jnp.concatenate([inits[None], sde_out], axis=0)
 
-
         return sde_out
 
     @validate_sample
     def log_prob(self, value):
-        sample_shape = value.shape[: -len(self.event_shape)]
+        sample_shape = value.shape[: -self.event_dim]
 
         if sample_shape:
-            # Not tested yet.
-            xtm1 = value[:, :-1, ...]
-            xt = value[:, 1:, ...]
-            f, g = vmap(self.sde_fn, (0, None, (None,) * len(self.sde_pars)))(
-                xtm1.T, self.t[:-1], *self.sde_pars
-            )
+            reshaped_value = value.reshape((-1,) + self.event_shape)
+            xtm1 = reshaped_value[:, :-1]
+            xt = reshaped_value[:, 1:]
+            value0 = reshaped_value[:, 0]
 
-            mu = xtm1.T + self.dt[None] * f
-            sigma = jnp.sqrt(self.dt[None]) * g
+            f, g = vmap(vmap(self.sde_fn), (0, None))(xtm1, self.t[:-1])
+            dt = self.dt.reshape(self.dt.shape + (1,) * (self.event_dim - 1))
 
-            sde_log_prob = jnp.sum(Normal(mu.T, sigma.T).log_prob(xt), axis=1)
-            init_log_prob = self.init_dist.log_prob(value[:, 0, ...])
+            if len(f.shape) - 1 < len(dt.shape):
+                f = f.reshape((reshaped_value.shape[0],) + dt.shape)
+            if len(g.shape) - 1 < len(dt.shape):
+                g = g.reshape((reshaped_value.shape[0],) + dt.shape)
+
+            mu = xtm1 + dt * f
+            sigma = jnp.sqrt(dt) * g
+
+            sde_log_prob = Normal(mu, sigma).log_prob(xt)
+            sde_log_prob = vmap(jnp.sum)(sde_log_prob)
+            sde_log_prob = sde_log_prob.reshape(sample_shape)
+
+            init_log_prob = self.init_dist.log_prob(value0)
+            init_log_prob = init_log_prob.reshape(sample_shape)
         else:
             xtm1 = value[:-1]
             xt = value[1:]
 
-            f, g = self.sde_fn(xtm1.T, self.t[:-1], *self.sde_pars)
-            dt = jnp.broadcast_to(
-                self.dt, self.event_shape[1:] + (self.event_shape[0] - 1,)
-            )
+            f, g = vmap(self.sde_fn)(xtm1, self.t[:-1])
+            dt = self.dt.reshape(self.dt.shape + (1,) * (self.event_dim - 1))
 
-            mu = xtm1.T + dt * f
+            if len(f.shape) < len(dt.shape):
+                f = f.reshape(dt.shape)
+            if len(g.shape) < len(dt.shape):
+                g = g.reshape(dt.shape)
+
+            mu = xtm1 + dt * f
             sigma = jnp.sqrt(dt) * g
 
-            sde_log_prob = jnp.sum(Normal(mu.T, sigma.T).log_prob(xt), axis=0)
+            sde_log_prob = jnp.sum(Normal(mu, sigma).log_prob(xt))
             init_log_prob = self.init_dist.log_prob(value[0])
 
         return sde_log_prob + init_log_prob
+
+    def tree_flatten(self):
+        return (None,), (self.t, self.sde_fn, self.init_dist)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        t, sde_fn, init_dist = aux_data
+        return cls(t, sde_fn, init_dist)
 
 
 class Exponential(Distribution):
@@ -1387,7 +1399,7 @@ class CAR(Distribution):
         adj_matrix,
         *,
         is_sparse=False,
-        validate_args=None
+        validate_args=None,
     ):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
