@@ -7,6 +7,7 @@ import numpyro.distributions.constraints as constraints
 from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    clamp_probs,
     is_prng_key,
     lazy_property,
     promote_shapes,
@@ -75,7 +76,8 @@ class GaussianCopula(Distribution):
         # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
-        quantiles = Normal().icdf(self.marginal_dist.cdf(value))
+        probs = self.marginal_dist.cdf(value)
+        quantiles = Normal().icdf(clamp_probs(probs))
 
         copula_lp = (
             self.base_dist.log_prob(quantiles)
