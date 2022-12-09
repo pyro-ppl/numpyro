@@ -10,7 +10,6 @@ from numpyro.distributions.util import (
     clamp_probs,
     is_prng_key,
     lazy_property,
-    promote_shapes,
     validate_sample,
 )
 
@@ -148,17 +147,16 @@ class GaussianCopulaBeta(GaussianCopula):
             correlation_cholesky,
             validate_args=validate_args,
         )
-        self.concentration1, self.concentration0 = promote_shapes(
-            concentration1, concentration0, shape=self.batch_shape + self.event_shape
-        )
 
     def tree_flatten(self):
-        marginal_data, _ = self.marginal_dist.tree_flatten()
-        return (marginal_data, self.base_dist.scale_tril), None
+        return (
+            (self.concentration1, self.concentration0),
+            self.base_dist.scale_tril,
+        ), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        (concentration0, concentration1), correlation_cholesky = params
+        (concentration1, concentration0), correlation_cholesky = params
         return cls(
             concentration1, concentration0, correlation_cholesky=correlation_cholesky
         )
