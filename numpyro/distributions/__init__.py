@@ -46,6 +46,7 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
 )
+from numpyro.distributions.copula import GaussianCopula, GaussianCopulaBeta
 from numpyro.distributions.directional import (
     ProjectedNormal,
     SineBivariateVonMises,
@@ -131,6 +132,8 @@ __all__ = [
     "FoldedDistribution",
     "Gamma",
     "GammaPoisson",
+    "GaussianCopula",
+    "GaussianCopulaBeta",
     "GaussianRandomWalk",
     "Geometric",
     "GeometricLogits",
