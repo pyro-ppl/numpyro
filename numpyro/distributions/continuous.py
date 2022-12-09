@@ -350,7 +350,10 @@ class EulerMaruyama(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        sample_shape = value.shape[: -self.event_dim]
+        sample_shape = lax.broadcast_shapes(
+            value.shape[: -self.event_dim], self.batch_shape
+        )
+        value = jnp.broadcast_to(value, sample_shape + self.event_shape)
 
         if sample_shape:
             reshaped_value = value.reshape((-1,) + self.event_shape)
@@ -359,38 +362,29 @@ class EulerMaruyama(Distribution):
             value0 = reshaped_value[:, 0]
 
             f, g = vmap(vmap(self.sde_fn), (0, None))(xtm1, self.t[:-1])
-            dt = self.dt.reshape(self.dt.shape + (1,) * (self.event_dim - 1))
 
-            if len(f.shape) - 1 < len(dt.shape):
-                f = f.reshape((reshaped_value.shape[0],) + dt.shape)
-            if len(g.shape) - 1 < len(dt.shape):
-                g = g.reshape((reshaped_value.shape[0],) + dt.shape)
+            f = f.reshape(sample_shape + f.shape[1:] + (1,) * (xt.ndim - f.ndim))
+            g = g.reshape(sample_shape + g.shape[1:] + (1,) * (xt.ndim - g.ndim))
+            xtm1 = xtm1.reshape(sample_shape + xtm1.shape[1:])
+            xt = xt.reshape(sample_shape + xt.shape[1:])
+            value0 = value0.reshape(sample_shape + value0.shape[1:])
 
-            mu = xtm1 + dt * f
-            sigma = jnp.sqrt(dt) * g
-
-            sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
-            sde_log_prob = sde_log_prob.reshape(sample_shape)
-
-            init_log_prob = self.init_dist.log_prob(value0)
-            init_log_prob = init_log_prob.reshape(sample_shape)
         else:
             xtm1 = value[:-1]
             xt = value[1:]
+            value0 = value[0]
 
             f, g = vmap(self.sde_fn)(xtm1, self.t[:-1])
-            dt = self.dt.reshape(self.dt.shape + (1,) * (self.event_dim - 1))
 
-            if len(f.shape) < len(dt.shape):
-                f = f.reshape(dt.shape)
-            if len(g.shape) < len(dt.shape):
-                g = g.reshape(dt.shape)
+            f = f.reshape(f.shape + (1,) * (xt.ndim - f.ndim))
+            g = g.reshape(g.shape + (1,) * (xt.ndim - g.ndim))
 
-            mu = xtm1 + dt * f
-            sigma = jnp.sqrt(dt) * g
+        dt = self.dt.reshape(self.dt.shape + (1,) * (self.event_dim - 1))
+        mu = xtm1 + dt * f
+        sigma = jnp.sqrt(dt) * g
 
-            sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
-            init_log_prob = self.init_dist.log_prob(value[0])
+        sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
+        init_log_prob = self.init_dist.log_prob(value0)
 
         return sde_log_prob + init_log_prob
 
