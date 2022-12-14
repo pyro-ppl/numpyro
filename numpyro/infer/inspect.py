@@ -330,7 +330,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     sample_dist = {
         name: site["fn_name"]
         for name, site in trace.items()
-        if site["type"] == "sample" or site["type"] == "deterministic"
+        if site["type"] in ["sample", "deterministic"]
     }
 
     sample_plates = {
@@ -374,15 +374,6 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         with handlers.trace() as tr, handlers.seed(rng_seed=0):
             with handlers.substitute(data=sample), substitute_deterministic(data=sample):
                 model(*model_args, **model_kwargs)
-        # with handlers.trace() as tr, handlers.seed(rng_seed=0),handlers.substitute(
-        #     data=sample
-        # ):
-        #     model(*model_args, **model_kwargs)
-        # return {
-        #     name: site["fn"].log_prob(site["value"])
-        #     for name, site in tr.items()
-        #     if site["type"] == "sample"
-        # }
         provenance_arrays = {}
         for name, site in tr.items():
             if site["type"] == "sample":
