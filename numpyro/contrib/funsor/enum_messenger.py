@@ -77,7 +77,7 @@ class DimStack:
                 keep=False,
             )
         ]
-        self._first_available_dim = -1
+        self._first_available_dim = -5
         self.outermost = None
 
     MAX_DIM = -25

@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import pyroapi
+
 try:
     import funsor
 except ImportError as e:
@@ -25,6 +27,19 @@ from numpyro.contrib.funsor.infer_util import (
     config_enumerate,
     log_density,
     plate_to_enum_plate,
+)
+from numpyro.handlers import seed
+
+pyroapi.register_backend(
+    "numpyro.funsor",
+    {
+        "distributions": "numpyro.distributions",
+        "handlers": "numpyro.contrib.funsor",
+        "infer": "pyro.contrib.funsor.infer",
+        "ops": "jax.numpy",
+        "optim": "numpyro.optim",
+        "pyro": "numpyro.contrib.funsor",
+    },
 )
 
 funsor.set_backend("jax")
