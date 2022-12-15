@@ -369,10 +369,11 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
                     msg["value"] = self.data.get(msg["name"])
                     msg["fn"] = lambda x: x
 
-
         # Note: We use seed 0 for parameter initialization.
         with handlers.trace() as tr, handlers.seed(rng_seed=0):
-            with handlers.substitute(data=sample), substitute_deterministic(data=sample):
+            with handlers.substitute(data=sample), substitute_deterministic(
+                data=sample
+            ):
                 model(*model_args, **model_kwargs)
         provenance_arrays = {}
         for name, site in tr.items():
@@ -385,7 +386,8 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     samples = {
         name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
-        if (site["type"] == "sample" and not site["is_observed"]) or site["type"] == "deterministic"
+        if (site["type"] == "sample" and not site["is_observed"])
+        or site["type"] == "deterministic"
     }
 
     params = {
@@ -557,7 +559,11 @@ def render_graph(graph_specification, render_distributions=False):
                 )  # incase of neural network parameters
 
             # use different symbol for Deterministic site
-            node_style = "filled,dashed" if node_data[rv]["distribution"] == "Deterministic" else "filled"
+            node_style = (
+                "filled,dashed"
+                if node_data[rv]["distribution"] == "Deterministic"
+                else "filled"
+            )
             cur_graph.node(
                 rv, label=rv_label, shape=shape, style=node_style, fillcolor=color
             )
