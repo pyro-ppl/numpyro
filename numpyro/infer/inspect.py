@@ -336,7 +336,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     sample_plates = {
         name: [frame.name for frame in site["cond_indep_stack"]]
         for name, site in trace.items()
-        if site["type"] == "sample"
+        if site["type"] in ["sample", "deterministic"]
     }
     plate_samples = {
         k: {name for name, plates in sample_plates.items() if k in plates}
