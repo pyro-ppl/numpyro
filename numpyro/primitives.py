@@ -294,7 +294,12 @@ def deterministic(name, value):
     if not _PYRO_STACK:
         return value
 
-    initial_msg = {"type": "deterministic", "name": name, "value": value, "cond_indep_stack": []}
+    initial_msg = {
+        "type": "deterministic",
+        "name": name,
+        "value": value,
+        "cond_indep_stack": [],
+    }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
