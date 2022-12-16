@@ -355,6 +355,7 @@ def fori_collect(
         else:
             with tqdm.trange(upper) as t:
                 for i in t:
+                    # TODO: We need to think how to pass around ShardedArray.
                     vals = jit(_body_fn)(i, vals)
                     t.set_description(progbar_desc(i), refresh=False)
                     if diagnostics_fn:
