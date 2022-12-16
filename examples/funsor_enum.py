@@ -4,8 +4,8 @@ from pyroapi import distributions as dist
 from pyroapi import handlers, infer, optim, pyro, pyro_backend
 from jax import random
 
-#  import funsor
-#  funsor.set_backend("jax")
+import funsor
+funsor.set_backend("jax")
 
 # Start from this source of randomness. We will split keys for subsequent operations.
 rng_key = random.PRNGKey(0)

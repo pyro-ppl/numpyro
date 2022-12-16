@@ -28,14 +28,15 @@ from numpyro.contrib.funsor.infer_util import (
     log_density,
     plate_to_enum_plate,
 )
-from numpyro.handlers import seed
+from numpyro.handlers import seed, replay
+from numpyro.primitives import sample, param
 
 pyroapi.register_backend(
     "numpyro.funsor",
     {
         "distributions": "numpyro.distributions",
         "handlers": "numpyro.contrib.funsor",
-        "infer": "pyro.contrib.funsor.infer",
+        "infer": "numpyro.contrib.funsor.traceenum_elbo",
         "ops": "jax.numpy",
         "optim": "numpyro.optim",
         "pyro": "numpyro.contrib.funsor",
