@@ -573,7 +573,7 @@ class reparam(Messenger):
                 msg["type"] = "deterministic"
                 msg["value"] = value
                 for key in list(msg.keys()):
-                    if key not in ("type", "name", "value"):
+                    if key not in ("type", "name", "value", "cond_indep_stack"):
                         del msg[key]
                 return
 
