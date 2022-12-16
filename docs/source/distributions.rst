@@ -151,7 +151,7 @@ EulerMaruyama
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-
+    
 Exponential
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Exponential

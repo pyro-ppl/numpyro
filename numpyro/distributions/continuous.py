@@ -293,18 +293,21 @@ class Dirichlet(Distribution):
 
 class EulerMaruyama(Distribution):
     """
-    Euler–Maruyama method is a method for the approximate numerical solution of a stochastic differential equation (SDE)
+    Euler–Maruyama method is a method for the approximate numerical solution
+    of a stochastic differential equation (SDE)
 
     :param ndarray t: discretized time
-    :param callable sde_fn : function returning the drift and diffusion coefficients of SDE
-    :param Distribution init_dist : Distribution for initial values.
+    :param callable sde_fn: function returning the drift and diffusion coefficients of SDE
+    :param Distribution init_dist: Distribution for initial values.
 
-    Ref:https://en.wikipedia.org/wiki/Euler-Maruyama_method
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Euler-Maruyama_method
     """
 
     arg_constraints = {"t": constraints.ordered_vector}
 
-    def __init__(self, t, sde_fn, init_dist, validate_args=None):
+    def __init__(self, t, sde_fn, init_dist, *, validate_args=None):
         self.t = t
         self.sde_fn = sde_fn
         self.init_dist = init_dist
@@ -312,7 +315,7 @@ class EulerMaruyama(Distribution):
         if not isinstance(init_dist, Distribution):
             raise TypeError("Init distribution is expected to be Distribution class.")
 
-        batch_shape_t = jnp.shape(t)[:-1] if t.ndim != 1 else ()
+        batch_shape_t = jnp.shape(t)[:-1]
         batch_shape = lax.broadcast_shapes(batch_shape_t, init_dist.batch_shape)
         event_shape = (jnp.shape(t)[-1],) + init_dist.event_shape
 
@@ -320,7 +323,7 @@ class EulerMaruyama(Distribution):
             batch_shape, event_shape, validate_args=validate_args
         )
 
-    @constraints.dependent_property
+    @constraints.dependent_property(is_discrete=False)
     def support(self):
         return constraints.independent(constraints.real, self.event_dim)
 
@@ -352,12 +355,12 @@ class EulerMaruyama(Distribution):
             noises = noises.reshape((-1,) + noises.shape[batch_dim:])
             t = jnp.broadcast_to(self.t, batch_shape + (self.event_shape[0],))
             t = t.reshape((-1,) + t.shape[batch_dim:])
-            dt = jnp.diff(t)
+            dt = jnp.diff(t, axis=-1)
             _, sde_out = vmap(scan_fn)(inits, noises, t[..., :-1], dt)
             sde_out = jnp.concatenate([inits[:, None], sde_out], axis=1)
             sde_out = jnp.reshape(sde_out, batch_shape + self.event_shape)
         else:
-            dt = jnp.diff(self.t)
+            dt = jnp.diff(self.t, axis=-1)
             _, sde_out = scan_fn(inits, noises, self.t[:-1], dt)
             sde_out = jnp.concatenate([inits[None], sde_out], axis=0)
 
@@ -404,7 +407,7 @@ class EulerMaruyama(Distribution):
             + g.shape[batch_dim + 1 :]
         )
 
-        dt = jnp.diff(self.t)
+        dt = jnp.diff(self.t, axis=-1)
         dt = dt.reshape(dt.shape + (1,) * (self.event_dim - 1))
         mu = xtm1 + dt * f
         sigma = jnp.sqrt(dt) * g

@@ -860,7 +860,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
     elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
-        return x - random.normal(key, size[:-1])
+        return x - random.normal(key, size[:-1] + (1,))
     elif isinstance(constraint, constraints.independent):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
     elif constraint is constraints.sphere:
@@ -1290,6 +1290,10 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.skip("distribution has improper .log_prob()")
     if "LKJ" in jax_dist.__name__:
         pytest.xfail("incorrect submanifold scaling")
+    if jax_dist is dist.EulerMaruyama:
+        d = jax_dist(*params)
+        if d.event_dim > 1:
+            pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
 
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
