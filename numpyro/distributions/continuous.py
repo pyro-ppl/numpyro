@@ -292,22 +292,29 @@ class Dirichlet(Distribution):
 
 
 class EulerMaruyama(Distribution):
+    """
+    Euler–Maruyama method is a method for the approximate numerical solution of a stochastic differential equation (SDE)
+
+    :param ndarray t: discretized time
+    :param callable sde_fn : function returning the drift and diffusion coefficients of SDE
+    :param Distribution init_dist : Distribution for initial values.
+
+    Ref:https://en.wikipedia.org/wiki/Euler-Maruyama_method
+    """
+
     arg_constraints = {"t": constraints.ordered_vector}
 
     def __init__(self, t, sde_fn, init_dist, validate_args=None):
         self.t = t
-        self.dt = jnp.diff(t)
         self.sde_fn = sde_fn
         self.init_dist = init_dist
 
-        if init_dist.batch_shape:
-            raise ValueError(
-                "Init distribution is expected to have no batch dimension."
-            )
-        if jnp.ndim(t) != 1:
-            raise ValueError("`t` is expected to have 1 dimension.")
-        event_shape = t.shape + init_dist.event_shape
-        batch_shape = ()
+        if not isinstance(init_dist, Distribution):
+            raise TypeError("Init distribution is expected to be Distribution class.")
+
+        batch_shape_t = jnp.shape(t)[:-1] if t.ndim != 1 else ()
+        batch_shape = lax.broadcast_shapes(batch_shape_t, init_dist.batch_shape)
+        event_shape = (jnp.shape(t)[-1],) + init_dist.event_shape
 
         super(EulerMaruyama, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
@@ -319,8 +326,7 @@ class EulerMaruyama(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        sample_size = np.prod(sample_shape)
-        sample_shape_ = (sample_size,) if sample_shape else ()
+        batch_shape = sample_shape + self.batch_shape
 
         def step(y_curr, xs):
             noise_curr, t_curr, dt_curr = xs
@@ -330,20 +336,29 @@ class EulerMaruyama(Distribution):
             y_next = mu + sigma * noise_curr
             return y_next, y_next
 
+        rng_noise, rng_init = random.split(key)
         noises = random.normal(
-            key, shape=sample_shape_ + (self.event_shape[0] - 1,) + self.event_shape[1:]
+            rng_noise,
+            shape=batch_shape + (self.event_shape[0] - 1,) + self.event_shape[1:],
         )
-        inits = self.init_dist.sample(key, sample_shape=sample_shape_)
+        inits = self.init_dist.expand(batch_shape).sample(rng_init)
 
-        def scan_fn(init, noise):
-            return scan(step, init, (noise, self.t[:-1], self.dt))
+        def scan_fn(init, noise, tm1, dt):
+            return scan(step, init, (noise, tm1, dt))
 
-        if sample_shape:
-            _, sde_out = vmap(scan_fn)(inits, noises)
+        batch_dim = len(batch_shape)
+        if batch_dim:
+            inits = inits.reshape((-1,) + inits.shape[batch_dim:])
+            noises = noises.reshape((-1,) + noises.shape[batch_dim:])
+            t = jnp.broadcast_to(self.t, batch_shape + (self.event_shape[0],))
+            t = t.reshape((-1,) + t.shape[batch_dim:])
+            dt = jnp.diff(t)
+            _, sde_out = vmap(scan_fn)(inits, noises, t[..., :-1], dt)
             sde_out = jnp.concatenate([inits[:, None], sde_out], axis=1)
-            sde_out = jnp.reshape(sde_out, sample_shape + self.event_shape)
+            sde_out = jnp.reshape(sde_out, batch_shape + self.event_shape)
         else:
-            _, sde_out = scan_fn(inits, noises)
+            dt = jnp.diff(self.t)
+            _, sde_out = scan_fn(inits, noises, self.t[:-1], dt)
             sde_out = jnp.concatenate([inits[None], sde_out], axis=0)
 
         return sde_out
@@ -357,29 +372,40 @@ class EulerMaruyama(Distribution):
 
         if sample_shape:
             reshaped_value = value.reshape((-1,) + self.event_shape)
-            xtm1 = reshaped_value[:, :-1]
-            xt = reshaped_value[:, 1:]
+            xtm1, xt = reshaped_value[:, :-1], reshaped_value[:, 1:]
             value0 = reshaped_value[:, 0]
+            t = jnp.broadcast_to(self.t, sample_shape + (self.event_shape[0],))
+            t = t.reshape((-1,) + (self.event_shape[0],))
 
-            f, g = vmap(vmap(self.sde_fn), (0, None))(xtm1, self.t[:-1])
+            f, g = vmap(vmap(self.sde_fn))(xtm1, t[:, :-1])
 
-            f = f.reshape(sample_shape + f.shape[1:] + (1,) * (xt.ndim - f.ndim))
-            g = g.reshape(sample_shape + g.shape[1:] + (1,) * (xt.ndim - g.ndim))
+            f = f.reshape(sample_shape + f.shape[1:])
+            g = g.reshape(sample_shape + g.shape[1:])
             xtm1 = xtm1.reshape(sample_shape + xtm1.shape[1:])
             xt = xt.reshape(sample_shape + xt.shape[1:])
             value0 = value0.reshape(sample_shape + value0.shape[1:])
 
         else:
-            xtm1 = value[:-1]
-            xt = value[1:]
+            xtm1, xt = value[:-1], value[1:]
             value0 = value[0]
 
             f, g = vmap(self.sde_fn)(xtm1, self.t[:-1])
 
-            f = f.reshape(f.shape + (1,) * (xt.ndim - f.ndim))
-            g = g.reshape(g.shape + (1,) * (xt.ndim - g.ndim))
+        # add missing event dimensions
+        batch_dim = len(sample_shape)
+        f = f.reshape(
+            f.shape[: batch_dim + 1]
+            + (1,) * (xt.ndim - f.ndim)
+            + f.shape[batch_dim + 1 :]
+        )
+        g = g.reshape(
+            g.shape[: batch_dim + 1]
+            + (1,) * (xt.ndim - g.ndim)
+            + g.shape[batch_dim + 1 :]
+        )
 
-        dt = self.dt.reshape(self.dt.shape + (1,) * (self.event_dim - 1))
+        dt = jnp.diff(self.t)
+        dt = dt.reshape(dt.shape + (1,) * (self.event_dim - 1))
         mu = xtm1 + dt * f
         sigma = jnp.sqrt(dt) * g
 
@@ -387,14 +413,6 @@ class EulerMaruyama(Distribution):
         init_log_prob = self.init_dist.log_prob(value0)
 
         return sde_log_prob + init_log_prob
-
-    def tree_flatten(self):
-        return (None,), (self.t, self.sde_fn, self.init_dist)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        t, sde_fn, init_dist = aux_data
-        return cls(t, sde_fn, init_dist)
 
 
 class Exponential(Distribution):

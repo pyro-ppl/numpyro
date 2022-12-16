@@ -60,25 +60,20 @@ def _circ_mean(angles):
     )
 
 
-lam = 0.1
-
-
 def sde_fn1(x, _):
-    sigma2 = 0.1 * 0.1
+    lam = 0.1
+    sigma2 = 0.1
     return lam * x, sigma2
 
 
-tau = 2.0
-a = 1.1
-
-
 def sde_fn2(xy, _):
+    tau, a = 2.0, 1.1
     x, y = xy[0], xy[1]
     dx = tau * (x - x**3.0 / 3.0 + y)
     dy = (1.0 / tau) * (a - x)
     dxy = jnp.vstack([dx, dy]).reshape(xy.shape)
 
-    sigma2 = 0.1 * 0.01
+    sigma2 = 0.1
     return dxy, sigma2
 
 
@@ -376,9 +371,19 @@ CONTINUOUS = [
         dist.EulerMaruyama,
         np.array([0.0, 0.1, 0.2]),
         sde_fn2,
-        dist.MultivariateNormal(
-            jnp.array([0.0, 1.0]), jnp.array([[1e-3, 0.0], [0.0, 1e-3]])
-        ),
+        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
+        sde_fn2,
+        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
+        sde_fn2,
+        dist.Normal(jnp.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1),
     ),
     T(dist.Exponential, 2.0),
     T(dist.Exponential, np.array([4.0, 2.0])),
@@ -2523,6 +2528,8 @@ def test_dist_pytree(jax_dist, sp_dist, params):
 
     if jax_dist is _ImproperWrapper:
         pytest.skip("Cannot flattening ImproperUniform")
+    if jax_dist is dist.EulerMaruyama:
+        pytest.skip("EulerMaruyama doesn't define flatten/unflatten")
     jax.jit(f)(0)  # this test for flatten/unflatten
     lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
 
