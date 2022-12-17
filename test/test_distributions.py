@@ -2621,6 +2621,15 @@ def test_dist_pytree(jax_dist, sp_dist, params):
         pytest.skip("EulerMaruyama doesn't define flatten/unflatten")
     jax.jit(f)(0)  # this test for flatten/unflatten
     lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
+    # Test that parameters do not change after flattening.
+    expected_dist = f(0)
+    actual_dist = jax.jit(f)(0)
+    expected_sample = expected_dist.sample(random.PRNGKey(0))
+    actual_sample = actual_dist.sample(random.PRNGKey(0))
+    expected_log_prob = expected_dist.log_prob(expected_sample)
+    actual_log_prob = actual_dist.log_prob(actual_sample)
+    assert_allclose(actual_sample, expected_sample, rtol=1e-6)
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-6)
 
 
 @pytest.mark.parametrize(
