@@ -399,7 +399,7 @@ class SineBivariateVonMises(Distribution):
         lbinoms = num - 2 * den
 
         fs = lbinoms.reshape(-1, 1) + m * (
-            jnp.log(jnp.clip(corr**2, a_min=jnp.finfo(float).tiny))
+            jnp.log(jnp.clip(corr**2, a_min=jnp.finfo(jnp.result_type(float)).tiny))
             - jnp.log(4 * jnp.prod(conc, axis=-1))
         )
         fs += log_I1(49, conc, terms=51).sum(-1)
