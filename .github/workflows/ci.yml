@@ -68,7 +68,7 @@ jobs:
         pip install jax
         pip install .[dev,test]
         # pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install git+https://github.com/pyro-ppl/funsor.git@refs/pull/601/head
+        pip install -e git://github.com/fehiepsi/funsor.git@jax04#egg=funsor
         pip freeze
     - name: Test with pytest
       run: |
@@ -98,7 +98,7 @@ jobs:
         pip install jax
         pip install .[dev,test]
         # pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install git+https://github.com/pyro-ppl/funsor.git@refs/pull/601/head
+        pip install -e git://github.com/fehiepsi/funsor.git@jax04#egg=funsor
         pip freeze
     - name: Test with pytest
       run: |
@@ -135,7 +135,7 @@ jobs:
         pip install jax
         pip install .[dev,examples,test]
         # pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install git+https://github.com/pyro-ppl/funsor.git@refs/pull/601/head
+        pip install -e git://github.com/fehiepsi/funsor.git@jax04#egg=funsor
         pip freeze
     - name: Test with pytest
       run: |
