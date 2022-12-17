@@ -389,7 +389,7 @@ class SineBivariateVonMises(Distribution):
 
     @lazy_property
     def norm_const(self):
-        corr = jnp.reshape(self.correlation, (1, -1)) + 1e-8
+        corr = jnp.reshape(self.correlation, (1, -1))
         conc = jnp.stack(
             (self.phi_concentration, self.psi_concentration), axis=-1
         ).reshape(-1, 2)
@@ -400,7 +400,7 @@ class SineBivariateVonMises(Distribution):
 
         fs = (
             lbinoms.reshape(-1, 1)
-            + 2 * m * jnp.log(corr)
+            + m * jnp.log(corr**2)
             - m * jnp.log(4 * jnp.prod(conc, axis=-1))
         )
         fs += log_I1(49, conc, terms=51).sum(-1)
