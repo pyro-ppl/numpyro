@@ -68,7 +68,7 @@ jobs:
         pip install jax
         pip install .[dev,test]
         # pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip uninstall funsor
+        pip uninstall -y funsor
         pip install https://github.com/fehiepsi/funsor/archive/jax04.zip
         pip freeze
     - name: Test with pytest
@@ -99,7 +99,7 @@ jobs:
         pip install jax
         pip install .[dev,test]
         # pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip uninstall funsor
+        pip uninstall -y funsor
         pip install https://github.com/fehiepsi/funsor/archive/jax04.zip
         pip freeze
     - name: Test with pytest
@@ -137,7 +137,7 @@ jobs:
         pip install jax
         pip install .[dev,examples,test]
         # pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip uninstall funsor
+        pip uninstall -y funsor
         pip install https://github.com/fehiepsi/funsor/archive/jax04.zip
         pip freeze
     - name: Test with pytest
