@@ -398,14 +398,12 @@ class SineBivariateVonMises(Distribution):
         den = special.gammaln(m + 1.0)
         lbinoms = num - 2 * den
 
-        fs = (
-            lbinoms.reshape(-1, 1)
-            + m * jnp.log(corr**2)
-            - m * jnp.log(4 * jnp.prod(conc, axis=-1))
+        fs = lbinoms.reshape(-1, 1) + m * (
+            jnp.log(jnp.clip(corr**2, a_min=jnp.finfo(float).tiny))
+            - jnp.log(4 * jnp.prod(conc, axis=-1))
         )
         fs += log_I1(49, conc, terms=51).sum(-1)
-        mfs = fs.max()
-        norm_const = 2 * jnp.log(jnp.array(2 * pi)) + mfs + logsumexp(fs - mfs, 0)
+        norm_const = 2 * jnp.log(jnp.array(2 * pi)) + logsumexp(fs, 0)
         return norm_const.reshape(jnp.shape(self.phi_loc))
 
     @validate_sample
