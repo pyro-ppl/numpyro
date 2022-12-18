@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -50,7 +50,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.7,3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -66,8 +66,8 @@ jobs:
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
         pip install jaxlib
         pip install jax
-        pip install .[dev,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install .[dev,test]
         pip freeze
     - name: Test with pytest
       run: |
@@ -80,7 +80,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.7,3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -95,8 +95,8 @@ jobs:
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
         pip install jaxlib
         pip install jax
-        pip install .[dev,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install .[dev,test]
         pip freeze
     - name: Test with pytest
       run: |
@@ -118,7 +118,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.7,3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -131,8 +131,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install jaxlib
         pip install jax
-        pip install .[dev,examples,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install .[dev,examples,test]
         pip freeze
     - name: Test with pytest
       run: |

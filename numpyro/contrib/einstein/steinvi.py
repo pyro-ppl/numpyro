@@ -99,8 +99,8 @@ class SteinVI:
             )
         else:
             return jax.vmap(
-                lambda l: jnp.sum(
-                    jax.vmap(lambda m: jax.grad(lambda x: kernel(x, y)[l, m])(x)[m])(
+                lambda a: jnp.sum(
+                    jax.vmap(lambda b: jax.grad(lambda x: kernel(x, y)[a, b])(x)[b])(
                         jnp.arange(x.shape[0])
                     )
                 )
