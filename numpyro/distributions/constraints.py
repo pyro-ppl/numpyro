@@ -95,7 +95,22 @@ class Constraint(object):
         raise NotImplementedError
 
 
-class _Boolean(Constraint):
+class _SingletonConstraint(Constraint):
+    """
+    A constraint type which has only one canonical instance, like constraints._real,
+    and unlike constraints._Interval.
+    """
+
+    def __new__(cls):
+        if not hasattr(cls, "_instance"):
+            cls._instance = super(_SingletonConstraint, cls).__new__(cls)
+        elif type(cls._instance) is not cls:
+            # Do not use the singleton instance of a subclass of cls.
+            cls._instance = super(_SingletonConstraint, cls).__new__(cls)
+        return cls._instance
+
+
+class _Boolean(_SingletonConstraint):
     is_discrete = True
 
     def __call__(self, x):
@@ -105,7 +120,7 @@ class _Boolean(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _CorrCholesky(Constraint):
+class _CorrCholesky(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -126,7 +141,7 @@ class _CorrCholesky(Constraint):
         )
 
 
-class _CorrMatrix(Constraint):
+class _CorrMatrix(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -379,7 +394,7 @@ class _OpenInterval(_Interval):
         return fmt_string
 
 
-class _LowerCholesky(Constraint):
+class _LowerCholesky(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -415,7 +430,7 @@ class _Multinomial(Constraint):
         return jax.numpy.broadcast_to(value, prototype.shape)
 
 
-class _L1Ball(Constraint):
+class _L1Ball(_SingletonConstraint):
     """
     Constrain to the L1 ball of any dimension.
     """
@@ -432,7 +447,7 @@ class _L1Ball(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _OrderedVector(Constraint):
+class _OrderedVector(_SingletonConstraint):
     event_dim = 1
 
     def __call__(self, x):
@@ -444,7 +459,7 @@ class _OrderedVector(Constraint):
         )
 
 
-class _PositiveDefinite(Constraint):
+class _PositiveDefinite(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -461,7 +476,7 @@ class _PositiveDefinite(Constraint):
         )
 
 
-class _PositiveOrderedVector(Constraint):
+class _PositiveOrderedVector(_SingletonConstraint):
     """
     Constrains to a positive real-valued tensor where the elements are monotonically
     increasing along the `event_shape` dimension.
@@ -478,7 +493,7 @@ class _PositiveOrderedVector(Constraint):
         )
 
 
-class _Real(Constraint):
+class _Real(_SingletonConstraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float("inf")) & (x != float("-inf"))
@@ -486,14 +501,8 @@ class _Real(Constraint):
     def feasible_like(self, prototype):
         return jax.numpy.zeros_like(prototype)
 
-    def __reduce__(self):
-        # _Real is a singleton class. Its only instance is pickled by reference
-        # and not by value, which is achieved by returning a string pointing to
-        # the singleton instance of _Real.
-        return "real"
 
-
-class _Simplex(Constraint):
+class _Simplex(_SingletonConstraint):
     event_dim = 1
 
     def __call__(self, x):
@@ -504,7 +513,7 @@ class _Simplex(Constraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
-class _SoftplusPositive(_GreaterThan):
+class _SoftplusPositive(_GreaterThan, _SingletonConstraint):
     def __init__(self):
         super().__init__(lower_bound=0.0)
 
@@ -523,7 +532,7 @@ class _ScaledUnitLowerCholesky(_LowerCholesky):
     pass
 
 
-class _Sphere(Constraint):
+class _Sphere(_SingletonConstraint):
     """
     Constrain to the Euclidean sphere of any dimension.
     """

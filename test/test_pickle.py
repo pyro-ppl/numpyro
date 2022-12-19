@@ -13,7 +13,22 @@ from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import real
+from numpyro.distributions.constraints import (
+    boolean,
+    corr_cholesky,
+    corr_matrix,
+    l1_ball,
+    lower_cholesky,
+    ordered_vector,
+    positive_definite,
+    positive_integer,
+    real,
+    scaled_unit_lower_cholesky,
+    simplex,
+    softplus_lower_cholesky,
+    softplus_positive,
+    sphere,
+)
 from numpyro.infer import (
     HMC,
     HMCECS,
@@ -96,9 +111,29 @@ def test_pickle_autoguide(guide_class):
     assert set(samples.keys()) == {"param", "x"}
 
 
-def test_pickle_real_constraint():
-    # real is a singleton instance, and is pickled as a reference to the `real`
-    # global variable of numpyro. loading a pickled real constraint should thus
-    # yield the original real constraint, which is checked using `is`.
-    roundtripped_real = pickle.loads(pickle.dumps(real))
-    assert roundtripped_real is real
+def test_pickle_singleton_constraint():
+    # some numpyro constraint classes such as constraints._Real, are only accessible
+    # through their public singleton instance, (such as constraint.real). This test
+    # ensures that pickling and unpickling singleton instances does not re-create
+    # additional instances, which is the default behavior of pickle, and which would
+    # break singleton semantics.
+    singleton_constraints = (
+        boolean,
+        corr_cholesky,
+        corr_matrix,
+        l1_ball,
+        lower_cholesky,
+        ordered_vector,
+        positive_definite,
+        positive_integer,
+        real,
+        scaled_unit_lower_cholesky,
+        simplex,
+        softplus_lower_cholesky,
+        softplus_positive,
+        sphere,
+    )
+    for cnstr in singleton_constraints:
+        roundtripped_cnstr = pickle.loads(pickle.dumps(cnstr))
+        # make sure that the unpickled constraint is the original singleton constraint:
+        assert roundtripped_cnstr is cnstr
