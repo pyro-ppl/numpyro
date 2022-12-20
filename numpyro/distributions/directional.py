@@ -352,9 +352,8 @@ class SineBivariateVonMises(Distribution):
         assert (correlation is None) != (weighted_correlation is None)
 
         if weighted_correlation is not None:
-            correlation = (
-                weighted_correlation * jnp.sqrt(phi_concentration * psi_concentration)
-                + 1e-8
+            correlation = weighted_correlation * jnp.sqrt(
+                phi_concentration * psi_concentration
             )
 
         batch_shape = lax.broadcast_shapes(
