@@ -2378,7 +2378,7 @@ class AsymmetricLaplaceQuantile(Distribution):
     the distribution.
 
     The `scale` parameter is also interpreted slightly differently than in
-    AsymmetricLaplce. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
+    AsymmetricLaplace. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
     is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
     equivalent to Laplace(0,2).
     """
