@@ -325,7 +325,7 @@ class SineBivariateVonMises(Distribution):
     :param np.ndarray phi_concentration: concentration of first angle
     :param np.ndarray psi_concentration: concentration of second angle
     :param np.ndarray correlation: correlation between the two angles
-    :param np.ndarray weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
+    :param np.ndarray weighted_correlation: set correlation to weighted_corr * sqrt(phi_conc*psi_conc)
         to avoid bimodality (see note). The `weighted_correlation` should be in [0,1].
     """
 
