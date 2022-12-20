@@ -94,6 +94,22 @@ class Constraint(object):
         """
         raise NotImplementedError
 
+    def _get_toplevel_name(self):
+        """
+        Get (if it exists) the name binding to self if exposed as a global
+        variable of this module.
+        """
+        return _TOPLEVEL_CONSTRAINTS.get(id(self))
+
+    def __reduce__(self):
+        name = self._get_toplevel_name()
+        if name is not None:
+            # returning a string informs pickle to save self by reference to the
+            # global variable with this name.
+            return name
+        else:
+            return super(Constraint, self).__reduce__()
+
 
 class _SingletonConstraint(Constraint):
     """
@@ -584,3 +600,14 @@ softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _Interval(0.0, 1.0)
 open_interval = _OpenInterval
+
+
+def _make_top_level_constraints_reverse_lookup():
+    contraints_dict = {}
+    for k, v in globals().items():
+        if isinstance(v, Constraint):
+            contraints_dict[id(v)] = k
+    return contraints_dict
+
+
+_TOPLEVEL_CONSTRAINTS = _make_top_level_constraints_reverse_lookup()

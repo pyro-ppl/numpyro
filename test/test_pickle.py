@@ -15,19 +15,29 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import (
     boolean,
+    circular,
     corr_cholesky,
     corr_matrix,
+    dependent,
+    greater_than,
+    interval,
     l1_ball,
     lower_cholesky,
+    nonnegative_integer,
     ordered_vector,
+    positive,
     positive_definite,
     positive_integer,
+    positive_ordered_vector,
     real,
+    real_matrix,
+    real_vector,
     scaled_unit_lower_cholesky,
     simplex,
     softplus_lower_cholesky,
     softplus_positive,
     sphere,
+    unit_interval,
 )
 from numpyro.infer import (
     HMC,
@@ -119,21 +129,44 @@ def test_pickle_singleton_constraint():
     # break singleton semantics.
     singleton_constraints = (
         boolean,
+        circular,
         corr_cholesky,
         corr_matrix,
+        dependent,
         l1_ball,
         lower_cholesky,
+        nonnegative_integer,
         ordered_vector,
+        positive,
         positive_definite,
         positive_integer,
+        positive_ordered_vector,
         real,
+        real_matrix,
+        real_vector,
         scaled_unit_lower_cholesky,
         simplex,
         softplus_lower_cholesky,
         softplus_positive,
         sphere,
+        unit_interval,
     )
     for cnstr in singleton_constraints:
         roundtripped_cnstr = pickle.loads(pickle.dumps(cnstr))
-        # make sure that the unpickled constraint is the original singleton constraint:
+        # make sure that the unpickled constraint is the original singleton constraint
         assert roundtripped_cnstr is cnstr
+
+    # Test that it remains possible to pickle newly-created, non-singleton constraints.
+    # because these constraints are neither singleton nor exposed as top-level variables
+    # of the numpyro.distributions.constraints module, these objects are not pickled by
+    # reference, but by value.
+    int_cstr = interval(1.0, 2.0)
+    roundtripped_int_cstr = pickle.loads(pickle.dumps(int_cstr))
+    assert type(roundtripped_int_cstr) is type(int_cstr)
+    assert int_cstr.lower_bound == roundtripped_int_cstr.lower_bound
+    assert int_cstr.upper_bound == roundtripped_int_cstr.upper_bound
+
+    gt_cstr = greater_than(1.0)
+    roundtripped_gt_cstr = pickle.loads(pickle.dumps(gt_cstr))
+    assert type(roundtripped_gt_cstr) is type(gt_cstr)
+    assert gt_cstr.lower_bound == roundtripped_gt_cstr.lower_bound
