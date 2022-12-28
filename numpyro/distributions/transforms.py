@@ -1067,7 +1067,7 @@ def _transform_to_corr_matrix(constraint):
 
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
-    if constraint is constraints.positive:
+    if constraint.lower_bound in [0, 0.0]:
         return ExpTransform()
     return ComposeTransform(
         [
@@ -1097,7 +1097,7 @@ def _biject_to_independent(constraint):
 @biject_to.register(constraints.open_interval)
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
-    if constraint is constraints.unit_interval:
+    if (constraint.lower_bound in [0, 0.0]) and (constraint.upper_bound in [1, 1.0]):
         return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
     return ComposeTransform(
