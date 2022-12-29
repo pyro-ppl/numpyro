@@ -1067,8 +1067,6 @@ def _transform_to_corr_matrix(constraint):
 
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
-    if constraint is constraints.positive:
-        return ExpTransform()
     return ComposeTransform(
         [
             ExpTransform(),
@@ -1097,8 +1095,6 @@ def _biject_to_independent(constraint):
 @biject_to.register(constraints.open_interval)
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
-    if constraint is constraints.unit_interval:
-        return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
     return ComposeTransform(
         [
