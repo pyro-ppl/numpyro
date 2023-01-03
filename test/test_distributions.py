@@ -68,6 +68,23 @@ def _circ_mean(angles):
     )
 
 
+def sde_fn1(x, _):
+    lam = 0.1
+    sigma2 = 0.1
+    return lam * x, sigma2
+
+
+def sde_fn2(xy, _):
+    tau, a = 2.0, 1.1
+    x, y = xy[0], xy[1]
+    dx = tau * (x - x**3.0 / 3.0 + y)
+    dy = (1.0 / tau) * (a - x)
+    dxy = jnp.vstack([dx, dy]).reshape(xy.shape)
+
+    sigma2 = 0.1
+    return dxy, sigma2
+
+
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
     def __new__(cls, jax_dist, *params):
         sp_dist = get_sp_dist(jax_dist)
@@ -352,12 +369,44 @@ CONTINUOUS = [
     T(dist.Dirichlet, np.array([1.7])),
     T(dist.Dirichlet, np.array([0.2, 1.1])),
     T(dist.Dirichlet, np.array([[0.2, 1.1], [2.0, 2.0]])),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2]),
+        sde_fn1,
+        dist.Normal(0.1, 1.0),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2]),
+        sde_fn2,
+        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
+        sde_fn2,
+        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
+        sde_fn2,
+        dist.Normal(jnp.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1),
+    ),
     T(dist.Exponential, 2.0),
     T(dist.Exponential, np.array([4.0, 2.0])),
     T(dist.Gamma, np.array([1.7]), np.array([[2.0], [3.0]])),
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.GaussianRandomWalk, 0.1, 10),
     T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
+    T(
+        dist.GaussianCopulaBeta,
+        np.array([7.0, 2.0]),
+        np.array([4.0, 10.0]),
+        np.array([[1.0, 0.75], [0.75, 1.0]]),
+    ),
+    T(dist.GaussianCopulaBeta, 2.0, 1.5, np.eye(3)),
+    T(dist.GaussianCopulaBeta, 2.0, 1.5, np.full((5, 3, 3), np.eye(3))),
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, np.array([0.0, 0.5]), np.array([1.0, 2.0])),
@@ -845,7 +894,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
     elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
-        return x - random.normal(key, size[:-1])
+        return x - random.normal(key, size[:-1] + (1,))
     elif isinstance(constraint, constraints.independent):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
     elif constraint is constraints.sphere:
@@ -1129,6 +1178,7 @@ def test_pathwise_gradient(jax_dist, params):
 )
 def test_jit_log_likelihood(jax_dist, sp_dist, params):
     if jax_dist.__name__ in (
+        "EulerMaruyama",
         "GaussianRandomWalk",
         "_ImproperWrapper",
         "LKJ",
@@ -1275,6 +1325,10 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.skip("distribution has improper .log_prob()")
     if "LKJ" in jax_dist.__name__:
         pytest.xfail("incorrect submanifold scaling")
+    if jax_dist is dist.EulerMaruyama:
+        d = jax_dist(*params)
+        if d.event_dim > 1:
+            pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
 
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
@@ -1499,6 +1553,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if jax_dist is dist.EulerMaruyama and i == 1:
+            # skip taking grad w.r.t. sde_fn
+            continue
         if jax_dist is _SparseCAR and i == 3:
             # skip taking grad w.r.t. adj_matrix
             continue
@@ -1531,6 +1588,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if jax_dist is dist.EulerMaruyama:
+        pytest.skip("EulerMaruyama distribution does not has mean/var implemented")
     if jax_dist is dist.RelaxedBernoulliLogits:
         pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
@@ -1716,6 +1775,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if "SineSkewed" in jax_dist.__name__ and dist_args[i] != "skewness":
+            continue
+        if jax_dist is dist.EulerMaruyama and dist_args[i] != "t":
             continue
         if (
             jax_dist is dist.TwoSidedTruncatedDistribution
@@ -2556,8 +2617,19 @@ def test_dist_pytree(jax_dist, sp_dist, params):
 
     if jax_dist is _ImproperWrapper:
         pytest.skip("Cannot flattening ImproperUniform")
+    if jax_dist is dist.EulerMaruyama:
+        pytest.skip("EulerMaruyama doesn't define flatten/unflatten")
     jax.jit(f)(0)  # this test for flatten/unflatten
     lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
+    # Test that parameters do not change after flattening.
+    expected_dist = f(0)
+    actual_dist = jax.jit(f)(0)
+    expected_sample = expected_dist.sample(random.PRNGKey(0))
+    actual_sample = actual_dist.sample(random.PRNGKey(0))
+    expected_log_prob = expected_dist.log_prob(expected_sample)
+    actual_log_prob = actual_dist.log_prob(actual_sample)
+    assert_allclose(actual_sample, expected_sample, rtol=1e-6)
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-6)
 
 
 @pytest.mark.parametrize(

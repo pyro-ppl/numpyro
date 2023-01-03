@@ -20,6 +20,7 @@ from numpyro.distributions.continuous import (
     Cauchy,
     Chi2,
     Dirichlet,
+    EulerMaruyama,
     Exponential,
     Gamma,
     GaussianRandomWalk,
@@ -46,6 +47,7 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
 )
+from numpyro.distributions.copula import GaussianCopula, GaussianCopulaBeta
 from numpyro.distributions.directional import (
     ProjectedNormal,
     SineBivariateVonMises,
@@ -126,11 +128,14 @@ __all__ = [
     "DirichletMultinomial",
     "DiscreteUniform",
     "Distribution",
+    "EulerMaruyama",
     "Exponential",
     "ExpandedDistribution",
     "FoldedDistribution",
     "Gamma",
     "GammaPoisson",
+    "GaussianCopula",
+    "GaussianCopulaBeta",
     "GaussianRandomWalk",
     "Geometric",
     "GeometricLogits",

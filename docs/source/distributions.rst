@@ -144,6 +144,14 @@ Dirichlet
     :show-inheritance:
     :member-order: bysource
 
+EulerMaruyama
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.EulerMaruyama
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    
 Exponential
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Exponential
@@ -275,6 +283,22 @@ MultivariateNormal
 MultivariateStudentT
 ^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GaussianCopula
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopula
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GaussianCopulaBeta
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopulaBeta
     :members:
     :undoc-members:
     :show-inheritance:
