@@ -132,7 +132,6 @@ def test_pickle_singleton_constraint():
         circular,
         corr_cholesky,
         corr_matrix,
-        dependent,
         l1_ball,
         lower_cholesky,
         nonnegative_integer,
