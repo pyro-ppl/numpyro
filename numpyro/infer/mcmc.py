@@ -540,7 +540,8 @@ class MCMC(object):
             does not have batch_size, it will be split in to a batch of `num_chains` keys.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from `"z"`, `"diverging"`) to be collected
+        :param extra_fields: Extra fields (aside from `"z"`, `"diverging"`) from the
+            state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to be collected
             during the MCMC run. Note that subfields can be accessed using dots, e.g.
             `"adapt_state.step_size"` can be used to collect step sizes at each step.
         :type extra_fields: tuple or list of str
