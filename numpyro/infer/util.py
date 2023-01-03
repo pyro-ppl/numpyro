@@ -209,10 +209,7 @@ def _unconstrain_reparam(params, site):
             if jnp.ndim(p) > expected_unconstrained_dim:
                 p = p[i]
 
-        if support is constraints.real or (
-            isinstance(support, constraints.independent)
-            and support.base_constraint is constraints.real
-        ):
+        if support in [constraints.real, constraints.real_vector]:
             return p
         value = t(p)
 
