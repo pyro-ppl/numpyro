@@ -97,15 +97,13 @@ class Constraint(object):
 
 class _SingletonConstraint(Constraint):
     """
-    A constraint type which has only one canonical instance, like constraints._real,
-    and unlike constraints._Interval.
+    A constraint type which has only one canonical instance, like constraints.real,
+    and unlike constraints.interval.
     """
 
     def __new__(cls):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super(_SingletonConstraint, cls).__new__(cls)
-        elif type(cls._instance) is not cls:
-            # Do not use the singleton instance of a subclass of cls.
+        if (not hasattr(cls, "_instance")) or (type(cls._instance) is not cls):
+            # Do not use the singleton instance of a superclass of cls.
             cls._instance = super(_SingletonConstraint, cls).__new__(cls)
         return cls._instance
 
