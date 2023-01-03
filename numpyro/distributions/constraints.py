@@ -94,22 +94,6 @@ class Constraint(object):
         """
         raise NotImplementedError
 
-    def _get_toplevel_name(self):
-        """
-        Get (if it exists) the name binding to self if exposed as a global
-        variable of this module.
-        """
-        return _TOPLEVEL_CONSTRAINTS.get(id(self))
-
-    def __reduce__(self):
-        name = self._get_toplevel_name()
-        if name is not None:
-            # returning a string informs pickle to save self by reference to the
-            # global variable with this name.
-            return name
-        else:
-            return super(Constraint, self).__reduce__()
-
 
 class _SingletonConstraint(Constraint):
     """
@@ -262,6 +246,11 @@ class _GreaterThan(Constraint):
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
 
 
+class _Positive(_GreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0.0)
+
+
 class _IndependentConstraint(Constraint):
     """
     Wraps a constraint by aggregating over ``reinterpreted_batch_ndims``-many
@@ -314,6 +303,15 @@ class _IndependentConstraint(Constraint):
     def feasible_like(self, prototype):
         return self.base_constraint.feasible_like(prototype)
 
+
+class _RealVector(_IndependentConstraint, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(_Real(), 1)
+
+
+class _RealMatrix(_IndependentConstraint, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(_Real(), 2)
 
 class _LessThan(Constraint):
     def __init__(self, upper_bound):
@@ -370,6 +368,16 @@ class _IntegerGreaterThan(Constraint):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
 
+class _IntegerPositive(_IntegerGreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(1)
+
+
+class _IntegerNonnegative(_IntegerGreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0)
+
+
 class _Interval(Constraint):
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound
@@ -396,6 +404,16 @@ class _Interval(Constraint):
             and self.lower_bound == other.lower_bound
             and self.upper_bound == other.upper_bound
         )
+
+
+class _Circular(_Interval, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(-math.pi, math.pi)
+
+
+class _UnitInterval(_Interval, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0.0, 1.0)
 
 
 class _OpenInterval(_Interval):
@@ -571,7 +589,7 @@ class _Sphere(_SingletonConstraint):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
-circular = _Interval(-math.pi, math.pi)
+circular = _Circular()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
@@ -585,29 +603,18 @@ l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
 scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
-nonnegative_integer = _IntegerGreaterThan(0)
+nonnegative_integer = _IntegerNonnegative()
 ordered_vector = _OrderedVector()
-positive = _GreaterThan(0.0)
+positive = _Positive()
 positive_definite = _PositiveDefinite()
-positive_integer = _IntegerGreaterThan(1)
+positive_integer = _IntegerPositive()
 positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
-real_vector = independent(real, 1)
-real_matrix = independent(real, 2)
+real_vector = _RealVector()
+real_matrix = _RealMatrix()
 simplex = _Simplex()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
-unit_interval = _Interval(0.0, 1.0)
+unit_interval = _UnitInterval()
 open_interval = _OpenInterval
-
-
-def _make_top_level_constraints_reverse_lookup():
-    contraints_dict = {}
-    for k, v in globals().items():
-        if isinstance(v, Constraint):
-            contraints_dict[id(v)] = k
-    return contraints_dict
-
-
-_TOPLEVEL_CONSTRAINTS = _make_top_level_constraints_reverse_lookup()

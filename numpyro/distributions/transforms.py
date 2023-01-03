@@ -1065,6 +1065,7 @@ def _transform_to_corr_matrix(constraint):
     )
 
 
+@biject_to.register(type(constraints.positive))
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
     if constraint is constraints.positive:
@@ -1087,6 +1088,8 @@ def _transform_to_less_than(constraint):
     )
 
 
+@biject_to.register(type(constraints.real_matrix))
+@biject_to.register(type(constraints.real_vector))
 @biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
     return IndependentTransform(
@@ -1094,6 +1097,8 @@ def _biject_to_independent(constraint):
     )
 
 
+@biject_to.register(type(constraints.circular))
+@biject_to.register(type(constraints.unit_interval))
 @biject_to.register(constraints.open_interval)
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
