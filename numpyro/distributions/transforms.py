@@ -1067,8 +1067,7 @@ def _transform_to_corr_matrix(constraint):
 
 @biject_to.register(type(constraints.positive))
 def _transform_to_positive(constraint):
-    if constraint is constraints.positive:
-        return ExpTransform()
+    return ExpTransform()
 
 
 @biject_to.register(constraints.greater_than)
@@ -1102,8 +1101,7 @@ def _biject_to_independent(constraint):
 
 @biject_to.register(type(constraints.unit_interval))
 def _transform_to_unit_interval(constraint):
-    if constraint is constraints.unit_interval:
-        return SigmoidTransform()
+    return SigmoidTransform()
 
 
 @biject_to.register(type(constraints.circular))
