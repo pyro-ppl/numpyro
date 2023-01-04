@@ -311,6 +311,7 @@ class _RealMatrix(_IndependentConstraint, _SingletonConstraint):
     def __init__(self):
         super().__init__(_Real(), 2)
 
+
 class _LessThan(Constraint):
     def __init__(self, upper_bound):
         self.upper_bound = upper_bound
