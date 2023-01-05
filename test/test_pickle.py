@@ -18,7 +18,6 @@ from numpyro.distributions.constraints import (
     circular,
     corr_cholesky,
     corr_matrix,
-    dependent,
     greater_than,
     interval,
     l1_ball,
