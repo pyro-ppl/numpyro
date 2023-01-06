@@ -398,7 +398,6 @@ class GlobalNamedMessenger(NamedMessenger):
         super().__init__(fn)
 
     def __enter__(self):
-        breakpoint()
         if self._ref_count == 0:
             for name, dim in self._saved_globals:
                 _DIM_STACK.global_frame.write(name, dim)
