@@ -7,11 +7,9 @@ import funsor
 from funsor.adjoint import AdjointTape
 from funsor.sum_product import _partition
 
-from numpyro.contrib.funsor import to_data, to_funsor
+from numpyro.contrib.funsor import to_data, to_funsor, plate_to_enum_plate
 from numpyro.contrib.funsor import enum, plate, replay, trace
-# from numpyro.contrib.funsor.infer.elbo import ELBO, Jit_ELBO
-# from numpyro.distributions.util import copy_docs_from
-# from pyro.infer import TraceEnum_ELBO as _OrigTraceEnum_ELBO
+from numpyro.infer.elbo import ELBO
 
 
 # Work around a bug in unfold_contraction_generic_tuple interacting with
@@ -90,113 +88,121 @@ def terms_from_trace(tr):
 
 
 class TraceEnum_ELBO(ELBO):
-    def differentiable_loss(self, model, guide, *args, **kwargs):
 
-        # get batched, enumerated, to_funsor-ed traces from the guide and model
-        with plate(
-            size=self.num_particles
-        ) if self.num_particles > 1 else contextlib.ExitStack(), enum(
-            first_available_dim=(-self.max_plate_nesting - 1)
-            if self.max_plate_nesting
-            else None
-        ):
-            guide_tr = trace(guide).get_trace(*args, **kwargs)
-            model_tr = trace(replay(model, trace=guide_tr)).get_trace(*args, **kwargs)
+    can_infer_discrete = True
 
-        # extract from traces all metadata that we will need to compute the elbo
-        guide_terms = terms_from_trace(guide_tr)
-        model_terms = terms_from_trace(model_tr)
+    def __init__(self, num_particles=1):
+        super().__init__(num_particles=num_particles)
 
-        # build up a lazy expression for the elbo
-        with funsor.terms.lazy:
-            # identify and contract out auxiliary variables in the model with partial_sum_product
-            contracted_factors, uncontracted_factors = [], []
-            for f in model_terms["log_factors"]:
-                if model_terms["measure_vars"].intersection(f.inputs):
-                    contracted_factors.append(f)
-                else:
-                    uncontracted_factors.append(f)
-            contracted_costs = []
-            # incorporate the effects of subsampling and handlers.scale through a common scale factor
-            for group_factors, group_vars in _partition(
-                model_terms["log_measures"] + contracted_factors,
-                model_terms["measure_vars"],
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+
+        def single_particle_elbo(rng_key):
+            # get batched, enumerated, to_funsor-ed traces from the guide and model
+            with plate_to_enum_plate(), enum(
+                first_available_dim=(-self.max_plate_nesting - 1)
+                if self.max_plate_nesting
+                else None
             ):
-                group_factor_vars = frozenset().union(
-                    *[f.inputs for f in group_factors]
-                )
-                group_plates = model_terms["plate_vars"] & group_factor_vars
-                outermost_plates = frozenset.intersection(
-                    *(frozenset(f.inputs) & group_plates for f in group_factors)
-                )
-                elim_plates = group_plates - outermost_plates
-                for f in funsor.sum_product.partial_sum_product(
-                    funsor.ops.logaddexp,
-                    funsor.ops.add,
-                    group_factors,
-                    plates=group_plates,
-                    eliminate=group_vars | elim_plates,
+                model_seed, guide_seed = random.split(rng_key)
+                seeded_model = seed(model, model_seed)
+                seeded_guide = seed(guide, guide_seed)
+                guide_tr = trace(seeded_guide).get_trace(*args, **kwargs)
+                model_tr = trace(replay(seeded_model, trace=guide_tr)).get_trace(*args, **kwargs)
+
+            # extract from traces all metadata that we will need to compute the elbo
+            guide_terms = terms_from_trace(guide_tr)
+            model_terms = terms_from_trace(model_tr)
+
+            # build up a lazy expression for the elbo
+            with funsor.terms.lazy:
+                # identify and contract out auxiliary variables in the model with partial_sum_product
+                contracted_factors, uncontracted_factors = [], []
+                for f in model_terms["log_factors"]:
+                    if model_terms["measure_vars"].intersection(f.inputs):
+                        contracted_factors.append(f)
+                    else:
+                        uncontracted_factors.append(f)
+                contracted_costs = []
+                # incorporate the effects of subsampling and handlers.scale through a common scale factor
+                for group_factors, group_vars in _partition(
+                    model_terms["log_measures"] + contracted_factors,
+                    model_terms["measure_vars"],
                 ):
-                    contracted_costs.append(model_terms["scale"] * f)
-
-            # accumulate costs from model (logp) and guide (-logq)
-            costs = contracted_costs + uncontracted_factors  # model costs: logp
-            costs += [-f for f in guide_terms["log_factors"]]  # guide costs: -logq
-
-            # compute expected cost
-            # Cf. pyro.infer.util.Dice.compute_expectation()
-            # https://github.com/pyro-ppl/pyro/blob/0.3.0/pyro/infer/util.py#L212
-            # TODO Replace this with funsor.Expectation
-            plate_vars = guide_terms["plate_vars"] | model_terms["plate_vars"]
-            # compute the marginal logq in the guide corresponding to each cost term
-            targets = dict()
-            for cost in costs:
-                input_vars = frozenset(cost.inputs)
-                if input_vars not in targets:
-                    targets[input_vars] = funsor.Tensor(
-                        funsor.ops.new_zeros(
-                            funsor.tensor.get_default_prototype(),
-                            tuple(v.size for v in cost.inputs.values()),
-                        ),
-                        cost.inputs,
-                        cost.dtype,
+                    group_factor_vars = frozenset().union(
+                        *[f.inputs for f in group_factors]
                     )
-            with AdjointTape() as tape:
-                logzq = funsor.sum_product.sum_product(
-                    funsor.ops.logaddexp,
-                    funsor.ops.add,
-                    guide_terms["log_measures"] + list(targets.values()),
-                    plates=plate_vars,
-                    eliminate=(plate_vars | guide_terms["measure_vars"]),
+                    group_plates = model_terms["plate_vars"] & group_factor_vars
+                    outermost_plates = frozenset.intersection(
+                        *(frozenset(f.inputs) & group_plates for f in group_factors)
+                    )
+                    elim_plates = group_plates - outermost_plates
+                    for f in funsor.sum_product.partial_sum_product(
+                        funsor.ops.logaddexp,
+                        funsor.ops.add,
+                        group_factors,
+                        plates=group_plates,
+                        eliminate=group_vars | elim_plates,
+                    ):
+                        contracted_costs.append(model_terms["scale"] * f)
+
+                # accumulate costs from model (logp) and guide (-logq)
+                costs = contracted_costs + uncontracted_factors  # model costs: logp
+                costs += [-f for f in guide_terms["log_factors"]]  # guide costs: -logq
+
+                # compute expected cost
+                # Cf. pyro.infer.util.Dice.compute_expectation()
+                # https://github.com/pyro-ppl/pyro/blob/0.3.0/pyro/infer/util.py#L212
+                # TODO Replace this with funsor.Expectation
+                plate_vars = guide_terms["plate_vars"] | model_terms["plate_vars"]
+                # compute the marginal logq in the guide corresponding to each cost term
+                targets = dict()
+                for cost in costs:
+                    input_vars = frozenset(cost.inputs)
+                    if input_vars not in targets:
+                        targets[input_vars] = funsor.Tensor(
+                            funsor.ops.new_zeros(
+                                funsor.tensor.get_default_prototype(),
+                                tuple(v.size for v in cost.inputs.values()),
+                            ),
+                            cost.inputs,
+                            cost.dtype,
+                        )
+                with AdjointTape() as tape:
+                    logzq = funsor.sum_product.sum_product(
+                        funsor.ops.logaddexp,
+                        funsor.ops.add,
+                        guide_terms["log_measures"] + list(targets.values()),
+                        plates=plate_vars,
+                        eliminate=(plate_vars | guide_terms["measure_vars"]),
+                    )
+                marginals = tape.adjoint(
+                    funsor.ops.logaddexp, funsor.ops.add, logzq, tuple(targets.values())
                 )
-            marginals = tape.adjoint(
-                funsor.ops.logaddexp, funsor.ops.add, logzq, tuple(targets.values())
-            )
-            # finally, integrate out guide variables in the elbo and all plates
-            elbo = to_funsor(0, output=funsor.Real)
-            for cost in costs:
-                target = targets[frozenset(cost.inputs)]
-                logzq_local = marginals[target].reduce(
-                    funsor.ops.logaddexp, frozenset(cost.inputs) - plate_vars
-                )
-                log_prob = marginals[target] - logzq_local
-                elbo_term = funsor.Integrate(
-                    log_prob,
-                    cost,
-                    guide_terms["measure_vars"] & frozenset(log_prob.inputs),
-                )
-                elbo += elbo_term.reduce(
-                    funsor.ops.add, plate_vars & frozenset(cost.inputs)
-                )
+                # finally, integrate out guide variables in the elbo and all plates
+                elbo = to_funsor(0, output=funsor.Real)
+                for cost in costs:
+                    target = targets[frozenset(cost.inputs)]
+                    logzq_local = marginals[target].reduce(
+                        funsor.ops.logaddexp, frozenset(cost.inputs) - plate_vars
+                    )
+                    log_prob = marginals[target] - logzq_local
+                    elbo_term = funsor.Integrate(
+                        log_prob,
+                        cost,
+                        guide_terms["measure_vars"] & frozenset(log_prob.inputs),
+                    )
+                    elbo += elbo_term.reduce(
+                        funsor.ops.add, plate_vars & frozenset(cost.inputs)
+                    )
 
-        # evaluate the elbo, using memoize to share tensor computation where possible
-        with funsor.interpretations.memoize():
-            return -to_data(apply_optimizer(elbo))
+            # evaluate the elbo, using memoize to share tensor computation where possible
+            with funsor.interpretations.memoize():
+                return to_data(apply_optimizer(elbo))
 
-
-class JitTraceEnum_ELBO(Jit_ELBO, TraceEnum_ELBO):
-    pass
-
-
-class JitTraceMarkovEnum_ELBO(Jit_ELBO, TraceMarkovEnum_ELBO):
-    pass
+        # Return (-elbo) since by convention we do gradient descent on a loss and
+        # the ELBO is a lower bound that needs to be maximized.
+        if self.num_particles == 1:
+            return -single_particle_elbo(rng_key)
+        else:
+            rng_keys = random.split(rng_key, self.num_particles)
+            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))

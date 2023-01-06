@@ -8,6 +8,7 @@ from numpyro.infer.elbo import (
     Trace_ELBO,
     TraceGraph_ELBO,
     TraceMeanField_ELBO,
+    TraceEnum_ELBO,
 )
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
@@ -51,4 +52,5 @@ __all__ = [
     "Trace_ELBO",
     "TraceGraph_ELBO",
     "TraceMeanField_ELBO",
+    "TraceEnum_ELBO",
 ]
