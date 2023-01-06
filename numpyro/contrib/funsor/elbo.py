@@ -24,7 +24,7 @@ def apply_optimizer(x):
         return funsor.interpreter.reinterpret(expr)
 
 
-def terms_from_trace(tr):
+def terms_from_trace(tr, is_guide=False):
     """Helper function to extract elbo components from execution traces."""
     # data structure containing densities, measures, scales, and identification
     # of free variables as either product (plate) variables or sum (measure) variables
@@ -59,40 +59,44 @@ def terms_from_trace(tr):
         # check this
         if "funsor" not in node:
             node["funsor"] = {}
-        if "fn" not in node["funsor"]:
-            node["funsor"]["fn"] = to_funsor(node["fn"], funsor.Real)(value=node["name"])
-        if "value" not in node["funsor"]:
-            node["funsor"]["value"] = to_funsor(value, node["funsor"]["fn"].inputs[node["name"]])
+        # if "fn" not in node["funsor"]:
+        #     node["funsor"]["fn"] = to_funsor(node["fn"], funsor.Real)(value=node["name"])
+        # if "value" not in node["funsor"]:
+        #     node["funsor"]["value"] = to_funsor(value, node["funsor"]["fn"].inputs[node["name"]])
         if "log_prob" not in node["funsor"]:
-            node["funsor"]["log_prob"] = to_funsor(log_prob, output=funsor.Real)
+            node["funsor"]["log_prob"] = to_funsor(log_prob, output=funsor.Real, dim_to_name=dim_to_name)
 
         # grab plate dimensions from the cond_indep_stack
+        # TODO: consider if we need `f.dim is not None`
         terms["plate_vars"] |= frozenset(
-            f.name for f in node["cond_indep_stack"]
+            f.name for f in node["cond_indep_stack"] if f.dim is not None
         )
-        # grab the log-measure, found only at sites that are not replayed or observed
+        # grab the log-measure, found only at sites that are not observed or replayed
         # if node["funsor"].get("log_measure", None) is not None:
-        if (not node["is_observed"]) and node.get("is_replayed", False):
+        if not (node["is_observed"] or node.get("is_replayed", False)):
             terms["log_measures"].append(node["funsor"]["log_prob"])
-            terms["log_measures"].append(log_prob_factor)
+            # terms["log_measures"].append(log_prob_factor)
             # sum (measure) variables: the fresh non-plate variables at a site
-            terms["measure_vars"] |= (
-                frozenset(node["funsor"]["value"].inputs) | {name}
-            ) - terms["plate_vars"]
+            # terms["measure_vars"] |= (
+            #     frozenset(node["funsor"]["value"].inputs) | {name}
+            # ) - terms["plate_vars"]
+            # TODO: reconsider the logic
+            terms["measure_vars"] |= frozenset({node["name"]})
+        print("DEBUG log measures", terms["log_measures"], node)
         # grab the scale, assuming a common subsampling scale
-        if (
-            node.get("replay_active", False)
-            and set(node["funsor"]["log_prob"].inputs) & terms["measure_vars"]
-            and float(to_data(node["funsor"]["scale"])) != 1.0
-        ):
-            # model site that depends on enumerated variable: common scale
-            terms["scale"] = node["funsor"]["scale"]
-        else:  # otherwise: default scale behavior
-            node["funsor"]["log_prob"] = (
-                node["funsor"]["log_prob"] * node["funsor"]["scale"]
-            )
+        # if (
+        #     node.get("replay_active", False)
+        #     and set(node["funsor"]["log_prob"].inputs) & terms["measure_vars"]
+        #     and float(to_data(node["funsor"]["scale"])) != 1.0
+        # ):
+        #     # model site that depends on enumerated variable: common scale
+        #     terms["scale"] = node["funsor"]["scale"]
+        # else:  # otherwise: default scale behavior
+        #     node["funsor"]["log_prob"] = (
+        #         node["funsor"]["log_prob"] * node["funsor"]["scale"]
+        #     )
         # grab the log-density, found at all sites except those that are not replayed
-        if node["is_observed"] or not node.get("replay_skipped", False):
+        if node["is_observed"] or node.get("is_replayed", False):
             terms["log_factors"].append(node["funsor"]["log_prob"])
     # add plate dimensions to the plate_to_step dictionary
     terms["plate_to_step"].update(
