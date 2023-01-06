@@ -39,6 +39,7 @@ from numpyro.distributions.continuous import (
     Normal,
     Weibull,
 )
+from numpyro.distributions.discrete import CategoricalProbs
 from numpyro.distributions.distribution import (
     Delta,
     Distribution,
@@ -144,6 +145,14 @@ def kl_divergence(p, q):
     t2 = a_diff * digamma(a) + b_diff * digamma(b)
     t3 = (a_diff + b_diff) * digamma(a + b)
     return t1 - t2 + t3
+
+
+@dispatch(CategoricalProbs, CategoricalProbs)
+def kl_divergence(p, q):
+    t = p.probs * (p.logits - q.logits)
+    t = jnp.where(q.probs == 0, jnp.inf, t)
+    t = jnp.where(p.probs == 0, 0., t)
+    return t.sum(-1)
 
 
 @dispatch(Dirichlet, Dirichlet)

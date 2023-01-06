@@ -82,7 +82,7 @@ def terms_from_trace(tr, is_guide=False):
             # ) - terms["plate_vars"]
             # TODO: reconsider the logic
             terms["measure_vars"] |= frozenset({node["name"]})
-        print("DEBUG log measures", terms["log_measures"], node)
+        # print("DEBUG log measures", terms["log_measures"], node)
         # grab the scale, assuming a common subsampling scale
         # if (
         #     node.get("replay_active", False)
@@ -120,6 +120,11 @@ def traceenum_elbo(params, model, guide, max_plate_nesting, *args, **kwargs):
     # extract from traces all metadata that we will need to compute the elbo
     guide_terms = terms_from_trace(guide_tr)
     model_terms = terms_from_trace(model_tr)
+    print("DEBUG")
+    print(f"{guide_tr}")
+    print(f"{model_tr}")
+    print(f"{guide_terms}")
+    print(f"{model_terms}")
 
     # build up a lazy expression for the elbo
     with funsor.terms.lazy:
