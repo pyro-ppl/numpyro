@@ -10,6 +10,7 @@ from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+import jax
 
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
@@ -847,11 +848,6 @@ class TraceEnum_ELBO(ELBO):
                 )
             )
 
-            cost_terms = get_cost_terms(
-                    model_trace,
-                    guide_trace,
-                    model_deps,
-            )
             # check_model_guide_match(model_trace, guide_trace)
             # _validate_model(model_trace, plate_warning="strict")
 
@@ -880,27 +876,30 @@ class TraceEnum_ELBO(ELBO):
                         continue
 
                     cost = site["log_prob"]
+                    dim_to_name = site["infer"]["dim_to_name"]
                     contracted = False
                     for key in model_deps[name]:
+                        dim_to_name.update(model_trace[key]["infer"]["dim_to_name"])
                         if key in measure_vars:
                             contracted = True
-                            continue
-                        log_prob = guide_trace[key]["log_prob"]
-                        if not guide_trace[key]["infer"]["enumerate"] == "parallel":
-                            log_prob = log_prob - stop_gradient(log_prob)
-                        cost = cost * jnp.exp(log_prob)
-
                     if contracted:
-                        dim_to_name = site["infer"]["dim_to_name"]
                         contracted_factors.append(
                             to_funsor(cost, output=funsor.Real, dim_to_name=dim_to_name)
                         )
                         group_scale = site["scale"]
                     else:
-                        scale = site["scale"]
-                        if (scale is not None) and (not is_identically_one(scale)):
-                            cost = cost * scale
+                        for key in model_deps[name]:
+                            log_prob = guide_trace[key]["log_prob"]
+                            if not guide_trace[key]["infer"]["enumerate"] == "parallel":
+                                log_prob = log_prob - stop_gradient(log_prob)
+                            dim_to_name.update(guide_trace[key]["infer"]["dim_to_name"])
+                            cost = cost * jnp.exp(log_prob)
+                            scale = site["scale"]
+                            if (scale is not None) and (not is_identically_one(scale)):
+                                cost = cost * scale
                         elbo = elbo + jnp.sum(cost)
+                        print(f"DEBUG {name}")
+                        jax.debug.print("DEBUG model cost {cost}", cost=jnp.sum(cost))
 
             # incorporate the effects of subsampling and handlers.scale through a common scale factor
             for group_factors, group_vars in funsor.sum_product._partition(
@@ -923,6 +922,20 @@ class TraceEnum_ELBO(ELBO):
                     eliminate=group_vars | elim_plates,
                 ):
                     group_cost = to_data(f.reduce(funsor.ops.add))
+
+                    import pdb;pdb.set_trace()
+                    # group_deps = ...
+
+                    for key in group_deps:
+                        log_prob = guide_trace[key]["log_prob"]
+                        if not guide_trace[key]["infer"]["enumerate"] == "parallel":
+                            log_prob = log_prob - stop_gradient(log_prob)
+                        dim_to_name.update(guide_trace[key]["infer"]["dim_to_name"])
+                        group_cost = group_cost * jnp.exp(log_prob)
+
+                    print(f"DEBUG {group_vars}")
+                    jax.debug.print("DEBUG group cost {group_cost}", group_cost=group_cost)
+                    # jax.debug.print("DEBUG group factors {group_factors}", group_factors=group_factors)
                     elbo = elbo + group_cost * group_scale
 
             for name, site in guide_trace.items():
@@ -933,6 +946,8 @@ class TraceEnum_ELBO(ELBO):
                         if not guide_trace[key]["infer"]["enumerate"] == "parallel":
                             log_prob = log_prob - stop_gradient(log_prob)
                         cost = cost * jnp.exp(log_prob)
+                    print(f"DEBUG {name}")
+                    jax.debug.print("DEBUG guide cost {cost}", cost=cost)
                     elbo = elbo + jnp.sum(cost)
 
             return elbo

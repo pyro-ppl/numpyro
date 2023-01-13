@@ -21,6 +21,7 @@ from numpyro.ops.indexing import Vindex
 try:
     import funsor
     import numpyro.contrib.funsor
+    from numpyro.contrib.funsor import config_enumerate
 
     funsor.set_backend("jax")
 except ImportError:
@@ -28,9 +29,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+transform = dist.biject_to(dist.constraints.simplex) 
 
 def assert_equal(a, b, prec=0):
-    return np.testing.assert_allclose(a, b, atol=prec)
+    return jax.tree_util.tree_map(lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b)
 
 
 # _PYRO_BACKEND = os.environ.get("TEST_ENUM_PYRO_BACKEND", "contrib.funsor")
@@ -151,73 +153,81 @@ def test_elbo_enumerate_1(scale):
         probs_x = params["guide_probs_x"]
         pyro.sample("x", dist.Categorical(probs_x), infer={"enumerate": "parallel"})
 
-    def auto_loss_fn(params):
+    def auto_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
         return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
 
-    auto_loss = auto_loss_fn(params)
-    auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
+    params_raw = jax.tree_util.tree_map(transform.inv, params)
 
-    def hand_loss_fn(params):
+    auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
+
+    def hand_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
         return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
 
-    hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
+    hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
     assert_equal(auto_loss, hand_loss, prec=1e-5)
+    assert_equal(auto_grad, hand_grad, prec=1e-5)
 
 
-# @pytest.mark.parametrize("scale", [1, 10])
-# @pyroapi.pyro_backend(_PYRO_BACKEND)
-# def test_elbo_enumerate_2(scale):
-#     pyro.param(
-#         "guide_probs_x", torch.tensor([0.1, 0.9]), constraint=constraints.simplex
-#     )
-#     pyro.param(
-#         "model_probs_x", torch.tensor([0.4, 0.6]), constraint=constraints.simplex
-#     )
-#     pyro.param(
-#         "model_probs_y",
-#         torch.tensor([[0.75, 0.25], [0.55, 0.45]]),
-#         constraint=constraints.simplex,
-#     )
-#     pyro.param(
-#         "model_probs_z",
-#         torch.tensor([[0.3, 0.7], [0.2, 0.8]]),
-#         constraint=constraints.simplex,
-#     )
+@pytest.mark.parametrize("scale", [1, 10])
+def test_elbo_enumerate_2(scale):
+    params = {}
+    params["guide_probs_x"] = jnp.array([0.1, 0.9])
+    params["model_probs_x"] = jnp.array([0.4, 0.6])
+    params["model_probs_y"] = jnp.array([[0.75, 0.25], [0.55, 0.45]])
+    params["model_probs_z"] = jnp.array([[0.3, 0.7], [0.2, 0.8]])
 
-#     @handlers.scale(scale=scale)
-#     def auto_model():
-#         probs_x = pyro.param("model_probs_x")
-#         probs_y = pyro.param("model_probs_y")
-#         probs_z = pyro.param("model_probs_z")
-#         x = pyro.sample("x", dist.Categorical(probs_x))
-#         y = pyro.sample(
-#             "y", dist.Categorical(probs_y[x]), infer={"enumerate": "parallel"}
-#         )
-#         pyro.sample("z", dist.Categorical(probs_z[y]), obs=torch.tensor(0))
+    @handlers.scale(scale=scale)
+    def auto_model(params):
+        probs_x = params["model_probs_x"]
+        probs_y = params["model_probs_y"]
+        probs_z = params["model_probs_z"]
+        x = pyro.sample("x", dist.Categorical(probs_x))
+        y = pyro.sample(
+           "y", dist.Categorical(probs_y[x]), infer={"enumerate": "parallel"}
+        )
+        pyro.sample("z", dist.Categorical(probs_z[y]), obs=0)
 
-#     @handlers.scale(scale=scale)
-#     def hand_model():
-#         probs_x = pyro.param("model_probs_x")
-#         probs_y = pyro.param("model_probs_y")
-#         probs_z = pyro.param("model_probs_z")
-#         probs_yz = probs_y.mm(probs_z)
-#         x = pyro.sample("x", dist.Categorical(probs_x))
-#         pyro.sample("z", dist.Categorical(probs_yz[x]), obs=torch.tensor(0))
+    @handlers.scale(scale=scale)
+    def hand_model(params):
+        probs_x = params["model_probs_x"]
+        probs_y = params["model_probs_y"]
+        probs_z = params["model_probs_z"]
+        probs_yz = probs_y @ probs_z
+        x = pyro.sample("x", dist.Categorical(probs_x))
+        pyro.sample("z", dist.Categorical(probs_yz[x]), obs=0)
 
-#     @infer.config_enumerate
-#     @handlers.scale(scale=scale)
-#     def guide():
-#         probs_x = pyro.param("guide_probs_x")
-#         pyro.sample("x", dist.Categorical(probs_x))
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def guide(params):
+        probs_x = params["guide_probs_x"]
+        pyro.sample("x", dist.Categorical(probs_x))
 
-#     elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
-#     auto_loss = elbo.differentiable_loss(auto_model, guide)
-#     hand_loss = elbo.differentiable_loss(hand_model, guide)
-#     _check_loss_and_grads(hand_loss, auto_loss)
+    def auto_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
+        jax.debug.print("DEBUG {params}", params=params)
+        elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
+        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
 
+    params_raw = jax.tree_util.tree_map(transform.inv, params)
+
+    print("DEBUG auto loss")
+    auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
+
+    def hand_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
+        elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
+        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+
+    print("DEBUG hand loss")
+    hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
+
+    assert_equal(auto_loss, hand_loss, prec=1e-5)
+    assert_equal(auto_grad, hand_grad, prec=1e-5)
 
 # @pytest.mark.parametrize("scale", [1, 10])
 # @pyroapi.pyro_backend(_PYRO_BACKEND)
