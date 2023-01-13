@@ -675,31 +675,41 @@ class TraceGraph_ELBO(ELBO):
             downstream_costs = defaultdict(lambda: MultiFrameTensor())
             for name, site in model_trace.items():
                 if site["type"] == "sample":
-                    elbo = elbo + jnp.sum(site["log_prob"])
-                    # add the log_prob to each non-reparam sample site upstream
+                    cost = site["log_prob"]
                     for key in model_deps[name]:
-                        downstream_costs[key].add(
-                            (site["cond_indep_stack"], site["log_prob"])
-                        )
+                        log_q = guide_trace[key]["log_prob"]
+                        cost = cost * jnp.exp(log_q - stop_gradient(log_q))
+                    elbo = elbo + jnp.sum(cost)
+                    #  elbo = elbo + jnp.sum(site["log_prob"])
+                    #  # add the log_prob to each non-reparam sample site upstream
+                    #  for key in model_deps[name]:
+                    #      downstream_costs[key].add(
+                    #          (site["cond_indep_stack"], site["log_prob"])
+                    #      )
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
-                    log_prob_sum = jnp.sum(site["log_prob"])
-                    if not site["fn"].has_rsample:
-                        log_prob_sum = stop_gradient(log_prob_sum)
-                    elbo = elbo - log_prob_sum
-                    # add the -log_prob to each non-reparam sample site upstream
+                    cost = -site["log_prob"]
                     for key in guide_deps[name]:
-                        downstream_costs[key].add(
-                            (site["cond_indep_stack"], -site["log_prob"])
-                        )
+                        log_q = guide_trace[key]["log_prob"]
+                        cost = cost * jnp.exp(log_q - stop_gradient(log_q))
+                    elbo = elbo + jnp.sum(cost)
+                    #  log_prob_sum = jnp.sum(site["log_prob"])
+                    #  if not site["fn"].has_rsample:
+                    #      log_prob_sum = stop_gradient(log_prob_sum)
+                    #  elbo = elbo - log_prob_sum
+                    #  # add the -log_prob to each non-reparam sample site upstream
+                    #  for key in guide_deps[name]:
+                    #      downstream_costs[key].add(
+                    #          (site["cond_indep_stack"], -site["log_prob"])
+                    #      )
 
-            for node, downstream_cost in downstream_costs.items():
-                guide_site = guide_trace[node]
-                downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
-                surrogate = jnp.sum(
-                    guide_site["log_prob"] * stop_gradient(downstream_cost)
-                )
-                elbo = elbo + surrogate - stop_gradient(surrogate)
+            #  for node, downstream_cost in downstream_costs.items():
+            #      guide_site = guide_trace[node]
+            #      downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
+            #      surrogate = jnp.sum(
+            #          guide_site["log_prob"] * stop_gradient(downstream_cost)
+            #      )
+            #      elbo = elbo + surrogate - stop_gradient(surrogate)
 
             return elbo
 
@@ -712,6 +722,84 @@ class TraceGraph_ELBO(ELBO):
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
+class TraceEnum_ELBO2(ELBO):
+
+    can_infer_discrete = True
+
+    def __init__(self, num_particles=1, max_plate_nesting=float("inf")):
+        # TODO guess max_plate_nesting when it is infinity
+        self.max_plate_nesting = max_plate_nesting
+        super().__init__(num_particles=num_particles)
+
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        def single_particle_elbo(rng_key):
+            from numpyro.contrib.funsor.elbo import traceenum_elbo
+
+            model_seed, guide_seed = random.split(rng_key)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+
+            return traceenum_elbo(
+                param_map,
+                seeded_model,
+                seeded_guide,
+                self.max_plate_nesting,
+                *args,
+                **kwargs
+            )
+
+        # Return (-elbo) since by convention we do gradient descent on a loss and
+        # the ELBO is a lower bound that needs to be maximized.
+        if self.num_particles == 1:
+            return -single_particle_elbo(rng_key)
+        else:
+            rng_keys = random.split(rng_key, self.num_particles)
+            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
+
+
+def get_importance_trace_enum(
+    model, guide, args, kwargs, params, max_plate_nesting
+):
+    """
+    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
+    The returned traces also store the log probability at each site.
+    .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
+    """
+    from numpyro.contrib.funsor import enum, plate_to_enum_plate, trace as _trace
+    from numpyro.distributions.util import is_identically_one
+    from numpyro.infer.util import _without_rsample_stop_gradient
+
+    with plate_to_enum_plate(), enum(
+        first_available_dim=(-max_plate_nesting - 1) if max_plate_nesting else None
+    ):
+        guide = substitute(guide, data=params)
+        with _without_rsample_stop_gradient():
+            guide_trace = _trace(guide).get_trace(*args, **kwargs)
+        model = substitute(replay(model, guide_trace), data=params)
+        model_trace = _trace(model).get_trace(*args, **kwargs)
+    # measure_vars = frozenset()
+    for tr in (guide_trace, model_trace):
+        for name, site in tr.items():
+            if site["type"] == "sample":
+                # if variable is marginalized over
+                #  if name not in guide_trace and not model_trace[name]["is_observed"]:
+                #      measure_vars |= frozenset([name])
+
+                if "log_prob" not in site:
+                    value = site["value"]
+                    intermediates = site["intermediates"]
+                    scale = site["scale"]
+                    if intermediates:
+                        log_prob = site["fn"].log_prob(value, intermediates)
+                    else:
+                        log_prob = site["fn"].log_prob(value)
+
+                    #  if (scale is not None) and (not is_identically_one(scale)):
+                    #      log_prob = scale * log_prob
+                    site["log_prob"] = log_prob
+    return model_trace, guide_trace
+
+
 class TraceEnum_ELBO(ELBO):
 
     can_infer_discrete = True
@@ -722,15 +810,132 @@ class TraceEnum_ELBO(ELBO):
         super().__init__(num_particles=num_particles)
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-
         def single_particle_elbo(rng_key):
-            from numpyro.contrib.funsor.elbo import traceenum_elbo
+            import funsor
+            from numpyro.contrib.funsor import (
+                enum,
+                plate_to_enum_plate,
+                to_data,
+                to_funsor,
+                trace,
+            )
+            from numpyro.distributions.util import is_identically_one
 
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
 
-            return traceenum_elbo(param_map, seeded_model, seeded_guide, self.max_plate_nesting, *args, **kwargs)
+            model_trace, guide_trace = get_importance_trace_enum(
+                seeded_model,
+                seeded_guide,
+                args,
+                kwargs,
+                param_map,
+                self.max_plate_nesting,
+            )
+
+            model_deps, guide_deps = get_provenance(
+                eval_provenance(
+                    partial(
+                        track_nonreparam(get_importance_log_probs),
+                        seeded_model,
+                        seeded_guide,
+                        args,
+                        kwargs,
+                        param_map,
+                    )
+                )
+            )
+
+            cost_terms = get_cost_terms(
+                    model_trace,
+                    guide_trace,
+                    model_deps,
+            )
+            # check_model_guide_match(model_trace, guide_trace)
+            # _validate_model(model_trace, plate_warning="strict")
+
+            # Find dependencies on non-reparameterizable sample sites for
+            # each cost term in the model and the guide.
+
+            elbo = 0.0
+            # mapping from non-reparameterizable sample sites to cost terms influenced by each of them
+            measure_vars = frozenset()
+            contracted_factors = []
+            group_scale = 1.0
+            # assuming this is in topological order
+            for name, site in model_trace.items():
+                if site["type"] == "sample":
+                    # if variable is marginalized over
+                    if name not in guide_trace and not model_trace[name]["is_observed"]:
+                        measure_vars |= frozenset([name])
+                        dim_to_name = site["infer"].get("dim_to_name", None)
+                        contracted_factors.append(
+                            to_funsor(
+                                site["log_prob"],
+                                output=funsor.Real,
+                                dim_to_name=dim_to_name,
+                            )
+                        )
+                        continue
+
+                    cost = site["log_prob"]
+                    contracted = False
+                    for key in model_deps[name]:
+                        if key in measure_vars:
+                            contracted = True
+                            continue
+                        log_prob = guide_trace[key]["log_prob"]
+                        if not guide_trace[key]["infer"]["enumerate"] == "parallel":
+                            log_prob = log_prob - stop_gradient(log_prob)
+                        cost = cost * jnp.exp(log_prob)
+
+                    if contracted:
+                        dim_to_name = site["infer"]["dim_to_name"]
+                        contracted_factors.append(
+                            to_funsor(cost, output=funsor.Real, dim_to_name=dim_to_name)
+                        )
+                        group_scale = site["scale"]
+                    else:
+                        scale = site["scale"]
+                        if (scale is not None) and (not is_identically_one(scale)):
+                            cost = cost * scale
+                        elbo = elbo + jnp.sum(cost)
+
+            # incorporate the effects of subsampling and handlers.scale through a common scale factor
+            for group_factors, group_vars in funsor.sum_product._partition(
+                contracted_factors,
+                measure_vars,
+            ):
+                group_factor_vars = frozenset().union(
+                    *[f.inputs for f in group_factors]
+                )
+                group_plates = group_factor_vars - frozenset(model_trace.keys())
+                outermost_plates = frozenset.intersection(
+                    *(frozenset(f.inputs) & group_plates for f in group_factors)
+                )
+                elim_plates = group_plates - outermost_plates
+                for f in funsor.sum_product.partial_sum_product(
+                    funsor.ops.logaddexp,
+                    funsor.ops.add,
+                    group_factors,
+                    plates=group_plates,
+                    eliminate=group_vars | elim_plates,
+                ):
+                    group_cost = to_data(f.reduce(funsor.ops.add))
+                    elbo = elbo + group_cost * group_scale
+
+            for name, site in guide_trace.items():
+                if site["type"] == "sample":
+                    cost = -site["log_prob"]
+                    for key in guide_deps[name]:
+                        log_prob = guide_trace[key]["log_prob"]
+                        if not guide_trace[key]["infer"]["enumerate"] == "parallel":
+                            log_prob = log_prob - stop_gradient(log_prob)
+                        cost = cost * jnp.exp(log_prob)
+                    elbo = elbo + jnp.sum(cost)
+
+            return elbo
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.

@@ -6,11 +6,15 @@ import contextlib
 import funsor
 from funsor.adjoint import AdjointTape
 from funsor.sum_product import _partition
-
-from numpyro.contrib.funsor import to_data, to_funsor, plate_to_enum_plate
-from numpyro.contrib.funsor import enum, plate, trace
-from numpyro.handlers import replay as OrigReplayMessenger
-from numpyro.handlers import substitute
+from numpyro.contrib.funsor import (
+    enum,
+    plate,
+    plate_to_enum_plate,
+    to_data,
+    to_funsor,
+    trace,
+)
+from numpyro.handlers import replay as OrigReplayMessenger, substitute
 
 
 # Work around a bug in unfold_contraction_generic_tuple interacting with
@@ -64,7 +68,9 @@ def terms_from_trace(tr, is_guide=False):
         # if "value" not in node["funsor"]:
         #     node["funsor"]["value"] = to_funsor(value, node["funsor"]["fn"].inputs[node["name"]])
         if "log_prob" not in node["funsor"]:
-            node["funsor"]["log_prob"] = to_funsor(log_prob, output=funsor.Real, dim_to_name=dim_to_name)
+            node["funsor"]["log_prob"] = to_funsor(
+                log_prob, output=funsor.Real, dim_to_name=dim_to_name
+            )
 
         # grab plate dimensions from the cond_indep_stack
         # TODO: consider if we need `f.dim is not None`
@@ -73,7 +79,8 @@ def terms_from_trace(tr, is_guide=False):
         )
         # grab the log-measure, found only at sites that are not observed or replayed
         # if node["funsor"].get("log_measure", None) is not None:
-        if not (node["is_observed"] or node.get("is_replayed", False)):
+        # if not (node["is_observed"] or node.get("is_replayed", False)):
+        if node.get("is_log_measure", True):
             terms["log_measures"].append(node["funsor"]["log_prob"])
             # terms["log_measures"].append(log_prob_factor)
             # sum (measure) variables: the fresh non-plate variables at a site
@@ -96,7 +103,8 @@ def terms_from_trace(tr, is_guide=False):
         #         node["funsor"]["log_prob"] * node["funsor"]["scale"]
         #     )
         # grab the log-density, found at all sites except those that are not replayed
-        if node["is_observed"] or node.get("is_replayed", False):
+        # if node["is_observed"] or node.get("is_replayed", False):
+        if node.get("is_log_factor", True):
             terms["log_factors"].append(node["funsor"]["log_prob"])
     # add plate dimensions to the plate_to_step dictionary
     terms["plate_to_step"].update(
@@ -108,9 +116,7 @@ def terms_from_trace(tr, is_guide=False):
 def traceenum_elbo(params, model, guide, max_plate_nesting, *args, **kwargs):
     # get batched, enumerated, to_funsor-ed traces from the guide and model
     with plate_to_enum_plate(), enum(
-        first_available_dim=(-max_plate_nesting - 1)
-        if max_plate_nesting
-        else None
+        first_available_dim=(-max_plate_nesting - 1) if max_plate_nesting else None
     ):
         guide = substitute(guide, data=params)
         guide_tr = trace(guide).get_trace(*args, **kwargs)
@@ -120,11 +126,6 @@ def traceenum_elbo(params, model, guide, max_plate_nesting, *args, **kwargs):
     # extract from traces all metadata that we will need to compute the elbo
     guide_terms = terms_from_trace(guide_tr)
     model_terms = terms_from_trace(model_tr)
-    print("DEBUG")
-    print(f"{guide_tr}")
-    print(f"{model_tr}")
-    print(f"{guide_terms}")
-    print(f"{model_terms}")
 
     # build up a lazy expression for the elbo
     with funsor.terms.lazy:
@@ -141,9 +142,7 @@ def traceenum_elbo(params, model, guide, max_plate_nesting, *args, **kwargs):
             model_terms["log_measures"] + contracted_factors,
             model_terms["measure_vars"],
         ):
-            group_factor_vars = frozenset().union(
-                *[f.inputs for f in group_factors]
-            )
+            group_factor_vars = frozenset().union(*[f.inputs for f in group_factors])
             group_plates = model_terms["plate_vars"] & group_factor_vars
             outermost_plates = frozenset.intersection(
                 *(frozenset(f.inputs) & group_plates for f in group_factors)
@@ -216,5 +215,7 @@ def traceenum_elbo(params, model, guide, max_plate_nesting, *args, **kwargs):
 class replay(OrigReplayMessenger):
     def process_message(self, msg):
         super().process_message(msg)
-        if msg["type"] == "sample" and msg["name"] in self.trace:
-            msg["is_replayed"] = True
+        if msg["type"] == "sample":
+            if msg["is_observed"] or msg["name"] in self.trace:
+                msg["is_log_measure"] = False
+            msg["is_log_factor"] = not msg.get("is_log_measure", True)

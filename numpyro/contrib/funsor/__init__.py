@@ -29,7 +29,7 @@ from numpyro.contrib.funsor.infer_util import (
     plate_to_enum_plate,
 )
 from numpyro.handlers import seed
-from numpyro.primitives import sample, param
+from numpyro.primitives import param, sample
 
 pyroapi.register_backend(
     "numpyro.funsor",
