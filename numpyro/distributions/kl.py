@@ -151,7 +151,7 @@ def kl_divergence(p, q):
 def kl_divergence(p, q):
     t = p.probs * (p.logits - q.logits)
     t = jnp.where(q.probs == 0, jnp.inf, t)
-    t = jnp.where(p.probs == 0, 0., t)
+    t = jnp.where(p.probs == 0, 0.0, t)
     return t.sum(-1)
 
 

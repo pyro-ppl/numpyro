@@ -6,9 +6,9 @@ from numpyro.infer.elbo import (
     ELBO,
     RenyiELBO,
     Trace_ELBO,
+    TraceEnum_ELBO,
     TraceGraph_ELBO,
     TraceMeanField_ELBO,
-    TraceEnum_ELBO,
 )
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs

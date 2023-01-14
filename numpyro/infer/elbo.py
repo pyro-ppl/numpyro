@@ -891,9 +891,9 @@ class TraceEnum_ELBO(ELBO):
                     for key in model_deps[name]:
                         log_measure = guide_trace[key]["log_measure"]
                         factor = factor * funsor.ops.exp(log_measure)
-                        scale = site["scale"]
-                        if (scale is not None) and (not is_identically_one(scale)):
-                            factor = factor * to_funsor(scale)
+                    scale = site["scale"]
+                    if (scale is not None) and (not is_identically_one(scale)):
+                        factor = factor * to_funsor(scale)
                     elbo = elbo + factor.reduce(funsor.ops.add)
 
             # incorporate the effects of subsampling and handlers.scale through a common scale factor
@@ -909,37 +909,38 @@ class TraceEnum_ELBO(ELBO):
                     *(frozenset(f.inputs) & group_plates for f in group_factors)
                 )
                 elim_plates = group_plates - outermost_plates
-                for factor in funsor.sum_product.partial_sum_product(
+                factor = funsor.sum_product.sum_product(
                     funsor.ops.logaddexp,
                     funsor.ops.add,
                     group_factors,
                     plates=group_plates,
                     eliminate=group_vars | elim_plates,
-                ):
-                    # TODO check the logic here
-                    group_deps = frozenset().union(
-                        *[model_deps[factor_to_var[k]] for k in group_factors]
+                )
+                # TODO check the logic here
+                group_deps = frozenset().union(
+                    *[model_deps[factor_to_var[k]] for k in group_factors]
+                )
+                group_deps = group_deps - sum_vars
+
+                for key in group_deps:
+                    log_measure = guide_trace[key]["log_measure"]
+                    log_measure = log_measure.reduce(
+                        funsor.ops.add, frozenset(log_measure.inputs) & elim_plates
                     )
-                    group_deps = group_deps - sum_vars
+                    factor = factor * funsor.ops.exp(log_measure)
 
-                    for key in group_deps:
-                        log_measure = guide_trace[key]["log_measure"]
-                        log_measure = log_measure.reduce(
-                            funsor.ops.add, frozenset(log_measure.inputs) & elim_plates
-                        )
-                        factor = factor * funsor.ops.exp(log_measure)
-
-                    if (group_scale is not None) and (
-                        not is_identically_one(group_scale)
-                    ):
-                        factor = factor * to_funsor(group_scale)
-                    elbo = elbo + factor.reduce(funsor.ops.add)
+                if (group_scale is not None) and (not is_identically_one(group_scale)):
+                    factor = factor * to_funsor(group_scale)
+                elbo = elbo + factor.reduce(funsor.ops.add)
 
             for name, site in guide_trace.items():
                 factor = -site["log_prob"]
                 for key in guide_deps[name]:
                     log_measure = guide_trace[key]["log_measure"]
                     factor = factor * funsor.ops.exp(log_measure)
+                scale = site["scale"]
+                if (scale is not None) and (not is_identically_one(scale)):
+                    factor = factor * to_funsor(scale)
                 elbo = elbo + factor.reduce(funsor.ops.add)
 
             return to_data(elbo)
