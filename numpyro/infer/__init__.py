@@ -50,7 +50,7 @@ __all__ = [
     "SA",
     "SVI",
     "Trace_ELBO",
+    "TraceEnum_ELBO",
     "TraceGraph_ELBO",
     "TraceMeanField_ELBO",
-    "TraceEnum_ELBO",
 ]

@@ -676,78 +676,33 @@ class TraceGraph_ELBO(ELBO):
             downstream_costs = defaultdict(lambda: MultiFrameTensor())
             for name, site in model_trace.items():
                 if site["type"] == "sample":
-                    cost = site["log_prob"]
+                    elbo = elbo + jnp.sum(site["log_prob"])
+                    # add the log_prob to each non-reparam sample site upstream
                     for key in model_deps[name]:
-                        log_q = guide_trace[key]["log_prob"]
-                        cost = cost * jnp.exp(log_q - stop_gradient(log_q))
-                    elbo = elbo + jnp.sum(cost)
-                    #  elbo = elbo + jnp.sum(site["log_prob"])
-                    #  # add the log_prob to each non-reparam sample site upstream
-                    #  for key in model_deps[name]:
-                    #      downstream_costs[key].add(
-                    #          (site["cond_indep_stack"], site["log_prob"])
-                    #      )
+                        downstream_costs[key].add(
+                            (site["cond_indep_stack"], site["log_prob"])
+                        )
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
-                    cost = -site["log_prob"]
+                    log_prob_sum = jnp.sum(site["log_prob"])
+                    if not site["fn"].has_rsample:
+                        log_prob_sum = stop_gradient(log_prob_sum)
+                    elbo = elbo - log_prob_sum
+                    # add the -log_prob to each non-reparam sample site upstream
                     for key in guide_deps[name]:
-                        log_q = guide_trace[key]["log_prob"]
-                        cost = cost * jnp.exp(log_q - stop_gradient(log_q))
-                    elbo = elbo + jnp.sum(cost)
-                    #  log_prob_sum = jnp.sum(site["log_prob"])
-                    #  if not site["fn"].has_rsample:
-                    #      log_prob_sum = stop_gradient(log_prob_sum)
-                    #  elbo = elbo - log_prob_sum
-                    #  # add the -log_prob to each non-reparam sample site upstream
-                    #  for key in guide_deps[name]:
-                    #      downstream_costs[key].add(
-                    #          (site["cond_indep_stack"], -site["log_prob"])
-                    #      )
+                        downstream_costs[key].add(
+                            (site["cond_indep_stack"], -site["log_prob"])
+                        )
 
-            #  for node, downstream_cost in downstream_costs.items():
-            #      guide_site = guide_trace[node]
-            #      downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
-            #      surrogate = jnp.sum(
-            #          guide_site["log_prob"] * stop_gradient(downstream_cost)
-            #      )
-            #      elbo = elbo + surrogate - stop_gradient(surrogate)
+            for node, downstream_cost in downstream_costs.items():
+                guide_site = guide_trace[node]
+                downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
+                surrogate = jnp.sum(
+                    guide_site["log_prob"] * stop_gradient(downstream_cost)
+                )
+                elbo = elbo + surrogate - stop_gradient(surrogate)
 
             return elbo
-
-        # Return (-elbo) since by convention we do gradient descent on a loss and
-        # the ELBO is a lower bound that needs to be maximized.
-        if self.num_particles == 1:
-            return -single_particle_elbo(rng_key)
-        else:
-            rng_keys = random.split(rng_key, self.num_particles)
-            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
-
-
-class TraceEnum_ELBO2(ELBO):
-
-    can_infer_discrete = True
-
-    def __init__(self, num_particles=1, max_plate_nesting=float("inf")):
-        # TODO guess max_plate_nesting when it is infinity
-        self.max_plate_nesting = max_plate_nesting
-        super().__init__(num_particles=num_particles)
-
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        def single_particle_elbo(rng_key):
-            from numpyro.contrib.funsor.elbo import traceenum_elbo
-
-            model_seed, guide_seed = random.split(rng_key)
-            seeded_model = seed(model, model_seed)
-            seeded_guide = seed(guide, guide_seed)
-
-            return traceenum_elbo(
-                param_map,
-                seeded_model,
-                seeded_guide,
-                self.max_plate_nesting,
-                *args,
-                **kwargs,
-            )
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
@@ -771,7 +726,6 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
         to_funsor,
         trace as _trace,
     )
-    from numpyro.contrib.funsor.elbo import replay as _replay
     from numpyro.distributions import MaskedDistribution
     from numpyro.infer.util import _without_rsample_stop_gradient
 
@@ -781,7 +735,7 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
         guide = substitute(guide, data=params)
         with _without_rsample_stop_gradient():
             guide_trace = _trace(guide).get_trace(*args, **kwargs)
-        model = substitute(_replay(model, guide_trace), data=params)
+        model = substitute(replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
     guide_trace = {
         name: site for name, site in guide_trace.items() if site["type"] == "sample"

@@ -223,6 +223,9 @@ class replay(Messenger):
                     raise RuntimeError(f"Site {name} must be sampled in trace.")
                 msg["value"] = guide_msg["value"]
                 msg["infer"] = guide_msg["infer"]
+        if msg["type"] == "sample":
+            if msg["is_observed"] or msg["name"] in self.trace:
+                msg["is_measure"] = False
 
 
 class block(Messenger):
