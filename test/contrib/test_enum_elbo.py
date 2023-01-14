@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
 
 import numpy as np
 import pytest
@@ -1445,7 +1444,7 @@ def test_elbo_enumerate_plates_6(scale):
     # But promoting both to plates should result in an error.
     with pytest.raises(ValueError, match="intractable!"):
         elbo = infer.TraceEnum_ELBO(max_plate_nesting=2)
-        loss = elbo.loss(random.PRNGKey(0), {}, model_plate_plate, guide, data, params)
+        elbo.loss(random.PRNGKey(0), {}, model_plate_plate, guide, data, params)
 
 
 @pytest.mark.parametrize("scale", [1, 10])

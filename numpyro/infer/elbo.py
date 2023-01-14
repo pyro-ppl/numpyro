@@ -6,7 +6,6 @@ from functools import partial
 from operator import itemgetter
 import warnings
 
-import jax
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
