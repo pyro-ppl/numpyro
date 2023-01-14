@@ -217,5 +217,4 @@ class replay(OrigReplayMessenger):
         super().process_message(msg)
         if msg["type"] == "sample":
             if msg["is_observed"] or msg["name"] in self.trace:
-                msg["is_log_measure"] = False
-            msg["is_log_factor"] = not msg.get("is_log_measure", True)
+                msg["is_measure"] = False

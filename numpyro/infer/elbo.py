@@ -6,11 +6,11 @@ from functools import partial
 from operator import itemgetter
 import warnings
 
+import jax
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
-import jax
 
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
@@ -746,7 +746,7 @@ class TraceEnum_ELBO2(ELBO):
                 seeded_guide,
                 self.max_plate_nesting,
                 *args,
-                **kwargs
+                **kwargs,
             )
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
@@ -758,16 +758,21 @@ class TraceEnum_ELBO2(ELBO):
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
-def get_importance_trace_enum(
-    model, guide, args, kwargs, params, max_plate_nesting
-):
+def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nesting):
     """
     (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
     The returned traces also store the log probability at each site.
     .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
     """
-    from numpyro.contrib.funsor import enum, plate_to_enum_plate, trace as _trace
-    from numpyro.distributions.util import is_identically_one
+    import funsor
+    from numpyro.contrib.funsor import (
+        enum,
+        plate_to_enum_plate,
+        to_funsor,
+        trace as _trace,
+    )
+    from numpyro.contrib.funsor.elbo import replay as _replay
+    from numpyro.distributions import MaskedDistribution
     from numpyro.infer.util import _without_rsample_stop_gradient
 
     with plate_to_enum_plate(), enum(
@@ -776,28 +781,43 @@ def get_importance_trace_enum(
         guide = substitute(guide, data=params)
         with _without_rsample_stop_gradient():
             guide_trace = _trace(guide).get_trace(*args, **kwargs)
-        model = substitute(replay(model, guide_trace), data=params)
+        model = substitute(_replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
-    # measure_vars = frozenset()
+    guide_trace = {
+        name: site for name, site in guide_trace.items() if site["type"] == "sample"
+    }
+    model_trace = {
+        name: site for name, site in model_trace.items() if site["type"] == "sample"
+    }
     for tr in (guide_trace, model_trace):
         for name, site in tr.items():
-            if site["type"] == "sample":
-                # if variable is marginalized over
-                #  if name not in guide_trace and not model_trace[name]["is_observed"]:
-                #      measure_vars |= frozenset([name])
+            if "log_prob" not in site:
+                value = site["value"]
+                intermediates = site["intermediates"]
+                if intermediates:
+                    log_prob = site["fn"].log_prob(value, intermediates)
+                else:
+                    log_prob = site["fn"].log_prob(value)
 
-                if "log_prob" not in site:
-                    value = site["value"]
-                    intermediates = site["intermediates"]
-                    scale = site["scale"]
+                dim_to_name = site["infer"]["dim_to_name"]
+                site["log_prob"] = to_funsor(
+                    log_prob, output=funsor.Real, dim_to_name=dim_to_name
+                )
+                if site.get("is_measure", True):
+                    # get rid off masking
+                    base_fn = site["fn"]
+                    while isinstance(base_fn, MaskedDistribution):
+                        base_fn = base_fn.base_dist
                     if intermediates:
-                        log_prob = site["fn"].log_prob(value, intermediates)
+                        log_measure = base_fn.log_prob(value, intermediates)
                     else:
-                        log_prob = site["fn"].log_prob(value)
-
-                    #  if (scale is not None) and (not is_identically_one(scale)):
-                    #      log_prob = scale * log_prob
-                    site["log_prob"] = log_prob
+                        log_measure = base_fn.log_prob(value)
+                    # dice factor
+                    if not site["infer"].get("enumerate", None) == "parallel":
+                        log_measure = log_measure - funsor.ops.detach(log_measure)
+                    site["log_measure"] = to_funsor(
+                        log_measure, output=funsor.Real, dim_to_name=dim_to_name
+                    )
     return model_trace, guide_trace
 
 
@@ -813,13 +833,7 @@ class TraceEnum_ELBO(ELBO):
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         def single_particle_elbo(rng_key):
             import funsor
-            from numpyro.contrib.funsor import (
-                enum,
-                plate_to_enum_plate,
-                to_data,
-                to_funsor,
-                trace,
-            )
+            from numpyro.contrib.funsor import to_data, to_funsor
             from numpyro.distributions.util import is_identically_one
 
             model_seed, guide_seed = random.split(rng_key)
@@ -848,63 +862,44 @@ class TraceEnum_ELBO(ELBO):
                 )
             )
 
-            # check_model_guide_match(model_trace, guide_trace)
-            # _validate_model(model_trace, plate_warning="strict")
-
             # Find dependencies on non-reparameterizable sample sites for
             # each cost term in the model and the guide.
 
             elbo = 0.0
-            # mapping from non-reparameterizable sample sites to cost terms influenced by each of them
-            measure_vars = frozenset()
-            contracted_factors = []
+            factor_to_var = {}
             group_scale = 1.0
-            # assuming this is in topological order
+            sum_vars = frozenset(
+                [
+                    name
+                    for name, site in model_trace.items()
+                    if site.get("is_measure", True)
+                ]
+            )
+            contracted_factors = []
             for name, site in model_trace.items():
-                if site["type"] == "sample":
-                    # if variable is marginalized over
-                    if name not in guide_trace and not model_trace[name]["is_observed"]:
-                        measure_vars |= frozenset([name])
-                        dim_to_name = site["infer"].get("dim_to_name", None)
-                        contracted_factors.append(
-                            to_funsor(
-                                site["log_prob"],
-                                output=funsor.Real,
-                                dim_to_name=dim_to_name,
-                            )
-                        )
-                        continue
-
-                    cost = site["log_prob"]
-                    dim_to_name = site["infer"]["dim_to_name"]
-                    contracted = False
+                if site.get("is_measure", True):
+                    factor = site["log_measure"]
+                else:
+                    factor = site["log_prob"]
+                # contracted factors
+                if sum_vars.intersection(factor.inputs):
+                    contracted_factors.append(factor)
+                    factor_to_var[factor] = name
+                    group_scale = site["scale"]
+                # uncontracted factors
+                else:
                     for key in model_deps[name]:
-                        dim_to_name.update(model_trace[key]["infer"]["dim_to_name"])
-                        if key in measure_vars:
-                            contracted = True
-                    if contracted:
-                        contracted_factors.append(
-                            to_funsor(cost, output=funsor.Real, dim_to_name=dim_to_name)
-                        )
-                        group_scale = site["scale"]
-                    else:
-                        for key in model_deps[name]:
-                            log_prob = guide_trace[key]["log_prob"]
-                            if not guide_trace[key]["infer"]["enumerate"] == "parallel":
-                                log_prob = log_prob - stop_gradient(log_prob)
-                            dim_to_name.update(guide_trace[key]["infer"]["dim_to_name"])
-                            cost = cost * jnp.exp(log_prob)
-                            scale = site["scale"]
-                            if (scale is not None) and (not is_identically_one(scale)):
-                                cost = cost * scale
-                        elbo = elbo + jnp.sum(cost)
-                        print(f"DEBUG {name}")
-                        jax.debug.print("DEBUG model cost {cost}", cost=jnp.sum(cost))
+                        log_measure = guide_trace[key]["log_measure"]
+                        factor = factor * funsor.ops.exp(log_measure)
+                        scale = site["scale"]
+                        if (scale is not None) and (not is_identically_one(scale)):
+                            factor = factor * to_funsor(scale)
+                    elbo = elbo + factor.reduce(funsor.ops.add)
 
             # incorporate the effects of subsampling and handlers.scale through a common scale factor
             for group_factors, group_vars in funsor.sum_product._partition(
                 contracted_factors,
-                measure_vars,
+                sum_vars,
             ):
                 group_factor_vars = frozenset().union(
                     *[f.inputs for f in group_factors]
@@ -914,43 +909,40 @@ class TraceEnum_ELBO(ELBO):
                     *(frozenset(f.inputs) & group_plates for f in group_factors)
                 )
                 elim_plates = group_plates - outermost_plates
-                for f in funsor.sum_product.partial_sum_product(
+                for factor in funsor.sum_product.partial_sum_product(
                     funsor.ops.logaddexp,
                     funsor.ops.add,
                     group_factors,
                     plates=group_plates,
                     eliminate=group_vars | elim_plates,
                 ):
-                    group_cost = to_data(f.reduce(funsor.ops.add))
-
-                    import pdb;pdb.set_trace()
-                    # group_deps = ...
+                    # TODO check the logic here
+                    group_deps = frozenset().union(
+                        *[model_deps[factor_to_var[k]] for k in group_factors]
+                    )
+                    group_deps = group_deps - sum_vars
 
                     for key in group_deps:
-                        log_prob = guide_trace[key]["log_prob"]
-                        if not guide_trace[key]["infer"]["enumerate"] == "parallel":
-                            log_prob = log_prob - stop_gradient(log_prob)
-                        dim_to_name.update(guide_trace[key]["infer"]["dim_to_name"])
-                        group_cost = group_cost * jnp.exp(log_prob)
+                        log_measure = guide_trace[key]["log_measure"]
+                        log_measure = log_measure.reduce(
+                            funsor.ops.add, frozenset(log_measure.inputs) & elim_plates
+                        )
+                        factor = factor * funsor.ops.exp(log_measure)
 
-                    print(f"DEBUG {group_vars}")
-                    jax.debug.print("DEBUG group cost {group_cost}", group_cost=group_cost)
-                    # jax.debug.print("DEBUG group factors {group_factors}", group_factors=group_factors)
-                    elbo = elbo + group_cost * group_scale
+                    if (group_scale is not None) and (
+                        not is_identically_one(group_scale)
+                    ):
+                        factor = factor * to_funsor(group_scale)
+                    elbo = elbo + factor.reduce(funsor.ops.add)
 
             for name, site in guide_trace.items():
-                if site["type"] == "sample":
-                    cost = -site["log_prob"]
-                    for key in guide_deps[name]:
-                        log_prob = guide_trace[key]["log_prob"]
-                        if not guide_trace[key]["infer"]["enumerate"] == "parallel":
-                            log_prob = log_prob - stop_gradient(log_prob)
-                        cost = cost * jnp.exp(log_prob)
-                    print(f"DEBUG {name}")
-                    jax.debug.print("DEBUG guide cost {cost}", cost=cost)
-                    elbo = elbo + jnp.sum(cost)
+                factor = -site["log_prob"]
+                for key in guide_deps[name]:
+                    log_measure = guide_trace[key]["log_measure"]
+                    factor = factor * funsor.ops.exp(log_measure)
+                elbo = elbo + factor.reduce(funsor.ops.add)
 
-            return elbo
+            return to_data(elbo)
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
