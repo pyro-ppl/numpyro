@@ -42,45 +42,6 @@ def xfail_param(*args, **kwargs):
     return pytest.param(*args, marks=[pytest.mark.xfail(**kwargs)])
 
 
-# _PYRO_BACKEND = os.environ.get("TEST_ENUM_PYRO_BACKEND", "contrib.funsor")
-
-
-# def _check_loss_and_grads(expected_loss, actual_loss):
-#     assert_equal(
-#         actual_loss,
-#         expected_loss,
-#         msg="Expected:\n{}\nActual:\n{}".format(
-#             expected_loss.detach().cpu().numpy(), actual_loss.detach().cpu().numpy()
-#         ),
-#     )
-
-#     if "TEST_ENUM_PYRO_BACKEND" in os.environ:  # only log if we manually set a backend
-#         logging.debug(
-#             "Expected:\n{}\nActual:\n{}".format(
-#                 expected_loss.detach().cpu().numpy(), actual_loss.detach().cpu().numpy()
-#             )
-#         )
-
-#     names = pyro.get_param_store().keys()
-#     params = [pyro.param(name).unconstrained() for name in names]
-#     actual_grads = grad(actual_loss, params, allow_unused=True, retain_graph=True)
-#     expected_grads = grad(expected_loss, params, allow_unused=True, retain_graph=True)
-#     for name, actual_grad, expected_grad in zip(names, actual_grads, expected_grads):
-#         if actual_grad is None or expected_grad is None:
-#             continue
-#         assert not torch_isnan(actual_grad)
-#         assert not torch_isnan(expected_grad)
-#         assert_equal(
-#             actual_grad,
-#             expected_grad,
-#             msg="{}\nExpected:\n{}\nActual:\n{}".format(
-#                 name,
-#                 expected_grad.detach().cpu().numpy(),
-#                 actual_grad.detach().cpu().numpy(),
-#             ),
-#         )
-
-
 @pytest.mark.parametrize("inner_dim", [2])
 @pytest.mark.parametrize("outer_dim", [2])
 def test_elbo_plate_plate(outer_dim, inner_dim):

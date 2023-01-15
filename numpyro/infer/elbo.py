@@ -714,9 +714,8 @@ class TraceGraph_ELBO(ELBO):
 
 def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nesting):
     """
-    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
-    The returned traces also store the log probability at each site.
-    .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
+    (EXPERIMENTAL) Returns traces from the enumerated guide and the enumerated model that is run against it.
+    The returned traces also store the log probability at each site and the log measure for measure vars.
     """
     import funsor
     from numpyro.contrib.funsor import (
@@ -775,6 +774,30 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
 
 
 class TraceEnum_ELBO(ELBO):
+    """
+    A TraceEnum implementation of ELBO-based SVI. The gradient estimator
+    is constructed along the lines of reference [1] specialized to the case
+    of the ELBO. It supports arbitrary dependency structure for the model
+    and guide.
+    Fine-grained conditional dependency information as recorded in the
+    trace is used to reduce the variance of the gradient estimator.
+    In particular provenance tracking [2] is used to find the ``cost`` terms
+    that depend on each non-reparameterizable sample site.
+    Enumerated variables are eliminated using the TVE algorithm for plated
+    factor graphs [3].
+
+    References
+
+    [1] `Storchastic: A Framework for General Stochastic Automatic Differentiation`,
+        Emile van Kriekenc, Jakub M. Tomczak, Annette ten Teije
+
+    [2] `Nonstandard Interpretations of Probabilistic Programs for Efficient Inference`,
+        David Wingate, Noah Goodman, Andreas Stuhlmüller, Jeffrey Siskind
+
+    [3] `Tensor Variable Elimination for Plated Factor Graphs`,
+        Fritz Obermeyer, Eli Bingham, Martin Jankowiak, Justin Chiu,
+        Neeraj Pradhan, Alexander M. Rush, Noah Goodman
+    """
 
     can_infer_discrete = True
 
