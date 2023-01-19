@@ -1,8 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import defaultdict
-from functools import partial
+from functools import partial, reduce
 from operator import itemgetter
 import warnings
 
@@ -14,7 +13,7 @@ from jax.scipy.special import logsumexp
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import Messenger, replay, seed, substitute, trace
-from numpyro.infer.util import get_importance_trace, log_density
+from numpyro.infer.util import get_importance_trace, is_identically_one, log_density
 from numpyro.ops.provenance import eval_provenance, get_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
@@ -671,35 +670,27 @@ class TraceGraph_ELBO(ELBO):
             )
 
             elbo = 0.0
-            # mapping from non-reparameterizable sample sites to cost terms influenced by each of them
-            downstream_costs = defaultdict(lambda: MultiFrameTensor())
             for name, site in model_trace.items():
                 if site["type"] == "sample":
-                    elbo = elbo + jnp.sum(site["log_prob"])
-                    # add the log_prob to each non-reparam sample site upstream
-                    for key in model_deps[name]:
-                        downstream_costs[key].add(
-                            (site["cond_indep_stack"], site["log_prob"])
-                        )
+                    cost = site["log_prob"]
+                    dice_factors = [
+                        guide_trace[key]["log_prob"] for key in model_deps[name]
+                    ]
+                    if dice_factors:
+                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
+                        cost = cost * jnp.exp(dice_factor - stop_gradient(dice_factor))
+                    elbo = elbo + jnp.sum(cost)
+
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
-                    log_prob_sum = jnp.sum(site["log_prob"])
-                    if not site["fn"].has_rsample:
-                        log_prob_sum = stop_gradient(log_prob_sum)
-                    elbo = elbo - log_prob_sum
-                    # add the -log_prob to each non-reparam sample site upstream
-                    for key in guide_deps[name]:
-                        downstream_costs[key].add(
-                            (site["cond_indep_stack"], -site["log_prob"])
-                        )
-
-            for node, downstream_cost in downstream_costs.items():
-                guide_site = guide_trace[node]
-                downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
-                surrogate = jnp.sum(
-                    guide_site["log_prob"] * stop_gradient(downstream_cost)
-                )
-                elbo = elbo + surrogate - stop_gradient(surrogate)
+                    cost = -site["log_prob"]
+                    dice_factors = [
+                        guide_trace[key]["log_prob"] for key in guide_deps[name]
+                    ]
+                    if dice_factors:
+                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
+                        cost = cost * jnp.exp(dice_factor - stop_gradient(dice_factor))
+                    elbo = elbo + jnp.sum(cost)
 
             return elbo
 
@@ -810,7 +801,6 @@ class TraceEnum_ELBO(ELBO):
         def single_particle_elbo(rng_key):
             import funsor
             from numpyro.contrib.funsor import to_data, to_funsor
-            from numpyro.distributions.util import is_identically_one
 
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
