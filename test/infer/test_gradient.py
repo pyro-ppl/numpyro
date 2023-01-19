@@ -12,19 +12,10 @@ import jax.numpy as jnp
 
 import numpyro as pyro
 from numpyro import infer
+from numpyro.contrib.funsor import config_enumerate
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.ops.indexing import Vindex
-
-# put all funsor-related imports here, so test collection works without funsor
-try:
-    import funsor
-    import numpyro.contrib.funsor
-    from numpyro.contrib.funsor import config_enumerate
-
-    funsor.set_backend("jax")
-except ImportError:
-    pytestmark = pytest.mark.skip(reason="funsor is not installed")
 
 logger = logging.getLogger(__name__)
 
@@ -119,18 +110,22 @@ def test_gradient(model, guide, params, data):
     elbo = infer.TraceEnum_ELBO(
         max_plate_nesting=1,  # set this to ensure rng agrees across runs
     )
-    expected_loss_fn = lambda params: elbo.loss(
-        random.PRNGKey(0), {}, model, config_enumerate(guide), data, params
-    )
+
+    def expected_loss_fn(params):
+        return elbo.loss(
+            random.PRNGKey(0), {}, model, config_enumerate(guide), data, params
+        )
+
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params)
 
     # Actual grads averaged over num_particles
     elbo = infer.TraceGraph_ELBO(
         num_particles=500_000,
     )
-    actual_loss_fn = lambda params: elbo.loss(
-        random.PRNGKey(0), {}, model, guide, data, params
-    )
+
+    def actual_loss_fn(params):
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
+
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params)
 
     for name in sorted(params):
