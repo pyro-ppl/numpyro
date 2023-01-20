@@ -1886,3 +1886,94 @@ class AutoBNAFNormal(AutoContinuous):
 
     def get_base_dist(self):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
+
+
+class AutoRVRS(AutoContinuous):
+    """
+    """
+
+    def __init__(
+        self,
+        model,
+        *,
+        S=4,    # num of samples
+        T=0.0,  # threshold param
+        base_dist="diagonal",
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+    ):
+        if S < 1:
+            raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
+        if base_dist not in ["diagonal"]:
+            raise ValueError('base_dist must be "diagonal".')
+        if init_scale <= 0.0:
+            raise ValueError("init_scale must be positive.")
+        if notinstance(T, float):
+            raise ValueError("T must be a float.")
+
+        self.S = S
+        self.T = T
+        self.base_dist = base_dist
+        self._init_scale = init_scale
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+
+        for name, site in self.prototype_trace.items():
+            if (
+                site["type"] == "plate"
+                and isinstance(site["args"][1], int)
+                and site["args"][0] > site["args"][1]
+            ):
+                raise NotImplementedError(
+                    "AutoRVRS cannot be used in conjunction with data subsampling."
+                )
+
+    def _get_posterior(self):
+        raise NotImplementedError
+
+    def _sample_latent(self, *args, **kwargs):
+        def log_density(x):
+            x_unpack = self._unpack_latent(x)
+            with numpyro.handlers.block():
+                return -self._potential_fn(x_unpack)
+
+        init_z_loc = numpyro.param(
+            "{}_z_0_loc".format(self.prefix),
+            self._init_latent,
+        )
+
+        if self.base_dist == "diagonal":
+            init_z_scale = numpyro.param(
+                "{}_z_0_scale".format(self.prefix),
+                jnp.full(self.latent_dim, self._init_scale),
+                constraint=constraints.positive,
+            )
+            base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+
+        z_0 = numpyro.sample(
+            "{}_z_0".format(self.prefix),
+            base_z_dist,
+            infer={"is_auxiliary": True},
+        )
+
+        return z_0
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        def _single_sample(_rng_key):
+            latent_sample = handlers.substitute(
+                handlers.seed(self._sample_latent, _rng_key), params
+            )(sample_shape=())
+            return self._unpack_and_constrain(latent_sample, params)
+
+        if sample_shape:
+            rng_key = random.split(rng_key, int(np.prod(sample_shape)))
+            samples = lax.map(_single_sample, rng_key)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                samples,
+            )
+        else:
+            return _single_sample(rng_key)
