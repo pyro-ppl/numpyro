@@ -105,28 +105,33 @@ params_2 = {
     ],
 )
 def test_gradient(model, guide, params, data):
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = jax.tree_util.tree_map(transform.inv, params)
 
     # Expected grads based on exact integration
     elbo = infer.TraceEnum_ELBO(
         max_plate_nesting=1,  # set this to ensure rng agrees across runs
     )
 
-    def expected_loss_fn(params):
+    def expected_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
         return elbo.loss(
             random.PRNGKey(0), {}, model, config_enumerate(guide), data, params
         )
 
-    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params)
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
     # Actual grads averaged over num_particles
     elbo = infer.TraceGraph_ELBO(
-        num_particles=500_000,
+        num_particles=10_000,
     )
 
-    def actual_loss_fn(params):
+    def actual_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
         return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
 
-    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params)
+
+    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
     for name in sorted(params):
         logger.info("expected {} = {}".format(name, expected_grads[name]))

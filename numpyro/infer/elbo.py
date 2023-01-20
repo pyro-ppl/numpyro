@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import defaultdict
 from functools import partial, reduce
 from operator import itemgetter
 import warnings
@@ -670,27 +671,36 @@ class TraceGraph_ELBO(ELBO):
             )
 
             elbo = 0.0
+            # mapping from non-reparameterizable sample sites to cost terms influenced by each of them
+            downstream_costs = defaultdict(lambda: MultiFrameTensor())
             for name, site in model_trace.items():
                 if site["type"] == "sample":
-                    cost = site["log_prob"]
-                    dice_factors = [
-                        guide_trace[key]["log_prob"] for key in model_deps[name]
-                    ]
-                    if dice_factors:
-                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
-                        cost = cost * jnp.exp(dice_factor - stop_gradient(dice_factor))
-                    elbo = elbo + jnp.sum(cost)
+                    elbo = elbo + jnp.sum(site["log_prob"])
+                    # add the log_prob to each non-reparam sample site upstream
+                    for key in model_deps[name]:
+                        downstream_costs[key].add(
+                            (site["cond_indep_stack"], site["log_prob"])
+                        )
 
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
-                    cost = -site["log_prob"]
-                    dice_factors = [
-                        guide_trace[key]["log_prob"] for key in guide_deps[name]
-                    ]
-                    if dice_factors:
-                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
-                        cost = cost * jnp.exp(dice_factor - stop_gradient(dice_factor))
-                    elbo = elbo + jnp.sum(cost)
+                    log_prob_sum = jnp.sum(site["log_prob"])
+                    if not site["fn"].has_rsample:
+                        log_prob_sum = stop_gradient(log_prob_sum)
+                    elbo = elbo - log_prob_sum
+                    # add the -log_prob to each non-reparam sample site upstream
+                    for key in guide_deps[name]:
+                        downstream_costs[key].add(
+                            (site["cond_indep_stack"], -site["log_prob"])
+                        )
+
+            for node, downstream_cost in downstream_costs.items():
+                guide_site = guide_trace[node]
+                downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
+                surrogate = jnp.sum(
+                    guide_site["log_prob"] * stop_gradient(downstream_cost)
+                )
+                elbo = elbo + surrogate - stop_gradient(surrogate)
 
             return elbo
 
@@ -793,7 +803,8 @@ class TraceEnum_ELBO(ELBO):
     can_infer_discrete = True
 
     def __init__(self, num_particles=1, max_plate_nesting=float("inf")):
-        # TODO guess max_plate_nesting when it is infinity
+        if max_plate_nesting == float("inf"):
+            raise ValueError("Currently, we require `max_plate_nesting` to be a finite value.")
         self.max_plate_nesting = max_plate_nesting
         super().__init__(num_particles=num_particles)
 
@@ -843,6 +854,7 @@ class TraceEnum_ELBO(ELBO):
             )
             contracted_factors = []
             for name, site in model_trace.items():
+                # log_measure and log_prob might be different under masking.
                 if site.get("is_measure", True):
                     factor = site["log_measure"]
                 else:
@@ -850,7 +862,8 @@ class TraceEnum_ELBO(ELBO):
                 # contracted factors
                 if sum_vars.intersection(factor.inputs):
                     contracted_factors.append(factor)
-                    factor_to_var[factor] = name
+                    factor_to_var[id(factor)] = name
+                    # TODO: revisit scaling factors when there are several scaling factors appear in the model.
                     group_scale = site["scale"]
                 # uncontracted factors
                 else:
@@ -884,7 +897,7 @@ class TraceEnum_ELBO(ELBO):
                 )
                 # TODO check the logic here
                 group_deps = frozenset().union(
-                    *[model_deps[factor_to_var[k]] for k in group_factors]
+                    *[model_deps[factor_to_var[id(k)]] for k in group_factors]
                 )
                 group_deps = group_deps - sum_vars
 
