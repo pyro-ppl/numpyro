@@ -10,6 +10,7 @@ import pytest
 import jax
 from jax import jacobian, jit, lax, random
 from jax.tree_util import tree_all, tree_map
+import numpy as np
 
 from numpyro.util import _versiontuple
 
@@ -42,6 +43,7 @@ from numpyro.infer.autoguide import (
     AutoNormal,
     AutoSemiDAIS,
     AutoSurrogateLikelihoodDAIS,
+    reject_sampler,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -932,3 +934,21 @@ def test_autosldais(
     mf_elbo = -mf_elbo.item()
 
     assert dais_elbo > mf_elbo + 0.1
+
+
+def test_reject_sampler():
+    p = dist.Normal(0, 1)
+    q = dist.Normal(0.2, 2)
+    T = -2
+
+    def accept_fn(z):
+        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T)
+
+    def guide_sampler(key):
+        return q.sample(key)
+
+    keys = random.split(random.PRNGKey(0), 10000)
+    z = jax.vmap(partial(reject_sampler, accept_fn, guide_sampler))(keys)
+    np.testing.assert_allclose(np.mean(z), 0, atol=0.01, rtol=0.1)
+    np.testing.assert_allclose(np.std(z), 1, atol=0.01, rtol=0.1)
+

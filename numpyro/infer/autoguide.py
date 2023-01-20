@@ -1977,3 +1977,25 @@ class AutoRVRS(AutoContinuous):
             )
         else:
             return _single_sample(rng_key)
+
+
+def reject_sampler(accept_fn, guide_sampler, key):
+    # TODO: generate prototype sample
+    # NOTE: we might want more info from the sampler to get an estimate for Z
+
+    def cond_fn(val):
+        return ~val[-1]
+
+    def body_fn(val):
+        key = val[0]
+        key_next, key_uniform, key_q = random.split(key, 3)
+        z = guide_sampler(key_q)
+        accept_log_prob = accept_fn(z)
+        log_u = -random.exponential(key_uniform)
+        is_accept = log_u < accept_log_prob
+        return key_next, z, is_accept
+
+    init_val = body_fn((key, None, None))
+    _, z, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    return z
+
