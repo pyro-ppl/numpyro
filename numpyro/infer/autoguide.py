@@ -21,6 +21,7 @@ else:
     from jax.experimental import stax
 
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro import handlers
@@ -1909,7 +1910,7 @@ class AutoRVRS(AutoContinuous):
             raise ValueError('base_dist must be "diagonal".')
         if init_scale <= 0.0:
             raise ValueError("init_scale must be positive.")
-        if notinstance(T, float):
+        if not isinstance(T, float):
             raise ValueError("T must be a float.")
 
         self.S = S
@@ -1979,7 +1980,7 @@ class AutoRVRS(AutoContinuous):
             return _single_sample(rng_key)
 
 
-def reject_sampler(accept_fn, guide_sampler, key):
+def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
     # TODO: generate prototype sample
     # NOTE: we might want more info from the sampler to get an estimate for Z
 
@@ -1987,15 +1988,16 @@ def reject_sampler(accept_fn, guide_sampler, key):
         return ~val[-1]
 
     def body_fn(val):
-        key = val[0]
+        key, _, log_a, num_samples, _ = val
         key_next, key_uniform, key_q = random.split(key, 3)
         z = guide_sampler(key_q)
-        accept_log_prob = accept_fn(z)
+        accept_log_prob = accept_log_prob_fn(z)
         log_u = -random.exponential(key_uniform)
-        is_accept = log_u < accept_log_prob
-        return key_next, z, is_accept
+        is_accepted = log_u < accept_log_prob_fn(z)
+        log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
+        return key_next, z, log_a, num_samples + 1, is_accepted
 
-    init_val = body_fn((key, None, None))
-    _, z, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
-    return z
+    init_val = body_fn((key, None, -np.inf, 0, None))
+    _, z, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
 
+    return z, log_a, num_samples

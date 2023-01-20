@@ -20,6 +20,8 @@ else:
     from jax.experimental.stax import Dense
 
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
+
 import optax
 from optax import piecewise_constant_schedule
 
@@ -43,7 +45,7 @@ from numpyro.infer.autoguide import (
     AutoNormal,
     AutoSemiDAIS,
     AutoSurrogateLikelihoodDAIS,
-    reject_sampler,
+    rejection_sampler,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -936,19 +938,26 @@ def test_autosldais(
     assert dais_elbo > mf_elbo + 0.1
 
 
-def test_reject_sampler():
+def test_rejection_sampler(T=-2.5, num_mc_samples=10 ** 4):
     p = dist.Normal(0, 1)
-    q = dist.Normal(0.2, 2)
-    T = -2
+    q = dist.Normal(0.2, 1.2)
 
-    def accept_fn(z):
+    def accept_log_prob_fn(z):
         return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T)
 
     def guide_sampler(key):
         return q.sample(key)
 
-    keys = random.split(random.PRNGKey(0), 10000)
-    z = jax.vmap(partial(reject_sampler, accept_fn, guide_sampler))(keys)
-    np.testing.assert_allclose(np.mean(z), 0, atol=0.01, rtol=0.1)
-    np.testing.assert_allclose(np.std(z), 1, atol=0.01, rtol=0.1)
+    keys = random.split(random.PRNGKey(0), num_mc_samples)
+    z, log_a, num_samples = jax.vmap(partial(rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
 
+    assert jnp.min(num_samples) > 0
+    assert_allclose(np.mean(z), 0, atol=0.02)
+    assert_allclose(np.std(z), 1, atol=0.03)
+
+    log_Z_rejection = logsumexp(log_a) - jnp.log(num_samples.sum())
+
+    z_q = jax.vmap(guide_sampler)(keys)
+    log_Z_q = logsumexp(accept_log_prob_fn(z_q)) - jnp.log(num_mc_samples)
+
+    assert_allclose(log_Z_rejection, log_Z_q, atol=0.01)
