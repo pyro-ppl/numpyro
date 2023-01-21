@@ -687,7 +687,6 @@ class TraceGraph_ELBO(ELBO):
                         downstream_costs[key].add(
                             (site["cond_indep_stack"], site["log_prob"])
                         )
-
             for name, site in guide_trace.items():
                 if site["type"] == "sample":
                     log_prob_sum = jnp.sum(site["log_prob"])
@@ -916,7 +915,9 @@ class TraceEnum_ELBO(ELBO):
                     group_factors = tuple(
                         model_trace[name]["log_prob"] for name in group_names
                     )
-                    group_factors += tuple(model_trace[var]["log_measure"] for var in group_sum_vars)
+                    group_factors += tuple(
+                        model_trace[var]["log_measure"] for var in group_sum_vars
+                    )
                     group_factor_vars = frozenset().union(
                         *[f.inputs for f in group_factors]
                     )
@@ -941,8 +942,8 @@ class TraceEnum_ELBO(ELBO):
                             if plate in group_scales:
                                 if value != group_scales[plate]:
                                     raise ValueError(
-                                        f"Expected all enumerated sample sites to share a common scale factor, "
-                                        "but found different scales at plate('{plate}')."
+                                        "Expected all enumerated sample sites to share a common scale factor, "
+                                        f"but found different scales at plate('{plate}')."
                                     )
                             else:
                                 group_scales[plate] = value
@@ -963,8 +964,8 @@ class TraceEnum_ELBO(ELBO):
                                 frozenset(site["log_measure"].inputs) & elim_plates
                             ):
                                 raise ValueError(
-                                    "Expected model enumeration to be no more global than guide enumeration, "
-                                    f"but found model enumeration sites upstream of guide site '{key}' in plate('{plate}'). "
+                                    "Expected model enumeration to be no more global than guide enumeration, but found "
+                                    f"model enumeration sites upstream of guide site '{key}' in plate('{plate}')."
                                     "Try converting some model enumeration sites to guide enumeration sites."
                                 )
                     # combine dice factors
