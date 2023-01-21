@@ -137,10 +137,10 @@ class trace(Messenger):
                      {'args': (),
                       'fn': <numpyro.distributions.continuous.Normal object at 0x7f9e689b1eb8>,
                       'is_observed': False,
-                      'kwargs': {'rng_key': DeviceArray([0, 0], dtype=uint32)},
+                      'kwargs': {'rng_key': Array([0, 0], dtype=uint32)},
                       'name': 'a',
                       'type': 'sample',
-                      'value': DeviceArray(-0.20584235, dtype=float32)})])
+                      'value': Array(-0.20584235, dtype=float32)})])
     """
 
     def __enter__(self):
@@ -223,10 +223,6 @@ class replay(Messenger):
                     raise RuntimeError(f"Site {name} must be sampled in trace.")
                 msg["value"] = guide_msg["value"]
                 msg["infer"] = guide_msg["infer"]
-        # sum vars in the model
-        if msg["type"] == "sample":
-            if msg["is_observed"] or msg["name"] in self.trace:
-                msg["is_measure"] = False
 
 
 class block(Messenger):
@@ -577,7 +573,7 @@ class reparam(Messenger):
                 msg["type"] = "deterministic"
                 msg["value"] = value
                 for key in list(msg.keys()):
-                    if key not in ("type", "name", "value"):
+                    if key not in ("type", "name", "value", "cond_indep_stack"):
                         del msg[key]
                 return
 

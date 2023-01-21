@@ -379,6 +379,11 @@ class _OpenInterval(_Interval):
         return fmt_string
 
 
+class _Circular(_Interval):
+    def __init__(self):
+        super().__init__(-math.pi, math.pi)
+
+
 class _LowerCholesky(Constraint):
     event_dim = 2
 
@@ -540,7 +545,7 @@ class _Sphere(Constraint):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
-circular = _Interval(-math.pi, math.pi)
+circular = _Circular()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()

@@ -11,10 +11,16 @@ from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
+from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import Messenger, replay, seed, substitute, trace
-from numpyro.infer.util import get_importance_trace, is_identically_one, log_density
+from numpyro.infer.util import (
+    _without_rsample_stop_gradient,
+    get_importance_trace,
+    is_identically_one,
+    log_density,
+)
 from numpyro.ops.provenance import eval_provenance, get_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
@@ -737,8 +743,6 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
         to_funsor,
         trace as _trace,
     )
-    from numpyro.distributions import MaskedDistribution
-    from numpyro.infer.util import _without_rsample_stop_gradient
 
     with plate_to_enum_plate(), enum(
         first_available_dim=(-max_plate_nesting - 1) if max_plate_nesting else None
@@ -754,8 +758,10 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
     model_trace = {
         name: site for name, site in model_trace.items() if site["type"] == "sample"
     }
-    for tr in (guide_trace, model_trace):
+    for is_model, tr in zip((False, True), (guide_trace, model_trace)):
         for name, site in tr.items():
+            if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
+                site["is_measure"] = False
             if "log_prob" not in site:
                 value = site["value"]
                 intermediates = site["intermediates"]
@@ -771,8 +777,12 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
                 if site.get("is_measure", True):
                     # get rid off masking
                     base_fn = site["fn"]
-                    while isinstance(base_fn, MaskedDistribution):
+                    batch_shape = base_fn.batch_shape
+                    while isinstance(
+                        base_fn, (MaskedDistribution, ExpandedDistribution)
+                    ):
                         base_fn = base_fn.base_dist
+                    base_fn = base_fn.expand(batch_shape)
                     if intermediates:
                         log_measure = base_fn.log_prob(value, intermediates)
                     else:
@@ -817,7 +827,7 @@ class TraceEnum_ELBO(ELBO):
     def __init__(self, num_particles=1, max_plate_nesting=float("inf")):
         if max_plate_nesting == float("inf"):
             raise ValueError(
-                "Currently, we require `max_plate_nesting` to be a finite value."
+                "Currently, we require `max_plate_nesting` to be a non-positive integer."
             )
         self.max_plate_nesting = max_plate_nesting
         super().__init__(num_particles=num_particles)

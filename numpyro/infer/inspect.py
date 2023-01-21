@@ -316,6 +316,8 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         for name, site in trace.items():
             if site["type"] == "sample":
                 site["fn_name"] = _get_dist_name(site.pop("fn"))
+            elif site["type"] == "deterministic":
+                site["fn_name"] = "Deterministic"
         return PytreeTrace(trace)
 
     # We use eval_shape to avoid any array computation.
@@ -328,13 +330,13 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     sample_dist = {
         name: site["fn_name"]
         for name, site in trace.items()
-        if site["type"] == "sample"
+        if site["type"] in ["sample", "deterministic"]
     }
 
     sample_plates = {
         name: [frame.name for frame in site["cond_indep_stack"]]
         for name, site in trace.items()
-        if site["type"] == "sample"
+        if site["type"] in ["sample", "deterministic"]
     }
     plate_samples = {
         k: {name for name, plates in sample_plates.items() if k in plates}
@@ -359,21 +361,33 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     }
 
     def get_log_probs(sample):
+        class substitute_deterministic(handlers.substitute):
+            def process_message(self, msg):
+                if msg["type"] == "deterministic":
+                    msg["args"] = (msg["value"],)
+                    msg["kwargs"] = {}
+                    msg["value"] = self.data.get(msg["name"])
+                    msg["fn"] = lambda x: x
+
         # Note: We use seed 0 for parameter initialization.
-        with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
-            data=sample
-        ):
-            model(*model_args, **model_kwargs)
-        return {
-            name: site["fn"].log_prob(site["value"])
-            for name, site in tr.items()
-            if site["type"] == "sample"
-        }
+        with handlers.trace() as tr, handlers.seed(rng_seed=0):
+            with handlers.substitute(data=sample), substitute_deterministic(
+                data=sample
+            ):
+                model(*model_args, **model_kwargs)
+        provenance_arrays = {}
+        for name, site in tr.items():
+            if site["type"] == "sample":
+                provenance_arrays[name] = site["fn"].log_prob(site["value"])
+            elif site["type"] == "deterministic":
+                provenance_arrays[name] = site["args"][0]
+        return provenance_arrays
 
     samples = {
         name: ProvenanceArray(site["value"], frozenset({name}))
         for name, site in trace.items()
         if (site["type"] == "sample" and not site["is_observed"])
+        or site["type"] == "deterministic"
     }
 
     params = {
@@ -544,8 +558,14 @@ def render_graph(graph_specification, render_distributions=False):
                     "$params", ""
                 )  # incase of neural network parameters
 
+            # use different symbol for Deterministic site
+            node_style = (
+                "filled,dashed"
+                if node_data[rv]["distribution"] == "Deterministic"
+                else "filled"
+            )
             cur_graph.node(
-                rv, label=rv_label, shape=shape, style="filled", fillcolor=color
+                rv, label=rv_label, shape=shape, style=node_style, fillcolor=color
             )
 
     # add leaf nodes first
