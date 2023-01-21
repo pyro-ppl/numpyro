@@ -546,6 +546,11 @@ class plate(Messenger):
             msg["scale"] = scale * (
                 self.size / self.subsample_size if self.subsample_size else 1
             )
+            plate_to_scale = msg.setdefault("plate_to_scale", {})
+            assert self.name not in plate_to_scale
+            plate_to_scale[self.name] = (
+                self.size / self.subsample_size if self.subsample_size else 1
+            )
 
     def postprocess_message(self, msg):
         if msg["type"] in ("subsample", "param") and self.dim is not None:
