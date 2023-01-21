@@ -130,7 +130,6 @@ def test_gradient(model, guide, params, data):
         params = jax.tree_util.tree_map(transform, params_raw)
         return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
 
-
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
     for name in sorted(params):
