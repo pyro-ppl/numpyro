@@ -904,7 +904,7 @@ class TraceEnum_ELBO(ELBO):
             elbo = 0.0
             for group_names, group_sum_vars in _partition(model_sum_deps, sum_vars):
                 if not group_sum_vars:
-                    # uncontracted logp cost terms
+                    # uncontracted logp cost term
                     assert len(group_names) == 1
                     name = next(iter(group_names))
                     cost = model_trace[name]["log_prob"]
@@ -915,7 +915,8 @@ class TraceEnum_ELBO(ELBO):
                     # compute contracted cost term
                     group_factors = tuple(
                         model_trace[name]["log_prob"] for name in group_names
-                    ) + tuple(model_trace[var]["log_measure"] for var in group_sum_vars)
+                    )
+                    group_factors += tuple(model_trace[var]["log_measure"] for var in group_sum_vars)
                     group_factor_vars = frozenset().union(
                         *[f.inputs for f in group_factors]
                     )
@@ -950,7 +951,7 @@ class TraceEnum_ELBO(ELBO):
                         if group_scales
                         else None
                     )
-                    # combined deps
+                    # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]
                     )
@@ -966,7 +967,7 @@ class TraceEnum_ELBO(ELBO):
                                     f"but found model enumeration sites upstream of guide site '{key}' in plate('{plate}'). "
                                     "Try converting some model enumeration sites to guide enumeration sites."
                                 )
-                    # combined dice factors
+                    # combine dice factors
                     dice_factors = [
                         guide_trace[key]["log_measure"].reduce(
                             funsor.ops.add,
@@ -985,7 +986,7 @@ class TraceEnum_ELBO(ELBO):
                 elbo = elbo + cost.reduce(funsor.ops.add)
 
             for name, deps in guide_deps.items():
-                # -logq cost terms
+                # -logq cost term
                 cost = -guide_trace[name]["log_prob"]
                 scale = guide_trace[name]["scale"]
                 dice_factors = [guide_trace[key]["log_measure"] for key in deps]
