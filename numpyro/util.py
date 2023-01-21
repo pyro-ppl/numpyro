@@ -587,14 +587,18 @@ def check_model_guide_match(model_trace, guide_trace):
         for name, site in model_trace.items()
         if site["type"] == "sample"
         and not site.get("is_observed", False)
-        and (site["is_observed"] or (name in guide_trace))
+        and not (
+            name not in guide_trace and site["infer"].get("enumerate") == "parallel"
+        )
     )
     enum_vars = set(
         [
             name
             for name, site in model_trace.items()
             if site["type"] == "sample"
-            and not (site["is_observed"] or (name in guide_trace))
+            and not site.get("is_observed", False)
+            and name not in guide_trace
+            and site["infer"].get("enumerate") == "parallel"
         ]
     )
 
