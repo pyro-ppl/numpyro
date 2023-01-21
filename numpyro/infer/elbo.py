@@ -746,8 +746,10 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
     model_trace = {
         name: site for name, site in model_trace.items() if site["type"] == "sample"
     }
-    for tr in (guide_trace, model_trace):
+    for is_model, tr in zip((False, True), (guide_trace, model_trace)):
         for name, site in tr.items():
+            if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
+                site["is_measure"] = False
             if "log_prob" not in site:
                 value = site["value"]
                 intermediates = site["intermediates"]
