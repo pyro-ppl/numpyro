@@ -27,8 +27,9 @@
 
 import numpy as np
 
-from jax import lax
+from jax import lax, vmap
 from jax.experimental.sparse import BCOO
+from jax.lax import scan
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
@@ -288,6 +289,133 @@ class Dirichlet(Distribution):
         batch_shape = concentration[:-1]
         event_shape = concentration[-1:]
         return batch_shape, event_shape
+
+
+class EulerMaruyama(Distribution):
+    """
+    Euler–Maruyama method is a method for the approximate numerical solution
+    of a stochastic differential equation (SDE)
+
+    :param ndarray t: discretized time
+    :param callable sde_fn: function returning the drift and diffusion coefficients of SDE
+    :param Distribution init_dist: Distribution for initial values.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Euler-Maruyama_method
+    """
+
+    arg_constraints = {"t": constraints.ordered_vector}
+
+    def __init__(self, t, sde_fn, init_dist, *, validate_args=None):
+        self.t = t
+        self.sde_fn = sde_fn
+        self.init_dist = init_dist
+
+        if not isinstance(init_dist, Distribution):
+            raise TypeError("Init distribution is expected to be Distribution class.")
+
+        batch_shape_t = jnp.shape(t)[:-1]
+        batch_shape = lax.broadcast_shapes(batch_shape_t, init_dist.batch_shape)
+        event_shape = (jnp.shape(t)[-1],) + init_dist.event_shape
+
+        super(EulerMaruyama, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
+        )
+
+    @constraints.dependent_property(is_discrete=False)
+    def support(self):
+        return constraints.independent(constraints.real, self.event_dim)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        batch_shape = sample_shape + self.batch_shape
+
+        def step(y_curr, xs):
+            noise_curr, t_curr, dt_curr = xs
+            f, g = self.sde_fn(y_curr, t_curr)
+            mu = y_curr + dt_curr * f
+            sigma = jnp.sqrt(dt_curr) * g
+            y_next = mu + sigma * noise_curr
+            return y_next, y_next
+
+        rng_noise, rng_init = random.split(key)
+        noises = random.normal(
+            rng_noise,
+            shape=batch_shape + (self.event_shape[0] - 1,) + self.event_shape[1:],
+        )
+        inits = self.init_dist.expand(batch_shape).sample(rng_init)
+
+        def scan_fn(init, noise, tm1, dt):
+            return scan(step, init, (noise, tm1, dt))
+
+        batch_dim = len(batch_shape)
+        if batch_dim:
+            inits = inits.reshape((-1,) + inits.shape[batch_dim:])
+            noises = noises.reshape((-1,) + noises.shape[batch_dim:])
+            t = jnp.broadcast_to(self.t, batch_shape + (self.event_shape[0],))
+            t = t.reshape((-1,) + t.shape[batch_dim:])
+            dt = jnp.diff(t, axis=-1)
+            _, sde_out = vmap(scan_fn)(inits, noises, t[..., :-1], dt)
+            sde_out = jnp.concatenate([inits[:, None], sde_out], axis=1)
+            sde_out = jnp.reshape(sde_out, batch_shape + self.event_shape)
+        else:
+            dt = jnp.diff(self.t, axis=-1)
+            _, sde_out = scan_fn(inits, noises, self.t[:-1], dt)
+            sde_out = jnp.concatenate([inits[None], sde_out], axis=0)
+
+        return sde_out
+
+    @validate_sample
+    def log_prob(self, value):
+        sample_shape = lax.broadcast_shapes(
+            value.shape[: -self.event_dim], self.batch_shape
+        )
+        value = jnp.broadcast_to(value, sample_shape + self.event_shape)
+
+        if sample_shape:
+            reshaped_value = value.reshape((-1,) + self.event_shape)
+            xtm1, xt = reshaped_value[:, :-1], reshaped_value[:, 1:]
+            value0 = reshaped_value[:, 0]
+            t = jnp.broadcast_to(self.t, sample_shape + (self.event_shape[0],))
+            t = t.reshape((-1,) + (self.event_shape[0],))
+
+            f, g = vmap(vmap(self.sde_fn))(xtm1, t[:, :-1])
+
+            f = f.reshape(sample_shape + f.shape[1:])
+            g = g.reshape(sample_shape + g.shape[1:])
+            xtm1 = xtm1.reshape(sample_shape + xtm1.shape[1:])
+            xt = xt.reshape(sample_shape + xt.shape[1:])
+            value0 = value0.reshape(sample_shape + value0.shape[1:])
+
+        else:
+            xtm1, xt = value[:-1], value[1:]
+            value0 = value[0]
+
+            f, g = vmap(self.sde_fn)(xtm1, self.t[:-1])
+
+        # add missing event dimensions
+        batch_dim = len(sample_shape)
+        f = f.reshape(
+            f.shape[: batch_dim + 1]
+            + (1,) * (xt.ndim - f.ndim)
+            + f.shape[batch_dim + 1 :]
+        )
+        g = g.reshape(
+            g.shape[: batch_dim + 1]
+            + (1,) * (xt.ndim - g.ndim)
+            + g.shape[batch_dim + 1 :]
+        )
+
+        dt = jnp.diff(self.t, axis=-1)
+        dt = dt.reshape(dt.shape + (1,) * (self.event_dim - 1))
+        mu = xtm1 + dt * f
+        sigma = jnp.sqrt(dt) * g
+
+        sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
+        init_log_prob = self.init_dist.log_prob(value0)
+
+        return sde_log_prob + init_log_prob
 
 
 class Exponential(Distribution):
@@ -1419,7 +1547,7 @@ class CAR(Distribution):
         adj_matrix,
         *,
         is_sparse=False,
-        validate_args=None
+        validate_args=None,
     ):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
@@ -2250,7 +2378,7 @@ class AsymmetricLaplaceQuantile(Distribution):
     the distribution.
 
     The `scale` parameter is also interpreted slightly differently than in
-    AsymmetricLaplce. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
+    AsymmetricLaplace. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
     is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
     equivalent to Laplace(0,2).
     """

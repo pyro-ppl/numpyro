@@ -294,7 +294,12 @@ def deterministic(name, value):
     if not _PYRO_STACK:
         return value
 
-    initial_msg = {"type": "deterministic", "name": name, "value": value}
+    initial_msg = {
+        "type": "deterministic",
+        "name": name,
+        "value": value,
+        "cond_indep_stack": [],
+    }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
@@ -516,7 +521,7 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
-        if msg["type"] not in ("param", "sample", "plate"):
+        if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
                     "Cannot use control flow primitive under a `plate` primitive."
@@ -528,6 +533,8 @@ class plate(Messenger):
         cond_indep_stack = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
+        if msg["type"] == "deterministic":
+            return
         if msg["type"] == "sample":
             expected_shape = self._get_batch_shape(cond_indep_stack)
             dist_batch_shape = msg["fn"].batch_shape
