@@ -520,7 +520,7 @@ def _validate_model(model_trace, plate_warning="loose"):
         [
             site["infer"]["name_to_dim"][name]
             for name, site in model_trace.items()
-            if site["infer"].get("enumerate") == "parallel"
+            if site["type"] == "sample" and site["infer"].get("enumerate") == "parallel"
         ]
     )
     # Check if plate is missing in the model.
@@ -585,10 +585,15 @@ def check_model_guide_match(model_trace, guide_trace):
         for name, site in model_trace.items()
         if site["type"] == "sample"
         and not site.get("is_observed", False)
-        and not site.get("is_measure", True)
+        and (site["is_observed"] or (name in guide_trace))
     )
     enum_vars = set(
-        [name for name, site in model_trace.items() if site.get("is_measure", True)]
+        [
+            name
+            for name, site in model_trace.items()
+            if site["type"] == "sample"
+            and not (site["is_observed"] or (name in guide_trace))
+        ]
     )
 
     if aux_vars & model_vars:
