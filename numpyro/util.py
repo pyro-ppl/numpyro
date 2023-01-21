@@ -520,7 +520,9 @@ def _validate_model(model_trace, plate_warning="loose"):
         [
             site["infer"]["name_to_dim"][name]
             for name, site in model_trace.items()
-            if site["type"] == "sample" and site["infer"].get("enumerate") == "parallel"
+            if site["type"] == "sample"
+            and site["infer"].get("enumerate") == "parallel"
+            and site["infer"].get("name_to_dim") is not None
         ]
     )
     # Check if plate is missing in the model.
