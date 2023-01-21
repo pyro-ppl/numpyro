@@ -592,18 +592,6 @@ class track_nonreparam(Messenger):
             )
 
 
-class track_sumvars(Messenger):
-    def postprocess_message(self, msg):
-        if msg["type"] == "sample" and msg.get("is_measure", True):
-            new_provenance = frozenset({msg["name"]})
-            old_provenance = msg["value"].aval.named_shape.get(
-                "_provenance", frozenset()
-            )
-            msg["value"].aval.named_shape["_provenance"] = (
-                old_provenance | new_provenance
-            )
-
-
 def get_importance_log_probs(model, guide, args, kwargs, params):
     """
     Returns log probabilities at each site for the guide and the model that is run against it.
@@ -841,6 +829,15 @@ class TraceEnum_ELBO(ELBO):
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
 
+            model_trace, guide_trace = get_importance_trace_enum(
+                seeded_model,
+                seeded_guide,
+                args,
+                kwargs,
+                param_map,
+                self.max_plate_nesting,
+            )
+
             model_deps, guide_deps = get_provenance(
                 eval_provenance(
                     partial(
@@ -852,19 +849,6 @@ class TraceEnum_ELBO(ELBO):
                         param_map,
                     )
                 )
-            )
-
-            model_seed, guide_seed = random.split(rng_key)
-            seeded_model = seed(model, model_seed)
-            seeded_guide = seed(guide, guide_seed)
-
-            model_trace, guide_trace = get_importance_trace_enum(
-                seeded_model,
-                seeded_guide,
-                args,
-                kwargs,
-                param_map,
-                self.max_plate_nesting,
             )
 
             sum_vars = frozenset(
