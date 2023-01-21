@@ -776,12 +776,44 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
                     else:
                         log_measure = base_fn.log_prob(value)
                     # dice factor
-                    if not site["infer"].get("enumerate", None) == "parallel":
+                    if not site["infer"].get("enumerate") == "parallel":
                         log_measure = log_measure - funsor.ops.detach(log_measure)
                     site["log_measure"] = to_funsor(
                         log_measure, output=funsor.Real, dim_to_name=dim_to_name
                     )
     return model_trace, guide_trace
+
+
+def _partition(model_sum_deps, sum_vars):
+    # Construct a bipartite graph between model_sum_deps and the sum_vars
+    neighbors = OrderedDict([(t, []) for t in model_sum_deps.keys()])
+    for key, deps in model_sum_deps.items():
+        for dim in deps:
+            if dim in sum_vars:
+                neighbors[key].append(dim)
+                neighbors.setdefault(dim, []).append(key)
+
+    # Partition the bipartite graph into connected components for contraction.
+    components = []
+    while neighbors:
+        v, pending = neighbors.popitem()
+        component = OrderedDict([(v, None)])  # used as an OrderedSet
+        for v in pending:
+            component[v] = None
+        while pending:
+            v = pending.pop()
+            for v in neighbors.pop(v):
+                if v not in component:
+                    component[v] = None
+                    pending.append(v)
+
+        # Split this connected component into factors and measures.
+        # Append only if component_factors is non-empty
+        component_factors = frozenset(v for v in component if v not in sum_vars)
+        if component_factors:
+            component_measures = frozenset(v for v in component if v in sum_vars)
+            components.append((component_factors, component_measures))
+    return components
 
 
 class TraceEnum_ELBO(ELBO):
@@ -837,7 +869,11 @@ class TraceEnum_ELBO(ELBO):
                 param_map,
                 self.max_plate_nesting,
             )
+            check_model_guide_match(model_trace, guide_trace)
+            _validate_model(model_trace, plate_warning="strict")
 
+            # Find dependencies on non-reparameterizable sample sites for
+            # each cost term in the model and the guide.
             model_deps, guide_deps = get_provenance(
                 eval_provenance(
                     partial(
@@ -865,15 +901,21 @@ class TraceEnum_ELBO(ELBO):
                 k: v - sum_vars for k, v in model_deps.items() if k not in sum_vars
             }
 
-            # Find dependencies on non-reparameterizable sample sites for
-            # each cost term in the model and the guide.
-
             elbo = 0.0
-            for group_names, group_vars in _partition(model_sum_deps, sum_vars):
-                if group_vars:
+            for group_names, group_sum_vars in _partition(model_sum_deps, sum_vars):
+                if not group_sum_vars:
+                    # uncontracted logp cost terms
+                    assert len(group_names) == 1
+                    name = next(iter(group_names))
+                    cost = model_trace[name]["log_prob"]
+                    scale = model_trace[name]["scale"]
+                    deps = model_deps[name]
+                    dice_factors = [guide_trace[key]["log_measure"] for key in deps]
+                else:
+                    # compute contracted cost term
                     group_factors = tuple(
-                        model_trace[k]["log_prob"] for k in group_names
-                    ) + tuple(model_trace[k]["log_measure"] for k in group_vars)
+                        model_trace[name]["log_prob"] for name in group_names
+                    ) + tuple(model_trace[var]["log_measure"] for var in group_sum_vars)
                     group_factor_vars = frozenset().union(
                         *[f.inputs for f in group_factors]
                     )
@@ -887,10 +929,44 @@ class TraceEnum_ELBO(ELBO):
                         funsor.ops.add,
                         group_factors,
                         plates=group_plates,
-                        eliminate=group_vars | elim_plates,
+                        eliminate=group_sum_vars | elim_plates,
                     )
-                    deps = frozenset().union(*[model_deps[k] for k in group_names])
-
+                    # incorporate the effects of subsampling and handlers.scale through a common scale factor
+                    group_scales = {}
+                    for name in group_names:
+                        for plate, value in (
+                            model_trace[name].get("plate_to_scale", {}).items()
+                        ):
+                            if plate in group_scales:
+                                if value != group_scales[plate]:
+                                    raise ValueError(
+                                        f"Expected all enumerated sample sites to share a common scale factor, "
+                                        "but found different scales at plate('{plate}')."
+                                    )
+                            else:
+                                group_scales[plate] = value
+                    scale = (
+                        reduce(lambda a, b: a * b, group_scales.values())
+                        if group_scales
+                        else None
+                    )
+                    # combined deps
+                    deps = frozenset().union(
+                        *[model_deps[name] for name in group_names]
+                    )
+                    # check model guide enumeration constraint
+                    for key in deps:
+                        site = guide_trace[key]
+                        if site["infer"].get("enumerate") == "parallel":
+                            for plate in (
+                                frozenset(site["log_measure"].inputs) & elim_plates
+                            ):
+                                raise ValueError(
+                                    "Expected model enumeration to be no more global than guide enumeration, "
+                                    f"but found model enumeration sites upstream of guide site '{key}' in plate('{plate}'). "
+                                    "Try converting some model enumeration sites to guide enumeration sites."
+                                )
+                    # combined dice factors
                     dice_factors = [
                         guide_trace[key]["log_measure"].reduce(
                             funsor.ops.add,
@@ -899,32 +975,6 @@ class TraceEnum_ELBO(ELBO):
                         )
                         for key in deps
                     ]
-                    scale = 1
-                    group_scales = {}
-                    for name in group_names:
-                        for plate, value in (
-                            model_trace[name].get("plate_to_scale", {}).items()
-                        ):
-                            if plate in group_scales:
-                                assert value == group_scales[plate]
-                            else:
-                                group_scales[plate] = value
-                    if group_scales:
-                        scale = reduce(lambda a, b: a * b, group_scales.values(), scale)
-                    for key in deps:
-                        log_measure = guide_trace[key]["log_measure"]
-                        if frozenset(log_measure.inputs) & elim_plates:
-                            assert (
-                                not guide_trace[key]["infer"].get("enumerate", None)
-                                == "parallel"
-                            )
-                else:
-                    assert len(group_names) == 1
-                    name = next(iter(group_names))
-                    deps = model_deps[name]
-                    cost = model_trace[name]["log_prob"]
-                    scale = model_trace[name]["scale"]
-                    dice_factors = [guide_trace[key]["log_measure"] for key in deps]
 
                 if dice_factors:
                     dice_factor = reduce(lambda a, b: a + b, dice_factors)
@@ -935,6 +985,7 @@ class TraceEnum_ELBO(ELBO):
                 elbo = elbo + cost.reduce(funsor.ops.add)
 
             for name, deps in guide_deps.items():
+                # -logq cost terms
                 cost = -guide_trace[name]["log_prob"]
                 scale = guide_trace[name]["scale"]
                 dice_factors = [guide_trace[key]["log_measure"] for key in deps]
@@ -954,34 +1005,3 @@ class TraceEnum_ELBO(ELBO):
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
-
-
-def _partition(terms, sum_vars):
-    # Construct a bipartite graph between terms and the vars
-    neighbors = OrderedDict([(t, []) for t in terms.keys()])
-    for key, deps in terms.items():
-        for dim in deps:
-            if dim in sum_vars:
-                neighbors[key].append(dim)
-                neighbors.setdefault(dim, []).append(key)
-
-    # Partition the bipartite graph into connected components for contraction.
-    components = []
-    while neighbors:
-        v, pending = neighbors.popitem()
-        component = OrderedDict([(v, None)])  # used as an OrderedSet
-        for v in pending:
-            component[v] = None
-        while pending:
-            v = pending.pop()
-            for v in neighbors.pop(v):
-                if v not in component:
-                    component[v] = None
-                    pending.append(v)
-
-        # Split this connected component into tensors and dims.
-        component_factors = frozenset(v for v in component if v not in sum_vars)
-        if component_factors:
-            component_measures = frozenset(v for v in component if v in sum_vars)
-            components.append((component_factors, component_measures))
-    return components

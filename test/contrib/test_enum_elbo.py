@@ -571,7 +571,6 @@ def test_elbo_enumerate_plate_4(outer_obs, inner_obs, scale):
     assert_equal(auto_grad, hand_grad, prec=1e-5)
 
 
-@pytest.mark.xfail(reason="Not supported in regular Pyro")
 def test_elbo_enumerate_plate_5():
     #        Guide   Model
     #                  a
@@ -640,16 +639,6 @@ def test_elbo_enumerate_plate_5():
         for i in range(2):
             pyro.sample(f"b_{i}", dist.Categorical(probs_b))
 
-    #  elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
-    #  expected_loss = elbo.differentiable_loss(model_iplate, guide_iplate)
-    #  elbo = infer.TraceEnum_ELBO(max_plate_nesting=1)
-    #  with pytest.raises(
-    #      ValueError, match="Expected model enumeration to be no more global than guide"
-    #  ):
-    #      actual_loss = elbo.differentiable_loss(model_plate, guide_plate)
-    #      # This never gets run because we don't support this yet.
-    #      _check_loss_and_grads(expected_loss, actual_loss)
-
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO(max_plate_nesting=1)
         return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
@@ -658,11 +647,15 @@ def test_elbo_enumerate_plate_5():
         elbo = infer.TraceEnum_ELBO(max_plate_nesting=0)
         return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
 
-    auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
-    hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
+    with pytest.raises(
+        ValueError, match="Expected model enumeration to be no more global than guide"
+    ):
+        hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
+        # This never gets run because we don't support this yet.
+        auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
 
-    assert_equal(auto_loss, hand_loss, prec=1e-5)
-    assert_equal(auto_grad, hand_grad, prec=1e-5)
+        assert_equal(auto_loss, hand_loss, prec=1e-5)
+        assert_equal(auto_grad, hand_grad, prec=1e-5)
 
 
 @pytest.mark.parametrize("enumerate1", ["parallel", "sequential"])
@@ -1600,10 +1593,7 @@ def test_elbo_enumerate_plates_7(scale):
 
 @pytest.mark.parametrize("guide_scale", [1])
 @pytest.mark.parametrize("model_scale", [1])
-@pytest.mark.parametrize(
-    "outer_vectorized",
-    [False, xfail_param(True, reason="validation not yet implemented")],
-)
+@pytest.mark.parametrize("outer_vectorized", [False, True])
 @pytest.mark.parametrize("inner_vectorized", [False, True])
 def test_elbo_enumerate_plates_8(
     model_scale, guide_scale, inner_vectorized, outer_vectorized
@@ -1628,9 +1618,15 @@ def test_elbo_enumerate_plates_8(
     @config_enumerate
     @handlers.scale(scale=model_scale)
     def model_plate_plate(params):
-        probs_a = pyro.param("model_probs_a")
-        probs_b = pyro.param("model_probs_b")
-        probs_c = pyro.param("model_probs_c")
+        probs_a = pyro.param(
+            "probs_a", params["model_probs_a"], constraint=constraints.simplex
+        )
+        probs_b = pyro.param(
+            "probs_b", params["model_probs_b"], constraint=constraints.simplex
+        )
+        probs_c = pyro.param(
+            "probs_c", params["model_probs_c"], constraint=constraints.simplex
+        )
         a = pyro.sample("a", dist.Categorical(probs_a))
         with pyro.plate("outer", 2):
             b = pyro.sample("b", dist.Categorical(probs_b))
@@ -1746,17 +1742,34 @@ def test_elbo_enumerate_plates_8(
     expected_loss, expected_grad = jax.value_and_grad(iplate_iplate_loss_fn)(params)
     if inner_vectorized:
         if outer_vectorized:
-            actual_loss, actual_grad = jax.value_and_grad(plate_plate_loss_fn)(params)
+            with pytest.raises(
+                ValueError,
+                match="Expected model enumeration to be no more global than guide",
+            ):
+                actual_loss, actual_grad = jax.value_and_grad(plate_plate_loss_fn)(
+                    params
+                )
+                assert_equal(actual_loss, expected_loss, prec=1e-4)
+                assert_equal(actual_grad, expected_grad, prec=1e-4)
         else:
             actual_loss, actual_grad = jax.value_and_grad(iplate_plate_loss_fn)(params)
+            assert_equal(actual_loss, expected_loss, prec=1e-4)
+            assert_equal(actual_grad, expected_grad, prec=1e-4)
     else:
         if outer_vectorized:
-            actual_loss, actual_grad = jax.value_and_grad(plate_iplate_loss_fn)(params)
+            with pytest.raises(
+                ValueError,
+                match="Expected model enumeration to be no more global than guide",
+            ):
+                actual_loss, actual_grad = jax.value_and_grad(plate_iplate_loss_fn)(
+                    params
+                )
+                assert_equal(actual_loss, expected_loss, prec=1e-4)
+                assert_equal(actual_grad, expected_grad, prec=1e-4)
         else:
             actual_loss, actual_grad = jax.value_and_grad(iplate_iplate_loss_fn)(params)
-
-    assert_equal(actual_loss, expected_loss, prec=1e-4)
-    assert_equal(actual_grad, expected_grad, prec=1e-4)
+            assert_equal(actual_loss, expected_loss, prec=1e-4)
+            assert_equal(actual_grad, expected_grad, prec=1e-4)
 
 
 def test_elbo_enumerate_plate_9():

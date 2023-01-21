@@ -516,6 +516,13 @@ def format_shapes(
 def _validate_model(model_trace, plate_warning="loose"):
     # TODO: Consider exposing global configuration for those strategies.
     assert plate_warning in ["loose", "strict", "error"]
+    enum_dims = set(
+        [
+            site["infer"]["name_to_dim"][name]
+            for name, site in model_trace.items()
+            if site["infer"].get("enumerate") == "parallel"
+        ]
+    )
     # Check if plate is missing in the model.
     for name, site in model_trace.items():
         if site["type"] == "sample":
@@ -528,7 +535,7 @@ def _validate_model(model_trace, plate_warning="loose"):
             batch_ndim = len(batch_shape)
             for i in range(batch_ndim):
                 dim = -i - 1
-                if batch_shape[dim] > 1 and (dim not in plate_dims):
+                if batch_shape[dim] > 1 and (dim not in (plate_dims | enum_dims)):
                     # Skip checking if it is the `scan` dimension.
                     if dim == -batch_ndim and site.get("_control_flow_done", False):
                         continue
@@ -576,10 +583,13 @@ def check_model_guide_match(model_trace, guide_trace):
     model_vars = set(
         name
         for name, site in model_trace.items()
-        if site["type"] == "sample" and not site.get("is_observed", False)
+        if site["type"] == "sample"
+        and not site.get("is_observed", False)
+        and not site.get("is_measure", True)
     )
-    # TODO: Collect enum variables when TraceEnum_ELBO is supported.
-    enum_vars = set()
+    enum_vars = set(
+        [name for name, site in model_trace.items() if site.get("is_measure", True)]
+    )
 
     if aux_vars & model_vars:
         warnings.warn(
