@@ -95,7 +95,20 @@ class Constraint(object):
         raise NotImplementedError
 
 
-class _Boolean(Constraint):
+class _SingletonConstraint(Constraint):
+    """
+    A constraint type which has only one canonical instance, like constraints.real,
+    and unlike constraints.interval.
+    """
+
+    def __new__(cls):
+        if (not hasattr(cls, "_instance")) or (type(cls._instance) is not cls):
+            # Do not use the singleton instance of a superclass of cls.
+            cls._instance = super(_SingletonConstraint, cls).__new__(cls)
+        return cls._instance
+
+
+class _Boolean(_SingletonConstraint):
     is_discrete = True
 
     def __call__(self, x):
@@ -105,7 +118,7 @@ class _Boolean(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _CorrCholesky(Constraint):
+class _CorrCholesky(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -126,7 +139,7 @@ class _CorrCholesky(Constraint):
         )
 
 
-class _CorrMatrix(Constraint):
+class _CorrMatrix(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -231,6 +244,11 @@ class _GreaterThan(Constraint):
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
 
 
+class _Positive(_GreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0.0)
+
+
 class _IndependentConstraint(Constraint):
     """
     Wraps a constraint by aggregating over ``reinterpreted_batch_ndims``-many
@@ -282,6 +300,16 @@ class _IndependentConstraint(Constraint):
 
     def feasible_like(self, prototype):
         return self.base_constraint.feasible_like(prototype)
+
+
+class _RealVector(_IndependentConstraint, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(_Real(), 1)
+
+
+class _RealMatrix(_IndependentConstraint, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(_Real(), 2)
 
 
 class _LessThan(Constraint):
@@ -339,6 +367,16 @@ class _IntegerGreaterThan(Constraint):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
 
+class _IntegerPositive(_IntegerGreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(1)
+
+
+class _IntegerNonnegative(_IntegerGreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0)
+
+
 class _Interval(Constraint):
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound
@@ -367,6 +405,16 @@ class _Interval(Constraint):
         )
 
 
+class _Circular(_Interval, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(-math.pi, math.pi)
+
+
+class _UnitInterval(_Interval, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0.0, 1.0)
+
+
 class _OpenInterval(_Interval):
     def __call__(self, x):
         return (x > self.lower_bound) & (x < self.upper_bound)
@@ -379,12 +427,7 @@ class _OpenInterval(_Interval):
         return fmt_string
 
 
-class _Circular(_Interval):
-    def __init__(self):
-        super().__init__(-math.pi, math.pi)
-
-
-class _LowerCholesky(Constraint):
+class _LowerCholesky(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -420,7 +463,7 @@ class _Multinomial(Constraint):
         return jax.numpy.broadcast_to(value, prototype.shape)
 
 
-class _L1Ball(Constraint):
+class _L1Ball(_SingletonConstraint):
     """
     Constrain to the L1 ball of any dimension.
     """
@@ -437,7 +480,7 @@ class _L1Ball(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _OrderedVector(Constraint):
+class _OrderedVector(_SingletonConstraint):
     event_dim = 1
 
     def __call__(self, x):
@@ -449,7 +492,7 @@ class _OrderedVector(Constraint):
         )
 
 
-class _PositiveDefinite(Constraint):
+class _PositiveDefinite(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -466,7 +509,7 @@ class _PositiveDefinite(Constraint):
         )
 
 
-class _PositiveOrderedVector(Constraint):
+class _PositiveOrderedVector(_SingletonConstraint):
     """
     Constrains to a positive real-valued tensor where the elements are monotonically
     increasing along the `event_shape` dimension.
@@ -483,7 +526,7 @@ class _PositiveOrderedVector(Constraint):
         )
 
 
-class _Real(Constraint):
+class _Real(_SingletonConstraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float("inf")) & (x != float("-inf"))
@@ -492,7 +535,7 @@ class _Real(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _Simplex(Constraint):
+class _Simplex(_SingletonConstraint):
     event_dim = 1
 
     def __call__(self, x):
@@ -503,7 +546,7 @@ class _Simplex(Constraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
-class _SoftplusPositive(_GreaterThan):
+class _SoftplusPositive(_GreaterThan, _SingletonConstraint):
     def __init__(self):
         super().__init__(lower_bound=0.0)
 
@@ -522,7 +565,7 @@ class _ScaledUnitLowerCholesky(_LowerCholesky):
     pass
 
 
-class _Sphere(Constraint):
+class _Sphere(_SingletonConstraint):
     """
     Constrain to the Euclidean sphere of any dimension.
     """
@@ -559,18 +602,18 @@ l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
 scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
-nonnegative_integer = _IntegerGreaterThan(0)
+nonnegative_integer = _IntegerNonnegative()
 ordered_vector = _OrderedVector()
-positive = _GreaterThan(0.0)
+positive = _Positive()
 positive_definite = _PositiveDefinite()
-positive_integer = _IntegerGreaterThan(1)
+positive_integer = _IntegerPositive()
 positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
-real_vector = independent(real, 1)
-real_matrix = independent(real, 2)
+real_vector = _RealVector()
+real_matrix = _RealMatrix()
 simplex = _Simplex()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
-unit_interval = _Interval(0.0, 1.0)
+unit_interval = _UnitInterval()
 open_interval = _OpenInterval
