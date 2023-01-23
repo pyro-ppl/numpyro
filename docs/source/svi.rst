@@ -32,6 +32,16 @@ Trace_ELBO
     :member-order: bysource
 
 
+TraceEnum_ELBO
+---------------
+
+.. autoclass:: numpyro.infer.elbo.TraceEnum_ELBO
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 TraceGraph_ELBO
 ---------------
 
