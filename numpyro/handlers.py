@@ -609,6 +609,13 @@ class scale(Messenger):
         msg["scale"] = (
             self.scale if msg.get("scale") is None else self.scale * msg["scale"]
         )
+        plate_to_scale = msg.setdefault("plate_to_scale", {})
+        scale = (
+            self.scale
+            if plate_to_scale.get(None) is None
+            else self.scale * plate_to_scale[None]
+        )
+        plate_to_scale[None] = scale
 
 
 class scope(Messenger):
