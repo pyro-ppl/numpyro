@@ -521,6 +521,12 @@ class plate(GlobalNamedMessenger):
     def process_message(self, msg):
         if msg["type"] in ["to_funsor", "to_data"]:
             return super().process_message(msg)
+        if msg["type"] == "sample" and self.size != self.subsample_size:
+            plate_to_scale = msg.setdefault("plate_to_scale", {})
+            assert self.name not in plate_to_scale
+            plate_to_scale[self.name] = (
+                self.size / self.subsample_size if self.subsample_size else 1
+            )
         return OrigPlateMessenger.process_message(self, msg)
 
     def postprocess_message(self, msg):
