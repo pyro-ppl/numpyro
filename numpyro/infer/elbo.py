@@ -600,12 +600,12 @@ def get_importance_log_probs(model, guide, args, kwargs, params):
     model_log_probs = {
         name: site["log_prob"]
         for name, site in model_tr.items()
-        if site["type"] == "sample"
+        if site["type"] == "sample" and not site["infer"].get("_do_not_score", False)
     }
     guide_log_probs = {
         name: site["log_prob"]
         for name, site in guide_tr.items()
-        if site["type"] == "sample"
+        if site["type"] == "sample" and not site["infer"].get("_do_not_score", False)
     }
     return model_log_probs, guide_log_probs
 
@@ -739,47 +739,46 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
             guide_trace = _trace(guide).get_trace(*args, **kwargs)
         model = substitute(replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
-    guide_trace = {
-        name: site for name, site in guide_trace.items() if site["type"] == "sample"
-    }
-    model_trace = {
-        name: site for name, site in model_trace.items() if site["type"] == "sample"
-    }
+    guide_trace = {name: site for name, site in guide_trace.items()}
+    model_trace = {name: site for name, site in model_trace.items()}
     for is_model, tr in zip((False, True), (guide_trace, model_trace)):
         for name, site in tr.items():
-            if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
-                site["is_measure"] = False
-            if "log_prob" not in site:
-                value = site["value"]
-                intermediates = site["intermediates"]
-                if intermediates:
-                    log_prob = site["fn"].log_prob(value, intermediates)
-                else:
-                    log_prob = site["fn"].log_prob(value)
-
-                dim_to_name = site["infer"]["dim_to_name"]
-                site["log_prob"] = to_funsor(
-                    log_prob, output=funsor.Real, dim_to_name=dim_to_name
-                )
-                if site.get("is_measure", True):
-                    # get rid off masking
-                    base_fn = site["fn"]
-                    batch_shape = base_fn.batch_shape
-                    while isinstance(
-                        base_fn, (MaskedDistribution, ExpandedDistribution)
-                    ):
-                        base_fn = base_fn.base_dist
-                    base_fn = base_fn.expand(batch_shape)
+            if site["type"] == "sample":
+                if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
+                    site["is_measure"] = False
+                if "log_prob" not in site and not site["infer"].get(
+                    "_do_not_score", False
+                ):
+                    value = site["value"]
+                    intermediates = site["intermediates"]
                     if intermediates:
-                        log_measure = base_fn.log_prob(value, intermediates)
+                        log_prob = site["fn"].log_prob(value, intermediates)
                     else:
-                        log_measure = base_fn.log_prob(value)
-                    # dice factor
-                    if not site["infer"].get("enumerate") == "parallel":
-                        log_measure = log_measure - funsor.ops.detach(log_measure)
-                    site["log_measure"] = to_funsor(
-                        log_measure, output=funsor.Real, dim_to_name=dim_to_name
+                        log_prob = site["fn"].log_prob(value)
+
+                    dim_to_name = site["infer"]["dim_to_name"]
+                    site["log_prob"] = to_funsor(
+                        log_prob, output=funsor.Real, dim_to_name=dim_to_name
                     )
+                    if site.get("is_measure", True):
+                        # get rid off masking
+                        base_fn = site["fn"]
+                        batch_shape = base_fn.batch_shape
+                        while isinstance(
+                            base_fn, (MaskedDistribution, ExpandedDistribution)
+                        ):
+                            base_fn = base_fn.base_dist
+                        base_fn = base_fn.expand(batch_shape)
+                        if intermediates:
+                            log_measure = base_fn.log_prob(value, intermediates)
+                        else:
+                            log_measure = base_fn.log_prob(value)
+                        # dice factor
+                        if not site["infer"].get("enumerate") == "parallel":
+                            log_measure = log_measure - funsor.ops.detach(log_measure)
+                        site["log_measure"] = to_funsor(
+                            log_measure, output=funsor.Real, dim_to_name=dim_to_name
+                        )
     return model_trace, guide_trace
 
 
@@ -868,8 +867,8 @@ class TraceEnum_ELBO(ELBO):
                 param_map,
                 self.max_plate_nesting,
             )
-            check_model_guide_match(model_trace, guide_trace)
-            _validate_model(model_trace, plate_warning="strict")
+            #  check_model_guide_match(model_trace, guide_trace)
+            #  _validate_model(model_trace, plate_warning="strict")
 
             # Find dependencies on non-reparameterizable sample sites for
             # each cost term in the model and the guide.
@@ -886,18 +885,36 @@ class TraceEnum_ELBO(ELBO):
                 )
             )
 
+            model_vars = frozenset(
+                [name for name, site in model_trace.items() if site["type"] == "sample"]
+            )
             sum_vars = frozenset(
                 [
                     name
                     for name, site in model_trace.items()
-                    if site.get("is_measure", True)
+                    if site["type"] == "sample" and site.get("is_measure", True)
+                ]
+            )
+            aux_vars = frozenset(
+                [
+                    name
+                    for name, site in guide_trace.items()
+                    if site.get("infer", {}).get("_do_not_score", False)
                 ]
             )
             model_sum_deps = {
                 k: v & sum_vars for k, v in model_deps.items() if k not in sum_vars
             }
             model_deps = {
-                k: v - sum_vars for k, v in model_deps.items() if k not in sum_vars
+                k: v - sum_vars - aux_vars
+                for k, v in model_deps.items()
+                if k not in sum_vars
+            }
+            guide_deps = {k: v - aux_vars for k, v in guide_deps.items()}
+            plate_to_step = {
+                name[:-7]: site["value"]
+                for name, site in model_trace.items()
+                if site["type"] == "markov_chain"
             }
 
             elbo = 0.0
@@ -909,6 +926,7 @@ class TraceEnum_ELBO(ELBO):
                     cost = model_trace[name]["log_prob"]
                     scale = model_trace[name]["scale"]
                     deps = model_deps[name]
+                    import pdb;pdb.set_trace()
                     dice_factors = [guide_trace[key]["log_measure"] for key in deps]
                 else:
                     # compute contracted cost term
@@ -916,23 +934,31 @@ class TraceEnum_ELBO(ELBO):
                         model_trace[name]["log_prob"] for name in group_names
                     )
                     group_factors += tuple(
-                        model_trace[var]["log_measure"] for var in group_sum_vars
+                        model_trace[var]["log_measure"]
+                        for var in group_sum_vars
+                        if not model_trace[var]["infer"].get("_do_not_score", False)
                     )
                     group_factor_vars = frozenset().union(
                         *[f.inputs for f in group_factors]
                     )
-                    group_plates = group_factor_vars - frozenset(model_trace.keys())
+                    group_plates = group_factor_vars - model_vars
                     outermost_plates = frozenset.intersection(
                         *(frozenset(f.inputs) & group_plates for f in group_factors)
                     )
+                    group_plate_to_step = {
+                        plate: plate_to_step.get(plate, frozenset())
+                        for plate in group_plates
+                    }
                     elim_plates = group_plates - outermost_plates
-                    cost = funsor.sum_product.sum_product(
+                    cost = funsor.sum_product.dynamic_partial_sum_product(
                         funsor.ops.logaddexp,
                         funsor.ops.add,
                         group_factors,
-                        plates=group_plates,
+                        plate_to_step=group_plate_to_step,
                         eliminate=group_sum_vars | elim_plates,
                     )
+                    assert len(cost) == 1
+                    cost = cost[0]
                     # incorporate the effects of subsampling and handlers.scale through a common scale factor
                     group_scales = {}
                     for name in group_names:

@@ -20,6 +20,7 @@ from numpyro.contrib.funsor.enum_messenger import (
     to_data,
     to_funsor,
     trace,
+    vectorized_markov,
 )
 from numpyro.contrib.funsor.infer_util import (
     config_enumerate,
