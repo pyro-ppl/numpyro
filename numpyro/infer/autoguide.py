@@ -1899,12 +1899,12 @@ class AutoRVRS(AutoContinuous):
         self,
         model,
         *,
-        S=4,    # num of samples
-        T=0.0,  # threshold param
+        S=4,    # number of samples
+        T=0.0,
         base_dist="diagonal",
         prefix="auto",
         init_loc_fn=init_to_uniform,
-        init_scale=0.1,
+        init_scale=1.0,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1912,8 +1912,8 @@ class AutoRVRS(AutoContinuous):
             raise ValueError('base_dist must be "diagonal".')
         if init_scale <= 0.0:
             raise ValueError("init_scale must be positive.")
-        if not isinstance(T, float):
-            raise ValueError("T must be a float.")
+        if T is not None and not isinstance(T, float):
+            raise ValueError("T must be None or a float.")
 
         self.S = S
         self.T = T
@@ -1968,7 +1968,7 @@ class AutoRVRS(AutoContinuous):
         # TODO: avoid recomputing logp-logq by using log_as[-1]
         log_weight = jax.vmap(log_density)(zs) - stop_gradient(base_z_dist).log_prob(zs)
 
-        loga = logsumexp(log_as) - jnp.log(num_samples.sum())
+        #loga = logsumexp(log_as) - jnp.log(num_samples.sum())
         #jax.debug.print("loga={loga}", loga=loga)
 
         assert log_weight.shape == (self.S,)
@@ -1984,8 +1984,8 @@ class AutoRVRS(AutoContinuous):
 
         az = a(log_weight)
         Az = A(log_weight)
-        assert az.shape == (self.S,)
-        assert Az.shape == (self.S,)
+        assert az.shape == Az.shape == log_weight.shape == (self.S,)
+
         surrogate = 2 / (self.S - 1) * (stop_gradient(A_bar(Az)) * az).sum() + (stop_gradient(az) * Az).mean()
         numpyro.factor("surrogate_factor", -surrogate)
 
