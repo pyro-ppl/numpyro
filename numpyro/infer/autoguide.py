@@ -1943,7 +1943,8 @@ class AutoRVRS(AutoContinuous):
 
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix),
-            self._init_latent,
+            jnp.array([1.0, -0.3]),
+            # self._init_latent,
         )
 
         if self.base_dist == "diagonal":
@@ -1953,14 +1954,38 @@ class AutoRVRS(AutoContinuous):
                 constraint=constraints.positive,
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
+        else:
+            raise ValueError("Only support 'diagonal' for now.")
 
-        z_0 = numpyro.sample(
-            "{}_z_0".format(self.prefix),
-            base_z_dist,
-            infer={"is_auxiliary": True},
-        )
+        guide_sampler = base_z_dist.sample
+        accept_log_prob_fn = lambda z: jax.nn.log_sigmoid(log_density(z) - base_z_dist.log_prob(z) + self.T)
+        key = numpyro.prng_key()
+        zs, log_as, num_samples = jax.vmap(partial(rejection_sampler, accept_log_prob_fn, guide_sampler))(random.split(key, self.S))
+        assert zs.shape == (self.S, self.latent_dim)
+        # compute surrogate elbo
+        # TODO: avoid recomputing logp-logq by using log_as[-1]
+        log_weight = jax.vmap(log_density)(zs) - jax.lax.stop_gradient(base_z_dist).log_prob(zs)
+        jax.debug.print("logp={logp}", logp=jax.vmap(log_density)(zs))
+        jax.debug.print("logq={logq}", logq=base_z_dist.log_prob(zs))
 
-        return z_0
+        assert log_weight.shape == (self.S,)
+
+        def A(lw):
+            return lw - jax.nn.log_sigmoid(lw + self.T)
+
+        def a(lw):
+            return jax.nn.log_sigmoid(lw + self.T)
+
+        def A_bar(Az):
+            return Az - Az.mean(0)
+
+        az = a(log_weight)
+        Az = A(log_weight)
+        assert az.shape == (self.S,)
+        assert Az.shape == (self.S,)
+        surrogate = 2 / (self.S - 1) * (jax.lax.stop_gradient(A_bar(Az)) * az).sum() + (jax.lax.stop_gradient(az) * Az).mean()
+        numpyro.factor("surrogate_factor", -surrogate)
+        return jax.lax.stop_gradient(zs[0])
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
@@ -1995,9 +2020,71 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob_fn(z)
         log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
+        # jax.debug.print("log_a = {log_a}", log_a=accept_log_prob)
         return key_next, z, log_a, num_samples + 1, is_accepted
 
     init_val = body_fn((key, None, -np.inf, 0, None))
+    # with jax.disable_jit():
     _, z, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    print("FINISH")
 
     return z, log_a, num_samples
+
+
+def _compose(f, g, x):
+    y = f(x)
+    return y, g(y)
+
+
+def rejection_sampler_new(accept_log_prob_fn, guide_sampler, key):
+    sample_and_accept_fn, sample_and_accept_args = jax.closure_convert(
+        partial(_compose, guide_sampler, accept_log_prob_fn), key)
+    sample_fn, sample_args = jax.closure_convert(guide_sampler, key)
+    aux_args = sample_and_accept_args + sample_args
+    return _rs_impl(sample_and_accept_fn, sample_fn, len(sample_and_accept_args), key, *aux_args)[1:]
+
+
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2))
+def _rs_impl(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, key, *aux_args):
+    sample_and_accept_args = aux_args[:num_sample_and_accept_args]
+    # TODO: generate prototype sample
+    # NOTE: we might want more info from the sampler to get an estimate for Z
+
+    def cond_fn(val):
+        return ~val[-1]
+
+    def body_fn(val):
+        key, _, _, log_a, num_samples, _ = val
+        key_next, key_uniform, key_q = random.split(key, 3)
+        z, accept_log_prob = sample_and_accept_fn(key_q, *sample_and_accept_args)
+        log_u = -random.exponential(key_uniform)
+        is_accepted = log_u < accept_log_prob
+        log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
+        jax.debug.print("log_a = {log_a}", log_a=log_a)
+        return key_next, key_q, z, log_a, num_samples + 1, is_accepted
+
+    init_val = body_fn((key, key, None, -np.inf, 0, None))
+
+    with jax.disable_jit():
+        _, key_q, z, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    print("FINISH while loop")
+
+    return key_q, z, log_a, num_samples
+
+
+def _rs_fwd(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, key, *aux_args):
+    key_q, z, log_a, num_samples = _rs_impl(sample_and_accept_fn, sample_fn, num_sample_and_accept_args,
+                                            key, *aux_args)
+    sample_args = aux_args[num_sample_and_accept_args:]
+    return (key_q, z, log_a, num_samples), (key_q, sample_args)
+
+
+def _rs_bwd(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, res, g):
+    key_q, sample_args = res
+    _, z_grad, _, _ = g
+    _, guide_vjp = jax.vjp(sample_fn, key_q, *sample_args)
+    return (None,) * num_sample_and_accept_args + guide_vjp(z_grad)
+
+
+_rs_impl.defvjp(_rs_fwd, _rs_bwd)
+

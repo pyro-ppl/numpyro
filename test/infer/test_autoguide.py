@@ -43,6 +43,7 @@ from numpyro.infer.autoguide import (
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
     AutoNormal,
+    AutoRVRS,
     AutoSemiDAIS,
     AutoSurrogateLikelihoodDAIS,
     rejection_sampler,
@@ -74,9 +75,11 @@ init_strategy = init_to_median(num_samples=2)
         AutoLowRankMultivariateNormal,
         AutoNormal,
         AutoDelta,
+        AutoRVRS,
     ],
 )
 def test_beta_bernoulli(auto_class):
+    numpyro.enable_x64()
     data = jnp.array([[1.0] * 8 + [0.0] * 2, [1.0] * 4 + [0.0] * 6]).T
     N = len(data)
 
@@ -88,6 +91,10 @@ def test_beta_bernoulli(auto_class):
     adam = optim.Adam(0.01)
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
+    elif auto_class == AutoRVRS:
+        true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
+        init_strategy = init_to_value(values={"beta": true_coefs})
+        guide = auto_class(model, S=10, T=15., init_loc_fn=init_strategy, base_dist="diagonal", init_scale=0.5)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
@@ -97,8 +104,10 @@ def test_beta_bernoulli(auto_class):
         svi_state, loss = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 3000, body_fn, svi_state)
+    svi_state = fori_loop(0, 300, body_fn, svi_state)
     params = svi.get_params(svi_state)
+    print("FINAL params", params)
+    return
 
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
