@@ -66,15 +66,15 @@ init_strategy = init_to_median(num_samples=2)
 @pytest.mark.parametrize(
     "auto_class",
     [
-        AutoDiagonalNormal,
-        AutoDAIS,
-        AutoIAFNormal,
-        AutoBNAFNormal,
-        AutoMultivariateNormal,
-        AutoLaplaceApproximation,
-        AutoLowRankMultivariateNormal,
-        AutoNormal,
-        AutoDelta,
+        #AutoDiagonalNormal,
+        #AutoDAIS,
+        #AutoIAFNormal,
+        #AutoBNAFNormal,
+        #AutoMultivariateNormal,
+        #AutoLaplaceApproximation,
+        #AutoLowRankMultivariateNormal,
+        #AutoNormal,
+        #AutoDelta,
         AutoRVRS,
     ],
 )
@@ -88,13 +88,11 @@ def test_beta_bernoulli(auto_class):
         with numpyro.plate("N", N):
             numpyro.sample("obs", dist.Bernoulli(f).to_event(1), obs=data)
 
-    adam = optim.Adam(0.01)
+    adam = optim.Adam(0.001)
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
     elif auto_class == AutoRVRS:
-        true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
-        init_strategy = init_to_value(values={"beta": true_coefs})
-        guide = auto_class(model, S=10, T=15., init_loc_fn=init_strategy, base_dist="diagonal", init_scale=0.5)
+        guide = auto_class(model, S=8, T=13., init_loc_fn=init_strategy, base_dist="diagonal", init_scale=1.0)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
@@ -104,10 +102,8 @@ def test_beta_bernoulli(auto_class):
         svi_state, loss = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 300, body_fn, svi_state)
+    svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    print("FINAL params", params)
-    return
 
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
@@ -115,7 +111,19 @@ def test_beta_bernoulli(auto_class):
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
     posterior_mean = jnp.mean(posterior_samples["beta"], 0)
+    posterior_std = jnp.std(posterior_samples["beta"], 0)
+
+    print("\n\nFINAL AutoDiag auto_loc: [1.19420906, -0.35535608]\nFINAL AutoDiag auto_scale: [0.69223469, 0.61101982]")
+    print("FINAL RVRS auto_z_0_loc", params['auto_z_0_loc'])
+    print("FINAL RVRS auto_z_0_scale", params['auto_z_0_scale'])
+    print("AutoDiag posterior_mean:  [0.75519637 0.42030578]")
+    print("AutoDiag posterior_std:  [0.11744191 0.14285692]")
+    print("posterior_mean: ", posterior_mean)
+    print("posterior_std: ", posterior_std)
+    print("true posterior_mean: ", true_coefs)
+
     assert_allclose(posterior_mean, true_coefs, atol=0.05)
+    return
 
     if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
         quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])

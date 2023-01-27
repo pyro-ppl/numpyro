@@ -12,6 +12,7 @@ import numpy as np
 import jax
 from jax import grad, hessian, lax, random
 from jax.tree_util import tree_map
+from jax.lax import stop_gradient
 
 from numpyro.util import _versiontuple, find_stack_level
 
@@ -22,6 +23,7 @@ else:
 
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+from jax.nn import log_sigmoid, sigmoid
 
 import numpyro
 from numpyro import handlers
@@ -1943,8 +1945,7 @@ class AutoRVRS(AutoContinuous):
 
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix),
-            jnp.array([1.0, -0.3]),
-            # self._init_latent,
+            self._init_latent,
         )
 
         if self.base_dist == "diagonal":
@@ -1958,23 +1959,25 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("Only support 'diagonal' for now.")
 
         guide_sampler = base_z_dist.sample
-        accept_log_prob_fn = lambda z: jax.nn.log_sigmoid(log_density(z) - base_z_dist.log_prob(z) + self.T)
+        accept_log_prob_fn = lambda z: log_sigmoid(log_density(z) - base_z_dist.log_prob(z) + self.T)
         key = numpyro.prng_key()
         zs, log_as, num_samples = jax.vmap(partial(rejection_sampler, accept_log_prob_fn, guide_sampler))(random.split(key, self.S))
         assert zs.shape == (self.S, self.latent_dim)
+
         # compute surrogate elbo
         # TODO: avoid recomputing logp-logq by using log_as[-1]
-        log_weight = jax.vmap(log_density)(zs) - jax.lax.stop_gradient(base_z_dist).log_prob(zs)
-        jax.debug.print("logp={logp}", logp=jax.vmap(log_density)(zs))
-        jax.debug.print("logq={logq}", logq=base_z_dist.log_prob(zs))
+        log_weight = jax.vmap(log_density)(zs) - stop_gradient(base_z_dist).log_prob(zs)
+
+        loga = logsumexp(log_as) - jnp.log(num_samples.sum())
+        #jax.debug.print("loga={loga}", loga=loga)
 
         assert log_weight.shape == (self.S,)
 
         def A(lw):
-            return lw - jax.nn.log_sigmoid(lw + self.T)
+            return lw - log_sigmoid(lw + self.T)
 
         def a(lw):
-            return jax.nn.log_sigmoid(lw + self.T)
+            return sigmoid(lw + self.T)
 
         def A_bar(Az):
             return Az - Az.mean(0)
@@ -1983,9 +1986,10 @@ class AutoRVRS(AutoContinuous):
         Az = A(log_weight)
         assert az.shape == (self.S,)
         assert Az.shape == (self.S,)
-        surrogate = 2 / (self.S - 1) * (jax.lax.stop_gradient(A_bar(Az)) * az).sum() + (jax.lax.stop_gradient(az) * Az).mean()
+        surrogate = 2 / (self.S - 1) * (stop_gradient(A_bar(Az)) * az).sum() + (stop_gradient(az) * Az).mean()
         numpyro.factor("surrogate_factor", -surrogate)
-        return jax.lax.stop_gradient(zs[0])
+
+        return stop_gradient(zs[0])
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
@@ -2020,13 +2024,10 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob_fn(z)
         log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
-        # jax.debug.print("log_a = {log_a}", log_a=accept_log_prob)
         return key_next, z, log_a, num_samples + 1, is_accepted
 
     init_val = body_fn((key, None, -np.inf, 0, None))
-    # with jax.disable_jit():
     _, z, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
-    print("FINISH")
 
     return z, log_a, num_samples
 
