@@ -747,40 +747,39 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
     }
     for is_model, tr in zip((False, True), (guide_trace, model_trace)):
         for name, site in tr.items():
-            if site["type"] == "sample":
-                if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
-                    site["is_measure"] = False
-                if "log_prob" not in site:
-                    value = site["value"]
-                    intermediates = site["intermediates"]
-                    if intermediates:
-                        log_prob = site["fn"].log_prob(value, intermediates)
-                    else:
-                        log_prob = site["fn"].log_prob(value)
+            if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
+                site["is_measure"] = False
+            if "log_prob" not in site:
+                value = site["value"]
+                intermediates = site["intermediates"]
+                if intermediates:
+                    log_prob = site["fn"].log_prob(value, intermediates)
+                else:
+                    log_prob = site["fn"].log_prob(value)
 
-                    dim_to_name = site["infer"]["dim_to_name"]
-                    site["log_prob"] = to_funsor(
-                        log_prob, output=funsor.Real, dim_to_name=dim_to_name
+                dim_to_name = site["infer"]["dim_to_name"]
+                site["log_prob"] = to_funsor(
+                    log_prob, output=funsor.Real, dim_to_name=dim_to_name
+                )
+                if site.get("is_measure", True):
+                    # get rid off masking
+                    base_fn = site["fn"]
+                    batch_shape = base_fn.batch_shape
+                    while isinstance(
+                        base_fn, (MaskedDistribution, ExpandedDistribution)
+                    ):
+                        base_fn = base_fn.base_dist
+                    base_fn = base_fn.expand(batch_shape)
+                    if intermediates:
+                        log_measure = base_fn.log_prob(value, intermediates)
+                    else:
+                        log_measure = base_fn.log_prob(value)
+                    # dice factor
+                    if not site["infer"].get("enumerate") == "parallel":
+                        log_measure = log_measure - funsor.ops.detach(log_measure)
+                    site["log_measure"] = to_funsor(
+                        log_measure, output=funsor.Real, dim_to_name=dim_to_name
                     )
-                    if site.get("is_measure", True):
-                        # get rid off masking
-                        base_fn = site["fn"]
-                        batch_shape = base_fn.batch_shape
-                        while isinstance(
-                            base_fn, (MaskedDistribution, ExpandedDistribution)
-                        ):
-                            base_fn = base_fn.base_dist
-                        base_fn = base_fn.expand(batch_shape)
-                        if intermediates:
-                            log_measure = base_fn.log_prob(value, intermediates)
-                        else:
-                            log_measure = base_fn.log_prob(value)
-                        # dice factor
-                        if not site["infer"].get("enumerate") == "parallel":
-                            log_measure = log_measure - funsor.ops.detach(log_measure)
-                        site["log_measure"] = to_funsor(
-                            log_measure, output=funsor.Real, dim_to_name=dim_to_name
-                        )
     return model_trace, guide_trace
 
 
