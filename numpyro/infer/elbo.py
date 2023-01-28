@@ -739,8 +739,12 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
             guide_trace = _trace(guide).get_trace(*args, **kwargs)
         model = substitute(replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
-    guide_trace = {name: site for name, site in guide_trace.items()}
-    model_trace = {name: site for name, site in model_trace.items()}
+    guide_trace = {
+        name: site for name, site in guide_trace.items() if site["type"] == "sample"
+    }
+    model_trace = {
+        name: site for name, site in model_trace.items() if site["type"] == "sample"
+    }
     for is_model, tr in zip((False, True), (guide_trace, model_trace)):
         for name, site in tr.items():
             if site["type"] == "sample":
@@ -850,10 +854,10 @@ class TraceEnum_ELBO(ELBO):
             from numpyro.contrib.funsor import to_data, to_funsor
 
             model_seed, guide_seed = random.split(rng_key)
-            seeded_model = seed(model, model_seed)
-            seeded_guide = seed(guide, guide_seed)
 
             if self.max_plate_nesting == float("inf"):
+                seeded_model = seed(model, model_seed)
+                seeded_guide = seed(guide, guide_seed)
                 model_shapes, guide_shapes = eval_shape(
                     partial(
                         get_importance_log_probs,
@@ -900,15 +904,11 @@ class TraceEnum_ELBO(ELBO):
                 )
             )
 
-            model_vars = frozenset(
-                [name for name, site in model_trace.items() if site["type"] == "sample"]
-            )
             sum_vars = frozenset(
                 [
                     name
                     for name, site in model_trace.items()
                     if site.get("is_measure", True)
-                    if site["type"] == "sample" and site.get("is_measure", True)
                 ]
             )
             model_sum_deps = {
@@ -939,7 +939,7 @@ class TraceEnum_ELBO(ELBO):
                     group_factor_vars = frozenset().union(
                         *[f.inputs for f in group_factors]
                     )
-                    group_plates = group_factor_vars - model_vars
+                    group_plates = group_factor_vars - frozenset(model_trace.keys())
                     outermost_plates = frozenset.intersection(
                         *(frozenset(f.inputs) & group_plates for f in group_factors)
                     )
