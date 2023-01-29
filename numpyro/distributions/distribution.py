@@ -156,12 +156,14 @@ class Distribution(metaclass=DistributionMeta):
             raise ValueError
         Distribution._validate_args = value
 
-    def __init__(self, batch_shape=(), event_shape=(), *, validate_args=None):
+    def __init__(
+        self, batch_shape=(), event_shape=(), *, validate_args=None, in_vmap=False
+    ):
         self._batch_shape = batch_shape
         self._event_shape = event_shape
         if validate_args is not None:
             self._validate_args = validate_args
-        if self._validate_args:
+        if self._validate_args and not in_vmap:
             for param, constraint in self.arg_constraints.items():
                 if param not in self.__dict__ and isinstance(
                     getattr(type(self), param), lazy_property

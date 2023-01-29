@@ -1997,11 +1997,19 @@ class Normal(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
-        self.loc, self.scale = promote_shapes(loc, scale)
-        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+    def __init__(
+        self, loc=0.0, scale=1.0, *, validate_args=None, in_vmap=False, batch_shape=None
+    ):
+        if not in_vmap:
+            self.loc, self.scale = promote_shapes(loc, scale)
+            assert batch_shape is None, batch_shape
+            batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        else:
+            self.loc = loc
+            self.scale = scale
+            assert isinstance(batch_shape, tuple)
         super(Normal, self).__init__(
-            batch_shape=batch_shape, validate_args=validate_args
+            batch_shape=batch_shape, validate_args=validate_args, in_vmap=in_vmap
         )
 
     def sample(self, key, sample_shape=()):
@@ -2031,6 +2039,21 @@ class Normal(Distribution):
     @property
     def variance(self):
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape,),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape = aux_data[0]
+        return cls(
+            **dict(zip(cls.arg_constraints.keys(), params)),
+            batch_shape=batch_shape,
+            in_vmap=True,
+        )
 
 
 class Pareto(TransformedDistribution):

@@ -7,6 +7,7 @@ import inspect
 from itertools import product
 import math
 import os
+import copy
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -2648,8 +2649,8 @@ def test_expand_pytree():
     def g(x):
         return dist.Normal(x, 1).expand([10, 3])
 
-    assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
-    assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
+    assert lax.map(g, jnp.ones((5, 3))).batch_shape == (10, 3)
+    assert tree_map(lambda x: x[None], g(0)).batch_shape == (10, 3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
@@ -2740,3 +2741,94 @@ def test_vmapped_binomial_p0():
         return dist.Binomial(total_count=n, probs=0).sample(key)
 
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
+
+
+def test_vmap_normal_dist():
+    def make_normal_dist(mean, std) -> dist.Normal:
+        d = dist.Normal(mean, std)
+        return d
+
+    def sample(d: dist.Distribution):
+        return d.sample(random.PRNGKey(0))
+
+    loc = jnp.ones((2,))
+    scale = jnp.ones((2,))
+
+    d = make_normal_dist(loc, scale)
+
+    locs = jnp.ones((3, 2))
+    scales = jnp.ones((3, 2))
+
+    assert loc.shape == d.loc.shape
+    assert scale.shape == d.scale.shape
+
+    print("vmapping normal dist creation over both args")
+    batched_d = jax.vmap(make_normal_dist, in_axes=(0, 0))(locs, scales)
+
+    # out_axes=0 by default, both `batched_d.loc` and `batched_d.scale` should
+    # have an additional dimension corresponding to the `vmap`-ing dimension
+    assert locs.shape == batched_d.loc.shape
+    assert scales.shape == batched_d.scale.shape
+
+    # `batch_shape/event_shape` are determinstically set to the value
+    # of the non-`vmap`ed `Distribution` respective attributes values.
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    # Operations such as sampling should be wrapped inside `vmap` call
+    # where the `in_axes` part of the tree_prefix corresponding to the
+    # `Distribution` argument should match the `out_axes` part of the
+    # tree prefix associated to the `vmap`-ed function that produced the
+    # `vmap`-ed `Distribution`.
+    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
+    assert samples_batched_dist.shape == (3, 2)
+
+    print("vmapping normal dist creation over first arg")
+    batched_d = jax.vmap(make_normal_dist, in_axes=(0, None))(locs, scale)
+
+    # `out_axes=0` by default, both `batched_d.loc` and `batched_d.scale` should
+    # have an additional dimension corresponding to the mapping dimension
+    assert locs.shape == batched_d.loc.shape
+    assert scales.shape == batched_d.scale.shape
+
+    # ditto
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
+    assert samples_batched_dist.shape == (3, 2)
+
+    print("vmapping normal dist creation over second arg")
+    batched_d = jax.vmap(make_normal_dist, in_axes=(None, 0))(loc, scales)
+
+    assert locs.shape == batched_d.loc.shape
+    assert scales.shape == batched_d.scale.shape
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
+    assert samples_batched_dist.shape == (3, 2)
+
+    print("vmapping normal dist creation over first arg and out first arg")
+    # create a custom tree_prefix correspoding to `vmap`-ed `Distribution` where
+    # only a fraction of the `Distribution`s attributes are `vmap`-ed.
+    dist_axes = copy.deepcopy(d)
+    dist_axes.loc = 0
+    dist_axes.scale = None
+
+    batched_d = jax.vmap(make_normal_dist, in_axes=(0, None), out_axes=dist_axes)(
+        locs, scale
+    )
+
+    assert locs.shape == batched_d.loc.shape
+
+    # the `vmap`-ed `Distribution`'s scale is not `vmap`-ed: its `batched_d.scale`
+    # should not contain an additional dimension!
+    assert scale.shape == batched_d.scale.shape
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    samples_batched_dist = jax.vmap(sample, in_axes=(dist_axes,))(batched_d)
+    assert samples_batched_dist.shape == (3, 2)
