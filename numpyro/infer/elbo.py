@@ -6,7 +6,7 @@ from functools import partial, reduce
 from operator import itemgetter
 import warnings
 
-from jax import random, vmap
+from jax import eval_shape, random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
@@ -844,10 +844,6 @@ class TraceEnum_ELBO(ELBO):
     can_infer_discrete = True
 
     def __init__(self, num_particles=1, max_plate_nesting=float("inf")):
-        if max_plate_nesting == float("inf"):
-            raise ValueError(
-                "Currently, we require `max_plate_nesting` to be a non-positive integer."
-            )
         self.max_plate_nesting = max_plate_nesting
         super().__init__(num_particles=num_particles)
 
@@ -857,6 +853,27 @@ class TraceEnum_ELBO(ELBO):
             from numpyro.contrib.funsor import to_data, to_funsor
 
             model_seed, guide_seed = random.split(rng_key)
+
+            if self.max_plate_nesting == float("inf"):
+                seeded_model = seed(model, model_seed)
+                seeded_guide = seed(guide, guide_seed)
+                model_shapes, guide_shapes = eval_shape(
+                    partial(
+                        get_importance_log_probs,
+                        seeded_model,
+                        seeded_guide,
+                        args,
+                        kwargs,
+                        param_map,
+                    )
+                )
+                ndims = [
+                    len(site.shape)
+                    for sites in (model_shapes, guide_shapes)
+                    for site in sites.values()
+                ]
+                self.max_plate_nesting = max(ndims) if ndims else 0
+
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
 
