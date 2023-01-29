@@ -1901,6 +1901,7 @@ class AutoRVRS(AutoContinuous):
         *,
         S=4,    # number of samples
         T=0.0,
+        epsilon=0.1,
         base_dist="diagonal",
         prefix="auto",
         init_loc_fn=init_to_uniform,
@@ -1917,6 +1918,8 @@ class AutoRVRS(AutoContinuous):
 
         self.S = S
         self.T = T
+        self.epsilon = epsilon
+        self.lambd = epsilon / (1 - epsilon)
         self.base_dist = base_dist
         self._init_scale = init_scale
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
@@ -1959,7 +1962,12 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("Only support 'diagonal' for now.")
 
         guide_sampler = base_z_dist.sample
-        accept_log_prob_fn = lambda z: log_sigmoid(log_density(z) - base_z_dist.log_prob(z) + self.T)
+
+        def accept_log_prob_fn(z):
+            neg_ell = log_density(z) - base_z_dist.log_prob(z) + self.T
+            a = sigmoid(neg_ell)
+            return jnp.log(self.epsilon + a)
+
         key = numpyro.prng_key()
         zs, log_as, num_samples = jax.vmap(partial(rejection_sampler, accept_log_prob_fn, guide_sampler))(random.split(key, self.S))
         assert zs.shape == (self.S, self.latent_dim)
@@ -1971,22 +1979,15 @@ class AutoRVRS(AutoContinuous):
         #loga = logsumexp(log_as) - jnp.log(num_samples.sum())
         #jax.debug.print("loga={loga}", loga=loga)
 
-        assert log_weight.shape == (self.S,)
-
-        def A(lw):
-            return lw - log_sigmoid(lw + self.T)
-
-        def a(lw):
-            return sigmoid(lw + self.T)
-
-        def A_bar(Az):
-            return Az - Az.mean(0)
-
-        az = a(log_weight)
-        Az = A(log_weight)
+        az = sigmoid(log_weight + self.T)
+        log_a_eps_z = jnp.log(self.epsilon + az)
+        Az = log_weight - log_sigmoid(log_weight + self.T)
+        A_bar = stop_gradient(Az - Az.mean(0))
         assert az.shape == Az.shape == log_weight.shape == (self.S,)
 
-        surrogate = 2 / (self.S - 1) * (stop_gradient(A_bar(Az)) * az).sum() + (stop_gradient(az) * Az).mean()
+        ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
+        ratio_bar = stop_gradient(ratio)
+        surrogate = 1 / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).mean()
         numpyro.factor("surrogate_factor", -surrogate)
 
         return stop_gradient(zs[0])

@@ -47,7 +47,6 @@ from numpyro.infer.autoguide import (
     AutoSemiDAIS,
     AutoSurrogateLikelihoodDAIS,
     rejection_sampler,
-    rejection_sampler_new,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -93,7 +92,8 @@ def test_beta_bernoulli(auto_class):
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
     elif auto_class == AutoRVRS:
-        guide = auto_class(model, S=8, T=13., init_loc_fn=init_strategy, base_dist="diagonal", init_scale=1.0)
+        guide = auto_class(model, S=8, T=13., epsilon=0.1,
+                           init_loc_fn=init_strategy, base_dist="diagonal", init_scale=1.0)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
@@ -124,7 +124,7 @@ def test_beta_bernoulli(auto_class):
         print("posterior_std: ", posterior_std)
         print("true posterior_mean: ", true_coefs)
 
-    assert_allclose(posterior_mean, true_coefs, atol=0.05)
+    assert_allclose(posterior_mean, true_coefs, atol=0.03)
 
     if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal, AutoRVRS]:
         quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
@@ -161,7 +161,7 @@ def test_logistic_regression(auto_class, Elbo):
     if auto_class == AutoRVRS and Elbo == TraceMeanField_ELBO:
         return
 
-    N, dim = 180, 3
+    N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
@@ -178,7 +178,8 @@ def test_logistic_regression(auto_class, Elbo):
     if auto_class != AutoRVRS:
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
-        guide = auto_class(model, S=4, T=68.0, init_scale=2.0, init_loc_fn=init_strategy)
+        init_loc_fn = init_to_median(num_samples=20)
+        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
@@ -194,7 +195,7 @@ def test_logistic_regression(auto_class, Elbo):
         svi_state, loss = svi.update(val, data, labels)
         return svi_state
 
-    svi_state = fori_loop(0, 5000, body_fn, svi_state)
+    svi_state = fori_loop(0, 9000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS):
         median = guide.median(params)
@@ -207,9 +208,10 @@ def test_logistic_regression(auto_class, Elbo):
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
-    #expected_coefs = jnp.array([0.97, 2.05, 3.18])
-    #assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
-    assert_allclose(jnp.mean(posterior_samples["coefs"], 0), true_coefs, atol=0.8)
+    expected_coefs = jnp.array([0.97, 2.05, 3.18])
+    print("\nRVRS posterior: ", jnp.mean(posterior_samples["coefs"], 0))
+    print("Expected posterior: ", expected_coefs)
+    assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
 
 
 def test_iaf():
@@ -1013,37 +1015,6 @@ def test_rejection_sampler_grad(T=-2.5, num_mc_samples=10):
     params_raw = {"loc": 0.2, "log_scale": jnp.log(1.2)}
     keys = random.split(random.PRNGKey(0), num_mc_samples)
     actual_grad, z = jax.vmap(jax.jacfwd(get_z, has_aux=True), (None, 0))(
-        params_raw, keys)
-    eps = (z - params_raw["loc"]) / jnp.exp(params_raw["log_scale"])
-    expected_grad = jax.vmap(jax.grad(sample_z), (None, 0))(params_raw, eps)
-    assert_allclose(actual_grad["loc"], expected_grad["loc"], atol=1e-7)
-    assert_allclose(actual_grad["log_scale"], expected_grad["log_scale"], atol=1e-7)
-
-
-def test_rejection_sampler_new_grad(T=-2.5, num_mc_samples=10):
-    p = dist.Normal(0, 1)
-
-    def accept_log_prob_fn(params, z):
-        q = dist.Normal(**params)
-        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T)
-
-    def guide_sampler(params, key):
-        q = dist.Normal(**params)
-        return q.sample(key)
-
-    def get_z(params_raw, key):
-        params = {"loc": params_raw["loc"], "scale": jnp.exp(params_raw["log_scale"])}
-        z, *_ = rejection_sampler_new(partial(accept_log_prob_fn, params),
-                                      partial(guide_sampler, params),
-                                      key)
-        return z, z
-
-    def sample_z(params_raw, eps):
-        return params_raw["loc"] + jnp.exp(params_raw["log_scale"]) * eps
-
-    params_raw = {"loc": 0.2, "log_scale": jnp.log(1.2)}
-    keys = random.split(random.PRNGKey(0), num_mc_samples)
-    actual_grad, z = jax.vmap(jax.jacrev(get_z, has_aux=True), (None, 0))(
         params_raw, keys)
     eps = (z - params_raw["loc"]) / jnp.exp(params_raw["log_scale"])
     expected_grad = jax.vmap(jax.grad(sample_z), (None, 0))(params_raw, eps)
