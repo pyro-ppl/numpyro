@@ -2083,8 +2083,8 @@ def _rs_fwd(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, key, *a
 def _rs_bwd(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, res, g):
     key_q, sample_args = res
     _, z_grad, _, _ = g
-    _, guide_vjp = jax.vjp(sample_fn, key_q, *sample_args)
-    return (None,) * num_sample_and_accept_args + guide_vjp(z_grad)
+    _, guide_vjp = jax.vjp(partial(sample_fn, key_q), *sample_args)
+    return (None,) * (num_sample_and_accept_args + 1) + guide_vjp(z_grad)
 
 
 _rs_impl.defvjp(_rs_fwd, _rs_bwd)
