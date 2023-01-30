@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+import copy
 from functools import partial
 import inspect
 from itertools import product
 import math
 import os
-import copy
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
