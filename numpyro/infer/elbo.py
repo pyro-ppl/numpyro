@@ -849,8 +849,14 @@ class TraceEnum_ELBO(ELBO):
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         def single_particle_elbo(rng_key):
+            from opt_einsum import shared_intermediates
+
             import funsor
+            from funsor.cnf import _eager_contract_tensors
             from numpyro.contrib.funsor import to_data, to_funsor
+
+            logsumexp_backend = "funsor.einsum.numpy_log"
+            cache = dict()
 
             model_seed, guide_seed = random.split(rng_key)
 
@@ -996,7 +1002,18 @@ class TraceEnum_ELBO(ELBO):
                     ]
 
                 if dice_factors:
-                    dice_factor = reduce(lambda a, b: a + b, dice_factors)
+                    reduced_vars = (
+                        frozenset().union(*[f.input_vars for f in dice_factors])
+                        - cost.input_vars
+                    )
+                    if reduced_vars:
+                        # use opt_einsum to reduce vars not present in the cost term
+                        with shared_intermediates(cache):
+                            dice_factor = _eager_contract_tensors(
+                                reduced_vars, dice_factors, backend=logsumexp_backend
+                            )
+                    else:
+                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
                     cost = cost * funsor.ops.exp(dice_factor)
                 if (scale is not None) and (not is_identically_one(scale)):
                     cost = cost * to_funsor(scale)
@@ -1009,7 +1026,18 @@ class TraceEnum_ELBO(ELBO):
                 scale = guide_trace[name]["scale"]
                 dice_factors = [guide_trace[key]["log_measure"] for key in deps]
                 if dice_factors:
-                    dice_factor = reduce(lambda a, b: a + b, dice_factors)
+                    reduced_vars = (
+                        frozenset().union(*[f.input_vars for f in dice_factors])
+                        - cost.input_vars
+                    )
+                    if reduced_vars:
+                        # use opt_einsum to reduce vars not present in the cost term
+                        with shared_intermediates(cache):
+                            dice_factor = _eager_contract_tensors(
+                                reduced_vars, dice_factors, backend=logsumexp_backend
+                            )
+                    else:
+                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
                     cost = cost * funsor.ops.exp(dice_factor)
                 if (scale is not None) and (not is_identically_one(scale)):
                     cost = cost * to_funsor(scale)
