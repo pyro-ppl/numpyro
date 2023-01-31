@@ -856,7 +856,8 @@ class TraceEnum_ELBO(ELBO):
             from numpyro.contrib.funsor import to_data, to_funsor
 
             logsumexp_backend = "funsor.einsum.numpy_log"
-            cache = dict()
+            with shared_intermediates() as cache:  # create a cache
+                pass
 
             model_seed, guide_seed = random.split(rng_key)
 
