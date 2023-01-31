@@ -1488,10 +1488,10 @@ class MultivariateNormal(Distribution):
     def infer_post_vmap_shapes(self, vmap_axes):
         """
         Transform a `vmap`-ed `MultivariateNormal` mapped according to
-        :param:`vmap_axes` into a batched `MultivariateNormal`.
+        `vmap_axes` into a batched `MultivariateNormal`.
 
 
-        .. note:: The vmapped axis turned into a batch axis is placed
+        Note: The vmapped axis turned into a batch axis is placed
         at the leftmost position of the batch shape.
         """
         # TODO: take into account the case of muliple vmap transformations
