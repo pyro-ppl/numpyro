@@ -661,19 +661,8 @@ class TraceGraph_ELBO(ELBO):
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
-            # Find dependencies on non-reparameterizable sample sites for
-            # each cost term in the model and the guide.
-            model_deps, guide_deps = get_provenance(
-                eval_provenance(
-                    partial(
-                        track_nonreparam(get_importance_log_probs),
-                        seeded_model,
-                        seeded_guide,
-                        args,
-                        kwargs,
-                        param_map,
-                    )
-                )
+            model_deps, guide_deps = get_nonreparam_deps(
+                seeded_model, seeded_guide, args, kwargs, param_map
             )
 
             elbo = 0.0
@@ -739,47 +728,42 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
             guide_trace = _trace(guide).get_trace(*args, **kwargs)
         model = substitute(replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
-    guide_trace = {
-        name: site for name, site in guide_trace.items() if site["type"] == "sample"
-    }
-    model_trace = {
-        name: site for name, site in model_trace.items() if site["type"] == "sample"
-    }
     for is_model, tr in zip((False, True), (guide_trace, model_trace)):
         for name, site in tr.items():
-            if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
-                site["is_measure"] = False
-            if "log_prob" not in site:
-                value = site["value"]
-                intermediates = site["intermediates"]
-                if intermediates:
-                    log_prob = site["fn"].log_prob(value, intermediates)
-                else:
-                    log_prob = site["fn"].log_prob(value)
-
-                dim_to_name = site["infer"]["dim_to_name"]
-                site["log_prob"] = to_funsor(
-                    log_prob, output=funsor.Real, dim_to_name=dim_to_name
-                )
-                if site.get("is_measure", True):
-                    # get rid off masking
-                    base_fn = site["fn"]
-                    batch_shape = base_fn.batch_shape
-                    while isinstance(
-                        base_fn, (MaskedDistribution, ExpandedDistribution)
-                    ):
-                        base_fn = base_fn.base_dist
-                    base_fn = base_fn.expand(batch_shape)
+            if site["type"] == "sample":
+                if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
+                    site["is_measure"] = False
+                if "log_prob" not in site:
+                    value = site["value"]
+                    intermediates = site["intermediates"]
                     if intermediates:
-                        log_measure = base_fn.log_prob(value, intermediates)
+                        log_prob = site["fn"].log_prob(value, intermediates)
                     else:
-                        log_measure = base_fn.log_prob(value)
-                    # dice factor
-                    if not site["infer"].get("enumerate") == "parallel":
-                        log_measure = log_measure - funsor.ops.detach(log_measure)
-                    site["log_measure"] = to_funsor(
-                        log_measure, output=funsor.Real, dim_to_name=dim_to_name
+                        log_prob = site["fn"].log_prob(value)
+
+                    dim_to_name = site["infer"]["dim_to_name"]
+                    site["log_prob"] = to_funsor(
+                        log_prob, output=funsor.Real, dim_to_name=dim_to_name
                     )
+                    if site.get("is_measure", True):
+                        # get rid off masking
+                        base_fn = site["fn"]
+                        batch_shape = base_fn.batch_shape
+                        while isinstance(
+                            base_fn, (MaskedDistribution, ExpandedDistribution)
+                        ):
+                            base_fn = base_fn.base_dist
+                        base_fn = base_fn.expand(batch_shape)
+                        if intermediates:
+                            log_measure = base_fn.log_prob(value, intermediates)
+                        else:
+                            log_measure = base_fn.log_prob(value)
+                        # dice factor
+                        if not site["infer"].get("enumerate") == "parallel":
+                            log_measure = log_measure - funsor.ops.detach(log_measure)
+                        site["log_measure"] = to_funsor(
+                            log_measure, output=funsor.Real, dim_to_name=dim_to_name
+                        )
     return model_trace, guide_trace
 
 
@@ -813,6 +797,44 @@ def _partition(model_sum_deps, sum_vars):
             component_measures = frozenset(v for v in component if v in sum_vars)
             components.append((component_factors, component_measures))
     return components
+
+
+def get_nonreparam_deps(model, guide, args, kwargs, param_map):
+    """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
+    model_deps, guide_deps = get_provenance(
+        eval_provenance(
+            partial(
+                track_nonreparam(get_importance_log_probs),
+                model,
+                guide,
+                args,
+                kwargs,
+                param_map,
+            )
+        )
+    )
+    return model_deps, guide_deps
+
+
+def guess_max_plate_nesting(model, guide, args, kwargs, param_map):
+    """Guess maximum plate nesting by performing jax shape inference."""
+    model_shapes, guide_shapes = eval_shape(
+        partial(
+            get_importance_log_probs,
+            model,
+            guide,
+            args,
+            kwargs,
+            param_map,
+        )
+    )
+    ndims = [
+        len(site.shape)
+        for sites in (model_shapes, guide_shapes)
+        for site in sites.values()
+    ]
+    max_plate_nesting = max(ndims) if ndims else 0
+    return max_plate_nesting
 
 
 class TraceEnum_ELBO(ELBO):
@@ -864,22 +886,9 @@ class TraceEnum_ELBO(ELBO):
             if self.max_plate_nesting == float("inf"):
                 seeded_model = seed(model, model_seed)
                 seeded_guide = seed(guide, guide_seed)
-                model_shapes, guide_shapes = eval_shape(
-                    partial(
-                        get_importance_log_probs,
-                        seeded_model,
-                        seeded_guide,
-                        args,
-                        kwargs,
-                        param_map,
-                    )
+                self.max_plate_nesting = guess_max_plate_nesting(
+                    seeded_model, seeded_guide, args, kwargs, param_map
                 )
-                ndims = [
-                    len(site.shape)
-                    for sites in (model_shapes, guide_shapes)
-                    for site in sites.values()
-                ]
-                self.max_plate_nesting = max(ndims) if ndims else 0
 
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
@@ -895,27 +904,19 @@ class TraceEnum_ELBO(ELBO):
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
-            # Find dependencies on non-reparameterizable sample sites for
-            # each cost term in the model and the guide.
-            model_deps, guide_deps = get_provenance(
-                eval_provenance(
-                    partial(
-                        track_nonreparam(get_importance_log_probs),
-                        seeded_model,
-                        seeded_guide,
-                        args,
-                        kwargs,
-                        param_map,
-                    )
-                )
+            model_deps, guide_deps = get_nonreparam_deps(
+                seeded_model, seeded_guide, args, kwargs, param_map
             )
 
             sum_vars = frozenset(
                 [
                     name
                     for name, site in model_trace.items()
-                    if site.get("is_measure", True)
+                    if site["type"] == "sample" and site.get("is_measure", True)
                 ]
+            )
+            model_vars = frozenset(
+                [name for name, site in model_trace.items() if site["type"] == "sample"]
             )
             model_sum_deps = {
                 k: v & sum_vars for k, v in model_deps.items() if k not in sum_vars
@@ -946,7 +947,7 @@ class TraceEnum_ELBO(ELBO):
                     group_factor_vars = frozenset().union(
                         *[f.inputs for f in group_factors]
                     )
-                    group_plates = group_factor_vars - frozenset(model_trace.keys())
+                    group_plates = group_factor_vars - model_vars
                     outermost_plates = frozenset.intersection(
                         *(frozenset(f.inputs) & group_plates for f in group_factors)
                     )
