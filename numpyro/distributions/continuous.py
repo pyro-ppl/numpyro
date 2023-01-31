@@ -1403,29 +1403,40 @@ class MultivariateNormal(Distribution):
         precision_matrix=None,
         scale_tril=None,
         validate_args=None,
+        batch_shape=None,
+        event_shape=None,
+        in_vmap=False,
     ):
-        if jnp.ndim(loc) == 0:
-            (loc,) = promote_shapes(loc, shape=(1,))
-        # temporary append a new axis to loc
-        loc = loc[..., jnp.newaxis]
-        if covariance_matrix is not None:
-            loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
-            self.scale_tril = jnp.linalg.cholesky(self.covariance_matrix)
-        elif precision_matrix is not None:
-            loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
-            self.scale_tril = cholesky_of_inverse(self.precision_matrix)
-        elif scale_tril is not None:
-            loc, self.scale_tril = promote_shapes(loc, scale_tril)
-        else:
-            raise ValueError(
-                "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
-                " must be specified."
+        if not in_vmap:
+            if jnp.ndim(loc) == 0:
+                (loc,) = promote_shapes(loc, shape=(1,))
+            # temporary append a new axis to loc
+            loc = loc[..., jnp.newaxis]
+            if covariance_matrix is not None:
+                loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
+                self.scale_tril = jnp.linalg.cholesky(self.covariance_matrix)
+            elif precision_matrix is not None:
+                loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
+                self.scale_tril = cholesky_of_inverse(self.precision_matrix)
+            elif scale_tril is not None:
+                loc, self.scale_tril = promote_shapes(loc, scale_tril)
+            else:
+                raise ValueError(
+                    "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
+                    " must be specified."
+                )
+            batch_shape = lax.broadcast_shapes(
+                jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
             )
-        batch_shape = lax.broadcast_shapes(
-            jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
-        )
-        event_shape = jnp.shape(self.scale_tril)[-1:]
-        self.loc = loc[..., 0]
+            event_shape = jnp.shape(self.scale_tril)[-1:]
+            self.loc = loc[..., 0]
+        else:
+            assert batch_shape is not None
+            assert event_shape is not None
+            # these arguments are always resolved before `vmap`ping.
+            self.scale_tril = scale_tril
+            self.loc = loc
+
         super(MultivariateNormal, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
@@ -1473,13 +1484,68 @@ class MultivariateNormal(Distribution):
             jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
 
+    def infer_post_vmap_shapes(self, vmap_axes):
+        """
+        Transform a `vmap`-ed `MultivariateNormal` mapped according to
+        :param:`vmap_axes` into a batched `MultivariateNormal`.
+
+
+        .. note:: The vmapped axis turned into a batch axis is placed
+        at the leftmost position of the batch shape.
+        """
+        # TODO: take into account the case of muliple vmap transformations
+        # in a row by allowing `vmap_axes` to be a tuple of tree prefixes.
+        assert isinstance(vmap_axes, MultivariateNormal)
+        # handle loc
+        scale_tril_shape = self.scale_tril.shape
+        loc_vmap_axis = vmap_axes.loc
+        scale_tril_vmap_axis = vmap_axes.scale_tril
+        pre_vmap_batch_shape = self._batch_shape
+        pre_vmap_event_shape = self._event_shape
+
+        if loc_vmap_axis is None:
+            new_loc = self.loc
+        else:
+            assert isinstance(loc_vmap_axis, int)
+            new_loc = jnp.moveaxis(
+                self.loc,
+                source=tuple(range(len(self.loc.shape))),
+                destination=(loc_vmap_axis,)
+                + tuple(t for t in range(len(self.loc.shape)) if t != loc_vmap_axis),
+            )
+
+        if scale_tril_vmap_axis is None:
+            new_scale_tril = self.scale_tril
+        else:
+            assert isinstance(scale_tril_vmap_axis, int)
+            new_scale_tril = jnp.moveaxis(
+                self.scale_tril,
+                source=tuple(range(len(scale_tril_shape))),
+                destination=(scale_tril_vmap_axis,)
+                + tuple(
+                    t for t in range(len(scale_tril_shape)) if t != scale_tril_vmap_axis
+                ),
+            )
+
+        return MultivariateNormal(loc=new_loc, scale_tril=new_scale_tril)
+
     def tree_flatten(self):
-        return (self.loc, self.scale_tril), None
+        return (
+            self.loc,
+            self.scale_tril,
+        ), (self.batch_shape, self.event_shape)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         loc, scale_tril = params
-        return cls(loc, scale_tril=scale_tril)
+        batch_shape, event_shape = aux_data
+        return cls(
+            loc=loc,
+            scale_tril=scale_tril,
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            in_vmap=True,
+        )
 
     @staticmethod
     def infer_shapes(

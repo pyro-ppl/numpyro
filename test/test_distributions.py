@@ -2832,3 +2832,173 @@ def test_vmap_normal_dist():
 
     samples_batched_dist = jax.vmap(sample, in_axes=(dist_axes,))(batched_d)
     assert samples_batched_dist.shape == (3, 2)
+
+
+def test_vmap_multivariate_normal_dist():
+    def make_multivariate_normal_dist(
+        mean, covariance_matrix
+    ) -> dist.MultivariateNormal:
+        d = dist.MultivariateNormal(loc=mean, covariance_matrix=covariance_matrix)
+        return d
+
+    def sample(d: dist.Distribution):
+        return d.sample(random.PRNGKey(0))
+
+    loc = jnp.ones((2,))
+    # covariance_matrix = jnp.eye(2)
+    _rot_mat = jnp.array(
+        [[1 / jnp.sqrt(2), -1 / jnp.sqrt(2)], [1 / jnp.sqrt(2), 1 / jnp.sqrt(2)]]
+    )
+    covariance_matrix = jnp.matmul(
+        _rot_mat, jnp.matmul(jnp.diag(jnp.array([1.0, 2.0])), _rot_mat.T)
+    )
+
+    d = make_multivariate_normal_dist(loc, covariance_matrix)
+
+    locs = jnp.ones((3, 2))
+    # covariance_matrices = jnp.stack([jnp.eye(2), jnp.eye(2), jnp.eye(2)])
+    covariance_matrices = jnp.stack([covariance_matrix] * 3)
+
+    assert loc.shape == d.loc.shape
+    assert covariance_matrix.shape == d.covariance_matrix.shape
+
+    print("vmapping normal dist creation over both args")
+    batched_d = jax.vmap(make_multivariate_normal_dist, in_axes=(0, 0))(
+        locs, covariance_matrices
+    )
+
+    assert locs.shape == batched_d.loc.shape
+    assert covariance_matrices.shape == batched_d.covariance_matrix.shape
+    assert covariance_matrices.shape == batched_d.scale_tril.shape
+    assert covariance_matrices.shape == batched_d.precision_matrix.shape
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
+    assert samples_batched_dist.shape == (3, 2)
+
+    print("vmapping normal dist creation over first arg")
+    batched_d = jax.vmap(make_multivariate_normal_dist, in_axes=(0, None))(
+        locs, covariance_matrix
+    )
+    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
+
+    assert locs.shape == batched_d.loc.shape
+    assert covariance_matrices.shape == batched_d.covariance_matrix.shape
+    assert covariance_matrices.shape == batched_d.scale_tril.shape
+    assert covariance_matrices.shape == batched_d.precision_matrix.shape
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    assert samples_batched_dist.shape == (3, 2)
+
+    print("vmapping normal dist creation over second arg")
+    batched_d = jax.vmap(make_multivariate_normal_dist, in_axes=(None, 0))(
+        loc, covariance_matrices
+    )
+    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
+
+    assert locs.shape == batched_d.loc.shape
+    assert covariance_matrices.shape == batched_d.covariance_matrix.shape
+    assert covariance_matrices.shape == batched_d.scale_tril.shape
+    assert covariance_matrices.shape == batched_d.precision_matrix.shape
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    assert samples_batched_dist.shape == (3, 2)
+
+    print("vmapping normal dist creation over first arg and out first arg")
+    dist_axes = copy.deepcopy(d)
+    dist_axes.loc = 0
+    dist_axes.scale_tril = None
+    dist_axes.covariance_matrix = None
+    dist_axes.precision_matrix = None
+
+    batched_d = jax.vmap(
+        make_multivariate_normal_dist, in_axes=(0, None), out_axes=dist_axes
+    )(locs, covariance_matrix)
+    samples_batched_dist = jax.vmap(sample, in_axes=(dist_axes,))(batched_d)
+
+    assert locs.shape == batched_d.loc.shape
+    assert covariance_matrix.shape == batched_d.covariance_matrix.shape
+    assert covariance_matrix.shape == batched_d.scale_tril.shape
+    assert covariance_matrix.shape == batched_d.precision_matrix.shape
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    assert samples_batched_dist.shape == (3, 2)
+
+    print(
+        "vmapping normal dist creation over second arg and out second arg with "
+        "out_axes=1"
+    )
+    dist_axes = copy.deepcopy(d)
+    dist_axes.loc = None
+    dist_axes.scale_tril = 1
+    dist_axes.covariance_matrix = None
+    dist_axes.precision_matrix = None
+
+    batched_d = jax.vmap(
+        make_multivariate_normal_dist, in_axes=(None, 0), out_axes=dist_axes
+    )(loc, covariance_matrices)
+
+    samples_batched_dist = jax.vmap(sample, in_axes=(dist_axes,))(batched_d)
+    assert samples_batched_dist.shape == (3, 2)
+
+    assert batched_d.batch_shape == d.batch_shape
+    assert batched_d.event_shape == d.event_shape
+
+    assert loc.shape == batched_d.loc.shape
+    assert covariance_matrices.swapaxes(0, 1).shape == batched_d.scale_tril.shape
+
+    # accessing property-based arguments should work fine when wrapped inside a `vmap`
+    # transformation
+    assert (
+        covariance_matrices.swapaxes(0, 1).shape
+        == jax.vmap(lambda bd: bd.covariance_matrix, in_axes=(dist_axes,), out_axes=1)(
+            batched_d
+        ).shape
+    )
+    assert (
+        covariance_matrices.swapaxes(0, 1).shape
+        == jax.vmap(lambda bd: bd.precision_matrix, in_axes=(dist_axes,), out_axes=1)(
+            batched_d
+        ).shape
+    )
+
+    # However, non-wrapped property-based attribute acess may fail to evaluate outside
+    # of the `vmapped` context
+    try:
+        assert (
+            covariance_matrices.swapaxes(0, 1).shape
+            == batched_d.covariance_matrix.shape
+        )
+        assert (
+            covariance_matrices.swapaxes(0, 1).shape == batched_d.precision_matrix.shape
+        )
+    except Exception:
+        pass
+
+    print("testing transformation of `vmap`-ed distibution into a batched disribution")
+    # turn the `vmap`-ed distribution into a batched distribution
+    batched_d_infered = batched_d.infer_post_vmap_shapes(dist_axes)
+
+    # the transformation mechanism behind `infer_post_vmap_shapes` broacasts
+    # loc/scale_tril to a common shape loc was not vmapped: account for
+    # post-inference implicit broadcasting by adding a leading dimension of size 1
+    assert (1,) + loc.shape == batched_d_infered.loc.shape
+
+    # after inference, both property and non-property based attribute access should
+    # work outside of the `vmapped` context
+    assert covariance_matrices.shape == batched_d_infered.covariance_matrix.shape
+    assert covariance_matrices.shape == batched_d_infered.scale_tril.shape
+    assert covariance_matrices.shape == batched_d_infered.precision_matrix.shape
+
+    assert batched_d_infered.batch_shape == (3,)
+    assert batched_d_infered.event_shape == (2,)
+
+    # TODO: test application of multiple `vmap` transformations.
