@@ -1441,6 +1441,7 @@ class MultivariateNormal(Distribution):
             batch_shape=batch_shape,
             event_shape=event_shape,
             validate_args=validate_args,
+            in_vmap=in_vmap,
         )
 
     def sample(self, key, sample_shape=()):
