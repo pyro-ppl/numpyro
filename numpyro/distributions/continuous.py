@@ -1500,8 +1500,6 @@ class MultivariateNormal(Distribution):
         scale_tril_shape = self.scale_tril.shape
         loc_vmap_axis = vmap_axes.loc
         scale_tril_vmap_axis = vmap_axes.scale_tril
-        pre_vmap_batch_shape = self._batch_shape
-        pre_vmap_event_shape = self._event_shape
 
         if loc_vmap_axis is None:
             new_loc = self.loc
