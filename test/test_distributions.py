@@ -3001,4 +3001,45 @@ def test_vmap_multivariate_normal_dist():
     assert batched_d_infered.batch_shape == (3,)
     assert batched_d_infered.event_shape == (2,)
 
-    # TODO: test application of multiple `vmap` transformations.
+    print("double vmapping normal dist creation over first arg and out no second arg")
+    dist_axes = copy.deepcopy(d)
+    dist_axes.loc = None
+    dist_axes.scale_tril = 1
+    dist_axes.covariance_matrix = None
+    dist_axes.precision_matrix = None
+
+    vmap_once = jax.vmap(
+        make_multivariate_normal_dist, in_axes=(None, 0), out_axes=dist_axes
+    )
+
+    dist_axes2 = copy.deepcopy(d)
+    dist_axes2.loc = 1
+    dist_axes2.scale_tril = None
+    dist_axes2.covariance_matrix = None
+    dist_axes2.precision_matrix = None
+
+    vmap_twice = jax.vmap(vmap_once, in_axes=(0, None), out_axes=dist_axes2)
+
+    locs2 = jnp.ones((6, 2))
+
+    double_batched_d = vmap_twice(locs2, covariance_matrices)
+
+    samples_double_batched_dist = jax.vmap(
+        jax.vmap(sample, in_axes=(dist_axes,)), in_axes=(dist_axes2,)
+    )(double_batched_d)
+    assert samples_double_batched_dist.shape == (6, 3, 2)
+
+    assert batched_d_infered.batch_shape == (3,)
+    assert batched_d_infered.event_shape == (2,)
+
+    assert (loc.shape[0], 6) == double_batched_d.loc.shape
+    assert covariance_matrices.swapaxes(0, 1).shape == double_batched_d.scale_tril.shape
+
+    assert (
+        covariance_matrices.swapaxes(0, 1).shape
+        == jax.vmap(
+            jax.vmap(lambda bd: bd.covariance_matrix, in_axes=(dist_axes,), out_axes=1),
+            in_axes=(dist_axes2,),
+            out_axes=None,
+        )(double_batched_d).shape
+    )
