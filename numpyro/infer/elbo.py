@@ -931,7 +931,8 @@ class TraceEnum_ELBO(ELBO):
             guide_desc = defaultdict(frozenset)
             for name, deps in guide_deps.items():
                 for d in deps:
-                    guide_desc[d] |= frozenset([name])
+                    if name != d:
+                        guide_desc[d] |= frozenset([name])
 
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
