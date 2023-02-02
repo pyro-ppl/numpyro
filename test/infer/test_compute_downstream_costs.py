@@ -27,7 +27,6 @@ from numpyro.ops.provenance import eval_provenance, get_provenance
 def _brute_force_compute_downstream_costs(
     model_trace, guide_trace, non_reparam_nodes  #
 ):
-
     model_successors = _identify_dense_edges(model_trace)
     guide_successors = _identify_dense_edges(guide_trace)
     guide_nodes = [x for x in guide_trace if guide_trace[x]["type"] == "sample"]

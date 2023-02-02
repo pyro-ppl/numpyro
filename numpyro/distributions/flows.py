@@ -61,6 +61,7 @@ class InverseAutoregressiveTransform(Transform):
         """
         :param numpy.ndarray y: the output of the transform to be inverted
         """
+
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
             mean, log_scale = self.arn(x)

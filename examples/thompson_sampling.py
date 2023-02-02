@@ -180,7 +180,6 @@ class ThompsonSamplingGP:
 
     # choose the next Thompson sample
     def choose_next_sample(self, n_step=2_000):
-
         # if we do not have enough samples, sample randomly from bounds
         if self.X.shape[0] < self.n_random_draws:
             self.rng_key, subkey = random.split(self.rng_key)
@@ -195,7 +194,6 @@ class ThompsonSamplingGP:
 
         # if we do, we fit the GP and choose the next point based on the posterior draw minimum
         else:
-
             # 1. Fit the GP to the observations we have
             self.gp = self.fit(self.X, self.y, n_step=n_step)
 

@@ -41,7 +41,6 @@ def _get_support_value_delta(funsor_dist, name, **kwargs):
 def _sample_posterior(
     model, first_available_dim, temperature, rng_key, *args, **kwargs
 ):
-
     if temperature == 0:
         sum_op, prod_op = funsor.ops.max, funsor.ops.add
         approx = funsor.approximations.argmax_approximate

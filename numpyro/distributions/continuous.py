@@ -1295,7 +1295,6 @@ class MatrixNormal(Distribution):
         return jnp.broadcast_to(self.loc, self.shape())
 
     def sample(self, key, sample_shape=()):
-
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
@@ -1307,7 +1306,6 @@ class MatrixNormal(Distribution):
 
     @validate_sample
     def log_prob(self, values):
-
         n, p = self.event_shape
 
         row_log_det = jnp.log(
@@ -1350,7 +1348,7 @@ def _batch_mahalanobis(bL, bx):
     out_shape = jnp.shape(bx)[:-1]  # shape of output
     # Reshape bx with the shape (..., 1, i, j, 1, n)
     bx_new_shape = out_shape[:sample_ndim]
-    for (sL, sx) in zip(bL.shape[:-2], out_shape[sample_ndim:]):
+    for sL, sx in zip(bL.shape[:-2], out_shape[sample_ndim:]):
         bx_new_shape += (sx // sL, sL)
     bx_new_shape += (-1,)
     bx = jnp.reshape(bx, bx_new_shape)
