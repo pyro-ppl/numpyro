@@ -63,7 +63,6 @@ def train_baseline(
     test_fetch,
     n_epochs=100,
 ):
-
     state = create_train_state(model, train_fetch(0, train_idx)[0], 0.003)
 
     rng = random.PRNGKey(0)

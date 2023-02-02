@@ -723,7 +723,7 @@ class HMCECS(HMCGibbs):
 def perturbed_method(subsample_plate_sizes, proxy_fn):
     def estimator(likelihoods, params, gibbs_state):
         subsample_log_liks = defaultdict(float)
-        for (fn, value, name, subsample_dim) in likelihoods.values():
+        for fn, value, name, subsample_dim in likelihoods.values():
             subsample_log_liks[name] += _sum_all_except_at_dim(
                 fn.log_prob(value), subsample_dim
             )

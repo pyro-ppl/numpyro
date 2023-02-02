@@ -51,7 +51,6 @@ def log_prob_sum(trace):
 @pytest.mark.parametrize("length", [1, 2, 10])
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_hmm_smoke(length, temperature):
-
     # This should match the example in the infer_discrete docstring.
     def hmm(data, hidden_dim=10):
         transition = 0.3 / hidden_dim + 0.7 * jnp.eye(hidden_dim)
@@ -97,7 +96,6 @@ def test_hmm_smoke(length, temperature):
 )
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_scan_hmm_smoke(length, temperature):
-
     # This should match the example in the infer_discrete docstring.
     def hmm(data, hidden_dim=10):
         transition = 0.3 / hidden_dim + 0.7 * jnp.eye(hidden_dim)
@@ -387,7 +385,6 @@ def model_zzxx():
 
 
 def model2():
-
     data = [np.array([-1.0, -1.0, 0.0]), np.array([-1.0, 1.0])]
     p = numpyro.param("p", np.array([0.25, 0.75]))
     loc = numpyro.sample("loc", dist.Normal(0, 1).expand([2]).to_event(1))
