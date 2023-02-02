@@ -932,10 +932,26 @@ class TraceEnum_ELBO(ELBO):
                     # uncontracted logp cost term
                     assert len(group_names) == 1
                     name = next(iter(group_names))
-                    cost = model_trace[name]["log_prob"]
-                    scale = model_trace[name]["scale"]
-                    deps = model_deps[name]
-                    dice_factors = [guide_trace[key]["log_measure"] for key in deps]
+                    try:
+                        cost = -kl_divergence(
+                            guide_trace[name]["fn"], model_trace[name]["fn"]
+                        )
+                        dim_to_name = model_trace[name]["infer"]["dim_to_name"]
+                        cost = to_funsor(
+                            cost, output=funsor.Real, dim_to_name=dim_to_name
+                        )
+                        scale = model_trace[name]["scale"]
+                        assert scale == guide_trace[name]["scale"]
+                        deps = (model_deps[name] | guide_deps[name]) - frozenset([name])
+                        dice_factors = [guide_trace[key]["log_measure"] for key in deps]
+                        del guide_deps[name]
+                    except (KeyError, NotImplementedError) as e:
+                        if e is KeyError:
+                            assert model_trace[name]["is_observed"]
+                        cost = model_trace[name]["log_prob"]
+                        scale = model_trace[name]["scale"]
+                        deps = model_deps[name]
+                        dice_factors = [guide_trace[key]["log_measure"] for key in deps]
                 else:
                     # compute contracted cost term
                     group_factors = tuple(
