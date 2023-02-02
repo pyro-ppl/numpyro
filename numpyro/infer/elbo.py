@@ -707,7 +707,9 @@ class TraceGraph_ELBO(ELBO):
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
-def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nesting):
+def get_importance_trace_enum(
+    model, guide, args, kwargs, params, max_plate_nesting, model_deps
+):
     """
     (EXPERIMENTAL) Returns traces from the enumerated guide and the enumerated model that is run against it.
     The returned traces also store the log probability at each site and the log measure for measure vars.
@@ -728,43 +730,72 @@ def get_importance_trace_enum(model, guide, args, kwargs, params, max_plate_nest
             guide_trace = _trace(guide).get_trace(*args, **kwargs)
         model = substitute(replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
-    for is_model, tr in zip((False, True), (guide_trace, model_trace)):
+
+    sum_vars = frozenset()
+    for is_model, tr in zip((True, False), (model_trace, guide_trace)):
         for name, site in tr.items():
             if site["type"] == "sample":
-                if is_model and (site["is_observed"] or (site["name"] in guide_trace)):
-                    site["is_measure"] = False
-                if "log_prob" not in site:
-                    value = site["value"]
-                    intermediates = site["intermediates"]
+                value = site["value"]
+                intermediates = site["intermediates"]
+                dim_to_name = site["infer"]["dim_to_name"]
+
+                # compute log factor
+                if (
+                    is_model
+                    and (name in guide_trace)
+                    and model_deps[name].isdisjoint(sum_vars)
+                ):
+                    try:
+                        kl_qp = kl_divergence(
+                            guide_trace[name]["fn"], model_trace[name]["fn"]
+                        )
+                        site["kl"] = to_funsor(
+                            kl_qp, output=funsor.Real, dim_to_name=dim_to_name
+                        )
+                    except NotImplementedError:
+                        if intermediates:
+                            log_prob = site["fn"].log_prob(value, intermediates)
+                        else:
+                            log_prob = site["fn"].log_prob(value)
+                        site["log_prob"] = to_funsor(
+                            log_prob, output=funsor.Real, dim_to_name=dim_to_name
+                        )
+                elif not is_model and (model_trace[name].get("kl", None) is not None):
+                    # skip logq computation if analytic kl was computed
+                    pass
+                else:
                     if intermediates:
                         log_prob = site["fn"].log_prob(value, intermediates)
                     else:
                         log_prob = site["fn"].log_prob(value)
-
-                    dim_to_name = site["infer"]["dim_to_name"]
                     site["log_prob"] = to_funsor(
                         log_prob, output=funsor.Real, dim_to_name=dim_to_name
                     )
-                    if site.get("is_measure", True):
-                        # get rid off masking
-                        base_fn = site["fn"]
-                        batch_shape = base_fn.batch_shape
-                        while isinstance(
-                            base_fn, (MaskedDistribution, ExpandedDistribution)
-                        ):
-                            base_fn = base_fn.base_dist
-                        base_fn = base_fn.expand(batch_shape)
-                        if intermediates:
-                            log_measure = base_fn.log_prob(value, intermediates)
-                        else:
-                            log_measure = base_fn.log_prob(value)
-                        # dice factor
-                        if not site["infer"].get("enumerate") == "parallel":
-                            log_measure = log_measure - funsor.ops.detach(log_measure)
-                        site["log_measure"] = to_funsor(
-                            log_measure, output=funsor.Real, dim_to_name=dim_to_name
-                        )
-    return model_trace, guide_trace
+
+                # compute log measure
+                if not is_model or not (site["is_observed"] or (name in guide_trace)):
+                    if is_model:
+                        sum_vars |= frozenset([name])
+                    # get rid off masking
+                    base_fn = site["fn"]
+                    batch_shape = base_fn.batch_shape
+                    while isinstance(
+                        base_fn, (MaskedDistribution, ExpandedDistribution)
+                    ):
+                        base_fn = base_fn.base_dist
+                    base_fn = base_fn.expand(batch_shape)
+                    if intermediates:
+                        log_measure = base_fn.log_prob(value, intermediates)
+                    else:
+                        log_measure = base_fn.log_prob(value)
+                    # dice factor
+                    if not site["infer"].get("enumerate") == "parallel":
+                        log_measure = log_measure - funsor.ops.detach(log_measure)
+                    site["log_measure"] = to_funsor(
+                        log_measure, output=funsor.Real, dim_to_name=dim_to_name
+                    )
+
+    return model_trace, guide_trace, sum_vars
 
 
 def _partition(model_sum_deps, sum_vars):
@@ -892,32 +923,26 @@ class TraceEnum_ELBO(ELBO):
 
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
+            model_deps, guide_deps = get_nonreparam_deps(
+                seeded_model, seeded_guide, args, kwargs, param_map
+            )
 
-            model_trace, guide_trace = get_importance_trace_enum(
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            model_trace, guide_trace, sum_vars = get_importance_trace_enum(
                 seeded_model,
                 seeded_guide,
                 args,
                 kwargs,
                 param_map,
                 self.max_plate_nesting,
+                model_deps,
             )
+
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
-            model_deps, guide_deps = get_nonreparam_deps(
-                seeded_model, seeded_guide, args, kwargs, param_map
-            )
-
-            sum_vars = frozenset(
-                [
-                    name
-                    for name, site in model_trace.items()
-                    if site["type"] == "sample" and site.get("is_measure", True)
-                ]
-            )
-            model_vars = frozenset(
-                [name for name, site in model_trace.items() if site["type"] == "sample"]
-            )
+            model_vars = frozenset(model_deps)
             model_sum_deps = {
                 k: v & sum_vars for k, v in model_deps.items() if k not in sum_vars
             }
@@ -932,22 +957,14 @@ class TraceEnum_ELBO(ELBO):
                     # uncontracted logp cost term
                     assert len(group_names) == 1
                     name = next(iter(group_names))
-                    try:
-                        cost = -kl_divergence(
-                            guide_trace[name]["fn"], model_trace[name]["fn"]
-                        )
-                        dim_to_name = model_trace[name]["infer"]["dim_to_name"]
-                        cost = to_funsor(
-                            cost, output=funsor.Real, dim_to_name=dim_to_name
-                        )
+                    if model_trace[name].get("kl", None) is not None:
+                        cost = -model_trace[name]["kl"]
                         scale = model_trace[name]["scale"]
                         assert scale == guide_trace[name]["scale"]
                         deps = (model_deps[name] | guide_deps[name]) - frozenset([name])
                         dice_factors = [guide_trace[key]["log_measure"] for key in deps]
                         del guide_deps[name]
-                    except (KeyError, NotImplementedError) as e:
-                        if e is KeyError:
-                            assert model_trace[name]["is_observed"]
+                    else:
                         cost = model_trace[name]["log_prob"]
                         scale = model_trace[name]["scale"]
                         deps = model_deps[name]
