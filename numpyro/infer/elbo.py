@@ -708,7 +708,7 @@ class TraceGraph_ELBO(ELBO):
 
 
 def get_importance_trace_enum(
-    model, guide, args, kwargs, params, max_plate_nesting, model_deps
+    model, guide, args, kwargs, params, max_plate_nesting, model_deps, guide_desc
 ):
     """
     (EXPERIMENTAL) Returns traces from the enumerated guide and the enumerated model that is run against it.
@@ -743,7 +743,7 @@ def get_importance_trace_enum(
                 if (
                     is_model
                     and (name in guide_trace)
-                    and model_deps[name].isdisjoint(sum_vars)
+                    and model_deps[name].isdisjoint(sum_vars | guide_desc[name])
                 ):
                     try:
                         kl_qp = kl_divergence(
@@ -923,9 +923,15 @@ class TraceEnum_ELBO(ELBO):
 
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
+            # get dependencies on nonreparametrizable variables
             model_deps, guide_deps = get_nonreparam_deps(
                 seeded_model, seeded_guide, args, kwargs, param_map
             )
+            # get descendants of variables in the guide
+            guide_desc = defaultdict(frozenset)
+            for name, deps in guide_deps.items():
+                for d in deps:
+                    guide_desc[d] |= frozenset([name])
 
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
@@ -937,6 +943,7 @@ class TraceEnum_ELBO(ELBO):
                 param_map,
                 self.max_plate_nesting,
                 model_deps,
+                guide_desc,
             )
 
             check_model_guide_match(model_trace, guide_trace)
