@@ -159,7 +159,6 @@ def test_update_params():
 @pytest.mark.parametrize("init", ["args", "shape", "kwargs"])
 @pytest.mark.parametrize("callable_prior", [True, False])
 def test_random_module_mcmc(backend, init, callable_prior):
-
     if backend == "flax":
         import flax
 

@@ -77,7 +77,6 @@ def train_cvae(
     test_fetch,
     n_epochs=100,
 ):
-
     svi, state = create_train_state(
         random.PRNGKey(23), model, guide, train_fetch, baseline_params, 0.003
     )
