@@ -133,3 +133,98 @@ def test_gradient(model, guide, params, data):
         logger.info("actual   {} = {}".format(name, actual_grads[name]))
 
     assert_equal(actual_grads, expected_grads, prec=0.02)
+
+
+def test_meanfield_enum():
+    data = jnp.array([0.0, 1.0, 10.0, 11.0, 12.0])
+
+    def model(data, params):
+        with pyro.plate("components", 2):
+            pyro.sample("locs", dist.Normal(0.0, 1.0))
+
+        with pyro.plate("data", len(data)):
+            pyro.sample("assignment", dist.Categorical(jnp.array([0.3, 0.7])))
+            # pyro.sample("obs", dist.Normal(locs[assignment], 1.0), obs=data)
+
+    def guide_enum(data, params):
+        a = pyro.param("a", params["a"])
+        b = pyro.param("b", params["b"], constraint=constraints.simplex)
+        with pyro.plate("components", 2):
+            pyro.sample("locs", dist.Normal(a, 1.0))
+
+        with pyro.plate("data", len(data)):
+            pyro.sample(
+                "assignment", dist.Categorical(b), infer={"enumerate": "parallel"}
+            )
+
+    def guide_kl(data, params):
+        a = pyro.param("a", params["a"])
+        b = pyro.param("b", params["b"], constraint=constraints.simplex)
+        with pyro.plate("components", 2):
+            pyro.sample("locs", dist.Normal(a, 1.0), infer={"kl": True})
+
+        with pyro.plate("data", len(data)):
+            pyro.sample("assignment", dist.Categorical(b), infer={"kl": True})
+
+    def guide_kl_enum(data, params):
+        a = pyro.param("a", params["a"])
+        b = pyro.param("b", params["b"], constraint=constraints.simplex)
+        with pyro.plate("components", 2):
+            pyro.sample("locs", dist.Normal(a, 1.0), infer={"kl": True})
+
+        with pyro.plate("data", len(data)):
+            pyro.sample(
+                "assignment", dist.Categorical(b), infer={"enumerate": "parallel"}
+            )
+
+    params = {
+        "a": jnp.array([0.0, 10.0]),
+        "b": jnp.array([[0.4, 0.6], [0.5, 0.5], [0.3, 0.7], [0.8, 0.2], [0.5, 0.5]]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = {"a": params["a"], "b": transform.inv(params["b"])}
+
+    # Expected grads averaged over num_particles
+    elbo = infer.TraceGraph_ELBO(num_particles=50_000)
+
+    def expected_loss_fn(params_raw):
+        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
+        return elbo.loss(random.PRNGKey(0), {}, model, guide_enum, data, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
+
+    # Grads based on exact integration
+    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
+
+    def enum_loss_fn(params_raw):
+        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
+        return elbo.loss(random.PRNGKey(0), {}, model, guide_enum, data, params)
+
+    enum_loss, enum_grads = jax.value_and_grad(enum_loss_fn)(params_raw)
+
+    assert_equal(enum_loss, expected_loss, prec=0.02)
+    assert_equal(enum_grads, expected_grads, prec=0.02)
+
+    # Grads based on analytic kl integration
+    elbo = infer.TraceEnum_ELBO()
+
+    def kl_loss_fn(params_raw):
+        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
+        return elbo.loss(random.PRNGKey(0), {}, model, guide_kl, data, params)
+
+    kl_loss, kl_grads = jax.value_and_grad(kl_loss_fn)(params_raw)
+
+    assert_equal(kl_loss, expected_loss, prec=0.1)
+    assert_equal(kl_grads, expected_grads, prec=0.02)
+
+    # Ggrads based on exact and analytic kl integration
+    elbo = infer.TraceEnum_ELBO()
+
+    def kl_enum_loss_fn(params_raw):
+        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
+        return elbo.loss(random.PRNGKey(0), {}, model, guide_kl_enum, data, params)
+
+    kl_enum_loss, kl_enum_grads = jax.value_and_grad(kl_enum_loss_fn)(params_raw)
+
+    assert_equal(kl_enum_loss, expected_loss, prec=0.1)
+    assert_equal(kl_enum_grads, expected_grads, prec=0.02)

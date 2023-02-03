@@ -744,6 +744,7 @@ def get_importance_trace_enum(
                     is_model
                     and (name in guide_trace)
                     and model_deps[name].isdisjoint(sum_vars | guide_desc[name])
+                    and model_trace[name]["infer"].get("kl", False)
                 ):
                     try:
                         kl_qp = kl_divergence(
@@ -902,15 +903,8 @@ class TraceEnum_ELBO(ELBO):
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         def single_particle_elbo(rng_key):
-            from opt_einsum import shared_intermediates
-
             import funsor
-            from funsor.cnf import _eager_contract_tensors
             from numpyro.contrib.funsor import to_data, to_funsor
-
-            logsumexp_backend = "funsor.einsum.numpy_log"
-            with shared_intermediates() as cache:  # create a cache
-                pass
 
             model_seed, guide_seed = random.split(rng_key)
 
@@ -970,13 +964,11 @@ class TraceEnum_ELBO(ELBO):
                         scale = model_trace[name]["scale"]
                         assert scale == guide_trace[name]["scale"]
                         deps = (model_deps[name] | guide_deps[name]) - frozenset([name])
-                        dice_factors = [guide_trace[key]["log_measure"] for key in deps]
                         del guide_deps[name]
                     else:
                         cost = model_trace[name]["log_prob"]
                         scale = model_trace[name]["scale"]
                         deps = model_deps[name]
-                        dice_factors = [guide_trace[key]["log_measure"] for key in deps]
                 else:
                     # compute contracted cost term
                     group_factors = tuple(
@@ -1035,40 +1027,32 @@ class TraceEnum_ELBO(ELBO):
                                     f"model enumeration sites upstream of guide site '{key}' in plate('{plate}')."
                                     "Try converting some model enumeration sites to guide enumeration sites."
                                 )
-                    # combine dice factors
-                    dice_factors = [
-                        guide_trace[key]["log_measure"].reduce(
-                            funsor.ops.add,
-                            frozenset(guide_trace[key]["log_measure"].inputs)
-                            & elim_plates,
-                        )
-                        for key in deps
-                    ]
-                cost_terms.append((cost, scale, dice_factors))
+                cost_terms.append((cost, scale, deps))
 
             for name, deps in guide_deps.items():
                 # -logq cost term
                 cost = -guide_trace[name]["log_prob"]
                 scale = guide_trace[name]["scale"]
-                dice_factors = [guide_trace[key]["log_measure"] for key in deps]
-                cost_terms.append((cost, scale, dice_factors))
+                cost_terms.append((cost, scale, deps))
 
             # compute elbo
             elbo = 0.0
-            for cost, scale, dice_factors in cost_terms:
-                if dice_factors:
-                    reduced_vars = (
-                        frozenset().union(*[f.input_vars for f in dice_factors])
-                        - cost.input_vars
+            for cost, scale, deps in cost_terms:
+                if deps:
+                    dice_factors = tuple(
+                        guide_trace[key]["log_measure"] for key in deps
                     )
-                    if reduced_vars:
-                        # use opt_einsum to reduce vars not present in the cost term
-                        with shared_intermediates(cache):
-                            dice_factor = _eager_contract_tensors(
-                                reduced_vars, dice_factors, backend=logsumexp_backend
-                            )
-                    else:
-                        dice_factor = reduce(lambda a, b: a + b, dice_factors)
+                    dice_factor_vars = frozenset().union(
+                        *[f.inputs for f in dice_factors]
+                    )
+                    cost_vars = frozenset(cost.inputs)
+                    dice_factor = funsor.sum_product.sum_product(
+                        funsor.ops.logaddexp,
+                        funsor.ops.add,
+                        dice_factors,
+                        plates=(dice_factor_vars | cost_vars) - model_vars,
+                        eliminate=dice_factor_vars - cost_vars,
+                    )
                     cost = cost * funsor.ops.exp(dice_factor)
                 if (scale is not None) and (not is_identically_one(scale)):
                     cost = cost * to_funsor(scale)
