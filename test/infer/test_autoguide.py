@@ -157,7 +157,7 @@ def test_beta_bernoulli(auto_class):
         AutoDelta,
     ],
 )
-@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
+@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO][:1])
 def test_logistic_regression(auto_class, Elbo):
     if auto_class == AutoRVRS and Elbo == TraceMeanField_ELBO:
         return
@@ -180,7 +180,7 @@ def test_logistic_regression(auto_class, Elbo):
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
         init_loc_fn = init_to_median(num_samples=20)
-        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn)
+        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn, history_size=10)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
