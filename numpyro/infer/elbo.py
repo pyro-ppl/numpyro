@@ -839,7 +839,7 @@ def guess_max_plate_nesting(model, guide, args, kwargs, param_map):
 
 class TraceEnum_ELBO(ELBO):
     """
-    A TraceEnum implementation of ELBO-based SVI. The gradient estimator
+    (EXPERIMENTAL) A TraceEnum implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
     of the ELBO. It supports arbitrary dependency structure for the model
     and guide.
@@ -952,32 +952,41 @@ class TraceEnum_ELBO(ELBO):
                         *(frozenset(f.inputs) & group_plates for f in group_factors)
                     )
                     elim_plates = group_plates - outermost_plates
-                    cost = funsor.sum_product.sum_product(
-                        funsor.ops.logaddexp,
-                        funsor.ops.add,
-                        group_factors,
-                        plates=group_plates,
-                        eliminate=group_sum_vars | elim_plates,
-                    )
-                    # incorporate the effects of subsampling and handlers.scale through a common scale factor
-                    group_scales = {}
+                    # incorporate the effects of subsampling and handlers.scale
+                    plate_to_scale = {}
                     for name in group_names:
                         for plate, value in (
                             model_trace[name].get("plate_to_scale", {}).items()
                         ):
-                            if plate in group_scales:
-                                if value != group_scales[plate]:
+                            if plate in plate_to_scale:
+                                if value != plate_to_scale[plate]:
                                     raise ValueError(
                                         "Expected all enumerated sample sites to share a common scale factor, "
                                         f"but found different scales at plate('{plate}')."
                                     )
                             else:
-                                group_scales[plate] = value
-                    scale = (
-                        reduce(lambda a, b: a * b, group_scales.values())
-                        if group_scales
-                        else None
+                                plate_to_scale[plate] = value
+                    group_scales = tuple(
+                        [
+                            value
+                            for plate, value in plate_to_scale.items()
+                            if (plate in f.inputs) or (plate is None)
+                        ]
+                        for f in group_factors
                     )
+                    scaled_group_factors = tuple(
+                        reduce(lambda a, b: a * b, scales, factor)
+                        for scales, factor in zip(group_scales, group_factors)
+                    )
+
+                    cost = funsor.sum_product.sum_product(
+                        funsor.ops.logaddexp,
+                        funsor.ops.add,
+                        scaled_group_factors,
+                        plates=group_plates,
+                        eliminate=group_sum_vars | elim_plates,
+                    )
+                    scale = None
                     # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]
