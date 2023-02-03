@@ -1529,22 +1529,7 @@ class MultivariateNormal(Distribution):
         return MultivariateNormal(loc=new_loc, scale_tril=new_scale_tril)
 
     def tree_flatten(self):
-        return (
-            self.loc,
-            self.scale_tril,
-        ), (self.batch_shape, self.event_shape)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        loc, scale_tril = params
-        batch_shape, event_shape = aux_data
-        return cls(
-            loc=loc,
-            scale_tril=scale_tril,
-            batch_shape=batch_shape,
-            event_shape=event_shape,
-            in_vmap=True,
-        )
+        return (self.loc, self.scale_tril), ("loc", "scale_tril")
 
     @staticmethod
     def infer_shapes(
@@ -1744,32 +1729,16 @@ class CAR(Distribution):
 
     def tree_flatten(self):
         if self.is_sparse:
-            return (self.loc, self.correlation, self.conditional_precision), (
-                self.is_sparse,
-                self.adj_matrix,
-            )
+            return ((self.loc, self.correlation, self.conditional_precision),
+                    ("loc", "correlation", "conditional_precision",
+                     {"is_sparse": self.is_sparse, "adj_matrix": self.adj_matrix}))
         else:
-            return (
-                self.loc,
-                self.correlation,
-                self.conditional_precision,
-                self.adj_matrix,
-            ), (self.is_sparse,)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        is_sparse = aux_data[0]
-        if is_sparse:
-            loc, correlation, conditional_precision = params
-            adj_matrix = aux_data[1]
-        else:
-            loc, correlation, conditional_precision, adj_matrix = params
-        return cls(
-            loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse
-        )
+            return ((self.loc, self.correlation, self.conditional_precision, self.adj_matrix),
+                    ("loc", "correlation", "conditional_precision", "adj_matrix",
+                     {"is_sparse": self.is_sparse}))
 
     @staticmethod
-    def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
+    def infer_shapes(loc, correlation, conditional_precision, adj_matrix, is_sparse=None):
         event_shape = adj_matrix[-1:]
         batch_shape = lax.broadcast_shapes(
             loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
@@ -2063,16 +2032,11 @@ class Normal(Distribution):
     reparametrized_params = ["loc", "scale"]
 
     def __init__(
-        self, loc=0.0, scale=1.0, *, validate_args=None, in_vmap=False, batch_shape=None
+        self, loc=0.0, scale=1.0, *, validate_args=None
     ):
-        if not in_vmap:
-            self.loc, self.scale = promote_shapes(loc, scale)
-            assert batch_shape is None, batch_shape
-            batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        else:
-            self.loc = loc
-            self.scale = scale
-            assert isinstance(batch_shape, tuple)
+        self.loc, self.scale = promote_shapes(loc, scale)
+        assert batch_shape is None, batch_shape
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args, in_vmap=in_vmap
         )
@@ -2104,21 +2068,6 @@ class Normal(Distribution):
     @property
     def variance(self):
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
-
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape,),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape = aux_data[0]
-        return cls(
-            **dict(zip(cls.arg_constraints.keys(), params)),
-            batch_shape=batch_shape,
-            in_vmap=True,
-        )
 
 
 class Pareto(TransformedDistribution):
@@ -2362,16 +2311,15 @@ class Uniform(Distribution):
         if isinstance(self._support.lower_bound, (int, float)) and isinstance(
             self._support.upper_bound, (int, float)
         ):
-            aux_data = (self._support.lower_bound, self._support.upper_bound)
+            return (), (self._support.lower_bound, self._support.upper_bound)
         else:
-            aux_data = None
-        return (self.low, self.high), aux_data
+            return (self.low, self.high), ()
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.interval(*aux_data)
+        params = params + aux_data
+        d = Distribution.tree_flatten(cls, ("low", "high"), params)
+        d._support = constraints.interval(*params)
         return d
 
     @staticmethod

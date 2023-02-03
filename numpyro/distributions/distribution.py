@@ -140,15 +140,26 @@ class Distribution(metaclass=DistributionMeta):
         super().__init_subclass__(**kwargs)
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
+    @classmethod
     def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            None,
-        )
+        params = {name: getattr(self, param) for param in self.arg_constraints.items()}
+        return tuple(params.values()), tuple(params.keys())
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(**dict(zip(cls.arg_constraints.keys(), params)))
+        params = dict(zip(aux_data, params))
+        extra_params = aux_data[len(params):]
+        params.update(extra_params)
+        d = cls.__new__(cls)
+        for name, value in params.items():
+            setattr(d, name, value)
+        try:
+            batch_shape, event_shape = cls.infer_shapes(
+                **{name: jnp.shape(value) for name, value in params.items()})
+        except:
+            batch_shape, event_shape = None, None
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
     @staticmethod
     def set_default_validate_args(value):
@@ -809,6 +820,8 @@ class Independent(Distribution):
     def tree_unflatten(cls, aux_data, params):
         base_cls, base_aux, reinterpreted_batch_ndims = aux_data
         base_dist = base_cls.tree_unflatten(base_aux, params)
+        # Work around for vmap tracing phase where batch_shape is empty:
+        reinterpreted_batch_ndims = min(reinterpreted_batch_ndims, len(base_dist.batch_shape))
         return cls(base_dist, reinterpreted_batch_ndims)
 
 
@@ -1053,6 +1066,10 @@ class TransformedDistribution(Distribution):
             " which is supported in most situtations. In addition, please reach out to us with"
             " your usage cases."
         )
+
+    def tree_unflatten(cls, aux_data, params):
+        params = dict(zip(aux_data, params))
+        return cls(**params)
 
 
 class FoldedDistribution(TransformedDistribution):
