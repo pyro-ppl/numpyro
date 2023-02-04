@@ -2385,6 +2385,12 @@ def test_model_enum_subsample_2(scale):
 
 @pytest.mark.parametrize("scale", [1, 10])
 def test_model_enum_subsample_3(scale):
+    #      +--------------------+
+    #      |       +----------+ |
+    #  a ----> b ----> c      | |
+    #      |       |      N=2 | |
+    #      | M=2   +----------+ |
+    #      +--------------------+
     @config_enumerate
     @handlers.scale(scale=scale)
     def model(params):

@@ -965,28 +965,25 @@ class TraceEnum_ELBO(ELBO):
                                         f"but found different scales at plate('{plate}')."
                                     )
                             else:
-                                plate_to_scale[plate] = value
-                    group_scales = tuple(
-                        [
-                            value
-                            for plate, value in plate_to_scale.items()
-                            if plate in f.inputs
-                        ]
-                        for f in group_factors
-                    )
-                    scaled_group_factors = tuple(
-                        reduce(lambda a, b: a * b, scales, factor)
-                        for scales, factor in zip(group_scales, group_factors)
-                    )
+                                plate_to_scale[plate] = to_funsor(value)
 
                     cost = funsor.sum_product.sum_product(
                         funsor.ops.logaddexp,
                         funsor.ops.add,
-                        scaled_group_factors,
+                        group_factors,
                         plates=group_plates,
                         eliminate=group_sum_vars | elim_plates,
+                        scales=plate_to_scale,
                     )
-                    scale = plate_to_scale.get(None, None)
+                    scale = reduce(
+                        funsor.ops.mul,
+                        [
+                            value
+                            for plate, value in plate_to_scale.items()
+                            if plate not in elim_plates
+                        ],
+                        funsor.Number(1.0),
+                    )
                     # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]
