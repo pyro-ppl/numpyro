@@ -970,7 +970,7 @@ class TraceEnum_ELBO(ELBO):
                         [
                             value
                             for plate, value in plate_to_scale.items()
-                            if (plate in f.inputs) or (plate is None)
+                            if plate in f.inputs
                         ]
                         for f in group_factors
                     )
@@ -986,7 +986,7 @@ class TraceEnum_ELBO(ELBO):
                         plates=group_plates,
                         eliminate=group_sum_vars | elim_plates,
                     )
-                    scale = None
+                    scale = plate_to_scale.get(None, None)
                     # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]

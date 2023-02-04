@@ -2257,30 +2257,31 @@ def test_elbo_enumerate_plate_13():
     assert_equal(expected_grad, actual_grad, prec=1e-5)
 
 
-def test_model_enum_subsample_1():
-    data = jnp.ones(4)
-
+@pytest.mark.parametrize("scale", [1, 10])
+def test_model_enum_subsample_1(scale):
     @config_enumerate
-    def model(data, params):
+    @handlers.scale(scale=scale)
+    def model(params):
         locs = pyro.param("locs", params["locs"])
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
         )
         a = pyro.sample("a", dist.Categorical(probs_a))
-        with pyro.plate("b_axis", len(data)):
-            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=data)
+        with pyro.plate("b_axis", size=3):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
 
     @config_enumerate
-    def model_subsample(data, params):
+    @handlers.scale(scale=scale)
+    def model_subsample(params):
         locs = pyro.param("locs", params["locs"])
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
         )
         a = pyro.sample("a", dist.Categorical(probs_a))
-        with pyro.plate("b_axis", len(data), subsample_size=2) as ind:
-            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=data[ind])
+        with pyro.plate("b_axis", size=3, subsample_size=2):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
 
-    def guide(data, params):
+    def guide(params):
         pass
 
     params = {
@@ -2298,7 +2299,7 @@ def test_model_enum_subsample_1():
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
@@ -2308,7 +2309,7 @@ def test_model_enum_subsample_1():
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, data, params)
+        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
@@ -2316,37 +2317,37 @@ def test_model_enum_subsample_1():
     assert_equal(actual_grads, expected_grads, prec=1e-5)
 
 
-def test_model_enum_subsample_2():
-    data_b = jnp.zeros(6)
-    data_c = jnp.ones(4)
-
+@pytest.mark.parametrize("scale", [1, 10])
+def test_model_enum_subsample_2(scale):
     @config_enumerate
-    def model(data_b, data_c, params):
+    @handlers.scale(scale=scale)
+    def model(params):
         locs = pyro.param("locs", params["locs"])
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
         )
         a = pyro.sample("a", dist.Categorical(probs_a))
-        with pyro.plate("b_axis", len(data_b)):
-            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=data_b)
+        with pyro.plate("b_axis", size=3):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
 
-        with pyro.plate("c_axis", len(data_c)):
-            pyro.sample("c", dist.Normal(locs[a], 1.0), obs=data_c)
+        with pyro.plate("c_axis", size=6):
+            pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
 
     @config_enumerate
-    def model_subsample(data_b, data_c, params):
+    @handlers.scale(scale=scale)
+    def model_subsample(params):
         locs = pyro.param("locs", params["locs"])
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
         )
         a = pyro.sample("a", dist.Categorical(probs_a))
-        with pyro.plate("b_axis", len(data_b), subsample_size=2) as ind:
-            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=data_b[ind])
+        with pyro.plate("b_axis", size=3, subsample_size=2):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
 
-        with pyro.plate("c_axis", len(data_c), subsample_size=2) as ind:
-            pyro.sample("c", dist.Normal(locs[a], 1.0), obs=data_c[ind])
+        with pyro.plate("c_axis", size=6, subsample_size=3):
+            pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
 
-    def guide(data_b, data_c, params):
+    def guide(params):
         pass
 
     params = {
@@ -2364,7 +2365,7 @@ def test_model_enum_subsample_2():
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, data_b, data_c, params)
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
@@ -2374,11 +2375,75 @@ def test_model_enum_subsample_2():
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(
-            random.PRNGKey(0), {}, model_subsample, guide, data_b, data_c, params
-        )
+        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
     assert_equal(actual_loss, expected_loss, prec=1e-5)
+    assert_equal(actual_grads, expected_grads, prec=1e-5)
+
+
+@pytest.mark.parametrize("scale", [1, 10])
+def test_model_enum_subsample_3(scale):
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        with pyro.plate("a_axis", size=3):
+            a = pyro.sample("a", dist.Categorical(probs_a))
+            with pyro.plate("b_axis", size=6):
+                pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+                with pyro.plate("c_axis", size=9):
+                    pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
+
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model_subsample(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        with pyro.plate("a_axis", size=3, subsample_size=2):
+            a = pyro.sample("a", dist.Categorical(probs_a))
+            with pyro.plate("b_axis", size=6, subsample_size=3):
+                pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+                with pyro.plate("c_axis", size=9, subsample_size=4):
+                    pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
+
+    def guide(params):
+        pass
+
+    params = {
+        "locs": jnp.array([0.0, 1.0]),
+        "probs_a": jnp.array([0.4, 0.6]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = {"locs": params["locs"], "probs_a": transform.inv(params["probs_a"])}
+
+    elbo = infer.TraceEnum_ELBO()
+
+    # Expected grads w/o subsampling
+    def expected_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
+
+    # Actual grads w/ subsampling
+    def actual_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+
+    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
+
+    assert_equal(actual_loss, expected_loss, prec=1e-3)
     assert_equal(actual_grads, expected_grads, prec=1e-5)
