@@ -142,9 +142,15 @@ def test_beta_bernoulli(auto_class):
     assert predictive_samples["obs"].shape == (11, N, 2)
 
 
+class AutoAdaptRVRS(AutoRVRS):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs, history_size=10)
+
+
 @pytest.mark.parametrize(
     "auto_class",
     [
+        AutoAdaptRVRS,
         AutoRVRS,
         AutoDiagonalNormal,
         AutoIAFNormal,
@@ -157,10 +163,10 @@ def test_beta_bernoulli(auto_class):
         AutoDelta,
     ],
 )
-@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO][:1])
+@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
-    if auto_class == AutoRVRS and Elbo == TraceMeanField_ELBO:
-        return
+    if auto_class in [AutoRVRS, AutoAdaptRVRS] and Elbo is TraceMeanField_ELBO:
+        pytest.skip("Skip MeanField_ELBO for AutoRVRS.")
 
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -176,11 +182,11 @@ def test_logistic_regression(auto_class, Elbo):
 
     adam = optim.Adam(0.001)
     rng_key_init = random.PRNGKey(1)
-    if auto_class != AutoRVRS:
+    if auto_class not in [AutoRVRS, AutoAdaptRVRS]:
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
         init_loc_fn = init_to_median(num_samples=20)
-        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn, history_size=0)
+        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
@@ -198,7 +204,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     svi_state = fori_loop(0, 9000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS):
+    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS, AutoAdaptRVRS):
         median = guide.median(params)
         assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method

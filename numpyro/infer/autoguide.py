@@ -1893,7 +1893,8 @@ class AutoBNAFNormal(AutoContinuous):
 
 def _estimate_T(lw_history, n_history):  # N x S
     lw_normalize = lw_history - jnp.log(n_history)
-    return jnp.nanmedian(lw_normalize)
+    # FIXME: we need - sign here right?
+    return jnp.nanmedian(-lw_normalize)
 
 
 class AutoRVRS(AutoContinuous):
@@ -1970,10 +1971,10 @@ class AutoRVRS(AutoContinuous):
             lw_history = numpyro.primitives.mutable("_lw_history", {"value": jnp.zeros((self.history_size, self.S))})
             n_history = numpyro.primitives.mutable("_n_history", {"value": -jnp.ones((self.history_size, self.S), dtype=jnp.int32)})
             T = _estimate_T(lw_history["value"], n_history["value"])
-            # jax.debug.print("DEBUG T={T}, lw={lw_history} n={n_history}", T=T, lw_history=lw_history, n_history=n_history)
             T = jnp.where(jnp.isnan(T), self.T, T)
         else:
             T = self.T
+        jax.debug.print("DEBUG T={T}", T=T)
 
         if self.base_dist == "diagonal":
             init_z_scale = numpyro.param(
