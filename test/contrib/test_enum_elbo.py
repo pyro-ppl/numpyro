@@ -2259,7 +2259,8 @@ def test_elbo_enumerate_plate_13():
 
 @pytest.mark.parametrize("scale", [1, 10])
 def test_model_enum_subsample_1(scale):
-    # Model: enumerate a
+    # Enumerate: a
+    # Subsample: b
     #  a - [-> b  ]
     @config_enumerate
     @handlers.scale(scale=scale)
@@ -2325,7 +2326,8 @@ def test_model_enum_subsample_1(scale):
 
 @pytest.mark.parametrize("scale", [1, 10])
 def test_model_enum_subsample_2(scale):
-    # Model: enumerate a
+    # Enumerate: a
+    # Subsample: b, c
     #  a - [-> b  ]
     #   \
     #    - [-> c  ]
@@ -2399,7 +2401,8 @@ def test_model_enum_subsample_2(scale):
 
 @pytest.mark.parametrize("scale", [1, 10])
 def test_model_enum_subsample_3(scale):
-    # Model: enumerate a
+    # Enumerate: a
+    # Subsample: a, b, c
     # [ a - [----> b    ]
     # [  \  [           ]
     # [   - [- [-> c  ] ]
