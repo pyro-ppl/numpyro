@@ -180,7 +180,7 @@ def test_logistic_regression(auto_class, Elbo):
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
         init_loc_fn = init_to_median(num_samples=20)
-        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn, history_size=10)
+        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn, history_size=0)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
@@ -972,13 +972,15 @@ def test_rejection_sampler(T=-2.5, num_mc_samples=10 ** 4):
     q = dist.Normal(0.2, 1.2)
 
     def accept_log_prob_fn(z):
-        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T)
+        lw = p.log_prob(z) - q.log_prob(z)
+        return jax.nn.log_sigmoid(lw + T), lw
 
     def guide_sampler(key):
         return q.sample(key)
 
     keys = random.split(random.PRNGKey(0), num_mc_samples)
-    z, log_a, num_samples = jax.vmap(partial(rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
+    z, _, _, log_a, num_samples = jax.vmap(partial(
+        rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
 
     assert jnp.min(num_samples) > 0
     assert_allclose(np.mean(z), 0, atol=0.02)
@@ -987,7 +989,7 @@ def test_rejection_sampler(T=-2.5, num_mc_samples=10 ** 4):
     log_Z_rejection = logsumexp(log_a) - jnp.log(num_samples.sum())
 
     z_q = jax.vmap(guide_sampler)(keys)
-    log_Z_q = logsumexp(accept_log_prob_fn(z_q)) - jnp.log(num_mc_samples)
+    log_Z_q = logsumexp(accept_log_prob_fn(z_q)[0]) - jnp.log(num_mc_samples)
 
     assert_allclose(log_Z_rejection, log_Z_q, atol=0.01)
 
@@ -997,7 +999,8 @@ def test_rejection_sampler_grad(T=-2.5, num_mc_samples=10):
 
     def accept_log_prob_fn(params, z):
         q = dist.Normal(**params)
-        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T)
+        lw = p.log_prob(z) - q.log_prob(z)
+        return jax.nn.log_sigmoid(lw + T), lw
 
     def guide_sampler(params, key):
         q = dist.Normal(**params)

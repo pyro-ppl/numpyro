@@ -1970,10 +1970,10 @@ class AutoRVRS(AutoContinuous):
             lw_history = numpyro.primitives.mutable("_lw_history", {"value": jnp.zeros((self.history_size, self.S))})
             n_history = numpyro.primitives.mutable("_n_history", {"value": -jnp.ones((self.history_size, self.S), dtype=jnp.int32)})
             T = _estimate_T(lw_history["value"], n_history["value"])
+            # jax.debug.print("DEBUG T={T}, lw={lw_history} n={n_history}", T=T, lw_history=lw_history, n_history=n_history)
             T = jnp.where(jnp.isnan(T), self.T, T)
         else:
             T = self.T
-        jax.debug.print("DEBUG T={T}", T=T)
 
         if self.base_dist == "diagonal":
             init_z_scale = numpyro.param(
@@ -1988,21 +1988,20 @@ class AutoRVRS(AutoContinuous):
         guide_sampler = base_z_dist.sample
 
         def accept_log_prob_fn(z):
-            lw = log_density(z) - base_z_dist.log_prob(z)
+            lw = log_density(z) - stop_gradient(base_z_dist).log_prob(z)
             a = sigmoid(lw + T)
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw
 
-        key = numpyro.prng_key()
-        zs, log_ws, num_samples = jax.vmap(partial(rejection_sampler, accept_log_prob_fn, guide_sampler))(random.split(key, self.S))
+        keys = random.split(numpyro.prng_key(), self.S)
+        zs, log_weight, log_ws, _, num_samples = jax.vmap(partial(
+            rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
         assert zs.shape == (self.S, self.latent_dim)
 
-        if self.T is None:
-            lw_history["value"] = jnp.concatenate([lw_history["value"][1:], log_ws[None]])
+        if self.history_size:
+            lw_history["value"] = jnp.concatenate([lw_history["value"][1:], stop_gradient(log_ws)[None]])
             n_history["value"] = jnp.concatenate([n_history["value"][1:], num_samples[None]])
 
         # compute surrogate elbo
-        # TODO: avoid recomputing logp-logq by using log_as[-1]
-        log_weight = jax.vmap(log_density)(zs) - stop_gradient(base_z_dist).log_prob(zs)
 
         #loga = logsumexp(log_as) - jnp.log(num_samples.sum())
         #jax.debug.print("loga={loga}", loga=loga)
@@ -2040,26 +2039,26 @@ class AutoRVRS(AutoContinuous):
 
 
 def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
-    # TODO: generate prototype sample
-    # NOTE: we might want more info from the sampler to get an estimate for Z
-
     def cond_fn(val):
         return ~val[-1]
 
     def body_fn(val):
-        key, _, log_w, num_samples, _ = val
+        key, _, _, log_sum_w, log_a, num_samples, _ = val
         key_next, key_uniform, key_q = random.split(key, 3)
         z = guide_sampler(key_q)
         accept_log_prob, log_weight = accept_log_prob_fn(z)
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob
-        log_w = logsumexp(jnp.stack([log_w, log_weight]))
-        return key_next, z, log_w, num_samples + 1, is_accepted
+        log_sum_w = logsumexp(jnp.stack([log_sum_w, log_weight]))
+        log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
+        return key_next, z, log_weight, log_sum_w, log_a, num_samples + 1, is_accepted
 
-    init_val = body_fn((key, None, -np.inf, 0, None))
-    _, z, log_w, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    prototype_z = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+                           jax.eval_shape(guide_sampler, key))
+    init_val = (key, prototype_z, -jnp.inf, -jnp.inf, -jnp.inf, 0, False)
+    _, z, log_w, log_sum_w, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
 
-    return z, log_w, num_samples
+    return z, log_w, log_sum_w, log_a, num_samples
 
 
 def _compose(f, g, x):
@@ -2091,14 +2090,11 @@ def _rs_impl(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, key, *
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob
         log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
-        jax.debug.print("log_a = {log_a}", log_a=log_a)
         return key_next, key_q, z, log_a, num_samples + 1, is_accepted
 
     init_val = body_fn((key, key, None, -np.inf, 0, None))
 
-    with jax.disable_jit():
-        _, key_q, z, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
-    print("FINISH while loop")
+    _, key_q, z, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
 
     return key_q, z, log_a, num_samples
 
