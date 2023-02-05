@@ -960,12 +960,16 @@ class TraceEnum_ELBO(ELBO):
                         eliminate=group_sum_vars | elim_plates,
                     )
                     # incorporate the effects of subsampling and handlers.scale through a common scale factor
-                    scales_set = set(
-                        [
-                            model_trace[name]["scale"]
-                            for name in (group_names | group_sum_vars)
-                        ]
-                    )
+                    scales_set = set()
+                    for name in group_names | group_sum_vars:
+                        site_scale = model_trace[name]["scale"]
+                        if site_scale is None:
+                            site_scale = 1.0
+                        if isinstance(site_scale, jnp.ndarray) and site_scale.ndim:
+                            raise ValueError(
+                                "enumeration only supports scalar handlers.scale"
+                            )
+                        scales_set.add(float(site_scale))
                     if len(scales_set) != 1:
                         raise ValueError(
                             "Expected all enumerated sample sites to share a common scale, "

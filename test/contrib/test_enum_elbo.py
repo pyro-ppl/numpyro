@@ -139,7 +139,7 @@ def test_elbo_enumerate_1(scale):
     assert_equal(auto_grad, hand_grad, prec=1e-5)
 
 
-@pytest.mark.parametrize("scale", [1, 10])
+@pytest.mark.parametrize("scale", [1, 10, jnp.array(10)])
 def test_elbo_enumerate_2(scale):
     params = {}
     params["guide_probs_x"] = jnp.array([0.1, 0.9])
