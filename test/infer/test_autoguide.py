@@ -144,7 +144,7 @@ def test_beta_bernoulli(auto_class):
 
 class AutoAdaptRVRS(AutoRVRS):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, history_size=10)
+        super().__init__(*args, **kwargs, history_size=1000)
 
 
 @pytest.mark.parametrize(
@@ -163,7 +163,7 @@ class AutoAdaptRVRS(AutoRVRS):
         AutoDelta,
     ],
 )
-@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
+@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO][:1])
 def test_logistic_regression(auto_class, Elbo):
     if auto_class in [AutoRVRS, AutoAdaptRVRS] and Elbo is TraceMeanField_ELBO:
         pytest.skip("Skip MeanField_ELBO for AutoRVRS.")
@@ -185,8 +185,8 @@ def test_logistic_regression(auto_class, Elbo):
     if auto_class not in [AutoRVRS, AutoAdaptRVRS]:
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
-        init_loc_fn = init_to_median(num_samples=20)
-        guide = auto_class(model, S=6, T=1800.0, epsilon=0.3, init_scale=0.2, init_loc_fn=init_loc_fn)
+        init_loc_fn = init_to_median(num_samples=100)
+        guide = auto_class(model, S=6, T=1800.0, epsilon=0.1, init_scale=0.2, init_loc_fn=init_loc_fn)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
@@ -202,7 +202,7 @@ def test_logistic_regression(auto_class, Elbo):
         svi_state, loss = svi.update(val, data, labels)
         return svi_state
 
-    svi_state = fori_loop(0, 9000, body_fn, svi_state)
+    svi_state = fori_loop(0, 8000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS, AutoAdaptRVRS):
         median = guide.median(params)

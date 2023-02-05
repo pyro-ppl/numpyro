@@ -1891,10 +1891,9 @@ class AutoBNAFNormal(AutoContinuous):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
 
-def _estimate_T(lw_history, n_history):  # N x S
+def _estimate_T(lw_history, n_history, quantile=0.90):  # N x S
     lw_normalize = lw_history - jnp.log(n_history)
-    # FIXME: we need - sign here right?
-    return jnp.nanmedian(-lw_normalize)
+    return -jnp.nanpercentile(lw_normalize, quantile)
 
 
 class AutoRVRS(AutoContinuous):
@@ -1958,23 +1957,20 @@ class AutoRVRS(AutoContinuous):
             "{}_z_0_loc".format(self.prefix),
             self._init_latent,
         )
-        # t0 t1 t2 ... tn-1 -> t1 ... tn (size=n)
-        # t0 t0 t0 ... t0 -> t0 ... t0 t1 (size=2)
-
-        # t0 ... t0 t1 ... t1 ... t10 ... t10 : t-i is repeated n-i times
-        # t9 ... t10 ...
-
-        # t0 t1 ... t10
-        # n0 n1 ... n10
 
         if self.history_size:
+            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             lw_history = numpyro.primitives.mutable("_lw_history", {"value": jnp.zeros((self.history_size, self.S))})
             n_history = numpyro.primitives.mutable("_n_history", {"value": -jnp.ones((self.history_size, self.S), dtype=jnp.int32)})
-            T = _estimate_T(lw_history["value"], n_history["value"])
-            T = jnp.where(jnp.isnan(T), self.T, T)
+            T_estimate = _estimate_T(lw_history["value"], n_history["value"])
+            T_estimate = jnp.where(jnp.isnan(T_estimate), T_adapt["value"], T_estimate)
+            # update T every history_size / 2 steps
+            T_adapt["value"] = jax.lax.select(num_updates["value"] % (self.history_size // 2) == 0, T_estimate, T_adapt["value"])
+            T = T_adapt["value"]
         else:
             T = self.T
-        jax.debug.print("DEBUG T={T}", T=T)
+        #jax.debug.print("DEBUG T={T}", T=T)
 
         if self.base_dist == "diagonal":
             init_z_scale = numpyro.param(
@@ -1999,14 +1995,11 @@ class AutoRVRS(AutoContinuous):
         assert zs.shape == (self.S, self.latent_dim)
 
         if self.history_size:
+            num_updates["value"] = 1 + num_updates["value"]
             lw_history["value"] = jnp.concatenate([lw_history["value"][1:], stop_gradient(log_ws)[None]])
             n_history["value"] = jnp.concatenate([n_history["value"][1:], num_samples[None]])
 
         # compute surrogate elbo
-
-        #loga = logsumexp(log_as) - jnp.log(num_samples.sum())
-        #jax.debug.print("loga={loga}", loga=loga)
-
         az = sigmoid(log_weight + T)
         log_a_eps_z = jnp.log(self.epsilon + (1 - self.epsilon) * az)
         Az = log_weight - log_sigmoid(log_weight + T)
