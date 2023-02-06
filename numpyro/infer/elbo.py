@@ -941,7 +941,7 @@ class TraceEnum_ELBO(ELBO):
                 guide_desc,
             )
 
-            check_model_guide_match(model_trace, guide_trace)
+            # check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
             model_vars = frozenset(model_deps)

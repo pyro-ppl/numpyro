@@ -217,7 +217,7 @@ def test_meanfield_enum():
     assert_equal(kl_loss, expected_loss, prec=0.1)
     assert_equal(kl_grads, expected_grads, prec=0.02)
 
-    # Ggrads based on exact and analytic kl integration
+    # Grads based on exact and analytic kl integration
     elbo = infer.TraceEnum_ELBO()
 
     def kl_enum_loss_fn(params_raw):
@@ -228,3 +228,49 @@ def test_meanfield_enum():
 
     assert_equal(kl_enum_loss, expected_loss, prec=0.1)
     assert_equal(kl_enum_grads, expected_grads, prec=0.02)
+
+
+def test_meanfield_enum_2():
+
+    @config_enumerate
+    def model(params):
+        d = pyro.sample("d", dist.Categorical(jnp.array([0.3, 0.7])))
+        z1 = pyro.sample("z1", dist.Normal(d, 1.0))
+        z2 = pyro.sample("z2", dist.Normal(0.0, 1.0))
+
+    def guide(params):
+        z1_loc = pyro.param("z1_loc", params["z1_loc"])
+        z2_loc = pyro.param("z2_loc", params["z2_loc"])
+        z1 = pyro.sample("z1", dist.Normal(z1_loc, 1.0))
+        z2 = pyro.sample("z2", dist.Normal(z2_loc, 1.0))
+
+    def guide_kl(params):
+        z1_loc = pyro.param("z1_loc", params["z1_loc"])
+        z2_loc = pyro.param("z2_loc", params["z2_loc"])
+        z1 = pyro.sample("z1", dist.Normal(z1_loc, 1.0))
+        z2 = pyro.sample("z2", dist.Normal(z2_loc, 1.0), infer={"kl": True})
+
+    params = {
+        "z1_loc": jnp.array(0.0),
+        "z2_loc": jnp.array(1.0),
+    }
+
+    # Expected grads averaged over num_particles
+    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
+
+    def expected_loss_fn(params):
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params)
+
+    # Grads based on exact integration
+    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
+
+    def actual_loss_fn(params):
+        return elbo.loss(random.PRNGKey(0), {}, model, guide_kl, params)
+
+    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params)
+
+    import pdb;pdb.set_trace()
+    assert_equal(actual_loss, expected_loss, prec=0.02)
+    assert_equal(actual_grads, expected_grads, prec=0.02)
