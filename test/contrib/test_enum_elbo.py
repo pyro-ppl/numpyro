@@ -2255,3 +2255,220 @@ def test_elbo_enumerate_plate_13():
 
     assert_equal(expected_loss, actual_loss, prec=1e-5)
     assert_equal(expected_grad, actual_grad, prec=1e-5)
+
+
+@pytest.mark.parametrize("scale", [1, 10])
+def test_model_enum_subsample_1(scale):
+    # Enumerate: a
+    # Subsample: b
+    #  a - [-> b  ]
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        a = pyro.sample("a", dist.Categorical(probs_a))
+        with pyro.plate("b_axis", size=3):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model_subsample(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        a = pyro.sample("a", dist.Categorical(probs_a))
+        with pyro.plate("b_axis", size=3, subsample_size=2):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+
+    def guide(params):
+        pass
+
+    params = {
+        "locs": jnp.array([0.0, 1.0]),
+        "probs_a": jnp.array([0.4, 0.6]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = {"locs": params["locs"], "probs_a": transform.inv(params["probs_a"])}
+
+    elbo = infer.TraceEnum_ELBO()
+
+    # Expected grads w/o subsampling
+    def expected_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
+
+    # Actual grads w/ subsampling
+    def actual_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+
+    with pytest.raises(
+        ValueError, match="Expected all enumerated sample sites to share a common scale"
+    ):
+        # This never gets run because we don't support this yet.
+        actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
+
+        assert_equal(actual_loss, expected_loss, prec=1e-5)
+        assert_equal(actual_grads, expected_grads, prec=1e-5)
+
+
+@pytest.mark.parametrize("scale", [1, 10])
+def test_model_enum_subsample_2(scale):
+    # Enumerate: a
+    # Subsample: b, c
+    #  a - [-> b  ]
+    #   \
+    #    - [-> c  ]
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        a = pyro.sample("a", dist.Categorical(probs_a))
+        with pyro.plate("b_axis", size=3):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+
+        with pyro.plate("c_axis", size=6):
+            pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
+
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model_subsample(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        a = pyro.sample("a", dist.Categorical(probs_a))
+        with pyro.plate("b_axis", size=3, subsample_size=2):
+            pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+
+        with pyro.plate("c_axis", size=6, subsample_size=3):
+            pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
+
+    def guide(params):
+        pass
+
+    params = {
+        "locs": jnp.array([0.0, 1.0]),
+        "probs_a": jnp.array([0.4, 0.6]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = {"locs": params["locs"], "probs_a": transform.inv(params["probs_a"])}
+
+    elbo = infer.TraceEnum_ELBO()
+
+    # Expected grads w/o subsampling
+    def expected_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
+
+    # Actual grads w/ subsampling
+    def actual_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+
+    with pytest.raises(
+        ValueError, match="Expected all enumerated sample sites to share a common scale"
+    ):
+        # This never gets run because we don't support this yet.
+        actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
+
+        assert_equal(actual_loss, expected_loss, prec=1e-5)
+        assert_equal(actual_grads, expected_grads, prec=1e-5)
+
+
+@pytest.mark.parametrize("scale", [1, 10])
+def test_model_enum_subsample_3(scale):
+    # Enumerate: a
+    # Subsample: a, b, c
+    # [ a - [----> b    ]
+    # [  \  [           ]
+    # [   - [- [-> c  ] ]
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        with pyro.plate("a_axis", size=3):
+            a = pyro.sample("a", dist.Categorical(probs_a))
+            with pyro.plate("b_axis", size=6):
+                pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+                with pyro.plate("c_axis", size=9):
+                    pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
+
+    @config_enumerate
+    @handlers.scale(scale=scale)
+    def model_subsample(params):
+        locs = pyro.param("locs", params["locs"])
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        with pyro.plate("a_axis", size=3, subsample_size=2):
+            a = pyro.sample("a", dist.Categorical(probs_a))
+            with pyro.plate("b_axis", size=6, subsample_size=3):
+                pyro.sample("b", dist.Normal(locs[a], 1.0), obs=0)
+                with pyro.plate("c_axis", size=9, subsample_size=4):
+                    pyro.sample("c", dist.Normal(locs[a], 1.0), obs=1)
+
+    def guide(params):
+        pass
+
+    params = {
+        "locs": jnp.array([0.0, 1.0]),
+        "probs_a": jnp.array([0.4, 0.6]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = {"locs": params["locs"], "probs_a": transform.inv(params["probs_a"])}
+
+    elbo = infer.TraceEnum_ELBO()
+
+    # Expected grads w/o subsampling
+    def expected_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
+
+    # Actual grads w/ subsampling
+    def actual_loss_fn(params_raw):
+        params = {
+            "locs": params_raw["locs"],
+            "probs_a": transform(params_raw["probs_a"]),
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+
+    with pytest.raises(
+        ValueError, match="Expected all enumerated sample sites to share a common scale"
+    ):
+        # This never gets run because we don't support this yet.
+        actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
+
+        assert_equal(actual_loss, expected_loss, prec=1e-3)
+        assert_equal(actual_grads, expected_grads, prec=1e-5)

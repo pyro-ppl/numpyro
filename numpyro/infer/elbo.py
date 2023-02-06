@@ -839,7 +839,7 @@ def guess_max_plate_nesting(model, guide, args, kwargs, param_map):
 
 class TraceEnum_ELBO(ELBO):
     """
-    A TraceEnum implementation of ELBO-based SVI. The gradient estimator
+    (EXPERIMENTAL) A TraceEnum implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
     of the ELBO. It supports arbitrary dependency structure for the model
     and guide.
@@ -960,24 +960,22 @@ class TraceEnum_ELBO(ELBO):
                         eliminate=group_sum_vars | elim_plates,
                     )
                     # incorporate the effects of subsampling and handlers.scale through a common scale factor
-                    group_scales = {}
-                    for name in group_names:
-                        for plate, value in (
-                            model_trace[name].get("plate_to_scale", {}).items()
-                        ):
-                            if plate in group_scales:
-                                if value != group_scales[plate]:
-                                    raise ValueError(
-                                        "Expected all enumerated sample sites to share a common scale factor, "
-                                        f"but found different scales at plate('{plate}')."
-                                    )
-                            else:
-                                group_scales[plate] = value
-                    scale = (
-                        reduce(lambda a, b: a * b, group_scales.values())
-                        if group_scales
-                        else None
-                    )
+                    scales_set = set()
+                    for name in group_names | group_sum_vars:
+                        site_scale = model_trace[name]["scale"]
+                        if site_scale is None:
+                            site_scale = 1.0
+                        if isinstance(site_scale, jnp.ndarray):
+                            raise ValueError(
+                                "Enumeration only supports scalar handlers.scale"
+                            )
+                        scales_set.add(float(site_scale))
+                    if len(scales_set) != 1:
+                        raise ValueError(
+                            "Expected all enumerated sample sites to share a common scale, "
+                            f"but found {len(scales_set)} different scales."
+                        )
+                    scale = next(iter(scales_set))
                     # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]
