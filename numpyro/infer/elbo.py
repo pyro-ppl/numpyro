@@ -965,9 +965,9 @@ class TraceEnum_ELBO(ELBO):
                         site_scale = model_trace[name]["scale"]
                         if site_scale is None:
                             site_scale = 1.0
-                        if isinstance(site_scale, jnp.ndarray) and site_scale.ndim:
+                        if isinstance(site_scale, jnp.ndarray):
                             raise ValueError(
-                                "enumeration only supports scalar handlers.scale"
+                                "Enumeration only supports scalar handlers.scale"
                             )
                         scales_set.add(float(site_scale))
                     if len(scales_set) != 1:
