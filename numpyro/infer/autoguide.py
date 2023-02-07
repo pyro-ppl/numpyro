@@ -1891,7 +1891,7 @@ class AutoBNAFNormal(AutoContinuous):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
 
-def _estimate_T(lw_history, n_history, quantile=0.90):  # N x S
+def _estimate_T(lw_history, n_history, quantile=0.25):  # N x S
     lw_normalize = lw_history - jnp.log(n_history)
     return -jnp.nanpercentile(lw_normalize, quantile)
 
@@ -1929,6 +1929,8 @@ class AutoRVRS(AutoContinuous):
         self.base_dist = base_dist
         self._init_scale = init_scale
         self.history_size = history_size
+        self.T_lr = 5.0
+        self.Z_target = 0.5
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -1958,7 +1960,7 @@ class AutoRVRS(AutoContinuous):
             self._init_latent,
         )
 
-        if self.history_size:
+        if self.history_size > 0:
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
             num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             lw_history = numpyro.primitives.mutable("_lw_history", {"value": jnp.zeros((self.history_size, self.S))})
@@ -1968,8 +1970,12 @@ class AutoRVRS(AutoContinuous):
             # update T every history_size / 2 steps
             T_adapt["value"] = jax.lax.select(num_updates["value"] % (self.history_size // 2) == 0, T_estimate, T_adapt["value"])
             T = T_adapt["value"]
-        else:
+        elif self.history_size == 0:
             T = self.T
+        else:
+            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
+            T = T_adapt["value"]
+
         #jax.debug.print("DEBUG T={T}", T=T)
 
         if self.base_dist == "diagonal":
@@ -1990,14 +1996,10 @@ class AutoRVRS(AutoContinuous):
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw
 
         keys = random.split(numpyro.prng_key(), self.S)
-        zs, log_weight, log_ws, _, num_samples = jax.vmap(partial(
+        zs, log_weight, log_ws, _, num_samples, first_log_a = jax.vmap(partial(
             rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
         assert zs.shape == (self.S, self.latent_dim)
-
-        if self.history_size:
-            num_updates["value"] = 1 + num_updates["value"]
-            lw_history["value"] = jnp.concatenate([lw_history["value"][1:], stop_gradient(log_ws)[None]])
-            n_history["value"] = jnp.concatenate([n_history["value"][1:], num_samples[None]])
+    # z, log_w, log_sum_w, log_a, num_samples
 
         # compute surrogate elbo
         az = sigmoid(log_weight + T)
@@ -2011,6 +2013,19 @@ class AutoRVRS(AutoContinuous):
         surrogate = 1 / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).mean()
         # TODO: return elbo with surrogate grad
         numpyro.factor("surrogate_factor", -surrogate)
+
+        if self.history_size > 0:
+            num_updates["value"] = 1 + num_updates["value"]
+            lw_history["value"] = jnp.concatenate([lw_history["value"][1:], stop_gradient(log_ws)[None]])
+            n_history["value"] = jnp.concatenate([n_history["value"][1:], num_samples[None]])
+        elif self.history_size < 0:
+            a = stop_gradient(jnp.exp(first_log_a))
+            #a = stop_gradient((jnp.exp(first_log_a) - self.epsilon) / (1 - self.epsilon))
+            #jax.debug.print("DEBUG a={a}", a=a)
+            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
+            #jax.debug.print("DEBUG T_grad={T_grad}", T_grad=T_grad)
+            T_adapt["value"] = T_adapt["value"] - self.T_lr * T_grad
 
         return stop_gradient(zs[0])
 
@@ -2037,22 +2052,23 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
         return ~val[-1]
 
     def body_fn(val):
-        key, _, _, log_sum_w, log_a, num_samples, _ = val
+        key, _, _, log_sum_w, log_a, num_samples, first_log_a, _ = val
         key_next, key_uniform, key_q = random.split(key, 3)
         z = guide_sampler(key_q)
         accept_log_prob, log_weight = accept_log_prob_fn(z)
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob
         log_sum_w = logsumexp(jnp.stack([log_sum_w, log_weight]))
+        first_log_a = jax.lax.select(num_samples == 0, accept_log_prob, first_log_a)
         log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
-        return key_next, z, log_weight, log_sum_w, log_a, num_samples + 1, is_accepted
+        return key_next, z, log_weight, log_sum_w, log_a, num_samples + 1, first_log_a, is_accepted
 
     prototype_z = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
                            jax.eval_shape(guide_sampler, key))
-    init_val = (key, prototype_z, -jnp.inf, -jnp.inf, -jnp.inf, 0, False)
-    _, z, log_w, log_sum_w, log_a, num_samples, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    init_val = (key, prototype_z, -jnp.inf, -jnp.inf, -jnp.inf, 0, -jnp.inf, False)
+    _, z, log_w, log_sum_w, log_a, num_samples, first_log_a, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
 
-    return z, log_w, log_sum_w, log_a, num_samples
+    return z, log_w, log_sum_w, log_a, num_samples, first_log_a
 
 
 def _compose(f, g, x):
