@@ -1929,7 +1929,7 @@ class AutoRVRS(AutoContinuous):
         self.base_dist = base_dist
         self._init_scale = init_scale
         self.history_size = history_size
-        self.T_lr = 5.0
+        self.T_lr = 1.0
         self.Z_target = 0.5
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
@@ -1974,6 +1974,7 @@ class AutoRVRS(AutoContinuous):
             T = self.T
         else:
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
+            A_stats = numpyro.primitives.mutable("A_stats", {"value": jnp.zeros(self.S)})
             T = T_adapt["value"]
 
         #jax.debug.print("DEBUG T={T}", T=T)
@@ -1999,7 +2000,6 @@ class AutoRVRS(AutoContinuous):
         zs, log_weight, log_ws, _, num_samples, first_log_a = jax.vmap(partial(
             rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
         assert zs.shape == (self.S, self.latent_dim)
-    # z, log_w, log_sum_w, log_a, num_samples
 
         # compute surrogate elbo
         az = sigmoid(log_weight + T)
@@ -2020,12 +2020,14 @@ class AutoRVRS(AutoContinuous):
             n_history["value"] = jnp.concatenate([n_history["value"][1:], num_samples[None]])
         elif self.history_size < 0:
             a = stop_gradient(jnp.exp(first_log_a))
-            #a = stop_gradient((jnp.exp(first_log_a) - self.epsilon) / (1 - self.epsilon))
-            #jax.debug.print("DEBUG a={a}", a=a)
-            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
-            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
-            #jax.debug.print("DEBUG T_grad={T_grad}", T_grad=T_grad)
+            # Option 1: minimize (Z - Z_target) ** 2
+            # a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            # T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
+            # Option 2: maximize var(a)
+            a_delta =  1 / (self.S - 1) * jnp.sum(a) - (self.S / (self.S - 1)) * a
+            T_grad = 2 * jnp.mean(a_delta * (a - self.epsilon) * (1 - a)) / (1 - self.epsilon)
             T_adapt["value"] = T_adapt["value"] - self.T_lr * T_grad
+            A_stats["value"] = stop_gradient(first_log_a)
 
         return stop_gradient(zs[0])
 
