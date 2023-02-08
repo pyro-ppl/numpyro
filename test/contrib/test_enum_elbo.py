@@ -2472,3 +2472,44 @@ def test_model_enum_subsample_3(scale):
 
         assert_equal(actual_loss, expected_loss, prec=1e-3)
         assert_equal(actual_grads, expected_grads, prec=1e-5)
+
+
+def test_guide_plate_contraction():
+    def model(params):
+        with pyro.plate("a_axis", size=2):
+            a = pyro.sample("a", dist.Categorical(jnp.array([0.2, 0.8])))
+        pyro.sample("b", dist.Normal(jnp.sum(a), 1.0), obs=1)
+
+    def guide(params):
+        probs_a = pyro.param(
+            "probs_a", params["probs_a"], constraint=constraints.simplex
+        )
+        with pyro.plate("a_axis", size=2):
+            pyro.sample("a", dist.Categorical(probs_a))
+
+    params = {
+        "probs_a": jnp.array([[0.4, 0.6], [0.7, 0.3]]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = jax.tree_util.tree_map(transform.inv, params)
+
+    # TraceGraph_ELBO grads averaged over num_particles
+    elbo = infer.TraceGraph_ELBO(num_particles=50_000)
+
+    def graph_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    graph_loss, graph_grads = jax.value_and_grad(graph_loss_fn)(params_raw)
+
+    # TraceEnum_ELBO grads averaged over num_particles (no enumeration)
+    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
+
+    def enum_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    enum_loss, enum_grads = jax.value_and_grad(enum_loss_fn)(params_raw)
+
+    assert_equal(enum_loss, graph_loss, prec=1e-3)
+    assert_equal(enum_grads, graph_grads, prec=3e-3)
