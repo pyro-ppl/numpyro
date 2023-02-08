@@ -1020,7 +1020,6 @@ class TraceEnum_ELBO(ELBO):
                 if (scale is not None) and (not is_identically_one(scale)):
                     cost = cost * scale
 
-                # TODO
                 elbo = elbo + cost.reduce(funsor.ops.add)
 
             return to_data(elbo)
