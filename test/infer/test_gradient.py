@@ -12,7 +12,7 @@ import jax.numpy as jnp
 
 import numpyro as pyro
 from numpyro import infer
-from numpyro.contrib.funsor import config_enumerate
+from numpyro.contrib.funsor import config_enumerate, config_kl
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.ops.indexing import Vindex
@@ -135,142 +135,214 @@ def test_gradient(model, guide, params, data):
     assert_equal(actual_grads, expected_grads, prec=0.02)
 
 
-def test_meanfield_enum():
-    data = jnp.array([0.0, 1.0, 10.0, 11.0, 12.0])
+def kl_model_0_z1z2z3(params):
+    # Model
+    # z1
+    #
+    # z2
+    #
+    # z3
+    probs_z1 = jnp.array([0.5, 0.5])
+    probs_z2 = jnp.array([0.7, 0.3])
+    probs_z3 = jnp.array([0.8, 0.2])
+    pyro.sample("z1", dist.Categorical(probs_z1))
+    pyro.sample("z2", dist.Categorical(probs_z2))
+    pyro.sample("z3", dist.Categorical(probs_z3))
 
-    def model(data, params):
-        with pyro.plate("components", 2):
-            pyro.sample("locs", dist.Normal(0.0, 1.0))
 
-        with pyro.plate("data", len(data)):
-            pyro.sample("assignment", dist.Categorical(jnp.array([0.3, 0.7])))
-            # pyro.sample("obs", dist.Normal(locs[assignment], 1.0), obs=data)
+def kl_model_1_z1z2z3(params):
+    # Model
+    # z1 --+
+    # |    |
+    # v    |
+    # z2   |
+    # |    |
+    # v    |
+    # z3 <-+
+    probs_z1 = jnp.array([0.5, 0.5])
+    probs_z2 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    probs_z3 = jnp.array([[[0.4, 0.6], [0.1, 0.9]], [[0.7, 0.3], [0.2, 0.8]]])
+    z1 = pyro.sample("z1", dist.Categorical(probs_z1))
+    z2 = pyro.sample("z2", dist.Categorical(probs_z2[z1]))
+    pyro.sample("z3", dist.Categorical(probs_z3[z1, z2]))
 
-    def guide_enum(data, params):
-        a = pyro.param("a", params["a"])
-        b = pyro.param("b", params["b"], constraint=constraints.simplex)
-        with pyro.plate("components", 2):
-            pyro.sample("locs", dist.Normal(a, 1.0))
 
-        with pyro.plate("data", len(data)):
-            pyro.sample(
-                "assignment", dist.Categorical(b), infer={"enumerate": "parallel"}
-            )
+def kl_model_2_z2z3(params):
+    # Model (inverted the order of z1 and z2)
+    # z2 --+
+    # |    |
+    # v    |
+    # z1   |
+    # |    |
+    # v    |
+    # z3 <-+
+    probs_z2 = jnp.array([0.5, 0.5])
+    probs_z1 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    probs_z3 = jnp.array([[[0.4, 0.6], [0.1, 0.9]], [[0.7, 0.3], [0.2, 0.8]]])
+    z2 = pyro.sample("z2", dist.Categorical(probs_z2))
+    z1 = pyro.sample("z1", dist.Categorical(probs_z1[z2]))
+    pyro.sample("z3", dist.Categorical(probs_z3[z1, z2]))
 
-    def guide_kl(data, params):
-        a = pyro.param("a", params["a"])
-        b = pyro.param("b", params["b"], constraint=constraints.simplex)
-        with pyro.plate("components", 2):
-            pyro.sample("locs", dist.Normal(a, 1.0), infer={"kl": True})
 
-        with pyro.plate("data", len(data)):
-            pyro.sample("assignment", dist.Categorical(b), infer={"kl": True})
+@config_enumerate
+def kl_model_3_z2z3(params):
+    # Model
+    # d
+    # |
+    # v
+    # z1
+    #
+    # z2
+    #
+    # z3
+    probs_d = jnp.array([0.5, 0.5])
+    probs_z1 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    probs_z2 = jnp.array([0.7, 0.3])
+    probs_z3 = jnp.array([0.8, 0.2])
+    d = pyro.sample("d", dist.Categorical(probs_d))
+    pyro.sample("z1", dist.Categorical(probs_z1[d]))
+    pyro.sample("z2", dist.Categorical(probs_z2))
+    pyro.sample("z3", dist.Categorical(probs_z3))
 
-    def guide_kl_enum(data, params):
-        a = pyro.param("a", params["a"])
-        b = pyro.param("b", params["b"], constraint=constraints.simplex)
-        with pyro.plate("components", 2):
-            pyro.sample("locs", dist.Normal(a, 1.0), infer={"kl": True})
 
-        with pyro.plate("data", len(data)):
-            pyro.sample(
-                "assignment", dist.Categorical(b), infer={"enumerate": "parallel"}
-            )
+@config_enumerate
+def kl_model_4_z3(params):
+    # Model
+    # d ---+
+    # |    |
+    # v    |
+    # z1   |
+    #      |
+    # z2 <-+
+    #
+    # z3
+    probs_d = jnp.array([0.5, 0.5])
+    probs_z1 = jnp.array([[0.5, 0.5], [0.2, 0.8]])
+    probs_z2 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    probs_z3 = jnp.array([0.8, 0.2])
+    d = pyro.sample("d", dist.Categorical(probs_d))
+    pyro.sample("z1", dist.Categorical(probs_z1[d]))
+    pyro.sample("z2", dist.Categorical(probs_z2[d]))
+    pyro.sample("z3", dist.Categorical(probs_z3))
+
+
+@config_enumerate
+def kl_model_5_z2(params):
+    # Model
+    # d ---+
+    # |    |
+    # v    |
+    # z1 <-|
+    #      |
+    # z2   |
+    #      |
+    # z3 <-+
+    probs_d = jnp.array([0.5, 0.5])
+    probs_z1 = jnp.array([[0.5, 0.5], [0.2, 0.8]])
+    probs_z2 = jnp.array([0.8, 0.2])
+    probs_z3 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    d = pyro.sample("d", dist.Categorical(probs_d))
+    pyro.sample("z1", dist.Categorical(probs_z1[d]))
+    pyro.sample("z2", dist.Categorical(probs_z2))
+    pyro.sample("z3", dist.Categorical(probs_z3[d]))
+
+
+@config_enumerate
+def kl_model_6_(params):
+    # Model
+    # d ---+
+    # |    |
+    # v    |
+    # z1 <-|
+    #      |
+    # z2 <-|
+    #      |
+    # z3 <-+
+    probs_d = jnp.array([0.5, 0.5])
+    probs_z1 = jnp.array([[0.5, 0.5], [0.2, 0.8]])
+    probs_z2 = jnp.array([[0.1, 0.9], [0.3, 0.7]])
+    probs_z3 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    d = pyro.sample("d", dist.Categorical(probs_d))
+    pyro.sample("z1", dist.Categorical(probs_z1[d]))
+    pyro.sample("z2", dist.Categorical(probs_z2[d]))
+    pyro.sample("z3", dist.Categorical(probs_z3[d]))
+
+
+@pytest.mark.parametrize(
+    "model,kl_sites,valid_kl",
+    [
+        (kl_model_0_z1z2z3, set(["z1", "z2", "z3"]), True),
+        (kl_model_1_z1z2z3, set(["z1", "z2", "z3"]), True),
+        (kl_model_2_z2z3, set(["z1", "z2", "z3"]), False),
+        (kl_model_2_z2z3, set(["z2", "z3"]), True),
+        (kl_model_3_z2z3, set(["z1", "z2", "z3"]), False),
+        (kl_model_3_z2z3, set(["z2", "z3"]), True),
+        (kl_model_4_z3, set(["z1", "z2", "z3"]), False),
+        (kl_model_4_z3, set(["z3"]), True),
+        (kl_model_5_z2, set(["z1", "z2", "z3"]), False),
+        (kl_model_5_z2, set(["z2"]), True),
+        (kl_model_6_, set(["z1", "z2", "z3"]), False),
+        (kl_model_6_, set(), True),
+    ],
+)
+def test_analytic_kl(model, kl_sites, valid_kl):
+    # Guide
+    # z1 --+
+    # |    |
+    # v    |
+    # z2   |
+    # |    |
+    # v    |
+    # z3 <-+
+    @config_enumerate
+    def guide(params):
+        probs_z1 = pyro.param(
+            "probs_z1", params["probs_z1"], constraint=constraints.simplex
+        )
+        probs_z2 = pyro.param(
+            "probs_z2", params["probs_z2"], constraint=constraints.simplex
+        )
+        probs_z3 = pyro.param(
+            "probs_z3", params["probs_z3"], constraint=constraints.simplex
+        )
+        z1 = pyro.sample("z1", dist.Categorical(probs_z1))
+        z2 = pyro.sample("z2", dist.Categorical(probs_z2[z1]))
+        pyro.sample("z3", dist.Categorical(probs_z3[z1, z2]))
 
     params = {
-        "a": jnp.array([0.0, 10.0]),
-        "b": jnp.array([[0.4, 0.6], [0.5, 0.5], [0.3, 0.7], [0.8, 0.2], [0.5, 0.5]]),
+        "probs_z1": jnp.array([0.3, 0.7]),
+        "probs_z2": jnp.array([[0.4, 0.6], [0.5, 0.5]]),
+        "probs_z3": jnp.array([[[0.4, 0.6], [0.5, 0.5]], [[0.7, 0.3], [0.9, 0.1]]]),
     }
     transform = dist.biject_to(dist.constraints.simplex)
-    params_raw = {"a": params["a"], "b": transform.inv(params["b"])}
+    params_raw = jax.tree_util.tree_map(transform.inv, params)
+
+    elbo = infer.TraceEnum_ELBO()
 
     # Expected grads averaged over num_particles
-    elbo = infer.TraceGraph_ELBO(num_particles=50_000)
-
     def expected_loss_fn(params_raw):
-        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
-        return elbo.loss(random.PRNGKey(0), {}, model, guide_enum, data, params)
+        params = jax.tree_util.tree_map(transform, params_raw)
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
     # Grads based on exact integration
-    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
+    def actual_loss_fn(params_raw):
+        params = jax.tree_util.tree_map(transform, params_raw)
+        return elbo.loss(
+            random.PRNGKey(0), {}, model, config_kl(guide, kl_sites), params
+        )
 
-    def enum_loss_fn(params_raw):
-        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
-        return elbo.loss(random.PRNGKey(0), {}, model, guide_enum, data, params)
+    if valid_kl:
+        actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
-    enum_loss, enum_grads = jax.value_and_grad(enum_loss_fn)(params_raw)
+        assert_equal(actual_loss, expected_loss, prec=1e-5)
+        assert_equal(actual_grads, expected_grads, prec=1e-5)
+    else:
+        with pytest.raises(
+            AssertionError, match="Expected that for use of analytic KL solution"
+        ):
+            actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
-    assert_equal(enum_loss, expected_loss, prec=0.02)
-    assert_equal(enum_grads, expected_grads, prec=0.02)
-
-    # Grads based on analytic kl integration
-    elbo = infer.TraceEnum_ELBO()
-
-    def kl_loss_fn(params_raw):
-        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
-        return elbo.loss(random.PRNGKey(0), {}, model, guide_kl, data, params)
-
-    kl_loss, kl_grads = jax.value_and_grad(kl_loss_fn)(params_raw)
-
-    assert_equal(kl_loss, expected_loss, prec=0.1)
-    assert_equal(kl_grads, expected_grads, prec=0.02)
-
-    # Grads based on exact and analytic kl integration
-    elbo = infer.TraceEnum_ELBO()
-
-    def kl_enum_loss_fn(params_raw):
-        params = {"a": params_raw["a"], "b": transform(params_raw["b"])}
-        return elbo.loss(random.PRNGKey(0), {}, model, guide_kl_enum, data, params)
-
-    kl_enum_loss, kl_enum_grads = jax.value_and_grad(kl_enum_loss_fn)(params_raw)
-
-    assert_equal(kl_enum_loss, expected_loss, prec=0.1)
-    assert_equal(kl_enum_grads, expected_grads, prec=0.02)
-
-
-def test_meanfield_enum_2():
-
-    @config_enumerate
-    def model(params):
-        d = pyro.sample("d", dist.Categorical(jnp.array([0.3, 0.7])))
-        z1 = pyro.sample("z1", dist.Normal(d, 1.0))
-        z2 = pyro.sample("z2", dist.Normal(0.0, 1.0))
-
-    def guide(params):
-        z1_loc = pyro.param("z1_loc", params["z1_loc"])
-        z2_loc = pyro.param("z2_loc", params["z2_loc"])
-        z1 = pyro.sample("z1", dist.Normal(z1_loc, 1.0))
-        z2 = pyro.sample("z2", dist.Normal(z2_loc, 1.0))
-
-    def guide_kl(params):
-        z1_loc = pyro.param("z1_loc", params["z1_loc"])
-        z2_loc = pyro.param("z2_loc", params["z2_loc"])
-        z1 = pyro.sample("z1", dist.Normal(z1_loc, 1.0))
-        z2 = pyro.sample("z2", dist.Normal(z2_loc, 1.0), infer={"kl": True})
-
-    params = {
-        "z1_loc": jnp.array(0.0),
-        "z2_loc": jnp.array(1.0),
-    }
-
-    # Expected grads averaged over num_particles
-    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
-
-    def expected_loss_fn(params):
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
-
-    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params)
-
-    # Grads based on exact integration
-    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
-
-    def actual_loss_fn(params):
-        return elbo.loss(random.PRNGKey(0), {}, model, guide_kl, params)
-
-    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params)
-
-    import pdb;pdb.set_trace()
-    assert_equal(actual_loss, expected_loss, prec=0.02)
-    assert_equal(actual_grads, expected_grads, prec=0.02)
+            assert_equal(actual_loss, expected_loss, prec=1e-5)
+            assert_equal(actual_grads, expected_grads, prec=1e-5)
