@@ -910,7 +910,7 @@ class TraceEnum_ELBO(ELBO):
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         def single_particle_elbo(rng_key):
             import funsor
-            from numpyro.contrib.funsor import to_data, to_funsor
+            from numpyro.contrib.funsor import to_data
 
             model_seed, guide_seed = random.split(rng_key)
 
@@ -965,7 +965,7 @@ class TraceEnum_ELBO(ELBO):
                     # uncontracted logp cost term
                     assert len(group_names) == 1
                     name = next(iter(group_names))
-                    if model_trace[name].get("kl", None) is not None:
+                    if model_trace[name].get("kl") is not None:
                         cost = -model_trace[name]["kl"]
                         scale = model_trace[name]["scale"]
                         assert scale == guide_trace[name]["scale"]
@@ -991,13 +991,16 @@ class TraceEnum_ELBO(ELBO):
                         *(frozenset(f.inputs) & group_plates for f in group_factors)
                     )
                     elim_plates = group_plates - outermost_plates
-                    cost = funsor.sum_product.sum_product(
-                        funsor.ops.logaddexp,
-                        funsor.ops.add,
-                        group_factors,
-                        plates=group_plates,
-                        eliminate=group_sum_vars | elim_plates,
-                    )
+                    with funsor.interpretations.normalize:
+                        cost = funsor.sum_product.sum_product(
+                            funsor.ops.logaddexp,
+                            funsor.ops.add,
+                            group_factors,
+                            plates=group_plates,
+                            eliminate=group_sum_vars | elim_plates,
+                        )
+                    # TODO: add memoization
+                    cost = funsor.optimizer.apply_optimizer(cost)
                     # incorporate the effects of subsampling and handlers.scale through a common scale factor
                     scales_set = set()
                     for name in group_names | group_sum_vars:
@@ -1050,16 +1053,19 @@ class TraceEnum_ELBO(ELBO):
                         *[f.inputs for f in dice_factors]
                     )
                     cost_vars = frozenset(cost.inputs)
-                    dice_factor = funsor.sum_product.sum_product(
-                        funsor.ops.logaddexp,
-                        funsor.ops.add,
-                        dice_factors,
-                        plates=(dice_factor_vars | cost_vars) - model_vars,
-                        eliminate=dice_factor_vars - cost_vars,
-                    )
+                    with funsor.interpretations.normalize:
+                        dice_factor = funsor.sum_product.sum_product(
+                            funsor.ops.logaddexp,
+                            funsor.ops.add,
+                            dice_factors,
+                            plates=(dice_factor_vars | cost_vars) - model_vars,
+                            eliminate=dice_factor_vars - cost_vars,
+                        )
+                    # TODO: add memoization
+                    dice_factor = funsor.optimizer.apply_optimizer(dice_factor)
                     cost = cost * funsor.ops.exp(dice_factor)
                 if (scale is not None) and (not is_identically_one(scale)):
-                    cost = cost * to_funsor(scale)
+                    cost = cost * scale
 
                 elbo = elbo + cost.reduce(funsor.ops.add)
 
