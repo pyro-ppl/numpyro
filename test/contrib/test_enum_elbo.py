@@ -2477,20 +2477,20 @@ def test_model_enum_subsample_3(scale):
 def test_guide_plate_contraction():
     def model(params):
         with pyro.plate("a_axis", size=2):
-            a = pyro.sample("a", dist.Categorical(jnp.array([0.2, 0.8])))
+            a = pyro.sample("a", dist.Poisson(jnp.array(3.0)))
         pyro.sample("b", dist.Normal(jnp.sum(a), 1.0), obs=1)
 
     def guide(params):
         probs_a = pyro.param(
-            "probs_a", params["probs_a"], constraint=constraints.simplex
+            "probs_a", params["probs_a"], constraint=constraints.positive
         )
         with pyro.plate("a_axis", size=2):
-            pyro.sample("a", dist.Categorical(probs_a))
+            pyro.sample("a", dist.Poisson(probs_a))
 
     params = {
-        "probs_a": jnp.array([[0.4, 0.6], [0.7, 0.3]]),
+        "probs_a": jnp.array([3.0, 2.5]),
     }
-    transform = dist.biject_to(dist.constraints.simplex)
+    transform = dist.biject_to(dist.constraints.positive)
     params_raw = jax.tree_util.tree_map(transform.inv, params)
 
     # TraceGraph_ELBO grads averaged over num_particles
@@ -2512,4 +2512,4 @@ def test_guide_plate_contraction():
     enum_loss, enum_grads = jax.value_and_grad(enum_loss_fn)(params_raw)
 
     assert_equal(enum_loss, graph_loss, prec=1e-3)
-    assert_equal(enum_grads, graph_grads, prec=3e-3)
+    assert_equal(enum_grads, graph_grads, prec=1e-2)
