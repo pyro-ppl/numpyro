@@ -741,42 +741,33 @@ def get_importance_trace_enum(
 
                 # compute log factor
                 if is_model and model_trace[name]["infer"].get("kl") == "analytic":
-                    try:
-                        if not model_deps[name].isdisjoint(guide_desc[name]):
-                            raise AssertionError(
-                                f"Expected that for use of analytic KL solution for the latent variable `{name}` its "
-                                "parents in the model to not include any non-reparameterizable latent variables that "
-                                f"are descendants of `{name}` in the guide. But found variable(s) "
-                                f"{[var for var in (model_deps[name] & guide_desc[name])]} both in the parents of "
-                                f"`{name}` in the model and in the descendants of `{name}` in the guide."
-                            )
-                        if not model_deps[name].isdisjoint(sum_vars):
-                            raise AssertionError(
-                                f"Expected that for use of analytic KL solution for the latent variable `{name}` its "
-                                "parents in the model to not include any model-side enumerated latent variables, but "
-                                f"found enumerated variable(s) {[var for var in (model_deps[name] & sum_vars)]}."
-                            )
-                        if name not in guide_trace:
-                            raise AssertionError(
-                                f"Expected that for use of analytic KL solution for the latent variable `{name}` it "
-                                "must be present both in the model and the guide traces, but not found in the guide."
-                            )
-                        kl_qp = kl_divergence(
-                            guide_trace[name]["fn"], model_trace[name]["fn"]
+                    if not model_deps[name].isdisjoint(guide_desc[name]):
+                        raise AssertionError(
+                            f"Expected that for use of analytic KL solution for the latent variable `{name}` its "
+                            "parents in the model to not include any non-reparameterizable latent variables that "
+                            f"are descendants of `{name}` in the guide. But found variable(s) "
+                            f"{[var for var in (model_deps[name] & guide_desc[name])]} both in the parents of "
+                            f"`{name}` in the model and in the descendants of `{name}` in the guide."
                         )
-                        dim_to_name.update(guide_trace[name]["infer"]["dim_to_name"])
-                        site["kl"] = to_funsor(
-                            kl_qp, output=funsor.Real, dim_to_name=dim_to_name
+                    if not model_deps[name].isdisjoint(sum_vars):
+                        raise AssertionError(
+                            f"Expected that for use of analytic KL solution for the latent variable `{name}` its "
+                            "parents in the model to not include any model-side enumerated latent variables, but "
+                            f"found enumerated variable(s) {[var for var in (model_deps[name] & sum_vars)]}."
                         )
-                    except NotImplementedError:
-                        if intermediates:
-                            log_prob = site["fn"].log_prob(value, intermediates)
-                        else:
-                            log_prob = site["fn"].log_prob(value)
-                        site["log_prob"] = to_funsor(
-                            log_prob, output=funsor.Real, dim_to_name=dim_to_name
+                    if name not in guide_trace:
+                        raise AssertionError(
+                            f"Expected that for use of analytic KL solution for the latent variable `{name}` it "
+                            "must be present both in the model and the guide traces, but not found in the guide trace."
                         )
-                elif not is_model and (model_trace[name].get("kl", None) is not None):
+                    kl_qp = kl_divergence(
+                        guide_trace[name]["fn"], model_trace[name]["fn"]
+                    )
+                    dim_to_name.update(guide_trace[name]["infer"]["dim_to_name"])
+                    site["kl"] = to_funsor(
+                        kl_qp, output=funsor.Real, dim_to_name=dim_to_name
+                    )
+                elif not is_model and (model_trace[name].get("kl") is not None):
                     # skip logq computation if analytic kl was computed
                     pass
                 else:

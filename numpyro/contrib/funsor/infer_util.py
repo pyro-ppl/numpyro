@@ -83,7 +83,7 @@ def config_enumerate(fn=None, default="parallel"):
 
 def config_kl(fn=None, sites=None):
     """
-    Configures analytic kl for all relevant sites in a NumPyro model.
+    Configures analytic kl for all sites in ``sites`` in a NumPyro model.
 
     This can be used as either a function::
 
