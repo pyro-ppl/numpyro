@@ -154,10 +154,10 @@ def kl_model_1_z1z2z3(params):
     # Model
     # z1 --+
     # |    |
-    # v    |
+    # V    |
     # z2   |
     # |    |
-    # v    |
+    # V    |
     # z3 <-+
     probs_z1 = jnp.array([0.5, 0.5])
     probs_z2 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
@@ -171,10 +171,10 @@ def kl_model_2_z2z3(params):
     # Model (inverted the order of z1 and z2)
     # z2 --+
     # |    |
-    # v    |
+    # V    |
     # z1   |
     # |    |
-    # v    |
+    # V    |
     # z3 <-+
     probs_z2 = jnp.array([0.5, 0.5])
     probs_z1 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
@@ -189,7 +189,7 @@ def kl_model_3_z2z3(params):
     # Model
     # d
     # |
-    # v
+    # V
     # z1
     #
     # z2
@@ -209,9 +209,8 @@ def kl_model_3_z2z3(params):
 def kl_model_4_z3(params):
     # Model
     # d ---+
-    # |    |
-    # v    |
-    # z1   |
+    #      |
+    # z1 <-|
     #      |
     # z2 <-+
     #
@@ -230,8 +229,7 @@ def kl_model_4_z3(params):
 def kl_model_5_z2(params):
     # Model
     # d ---+
-    # |    |
-    # v    |
+    #      |
     # z1 <-|
     #      |
     # z2   |
@@ -251,8 +249,7 @@ def kl_model_5_z2(params):
 def kl_model_6_(params):
     # Model
     # d ---+
-    # |    |
-    # v    |
+    #      |
     # z1 <-|
     #      |
     # z2 <-|
@@ -266,6 +263,27 @@ def kl_model_6_(params):
     pyro.sample("z1", dist.Categorical(probs_z1[d]))
     pyro.sample("z2", dist.Categorical(probs_z2[d]))
     pyro.sample("z3", dist.Categorical(probs_z3[d]))
+
+
+@config_enumerate
+def kl_model_7_z3(params):
+    # Model
+    # d ---+
+    #      |
+    # z1 <-|
+    #      |
+    # z2 <-+
+    # |
+    # V
+    # z3
+    probs_d = jnp.array([0.5, 0.5])
+    probs_z1 = jnp.array([[0.5, 0.5], [0.2, 0.8]])
+    probs_z2 = jnp.array([[0.4, 0.6], [0.6, 0.4]])
+    probs_z3 = jnp.array([[0.8, 0.2], [0.6, 0.4]])
+    d = pyro.sample("d", dist.Categorical(probs_d))
+    pyro.sample("z1", dist.Categorical(probs_z1[d]))
+    z2 = pyro.sample("z2", dist.Categorical(probs_z2[d]))
+    pyro.sample("z3", dist.Categorical(probs_z3[z2]))
 
 
 @pytest.mark.parametrize(
@@ -283,7 +301,9 @@ def kl_model_6_(params):
         (kl_model_5_z2, set(["z2"]), True),
         (kl_model_6_, set(["z1", "z2", "z3"]), False),
         (kl_model_6_, set(), True),
-    ],
+        (kl_model_7_z3, set(["z1", "z2", "z3"]), False),
+        (kl_model_7_z3, set(["z3"]), True),
+    ][-2:],
 )
 def test_analytic_kl(model, kl_sites, valid_kl):
     # Guide

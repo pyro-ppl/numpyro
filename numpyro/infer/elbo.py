@@ -947,6 +947,7 @@ class TraceEnum_ELBO(ELBO):
                 guide_desc,
             )
 
+            # TODO: fix the check below
             # check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
