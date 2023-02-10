@@ -49,7 +49,7 @@ from numpyro.distributions.util import (
 )
 from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.initialization import init_to_median, init_to_uniform
-from numpyro.infer.util import helpful_support_errors, initialize_model
+from numpyro.infer.util import helpful_support_errors, initialize_model, log_density
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import not_jax_tracer
@@ -1908,15 +1908,13 @@ class AutoRVRS(AutoContinuous):
         T=0.0,
         history_size=0,
         epsilon=0.1,
-        base_dist="diagonal",
+        guide=None,
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=1.0,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
-        if base_dist not in ["diagonal"]:
-            raise ValueError('base_dist must be "diagonal".')
         if init_scale <= 0.0:
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
@@ -1926,8 +1924,13 @@ class AutoRVRS(AutoContinuous):
         self.T = T
         self.epsilon = epsilon
         self.lambd = epsilon / (1 - epsilon)
-        self.base_dist = base_dist
-        self._init_scale = init_scale
+        if guide is not None:
+            if not isinstance(guide, AutoContinuous):
+                raise ValueError("We only support AutoContinuous guide in AutoRVRS.")
+            self.guide = guide
+        else:
+            self.guide = AutoDiagonalNormal(
+                model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix)
         self.history_size = history_size
         self.T_lr = 1.0
         self.Z_target = 0.5
@@ -1945,20 +1948,40 @@ class AutoRVRS(AutoContinuous):
                 raise NotImplementedError(
                     "AutoRVRS cannot be used in conjunction with data subsampling."
                 )
+        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+            self.guide(*args, **kwargs)
+        self.prototype_guide_trace = tr
+        # TODO: save computation by avoiding setting up prototype trace
+        # self.prototype_trace = self.guide.prototype_trace
 
     def _get_posterior(self):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
-        def log_density(x):
+        params = {}
+        for name, site in self.prototype_guide_trace.items():
+            if site["type"] == "param":
+                params[name] = numpyro.param(
+                    name, site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real))
+
+        def guide_sampler(key):
+            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params):
+                z = self.guide._sample_latent(*args, **kwargs)
+            return z
+
+        def guide_log_prob(z, detach_params=False):
+            if detach_params:
+                z_and_params = {f"_{self.prefix}_latent": z, **jax.lax.stop_gradient(params)}
+            else:
+                z_and_params = {f"_{self.prefix}_latent": z, **params}
+            with handlers.block():
+                return log_density(self.guide._sample_latent, args, kwargs, z_and_params)[0]
+
+        def model_log_density(x):
             x_unpack = self._unpack_latent(x)
             with numpyro.handlers.block():
                 return -self._potential_fn(x_unpack)
-
-        init_z_loc = numpyro.param(
-            "{}_z_0_loc".format(self.prefix),
-            self._init_latent,
-        )
 
         if self.history_size > 0:
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
@@ -1979,20 +2002,8 @@ class AutoRVRS(AutoContinuous):
 
         #jax.debug.print("DEBUG T={T}", T=T)
 
-        if self.base_dist == "diagonal":
-            init_z_scale = numpyro.param(
-                "{}_z_0_scale".format(self.prefix),
-                jnp.full(self.latent_dim, self._init_scale),
-                constraint=constraints.positive,
-            )
-            base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
-        else:
-            raise ValueError("Only support 'diagonal' for now.")
-
-        guide_sampler = base_z_dist.sample
-
         def accept_log_prob_fn(z):
-            lw = log_density(z) - stop_gradient(base_z_dist).log_prob(z)
+            lw = model_log_density(z) - guide_log_prob(z, detach_params=True)
             a = sigmoid(lw + T)
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw
 
@@ -2029,14 +2040,47 @@ class AutoRVRS(AutoContinuous):
             T_adapt["value"] = T_adapt["value"] - self.T_lr * T_grad
             A_stats["value"] = stop_gradient(first_log_a)
 
-        return stop_gradient(zs[0])
+        return stop_gradient(zs)
+
+    def __call__(self, *args, **kwargs):
+        if self.prototype_trace is None:
+            # run model to inspect the model structure
+            self._setup_prototype(*args, **kwargs)
+
+        latent = self._sample_latent(*args, **kwargs)
+
+        # unpack continuous latent samples
+        result = {}
+
+        for name, unconstrained_value in jax.vmap(self._unpack_latent)(latent).items():
+            site = self.prototype_trace[name]
+            with helpful_support_errors(site):
+                transform = biject_to(site["fn"].support)
+            # TODO: probably we don't need to vmap transform operators
+            value = jax.vmap(transform)(unconstrained_value)
+            event_ndim = site["fn"].event_dim
+            if numpyro.get_mask() is False:
+                log_density = 0.0
+            else:
+                log_density = -jax.vmap(transform.log_abs_det_jacobian)(
+                    unconstrained_value, value
+                )
+                log_density = sum_rightmost(
+                    log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
+                )
+            delta_dist = dist.Delta(
+                value, log_density=log_density, event_dim=event_ndim
+            )
+            result[name] = numpyro.sample(name, delta_dist)
+
+        return result
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
             )(sample_shape=())
-            return self._unpack_and_constrain(latent_sample, params)
+            return jax.vmap(self._unpack_and_constrain, in_axes=(0, None))(latent_sample, params)
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))

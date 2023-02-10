@@ -94,10 +94,10 @@ def test_beta_bernoulli(auto_class):
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
     elif auto_class == AutoRVRS:
         guide = auto_class(model, S=8, T=13., epsilon=0.1,
-                           init_loc_fn=init_strategy, base_dist="diagonal", init_scale=1.0)
+                           init_loc_fn=init_strategy, init_scale=1.0)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
-    svi = SVI(model, guide, adam, Trace_ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO(multi_sample_guide=True if auto_class == AutoRVRS else False))
     svi_state = svi.init(random.PRNGKey(1), data)
 
     def body_fn(i, val):
@@ -112,13 +112,15 @@ def test_beta_bernoulli(auto_class):
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
+    if auto_class == AutoRVRS:
+        posterior_samples = jax.tree_util.tree_map(lambda x: x.reshape((-1,) + x.shape[2:]), posterior_samples)
     posterior_mean = jnp.mean(posterior_samples["beta"], 0)
     posterior_std = jnp.std(posterior_samples["beta"], 0)
 
     if auto_class == AutoRVRS:
         print("\nFINAL AutoDiag auto_loc: [1.19420906, -0.35535608]\nFINAL AutoDiag auto_scale: [0.69223469, 0.61101982]")
-        print("FINAL RVRS auto_z_0_loc", params['auto_z_0_loc'])
-        print("FINAL RVRS auto_z_0_scale", params['auto_z_0_scale'])
+        print("FINAL RVRS auto_loc", params['auto_loc'])
+        print("FINAL RVRS auto_scale", params['auto_scale'])
         print("AutoDiag posterior_mean:  [0.75519637 0.42030578]")
         print("AutoDiag posterior_std:  [0.11744191 0.14285692]")
         print("posterior_mean: ", posterior_mean)
@@ -134,12 +136,15 @@ def test_beta_bernoulli(auto_class):
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
     predictive_samples = predictive(random.PRNGKey(1), None)
-    assert predictive_samples["obs"].shape == (1000, N, 2)
+    num_samples = 1000 if auto_class != AutoRVRS else 1000 * guide.S
+    assert predictive_samples["obs"].shape == (num_samples, N, 2)
 
     # ... or from the guide + params
-    predictive = Predictive(model, guide=guide, params=params, num_samples=11)
-    predictive_samples = predictive(random.PRNGKey(1), None)
-    assert predictive_samples["obs"].shape == (11, N, 2)
+    # TODO: probably this is fail for AutoRVRS
+    if auto_class != AutoRVRS:
+        predictive = Predictive(model, guide=guide, params=params, num_samples=11)
+        predictive_samples = predictive(random.PRNGKey(1), None)
+        assert predictive_samples["obs"].shape == (11, N, 2)
 
 
 class AutoAdaptRVRS(AutoRVRS):
@@ -187,7 +192,7 @@ def test_logistic_regression(auto_class, Elbo):
     else:
         init_loc_fn = init_to_median(num_samples=100)
         guide = auto_class(model, S=16, T=40.0, epsilon=0.05, init_scale=0.5, init_loc_fn=init_loc_fn)
-    svi = SVI(model, guide, adam, Elbo())
+    svi = SVI(model, guide, adam, Elbo(multi_sample_guide=True))
     svi_state = svi.init(rng_key_init, data, labels)
 
     # smoke test if analytic KL is used

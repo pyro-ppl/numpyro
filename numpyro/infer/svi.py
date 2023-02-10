@@ -21,7 +21,7 @@ from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import replay, seed, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim, optax_to_numpyro
 
@@ -178,9 +178,15 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(
-            *args, **kwargs, **self.static_kwargs
-        )
+        if hasattr(self.guide, "S"):  # TODO: move multi_sample_guide into here
+            latents = {name: site["value"][0] for name, site in guide_trace.items()
+                       if site["type"] == "sample" and site["value"].size > 0}
+            with trace() as model_trace, substitute(data=latents):
+                model_init(*args, **kwargs, **self.static_kwargs)
+        else:
+            model_trace = trace(replay(model_init, guide_trace)).get_trace(
+                *args, **kwargs, **self.static_kwargs
+            )
         params = {}
         inv_transforms = {}
         mutable_state = {}
