@@ -83,7 +83,12 @@ def config_enumerate(fn=None, default="parallel"):
 
 def config_kl(fn=None, sites=None):
     """
-    Configures analytic kl for all sites in ``sites`` in a NumPyro model.
+    Configures the ``kl`` flag in the ``infer`` dict for all sample sites in
+    ``sites`` in a NumPyro model. If ``kl`` is ``analytic``, and ``TraceEnum_ELBO``
+    is being used, an attempt is made to analytically compute the KL divergence
+    in the ELBO at the corresponding site. If ``analytic`` is specified and
+    it is not possible to analytically compute the KL divergence then an error
+    is raised.
 
     This can be used as either a function::
 

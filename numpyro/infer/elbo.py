@@ -743,21 +743,21 @@ def get_importance_trace_enum(
                 if is_model and model_trace[name]["infer"].get("kl") == "analytic":
                     if not model_deps[name].isdisjoint(guide_desc[name]):
                         raise AssertionError(
-                            f"Expected that for use of analytic KL solution for the latent variable `{name}` its "
-                            "parents in the model to not include any non-reparameterizable latent variables that "
+                            f"Expected that for use of analytic KL computation for the latent variable `{name}` its "
+                            "parents in the model do not include any non-reparameterizable latent variables that "
                             f"are descendants of `{name}` in the guide. But found variable(s) "
                             f"{[var for var in (model_deps[name] & guide_desc[name])]} both in the parents of "
                             f"`{name}` in the model and in the descendants of `{name}` in the guide."
                         )
                     if not model_deps[name].isdisjoint(sum_vars):
                         raise AssertionError(
-                            f"Expected that for use of analytic KL solution for the latent variable `{name}` its "
-                            "parents in the model to not include any model-side enumerated latent variables, but "
+                            f"Expected that for use of analytic KL computation for the latent variable `{name}` its "
+                            "parents in the model do not include any model-side enumerated latent variables, but "
                             f"found enumerated variable(s) {[var for var in (model_deps[name] & sum_vars)]}."
                         )
                     if name not in guide_trace:
                         raise AssertionError(
-                            f"Expected that for use of analytic KL solution for the latent variable `{name}` it "
+                            f"Expected that for use of analytic KL computation for the latent variable `{name}` it "
                             "must be present both in the model and the guide traces, but not found in the guide trace."
                         )
                     kl_qp = kl_divergence(
@@ -783,7 +783,7 @@ def get_importance_trace_enum(
                 if not is_model or not (site["is_observed"] or (name in guide_trace)):
                     if is_model:
                         sum_vars |= frozenset([name])
-                    # get rid off masking
+                    # get rid of masking
                     base_fn = site["fn"]
                     batch_shape = base_fn.batch_shape
                     while isinstance(
@@ -947,7 +947,7 @@ class TraceEnum_ELBO(ELBO):
                 guide_desc,
             )
 
-            # TODO: fix the check below
+            # TODO: fix the check of model/guide distribution shapes
             # check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 

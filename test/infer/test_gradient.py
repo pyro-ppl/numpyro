@@ -303,7 +303,7 @@ def kl_model_7_z3(params):
         (kl_model_6_, set(), True),
         (kl_model_7_z3, set(["z1", "z2", "z3"]), False),
         (kl_model_7_z3, set(["z3"]), True),
-    ][-2:],
+    ],
 )
 def test_analytic_kl(model, kl_sites, valid_kl):
     # Guide
@@ -339,14 +339,14 @@ def test_analytic_kl(model, kl_sites, valid_kl):
 
     elbo = infer.TraceEnum_ELBO()
 
-    # Expected grads averaged over num_particles
+    # Exact integration based on enumeration
     def expected_loss_fn(params_raw):
         params = jax.tree_util.tree_map(transform, params_raw)
         return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
-    # Grads based on exact integration
+    # Exact integration based on the mix of enumeration and analytic kl
     def actual_loss_fn(params_raw):
         params = jax.tree_util.tree_map(transform, params_raw)
         return elbo.loss(
@@ -360,7 +360,7 @@ def test_analytic_kl(model, kl_sites, valid_kl):
         assert_equal(actual_grads, expected_grads, prec=1e-5)
     else:
         with pytest.raises(
-            AssertionError, match="Expected that for use of analytic KL solution"
+            AssertionError, match="Expected that for use of analytic KL computation"
         ):
             actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
