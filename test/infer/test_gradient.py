@@ -306,16 +306,16 @@ def kl_model_7_z3(params):
     ],
 )
 def test_analytic_kl(model, kl_sites, valid_kl):
-    # Guide
-    # z1 --+
-    # |    |
-    # v    |
-    # z2   |
-    # |    |
-    # v    |
-    # z3 <-+
     @config_enumerate
     def guide(params):
+        # Guide
+        # z1 --+
+        # |    |
+        # v    |
+        # z2   |
+        # |    |
+        # v    |
+        # z3 <-+
         probs_z1 = pyro.param(
             "probs_z1", params["probs_z1"], constraint=constraints.simplex
         )
@@ -366,3 +366,90 @@ def test_analytic_kl(model, kl_sites, valid_kl):
 
             assert_equal(actual_loss, expected_loss, prec=1e-5)
             assert_equal(actual_grads, expected_grads, prec=1e-5)
+
+
+def kl_model_8_z1z2(params):
+    # Model
+    # z1
+    #
+    # z2
+    probs_z1 = jnp.array([0.5, 0.5])
+    probs_z2 = jnp.array(0.0)
+    pyro.sample("z1", dist.Categorical(probs_z1))
+    pyro.sample("z2", dist.Normal(probs_z2, 1.0))
+
+
+def kl_model_9_z1z2(params):
+    # Model
+    # z1
+    # |
+    # v
+    # z2
+    probs_z1 = jnp.array([0.5, 0.5])
+    probs_z2 = jnp.array([0.0, 0.0])
+    z1 = pyro.sample("z1", dist.Categorical(probs_z1))
+    pyro.sample("z2", dist.Normal(probs_z2[z1], 1.0))
+
+
+@pytest.mark.parametrize(
+    "model",
+    [kl_model_8_z1z2, kl_model_9_z1z2],
+)
+def test_analytic_kl_continuous(model):
+    # Normal distribution is the same in the model and the guide
+    # Therefore ELBOs should match exactly for stochastic and analytic kl
+    # However gradients only match in the expectation
+    kl_sites = set(["z1", "z2"])
+
+    @config_enumerate
+    def guide(params):
+        # Guide
+        # z1
+        # |
+        # v
+        # z2
+        probs_z1 = pyro.param(
+            "probs_z1", params["probs_z1"], constraint=constraints.simplex
+        )
+        probs_z2 = pyro.param("probs_z2", params["probs_z2"])
+        z1 = pyro.sample("z1", dist.Categorical(probs_z1))
+        pyro.sample("z2", dist.Normal(probs_z2[z1], 1.0))
+
+    params = {
+        "probs_z1": jnp.array([0.3, 0.7]),
+        "probs_z2": jnp.array([0.0, 0.0]),
+    }
+    transform = dist.biject_to(dist.constraints.simplex)
+    params_raw = {
+        "probs_z1": transform.inv(params["probs_z1"]),
+        "probs_z2": params["probs_z2"],
+    }
+
+    # Integration based on stochastic kl for the continuous latent variable averaged over num_particles
+    elbo = infer.TraceEnum_ELBO(num_particles=50_000)
+
+    def expected_loss_fn(params_raw):
+        params = {
+            "probs_z1": transform(params_raw["probs_z1"]),
+            "probs_z2": params_raw["probs_z2"],
+        }
+        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+
+    expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
+
+    # Integration based on analytic kl for the continuous latent variable
+    elbo = infer.TraceEnum_ELBO()
+
+    def actual_loss_fn(params_raw):
+        params = {
+            "probs_z1": transform(params_raw["probs_z1"]),
+            "probs_z2": params_raw["probs_z2"],
+        }
+        return elbo.loss(
+            random.PRNGKey(0), {}, model, config_kl(guide, kl_sites), params
+        )
+
+    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
+
+    assert_equal(actual_loss, expected_loss, prec=1e-5)
+    assert_equal(actual_grads, expected_grads, prec=2e-3)
