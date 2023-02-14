@@ -565,6 +565,7 @@ def test_analytic_kl_3():
 @pytest.mark.parametrize("z1_dim", [2, 3])
 @pytest.mark.parametrize("z2_dim", [2, 3])
 def test_analytic_kl_4(z1_dim, z2_dim, scale):
+    # Test handlers.scale and plate context manager for analytic kl
     @handlers.scale(scale=scale)
     def model(params):
         with pyro.plate("z1_axis", z1_dim):
@@ -593,6 +594,7 @@ def test_analytic_kl_4(z1_dim, z2_dim, scale):
         "probs_z2": params["probs_z2"],
     }
 
+    # Expected loss/grads based on analytic solution
     def expected_loss_fn(params_raw):
         params = {
             "probs_z1": transform(params_raw["probs_z1"]),
@@ -609,6 +611,7 @@ def test_analytic_kl_4(z1_dim, z2_dim, scale):
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
+    # Actual loss/grads based on TraceEnum_ELBO
     def actual_loss_fn(params_raw):
         elbo = infer.TraceEnum_ELBO()
         params = {
