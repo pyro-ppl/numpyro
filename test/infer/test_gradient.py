@@ -561,26 +561,29 @@ def test_analytic_kl_3():
     assert_equal(actual_grads, expected_grads, prec=4e-3)
 
 
-@pytest.mark.parametrize("scale", [1, 10])
+@pytest.mark.parametrize("scale1", [1, 10])
+@pytest.mark.parametrize("scale2", [1, 10])
 @pytest.mark.parametrize("z1_dim", [2, 3])
 @pytest.mark.parametrize("z2_dim", [2, 3])
-def test_analytic_kl_4(z1_dim, z2_dim, scale):
+def test_analytic_kl_4(z1_dim, z2_dim, scale1, scale2):
     # Test handlers.scale and plate context manager for analytic kl
-    @handlers.scale(scale=scale)
+    @handlers.scale(scale=scale1)
     def model(params):
-        with pyro.plate("z1_axis", z1_dim):
-            pyro.sample("z1", dist.Categorical(jnp.array([0.5, 0.5])))
+        with handlers.scale(scale=scale2):
+            with pyro.plate("z1_axis", z1_dim):
+                pyro.sample("z1", dist.Categorical(jnp.array([0.5, 0.5])))
         with pyro.plate("z2_axis", z2_dim):
             pyro.sample("z2", dist.Normal(0.0, 1.0))
 
-    @handlers.scale(scale=scale)
+    @handlers.scale(scale=scale1)
     def guide(params):
         probs_z1 = pyro.param(
             "probs_z1", params["probs_z1"], constraint=constraints.simplex
         )
         probs_z2 = pyro.param("probs_z2", params["probs_z2"])
-        with pyro.plate("z1_axis", z1_dim):
-            pyro.sample("z1", dist.Categorical(probs_z1))
+        with handlers.scale(scale=scale2):
+            with pyro.plate("z1_axis", z1_dim):
+                pyro.sample("z1", dist.Categorical(probs_z1))
         with pyro.plate("z2_axis", z2_dim):
             pyro.sample("z2", dist.Normal(probs_z2, 1.0))
 
@@ -607,7 +610,7 @@ def test_analytic_kl_4(z1_dim, z2_dim, scale):
         kl_z2 = kl_divergence(
             dist.Normal(params["probs_z2"]), dist.Normal(jnp.array(0.0))
         )
-        return scale * (z1_dim * kl_z1 + z2_dim * kl_z2)
+        return scale1 * (scale2 * z1_dim * kl_z1 + z2_dim * kl_z2)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
