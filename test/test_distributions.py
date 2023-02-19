@@ -1723,7 +1723,6 @@ def test_mean_var(jax_dist, sp_dist, params):
                 sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
                 jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
         else:  # unbatched
-
             # mean
             jnp.allclose(
                 jnp.mean(samples, 0),

@@ -71,6 +71,7 @@ logger.setLevel(logging.INFO)
 # %%
 # Let's start with a simple Hidden Markov Model.
 
+
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
@@ -110,6 +111,7 @@ def model_1(sequences, lengths, args, include_prior=True):
 
 # %%
 # Next let's add a dependency of y[t] on y[t-1].
+
 
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
@@ -152,6 +154,7 @@ def model_2(sequences, lengths, args, include_prior=True):
 
 # %%
 # Next consider a Factorial HMM with two hidden states.
+
 
 #    w[t-1] ----> w[t] ---> w[t+1]
 #        \ x[t-1] --\-> x[t] --\-> x[t+1]
@@ -209,6 +212,7 @@ def model_3(sequences, lengths, args, include_prior=True):
 # By adding a dependency of x on w, we generalize to a
 # Dynamic Bayesian Network.
 
+
 #     w[t-1] ----> w[t] ---> w[t+1]
 #        |  \       |  \       |   \
 #        | x[t-1] ----> x[t] ----> x[t+1]
@@ -262,6 +266,7 @@ def model_4(sequences, lengths, args, include_prior=True):
 # %%
 # Next let's consider a second-order HMM model
 # in which x[t+1] depends on both x[t] and x[t-1].
+
 
 #                     _______>______
 #         _____>_____/______        \
@@ -322,7 +327,6 @@ models = {
 
 
 def main(args):
-
     model = models[args.model]
 
     _, fetch = load_dataset(JSB_CHORALES, split="train", shuffle=False)
