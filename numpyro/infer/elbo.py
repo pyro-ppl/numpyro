@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, defaultdict
-from functools import partial
+from functools import partial, reduce
 from operator import itemgetter
 import warnings
 
@@ -992,6 +992,19 @@ class TraceEnum_ELBO(ELBO):
                         *(frozenset(f.inputs) & group_plates for f in group_factors)
                     )
                     elim_plates = group_plates - outermost_plates
+                    plate_to_scale = {}
+                    for name in group_names:
+                        for plate, value in (
+                            model_trace[name].get("plate_to_scale", {}).items()
+                        ):
+                            if plate in plate_to_scale:
+                                if value != plate_to_scale[plate]:
+                                    raise ValueError(
+                                        "Expected all enumerated sample sites to share a common scale factor, "
+                                        f"but found different scales at plate('{plate}')."
+                                    )
+                            else:
+                                plate_to_scale[plate] = value
                     with funsor.interpretations.normalize:
                         cost = funsor.sum_product.sum_product(
                             funsor.ops.logaddexp,
@@ -999,26 +1012,36 @@ class TraceEnum_ELBO(ELBO):
                             group_factors,
                             plates=group_plates,
                             eliminate=group_sum_vars | elim_plates,
+                            plate_to_scale=plate_to_scale,
                         )
                     # TODO: add memoization
                     cost = funsor.optimizer.apply_optimizer(cost)
                     # incorporate the effects of subsampling and handlers.scale through a common scale factor
-                    scales_set = set()
-                    for name in group_names | group_sum_vars:
-                        site_scale = model_trace[name]["scale"]
-                        if site_scale is None:
-                            site_scale = 1.0
-                        if isinstance(site_scale, jnp.ndarray):
-                            raise ValueError(
-                                "Enumeration only supports scalar handlers.scale"
-                            )
-                        scales_set.add(float(site_scale))
-                    if len(scales_set) != 1:
-                        raise ValueError(
-                            "Expected all enumerated sample sites to share a common scale, "
-                            f"but found {len(scales_set)} different scales."
-                        )
-                    scale = next(iter(scales_set))
+                    scale = reduce(
+                        funsor.ops.mul,
+                        [
+                            value
+                            for plate, value in plate_to_scale.items()
+                            if plate not in elim_plates
+                        ],
+                        1.0,
+                    )
+                    #  scales_set = set()
+                    #  for name in group_names | group_sum_vars:
+                    #      site_scale = model_trace[name]["scale"]
+                    #      if site_scale is None:
+                    #          site_scale = 1.0
+                    #      if isinstance(site_scale, jnp.ndarray):
+                    #          raise ValueError(
+                    #              "Enumeration only supports scalar handlers.scale"
+                    #          )
+                    #      scales_set.add(float(site_scale))
+                    #  if len(scales_set) != 1:
+                    #      raise ValueError(
+                    #          "Expected all enumerated sample sites to share a common scale, "
+                    #          f"but found {len(scales_set)} different scales."
+                    #      )
+                    #  scale = next(iter(scales_set))
                     # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]
