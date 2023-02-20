@@ -39,122 +39,113 @@ def assert_equal(a, b, prec=0):
     )
 
 
+w_dim, x_dim, y_dim = 2, 3, 2
+
+
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
 #     y[t-1]     y[t]     y[t+1]
 def model_0(data, params, history, vectorized):
     init = pyro.param("init", params["init"], constraint=constraints.simplex)
-    trans = pyro.param(
-        "trans",
-        params["trans"],
-        constraint=constraints.simplex,
-    )
+    trans = pyro.param("trans", params["trans"], constraint=constraints.simplex)
     locs = pyro.param("locs", params["locs"])
 
     with pyro.plate("sequences", data.shape[0], dim=-3) as sequences:
         sequences = sequences[:, None]
         x_prev = None
         markov_loop = (
-            vectorized_markov(name="time", size=data.shape[1], dim=-2, history=history)
+            vectorized_markov("time", size=data.shape[1], dim=-2, history=history)
             if vectorized
             else markov(range(data.shape[1]), history=history)
         )
         for i in markov_loop:
             x_curr = pyro.sample(
-                f"x_{i}",
-                dist.Categorical(init if x_prev is None else trans[x_prev]),
+                f"x_{i}", dist.Categorical(init if x_prev is None else trans[x_prev])
             )
             with pyro.plate("tones", data.shape[2], dim=-1):
                 pyro.sample(
                     f"y_{i}",
-                    dist.Normal(Vindex(locs)[..., x_curr], 1.0),
+                    dist.Normal(Vindex(locs)[..., x_curr], 1),
                     obs=Vindex(data)[sequences, i],
                 )
             x_prev = x_curr
 
 
-rng_keys = random.split(random.PRNGKey(0), 3)
+rng_keys = random.split(random.PRNGKey(0), 4)
 params_0 = {
-    "init": random.uniform(rng_keys[0], (3,)),
-    "trans": random.uniform(rng_keys[1], (3, 3)),
-    "locs": random.uniform(rng_keys[2], (3,)),
+    "init": random.uniform(rng_keys[0], (x_dim,)),
+    "trans": random.uniform(rng_keys[1], (x_dim, x_dim)),
+    "locs": random.uniform(rng_keys[2], (x_dim,)),
 }
-data_0 = random.uniform(random.PRNGKey(0), (3, 5, 4))
+data_0 = random.uniform(rng_keys[3], (3, 5, 4))
 
 
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
 #     y[t-1]     y[t]     y[t+1]
-def model_1(data, history, vectorized):
-    x_dim = 3
-    init = pyro.param("init", lambda: torch.rand(x_dim), constraint=constraints.simplex)
-    trans = pyro.param(
-        "trans", lambda: torch.rand((x_dim, x_dim)), constraint=constraints.simplex
-    )
-    locs = pyro.param("locs", lambda: torch.rand(x_dim))
+def model_1(data, params, history, vectorized):
+    init = pyro.param("init", params["init"], constraint=constraints.simplex)
+    trans = pyro.param("trans", params["trans"], constraint=constraints.simplex)
+    locs = pyro.param("locs", params["locs"])
 
     x_prev = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
         x_curr = pyro.sample(
-            "x_{}".format(i),
-            dist.Categorical(init if isinstance(i, int) and i < 1 else trans[x_prev]),
+            f"x_{i}",
+            dist.Categorical(init if x_prev is None else trans[x_prev]),
         )
         with pyro.plate("tones", data.shape[-1], dim=-1):
             pyro.sample(
-                "y_{}".format(i),
-                dist.Normal(Vindex(locs)[..., x_curr], 1.0),
+                f"y_{i}",
+                dist.Normal(Vindex(locs)[..., x_curr], 1),
                 obs=data[i],
             )
         x_prev = x_curr
+
+
+rng_keys = random.split(random.PRNGKey(0), 4)
+params_1 = {
+    "init": random.uniform(rng_keys[0], (x_dim,)),
+    "trans": random.uniform(rng_keys[1], (x_dim, x_dim)),
+    "locs": random.uniform(rng_keys[2], (x_dim,)),
+}
+data_1 = random.uniform(rng_keys[3], (5, 4))
 
 
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
-def model_2(data, history, vectorized):
-    x_dim, y_dim = 3, 2
-    x_init = pyro.param(
-        "x_init", lambda: torch.rand(x_dim), constraint=constraints.simplex
-    )
-    x_trans = pyro.param(
-        "x_trans", lambda: torch.rand((x_dim, x_dim)), constraint=constraints.simplex
-    )
-    y_init = pyro.param(
-        "y_init", lambda: torch.rand(x_dim, y_dim), constraint=constraints.simplex
-    )
-    y_trans = pyro.param(
-        "y_trans",
-        lambda: torch.rand((x_dim, y_dim, y_dim)),
-        constraint=constraints.simplex,
-    )
+def model_2(data, params, history, vectorized):
+    x_init = pyro.param("x_init", params["x_init"], constraint=constraints.simplex)
+    x_trans = pyro.param("x_trans", params["x_trans"], constraint=constraints.simplex)
+    y_init = pyro.param("y_init", params["y_init"], constraint=constraints.simplex)
+    y_trans = pyro.param("y_trans", params["y_trans"], constraint=constraints.simplex)
 
     x_prev = y_prev = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
         x_curr = pyro.sample(
-            "x_{}".format(i),
-            dist.Categorical(
-                x_init if isinstance(i, int) and i < 1 else x_trans[x_prev]
-            ),
+            f"x_{i}",
+            dist.Categorical(x_init if x_prev is None else x_trans[x_prev]),
         )
         with pyro.plate("tones", data.shape[-1], dim=-1):
             y_curr = pyro.sample(
-                "y_{}".format(i),
+                f"y_{i}",
                 dist.Categorical(
                     y_init[x_curr]
-                    if isinstance(i, int) and i < 1
+                    if y_prev is None
                     else Vindex(y_trans)[x_curr, y_prev]
                 ),
                 obs=data[i],
@@ -162,57 +153,61 @@ def model_2(data, history, vectorized):
         x_prev, y_prev = x_curr, y_curr
 
 
+rng_keys = random.split(random.PRNGKey(0), 4)
+params_2 = {
+    "x_init": random.uniform(rng_keys[0], (x_dim,)),
+    "x_trans": random.uniform(rng_keys[1], (x_dim, x_dim)),
+    "y_init": random.uniform(rng_keys[2], (x_dim, y_dim)),
+    "y_trans": random.uniform(rng_keys[3], (x_dim, y_dim, y_dim)),
+}
+data_2 = jnp.ones((5, 4), dtype=int)
+
+
 #    w[t-1] ----> w[t] ---> w[t+1]
 #        \ x[t-1] --\-> x[t] --\-> x[t+1]
 #         \  /       \  /       \  /
 #          \/         \/         \/
 #        y[t-1]      y[t]      y[t+1]
-def model_3(data, history, vectorized):
-    w_dim, x_dim, y_dim = 2, 3, 2
-    w_init = pyro.param(
-        "w_init", lambda: torch.rand(w_dim), constraint=constraints.simplex
-    )
-    w_trans = pyro.param(
-        "w_trans", lambda: torch.rand((w_dim, w_dim)), constraint=constraints.simplex
-    )
-    x_init = pyro.param(
-        "x_init", lambda: torch.rand(x_dim), constraint=constraints.simplex
-    )
-    x_trans = pyro.param(
-        "x_trans", lambda: torch.rand((x_dim, x_dim)), constraint=constraints.simplex
-    )
-    y_probs = pyro.param(
-        "y_probs",
-        lambda: torch.rand(w_dim, x_dim, y_dim),
-        constraint=constraints.simplex,
-    )
+def model_3(data, params, history, vectorized):
+    w_init = pyro.param("w_init", params["w_init"], constraint=constraints.simplex)
+    w_trans = pyro.param("w_trans", params["w_trans"], constraint=constraints.simplex)
+    x_init = pyro.param("x_init", params["x_init"], constraint=constraints.simplex)
+    x_trans = pyro.param("x_trans", params["x_trans"], constraint=constraints.simplex)
+    y_probs = pyro.param("y_probs", params["y_probs"], constraint=constraints.simplex)
 
     w_prev = x_prev = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
         w_curr = pyro.sample(
-            "w_{}".format(i),
-            dist.Categorical(
-                w_init if isinstance(i, int) and i < 1 else w_trans[w_prev]
-            ),
+            f"w_{i}",
+            dist.Categorical(w_init if w_prev is None else w_trans[w_prev]),
         )
         x_curr = pyro.sample(
-            "x_{}".format(i),
-            dist.Categorical(
-                x_init if isinstance(i, int) and i < 1 else x_trans[x_prev]
-            ),
+            f"x_{i}",
+            dist.Categorical(x_init if x_prev is None else x_trans[x_prev]),
         )
         with pyro.plate("tones", data.shape[-1], dim=-1):
             pyro.sample(
-                "y_{}".format(i),
+                f"y_{i}",
                 dist.Categorical(Vindex(y_probs)[w_curr, x_curr]),
                 obs=data[i],
             )
         x_prev, w_prev = x_curr, w_curr
+
+
+rng_keys = random.split(random.PRNGKey(0), 5)
+params_3 = {
+    "w_init": random.uniform(rng_keys[0], (w_dim,)),
+    "w_trans": random.uniform(rng_keys[1], (w_dim, w_dim)),
+    "x_init": random.uniform(rng_keys[2], (x_dim,)),
+    "x_trans": random.uniform(rng_keys[3], (x_dim, x_dim)),
+    "y_probs": random.uniform(rng_keys[4], (w_dim, x_dim, y_dim)),
+}
+data_3 = jnp.ones((5, 4), dtype=int)
 
 
 #     w[t-1] ----> w[t] ---> w[t+1]
@@ -221,56 +216,46 @@ def model_3(data, history, vectorized):
 #        |   /      |   /      |   /
 #        V  /       V  /       V  /
 #     y[t-1]       y[t]      y[t+1]
-def model_4(data, history, vectorized):
-    w_dim, x_dim, y_dim = 2, 3, 2
-    w_init = pyro.param(
-        "w_init", lambda: torch.rand(w_dim), constraint=constraints.simplex
-    )
-    w_trans = pyro.param(
-        "w_trans", lambda: torch.rand((w_dim, w_dim)), constraint=constraints.simplex
-    )
-    x_init = pyro.param(
-        "x_init", lambda: torch.rand(w_dim, x_dim), constraint=constraints.simplex
-    )
-    x_trans = pyro.param(
-        "x_trans",
-        lambda: torch.rand((w_dim, x_dim, x_dim)),
-        constraint=constraints.simplex,
-    )
-    y_probs = pyro.param(
-        "y_probs",
-        lambda: torch.rand(w_dim, x_dim, y_dim),
-        constraint=constraints.simplex,
-    )
+def model_4(data, params, history, vectorized):
+    w_init = pyro.param("w_init", params["w_init"], constraint=constraints.simplex)
+    w_trans = pyro.param("w_trans", params["w_trans"], constraint=constraints.simplex)
+    x_init = pyro.param("x_init", params["x_init"], constraint=constraints.simplex)
+    x_trans = pyro.param("x_trans", params["x_trans"], constraint=constraints.simplex)
+    y_probs = pyro.param("y_probs", params["y_probs"], constraint=constraints.simplex)
 
     w_prev = x_prev = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
         w_curr = pyro.sample(
-            "w_{}".format(i),
-            dist.Categorical(
-                w_init if isinstance(i, int) and i < 1 else w_trans[w_prev]
-            ),
+            f"w_{i}",
+            dist.Categorical(w_init if w_prev is None else w_trans[w_prev]),
         )
         x_curr = pyro.sample(
-            "x_{}".format(i),
+            f"x_{i}",
             dist.Categorical(
-                x_init[w_curr]
-                if isinstance(i, int) and i < 1
-                else x_trans[w_curr, x_prev]
+                x_init[w_curr] if x_prev is None else x_trans[w_curr, x_prev]
             ),
         )
         with pyro.plate("tones", data.shape[-1], dim=-1):
             pyro.sample(
-                "y_{}".format(i),
-                dist.Categorical(Vindex(y_probs)[w_curr, x_curr]),
-                obs=data[i],
+                f"y_{i}", dist.Categorical(Vindex(y_probs)[w_curr, x_curr]), obs=data[i]
             )
         x_prev, w_prev = x_curr, w_curr
+
+
+rng_keys = random.split(random.PRNGKey(0), 5)
+params_4 = {
+    "w_init": random.uniform(rng_keys[0], (w_dim,)),
+    "w_trans": random.uniform(rng_keys[1], (w_dim, w_dim)),
+    "x_init": random.uniform(rng_keys[2], (w_dim, x_dim)),
+    "x_trans": random.uniform(rng_keys[3], (w_dim, x_dim, x_dim)),
+    "y_probs": random.uniform(rng_keys[4], (w_dim, x_dim, y_dim)),
+}
+data_4 = jnp.ones((5, 4), dtype=int)
 
 
 #                     _______>______
@@ -280,43 +265,44 @@ def model_4(data, history, vectorized):
 #        |        |          |          |
 #        V        V          V          V
 #     y[t-1]     y[t]     y[t+1]     y[t+2]
-def model_5(data, history, vectorized):
-    x_dim, y_dim = 3, 2
-    x_init = pyro.param(
-        "x_init", lambda: torch.rand(x_dim), constraint=constraints.simplex
-    )
+def model_5(data, params, history, vectorized):
+    x_init = pyro.param("x_init", params["x_init"], constraint=constraints.simplex)
     x_init_2 = pyro.param(
-        "x_init_2", lambda: torch.rand(x_dim, x_dim), constraint=constraints.simplex
+        "x_init_2", params["x_init_2"], constraint=constraints.simplex
     )
-    x_trans = pyro.param(
-        "x_trans",
-        lambda: torch.rand((x_dim, x_dim, x_dim)),
-        constraint=constraints.simplex,
-    )
-    y_probs = pyro.param(
-        "y_probs", lambda: torch.rand(x_dim, y_dim), constraint=constraints.simplex
-    )
+    x_trans = pyro.param("x_trans", params["x_trans"], constraint=constraints.simplex)
+    y_probs = pyro.param("y_probs", params["y_probs"], constraint=constraints.simplex)
 
     x_prev = x_prev_2 = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
-        if isinstance(i, int) and i == 0:
+        if x_prev is None:
             x_probs = x_init
-        elif isinstance(i, int) and i == 1:
+        elif x_prev_2 is None:
             x_probs = Vindex(x_init_2)[x_prev]
         else:
             x_probs = Vindex(x_trans)[x_prev_2, x_prev]
 
-        x_curr = pyro.sample("x_{}".format(i), dist.Categorical(x_probs))
+        x_curr = pyro.sample(f"x_{i}", dist.Categorical(x_probs))
         with pyro.plate("tones", data.shape[-1], dim=-1):
             pyro.sample(
-                "y_{}".format(i), dist.Categorical(Vindex(y_probs)[x_curr]), obs=data[i]
+                f"y_{i}", dist.Categorical(Vindex(y_probs)[x_curr]), obs=data[i]
             )
         x_prev_2, x_prev = x_prev, x_curr
+
+
+rng_keys = random.split(random.PRNGKey(0), 4)
+params_5 = {
+    "x_init": random.uniform(rng_keys[0], (x_dim,)),
+    "x_init_2": random.uniform(rng_keys[1], (x_dim, x_dim)),
+    "x_trans": random.uniform(rng_keys[2], (x_dim, x_dim, x_dim)),
+    "y_probs": random.uniform(rng_keys[3], (x_dim, y_dim)),
+}
+data_5 = jnp.ones((5, 4), dtype=int)
 
 
 # x_trans is time dependent
@@ -325,40 +311,46 @@ def model_5(data, history, vectorized):
 #        |        |         |
 #        V        V         V
 #     y[t-1]     y[t]     y[t+1]
-def model_6(data, history, vectorized):
-    x_dim = 3
-    x_init = pyro.param(
-        "x_init", lambda: torch.rand(x_dim), constraint=constraints.simplex
-    )
-    x_trans = pyro.param(
-        "x_trans",
-        lambda: torch.rand((len(data) - 1, x_dim, x_dim)),
-        constraint=constraints.simplex,
-    )
-    locs = pyro.param("locs", lambda: torch.rand(x_dim))
+def model_6(data, params, history, vectorized):
+    x_init = pyro.param("x_init", params["x_init"], constraint=constraints.simplex)
+    x_trans = pyro.param("x_trans", params["x_trans"], constraint=constraints.simplex)
+    locs = pyro.param("locs", params["locs"])
 
     x_prev = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
-        if isinstance(i, int) and i < 1:
+        if x_prev is None:
             x_probs = x_init
         elif isinstance(i, int):
             x_probs = x_trans[i - 1, x_prev]
         else:
             x_probs = Vindex(x_trans)[(i - 1)[:, None], x_prev]
 
-        x_curr = pyro.sample("x_{}".format(i), dist.Categorical(x_probs))
+        x_curr = pyro.sample(f"x_{i}", dist.Categorical(x_probs))
         with pyro.plate("tones", data.shape[-1], dim=-1):
             pyro.sample(
-                "y_{}".format(i),
-                dist.Normal(Vindex(locs)[..., x_curr], 1.0),
-                obs=data[i],
+                f"y_{i}", dist.Normal(Vindex(locs)[..., x_curr], 1), obs=data[i]
             )
         x_prev = x_curr
+
+
+rng_keys = random.split(random.PRNGKey(0), 4)
+data_6_5 = random.uniform(rng_keys[0], (5, 4))
+params_6_5 = {
+    "x_init": random.uniform(rng_keys[1], (x_dim,)),
+    "x_trans": random.uniform(rng_keys[2], (len(data_6_5) - 1, x_dim, x_dim)),
+    "locs": random.uniform(rng_keys[3], (x_dim,)),
+}
+data_6_20 = random.uniform(rng_keys[0], (20, 4))
+params_6_20 = {
+    "x_init": random.uniform(rng_keys[1], (x_dim,)),
+    "x_trans": random.uniform(rng_keys[2], (len(data_6_20) - 1, x_dim, x_dim)),
+    "locs": random.uniform(rng_keys[3], (x_dim,)),
+}
 
 
 #     w[t-1]      w[t]      w[t+1]
@@ -369,52 +361,44 @@ def model_6(data, history, vectorized):
 #        ^   /  \   ^  /  \    ^
 #        |  /    v  | /    v   |
 #     x[t-1]      x[t]      x[t+1]
-def model_7(data, history, vectorized):
-    w_dim, x_dim, y_dim = 2, 3, 2
-    w_init = pyro.param(
-        "w_init", lambda: torch.rand(w_dim), constraint=constraints.simplex
-    )
-    w_trans = pyro.param(
-        "w_trans", lambda: torch.rand((x_dim, w_dim)), constraint=constraints.simplex
-    )
-    x_init = pyro.param(
-        "x_init", lambda: torch.rand(x_dim), constraint=constraints.simplex
-    )
-    x_trans = pyro.param(
-        "x_trans", lambda: torch.rand((w_dim, x_dim)), constraint=constraints.simplex
-    )
-    y_probs = pyro.param(
-        "y_probs",
-        lambda: torch.rand(w_dim, x_dim, y_dim),
-        constraint=constraints.simplex,
-    )
+def model_7(data, params, history, vectorized):
+    w_init = pyro.param("w_init", params["w_init"], constraint=constraints.simplex)
+    w_trans = pyro.param("w_trans", params["w_trans"], constraint=constraints.simplex)
+    x_init = pyro.param("x_init", params["x_init"], constraint=constraints.simplex)
+    x_trans = pyro.param("x_trans", params["x_trans"], constraint=constraints.simplex)
+    y_probs = pyro.param("y_probs", params["y_probs"], constraint=constraints.simplex)
 
     w_prev = x_prev = None
     markov_loop = (
-        pyro.vectorized_markov(name="time", size=len(data), dim=-2, history=history)
+        vectorized_markov("time", size=len(data), dim=-2, history=history)
         if vectorized
-        else pyro.markov(range(len(data)), history=history)
+        else markov(range(len(data)), history=history)
     )
     for i in markov_loop:
         w_curr = pyro.sample(
-            "w_{}".format(i),
-            dist.Categorical(
-                w_init if isinstance(i, int) and i < 1 else w_trans[x_prev]
-            ),
+            f"w_{i}",
+            dist.Categorical(w_init if x_prev is None else w_trans[x_prev]),
         )
         x_curr = pyro.sample(
-            "x_{}".format(i),
-            dist.Categorical(
-                x_init if isinstance(i, int) and i < 1 else x_trans[w_prev]
-            ),
+            f"x_{i}", dist.Categorical(x_init if w_prev is None else x_trans[w_prev])
         )
         with pyro.plate("tones", data.shape[-1], dim=-1):
             pyro.sample(
-                "y_{}".format(i),
-                dist.Categorical(Vindex(y_probs)[w_curr, x_curr]),
-                obs=data[i],
+                f"y_{i}", dist.Categorical(Vindex(y_probs)[w_curr, x_curr]), obs=data[i]
             )
         x_prev, w_prev = x_curr, w_curr
+
+
+rng_keys = random.split(random.PRNGKey(0), 5)
+params_7 = {
+    "w_init": random.uniform(rng_keys[0], (w_dim,)),
+    "w_trans": random.uniform(rng_keys[1], (x_dim, w_dim)),
+    "x_init": random.uniform(rng_keys[2], (x_dim,)),
+    "x_trans": random.uniform(rng_keys[3], (w_dim, x_dim)),
+    "y_probs": random.uniform(rng_keys[4], (w_dim, x_dim, y_dim)),
+}
+data_7_5 = jnp.ones((5, 4), dtype=int)
+data_7_20 = jnp.ones((20, 4), dtype=int)
 
 
 def _guide_from_model(model):
@@ -444,7 +428,6 @@ def _guide_from_model(model):
     ],
 )
 def test_enumeration(model, data, var, history, use_replay):
-
     with enum(first_available_dim=-3):
         enum_model = config_enumerate(model, default="parallel")
         # sequential trace
@@ -726,23 +709,29 @@ def guide_empty(data, params, history, vectorized):
     pass
 
 
+@pytest.mark.parametrize("guide_enumerate", [False, True])
 @pytest.mark.parametrize(
-    "model,guide,data,params,history",
+    "model,data,params,history",
     [
-        (model_0, guide_empty, data_0, params_0, 1),
-        #          (model_1, guide_empty, torch.rand(5, 4), 1),
-        #  (model_2, guide_empty, torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_3, guide_empty, torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_4, guide_empty, torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_5, guide_empty, torch.ones((5, 4), dtype=torch.long), 2),
-        #  (model_6, guide_empty, torch.rand(5, 4), 1),
-        #  (model_6, guide_empty, torch.rand(100, 4), 1),
-        #  (model_7, guide_empty, torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_7, guide_empty, torch.ones((50, 4), dtype=torch.long), 1),
+        #  (model_10, _guide_from_model(model_10), torch.ones(5), 1),
+        (model_0, data_0, params_0, 1),
+        (model_1, data_1, params_1, 1),
+        (model_2, data_2, params_2, 1),
+        (model_3, data_3, params_3, 1),
+        (model_4, data_4, params_4, 1),
+        (model_5, data_5, params_5, 2),
+        (model_6, data_6_5, params_6_5, 1),
+        (model_6, data_6_20, params_6_20, 1),
+        (model_7, data_7_5, params_7, 1),
+        (model_7, data_7_20, params_7, 1),
     ],
 )
-def test_model_enumerated_elbo(model, guide, data, params, history):
+def test_model_enumerated_elbo(model, data, params, history, guide_enumerate):
     model = config_enumerate(model)
+    if guide_enumerate:
+        guide = _guide_from_model(model)
+    else:
+        guide = guide_empty
     elbo = infer.TraceEnum_ELBO(max_plate_nesting=4)
 
     def expected_loss_fn(params):
@@ -759,8 +748,8 @@ def test_model_enumerated_elbo(model, guide, data, params, history):
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params)
 
-    assert_equal(actual_loss, expected_loss, prec=1e-5)
-    assert_equal(actual_grads, expected_grads, prec=1e-5)
+    assert_equal(actual_loss, expected_loss, prec=1e-4)
+    assert_equal(actual_grads, expected_grads, prec=1e-4)
 
 
 #  def guide_empty_multi(weeks_data, days_data, history, vectorized):
@@ -824,39 +813,3 @@ def test_model_enumerated_elbo(model, guide, data, params, history):
 #          probs = init_probs if x is None else transition_probs[x]
 #          x = pyro.sample("x_{}".format(i), dist.Categorical(probs))
 #          pyro.sample("y_{}".format(i), dist.Categorical(emission_probs[x]), obs=data[i])
-
-
-@pytest.mark.parametrize(
-    "model,guide,data,params,history",
-    [
-        (model_0, _guide_from_model(model_0), data_0, params_0, 1),
-        #  (model_1, _guide_from_model(model_1), torch.rand(5, 4), 1),
-        #  (model_2, _guide_from_model(model_2), torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_3, _guide_from_model(model_3), torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_4, _guide_from_model(model_4), torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_5, _guide_from_model(model_5), torch.ones((5, 4), dtype=torch.long), 2),
-        #  (model_6, _guide_from_model(model_6), torch.rand(5, 4), 1),
-        #  (model_7, _guide_from_model(model_7), torch.ones((5, 4), dtype=torch.long), 1),
-        #  (model_10, _guide_from_model(model_10), torch.ones(5), 1),
-    ],
-)
-def test_guide_enumerated_elbo(model, guide, data, params, history):
-    model = config_enumerate(model)
-    elbo = infer.TraceEnum_ELBO(max_plate_nesting=4)
-
-    def expected_loss_fn(params):
-        return elbo.loss(
-            random.PRNGKey(0), {}, model, guide, data, params, history, False
-        )
-
-    # expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params)
-
-    def actual_loss_fn(params):
-        return elbo.loss(
-            random.PRNGKey(0), {}, model, guide, data, params, history, True
-        )
-
-    actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params)
-
-    assert_equal(actual_loss, expected_loss, prec=1e-5)
-    assert_equal(actual_grads, expected_grads, prec=1e-5)

@@ -958,7 +958,10 @@ class TraceEnum_ELBO(ELBO):
                     if site.get("infer", {}).get("_do_not_score", False)
                 ]
             )
-            model_vars = frozenset(model_deps)
+            # model_vars = frozenset(model_deps)
+            model_vars = frozenset(
+                [name for name, site in model_trace.items() if site["type"] == "sample"]
+            )
             model_sum_deps = {
                 k: v & sum_vars for k, v in model_deps.items() if k not in sum_vars
             }
