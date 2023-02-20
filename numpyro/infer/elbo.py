@@ -707,6 +707,30 @@ class TraceGraph_ELBO(ELBO):
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
+def get_nonreparam_enum_deps(model, guide, args, kwargs, param_map, max_plate_nesting):
+    """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
+    from numpyro.contrib.funsor import (
+        enum,
+        plate_to_enum_plate,
+        to_funsor,
+        trace as _trace,
+    )
+    with plate_to_enum_plate():
+        model_deps, guide_deps = get_provenance(
+            eval_provenance(
+                partial(
+                    enum(track_nonreparam(get_importance_log_probs), first_available_dim=-max_plate_nesting-1),
+                    model,
+                    guide,
+                    args,
+                    kwargs,
+                    param_map,
+                )
+            )
+        )
+    return model_deps, guide_deps
+
+
 def get_importance_trace_enum(
     model, guide, args, kwargs, params, max_plate_nesting, model_deps, guide_desc
 ):
@@ -910,7 +934,7 @@ class TraceEnum_ELBO(ELBO):
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         def single_particle_elbo(rng_key):
             import funsor
-            from numpyro.contrib.funsor import to_data
+            from numpyro.contrib.funsor import to_data, to_funsor
 
             model_seed, guide_seed = random.split(rng_key)
 
@@ -924,8 +948,11 @@ class TraceEnum_ELBO(ELBO):
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             # get dependencies on nonreparametrizable variables
-            model_deps, guide_deps = get_nonreparam_deps(
-                seeded_model, seeded_guide, args, kwargs, param_map
+            #  model_deps, guide_deps = get_nonreparam_deps(
+            #      seeded_model, seeded_guide, args, kwargs, param_map
+            #  )
+            model_deps, guide_deps = get_nonreparam_enum_deps(
+                seeded_model, seeded_guide, args, kwargs, param_map, self.max_plate_nesting
             )
             # get descendants of variables in the guide
             guide_desc = defaultdict(frozenset)
@@ -1016,13 +1043,18 @@ class TraceEnum_ELBO(ELBO):
                         for plate in group_plates
                     }
                     elim_plates = group_plates - outermost_plates
+                    markov_dims = frozenset(
+                        {plate for plate, step in group_plate_to_step.items() if step}
+                    )
+                    #  if markov_dims:
+                    #      import pdb;pdb.set_trace()
                     with funsor.interpretations.normalize:
                         cost = funsor.sum_product.dynamic_partial_sum_product(
                             funsor.ops.logaddexp,
                             funsor.ops.add,
                             group_factors,
                             plate_to_step=group_plate_to_step,
-                            eliminate=group_sum_vars | elim_plates,
+                            eliminate=group_sum_vars | elim_plates | markov_dims,
                         )
                         assert len(cost) == 1
                         cost = cost[0]
@@ -1080,17 +1112,33 @@ class TraceEnum_ELBO(ELBO):
                         *[f.inputs for f in dice_factors]
                     )
                     cost_vars = frozenset(cost.inputs)
+                    target = funsor.Constant(cost.inputs, to_funsor(0.0))
                     with funsor.interpretations.normalize:
-                        dice_factor = funsor.sum_product.sum_product(
+                        with funsor.adjoint.AdjointTape() as tape:
+                            group_plate_to_step = {
+                                plate: plate_to_step.get(plate, frozenset())
+                                for plate in (dice_factor_vars | cost_vars) - model_vars
+                            }
+                            dice_factor = (
+                                funsor.sum_product.dynamic_partial_sum_product(
+                                    funsor.ops.logaddexp,
+                                    funsor.ops.add,
+                                    dice_factors + (target,),
+                                    plate_to_step=group_plate_to_step,
+                                    eliminate=dice_factor_vars,
+                                )
+                            )
+                            assert len(dice_factor) == 1
+                            dice_factor = dice_factor[0]
+                        marginal = tape.adjoint(
                             funsor.ops.logaddexp,
                             funsor.ops.add,
-                            dice_factors,
-                            plates=(dice_factor_vars | cost_vars) - model_vars,
-                            eliminate=dice_factor_vars - cost_vars,
+                            dice_factor,
+                            (target,),
                         )
                     # TODO: add memoization
-                    dice_factor = funsor.optimizer.apply_optimizer(dice_factor)
-                    cost = cost * funsor.ops.exp(dice_factor)
+                    marginal = funsor.optimizer.apply_optimizer(marginal)
+                    cost = cost * funsor.ops.exp(marginal)
                 if (scale is not None) and (not is_identically_one(scale)):
                     cost = cost * scale
 
