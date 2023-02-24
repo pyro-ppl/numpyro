@@ -97,7 +97,7 @@ def test_beta_bernoulli(auto_class):
                            init_loc_fn=init_strategy, init_scale=1.0)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
-    svi = SVI(model, guide, adam, Trace_ELBO(multi_sample_guide=True if auto_class == AutoRVRS else False))
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
     def body_fn(i, val):
@@ -140,7 +140,6 @@ def test_beta_bernoulli(auto_class):
     assert predictive_samples["obs"].shape == (num_samples, N, 2)
 
     # ... or from the guide + params
-    # TODO: probably this is fail for AutoRVRS
     if auto_class != AutoRVRS:
         predictive = Predictive(model, guide=guide, params=params, num_samples=11)
         predictive_samples = predictive(random.PRNGKey(1), None)
@@ -192,7 +191,7 @@ def test_logistic_regression(auto_class, Elbo):
     else:
         init_loc_fn = init_to_median(num_samples=100)
         guide = auto_class(model, S=16, T=40.0, epsilon=0.05, init_scale=0.5, init_loc_fn=init_loc_fn)
-    svi = SVI(model, guide, adam, Elbo(multi_sample_guide=True))
+    svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
     # smoke test if analytic KL is used

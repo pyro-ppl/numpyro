@@ -1951,8 +1951,6 @@ class AutoRVRS(AutoContinuous):
         with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
             self.guide(*args, **kwargs)
         self.prototype_guide_trace = tr
-        # TODO: save computation by avoiding setting up prototype trace
-        # self.prototype_trace = self.guide.prototype_trace
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -2056,7 +2054,6 @@ class AutoRVRS(AutoContinuous):
             site = self.prototype_trace[name]
             with helpful_support_errors(site):
                 transform = biject_to(site["fn"].support)
-            # TODO: probably we don't need to vmap transform operators
             value = jax.vmap(transform)(unconstrained_value)
             event_ndim = site["fn"].event_dim
             if numpyro.get_mask() is False:
