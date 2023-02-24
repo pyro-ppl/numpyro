@@ -1891,10 +1891,6 @@ class AutoBNAFNormal(AutoContinuous):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
 
-def _estimate_T(lw_history, n_history, quantile=0.25):  # N x S
-    lw_normalize = lw_history - jnp.log(n_history)
-    return -jnp.nanpercentile(lw_normalize, quantile)
-
 
 class AutoRVRS(AutoContinuous):
     """
@@ -1906,7 +1902,7 @@ class AutoRVRS(AutoContinuous):
         *,
         S=4,    # number of samples
         T=0.0,
-        history_size=0,
+        adaptation_scheme="var",
         epsilon=0.1,
         guide=None,
         prefix="auto",
@@ -1919,6 +1915,8 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
+        if adaptation_scheme not in ["fixed", "var", "Z_target"]:
+            raise ValueError("adaptation_scheme must be one of 'fixed' or 'var' or 'Z_target'.")
 
         self.S = S
         self.T = T
@@ -1931,7 +1929,8 @@ class AutoRVRS(AutoContinuous):
         else:
             self.guide = AutoDiagonalNormal(
                 model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix)
-        self.history_size = history_size
+
+        self.adaptation_scheme = adaptation_scheme
         self.T_lr = 1.0
         self.Z_target = 0.5
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
@@ -1981,17 +1980,7 @@ class AutoRVRS(AutoContinuous):
             with numpyro.handlers.block():
                 return -self._potential_fn(x_unpack)
 
-        if self.history_size > 0:
-            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
-            lw_history = numpyro.primitives.mutable("_lw_history", {"value": jnp.zeros((self.history_size, self.S))})
-            n_history = numpyro.primitives.mutable("_n_history", {"value": -jnp.ones((self.history_size, self.S), dtype=jnp.int32)})
-            T_estimate = _estimate_T(lw_history["value"], n_history["value"])
-            T_estimate = jnp.where(jnp.isnan(T_estimate), T_adapt["value"], T_estimate)
-            # update T every history_size / 2 steps
-            T_adapt["value"] = jax.lax.select(num_updates["value"] % (self.history_size // 2) == 0, T_estimate, T_adapt["value"])
-            T = T_adapt["value"]
-        elif self.history_size == 0:
+        if self.adaptation_scheme == "fixed":
             T = self.T
         else:
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
@@ -2026,18 +2015,18 @@ class AutoRVRS(AutoContinuous):
         # TODO: double check
         numpyro.factor("surrogate_factor", -surrogate + stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S))
 
-        if self.history_size > 0:
-            num_updates["value"] = 1 + num_updates["value"]
-            lw_history["value"] = jnp.concatenate([lw_history["value"][1:], stop_gradient(log_ws)[None]])
-            n_history["value"] = jnp.concatenate([n_history["value"][1:], num_samples[None]])
-        elif self.history_size < 0:
-            a = stop_gradient(jnp.exp(first_log_a))
+        if self.adaptation_scheme == "Z_target":
             # Option 1: minimize (Z - Z_target) ** 2
-            # a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
-            # T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
+            a = stop_gradient(jnp.exp(first_log_a))
+            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
+        elif self.adaptation_scheme == "var":
             # Option 2: maximize var(a)
+            a = stop_gradient(jnp.exp(first_log_a))
             a_delta =  1 / (self.S - 1) * jnp.sum(a) - (self.S / (self.S - 1)) * a
             T_grad = 2 * jnp.mean(a_delta * (a - self.epsilon) * (1 - a)) / (1 - self.epsilon)
+
+        if self.adaptation_scheme in ["var", "Z_target"]:
             T_adapt["value"] = T_adapt["value"] - self.T_lr * T_grad
             A_stats["value"] = stop_gradient(first_log_a)
 

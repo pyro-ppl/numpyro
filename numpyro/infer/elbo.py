@@ -123,7 +123,7 @@ class Trace_ELBO(ELBO):
                 if site["type"] == "mutable"
             }
             params.update(mutable_params)
-            if multi_sample_guide:
+            if hasattr(guide, 'S'):
                 def get_model_density(key, latent):
                     with seed(rng_seed=key), substitute(data=latent):
                         model_log_density, _ = log_density(

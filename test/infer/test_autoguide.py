@@ -93,7 +93,7 @@ def test_beta_bernoulli(auto_class):
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
     elif auto_class == AutoRVRS:
-        guide = auto_class(model, S=4, T=13., epsilon=0.1,
+        guide = auto_class(model, S=4, T=13., epsilon=0.1, adaptation_scheme="var",
                            init_loc_fn=init_strategy, init_scale=1.0)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
@@ -126,9 +126,8 @@ def test_beta_bernoulli(auto_class):
         print("posterior_mean: ", posterior_mean)
         print("posterior_std: ", posterior_std)
         print("true posterior_mean: ", true_coefs)
-        final_elbo = -Trace_ELBO(num_particles=1000).loss(
-                random.PRNGKey(2), params, model, guide, data, multi_sample_guide=True
-            ).item()
+        final_elbo = jnp.mean(lax.map(lambda key: -Trace_ELBO().loss(key, params, model, guide, data),
+                              random.split(random.PRNGKey(2), 1000)))
         print("RVRS final elbo: ", final_elbo, "    (expected ~ -13.96)")
     elif auto_class == AutoDiagonalNormal:
         final_elbo = -Trace_ELBO(num_particles=1000).loss(
