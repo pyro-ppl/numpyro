@@ -104,12 +104,11 @@ class Trace_ELBO(ELBO):
         (gradient) estimators.
     """
 
-    def __init__(self, num_particles=1, multi_sample_guide=False):
+    def __init__(self, num_particles=1):
         self.num_particles = num_particles
-        self.multi_sample_guide = multi_sample_guide
 
     def loss_with_mutable_state(
-        self, rng_key, param_map, model, guide, *args, **kwargs
+        self, rng_key, param_map, model, guide, *args, multi_sample_guide=False, **kwargs,
     ):
         def single_particle_elbo(rng_key):
             params = param_map.copy()
@@ -124,9 +123,9 @@ class Trace_ELBO(ELBO):
                 if site["type"] == "mutable"
             }
             params.update(mutable_params)
-            if self.multi_sample_guide:
+            if multi_sample_guide:
                 def get_model_density(key, latent):
-                    with substitute(data=latent), seed(rng_seed=key):
+                    with seed(rng_seed=key), substitute(data=latent):
                         model_log_density, _ = log_density(
                             model, args, kwargs, params)
                     return model_log_density
@@ -137,7 +136,6 @@ class Trace_ELBO(ELBO):
                 model_log_density = vmap(get_model_density)(seeds, latents)
                 assert model_log_density.ndim == 1
                 model_log_density = model_log_density.sum(0)
-                # TODO(low priority): raise errors if there are mutable state in the model.
             else:
                 seeded_model = seed(model, model_seed)
                 seeded_model = replay(seeded_model, guide_trace)

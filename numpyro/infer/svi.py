@@ -163,6 +163,9 @@ class SVI(object):
 
             self.optim = optax_to_numpyro(optim)
 
+        # TODO: use a better attribute for multi sample guide.
+        self.multi_sample_guide = True if hasattr(guide, "S") else False
+
     def init(self, rng_key, *args, **kwargs):
         """
         Gets the initial SVI state.
@@ -178,11 +181,15 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        if hasattr(self.guide, "S"):  # TODO: move multi_sample_guide into here
+        if self.multi_sample_guide:
             latents = {name: site["value"][0] for name, site in guide_trace.items()
                        if site["type"] == "sample" and site["value"].size > 0}
             with trace() as model_trace, substitute(data=latents):
                 model_init(*args, **kwargs, **self.static_kwargs)
+            for site in model_trace.values():
+                if site["type"] == "mutable":
+                    raise ValueError("mutable state in model is not supported for "
+                                     "multi-sample guide.")
         else:
             model_trace = trace(replay(model_init, guide_trace)).get_trace(
                 *args, **kwargs, **self.static_kwargs
@@ -246,6 +253,9 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
+        static_kwargs = self.static_kwargs.copy()
+        if self.multi_sample_guide:
+            static_kwargs["multi_sample_guide"] = True
         loss_fn = _make_loss_fn(
             self.loss,
             rng_key_step,
@@ -254,7 +264,7 @@ class SVI(object):
             self.guide,
             args,
             kwargs,
-            self.static_kwargs,
+            static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
@@ -275,6 +285,9 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
+        static_kwargs = self.static_kwargs.copy()
+        if self.multi_sample_guide:
+            static_kwargs["multi_sample_guide"] = True
         loss_fn = _make_loss_fn(
             self.loss,
             rng_key_step,
@@ -283,7 +296,7 @@ class SVI(object):
             self.guide,
             args,
             kwargs,
-            self.static_kwargs,
+            static_kwargs,
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
@@ -393,6 +406,9 @@ class SVI(object):
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_key_eval = random.split(svi_state.rng_key)
         params = self.get_params(svi_state)
+        static_kwargs = self.static_kwargs.copy()
+        if self.multi_sample_guide:
+            static_kwargs["multi_sample_guide"] = True
         return self.loss.loss(
             rng_key_eval,
             params,
@@ -400,5 +416,5 @@ class SVI(object):
             self.guide,
             *args,
             **kwargs,
-            **self.static_kwargs,
+            **static_kwargs,
         )
