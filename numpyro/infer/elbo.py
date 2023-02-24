@@ -136,6 +136,8 @@ class Trace_ELBO(ELBO):
                 model_log_density = vmap(get_model_density)(seeds, latents)
                 assert model_log_density.ndim == 1
                 model_log_density = model_log_density.sum(0)
+                # log p(z) - log q(z)
+                elbo_particle = (model_log_density - guide_log_density) / seeds.shape[0]
             else:
                 seeded_model = seed(model, model_seed)
                 seeded_model = replay(seeded_model, guide_trace)
@@ -150,9 +152,9 @@ class Trace_ELBO(ELBO):
                         if site["type"] == "mutable"
                     }
                 )
+                # log p(z) - log q(z)
+                elbo_particle = model_log_density - guide_log_density
 
-            # log p(z) - log q(z)
-            elbo_particle = model_log_density - guide_log_density
             if mutable_params:
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params

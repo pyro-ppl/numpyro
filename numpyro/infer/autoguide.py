@@ -2020,12 +2020,11 @@ class AutoRVRS(AutoContinuous):
 
         ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
         ratio_bar = stop_gradient(ratio)
-        surrogate = 1 / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).mean()
-        # TODO: return elbo with surrogate grad
-
+        surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
         log_Z = logsumexp(log_a) - jnp.log(num_samples.sum())
 
-        numpyro.factor("surrogate_factor", -surrogate + stop_gradient(surrogate + guide_lp.mean() + log_a_eps_z.mean() - log_Z))
+        # TODO: double check
+        numpyro.factor("surrogate_factor", -surrogate + stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S))
 
         if self.history_size > 0:
             num_updates["value"] = 1 + num_updates["value"]
