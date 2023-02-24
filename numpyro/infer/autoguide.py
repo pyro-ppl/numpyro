@@ -2003,12 +2003,13 @@ class AutoRVRS(AutoContinuous):
         #jax.debug.print("DEBUG T={T}", T=T)
 
         def accept_log_prob_fn(z):
-            lw = model_log_density(z) - guide_log_prob(z, detach_params=True)
+            guide_lp = guide_log_prob(z, detach_params=True)
+            lw = model_log_density(z) - guide_lp
             a = sigmoid(lw + T)
-            return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw
+            return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         keys = random.split(numpyro.prng_key(), self.S)
-        zs, log_weight, log_ws, _, num_samples, first_log_a = jax.vmap(partial(
+        zs, log_weight, log_ws, log_a, num_samples, first_log_a, guide_lp = jax.vmap(partial(
             rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
         assert zs.shape == (self.S, self.latent_dim)
 
@@ -2023,7 +2024,10 @@ class AutoRVRS(AutoContinuous):
         ratio_bar = stop_gradient(ratio)
         surrogate = 1 / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).mean()
         # TODO: return elbo with surrogate grad
-        numpyro.factor("surrogate_factor", -surrogate)
+
+        log_Z = logsumexp(log_a) - jnp.log(num_samples.sum())
+
+        numpyro.factor("surrogate_factor", -surrogate + stop_gradient(surrogate + guide_lp.mean() + log_a_eps_z.mean() - log_Z))
 
         if self.history_size > 0:
             num_updates["value"] = 1 + num_updates["value"]
@@ -2098,23 +2102,23 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
         return ~val[-1]
 
     def body_fn(val):
-        key, _, _, log_sum_w, log_a, num_samples, first_log_a, _ = val
+        key, _, _, log_sum_w, log_a, num_samples, first_log_a, _, _ = val
         key_next, key_uniform, key_q = random.split(key, 3)
         z = guide_sampler(key_q)
-        accept_log_prob, log_weight = accept_log_prob_fn(z)
+        accept_log_prob, log_weight, guide_lp = accept_log_prob_fn(z)
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob
         log_sum_w = logsumexp(jnp.stack([log_sum_w, log_weight]))
         first_log_a = jax.lax.select(num_samples == 0, accept_log_prob, first_log_a)
         log_a = logsumexp(jnp.stack([log_a, accept_log_prob]))
-        return key_next, z, log_weight, log_sum_w, log_a, num_samples + 1, first_log_a, is_accepted
+        return key_next, z, log_weight, log_sum_w, log_a, num_samples + 1, first_log_a, guide_lp, is_accepted
 
     prototype_z = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
                            jax.eval_shape(guide_sampler, key))
-    init_val = (key, prototype_z, -jnp.inf, -jnp.inf, -jnp.inf, 0, -jnp.inf, False)
-    _, z, log_w, log_sum_w, log_a, num_samples, first_log_a, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    init_val = (key, prototype_z, -jnp.inf, -jnp.inf, -jnp.inf, 0, -jnp.inf, 0, False)
+    _, z, log_w, log_sum_w, log_a, num_samples, first_log_a, guide_lp, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
 
-    return z, log_w, log_sum_w, log_a, num_samples, first_log_a
+    return z, log_w, log_sum_w, log_a, num_samples, first_log_a, guide_lp
 
 
 def _compose(f, g, x):

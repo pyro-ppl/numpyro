@@ -126,6 +126,15 @@ def test_beta_bernoulli(auto_class):
         print("posterior_mean: ", posterior_mean)
         print("posterior_std: ", posterior_std)
         print("true posterior_mean: ", true_coefs)
+        final_elbo = -Trace_ELBO(num_particles=1000, multi_sample_guide=True).loss(
+                random.PRNGKey(2), params, model, guide, data
+            ).item()
+        print("RVRS final elbo: ", final_elbo, "    (expected ~ -13.96)")
+    elif auto_class == AutoDiagonalNormal:
+        final_elbo = -Trace_ELBO(num_particles=1000).loss(
+                random.PRNGKey(2), params, model, guide, data
+            ).item()
+        print("AutoDiagonalNormal final elbo: ", final_elbo)
 
     assert_allclose(posterior_mean, true_coefs, atol=0.03)
 
