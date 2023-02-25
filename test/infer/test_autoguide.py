@@ -154,15 +154,9 @@ def test_beta_bernoulli(auto_class):
         assert predictive_samples["obs"].shape == (11, N, 2)
 
 
-class AutoAdaptRVRS(AutoRVRS):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, history_size=-1)
-
-
 @pytest.mark.parametrize(
     "auto_class",
     [
-        AutoAdaptRVRS,
         AutoRVRS,
         AutoDiagonalNormal,
         AutoIAFNormal,
@@ -177,7 +171,7 @@ class AutoAdaptRVRS(AutoRVRS):
 )
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO][:1])
 def test_logistic_regression(auto_class, Elbo):
-    if auto_class in [AutoRVRS, AutoAdaptRVRS] and Elbo is TraceMeanField_ELBO:
+    if auto_class==AutoRVRS and Elbo is TraceMeanField_ELBO:
         pytest.skip("Skip MeanField_ELBO for AutoRVRS.")
 
     N, dim = 100, 3
@@ -194,7 +188,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     adam = optim.Adam(0.001)
     rng_key_init = random.PRNGKey(1)
-    if auto_class not in [AutoRVRS, AutoAdaptRVRS]:
+    if auto_class not in [AutoRVRS]:
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
         init_loc_fn = init_to_median(num_samples=100)
@@ -216,7 +210,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     svi_state = fori_loop(0, 10000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS, AutoAdaptRVRS):
+    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS):
         median = guide.median(params)
         #assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method
@@ -228,14 +222,14 @@ def test_logistic_regression(auto_class, Elbo):
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
     expected_coefs = jnp.array([0.97, 2.05, 3.18])
-    print("\nRVRS posterior: ", jnp.mean(posterior_samples["coefs"], 0))
-    print("RVRS posterior std: ", jnp.std(posterior_samples["coefs"], 0))
+    print("\nRVRS posterior: ", jnp.mean(posterior_samples["coefs"], (0, 1)))
+    print("RVRS posterior std: ", jnp.std(posterior_samples["coefs"], (0, 1)))
     #print("Expected posterior: ", expected_coefs)
 
     if 'auto_z_0_loc' in params:
         print("auto_z_0_loc: ", params['auto_z_0_loc'])
         print("auto_z_0_scale: ", params['auto_z_0_scale'])
-    if auto_class == AutoAdaptRVRS:
+    if auto_class == AutoRVRS:
         print("Final T_adapt: {:.4f}".format(svi_state.mutable_state['_T_adapt']['value'].item()))
         a = np.exp(svi_state.mutable_state['A_stats']['value'])
         print("Final a: {:.4f} +- {:.4f}    Min/Max: {:.4f} / {:.4f}".format(np.mean(a), np.std(a), np.min(a), np.max(a)))
