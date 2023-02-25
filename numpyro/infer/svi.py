@@ -177,6 +177,8 @@ class SVI(object):
             during the course of fitting).
         :return: the initial :data:`SVIState`
         """
+        init_params = kwargs.pop('init_params', None)
+
         rng_key, model_seed, guide_seed = random.split(rng_key, 3)
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
@@ -228,7 +230,7 @@ class SVI(object):
             lambda x: lax.convert_element_type(x, jnp.result_type(x)),
             (params, mutable_state),
         )
-        return SVIState(self.optim.init(params), mutable_state, rng_key)
+        return SVIState(self.optim.init(params if init_params is None else init_params), mutable_state, rng_key)
 
     def get_params(self, svi_state):
         """
