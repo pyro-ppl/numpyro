@@ -1932,6 +1932,7 @@ class AutoRVRS(AutoContinuous):
 
         self.adaptation_scheme = adaptation_scheme
         self.T_lr = 1.0
+        self.T_exponent = 0.25
         self.Z_target = 0.5
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
@@ -1985,9 +1986,8 @@ class AutoRVRS(AutoContinuous):
         else:
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
             A_stats = numpyro.primitives.mutable("A_stats", {"value": jnp.zeros(self.S)})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"]
-
-        #jax.debug.print("DEBUG T={T}", T=T)
 
         def accept_log_prob_fn(z):
             guide_lp = guide_log_prob(z, detach_params=True)
@@ -2030,7 +2030,9 @@ class AutoRVRS(AutoContinuous):
             T_grad = 2 * jnp.mean(a_delta * (a - self.epsilon) * (1 - a)) / (1 - self.epsilon)
 
         if self.adaptation_scheme in ["var", "Z_target"]:
-            T_adapt["value"] = T_adapt["value"] - self.T_lr * T_grad
+            num_updates["value"] = num_updates["value"] + 1
+            T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
+            T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
             A_stats["value"] = stop_gradient(first_log_a)
 
         return stop_gradient(zs)
