@@ -100,7 +100,7 @@ def eval_provenance(fun, *args, **kwargs):
     # flatten the function and its arguments
     args_flat, in_tree = jax.tree_util.tree_flatten((args, kwargs))
     wrapped_fun, out_tree = jax.api_util.flatten_fun(wrap_init(fun), in_tree)
-    # After the merge of jit & pjit in jax 0.4.5, our provenance trace is
+    # After the merge of jit & pjit in jax 0.4.4, our provenance trace is
     # no longer composed with jitted primitives (like jnp.sin), so we need
     # to play with jaxpr, which does not involve jitting.
     args_struct = jax.tree_util.tree_map(
