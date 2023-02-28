@@ -19,9 +19,8 @@ from numpyro.infer.elbo import (
     _compute_downstream_costs,
     _get_plate_stacks,
     _identify_dense_edges,
-    track_nonreparam,
+    get_nonreparam_deps,
 )
-from numpyro.ops.provenance import eval_provenance, get_provenance
 
 
 def _brute_force_compute_downstream_costs(
@@ -75,13 +74,11 @@ def _brute_force_compute_downstream_costs(
     return downstream_costs, downstream_guide_cost_nodes
 
 
-def _provenance_compute_downstream_costs(model_trace, guide_trace, get_log_probs):
+def _provenance_compute_downstream_costs(
+    model_trace, guide_trace, model_deps, guide_deps
+):
     # replicate the logic from TraceGraph_ELBO
     # additionally compute downstream_guide_cost_nodes
-    model_deps, guide_deps = get_provenance(
-        eval_provenance(track_nonreparam(get_log_probs))
-    )
-
     downstream_costs = defaultdict(lambda: MultiFrameTensor())
     downstream_guide_cost_nodes = defaultdict(lambda: set())
     for name, site in model_trace.items():
@@ -201,19 +198,9 @@ def big_model_guide(
 def test_compute_downstream_costs_big_model_guide_pair(
     include_inner_1, include_single, flip_c23, include_triple, include_z1
 ):
-    def _get_traces():
-        seeded_guide = handlers.seed(big_model_guide, rng_seed=0)
-        guide_trace = handlers.trace(seeded_guide).get_trace(
-            include_obs=False,
-            include_inner_1=include_inner_1,
-            include_single=include_single,
-            flip_c23=flip_c23,
-            include_triple=include_triple,
-            include_z1=include_z1,
-        )
-        model_trace = handlers.trace(
-            handlers.replay(seeded_guide, guide_trace)
-        ).get_trace(
+    def _get_traces_and_deps():
+        model = partial(
+            big_model_guide,
             include_obs=True,
             include_inner_1=include_inner_1,
             include_single=include_single,
@@ -221,15 +208,29 @@ def test_compute_downstream_costs_big_model_guide_pair(
             include_triple=include_triple,
             include_z1=include_z1,
         )
+        guide = partial(
+            big_model_guide,
+            include_obs=False,
+            include_inner_1=include_inner_1,
+            include_single=include_single,
+            flip_c23=flip_c23,
+            include_triple=include_triple,
+            include_z1=include_z1,
+        )
+
+        seeded_guide = handlers.seed(guide, rng_seed=0)
+        guide_trace = handlers.trace(seeded_guide).get_trace()
+        model_trace = handlers.trace(handlers.replay(model, guide_trace)).get_trace()
 
         for trace in (model_trace, guide_trace):
             for site in trace.values():
                 if site["type"] == "sample":
                     site["log_prob"] = site["fn"].log_prob(site["value"])
 
-        return model_trace, guide_trace
+        model_deps, guide_deps = get_nonreparam_deps(model, guide, (), {}, {})
+        return model_trace, guide_trace, model_deps, guide_deps
 
-    model_trace, guide_trace = _get_traces()
+    model_trace, guide_trace, model_deps, guide_deps = _get_traces_and_deps()
     non_reparam_nodes = set(
         name
         for name, site in guide_trace.items()
@@ -246,7 +247,7 @@ def test_compute_downstream_costs_big_model_guide_pair(
     )
 
     dc_provenance, dc_nodes_provenance = _provenance_compute_downstream_costs(
-        model_trace, guide_trace, partial(_get_log_probs, _get_traces)
+        model_trace, guide_trace, model_deps, guide_deps
     )
 
     assert dc_nodes == dc_nodes_brute
@@ -397,23 +398,26 @@ def plate_reuse_model_guide(include_obs=True, dim1=3, dim2=2):
 @pytest.mark.parametrize("dim1", [2, 5])
 @pytest.mark.parametrize("dim2", [3, 4])
 def test_compute_downstream_costs_plate_reuse(dim1, dim2):
-    def _get_traces():
-        seeded_guide = handlers.seed(plate_reuse_model_guide, rng_seed=0)
-        guide_trace = handlers.trace(seeded_guide).get_trace(
-            include_obs=False, dim1=dim1, dim2=dim2
+    def _get_traces_and_deps():
+        model = partial(
+            plate_reuse_model_guide, includes_obs=True, dim1=dim1, dim2=dim2
         )
-        model_trace = handlers.trace(
-            handlers.replay(seeded_guide, guide_trace)
-        ).get_trace(include_obs=True, dim1=dim1, dim2=dim2)
+        guide = partial(
+            plate_reuse_model_guide, includes_obs=False, dim1=dim1, dim2=dim2
+        )
+        seeded_guide = handlers.seed(guide, rng_seed=0)
+        guide_trace = handlers.trace(seeded_guide).get_trace()
+        model_trace = handlers.trace(handlers.replay(model, guide_trace)).get_trace()
 
         for trace in (model_trace, guide_trace):
             for site in trace.values():
                 if site["type"] == "sample":
                     site["log_prob"] = site["fn"].log_prob(site["value"])
 
-        return model_trace, guide_trace
+        model_deps, guide_deps = get_nonreparam_deps(model, guide, (), {}, {})
+        return model_trace, guide_trace, model_deps, guide_deps
 
-    model_trace, guide_trace = _get_traces()
+    model_trace, guide_trace, model_deps, guide_deps = _get_traces_and_deps()
     non_reparam_nodes = set(
         name
         for name, site in guide_trace.items()
@@ -430,7 +434,7 @@ def test_compute_downstream_costs_plate_reuse(dim1, dim2):
     )
 
     dc_provenance, dc_nodes_provenance = _provenance_compute_downstream_costs(
-        model_trace, guide_trace, partial(_get_log_probs, _get_traces)
+        model_trace, guide_trace, model_deps, guide_deps
     )
 
     assert dc_nodes == dc_nodes_brute
