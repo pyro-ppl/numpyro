@@ -14,7 +14,7 @@ from jax.scipy.special import logsumexp
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
-from numpyro.handlers import Messenger, replay, seed, substitute, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import (
     _without_rsample_stop_gradient,
     get_importance_trace,
@@ -553,10 +553,10 @@ def get_importance_log_probs(model, guide, args, kwargs, params):
     return model_log_probs, guide_log_probs
 
 
-def _substitute_with_deps(data, msg):
-    if msg["name"] in data:
+def _substitute_nonreparam(data, msg):
+    if msg["name"] in data and not msg["fn"].has_rsample:
         value = msg["fn"](*msg["args"], **msg["kwargs"])
-        value = value + 0 * data[msg["name"]]
+        value = 0 * value + data[msg["name"]]
         return value
 
 
@@ -580,13 +580,12 @@ def get_nonreparam_deps(model, guide, args, kwargs, param_map):
     }
 
     def fn(latents):
-        subs_fn = partial(_substitute_with_deps, latents)
+        subs_fn = partial(_substitute_nonreparam, latents)
         subs_model = substitute(seed(model, rng_seed=0), substitute_fn=subs_fn)
         subs_guide = substitute(seed(guide, rng_seed=0), substitute_fn=subs_fn)
         return get_importance_log_probs(subs_model, subs_guide, args, kwargs, param_map)
 
     model_deps, guide_deps = get_provenance(eval_provenance(fn, named_latents))
-    print(model_deps, guide_deps)
     return model_deps, guide_deps
 
 

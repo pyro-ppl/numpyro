@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-os.environ['JAX_JIT_PJIT_API_MERGE'] = '0'
 
 from jax.config import config
 
