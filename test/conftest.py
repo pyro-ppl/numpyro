@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-os.environ['JAX_JIT_PJIT_API_MERGE'] = '1'
 
-from jax.config import config
+os.environ["JAX_JIT_PJIT_API_MERGE"] = "0"
 
-from numpyro.util import set_rng_seed
+from jax.config import config  # noqa: E402
+
+from numpyro.util import set_rng_seed  # noqa: E402
 
 config.update("jax_platform_name", "cpu")  # noqa: E702
 

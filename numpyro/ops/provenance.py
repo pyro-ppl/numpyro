@@ -73,6 +73,12 @@ class ProvenanceArray:
         self.dtype = jnp.result_type(data)
         self.named_shape = {"_provenance": provenance}
 
+    def __repr__(self):
+        return (
+            f"ProvenanceArray(shape={self.shape}, dtype={self.dtype}, "
+            f"provenance={self.named_shape.get('_provenance', frozenset())})"
+        )
+
 
 def get_provenance(data):
     """
