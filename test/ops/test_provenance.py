@@ -14,6 +14,7 @@ from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provena
         (lambda x, y: x + y, ({"a"}, {"b"}), {"a", "b"}),
         (lambda x, y: x + y, ({"a", "c"}, {"a", "b"}), {"a", "b", "c"}),
         (lambda x, y, z: x + y, ({"a"}, {"b"}, {"c"}), {"a", "b"}),
+        (lambda x, y: {"sum": x + y, "zero": 0}, ({"a"}, {"b"}), {"sum": {"a", "b"}, "zero": set()}),
     ],
 )
 def test_provenance(f, inputs, expected_output):

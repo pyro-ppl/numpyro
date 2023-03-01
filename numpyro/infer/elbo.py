@@ -561,13 +561,14 @@ def _substitute_nonreparam(data, msg):
 
 
 def _get_latents(model, guide, args, kwargs, params):
-    model = seed(model, rng_seed=0)
-    guide = seed(guide, rng_seed=0)
-    model_tr, guide_tr = get_importance_trace(model, guide, args, kwargs, params)
-    guide_tr.update(model_tr)
+    model = seed(substitute(model, data=params), rng_seed=0)
+    guide = seed(substitute(guide, data=params), rng_seed=0)
+    guide_tr = trace(guide).get_trace(*args, **kwargs)
+    model_tr = trace(replay(model, guide_tr)).get_trace(*args, **kwargs)
+    model_tr.update(guide_tr)
     return {
         name: site["value"]
-        for name, site in guide_tr.items()
+        for name, site in model_tr.items()
         if site["type"] == "sample" and not site.get("is_observed", False)
     }
 
