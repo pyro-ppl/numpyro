@@ -101,21 +101,6 @@ def _provenance_compute_downstream_costs(
     return downstream_costs, downstream_guide_cost_nodes
 
 
-def _get_log_probs(get_traces_fn):
-    model_tr, guide_tr = get_traces_fn()
-    model_log_probs = {
-        name: site["log_prob"]
-        for name, site in model_tr.items()
-        if site["type"] == "sample"
-    }
-    guide_log_probs = {
-        name: site["log_prob"]
-        for name, site in guide_tr.items()
-        if site["type"] == "sample"
-    }
-    return model_log_probs, guide_log_probs
-
-
 def big_model_guide(
     include_obs=True,
     include_single=False,
@@ -399,11 +384,9 @@ def plate_reuse_model_guide(include_obs=True, dim1=3, dim2=2):
 @pytest.mark.parametrize("dim2", [3, 4])
 def test_compute_downstream_costs_plate_reuse(dim1, dim2):
     def _get_traces_and_deps():
-        model = partial(
-            plate_reuse_model_guide, includes_obs=True, dim1=dim1, dim2=dim2
-        )
+        model = partial(plate_reuse_model_guide, include_obs=True, dim1=dim1, dim2=dim2)
         guide = partial(
-            plate_reuse_model_guide, includes_obs=False, dim1=dim1, dim2=dim2
+            plate_reuse_model_guide, include_obs=False, dim1=dim1, dim2=dim2
         )
         seeded_guide = handlers.seed(guide, rng_seed=0)
         guide_trace = handlers.trace(seeded_guide).get_trace()
