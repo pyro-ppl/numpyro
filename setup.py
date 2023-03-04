@@ -63,7 +63,7 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==1.0.0",
+            "jaxns>=2.0.0",
             "optax>=0.0.6",
             "pyyaml",  # flax dependency
             "tensorflow_probability>=0.17.0",
