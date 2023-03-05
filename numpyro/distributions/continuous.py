@@ -36,6 +36,7 @@ import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import (
     betaln,
+    expi,
     expit,
     gammainc,
     gammaln,
@@ -724,6 +725,10 @@ class Gompertz(Distribution):
 
     def icdf(self, q):
         return self.rate * jnp.log1p(-jnp.log1p(-q) / self.concentration)
+
+    @property
+    def mean(self):
+        return -self.rate * jnp.exp(self.concentration) * expi(-self.concentration)
 
 
 class Gumbel(Distribution):

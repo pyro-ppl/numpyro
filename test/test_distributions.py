@@ -1591,8 +1591,6 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
-    if jax_dist is dist.Gompertz:
-        pytest.skip("Gompertz distribution does not has mean/var implemented")
     if jax_dist is dist.EulerMaruyama:
         pytest.skip("EulerMaruyama distribution does not has mean/var implemented")
     if jax_dist is dist.RelaxedBernoulliLogits:
@@ -1747,6 +1745,8 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if isinstance(d_jax, dist.CAR):
             pytest.skip("CAR distribution does not have `variance` implemented.")
+        if isinstance(d_jax, dist.Gompertz):
+            pytest.skip("Gompertz distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
             assert_allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
