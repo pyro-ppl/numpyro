@@ -573,9 +573,12 @@ def _get_latents(model, guide, args, kwargs, params):
     }
 
 
-def get_nonreparam_deps(model, guide, args, kwargs, param_map):
+def get_nonreparam_deps(model, guide, args, kwargs, param_map, latents=None):
     """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
-    latents = eval_shape(partial(_get_latents, model, guide, args, kwargs, param_map))
+    if latents is None:
+        latents = eval_shape(
+            partial(_get_latents, model, guide, args, kwargs, param_map)
+        )
 
     def fn(**latents):
         subs_fn = partial(_substitute_nonreparam, latents)
@@ -638,8 +641,13 @@ class TraceGraph_ELBO(ELBO):
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
+            latents = {}
+            for tr in (guide_trace, model_trace):
+                for name, site in tr.items():
+                    if site["type"] == "sample" and not site.get("is_observed", False):
+                        latents[name] = site["value"]
             model_deps, guide_deps = get_nonreparam_deps(
-                model, guide, args, kwargs, param_map
+                model, guide, args, kwargs, param_map, latents=latents
             )
 
             elbo = 0.0
@@ -877,6 +885,8 @@ class TraceEnum_ELBO(ELBO):
             if self.max_plate_nesting == float("inf"):
                 seeded_model = seed(model, model_seed)
                 seeded_guide = seed(guide, guide_seed)
+                # XXX: We can extract abstract latents here such that they
+                # can be reused in get_nonreparam_deps below.
                 self.max_plate_nesting = guess_max_plate_nesting(
                     seeded_model, seeded_guide, args, kwargs, param_map
                 )

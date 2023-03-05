@@ -236,7 +236,6 @@ def test_compute_downstream_costs_big_model_guide_pair(
     )
 
     assert dc_nodes == dc_nodes_brute
-    print("DEPENDS", model_deps, guide_deps)
 
     for name, nodes in dc_nodes_provenance.items():
         assert nodes.issubset(dc_nodes[name])

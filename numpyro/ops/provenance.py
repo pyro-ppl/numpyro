@@ -38,6 +38,9 @@ def eval_provenance(fn, **kwargs):
     wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn), in_tree)
     # Abstract eval to get output pytree
     avals = core.safe_map(shaped_abstractify, args)
+    # XXX: we split out the process of abstract evaluation and provenance tracking
+    # for simplicity. In principle, they can be merged so that we only need to walk
+    # through the equations once.
     jaxpr, avals_out, _ = trace_to_jaxpr_dynamic(
         lu.wrap_init(wrapped_fun.call_wrapped), avals
     )
