@@ -5,7 +5,7 @@ import jax
 from jax._src.pjit import pjit_p
 from jax.api_util import flatten_fun, shaped_abstractify
 import jax.core as core
-from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
+from jax.interpreters.partial_eval import debug_info, trace_to_jaxpr_dynamic
 from jax.interpreters.pxla import xla_pmap_p
 from jax.interpreters.xla import xla_call_p
 import jax.linear_util as lu
@@ -41,8 +41,9 @@ def eval_provenance(fn, **kwargs):
     # XXX: we split out the process of abstract evaluation and provenance tracking
     # for simplicity. In principle, they can be merged so that we only need to walk
     # through the equations once.
+    info = debug_info(fn, in_tree, True, "eval_shape")
     jaxpr, avals_out, _ = trace_to_jaxpr_dynamic(
-        lu.wrap_init(wrapped_fun.call_wrapped), avals
+        lu.wrap_init(wrapped_fun.call_wrapped, {}), avals, info
     )
 
     # get provenances of flatten kwargs
