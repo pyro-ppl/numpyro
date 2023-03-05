@@ -398,7 +398,6 @@ CONTINUOUS = [
     T(dist.Gamma, np.array([1.7]), np.array([[2.0], [3.0]])),
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.GaussianRandomWalk, 0.1, 10),
-    T(dist.GaussianRandomWalk, jnp.array([0.1, 0.3, 0.25]), 10),
     T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
     T(
         dist.GaussianCopulaBeta,
@@ -408,8 +407,8 @@ CONTINUOUS = [
     ),
     T(dist.GaussianCopulaBeta, 2.0, 1.5, np.eye(3)),
     T(dist.GaussianCopulaBeta, 2.0, 1.5, np.full((5, 3, 3), np.eye(3))),
-    T(dist.Gompertz, jnp.array([1.7]), jnp.array([[2.0], [3.0]])),
-    T(dist.Gompertz, jnp.array([0.5, 1.3]), jnp.array([[1.0], [3.0]])),
+    T(dist.Gompertz, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Gompertz, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, np.array([0.0, 0.5]), np.array([1.0, 2.0])),

@@ -187,7 +187,6 @@ GaussianCopula
 GaussianCopulaBeta
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.copula.GaussianCopulaBeta
->>>>>>> master
     :members:
     :undoc-members:
     :show-inheritance:
