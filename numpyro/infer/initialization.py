@@ -45,6 +45,36 @@ def init_to_median(site=None, num_samples=15):
             return init_to_uniform(site)
 
 
+def init_to_mean(site=None):
+    """
+    Initialize to the prior mean. For priors with no `.sample` method implemented,
+    we defer to the :func:`init_to_uniform` strategy.
+    """
+    if site is None:
+        return partial(init_to_mean)
+
+    if (
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].support.is_discrete
+    ):
+        if site["value"] is not None:
+            warnings.warn(
+                f"init_to_mean() skipping initialization of site '{site['name']}'"
+                " which already stores a value.",
+                stacklevel=find_stack_level(),
+            )
+            return site["value"]
+        try:
+            # Try .mean() method.
+            value = site["fn"].mean
+            sample_shape = site["kwargs"].get("sample_shape")
+            if sample_shape:
+                value = jnp.broadcast_to(value, sample_shape + jnp.shape(value))
+        except (NotImplementedError, ValueError):
+            return init_to_uniform(site)
+
+
 def init_to_sample(site=None):
     """
     Initialize to a prior sample. For priors with no `.sample` method implemented,
