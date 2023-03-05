@@ -3,11 +3,9 @@
 
 import os
 
-os.environ["JAX_JIT_PJIT_API_MERGE"] = "0"
+from jax.config import config
 
-from jax.config import config  # noqa: E402
-
-from numpyro.util import set_rng_seed  # noqa: E402
+from numpyro.util import set_rng_seed
 
 config.update("jax_platform_name", "cpu")  # noqa: E702
 

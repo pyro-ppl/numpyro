@@ -21,7 +21,7 @@ from numpyro.infer.util import (
     is_identically_one,
     log_density,
 )
-from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provenance
+from numpyro.ops.provenance import eval_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 
@@ -576,17 +576,14 @@ def _get_latents(model, guide, args, kwargs, params):
 def get_nonreparam_deps(model, guide, args, kwargs, param_map):
     """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
     latents = eval_shape(partial(_get_latents, model, guide, args, kwargs, param_map))
-    named_latents = {
-        name: ProvenanceArray(v, frozenset({name})) for name, v in latents.items()
-    }
 
-    def fn(latents):
+    def fn(**latents):
         subs_fn = partial(_substitute_nonreparam, latents)
         subs_model = substitute(seed(model, rng_seed=0), substitute_fn=subs_fn)
         subs_guide = substitute(seed(guide, rng_seed=0), substitute_fn=subs_fn)
         return get_importance_log_probs(subs_model, subs_guide, args, kwargs, param_map)
 
-    model_deps, guide_deps = get_provenance(eval_provenance(fn, named_latents))
+    model_deps, guide_deps = eval_provenance(fn, **latents)
     return model_deps, guide_deps
 
 
