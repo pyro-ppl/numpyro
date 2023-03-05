@@ -3,15 +3,23 @@
 
 """
 Optimizer classes defined here are light wrappers over the corresponding optimizers
-sourced from :mod:`jax.experimental.optimizers` with an interface that is better
+sourced from :mod:`jax.example_libraries.optimizers` with an interface that is better
 suited for working with NumPyro inference algorithms.
 """
 
 from collections import namedtuple
 from typing import Any, Callable, Tuple, TypeVar
 
+import jax
 from jax import lax, value_and_grad
-from jax.experimental import optimizers
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import optimizers
+else:
+    from jax.experimental import optimizers  # pytype: disable=import-error
+
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
@@ -112,7 +120,7 @@ class _NumPyroOptim(object):
 
 def _add_doc(fn):
     def _wrapped(cls):
-        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`".format(
+        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.example_libraries.optimizers.{}`".format(
             fn.__name__
         )
         return cls
@@ -283,3 +291,34 @@ class Minimize(_NumPyroOptim):
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
         return (out, None), state
+
+
+def optax_to_numpyro(transformation) -> _NumPyroOptim:
+    """
+    This function produces a ``numpyro.optim._NumPyroOptim`` instance from an
+    ``optax.GradientTransformation`` so that it can be used with
+    ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the
+    ``(init_fn, update_fn, get_params_fn)`` interface defined by
+    :mod:`jax.example_libraries.optimizers`.
+
+    :param transformation: An ``optax.GradientTransformation`` instance to wrap.
+    :return: An instance of ``numpyro.optim._NumPyroOptim`` wrapping the supplied
+        Optax optimizer.
+    """
+    import optax
+
+    def init_fn(params):
+        opt_state = transformation.init(params)
+        return params, opt_state
+
+    def update_fn(step, grads, state):
+        params, opt_state = state
+        updates, opt_state = transformation.update(grads, opt_state, params)
+        updated_params = optax.apply_updates(params, updates)
+        return updated_params, opt_state
+
+    def get_params_fn(state):
+        params, _ = state
+        return params
+
+    return _NumPyroOptim(lambda x, y, z: (x, y, z), init_fn, update_fn, get_params_fn)

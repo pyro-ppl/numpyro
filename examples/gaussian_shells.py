@@ -78,7 +78,7 @@ def run_inference(args, data):
             num_warmup=args.num_warmup,
             num_samples=args.num_samples,
         )
-    mcmc.run(random.PRNGKey(2), **data)
+    mcmc.run(random.PRNGKey(2), **data, enum=args.enum)
     mcmc.print_summary()
     mcmc_samples = mcmc.get_samples()
 
@@ -120,7 +120,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.8.0")
+    assert numpyro.__version__.startswith("0.11.0")
     parser = argparse.ArgumentParser(description="Nested sampler for Gaussian shells")
     parser.add_argument("-n", "--num-samples", nargs="?", default=10000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

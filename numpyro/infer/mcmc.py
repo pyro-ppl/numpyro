@@ -10,13 +10,11 @@ import warnings
 import numpy as np
 
 from jax import jit, lax, local_device_count, pmap, random, vmap
-from jax.core import Tracer
-from jax.interpreters.xla import DeviceArray
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map, tree_multimap
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import print_summary
-from numpyro.util import cached_by, fori_collect, identity
+from numpyro.util import cached_by, find_stack_level, fori_collect, identity
 
 __all__ = [
     "MCMCKernel",
@@ -161,7 +159,7 @@ def _laxmap(f, xs):
         x = jit(_get_value_from_index)(xs, i)
         ys.append(f(x))
 
-    return tree_multimap(lambda *args: jnp.stack(args), *ys)
+    return tree_map(lambda *args: jnp.stack(args), *ys)
 
 
 def _sample_fn_jit_args(state, sampler):
@@ -187,13 +185,9 @@ def _collect_fn(collect_fields):
 
 # XXX: Is there a better hash key that we can use?
 def _hashable(x):
-    # When the arguments are JITed, ShapedArray is hashable.
-    if isinstance(x, Tracer):
-        return x
-    elif isinstance(x, DeviceArray):
-        return x.copy().tobytes()
-    elif isinstance(x, (np.ndarray, jnp.ndarray)):
-        return x.tobytes()
+    # NOTE: When the arguments are JITed, ShapedArray is hashable.
+    if isinstance(x, (np.ndarray, jnp.ndarray)):
+        return id(x)
     return x
 
 
@@ -239,6 +233,32 @@ class MCMC(object):
         on a same sized but different dataset will not result in additional compilation cost.
         Note that currently, this does not take effect for the case ``num_chains > 1``
         and ``chain_method == 'parallel'``.
+
+    .. note:: It is possible to mix parallel and vectorized sampling, i.e., run vectorized chains
+        on multiple devices using explicit `pmap`. Currently, doing so requires disabling the
+        progress bar. For example,
+
+        .. code-block:: python
+
+            def do_mcmc(rng_key, n_vectorized=8):
+                nuts_kernel = NUTS(model)
+                mcmc = MCMC(
+                    nuts_kernel,
+                    progress_bar=False,
+                    num_chains=n_vectorized,
+                    chain_method='vectorized'
+                )
+                mcmc.run(
+                    rng_key,
+                    extra_fields=("potential_energy",),
+                )
+                return {**mcmc.get_samples(), **mcmc.get_extra_fields()}
+            # Number of devices to pmap over
+            n_parallel = jax.local_device_count()
+            rng_keys = jax.random.split(PRNGKey(rng_seed), n_parallel)
+            traces = pmap(do_mcmc)(rng_keys)
+            # concatenate traces along pmap'ed axis
+            trace = {k: np.concatenate(v) for k, v in traces.items()}
     """
 
     def __init__(
@@ -278,7 +298,8 @@ class MCMC(object):
                 " of your program. You can double-check how many devices are available in"
                 " your system using `jax.local_device_count()`.".format(
                     self.num_chains, local_device_count(), self.num_chains
-                )
+                ),
+                stacklevel=find_stack_level(),
             )
         self.chain_method = chain_method
         self.progress_bar = progress_bar
@@ -519,7 +540,8 @@ class MCMC(object):
             does not have batch_size, it will be split in to a batch of `num_chains` keys.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from `"z"`, `"diverging"`) to be collected
+        :param extra_fields: Extra fields (aside from `"z"`, `"diverging"`) from the
+            state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to be collected
             during the MCMC run. Note that subfields can be accessed using dots, e.g.
             `"adapt_state.step_size"` can be used to collect step sizes at each step.
         :type extra_fields: tuple or list of str
@@ -582,7 +604,9 @@ class MCMC(object):
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
             states_flat = tree_map(
-                lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), states
+                # need to calculate first dimension manually; see issue #1328
+                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
+                states,
             )
         self._last_state = last_state
         self._states = states

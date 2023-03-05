@@ -62,6 +62,9 @@ def stirling_approx_tail(k):
     )
 
 
+_binomial_mu_thresh = 10
+
+
 def _binomial_btrs(key, p, n):
     """
     Based on the transformed rejection sampling algorithm (BTRS) from the
@@ -103,13 +106,19 @@ def _binomial_btrs(key, p, n):
         k, key, u, v = val
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
-        return lax.cond(
+        # when vmapped _binomial_dispatch will convert the cond condition into
+        # a HLO select that will execute both branches. This is a workaround
+        # that avoids the resulting infinite loop when p=0. This should also
+        # improve performance in less catastrophic cases.
+        cond_exclude_small_mu = p * n >= _binomial_mu_thresh
+        cond_main = lax.cond(
             early_accept | early_reject,
             (),
             lambda _: ~early_accept,
             (k, u, v),
             lambda x: ~accept_fn(*x),
         )
+        return cond_exclude_small_mu & cond_main
 
     tr_params = _get_tr_params(n, p)
     ret = lax.while_loop(
@@ -129,7 +138,11 @@ def _binomial_inversion(key, p, n):
 
     def _binom_inv_cond_fn(val):
         i, _, geom_acc = val
-        return geom_acc <= n
+        # see the note on cond_exclude_small_mu in _binomial_btrs
+        # this cond_exclude_large_mu is unnecessary for correctness but will
+        # still improve performance.
+        cond_exclude_large_mu = p * n < _binomial_mu_thresh
+        return cond_exclude_large_mu & (geom_acc <= n)
 
     log1_p = jnp.log1p(-p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
@@ -142,7 +155,7 @@ def _binomial_dispatch(key, p, n):
         pq = jnp.where(is_le_mid, p, 1 - p)
         mu = n * pq
         k = lax.cond(
-            mu < 10,
+            mu < _binomial_mu_thresh,
             (key, pq, n),
             lambda x: _binomial_inversion(*x),
             (key, pq, n),
@@ -185,6 +198,8 @@ def _categorical(key, p, shape):
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
     s = jnp.cumsum(p, axis=-1)
+    # Normalize s to deal with numerical issues.
+    s = s[..., :-1] / s[..., -1:]
     r = random.uniform(key, shape=shape + (1,))
     # FIXME: replace this computation by using binary search as suggested in the above
     # reference. A while_loop + vmap for a reshaped 2D array would be enough.
@@ -372,7 +387,7 @@ def signed_stick_breaking_tril(t):
     # apply stick-breaking on the squared values;
     # we omit the step of computing s = z * z_cumprod by using the fact:
     #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
-    z = r ** 2
+    z = r**2
     z1m_cumprod_sqrt = jnp.cumprod(jnp.sqrt(1 - z), axis=-1)
 
     pad_width = [(0, 0)] * z.ndim
@@ -397,6 +412,47 @@ def logmatmulexp(x, y):
 def clamp_probs(probs):
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
+
+
+def betainc(a, b, x):
+    try:
+        from tensorflow_probability.substrates.jax.math import betainc as betainc_fn
+    except ImportError:
+        from jax.scipy.special import betainc as betainc_fn
+
+    dtype = jnp.result_type(float)
+    return betainc_fn(
+        jnp.array(a, dtype=dtype),
+        jnp.array(b, dtype=dtype),
+        jnp.array(x, dtype=dtype),
+    )
+
+
+def betaincinv(a, b, y):
+    try:
+        from tensorflow_probability.substrates.jax.math import special as tfp_special
+    except ImportError as e:
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for betaincinv."
+        ) from e
+
+    dtype = jnp.result_type(float)
+    return tfp_special.betaincinv(
+        jnp.array(a, dtype=dtype),
+        jnp.array(b, dtype=dtype),
+        jnp.array(y, dtype=dtype),
+    )
+
+
+def gammaincinv(a, y):
+    try:
+        from tensorflow_probability.substrates.jax import math as tfp_math
+
+        return tfp_math.igammainv(jnp.array(a), jnp.array(y))
+    except ImportError as e:
+        raise ImportError(
+            "Please install `tensorflow_probability>=0.18` for gammaincinv."
+        ) from e
 
 
 def is_identically_zero(x):
@@ -453,9 +509,9 @@ def _von_mises_centered(key, concentration, shape, dtype):
     }
     s_cutoff = s_cutoff_map.get(dtype)
 
-    r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration ** 2)
+    r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration**2)
     rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * concentration)
-    s_exact = (1.0 + rho ** 2) / (2.0 * rho)
+    s_exact = (1.0 + rho**2) / (2.0 * rho)
 
     s_approximate = 1.0 / concentration
 
@@ -609,7 +665,7 @@ class lazy_property(object):
 
 def validate_sample(log_prob_fn):
     def wrapper(self, *args, **kwargs):
-        log_prob = log_prob_fn(self, *args, *kwargs)
+        log_prob = log_prob_fn(self, *args, **kwargs)
         if self._validate_args:
             value = kwargs["value"] if "value" in kwargs else args[0]
             mask = self._validate_sample(value)

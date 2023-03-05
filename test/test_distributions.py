@@ -4,12 +4,14 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+from itertools import product
 import math
 import os
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
+import scipy
 import scipy.stats as osp
 
 import jax
@@ -17,10 +19,15 @@ from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
+from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
-from numpyro.distributions import constraints, kl_divergence, transforms
-from numpyro.distributions.directional import SineBivariateVonMises
+from numpyro.distributions import (
+    SineBivariateVonMises,
+    constraints,
+    kl_divergence,
+    transforms,
+)
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -44,6 +51,13 @@ from numpyro.nn import AutoregressiveNN
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 
+def my_kron(A, B):
+    D = A[..., :, None, :, None] * B[..., None, :, None, :]
+    ds = D.shape
+    newshape = (*ds[:-4], ds[-4] * ds[-3], ds[-2] * ds[-1])
+    return D.reshape(newshape)
+
+
 def _identity(x):
     return x
 
@@ -52,6 +66,23 @@ def _circ_mean(angles):
     return jnp.arctan2(
         jnp.mean(jnp.sin(angles), axis=0), jnp.mean(jnp.cos(angles), axis=0)
     )
+
+
+def sde_fn1(x, _):
+    lam = 0.1
+    sigma2 = 0.1
+    return lam * x, sigma2
+
+
+def sde_fn2(xy, _):
+    tau, a = 2.0, 1.1
+    x, y = xy[0], xy[1]
+    dx = tau * (x - x**3.0 / 3.0 + y)
+    dy = (1.0 / tau) * (a - x)
+    dxy = jnp.vstack([dx, dy]).reshape(xy.shape)
+
+    sigma2 = 0.1
+    return dxy, sigma2
 
 
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
@@ -65,6 +96,17 @@ def _mvn_to_scipy(loc, cov, prec, tril):
     mean = jax_dist.mean
     cov = jax_dist.covariance_matrix
     return osp.multivariate_normal(mean=mean, cov=cov)
+
+
+def _multivariate_t_to_scipy(df, loc, tril):
+    if scipy.__version__ < "1.6.0":
+        pytest.skip(
+            "Multivariate Student-T distribution is not available in scipy < 1.6"
+        )
+    jax_dist = dist.MultivariateStudentT(df, loc, tril)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
+    return osp.multivariate_t(loc=mean, shape=cov, df=df)
 
 
 def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
@@ -87,7 +129,11 @@ def _truncnorm_to_scipy(loc, scale, low, high):
 
 
 def _TruncatedNormal(loc, scale, low, high):
-    return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
+    return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
+
+
+def _TruncatedCauchy(loc, scale, low, high):
+    return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
 
 
 _TruncatedNormal.arg_constraints = {}
@@ -97,21 +143,21 @@ _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 class SineSkewedUniform(dist.SineSkewed):
     def __init__(self, skewness, **kwargs):
-        lower, upper = (jnp.array([-math.pi, -math.pi]), jnp.array([math.pi, math.pi]))
+        lower, upper = (np.array([-math.pi, -math.pi]), np.array([math.pi, math.pi]))
         base_dist = dist.Uniform(lower, upper, **kwargs).to_event(lower.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
 
 class SineSkewedVonMises(dist.SineSkewed):
     def __init__(self, skewness, **kwargs):
-        von_loc, von_conc = (jnp.array([0.0]), jnp.array([1.0]))
+        von_loc, von_conc = (np.array([0.0]), np.array([1.0]))
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
 
 class SineSkewedVonMisesBatched(dist.SineSkewed):
     def __init__(self, skewness, **kwargs):
-        von_loc, von_conc = (jnp.array([0.0, -1.234]), jnp.array([1.0, 10.0]))
+        von_loc, von_conc = (np.array([0.0, -1.234]), np.array([1.0, 10.0]))
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
@@ -142,6 +188,39 @@ def _Gaussian2DMixture(mixing_probs, loc, cov_matrix):
 _Gaussian2DMixture.arg_constraints = {}
 _Gaussian2DMixture.reparametrized_params = []
 _Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _GeneralMixture(mixing_probs, locs, scales):
+    component_dists = [
+        dist.Normal(loc=loc_, scale=scale_) for loc_, scale_ in zip(locs, scales)
+    ]
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_dists,
+    )
+
+
+_GeneralMixture.arg_constraints = {}
+_GeneralMixture.reparametrized_params = []
+_GeneralMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
+def _General2DMixture(mixing_probs, locs, cov_matrices):
+    component_dists = [
+        dist.MultivariateNormal(loc=loc_, covariance_matrix=cov_)
+        for loc_, cov_ in zip(locs, cov_matrices)
+    ]
+    mixing_distribution = dist.Categorical(probs=mixing_probs)
+    return dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_dists,
+    )
+
+
+_General2DMixture.arg_constraints = {}
+_General2DMixture.reparametrized_params = []
+_General2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -180,7 +259,33 @@ class FoldedNormal(dist.FoldedDistribution):
         return dist.FoldedDistribution.tree_unflatten(aux_data, params)
 
 
+class _SparseCAR(dist.CAR):
+    reparametrized_params = ["loc", "correlation", "conditional_precision"]
+
+    def __init__(
+        self,
+        loc,
+        correlation,
+        conditional_precision,
+        adj_matrix,
+        *,
+        is_sparse=True,
+        validate_args=None,
+    ):
+        super().__init__(
+            loc,
+            correlation,
+            conditional_precision,
+            adj_matrix,
+            is_sparse=True,
+            validate_args=validate_args,
+        )
+
+
 _DIST_MAP = {
+    dist.AsymmetricLaplace: lambda loc, scale, asymmetry: osp.laplace_asymmetric(
+        asymmetry, loc=loc, scale=scale
+    ),
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
     dist.Beta: lambda con1, con0: osp.beta(con1, con0),
@@ -204,6 +309,7 @@ _DIST_MAP = {
     dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
     dist.Laplace: lambda loc, scale: osp.laplace(loc=loc, scale=scale),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=jnp.exp(loc)),
+    dist.LogUniform: lambda a, b: osp.loguniform(a, b),
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(
         n=total_count, p=probs
     ),
@@ -211,6 +317,7 @@ _DIST_MAP = {
         n=total_count, p=_to_probs_multinom(logits)
     ),
     dist.MultivariateNormal: _mvn_to_scipy,
+    dist.MultivariateStudentT: _multivariate_t_to_scipy,
     dist.LowRankMultivariateNormal: _lowrank_mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda scale, alpha: osp.pareto(alpha, scale=scale),
@@ -237,167 +344,364 @@ def get_sp_dist(jax_dist):
 
 
 CONTINUOUS = [
+    T(dist.AsymmetricLaplace, 1.0, 0.5, 1.0),
+    T(dist.AsymmetricLaplace, np.array([1.0, 2.0]), 2.0, 2.0),
+    T(dist.AsymmetricLaplace, np.array([[1.0], [2.0]]), 2.0, np.array([3.0, 5.0])),
+    T(dist.AsymmetricLaplaceQuantile, 0.0, 1.0, 0.5),
+    T(dist.AsymmetricLaplaceQuantile, np.array([1.0, 2.0]), 2.0, 0.7),
+    T(
+        dist.AsymmetricLaplaceQuantile,
+        np.array([[1.0], [2.0]]),
+        2.0,
+        np.array([0.2, 0.8]),
+    ),
     T(dist.Beta, 0.2, 1.1),
-    T(dist.Beta, 1.0, jnp.array([2.0, 2.0])),
-    T(dist.Beta, 1.0, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.Beta, 1.0, np.array([2.0, 2.0])),
+    T(dist.Beta, 1.0, np.array([[1.0, 1.0], [2.0, 2.0]])),
     T(dist.BetaProportion, 0.2, 10.0),
-    T(dist.BetaProportion, 0.51, jnp.array([2.0, 1.0])),
-    T(dist.BetaProportion, 0.5, jnp.array([[4.0, 4.0], [2.0, 2.0]])),
+    T(dist.BetaProportion, 0.51, np.array([2.0, 1.0])),
+    T(dist.BetaProportion, 0.5, np.array([[4.0, 4.0], [2.0, 2.0]])),
     T(dist.Chi2, 2.0),
-    T(dist.Chi2, jnp.array([0.3, 1.3])),
+    T(dist.Chi2, np.array([0.3, 1.3])),
     T(dist.Cauchy, 0.0, 1.0),
-    T(dist.Cauchy, 0.0, jnp.array([1.0, 2.0])),
-    T(dist.Cauchy, jnp.array([0.0, 1.0]), jnp.array([[1.0], [2.0]])),
-    T(dist.Dirichlet, jnp.array([1.7])),
-    T(dist.Dirichlet, jnp.array([0.2, 1.1])),
-    T(dist.Dirichlet, jnp.array([[0.2, 1.1], [2.0, 2.0]])),
+    T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
+    T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
+    T(dist.Dirichlet, np.array([1.7])),
+    T(dist.Dirichlet, np.array([0.2, 1.1])),
+    T(dist.Dirichlet, np.array([[0.2, 1.1], [2.0, 2.0]])),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2]),
+        sde_fn1,
+        dist.Normal(0.1, 1.0),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([0.0, 0.1, 0.2]),
+        sde_fn2,
+        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
+        sde_fn2,
+        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+    ),
+    T(
+        dist.EulerMaruyama,
+        np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
+        sde_fn2,
+        dist.Normal(jnp.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1),
+    ),
     T(dist.Exponential, 2.0),
-    T(dist.Exponential, jnp.array([4.0, 2.0])),
-    T(dist.Gamma, jnp.array([1.7]), jnp.array([[2.0], [3.0]])),
-    T(dist.Gamma, jnp.array([0.5, 1.3]), jnp.array([[1.0], [3.0]])),
+    T(dist.Exponential, np.array([4.0, 2.0])),
+    T(dist.Gamma, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.GaussianRandomWalk, 0.1, 10),
     T(dist.GaussianRandomWalk, jnp.array([0.1, 0.3, 0.25]), 10),
+    T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
+    T(
+        dist.GaussianCopulaBeta,
+        np.array([7.0, 2.0]),
+        np.array([4.0, 10.0]),
+        np.array([[1.0, 0.75], [0.75, 1.0]]),
+    ),
+    T(dist.GaussianCopulaBeta, 2.0, 1.5, np.eye(3)),
+    T(dist.GaussianCopulaBeta, 2.0, 1.5, np.full((5, 3, 3), np.eye(3))),
     T(dist.Gompertz, jnp.array([1.7]), jnp.array([[2.0], [3.0]])),
     T(dist.Gompertz, jnp.array([0.5, 1.3]), jnp.array([[1.0], [3.0]])),
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
-    T(dist.Gumbel, jnp.array([0.0, 0.5]), jnp.array([1.0, 2.0])),
+    T(dist.Gumbel, np.array([0.0, 0.5]), np.array([1.0, 2.0])),
     T(FoldedNormal, 2.0, 4.0),
-    T(FoldedNormal, jnp.array([2.0, 50.0]), jnp.array([4.0, 100.0])),
+    T(FoldedNormal, np.array([2.0, 50.0]), np.array([4.0, 100.0])),
     T(dist.HalfCauchy, 1.0),
-    T(dist.HalfCauchy, jnp.array([1.0, 2.0])),
+    T(dist.HalfCauchy, np.array([1.0, 2.0])),
     T(dist.HalfNormal, 1.0),
-    T(dist.HalfNormal, jnp.array([1.0, 2.0])),
+    T(dist.HalfNormal, np.array([1.0, 2.0])),
     T(_ImproperWrapper, constraints.positive, (), (3,)),
-    T(dist.InverseGamma, jnp.array([1.7]), jnp.array([[2.0], [3.0]])),
-    T(dist.InverseGamma, jnp.array([0.5, 1.3]), jnp.array([[1.0], [3.0]])),
+    T(dist.InverseGamma, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
+    T(dist.Kumaraswamy, 10.0, np.array([2.0, 3.0])),
+    T(dist.Kumaraswamy, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Kumaraswamy, 0.6, 0.5),
     T(dist.Laplace, 0.0, 1.0),
-    T(dist.Laplace, 0.5, jnp.array([1.0, 2.5])),
-    T(dist.Laplace, jnp.array([1.0, -0.5]), jnp.array([2.3, 3.0])),
+    T(dist.Laplace, 0.5, np.array([1.0, 2.5])),
+    T(dist.Laplace, np.array([1.0, -0.5]), np.array([2.3, 3.0])),
     T(dist.LKJ, 2, 0.5, "onion"),
-    T(dist.LKJ, 5, jnp.array([0.5, 1.0, 2.0]), "cvine"),
+    T(dist.LKJ, 5, np.array([0.5, 1.0, 2.0]), "cvine"),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
-    T(dist.LKJCholesky, 5, jnp.array([0.5, 1.0, 2.0]), "onion"),
+    T(dist.LKJCholesky, 5, np.array([0.5, 1.0, 2.0]), "onion"),
     pytest.param(
-        *T(dist.LKJCholesky, 5, jnp.array([0.5, 1.0, 2.0]), "cvine"),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        *T(dist.LKJCholesky, 5, np.array([0.5, 1.0, 2.0]), "cvine"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     pytest.param(
-        *T(dist.LKJCholesky, 3, jnp.array([[3.0, 0.6], [0.2, 5.0]]), "onion"),
-        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for Travis"),
+        *T(dist.LKJCholesky, 3, np.array([[3.0, 0.6], [0.2, 5.0]]), "onion"),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
-    T(dist.LKJCholesky, 3, jnp.array([[3.0, 0.6], [0.2, 5.0]]), "cvine"),
+    T(dist.LKJCholesky, 3, np.array([[3.0, 0.6], [0.2, 5.0]]), "cvine"),
     T(dist.Logistic, 0.0, 1.0),
-    T(dist.Logistic, 1.0, jnp.array([1.0, 2.0])),
-    T(dist.Logistic, jnp.array([0.0, 1.0]), jnp.array([[1.0], [2.0]])),
+    T(dist.Logistic, 1.0, np.array([1.0, 2.0])),
+    T(dist.Logistic, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
     T(dist.LogNormal, 1.0, 0.2),
-    T(dist.LogNormal, -1.0, jnp.array([0.5, 1.3])),
-    T(dist.LogNormal, jnp.array([0.5, -0.7]), jnp.array([[0.1, 0.4], [0.5, 0.1]])),
-    T(dist.MultivariateNormal, 0.0, jnp.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
+    T(dist.LogNormal, -1.0, np.array([0.5, 1.3])),
+    T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.LogUniform, 1.0, 2.0),
+    T(dist.LogUniform, 1.0, np.array([2.0, 3.0])),
+    T(dist.LogUniform, np.array([1.0, 2.0]), np.array([[3.0], [4.0]])),
+    T(
+        dist.MatrixNormal,
+        1.0 * np.arange(6).reshape(3, 2),
+        np.array([[1.0, 0, 0], [0.3, 0.36, 0], [0.4, 0.49, 4]]),
+        np.array([[1.0, 0], [0.4, 1]]),
+    ),
+    T(
+        dist.MatrixNormal,
+        1.0 * np.arange(12).reshape((2, 3, 2)),
+        np.array([[1.0, 0, 0], [0.3, 0.36, 0], [0.4, 0.49, 4]]) * np.ones((2, 3, 3)),
+        np.array([[1.0, 0], [0.4, 0.5]]) * np.ones((2, 2, 2)),
+    ),
+    T(
+        dist.MatrixNormal,
+        1.0 * np.arange(36).reshape((2, 3, 3, 2)),
+        np.identity(3),
+        np.identity(2),
+    ),
+    T(dist.MultivariateNormal, 0.0, np.array([[1.0, 0.5], [0.5, 1.0]]), None, None),
     T(
         dist.MultivariateNormal,
-        jnp.array([1.0, 3.0]),
+        np.array([1.0, 3.0]),
         None,
-        jnp.array([[1.0, 0.5], [0.5, 1.0]]),
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
         None,
     ),
     T(
         dist.MultivariateNormal,
-        jnp.array([1.0, 3.0]),
+        np.array([1.0, 3.0]),
         None,
-        jnp.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
         None,
     ),
     T(
         dist.MultivariateNormal,
-        jnp.array([2.0]),
+        np.array([2.0]),
         None,
         None,
-        jnp.array([[1.0, 0.0], [0.5, 1.0]]),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
     ),
     T(
         dist.MultivariateNormal,
-        jnp.arange(6, dtype=jnp.float32).reshape((3, 2)),
+        np.arange(6, dtype=np.float32).reshape((3, 2)),
         None,
         None,
-        jnp.array([[1.0, 0.0], [0.0, 1.0]]),
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
     ),
     T(
         dist.MultivariateNormal,
         0.0,
         None,
-        jnp.broadcast_to(jnp.identity(3), (2, 3, 3)),
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
         None,
     ),
     T(
-        dist.LowRankMultivariateNormal,
-        jnp.zeros(2),
-        jnp.array([[1.0], [0.0]]),
-        jnp.array([1.0, 1.0]),
+        dist.CAR,
+        1.2,
+        np.array([-0.2, 0.3]),
+        0.1,
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
+    ),
+    T(
+        dist.CAR,
+        np.array([0.0, 1.0, 3.0, 4.0]),
+        0.1,
+        np.array([0.3, 0.7]),
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
+    ),
+    T(
+        _SparseCAR,
+        np.array([[0.0, 1.0, 3.0, 4.0], [2.0, -1.0, -3.0, 2.0]]),
+        0.0,
+        0.1,
+        np.array(
+            [
+                [0.0, 1.0, 1.0, 0.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+            ]
+        ),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        0.0,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        np.array([1.0, 3.0]),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        np.array([1.0, 3.0]),
+        np.array([[[1.0, 0.0], [0.5, 1.0]]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        np.array([3.0]),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        np.arange(6, dtype=np.float32).reshape((3, 2)),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        15.0,
+        np.ones(3),
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        np.array(7.0),
+        np.array([1.0, 3.0]),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        np.arange(20, 22, dtype=jnp.float32),
+        np.ones(3),
+        np.broadcast_to(jnp.identity(3), (2, 3, 3)),
+    ),
+    T(
+        dist.MultivariateStudentT,
+        np.arange(20, 26, dtype=jnp.float32).reshape((3, 2)),
+        np.ones(2),
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
     ),
     T(
         dist.LowRankMultivariateNormal,
-        jnp.arange(6, dtype=jnp.float32).reshape((2, 3)),
-        jnp.arange(6, dtype=jnp.float32).reshape((3, 2)),
-        jnp.array([1.0, 2.0, 3.0]),
+        np.zeros(2),
+        np.array([[1.0], [0.0]]),
+        np.array([1.0, 1.0]),
+    ),
+    T(
+        dist.LowRankMultivariateNormal,
+        np.arange(6, dtype=jnp.float32).reshape((2, 3)),
+        np.arange(6, dtype=jnp.float32).reshape((3, 2)),
+        np.array([1.0, 2.0, 3.0]),
     ),
     T(dist.Normal, 0.0, 1.0),
-    T(dist.Normal, 1.0, jnp.array([1.0, 2.0])),
-    T(dist.Normal, jnp.array([0.0, 1.0]), jnp.array([[1.0], [2.0]])),
+    T(dist.Normal, 1.0, np.array([1.0, 2.0])),
+    T(dist.Normal, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
     T(dist.Pareto, 1.0, 2.0),
-    T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
-    T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
+    T(dist.Pareto, np.array([1.0, 0.5]), np.array([0.3, 2.0])),
+    T(dist.Pareto, np.array([[1.0], [3.0]]), np.array([1.0, 0.5])),
+    T(dist.RelaxedBernoulliLogits, 2.0, -10.0),
+    T(dist.RelaxedBernoulliLogits, np.array([1.0, 3.0]), np.array([3.0, 8.0])),
     T(dist.SoftLaplace, 1.0, 1.0),
-    T(dist.SoftLaplace, jnp.array([-1.0, 50.0]), jnp.array([4.0, 100.0])),
+    T(dist.SoftLaplace, np.array([-1.0, 50.0]), np.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
-    T(dist.StudentT, 2.0, jnp.array([1.0, 2.0]), 2.0),
-    T(dist.StudentT, jnp.array([3.0, 5.0]), jnp.array([[1.0], [2.0]]), 2.0),
-    T(dist.TruncatedCauchy, -1.0, 0.0, 1.0),
-    T(dist.TruncatedCauchy, 1.0, 0.0, jnp.array([1.0, 2.0])),
+    T(dist.StudentT, 2.0, np.array([1.0, 2.0]), 2.0),
+    T(dist.StudentT, np.array([3.0, 5.0]), np.array([[1.0], [2.0]]), 2.0),
+    T(_TruncatedCauchy, 0.0, 1.0, -1.0, None),
+    T(_TruncatedCauchy, 0.0, np.array([1.0, 2.0]), 1.0, None),
     T(
-        dist.TruncatedCauchy,
-        jnp.array([-2.0, 2.0]),
-        jnp.array([0.0, 1.0]),
-        jnp.array([[1.0], [2.0]]),
+        _TruncatedCauchy,
+        np.array([0.0, 1.0]),
+        np.array([[1.0], [2.0]]),
+        np.array([-2.0, 2.0]),
+        None,
     ),
-    T(dist.TruncatedNormal, -1.0, 0.0, 1.0),
-    T(dist.TruncatedNormal, 1.0, -1.0, jnp.array([1.0, 2.0])),
-    T(
-        dist.TruncatedNormal,
-        jnp.array([-2.0, 2.0]),
-        jnp.array([0.0, 1.0]),
-        jnp.array([[1.0], [2.0]]),
-    ),
-    T(_TruncatedNormal, -1.0, 2.0, 1.0, 5.0),
-    T(_TruncatedNormal, jnp.array([-1.0, 4.0]), 2.0, None, 5.0),
-    T(_TruncatedNormal, -1.0, jnp.array([2.0, 3.0]), 1.0, None),
-    T(_TruncatedNormal, -1.0, 2.0, jnp.array([-6.0, 4.0]), jnp.array([-4.0, 6.0])),
+    T(_TruncatedCauchy, 0.0, 1.0, None, 1.0),
+    T(_TruncatedCauchy, 0.0, 1.0, -1.0, 1.0),
+    T(_TruncatedNormal, 0.0, 1.0, -1.0, None),
+    T(_TruncatedNormal, -1.0, np.array([1.0, 2.0]), 1.0, None),
     T(
         _TruncatedNormal,
-        jnp.array([0.0, 1.0]),
-        jnp.array([[1.0], [2.0]]),
+        np.array([0.0, 1.0]),
+        np.array([[1.0], [2.0]]),
+        np.array([-2.0, 2.0]),
         None,
-        jnp.array([-2.0, 2.0]),
+    ),
+    T(_TruncatedNormal, -1.0, 2.0, 1.0, 5.0),
+    T(_TruncatedNormal, np.array([-1.0, 4.0]), 2.0, None, 5.0),
+    T(_TruncatedNormal, -1.0, np.array([2.0, 3.0]), 1.0, None),
+    T(_TruncatedNormal, -1.0, 2.0, np.array([-6.0, 4.0]), np.array([-4.0, 6.0])),
+    T(
+        _TruncatedNormal,
+        np.array([0.0, 1.0]),
+        np.array([[1.0], [2.0]]),
+        None,
+        np.array([-2.0, 2.0]),
     ),
     T(dist.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
     T(dist.Uniform, 0.0, 2.0),
-    T(dist.Uniform, 1.0, jnp.array([2.0, 3.0])),
-    T(dist.Uniform, jnp.array([0.0, 0.0]), jnp.array([[2.0], [3.0]])),
+    T(dist.Uniform, 1.0, np.array([2.0, 3.0])),
+    T(dist.Uniform, np.array([0.0, 0.0]), np.array([[2.0], [3.0]])),
     T(dist.Weibull, 0.2, 1.1),
-    T(dist.Weibull, 2.8, jnp.array([2.0, 2.0])),
-    T(dist.Weibull, 1.8, jnp.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
+    T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
     T(
         _GaussianMixture,
-        jnp.ones(3) / 3.0,
-        jnp.array([0.0, 7.7, 2.1]),
-        jnp.array([4.2, 7.7, 2.1]),
+        np.ones(3) / 3.0,
+        np.array([0.0, 7.7, 2.1]),
+        np.array([4.2, 7.7, 2.1]),
     ),
     T(
         _Gaussian2DMixture,
-        jnp.array([0.2, 0.5, 0.3]),
-        jnp.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
-        jnp.array(
+        np.array([0.2, 0.5, 0.3]),
+        np.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        np.array(
+            [
+                [
+                    [0.1, -0.2],
+                    [-0.2, 1.0],
+                ],
+                [
+                    [0.75, 0.0],
+                    [0.0, 0.75],
+                ],
+                [
+                    [1.0, 0.5],
+                    [0.5, 0.27],
+                ],
+            ]
+        ),  # Covariance
+    ),
+    T(
+        _GeneralMixture,
+        np.array([0.2, 0.3, 0.5]),
+        np.array([0.0, 7.7, 2.1]),
+        np.array([4.2, 1.7, 2.1]),
+    ),
+    T(
+        _General2DMixture,
+        np.array([0.2, 0.5, 0.3]),
+        np.array([[-1.2, 1.5], [2.0, 2.0], [-1, 4.0]]),  # Mean
+        np.array(
             [
                 [
                     [0.1, -0.2],
@@ -418,115 +722,127 @@ CONTINUOUS = [
 
 DIRECTIONAL = [
     T(dist.VonMises, 2.0, 10.0),
-    T(dist.VonMises, 2.0, jnp.array([150.0, 10.0])),
-    T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.0]), jnp.array([20.0, 30.0])),
-    T(
-        SineBivariateVonMises,
-        jnp.array([0.0]),
-        jnp.array([0.0]),
-        jnp.array([5.0]),
-        jnp.array([6.0]),
-        jnp.array([2.0]),
+    T(dist.VonMises, 2.0, np.array([150.0, 10.0])),
+    T(dist.VonMises, np.array([1 / 3 * np.pi, -1.0]), np.array([20.0, 30.0])),
+    pytest.param(
+        *T(
+            dist.SineBivariateVonMises,
+            0.0,
+            0.0,
+            5.0,
+            6.0,
+            2.0,
+        ),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
     T(
-        SineBivariateVonMises,
-        jnp.array([3.003]),
-        jnp.array([-1.3430]),
-        jnp.array(5.0),
-        jnp.array([6.0]),
-        jnp.array([2.0]),
+        dist.SineBivariateVonMises,
+        3.003,
+        -1.343,
+        5.0,
+        6.0,
+        2.0,
     ),
-    T(
-        SineBivariateVonMises,
-        jnp.array(-1.232),
-        jnp.array(-1.3430),
-        jnp.array(3.4),
-        jnp.array(2.0),
-        jnp.array(1.0),
+    pytest.param(
+        *T(
+            dist.SineBivariateVonMises,
+            -1.232,
+            -1.3430,
+            3.4,
+            2.0,
+            1.0,
+        ),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
-    T(
-        SineBivariateVonMises,
-        jnp.array([math.pi - 0.2, 1.0]),
-        jnp.array([0.0, 1.0]),
-        jnp.array([2.123, 20.0]),
-        jnp.array([7.0, 0.5]),
-        None,
-        jnp.array([0.2, 0.5]),
+    pytest.param(
+        *T(
+            dist.SineBivariateVonMises,
+            np.array([math.pi - 0.2, 1.0]),
+            np.array([0.0, 1.0]),
+            np.array([5.0, 5.0]),
+            np.array([7.0, 0.5]),
+            None,
+            np.array([0.5, 0.1]),
+        ),
+        marks=pytest.mark.skipif("CI" in os.environ, reason="reduce time for CI"),
     ),
-    T(dist.ProjectedNormal, jnp.array([0.0, 0.0])),
-    T(dist.ProjectedNormal, jnp.array([[2.0, 3.0]])),
-    T(dist.ProjectedNormal, jnp.array([0.0, 0.0, 0.0])),
-    T(dist.ProjectedNormal, jnp.array([[-1.0, 2.0, 3.0]])),
-    T(SineSkewedUniform, jnp.array([-math.pi / 4, 0.1])),
-    T(SineSkewedVonMises, jnp.array([0.342355])),
-    T(SineSkewedVonMisesBatched, jnp.array([[0.342355, -0.0001], [0.91, 0.09]])),
+    T(dist.ProjectedNormal, np.array([0.0, 0.0])),
+    T(dist.ProjectedNormal, np.array([[2.0, 3.0]])),
+    T(dist.ProjectedNormal, np.array([0.0, 0.0, 0.0])),
+    T(dist.ProjectedNormal, np.array([[-1.0, 2.0, 3.0]])),
+    T(SineSkewedUniform, np.array([-math.pi / 4, 0.1])),
+    T(SineSkewedVonMises, np.array([0.342355])),
+    T(SineSkewedVonMisesBatched, np.array([[0.342355, -0.0001], [0.91, 0.09]])),
 ]
 
 DISCRETE = [
     T(dist.BetaBinomial, 2.0, 5.0, 10),
     T(
         dist.BetaBinomial,
-        jnp.array([2.0, 4.0]),
-        jnp.array([5.0, 3.0]),
-        jnp.array([10, 12]),
+        np.array([2.0, 4.0]),
+        np.array([5.0, 3.0]),
+        np.array([10, 12]),
     ),
     T(dist.BernoulliProbs, 0.2),
-    T(dist.BernoulliProbs, jnp.array([0.2, 0.7])),
-    T(dist.BernoulliLogits, jnp.array([-1.0, 3.0])),
-    T(dist.BinomialProbs, jnp.array([0.2, 0.7]), jnp.array([10, 2])),
-    T(dist.BinomialProbs, jnp.array([0.2, 0.7]), jnp.array([5, 8])),
-    T(dist.BinomialLogits, jnp.array([-1.0, 3.0]), jnp.array([5, 8])),
-    T(dist.CategoricalProbs, jnp.array([1.0])),
-    T(dist.CategoricalProbs, jnp.array([0.1, 0.5, 0.4])),
-    T(dist.CategoricalProbs, jnp.array([[0.1, 0.5, 0.4], [0.4, 0.4, 0.2]])),
-    T(dist.CategoricalLogits, jnp.array([-5.0])),
-    T(dist.CategoricalLogits, jnp.array([1.0, 2.0, -2.0])),
-    T(dist.CategoricalLogits, jnp.array([[-1, 2.0, 3.0], [3.0, -4.0, -2.0]])),
+    T(dist.BernoulliProbs, np.array([0.2, 0.7])),
+    T(dist.BernoulliLogits, np.array([-1.0, 3.0])),
+    T(dist.BinomialProbs, np.array([0.2, 0.7]), np.array([10, 2])),
+    T(dist.BinomialProbs, np.array([0.2, 0.7]), np.array([5, 8])),
+    T(dist.BinomialLogits, np.array([-1.0, 3.0]), np.array([5, 8])),
+    T(dist.CategoricalProbs, np.array([1.0])),
+    T(dist.CategoricalProbs, np.array([0.1, 0.5, 0.4])),
+    T(dist.CategoricalProbs, np.array([[0.1, 0.5, 0.4], [0.4, 0.4, 0.2]])),
+    T(dist.CategoricalLogits, np.array([-5.0])),
+    T(dist.CategoricalLogits, np.array([1.0, 2.0, -2.0])),
+    T(dist.CategoricalLogits, np.array([[-1, 2.0, 3.0], [3.0, -4.0, -2.0]])),
     T(dist.Delta, 1),
-    T(dist.Delta, jnp.array([0.0, 2.0])),
-    T(dist.Delta, jnp.array([0.0, 2.0]), jnp.array([-2.0, -4.0])),
-    T(dist.DirichletMultinomial, jnp.array([1.0, 2.0, 3.9]), 10),
-    T(dist.DirichletMultinomial, jnp.array([0.2, 0.7, 1.1]), jnp.array([5, 5])),
+    T(dist.Delta, np.array([0.0, 2.0])),
+    T(dist.Delta, np.array([0.0, 2.0]), np.array([-2.0, -4.0])),
+    T(dist.DirichletMultinomial, np.array([1.0, 2.0, 3.9]), 10),
+    T(dist.DirichletMultinomial, np.array([0.2, 0.7, 1.1]), np.array([5, 5])),
     T(dist.GammaPoisson, 2.0, 2.0),
-    T(dist.GammaPoisson, jnp.array([6.0, 2]), jnp.array([2.0, 8.0])),
+    T(dist.GammaPoisson, np.array([6.0, 2]), np.array([2.0, 8.0])),
     T(dist.GeometricProbs, 0.2),
-    T(dist.GeometricProbs, jnp.array([0.2, 0.7])),
-    T(dist.GeometricLogits, jnp.array([-1.0, 3.0])),
-    T(dist.MultinomialProbs, jnp.array([0.2, 0.7, 0.1]), 10),
-    T(dist.MultinomialProbs, jnp.array([0.2, 0.7, 0.1]), jnp.array([5, 8])),
-    T(dist.MultinomialLogits, jnp.array([-1.0, 3.0]), jnp.array([[5], [8]])),
+    T(dist.GeometricProbs, np.array([0.2, 0.7])),
+    T(dist.GeometricLogits, np.array([-1.0, 3.0])),
+    T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
+    T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
+    T(dist.MultinomialLogits, np.array([-1.0, 3.0]), np.array([[5], [8]])),
     T(dist.NegativeBinomialProbs, 10, 0.2),
-    T(dist.NegativeBinomialProbs, 10, jnp.array([0.2, 0.6])),
-    T(dist.NegativeBinomialProbs, jnp.array([4.2, 10.7, 2.1]), 0.2),
+    T(dist.NegativeBinomialProbs, 10, np.array([0.2, 0.6])),
+    T(dist.NegativeBinomialProbs, np.array([4.2, 10.7, 2.1]), 0.2),
     T(
         dist.NegativeBinomialProbs,
-        jnp.array([4.2, 10.7, 2.1]),
-        jnp.array([0.2, 0.6, 0.5]),
+        np.array([4.2, 10.7, 2.1]),
+        np.array([0.2, 0.6, 0.5]),
     ),
     T(dist.NegativeBinomialLogits, 10, -2.1),
-    T(dist.NegativeBinomialLogits, 10, jnp.array([-5.2, 2.1])),
-    T(dist.NegativeBinomialLogits, jnp.array([4.2, 10.7, 2.1]), -5.2),
+    T(dist.NegativeBinomialLogits, 10, np.array([-5.2, 2.1])),
+    T(dist.NegativeBinomialLogits, np.array([4.2, 10.7, 2.1]), -5.2),
     T(
         dist.NegativeBinomialLogits,
-        jnp.array([4.2, 7.7, 2.1]),
-        jnp.array([4.2, 0.7, 2.1]),
+        np.array([4.2, 7.7, 2.1]),
+        np.array([4.2, 0.7, 2.1]),
     ),
     T(dist.NegativeBinomial2, 0.3, 10),
-    T(dist.NegativeBinomial2, jnp.array([10.2, 7, 31]), 10),
-    T(dist.NegativeBinomial2, jnp.array([10.2, 7, 31]), jnp.array([10.2, 20.7, 2.1])),
-    T(dist.OrderedLogistic, -2, jnp.array([-10.0, 4.0, 9.0])),
-    T(dist.OrderedLogistic, jnp.array([-4, 3, 4, 5]), jnp.array([-1.5])),
+    T(dist.NegativeBinomial2, np.array([10.2, 7, 31]), 10),
+    T(dist.NegativeBinomial2, np.array([10.2, 7, 31]), np.array([10.2, 20.7, 2.1])),
+    T(dist.OrderedLogistic, -2, np.array([-10.0, 4.0, 9.0])),
+    T(dist.OrderedLogistic, np.array([-4, 3, 4, 5]), np.array([-1.5])),
+    T(dist.DiscreteUniform, -2, np.array([-1.0, 4.0, 9.0])),
+    T(dist.DiscreteUniform, np.array([-4, 3, 4, 5]), np.array([6])),
     T(dist.Poisson, 2.0),
-    T(dist.Poisson, jnp.array([2.0, 3.0, 5.0])),
+    T(dist.Poisson, np.array([2.0, 3.0, 5.0])),
     T(SparsePoisson, 2.0),
-    T(SparsePoisson, jnp.array([2.0, 3.0, 5.0])),
+    T(SparsePoisson, np.array([2.0, 3.0, 5.0])),
+    T(SparsePoisson, 2),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
-    T(dist.ZeroInflatedPoisson, jnp.array([0.2, 0.7, 0.3]), jnp.array([2.0, 3.0, 5.0])),
+    T(dist.ZeroInflatedPoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
     T(ZeroInflatedPoissonLogits, 2.0, 3.0),
     T(
         ZeroInflatedPoissonLogits,
-        jnp.array([0.2, 4.0, 0.3]),
-        jnp.array([2.0, -3.0, 5.0]),
+        np.array([0.2, 4.0, 0.3]),
+        np.array([2.0, -3.0, 5.0]),
     ),
 ]
 
@@ -581,7 +897,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
     elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
-        return x - random.normal(key, size[:-1])
+        return x - random.normal(key, size[:-1] + (1,))
     elif isinstance(constraint, constraints.independent):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
     elif constraint is constraints.sphere:
@@ -611,7 +927,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.0)
     elif constraint in [constraints.real, constraints.real_vector]:
-        return lax.full(size, jnp.nan)
+        return lax.full(size, np.nan)
     elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints.multinomial):
@@ -672,13 +988,30 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
-    assert isinstance(samples, jax.interpreters.xla.DeviceArray)
+    assert isinstance(samples, jnp.ndarray)
     assert jnp.shape(samples) == expected_shape
-    if sp_dist and not _is_batched_multivariate(jax_dist):
+    if (
+        sp_dist
+        and not _is_batched_multivariate(jax_dist)
+        and not isinstance(jax_dist, dist.MultivariateStudentT)
+    ):
         sp_dist = sp_dist(*params)
         sp_samples = sp_dist.rvs(size=prepend_shape + jax_dist.batch_shape)
         assert jnp.shape(sp_samples) == expected_shape
-    if isinstance(jax_dist, dist.MultivariateNormal):
+    elif (
+        sp_dist
+        and not _is_batched_multivariate(jax_dist)
+        and isinstance(jax_dist, dist.MultivariateStudentT)
+    ):
+        sp_dist = sp_dist(*params)
+        size_ = prepend_shape + jax_dist.batch_shape
+        size = (1) if size_ == () else size_
+        try:
+            sp_samples = sp_dist.rvs(size=size)
+        except ValueError:
+            pytest.skip("scipy multivariate t doesn't support size with > 1 element")
+        assert jnp.shape(sp_samples) == expected_shape
+    if isinstance(jax_dist, (dist.MultivariateNormal, dist.MultivariateStudentT)):
         assert jax_dist.covariance_matrix.ndim == len(jax_dist.batch_shape) + 2
         assert_allclose(
             jax_dist.precision_matrix,
@@ -754,6 +1087,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     gamma_derived_params = {
         "Gamma": ["concentration"],
         "Beta": ["concentration1", "concentration0"],
+        "BetaProportion": ["mean", "concentration"],
         "Chi2": ["df"],
         "Dirichlet": ["concentration"],
         "InverseGamma": ["concentration"],
@@ -774,23 +1108,23 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     params_dict = dict(zip(dist_args[: len(params)], params))
 
     jax_class = type(jax_dist(**params_dict))
-    reparameterized_params = [
+    reparametrized_params = [
         p for p in jax_class.reparametrized_params if p not in gamma_derived_params
     ]
-    if not reparameterized_params:
+    if not reparametrized_params:
         pytest.skip("{} not reparametrized.".format(jax_class.__name__))
 
     nonrepara_params_dict = {
-        k: v for k, v in params_dict.items() if k not in reparameterized_params
+        k: v for k, v in params_dict.items() if k not in reparametrized_params
     }
     repara_params = tuple(
-        v for k, v in params_dict.items() if k in reparameterized_params
+        v for k, v in params_dict.items() if k in reparametrized_params
     )
 
     rng_key = random.PRNGKey(0)
 
     def fn(args):
-        args_dict = dict(zip(reparameterized_params, args))
+        args_dict = dict(zip(reparametrized_params, args))
         return jnp.sum(
             jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key)
         )
@@ -831,11 +1165,11 @@ def test_pathwise_gradient(jax_dist, params):
 
     def f(params):
         z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
-        return (z + z ** 2).mean(0)
+        return (z + z**2).mean(0)
 
     def g(params):
         d = jax_dist(*params)
-        return d.mean + d.variance + d.mean ** 2
+        return d.mean + d.variance + d.mean**2
 
     actual_grad = grad(f)(params)
     expected_grad = grad(g)(params)
@@ -847,10 +1181,12 @@ def test_pathwise_gradient(jax_dist, params):
 )
 def test_jit_log_likelihood(jax_dist, sp_dist, params):
     if jax_dist.__name__ in (
+        "EulerMaruyama",
         "GaussianRandomWalk",
         "_ImproperWrapper",
         "LKJ",
         "LKJCholesky",
+        "_SparseCAR",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -862,7 +1198,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 
     expected = log_likelihood(*params)
     actual = jax.jit(log_likelihood)(*params)
-    assert_allclose(actual, expected, atol=2e-5)
+    assert_allclose(actual, expected, atol=2e-5, rtol=2e-5)
 
 
 @pytest.mark.parametrize(
@@ -873,6 +1209,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
+
     rng_key = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
@@ -891,14 +1228,13 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
                     params[1],
                     params[2],
                 )
-                if low is None:
-                    low = -np.inf
-                if high is None:
-                    high = np.inf
             else:
                 # old api
-                low, loc, scale = params
-                high = jnp.inf
+                loc, scale, low, high = params
+            if low is None:
+                low = -np.inf
+            if high is None:
+                high = np.inf
             sp_dist = get_sp_dist(type(jax_dist.base_dist))(loc, scale)
             expected = sp_dist.logpdf(samples) - jnp.log(
                 sp_dist.cdf(high) - sp_dist.cdf(low)
@@ -922,7 +1258,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     except ValueError as e:
         # precision issue: jnp.sum(x / jnp.sum(x)) = 0.99999994 != 1
         if "The input vector 'x' must lie within the normal simplex." in str(e):
-            samples = samples.copy().astype("float64")
+            samples = jax.device_get(samples).astype("float64")
             samples = samples / samples.sum(axis=-1, keepdims=True)
             expected = sp_dist.logpdf(samples)
         else:
@@ -930,11 +1266,21 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+def test_mixture_log_prob():
+    gmm = dist.MixtureSameFamily(
+        dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
+    )
+    actual = gmm.log_prob(0.0)
+    expected = dist.Normal(0, 1).log_prob(0.0)
+    assert_allclose(actual, expected)
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params",
     # TODO: add more complete pattern for Discrete.cdf
-    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, jnp.array([2.0, 3.0, 5.0]))],
+    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0]))],
 )
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     if d.event_dim > 0:
@@ -942,8 +1288,8 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
+        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.StudentT) else 1e-5
         if d.shape() == () and not d.is_discrete:
-            rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
                 jnp.exp(d.log_prob(samples)),
@@ -957,7 +1303,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
                 rtol=rtol,
             )
         assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
-        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
         pass
 
@@ -971,7 +1317,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         assert_allclose(actual_cdf, expected_cdf, atol=1e-5, rtol=1e-5)
         actual_icdf = d.icdf(quantiles)
         expected_icdf = sp_dist.ppf(quantiles)
-        assert_allclose(actual_icdf, expected_icdf, atol=1e-5, rtol=1e-4)
+        assert_allclose(actual_icdf, expected_icdf, atol=1e-4, rtol=1e-4)
     except NotImplementedError:
         pass
 
@@ -982,6 +1328,10 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.skip("distribution has improper .log_prob()")
     if "LKJ" in jax_dist.__name__:
         pytest.xfail("incorrect submanifold scaling")
+    if jax_dist is dist.EulerMaruyama:
+        d = jax_dist(*params)
+        if d.event_dim > 1:
+            pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
 
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
@@ -1001,7 +1351,7 @@ def test_gof(jax_dist, sp_dist, params):
     if "Dirichlet" in jax_dist.__name__:
         # The Dirichlet density is over all but one of the probs.
         samples = samples[..., :-1]
-    for b in range(probs.shape[-1]):
+    for b in range(probs.shape[1]):
         try:
             gof = auto_goodness_of_fit(samples[:, b], probs[:, b], dim=dim)
         except InvalidTest:
@@ -1026,7 +1376,7 @@ def test_independent_shape(jax_dist, sp_dist, params):
 
 def _tril_cholesky_to_tril_corr(x):
     w = vec_to_tril_matrix(x, diagonal=-1)
-    diag = jnp.sqrt(1 - jnp.sum(w ** 2, axis=-1))
+    diag = jnp.sqrt(1 - jnp.sum(w**2, axis=-1))
     cholesky = w + jnp.expand_dims(diag, axis=-1) * jnp.identity(w.shape[-1])
     corr = jnp.matmul(cholesky, cholesky.T)
     return matrix_to_tril_vec(corr, diagonal=-1)
@@ -1048,7 +1398,7 @@ def test_log_prob_LKJCholesky_uniform(dimension):
         )[1]
         corr_log_prob.append(log_prob - cholesky_to_corr_jac)
 
-    corr_log_prob = jnp.array(corr_log_prob)
+    corr_log_prob = np.array(corr_log_prob)
     # test if they are constant
     assert_allclose(
         corr_log_prob,
@@ -1130,7 +1480,7 @@ def test_ZIP_log_prob(rate):
     # if gate is 1 ZIP is Delta(0)
     zip_ = dist.ZeroInflatedPoisson(1.0, rate)
     delta = dist.Delta(0.0)
-    s = jnp.array([0.0, 1.0])
+    s = np.array([0.0, 1.0])
     zip_prob = zip_.log_prob(s)
     delta_prob = delta.log_prob(s)
     assert_allclose(zip_prob, delta_prob, rtol=1e-6)
@@ -1206,6 +1556,12 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if jax_dist is dist.EulerMaruyama and i == 1:
+            # skip taking grad w.r.t. sde_fn
+            continue
+        if jax_dist is _SparseCAR and i == 3:
+            # skip taking grad w.r.t. adj_matrix
+            continue
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
@@ -1235,10 +1591,17 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
         pytest.skip("Folded distribution does not has mean/var implemented")
+    if jax_dist is dist.Gompertz:
+        pytest.skip("Gompertz distribution does not has mean/var implemented")
+    if jax_dist is dist.EulerMaruyama:
+        pytest.skip("EulerMaruyama distribution does not has mean/var implemented")
+    if jax_dist is dist.RelaxedBernoulliLogits:
+        pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
         _TruncatedNormal,
+        _TruncatedCauchy,
         dist.LeftTruncatedDistribution,
         dist.RightTruncatedDistribution,
         dist.TwoSidedTruncatedDistribution,
@@ -1247,7 +1610,11 @@ def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
 
-    n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
+    n = (
+        20000
+        if jax_dist in [dist.LKJ, dist.LKJCholesky, dist.SineBivariateVonMises]
+        else 200000
+    )
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
@@ -1256,7 +1623,8 @@ def test_mean_var(jax_dist, sp_dist, params):
     if (
         sp_dist
         and not _is_batched_multivariate(d_jax)
-        and jax_dist not in [dist.VonMises]
+        and jax_dist
+        not in [dist.VonMises, dist.MultivariateStudentT, dist.MatrixNormal]
     ):
         d_sp = sp_dist(*params)
         try:
@@ -1317,7 +1685,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         # circular variance
         x, y = jnp.mean(jnp.cos(samples), 0), jnp.mean(jnp.sin(samples), 0)
 
-        expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
+        expected_variance = 1 - jnp.sqrt(x**2 + y**2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
     elif jax_dist in [dist.SineBivariateVonMises]:
         phi_loc = _circ_mean(samples[..., 0])
@@ -1326,9 +1694,59 @@ def test_mean_var(jax_dist, sp_dist, params):
         assert_allclose(
             d_jax.mean, jnp.stack((phi_loc, psi_loc), axis=-1), rtol=0.05, atol=1e-2
         )
+    elif jax_dist in [dist.MatrixNormal]:
+        sample_shape = (200_000,)
+        # use X ~ MN(loc, U, V) then vec(X) ~ MVN(vec(loc), kron(V, U))
+        if len(d_jax.batch_shape) > 0:
+            axes = [len(sample_shape) + i for i in range(len(d_jax.batch_shape))]
+            axes = tuple(axes)
+            samples_re = jnp.moveaxis(samples, axes, jnp.arange(len(axes)))
+            subshape = samples_re.shape[: len(axes)]
+            ixi = product(*[range(k) for k in subshape])
+            for ix in ixi:
+                # mean
+                def get_min_shape(ix, batch_shape):
+                    return min(ix, tuple(map(lambda x: x - 1, batch_shape)))
+
+                ix_loc = get_min_shape(ix, d_jax.loc.shape[: len(ix)])
+                jnp.allclose(
+                    jnp.mean(samples_re[ix], 0),
+                    jnp.squeeze(d_jax.mean[ix_loc]),
+                    rtol=0.5,
+                    atol=1e-2,
+                )
+                # cov
+                samples_mvn = jnp.squeeze(samples_re[ix]).reshape(
+                    sample_shape + (-1,), order="F"
+                )
+                ix_col = get_min_shape(ix, d_jax.scale_tril_column.shape[: len(ix)])
+                ix_row = get_min_shape(ix, d_jax.scale_tril_row.shape[: len(ix)])
+                scale_tril = my_kron(
+                    d_jax.scale_tril_column[ix_col],
+                    d_jax.scale_tril_row[ix_row],
+                )
+                sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
+                jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
+        else:  # unbatched
+            # mean
+            jnp.allclose(
+                jnp.mean(samples, 0),
+                jnp.squeeze(d_jax.mean),
+                rtol=0.5,
+                atol=1e-2,
+            )
+            # cov
+            samples_mvn = jnp.squeeze(samples).reshape(sample_shape + (-1,), order="F")
+            scale_tril = my_kron(
+                jnp.squeeze(d_jax.scale_tril_column), jnp.squeeze(d_jax.scale_tril_row)
+            )
+            sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
+            jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+        if isinstance(d_jax, dist.CAR):
+            pytest.skip("CAR distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
             assert_allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
@@ -1340,7 +1758,14 @@ def test_mean_var(jax_dist, sp_dist, params):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
-    if jax_dist in (_TruncatedNormal, _GaussianMixture, _Gaussian2DMixture):
+    if jax_dist in (
+        _TruncatedNormal,
+        _TruncatedCauchy,
+        _GaussianMixture,
+        _Gaussian2DMixture,
+        _GeneralMixture,
+        _General2DMixture,
+    ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
@@ -1354,6 +1779,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if "SineSkewed" in jax_dist.__name__ and dist_args[i] != "skewness":
+            continue
+        if jax_dist is dist.EulerMaruyama and dist_args[i] != "t":
             continue
         if (
             jax_dist is dist.TwoSidedTruncatedDistribution
@@ -1382,6 +1809,18 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         valid_params[i] = gen_values_within_bounds(
             constraint, jnp.shape(params[i]), key_gen
         )
+        if jax_dist is dist.MultivariateStudentT:
+            # As mean is only defined for df > 1 & we instantiate
+            # scipy.stats.multivariate_t with same mean as jax_dist
+            # we need to ensure this is defined, so force df >= 1
+            valid_params[0] += 1
+
+        if jax_dist is dist.LogUniform:
+            # scipy.stats.loguniform take parameter a and b
+            # which is a > 0 and b > a.
+            # gen_values_within_bounds() generates just
+            # a > 0 and b > 0. Then, make b = a + b.
+            valid_params[1] += valid_params[0]
 
     assert jax_dist(*oob_params)
 
@@ -1469,8 +1908,15 @@ def test_categorical_log_prob_grad():
     x = 0.5
     fx, grad_fx = jax.value_and_grad(f)(x)
     gx, grad_gx = jax.value_and_grad(g)(x)
-    assert_allclose(fx, gx)
+    assert_allclose(fx, gx, rtol=1e-6)
     assert_allclose(grad_fx, grad_gx, atol=1e-4)
+
+
+def test_beta_proportion_invalid_mean():
+    with dist.distribution.validation_enabled(), pytest.raises(
+        ValueError, match=r"^BetaProportion distribution got invalid mean parameter\.$"
+    ):
+        dist.BetaProportion(1.0, 1.0)
 
 
 ########################################
@@ -1481,117 +1927,122 @@ def test_categorical_log_prob_grad():
 @pytest.mark.parametrize(
     "constraint, x, expected",
     [
-        (constraints.boolean, jnp.array([True, False]), jnp.array([True, True])),
-        (constraints.boolean, jnp.array([1, 1]), jnp.array([True, True])),
-        (constraints.boolean, jnp.array([-1, 1]), jnp.array([False, True])),
+        (constraints.boolean, np.array([True, False]), np.array([True, True])),
+        (constraints.boolean, np.array([1, 1]), np.array([True, True])),
+        (constraints.boolean, np.array([-1, 1]), np.array([False, True])),
         (
             constraints.corr_cholesky,
-            jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
-            jnp.array([True, False]),
+            np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+            np.array([True, False]),
         ),  # NB: not lower_triangular
         (
             constraints.corr_cholesky,
-            jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
-            jnp.array([False, False]),
+            np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+            np.array([False, False]),
         ),  # NB: not positive_diagonal & not unit_norm_row
         (
             constraints.corr_matrix,
-            jnp.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
-            jnp.array([True, False]),
+            np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+            np.array([True, False]),
         ),  # NB: not lower_triangular
         (
             constraints.corr_matrix,
-            jnp.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
-            jnp.array([False, False]),
+            np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+            np.array([False, False]),
         ),  # NB: not unit diagonal
         (constraints.greater_than(1), 3, True),
         (
             constraints.greater_than(1),
-            jnp.array([-1, 1, 5]),
-            jnp.array([False, False, True]),
+            np.array([-1, 1, 5]),
+            np.array([False, False, True]),
         ),
         (constraints.integer_interval(-3, 5), 0, True),
         (
             constraints.integer_interval(-3, 5),
-            jnp.array([-5, -3, 0, 1.1, 5, 7]),
-            jnp.array([False, True, True, False, True, False]),
+            np.array([-5, -3, 0, 1.1, 5, 7]),
+            np.array([False, True, True, False, True, False]),
         ),
         (constraints.interval(-3, 5), 0, True),
         (
             constraints.interval(-3, 5),
-            jnp.array([-5, -3, 0, 5, 7]),
-            jnp.array([False, True, True, True, False]),
+            np.array([-5, -3, 0, 5, 7]),
+            np.array([False, True, True, True, False]),
         ),
         (constraints.less_than(1), -2, True),
         (
             constraints.less_than(1),
-            jnp.array([-1, 1, 5]),
-            jnp.array([True, False, False]),
+            np.array([-1, 1, 5]),
+            np.array([True, False, False]),
         ),
-        (constraints.lower_cholesky, jnp.array([[1.0, 0.0], [-2.0, 0.1]]), True),
+        (constraints.lower_cholesky, np.array([[1.0, 0.0], [-2.0, 0.1]]), True),
         (
             constraints.lower_cholesky,
-            jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
-            jnp.array([False, False]),
+            np.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
+            np.array([False, False]),
         ),
         (constraints.nonnegative_integer, 3, True),
         (
             constraints.nonnegative_integer,
-            jnp.array([-1.0, 0.0, 5.0]),
-            jnp.array([False, True, True]),
+            np.array([-1.0, 0.0, 5.0]),
+            np.array([False, True, True]),
         ),
         (constraints.positive, 3, True),
-        (constraints.positive, jnp.array([-1, 0, 5]), jnp.array([False, False, True])),
-        (constraints.positive_definite, jnp.array([[1.0, 0.3], [0.3, 1.0]]), True),
+        (constraints.positive, np.array([-1, 0, 5]), np.array([False, False, True])),
+        (constraints.positive_definite, np.array([[1.0, 0.3], [0.3, 1.0]]), True),
         (
             constraints.positive_definite,
-            jnp.array([[[2.0, 0.4], [0.3, 2.0]], [[1.0, 0.1], [0.1, 0.0]]]),
-            jnp.array([False, False]),
+            np.array([[[2.0, 0.4], [0.3, 2.0]], [[1.0, 0.1], [0.1, 0.0]]]),
+            np.array([False, False]),
         ),
         (constraints.positive_integer, 3, True),
         (
             constraints.positive_integer,
-            jnp.array([-1.0, 0.0, 5.0]),
-            jnp.array([False, False, True]),
+            np.array([-1.0, 0.0, 5.0]),
+            np.array([False, False, True]),
         ),
         (constraints.real, -1, True),
         (
             constraints.real,
-            jnp.array([jnp.inf, jnp.NINF, jnp.nan, jnp.pi]),
-            jnp.array([False, False, False, True]),
+            np.array([np.inf, np.NINF, np.nan, np.pi]),
+            np.array([False, False, False, True]),
         ),
-        (constraints.simplex, jnp.array([0.1, 0.3, 0.6]), True),
+        (constraints.simplex, np.array([0.1, 0.3, 0.6]), True),
         (
             constraints.simplex,
-            jnp.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
-            jnp.array([True, False, False]),
+            np.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
+            np.array([True, False, False]),
         ),
         (constraints.softplus_positive, 3, True),
         (
             constraints.softplus_positive,
-            jnp.array([-1, 0, 5]),
-            jnp.array([False, False, True]),
+            np.array([-1, 0, 5]),
+            np.array([False, False, True]),
         ),
         (
             constraints.softplus_lower_cholesky,
-            jnp.array([[1.0, 0.0], [-2.0, 0.1]]),
+            np.array([[1.0, 0.0], [-2.0, 0.1]]),
             True,
         ),
         (
             constraints.softplus_lower_cholesky,
-            jnp.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
-            jnp.array([False, False]),
+            np.array([[[1.0, 0.0], [-2.0, -0.1]], [[1.0, 0.1], [2.0, 0.2]]]),
+            np.array([False, False]),
         ),
         (constraints.unit_interval, 0.1, True),
         (
             constraints.unit_interval,
-            jnp.array([-5, 0, 0.5, 1, 7]),
-            jnp.array([False, True, True, True, False]),
+            np.array([-5, 0, 0.5, 1, 7]),
+            np.array([False, True, True, True, False]),
         ),
         (
             constraints.sphere,
-            jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
-            jnp.array([True, False]),
+            np.array([[1, 0, 0], [0.5, 0.5, 0]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.open_interval(0.0, 1.0),
+            np.array([-5, 0, 0.5, 1, 7]),
+            np.array([False, False, True, False, False]),
         ),
     ],
 )
@@ -1634,6 +2085,7 @@ def test_constraints(constraint, x, expected):
         constraints.softplus_positive,
         constraints.softplus_lower_cholesky,
         constraints.unit_interval,
+        constraints.open_interval(0.0, 1.0),
     ],
     ids=lambda x: x.__class__,
 )
@@ -1658,7 +2110,7 @@ def test_biject_to(constraint, shape):
     assert transform.inverse_shape(y.shape) == x.shape
 
     # test inv work for NaN arrays:
-    x_nan = transform.inv(jnp.full(jnp.shape(y), jnp.nan))
+    x_nan = transform.inv(jnp.full(jnp.shape(y), np.nan))
     assert x_nan.shape == x.shape
 
     # test codomain
@@ -1667,7 +2119,7 @@ def test_biject_to(constraint, shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert_allclose(x, z, atol=1e-5, rtol=1e-5)
 
     # test domain, currently all is constraints.real or constraints.real_vector
     assert_array_equal(transform.domain(z), jnp.ones(batch_shape))
@@ -1732,20 +2184,20 @@ def test_biject_to(constraint, shape):
             expected = jnp.log(jnp.abs(grad(transform)(x)))
             inv_expected = jnp.log(jnp.abs(grad(transform.inv)(y)))
 
-        assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
-        assert_allclose(actual, -inv_expected, atol=1e-6, rtol=1e-6)
+        assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+        assert_allclose(actual, -inv_expected, atol=1e-5, rtol=1e-5)
 
 
 # NB: skip transforms which are tested in `test_biject_to`
 @pytest.mark.parametrize(
     "transform, event_shape",
     [
-        (PermuteTransform(jnp.array([3, 0, 4, 1, 2])), (5,)),
+        (PermuteTransform(np.array([3, 0, 4, 1, 2])), (5,)),
         (PowerTransform(2.0), ()),
         (SoftplusTransform(), ()),
         (
             LowerCholeskyAffine(
-                jnp.array([1.0, 2.0]), jnp.array([[0.6, 0.0], [1.5, 0.4]])
+                np.array([1.0, 2.0]), np.array([[0.6, 0.0], [1.5, 0.4]])
             ),
             (2,),
         ),
@@ -1879,7 +2331,7 @@ def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape
     "transformed_dist",
     [
         dist.TransformedDistribution(
-            dist.Normal(jnp.array([2.0, 3.0]), 1.0), transforms.ExpTransform()
+            dist.Normal(np.array([2.0, 3.0]), 1.0), transforms.ExpTransform()
         ),
         dist.TransformedDistribution(
             dist.Exponential(jnp.ones(2)),
@@ -1996,8 +2448,8 @@ def test_generated_sample_distribution(
         (dist.BinomialLogits, (4.5, 10), jnp.arange(11)),
         (dist.BinomialProbs, (0.5, 11), jnp.arange(12)),
         (dist.BetaBinomial, (2.0, 0.5, 12), jnp.arange(13)),
-        (dist.CategoricalLogits, (jnp.array([3.0, 4.0, 5.0]),), jnp.arange(3)),
-        (dist.CategoricalProbs, (jnp.array([0.1, 0.5, 0.4]),), jnp.arange(3)),
+        (dist.CategoricalLogits, (np.array([3.0, 4.0, 5.0]),), jnp.arange(3)),
+        (dist.CategoricalProbs, (np.array([0.1, 0.5, 0.4]),), jnp.arange(3)),
     ],
 )
 @pytest.mark.parametrize("batch_shape", [(5,), ()])
@@ -2009,6 +2461,13 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
     if expand:
         expected = jnp.broadcast_to(expected, support.shape + batch_shape)
     assert_allclose(actual, expected)
+
+
+def test_zero_inflated_enumerate_support():
+    base_dist = dist.Bernoulli(0.5)
+    d = dist.ZeroInflatedDistribution(base_dist, gate=0.5)
+    assert d.has_enumerate_support
+    assert_allclose(d.enumerate_support(), base_dist.enumerate_support())
 
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
@@ -2046,6 +2505,30 @@ def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
     samples = expanded_dist.sample(random.PRNGKey(1), sample_shape)
     expected_mean = jnp.broadcast_to(loc, sample_shape[1:] + expanded_dist.shape())
     assert_allclose(samples.mean(0), expected_mean, atol=0.1)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (4,), (10, 3)])
+def test_sine_bivariate_von_mises_batch_shape(batch_shape):
+    phi_loc = jnp.broadcast_to(jnp.array(0.0), batch_shape)
+    psi_loc = jnp.array(0.0)
+    phi_conc = jnp.array(1.0)
+    psi_conc = jnp.array(1.0)
+    corr = jnp.array(0.1)
+
+    sine = SineBivariateVonMises(phi_loc, psi_loc, phi_conc, psi_conc, corr)
+    assert sine.batch_shape == batch_shape
+
+    samples = sine.sample(random.PRNGKey(0))
+    assert samples.shape == (*batch_shape, 2)
+
+
+def test_sine_bivariate_von_mises_sample_mean():
+    loc = jnp.array([[2.0, -1.0], [-2, 1.0]])
+
+    sine = SineBivariateVonMises(*loc, 5000, 5000, 0.0)
+    samples = sine.sample(random.PRNGKey(0), (5000,))
+
+    assert_allclose(_circ_mean(samples).T, loc, rtol=5e-3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
@@ -2124,7 +2607,7 @@ def test_mask_grad(event_shape):
         assert log_prob.shape == data.shape[: len(data.shape) - len(event_shape)]
         return log_prob.sum()
 
-    data = jnp.array([[0.4, jnp.nan, 0.2, jnp.nan], [0.5, 0.5, 0.5, 0.5]])
+    data = np.array([[0.4, np.nan, 0.2, np.nan], [0.5, 0.5, 0.5, 0.5]])
     log_prob, grad = jax.value_and_grad(f)(1.0, data)
     assert jnp.isfinite(grad) and jnp.isfinite(log_prob)
 
@@ -2138,8 +2621,19 @@ def test_dist_pytree(jax_dist, sp_dist, params):
 
     if jax_dist is _ImproperWrapper:
         pytest.skip("Cannot flattening ImproperUniform")
+    if jax_dist is dist.EulerMaruyama:
+        pytest.skip("EulerMaruyama doesn't define flatten/unflatten")
     jax.jit(f)(0)  # this test for flatten/unflatten
     lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
+    # Test that parameters do not change after flattening.
+    expected_dist = f(0)
+    actual_dist = jax.jit(f)(0)
+    expected_sample = expected_dist.sample(random.PRNGKey(0))
+    actual_sample = actual_dist.sample(random.PRNGKey(0))
+    expected_log_prob = expected_dist.log_prob(expected_sample)
+    actual_log_prob = actual_dist.log_prob(actual_sample)
+    assert_allclose(actual_sample, expected_sample, rtol=1e-6)
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-6)
 
 
 @pytest.mark.parametrize(
@@ -2159,7 +2653,7 @@ def test_expand_pytree():
         return dist.Normal(x, 1).expand([10, 3])
 
     assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
-    assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
+    assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
@@ -2199,9 +2693,33 @@ def test_kl_expanded_normal(batch_shape, event_shape):
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
-def test_kl_normal_normal(shape):
-    p = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
-    q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+@pytest.mark.parametrize(
+    "p_dist, q_dist",
+    [
+        (dist.Beta, dist.Beta),
+        (dist.Gamma, dist.Gamma),
+        (dist.Kumaraswamy, dist.Beta),
+        (dist.Normal, dist.Normal),
+        (dist.Weibull, dist.Gamma),
+    ],
+)
+def test_kl_univariate(shape, p_dist, q_dist):
+    def make_dist(dist_class):
+        params = {}
+        for k, c in dist_class.arg_constraints.items():
+            if c is constraints.real:
+                params[k] = np.random.normal(size=shape)
+            elif c is constraints.positive:
+                params[k] = np.exp(np.random.normal(size=shape))
+            else:
+                raise ValueError(f"Missing pattern for param {k}.")
+        d = dist_class(**params)
+        if dist_class is dist.Kumaraswamy:
+            d.KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 1000
+        return d
+
+    p = make_dist(p_dist)
+    q = make_dist(q_dist)
     actual = kl_divergence(p, q)
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
@@ -2216,3 +2734,13 @@ def test_kl_dirichlet_dirichlet(shape):
     x = p.sample(random.PRNGKey(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+def test_vmapped_binomial_p0():
+    # test that vmapped binomial with p = 0 does not have an infinite loop
+    def sample_binomial_withp0(key):
+        n = 2 * (random.uniform(key) > 0.5)
+        _, key = random.split(key)
+        return dist.Binomial(total_count=n, probs=0).sample(key)
+
+    jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))

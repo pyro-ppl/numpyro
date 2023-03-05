@@ -11,60 +11,55 @@ import numpyro.distributions as dist
 rng_key = jax.random.PRNGKey(42)
 
 
-def get_normal(nb_mixtures, batch_shape):
+def get_normal(batch_shape):
     """Get parameterized Normal with given batch shape."""
-    loc = jnp.zeros(nb_mixtures)
-    scale = jnp.ones(nb_mixtures)
-    for i, s in enumerate(batch_shape):
-        loc = jnp.repeat(jnp.expand_dims(loc, i), s, axis=i)
-        scale = jnp.repeat(jnp.expand_dims(scale, i), s, axis=i)
-    batch_shape = (*batch_shape, nb_mixtures)
+    loc = jnp.zeros(batch_shape)
+    scale = jnp.ones(batch_shape)
     normal = dist.Normal(loc=loc, scale=scale)
-    assert normal.batch_shape == batch_shape
     return normal
 
 
-def get_mvn(nb_mixtures, batch_shape):
+def get_mvn(batch_shape):
     """Get parameterized MultivariateNormal with given batch shape."""
     dimensions = 2
-    loc = jnp.zeros((nb_mixtures, dimensions))
-    cov_matrix = jnp.repeat(
-        jnp.expand_dims(jnp.eye(dimensions, dimensions), 0), nb_mixtures, axis=0
-    )
+    loc = jnp.zeros((*batch_shape, dimensions))
+    cov_matrix = jnp.eye(dimensions, dimensions)
     for i, s in enumerate(batch_shape):
         loc = jnp.repeat(jnp.expand_dims(loc, i), s, axis=i)
         cov_matrix = jnp.repeat(jnp.expand_dims(cov_matrix, i), s, axis=i)
-    batch_shape = (*batch_shape, nb_mixtures)
     mvn = dist.MultivariateNormal(loc=loc, covariance_matrix=cov_matrix)
-    assert mvn.batch_shape == batch_shape
     return mvn
 
 
 @pytest.mark.parametrize("jax_dist_getter", [get_normal, get_mvn])
 @pytest.mark.parametrize("nb_mixtures", [1, 3])
 @pytest.mark.parametrize("batch_shape", [(), (1,), (7,), (2, 5)])
-def test_mixture_same_family_same_batch_shape(
-    jax_dist_getter, nb_mixtures, batch_shape
+@pytest.mark.parametrize("same_family", [True, False])
+def test_mixture_same_batch_shape(
+    jax_dist_getter, nb_mixtures, batch_shape, same_family
 ):
-    # Create mixture
     mixing_probabilities = jnp.ones(nb_mixtures) / nb_mixtures
     for i, s in enumerate(batch_shape):
         mixing_probabilities = jnp.repeat(
             jnp.expand_dims(mixing_probabilities, i), s, axis=i
         )
     assert jnp.allclose(mixing_probabilities.sum(axis=-1), 1.0)
-    component_distribution = jax_dist_getter(
-        nb_mixtures=nb_mixtures, batch_shape=batch_shape
-    )
     mixing_distribution = dist.Categorical(probs=mixing_probabilities)
-    _test_mixture_same_family(mixing_distribution, component_distribution)
+    if same_family:
+        component_distribution = jax_dist_getter((*batch_shape, nb_mixtures))
+    else:
+        component_distribution = [
+            jax_dist_getter(batch_shape) for _ in range(nb_mixtures)
+        ]
+    _test_mixture(mixing_distribution, component_distribution)
 
 
 @pytest.mark.parametrize("jax_dist_getter", [get_normal, get_mvn])
 @pytest.mark.parametrize("nb_mixtures", [3])
 @pytest.mark.parametrize("mixing_batch_shape, component_batch_shape", [[(2,), (7, 2)]])
-def test_mixture_same_family_broadcast_batch_shape(
-    jax_dist_getter, nb_mixtures, mixing_batch_shape, component_batch_shape
+@pytest.mark.parametrize("same_family", [True, False])
+def test_mixture_broadcast_batch_shape(
+    jax_dist_getter, nb_mixtures, mixing_batch_shape, component_batch_shape, same_family
 ):
     # Create mixture
     mixing_probabilities = jnp.ones(nb_mixtures) / nb_mixtures
@@ -73,29 +68,38 @@ def test_mixture_same_family_broadcast_batch_shape(
             jnp.expand_dims(mixing_probabilities, i), s, axis=i
         )
     assert jnp.allclose(mixing_probabilities.sum(axis=-1), 1.0)
-    component_distribution = jax_dist_getter(
-        nb_mixtures=nb_mixtures, batch_shape=component_batch_shape
-    )
     mixing_distribution = dist.Categorical(probs=mixing_probabilities)
-    _test_mixture_same_family(mixing_distribution, component_distribution)
+    if same_family:
+        component_distribution = jax_dist_getter((*component_batch_shape, nb_mixtures))
+    else:
+        component_distribution = [
+            jax_dist_getter(component_batch_shape) for _ in range(nb_mixtures)
+        ]
+    _test_mixture(mixing_distribution, component_distribution)
 
 
-def _test_mixture_same_family(mixing_distribution, component_distribution):
+def _test_mixture(mixing_distribution, component_distribution):
     # Create mixture
-    mixture = dist.MixtureSameFamily(
+    mixture = dist.Mixture(
         mixing_distribution=mixing_distribution,
-        component_distribution=component_distribution,
+        component_distributions=component_distribution,
     )
     assert (
         mixture.mixture_size == mixing_distribution.probs.shape[-1]
     ), "Mixture size needs to be the size of the probability vector"
-    assert (
-        mixture.batch_shape == component_distribution.batch_shape[:-1]
-    ), "Mixture batch shape needs to be the component batch shape without the mixture dimension."
+
+    if isinstance(component_distribution, dist.Distribution):
+        assert (
+            mixture.batch_shape == component_distribution.batch_shape[:-1]
+        ), "Mixture batch shape needs to be the component batch shape without the mixture dimension."
+    else:
+        assert (
+            mixture.batch_shape == component_distribution[0].batch_shape
+        ), "Mixture batch shape needs to be the component batch shape."
     # Test samples
     sample_shape = (11,)
-    # Samples from component distribution
-    component_samples = mixture.component_distribution.sample(rng_key, sample_shape)
+    # Samples from component distribution(s)
+    component_samples = mixture.component_sample(rng_key, sample_shape)
     assert component_samples.shape == (
         *sample_shape,
         *mixture.batch_shape,
@@ -111,7 +115,7 @@ def _test_mixture_same_family(mixing_distribution, component_distribution):
     expected_shape = samples.shape[:nb_value_dims]
     assert lp.shape == expected_shape
     # Samples with indices
-    samples_, indices = mixture.sample_with_intermediates(
+    samples_, [indices] = mixture.sample_with_intermediates(
         rng_key, sample_shape=sample_shape
     )
     assert samples_.shape == samples.shape
@@ -125,6 +129,6 @@ def _test_mixture_same_family(mixing_distribution, component_distribution):
     var = mixture.variance
     assert var.shape == mixture.shape()
     # Check cdf
-    if isinstance(mixture.component_distribution, dist.Normal):
+    if mixture.event_shape == ():
         cdf = mixture.cdf(samples)
         assert cdf.shape == (*sample_shape, *mixture.shape())

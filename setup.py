@@ -9,14 +9,8 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_available_cuda_versions = [
-    "101",
-    "102",
-    "110",
-    "111",
-]  # TODO: align these with what's available in JAX before release
-_jax_version_constraints = ">=0.2.13"
-_jaxlib_version_constraints = ">=0.1.65"
+_jax_version_constraints = ">=0.4"
+_jaxlib_version_constraints = ">=0.4"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
@@ -41,6 +35,8 @@ setup(
     install_requires=[
         f"jax{_jax_version_constraints}",
         f"jaxlib{_jaxlib_version_constraints}",
+        "multipledispatch",
+        "numpy",
         "tqdm",
     ],
     extras_require={
@@ -53,21 +49,24 @@ setup(
             "sphinx-gallery",
         ],
         "test": [
+            "importlib-metadata<5.0",
             "black[jupyter]>=21.8b0",
             "flake8",
+            "importlib-metadata<5.0",
             "isort>=5.0",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
-            "scipy>=1.1",
+            "scipy>=1.6,<1.7",
         ],
         "dev": [
             "dm-haiku",
             "flax",
-            "funsor==0.4.1",
+            "funsor>=0.4.1",
             "graphviz",
-            "jaxns==0.0.7",
+            "jaxns==1.0.0",
             "optax>=0.0.6",
-            "tensorflow_probability>=0.13",
+            "pyyaml",  # flax dependency
+            "tensorflow_probability>=0.17.0",
         ],
         "examples": [
             "arviz",
@@ -80,12 +79,9 @@ setup(
         ],
         "cpu": f"jax[cpu]{_jax_version_constraints}",
         # TPU and CUDA installations, currently require to add package repository URL, i.e.,
-        # pip install numpyro[cuda101] -f https://storage.googleapis.com/jax-releases/jax_releases.html
+        # pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_releases.html
         "tpu": f"jax[tpu]{_jax_version_constraints}",
-        **{
-            f"cuda{version}": f"jax[cuda{version}]{_jax_version_constraints}"
-            for version in _available_cuda_versions
-        },
+        "cuda": f"jax[cuda]{_jax_version_constraints}",
     },
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -98,9 +94,9 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
     ],
 )

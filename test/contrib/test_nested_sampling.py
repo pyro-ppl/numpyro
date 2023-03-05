@@ -13,6 +13,10 @@ from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:jax.tree_.+ is deprecated:FutureWarning"
+)
+
 
 # Test helper to extract a few central moments from samples.
 def get_moments(x):
@@ -22,8 +26,8 @@ def get_moments(x):
     xxx = x * xx
     xxxx = xx * xx
     m2 = jnp.mean(xx, axis=0)
-    m3 = jnp.mean(xxx, axis=0) / m2 ** 1.5
-    m4 = jnp.mean(xxxx, axis=0) / m2 ** 2
+    m3 = jnp.mean(xxx, axis=0) / m2**1.5
+    m4 = jnp.mean(xxxx, axis=0) / m2**2
     return jnp.stack([m1, m2, m3, m4])
 
 

@@ -80,6 +80,22 @@ Unit
 Continuous Distributions
 ------------------------
 
+AsymmetricLaplace
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AsymmetricLaplaceQuantile
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.AsymmetricLaplaceQuantile
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Beta
 ^^^^
 .. autoclass:: numpyro.distributions.continuous.Beta
@@ -96,6 +112,13 @@ BetaProportion
     :show-inheritance:
     :member-order: bysource
 
+CAR
+^^^
+.. autoclass:: numpyro.distributions.continuous.CAR
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Cauchy
 ^^^^^^
@@ -121,6 +144,14 @@ Dirichlet
     :show-inheritance:
     :member-order: bysource
 
+EulerMaruyama
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.EulerMaruyama
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    
 Exponential
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Exponential
@@ -145,9 +176,18 @@ Gumbel
     :show-inheritance:
     :member-order: bysource
 
-Gompertz
-^^^^^^^^
-.. autoclass:: numpyro.distributions.continuous.Gompertz
+GaussianCopula
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopula
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GaussianCopulaBeta
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopulaBeta
+>>>>>>> master
     :members:
     :undoc-members:
     :show-inheritance:
@@ -156,6 +196,14 @@ Gompertz
 GaussianRandomWalk
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.GaussianRandomWalk
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Gompertz
+^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Gompertz
     :members:
     :undoc-members:
     :show-inheritance:
@@ -180,6 +228,14 @@ HalfNormal
 InverseGamma
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.InverseGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Kumaraswamy
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Kumaraswamy
     :members:
     :undoc-members:
     :show-inheritance:
@@ -217,9 +273,33 @@ LogNormal
     :show-inheritance:
     :member-order: bysource
 
+LogUniform
+^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.LogUniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Logistic
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Logistic
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LowRankMultivariateNormal
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+MatrixNormal
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MatrixNormal
     :members:
     :undoc-members:
     :show-inheritance:
@@ -233,9 +313,9 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
-LowRankMultivariateNormal
-^^^^^^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
+MultivariateStudentT
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
     :members:
     :undoc-members:
     :show-inheritance:
@@ -252,6 +332,18 @@ Normal
 Pareto
 ^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Pareto
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RelaxedBernoulli
+^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.continuous.RelaxedBernoulli
+
+RelaxedBernoulliLogits
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.RelaxedBernoulliLogits
     :members:
     :undoc-members:
     :show-inheritance:
@@ -369,6 +461,14 @@ DirichletMultinomial
     :show-inheritance:
     :member-order: bysource
 
+DiscreteUniform
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.DiscreteUniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GammaPoisson
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.GammaPoisson
@@ -461,14 +561,6 @@ Poisson
     :show-inheritance:
     :member-order: bysource
 
-PRNGIdentity
-^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.discrete.PRNGIdentity
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 ZeroInflatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
@@ -489,6 +581,10 @@ ZeroInflatedNegativeBinomial2
 Mixture Distributions
 ---------------------
 
+Mixture
+^^^^^^^
+.. autofunction:: numpyro.distributions.mixtures.Mixture
+
 MixtureSameFamily
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.mixtures.MixtureSameFamily
@@ -497,6 +593,13 @@ MixtureSameFamily
     :show-inheritance:
     :member-order: bysource
 
+MixtureGeneral
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.mixtures.MixtureGeneral
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Directional Distributions
 -------------------------
@@ -789,18 +892,10 @@ ExpTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-    
+
 IdentityTransform
 ^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.IdentityTransform
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-InvCholeskyTransform
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:

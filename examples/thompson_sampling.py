@@ -34,7 +34,7 @@ numpyro.enable_x64()
 # the function to be minimized. At y=0 to get a 1D cut at the origin
 def ackley_1d(x, y=0):
     out = (
-        -20 * jnp.exp(-0.2 * jnp.sqrt(0.5 * (x ** 2 + y ** 2)))
+        -20 * jnp.exp(-0.2 * jnp.sqrt(0.5 * (x**2 + y**2)))
         - jnp.exp(0.5 * (jnp.cos(2 * jnp.pi * x) + jnp.cos(2 * jnp.pi * y)))
         + jnp.e
         + 20
@@ -45,7 +45,7 @@ def ackley_1d(x, y=0):
 # matern kernel with nu = 5/2
 def matern52_kernel(X, Z, var=1.0, length=0.5, jitter=1.0e-6):
     d = jnp.sqrt(0.5) * jnp.sqrt(jnp.power((X[:, None] - Z), 2.0)) / length
-    k = var * (1 + d + (d ** 2) / 3) * jnp.exp(-d)
+    k = var * (1 + d + (d**2) / 3) * jnp.exp(-d)
     if jitter:
         # we are assuming a noise free process, but add a small jitter for numerical stability
         k += jitter * jnp.eye(X.shape[0])
@@ -125,10 +125,10 @@ class GP:
         if return_std:
             return (
                 (mean * self.y_std) + self.y_mean,
-                jnp.sqrt(jnp.diag(K * self.y_std ** 2)),
+                jnp.sqrt(jnp.diag(K * self.y_std**2)),
             )
         else:
-            return (mean * self.y_std) + self.y_mean, K * self.y_std ** 2
+            return (mean * self.y_std) + self.y_mean, K * self.y_std**2
 
     def sample_y(self, rng_key, X):
         # get posterior mean and covariance
@@ -180,7 +180,6 @@ class ThompsonSamplingGP:
 
     # choose the next Thompson sample
     def choose_next_sample(self, n_step=2_000):
-
         # if we do not have enough samples, sample randomly from bounds
         if self.X.shape[0] < self.n_random_draws:
             self.rng_key, subkey = random.split(self.rng_key)
@@ -195,7 +194,6 @@ class ThompsonSamplingGP:
 
         # if we do, we fit the GP and choose the next point based on the posterior draw minimum
         else:
-
             # 1. Fit the GP to the observations we have
             self.gp = self.fit(self.X, self.y, n_step=n_step)
 
@@ -294,7 +292,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.8.0")
+    assert numpyro.__version__.startswith("0.11.0")
     parser = argparse.ArgumentParser(description="Thompson sampling example")
     parser.add_argument(
         "--num-random", nargs="?", default=2, type=int, help="number of random draws"

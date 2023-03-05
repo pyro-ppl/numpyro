@@ -44,7 +44,7 @@ class BetaBinomial(Distribution):
     enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(
-        self, concentration1, concentration0, total_count=1, validate_args=None
+        self, concentration1, concentration0, total_count=1, *, validate_args=None
     ):
         self.concentration1, self.concentration0, self.total_count = promote_shapes(
             concentration1, concentration0, total_count
@@ -110,7 +110,7 @@ class DirichletMultinomial(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, concentration, total_count=1, validate_args=None):
+    def __init__(self, concentration, total_count=1, *, validate_args=None):
         if jnp.ndim(concentration) < 1:
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."
@@ -184,7 +184,7 @@ class GammaPoisson(Distribution):
     }
     support = constraints.nonnegative_integer
 
-    def __init__(self, concentration, rate=1.0, validate_args=None):
+    def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         self._gamma = Gamma(concentration, rate)
         super(GammaPoisson, self).__init__(
@@ -220,7 +220,7 @@ class GammaPoisson(Distribution):
         return bt
 
 
-def NegativeBinomial(total_count, probs=None, logits=None, validate_args=None):
+def NegativeBinomial(total_count, probs=None, logits=None, *, validate_args=None):
     if probs is not None:
         return NegativeBinomialProbs(total_count, probs, validate_args=validate_args)
     elif logits is not None:
@@ -236,7 +236,7 @@ class NegativeBinomialProbs(GammaPoisson):
     }
     support = constraints.nonnegative_integer
 
-    def __init__(self, total_count, probs, validate_args=None):
+    def __init__(self, total_count, probs, *, validate_args=None):
         self.total_count, self.probs = promote_shapes(total_count, probs)
         concentration = total_count
         rate = 1.0 / probs - 1.0
@@ -250,7 +250,7 @@ class NegativeBinomialLogits(GammaPoisson):
     }
     support = constraints.nonnegative_integer
 
-    def __init__(self, total_count, logits, validate_args=None):
+    def __init__(self, total_count, logits, *, validate_args=None):
         self.total_count, self.logits = promote_shapes(total_count, logits)
         concentration = total_count
         rate = jnp.exp(-logits)
@@ -276,7 +276,7 @@ class NegativeBinomial2(GammaPoisson):
     }
     support = constraints.nonnegative_integer
 
-    def __init__(self, mean, concentration, validate_args=None):
+    def __init__(self, mean, concentration, *, validate_args=None):
         rate = concentration / mean
         super().__init__(concentration, rate, validate_args=validate_args)
 

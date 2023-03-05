@@ -58,7 +58,7 @@ def log_I1(orders: int, value, terms=250):
     lfactorials = lgammas_all[:terms]
     assert lfactorials.shape == (terms,)
 
-    lgammas = lgammas_all.tile(orders).reshape((orders, -1))
+    lgammas = jnp.tile(lgammas_all, orders).reshape((orders, -1))
     assert lgammas.shape == (orders, terms + orders)  # lgamma(0) = inf => start from 1
 
     indices = k[:orders].reshape(-1, 1) + k.reshape(1, -1)
@@ -99,7 +99,7 @@ class VonMises(Distribution):
     reparametrized_params = ["loc"]
     support = constraints.circular
 
-    def __init__(self, loc, concentration, validate_args=None):
+    def __init__(self, loc, concentration, *, validate_args=None):
         """von Mises distribution for sampling directions.
 
         :param loc: center of distribution
@@ -154,10 +154,11 @@ PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
 
 
 class SineSkewed(Distribution):
-    """Sine-skewing [1] is a procedure for producing a distribution that breaks pointwise symmetry on a torus
+    r"""Sine-skewing [1] is a procedure for producing a distribution that breaks pointwise symmetry on a torus
     distribution. The new distribution is called the Sine Skewed X distribution, where X is the name of the (symmetric)
     base distribution. Torus distributions are distributions with support on products of circles
-    (i.e., ⨂^d S^1 where S^1=[-pi,pi) ). So, a 0-torus is a point, the 1-torus is a circle,
+    (i.e., :math:`\otimes S^1` where :math:`S^1 = [-pi,pi)`).
+    So, a 0-torus is a point, the 1-torus is a circle,
     and the 2-torus is commonly associated with the donut shape.
 
     The sine skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
@@ -216,7 +217,7 @@ class SineSkewed(Distribution):
 
     support = constraints.independent(constraints.circular, 1)
 
-    def __init__(self, base_dist: Distribution, skewness, validate_args=None):
+    def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
         assert (
             base_dist.event_shape == skewness.shape[-1:]
         ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
@@ -284,7 +285,8 @@ class SineSkewed(Distribution):
 
 
 class SineBivariateVonMises(Distribution):
-    r"""Unimodal distribution of two dependent angles on the 2-torus (S^1 ⨂ S^1) given by
+    r"""Unimodal distribution of two dependent angles on the 2-torus
+    (:math:`S^1 \otimes S^1`) given by
 
     .. math::
         C^{-1}\exp(\kappa_1\cos(x_1-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
@@ -307,7 +309,8 @@ class SineBivariateVonMises(Distribution):
         .. math::
             \frac{\rho}{\kappa_1\kappa_2} \rightarrow 1
 
-        because the distribution becomes increasingly bimodal.
+        because the distribution becomes increasingly bimodal. To avoid bimodality use the `weighted_correlation`
+        parameter with a skew away from one (e.g., Beta(1,3)). The `weighted_correlation` should be in [0,1].
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
 
@@ -322,8 +325,8 @@ class SineBivariateVonMises(Distribution):
     :param np.ndarray phi_concentration: concentration of first angle
     :param np.ndarray psi_concentration: concentration of second angle
     :param np.ndarray correlation: correlation between the two angles
-    :param np.ndarray weighted_correlation: set correlation to weigthed_corr * sqrt(phi_conc*psi_conc)
-        to avoid bimodality (see note).
+    :param np.ndarray weighted_correlation: set correlation to weighted_corr * sqrt(phi_conc*psi_conc)
+        to avoid bimodality (see note). The `weighted_correlation` should be in [0,1].
     """
 
     arg_constraints = {
@@ -349,20 +352,10 @@ class SineBivariateVonMises(Distribution):
         assert (correlation is None) != (weighted_correlation is None)
 
         if weighted_correlation is not None:
-            correlation = (
-                weighted_correlation * jnp.sqrt(phi_concentration * psi_concentration)
-                + 1e-8
+            correlation = weighted_correlation * jnp.sqrt(
+                phi_concentration * psi_concentration
             )
 
-        (
-            self.phi_loc,
-            self.psi_loc,
-            self.phi_concentration,
-            self.psi_concentration,
-            self.correlation,
-        ) = promote_shapes(
-            phi_loc, psi_loc, phi_concentration, psi_concentration, correlation
-        )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(phi_loc),
             jnp.shape(psi_loc),
@@ -370,11 +363,32 @@ class SineBivariateVonMises(Distribution):
             jnp.shape(psi_concentration),
             jnp.shape(correlation),
         )
-        super().__init__(batch_shape, (2,), validate_args)
+        (
+            self.phi_loc,
+            self.psi_loc,
+            self.phi_concentration,
+            self.psi_concentration,
+            self.correlation,
+        ) = promote_shapes(
+            phi_loc,
+            psi_loc,
+            phi_concentration,
+            psi_concentration,
+            correlation,
+            shape=batch_shape,
+        )
+
+        super().__init__(batch_shape, (2,), validate_args=validate_args)
+
+        self.phi_loc = jnp.broadcast_to(self.phi_loc, batch_shape)
+        self.psi_loc = jnp.broadcast_to(self.psi_loc, batch_shape)
+        self.phi_concentration = jnp.broadcast_to(self.phi_concentration, batch_shape)
+        self.psi_concentration = jnp.broadcast_to(self.psi_concentration, batch_shape)
+        self.correlation = jnp.broadcast_to(self.correlation, batch_shape)
 
     @lazy_property
     def norm_const(self):
-        corr = jnp.reshape(self.correlation, (1, -1)) + 1e-8
+        corr = jnp.reshape(self.correlation, (1, -1))
         conc = jnp.stack(
             (self.phi_concentration, self.psi_concentration), axis=-1
         ).reshape(-1, 2)
@@ -383,14 +397,12 @@ class SineBivariateVonMises(Distribution):
         den = special.gammaln(m + 1.0)
         lbinoms = num - 2 * den
 
-        fs = (
-            lbinoms.reshape(-1, 1)
-            + 2 * m * jnp.log(corr)
-            - m * jnp.log(4 * jnp.prod(conc, axis=-1))
+        fs = lbinoms.reshape(-1, 1) + m * (
+            jnp.log(jnp.clip(corr**2, a_min=jnp.finfo(jnp.result_type(float)).tiny))
+            - jnp.log(4 * jnp.prod(conc, axis=-1))
         )
         fs += log_I1(49, conc, terms=51).sum(-1)
-        mfs = fs.max()
-        norm_const = 2 * jnp.log(jnp.array(2 * pi)) + mfs + logsumexp(fs - mfs, 0)
+        norm_const = 2 * jnp.log(jnp.array(2 * pi)) + logsumexp(fs, 0)
         return norm_const.reshape(jnp.shape(self.phi_loc))
 
     @validate_sample
@@ -408,7 +420,7 @@ class SineBivariateVonMises(Distribution):
     def sample(self, key, sample_shape=()):
         """
         ** References: **
-            1. A New Unified Approach for the Simulation of aWide Class of Directional Distributions
+            1. A New Unified Approach for the Simulation of a Wide Class of Directional Distributions
                John T. Kent, Asaad M. Ganeiber & Kanti V. Mardia (2018)
         """
         assert is_prng_key(key)
@@ -417,7 +429,7 @@ class SineBivariateVonMises(Distribution):
         corr = self.correlation
         conc = jnp.stack((self.phi_concentration, self.psi_concentration))
 
-        eig = 0.5 * (conc[0] - corr ** 2 / conc[1])
+        eig = 0.5 * (conc[0] - corr**2 / conc[1])
         eig = jnp.stack((jnp.zeros_like(eig), eig))
         eigmin = jnp.where(eig[1] < 0, eig[1], jnp.zeros_like(eig[1], dtype=eig.dtype))
         eig = eig - eigmin
@@ -438,31 +450,27 @@ class SineBivariateVonMises(Distribution):
             jnp.reshape(phi_den, (batch_size,)),
         )
 
-        phi = jnp.arctan2(phi_state.phi[:, 1:], phi_state.phi[:, :1])
+        phi = jnp.arctan2(phi_state.phi[:, 1], phi_state.phi[:, 0])
 
-        alpha = jnp.sqrt(conc[1] ** 2 + (corr * jnp.sin(phi)) ** 2)
-        beta = jnp.arctan(corr / conc[1] * jnp.sin(phi))
+        alpha = jnp.sqrt(
+            conc[1].reshape(-1) ** 2 + (corr.reshape(-1) * jnp.sin(phi)) ** 2
+        )
+        beta = jnp.arctan(corr.reshape(-1) / conc[1].reshape(-1) * jnp.sin(phi))
 
         psi = VonMises(beta, alpha).sample(psi_key)
 
-        phi_psi = jnp.concatenate(
+        phi_psi = jnp.stack(
             (
-                (phi + self.phi_loc + pi) % (2 * pi) - pi,
-                (psi + self.psi_loc + pi) % (2 * pi) - pi,
+                (phi + jnp.reshape(self.phi_loc, -1) + pi) % (2 * pi) - pi,
+                (psi + jnp.reshape(self.psi_loc, -1) + pi) % (2 * pi) - pi,
             ),
-            axis=1,
+            axis=-1,
         )
-        phi_psi = jnp.transpose(phi_psi, (0, 2, 1))
+
         return phi_psi.reshape(*sample_shape, *self.batch_shape, *self.event_shape)
 
     @staticmethod
     def _phi_marginal(shape, rng_key, conc, corr, eig, b0, eigmin, phi_den):
-        conc = jnp.broadcast_to(conc, shape)
-        eig = jnp.broadcast_to(eig, shape)
-        b0 = jnp.broadcast_to(b0, shape)
-        eigmin = jnp.broadcast_to(eigmin, shape)
-        phi_den = jnp.broadcast_to(phi_den, shape)
-
         def update_fn(curr):
             i, done, phi, key = curr
             phi_key, key = random.split(key)
@@ -474,21 +482,17 @@ class SineBivariateVonMises(Distribution):
             )  # Angular Central Gaussian distribution
 
             lf = (
-                conc[:, :1] * (x[:, :1] - 1)
+                conc[0] * (x[:, 0] - 1)
                 + eigmin
-                + log_I1(
-                    0, jnp.sqrt(conc[:, 1:] ** 2 + (corr * x[:, 1:]) ** 2)
-                ).squeeze(0)
+                + log_I1(0, jnp.sqrt(conc[1] ** 2 + (corr * x[:, 1]) ** 2)).squeeze(0)
                 - phi_den
             )
-            assert lf.shape == shape
 
-            lg_inv = (
-                1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x ** 2).sum(1, keepdims=True))
-            )
+            lg_inv = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
             assert lg_inv.shape == lf.shape
 
-            accepted = random.uniform(accept_key, shape) < jnp.exp(lf + lg_inv)
+            accepted = random.uniform(accept_key, lf.shape) < jnp.exp(lf + lg_inv)
+            accepted = accepted[:, None]
 
             phi = jnp.where(accepted, x, phi)
             return PhiMarginalState(i + 1, done | accepted, phi, key)
@@ -624,7 +628,7 @@ def _projected_normal_log_prob_2(concentration, value):
     # Integrate[x/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = (t + Sqrt[2/Pi]/E^(t^2/2) + t Erf[t/Sqrt[2]])/2
     para_part = jnp.log(
-        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5 ** 0.5)))
+        (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5) + t * (1 + erf(t * 0.5**0.5)))
         / 2
     )
 
@@ -648,7 +652,7 @@ def _projected_normal_log_prob_3(concentration, value):
     # = t/(E^(t^2/2) Sqrt[2 Pi]) + ((1 + t^2) (1 + Erf[t/Sqrt[2]]))/2
     para_part = jnp.log(
         t * jnp.exp((-0.5) * t2) / (2 * math.pi) ** 0.5
-        + (1 + t2) * (1 + erf(t * 0.5 ** 0.5)) / 2
+        + (1 + t2) * (1 + erf(t * 0.5**0.5)) / 2
     )
 
     return para_part + perp_part

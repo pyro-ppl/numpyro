@@ -17,6 +17,8 @@ import numpy as np
 
 from jax import lax
 
+from numpyro.util import find_stack_level
+
 if "CI" in os.environ:
     DATA_DIR = os.path.expanduser("~/.data")
 else:
@@ -27,6 +29,11 @@ dset = namedtuple("dset", ["name", "urls"])
 
 BASEBALL = dset(
     "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
+)
+
+BOSTON_HOUSING = dset(
+    "boston_housing",
+    ["https://archive.ics.uci.edu/ml/machine-learning-databases/housing/housing.data"],
 )
 
 COVTYPE = dset(
@@ -68,6 +75,18 @@ HIGGS = dset(
     ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
 )
 
+NINE_MERS = dset(
+    "9mers",
+    ["https://github.com/pyro-ppl/datasets/blob/master/9mers_data.pkl?raw=true"],
+)
+
+MORTALITY = dset(
+    "mortality",
+    [
+        "https://github.com/pyro-ppl/datasets/blob/master/simulated_mortality.csv?raw=true"
+    ],
+)
+
 
 def _download(dset):
     for url in dset.urls:
@@ -98,6 +117,13 @@ def _load_baseball():
         os.path.join(DATA_DIR, "EfronMorrisBB.txt")
     )
     return {"train": (train, player_names), "test": (test, player_names)}
+
+
+def _load_boston_housing():
+    _download(BOSTON_HOUSING)
+    file_path = os.path.join(DATA_DIR, "housing.data")
+    data = np.loadtxt(file_path)
+    return {"train": (data[:, :-1], data[:, -1])}
 
 
 def _load_covtype():
@@ -232,7 +258,7 @@ def _load_jsb_chorales():
     for split, data_split in data.items():
         processed_dataset[split] = {}
         n_seqs = len(data_split)
-        processed_dataset[split]["sequence_lengths"] = np.zeros(n_seqs, dtype=np.long)
+        processed_dataset[split]["sequence_lengths"] = np.zeros(n_seqs, dtype=int)
         processed_dataset[split]["sequences"] = []
         for seq in range(n_seqs):
             seq_length = len(data_split[seq])
@@ -253,7 +279,10 @@ def _load_jsb_chorales():
 
 
 def _load_higgs(num_datapoints):
-    warnings.warn("Higgs is a 2.6 GB dataset")
+    warnings.warn(
+        "Higgs is a 2.6 GB dataset",
+        stacklevel=find_stack_level(),
+    )
     _download(HIGGS)
 
     file_path = os.path.join(DATA_DIR, "HIGGS.csv.gz")
@@ -276,9 +305,56 @@ def _load_higgs(num_datapoints):
     }  # standard split -500_000: as test
 
 
+def _load_9mers():
+    _download(NINE_MERS)
+    file_path = os.path.join(DATA_DIR, "9mers_data.pkl")
+    return pickle.load(open(file_path, "rb"))
+
+
+def _load_mortality():
+    _download(MORTALITY)
+
+    a, s1, s2, t, deaths, population = [], [], [], [], [], []
+    with open(os.path.join(DATA_DIR, "simulated_mortality.csv")) as f:
+        csv_reader = csv.DictReader(
+            f,
+            fieldnames=[
+                "age_group",
+                "year",
+                "a",
+                "s1",
+                "s2",
+                "t",
+                "deaths",
+                "population",
+            ],
+        )
+        next(csv_reader)  # skip the first row
+        for row in csv_reader:
+            a.append(int(row["a"]))
+            s1.append(int(row["s1"]))
+            s2.append(int(row["s2"]))
+            t.append(int(row["t"]))
+            deaths.append(int(row["deaths"]))
+            population.append(int(row["population"]))
+
+    return {
+        "train": (
+            np.stack(a),
+            np.stack(s1),
+            np.stack(s2),
+            np.stack(t),
+            np.stack(deaths),
+            np.stack(population),
+        )
+    }
+
+
 def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
+    elif dset == BOSTON_HOUSING:
+        return _load_boston_housing()
     elif dset == COVTYPE:
         return _load_covtype()
     elif dset == DIPPER_VOLE:
@@ -295,6 +371,10 @@ def _load(dset, num_datapoints=-1):
         return _load_jsb_chorales()
     elif dset == HIGGS:
         return _load_higgs(num_datapoints)
+    elif dset == NINE_MERS:
+        return _load_9mers()
+    elif dset == MORTALITY:
+        return _load_mortality()
     raise ValueError("Dataset - {} not found.".format(dset.name))
 
 
@@ -313,9 +393,15 @@ def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
 
 
 def load_dataset(
-    dset, batch_size=None, split="train", shuffle=True, num_datapoints=None
+    dset,
+    batch_size=None,
+    split="train",
+    shuffle=True,
+    num_datapoints=None,
 ):
-    arrays = _load(dset, num_datapoints)[split]
+    data = _load(dset, num_datapoints)
+    if isinstance(data, dict):
+        arrays = data[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
     if not batch_size:

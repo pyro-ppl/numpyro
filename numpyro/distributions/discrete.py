@@ -25,15 +25,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-import warnings
-
 import numpy as np
 
 import jax
 from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
-from jax.ops import index_add
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
@@ -76,7 +73,7 @@ class BernoulliProbs(Distribution):
     support = constraints.boolean
     has_enumerate_support = True
 
-    def __init__(self, probs, validate_args=None):
+    def __init__(self, probs, *, validate_args=None):
         self.probs = probs
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
@@ -118,7 +115,7 @@ class BernoulliLogits(Distribution):
     support = constraints.boolean
     has_enumerate_support = True
 
-    def __init__(self, logits=None, validate_args=None):
+    def __init__(self, logits=None, *, validate_args=None):
         self.logits = logits
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
@@ -154,7 +151,7 @@ class BernoulliLogits(Distribution):
         return values
 
 
-def Bernoulli(probs=None, logits=None, validate_args=None):
+def Bernoulli(probs=None, logits=None, *, validate_args=None):
     if probs is not None:
         return BernoulliProbs(probs, validate_args=validate_args)
     elif logits is not None:
@@ -170,7 +167,7 @@ class BinomialProbs(Distribution):
     }
     has_enumerate_support = True
 
-    def __init__(self, probs, total_count=1, validate_args=None):
+    def __init__(self, probs, total_count=1, *, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(probs), jnp.shape(total_count))
         super(BinomialProbs, self).__init__(
@@ -188,12 +185,13 @@ class BinomialProbs(Distribution):
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
+        probs = clamp_probs(self.probs)
         return (
             log_factorial_n
             - log_factorial_k
             - log_factorial_nmk
-            + xlogy(value, self.probs)
-            + xlog1py(self.total_count - value, -self.probs)
+            + xlogy(value, probs)
+            + xlog1py(self.total_count - value, -probs)
         )
 
     @lazy_property
@@ -240,7 +238,7 @@ class BinomialLogits(Distribution):
     has_enumerate_support = True
     enumerate_support = BinomialProbs.enumerate_support
 
-    def __init__(self, logits, total_count=1, validate_args=None):
+    def __init__(self, logits, total_count=1, *, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
@@ -286,7 +284,7 @@ class BinomialLogits(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
 
-def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
+def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
     if probs is not None:
         return BinomialProbs(probs, total_count, validate_args=validate_args)
     elif logits is not None:
@@ -299,7 +297,7 @@ class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
 
-    def __init__(self, probs, validate_args=None):
+    def __init__(self, probs, *, validate_args=None):
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         self.probs = probs
@@ -349,7 +347,7 @@ class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
 
-    def __init__(self, logits, validate_args=None):
+    def __init__(self, logits, *, validate_args=None):
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
@@ -397,13 +395,72 @@ class CategoricalLogits(Distribution):
         return values
 
 
-def Categorical(probs=None, logits=None, validate_args=None):
+def Categorical(probs=None, logits=None, *, validate_args=None):
     if probs is not None:
         return CategoricalProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return CategoricalLogits(logits, validate_args=validate_args)
     else:
         raise ValueError("One of `probs` or `logits` must be specified.")
+
+
+class DiscreteUniform(Distribution):
+    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    has_enumerate_support = True
+
+    def __init__(self, low=0, high=1, *, validate_args=None):
+        self.low, self.high = promote_shapes(low, high)
+        batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
+        self._support = constraints.integer_interval(low, high)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
+    def support(self):
+        return self._support
+
+    def sample(self, key, sample_shape=()):
+        shape = sample_shape + self.batch_shape
+        return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
+
+    @validate_sample
+    def log_prob(self, value):
+        shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
+        return -jnp.broadcast_to(jnp.log(self.high + 1 - self.low), shape)
+
+    def cdf(self, value):
+        cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low + 1)
+        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+
+    def icdf(self, value):
+        return self.low + value * (self.high - self.low + 1) - 1
+
+    @property
+    def mean(self):
+        return self.low + (self.high - self.low) / 2.0
+
+    @property
+    def variance(self):
+        return ((self.high - self.low + 1) ** 2 - 1) / 12.0
+
+    def enumerate_support(self, expand=True):
+        if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
+            raise NotImplementedError("Both `low` and `high` must not be a JAX Tracer.")
+        if np.any(np.amax(self.low) != self.low):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            raise NotImplementedError(
+                "Inhomogeneous `low` not supported by `enumerate_support`."
+            )
+        if np.any(np.amax(self.high) != self.high):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            raise NotImplementedError(
+                "Inhomogeneous `high` not supported by `enumerate_support`."
+            )
+        values = (self.low + jnp.arange(np.amax(self.high - self.low) + 1)).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        if expand:
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 class OrderedLogistic(CategoricalProbs):
@@ -425,7 +482,7 @@ class OrderedLogistic(CategoricalProbs):
         "cutpoints": constraints.ordered_vector,
     }
 
-    def __init__(self, predictor, cutpoints, validate_args=None):
+    def __init__(self, predictor, cutpoints, *, validate_args=None):
         if jnp.ndim(predictor) == 0:
             (predictor,) = promote_shapes(predictor, shape=(1,))
         else:
@@ -442,35 +499,13 @@ class OrderedLogistic(CategoricalProbs):
         return batch_shape, event_shape
 
 
-class PRNGIdentity(Distribution):
-    """
-    Distribution over :func:`~jax.random.PRNGKey`. This can be used to
-    draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
-    handler. Only `sample` method is supported.
-    """
-
-    def __init__(self):
-        warnings.warn(
-            "PRNGIdentity distribution is deprecated. To get a random "
-            "PRNG key, you can use `numpyro.prng_key()` instead.",
-            FutureWarning,
-        )
-        super(PRNGIdentity, self).__init__(event_shape=(2,))
-
-    def sample(self, key, sample_shape=()):
-        return jnp.reshape(
-            random.split(key, np.prod(sample_shape).astype(np.int32)),
-            sample_shape + self.event_shape,
-        )
-
-
 class MultinomialProbs(Distribution):
     arg_constraints = {
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, probs, total_count=1, validate_args=None):
+    def __init__(self, probs, total_count=1, *, validate_args=None):
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -527,7 +562,7 @@ class MultinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, logits, total_count=1, validate_args=None):
+    def __init__(self, logits, total_count=1, *, validate_args=None):
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -583,7 +618,7 @@ class MultinomialLogits(Distribution):
         return batch_shape, event_shape
 
 
-def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
+def Multinomial(total_count=1, probs=None, logits=None, *, validate_args=None):
     if probs is not None:
         return MultinomialProbs(probs, total_count, validate_args=validate_args)
     elif logits is not None:
@@ -621,7 +656,6 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = jax.device_get(value)
         if (
             self.is_sparse
             and not isinstance(value, jax.core.Tracer)
@@ -629,15 +663,18 @@ class Poisson(Distribution):
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
-            nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
-            return index_add(
-                -rate,
-                nonzero,
-                jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
-            ).reshape(shape)
+            return (
+                jnp.asarray(-rate, dtype=jnp.result_type(float))
+                .at[nonzero]
+                .add(
+                    jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
+                )
+                .reshape(shape)
+            )
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
@@ -659,7 +696,7 @@ class ZeroInflatedProbs(Distribution):
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
-        assert base_dist.is_discrete
+        assert base_dist.support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
                 "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
@@ -697,8 +734,15 @@ class ZeroInflatedProbs(Distribution):
     @lazy_property
     def variance(self):
         return (1 - self.gate) * (
-            self.base_dist.mean ** 2 + self.base_dist.variance
-        ) - self.mean ** 2
+            self.base_dist.mean**2 + self.base_dist.variance
+        ) - self.mean**2
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    def enumerate_support(self, expand=True):
+        return self.base_dist.enumerate_support(expand=expand)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
@@ -752,7 +796,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 
     # TODO: resolve inconsistent parameter order w.r.t. Pyro
     # and support `gate_logits` argument
-    def __init__(self, gate, rate=1.0, validate_args=None):
+    def __init__(self, gate, rate=1.0, *, validate_args=None):
         _, self.rate = promote_shapes(gate, rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
@@ -761,7 +805,7 @@ class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
 
-    def __init__(self, probs, validate_args=None):
+    def __init__(self, probs, *, validate_args=None):
         self.probs = probs
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
@@ -797,7 +841,7 @@ class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
 
-    def __init__(self, logits, validate_args=None):
+    def __init__(self, logits, *, validate_args=None):
         self.logits = logits
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
@@ -828,7 +872,7 @@ class GeometricLogits(Distribution):
         return (1.0 / self.probs - 1.0) / self.probs
 
 
-def Geometric(probs=None, logits=None, validate_args=None):
+def Geometric(probs=None, logits=None, *, validate_args=None):
     if probs is not None:
         return GeometricProbs(probs, validate_args=validate_args)
     elif logits is not None:

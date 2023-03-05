@@ -7,6 +7,14 @@ import warnings
 import tqdm
 
 import jax
+
+from numpyro.util import _versiontuple, find_stack_level
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import optimizers
+else:
+    from jax.experimental import optimizers  # pytype: disable=import-error
+
 from jax import jit, lax, random
 import jax.numpy as jnp
 from jax.tree_util import tree_map
@@ -15,7 +23,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
-from numpyro.optim import _NumPyroOptim
+from numpyro.optim import _NumPyroOptim, optax_to_numpyro
 
 SVIState = namedtuple("SVIState", ["optim_state", "mutable_state", "rng_key"])
 """
@@ -110,9 +118,9 @@ class SVI(object):
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
     :param optim: An instance of :class:`~numpyro.optim._NumpyroOptim`, a
-        ``jax.experimental.optimizers.Optimizer`` or an Optax
+        ``jax.example_libraries.optimizers.Optimizer`` or an Optax
         ``GradientTransformation``. If you pass an Optax optimizer it will
-        automatically be wrapped using :func:`numpyro.contrib.optim.optax_to_numpyro`.
+        automatically be wrapped using :func:`numpyro.optim.optax_to_numpyro`.
 
             >>> from optax import adam, chain, clip
             >>> svi = SVI(model, guide, chain(clip(10.0), adam(1e-3)), loss=Trace_ELBO())
@@ -132,18 +140,16 @@ class SVI(object):
 
         if isinstance(optim, _NumPyroOptim):
             self.optim = optim
-        elif isinstance(optim, jax.experimental.optimizers.Optimizer):
+        elif isinstance(optim, optimizers.Optimizer):
             self.optim = _NumPyroOptim(lambda *args: args, *optim)
         else:
             try:
                 import optax
-
-                from numpyro.contrib.optim import optax_to_numpyro
             except ImportError:
                 raise ImportError(
                     "It looks like you tried to use an optimizer that isn't an "
                     "instance of numpyro.optim._NumPyroOptim or "
-                    "jax.experimental.optimizers.Optimizer. There is experimental "
+                    "jax.example_libraries.optimizers.Optimizer. There is experimental "
                     "support for Optax optimizers, but you need to install Optax. "
                     "It can be installed with `pip install optax`."
                 )
@@ -151,7 +157,7 @@ class SVI(object):
             if not isinstance(optim, optax.GradientTransformation):
                 raise TypeError(
                     "Expected either an instance of numpyro.optim._NumPyroOptim, "
-                    "jax.experimental.optimizers.Optimizer or "
+                    "jax.example_libraries.optimizers.Optimizer or "
                     "optax.GradientTransformation. Got {}".format(type(optim))
                 )
 
@@ -196,7 +202,8 @@ class SVI(object):
             ):
                 s_name = type(self.loss).__name__
                 warnings.warn(
-                    f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
+                    f"Currently, SVI with {s_name} loss does not support models with discrete latent variables",
+                    stacklevel=find_stack_level(),
                 )
 
         if not mutable_state:
@@ -285,6 +292,7 @@ class SVI(object):
         *args,
         progress_bar=True,
         stable_update=False,
+        init_state=None,
         **kwargs,
     ):
         """
@@ -304,6 +312,15 @@ class SVI(object):
             ``True``.
         :param bool stable_update: whether to use :meth:`stable_update` to update
             the state. Defaults to False.
+        :param SVIState init_state: if not None, begin SVI from the
+            final state of previous SVI run. Usage::
+
+                svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+                svi_result = svi.run(random.PRNGKey(0), 2000, data)
+                # upon inspection of svi_result the user decides that the model has not converged
+                # continue from the end of the previous svi run rather than beginning again from iteration 0
+                svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state)
+
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
@@ -321,7 +338,10 @@ class SVI(object):
                 svi_state, loss = self.update(svi_state, *args, **kwargs)
             return svi_state, loss
 
-        svi_state = self.init(rng_key, *args, **kwargs)
+        if init_state is None:
+            svi_state = self.init(rng_key, *args, **kwargs)
+        else:
+            svi_state = init_state
         if progress_bar:
             losses = []
             with tqdm.trange(1, num_steps + 1) as t:

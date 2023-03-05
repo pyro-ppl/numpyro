@@ -22,6 +22,7 @@ __all__ = ["enum", "infer_config", "markov", "plate", "to_data", "to_funsor", "t
 # DimStack to store global state
 ##################################
 
+
 # name_to_dim : dict, dim_to_name : dict, parents : tuple, iter_parents : tuple
 class StackFrame(
     namedtuple(
@@ -254,7 +255,6 @@ class NamedMessenger(DimStackCleanupMessenger):
 
     @classmethod  # only depends on the global _DIM_STACK state, not self
     def _pyro_to_data(cls, msg):
-
         (funsor_value,) = msg["args"]
         name_to_dim = msg["kwargs"].setdefault("name_to_dim", OrderedDict())
         dim_type = msg["kwargs"].setdefault("dim_type", DimType.LOCAL)
@@ -291,7 +291,6 @@ class NamedMessenger(DimStackCleanupMessenger):
 
     @classmethod  # only depends on the global _DIM_STACK state, not self
     def _pyro_to_funsor(cls, msg):
-
         if len(msg["args"]) == 2:
             raw_value, output = msg["args"]
         else:
@@ -521,6 +520,12 @@ class plate(GlobalNamedMessenger):
     def process_message(self, msg):
         if msg["type"] in ["to_funsor", "to_data"]:
             return super().process_message(msg)
+        if msg["type"] == "sample" and self.size != self.subsample_size:
+            plate_to_scale = msg.setdefault("plate_to_scale", {})
+            assert self.name not in plate_to_scale
+            plate_to_scale[self.name] = (
+                self.size / self.subsample_size if self.subsample_size else 1
+            )
         return OrigPlateMessenger.process_message(self, msg)
 
     def postprocess_message(self, msg):

@@ -7,8 +7,15 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import jacfwd, random
-from jax.experimental import stax
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import stax
+else:
+    from jax.experimental import stax
 
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,

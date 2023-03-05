@@ -81,6 +81,44 @@ def config_enumerate(fn=None, default="parallel"):
     return infer_config(fn, config_fn)
 
 
+def config_kl(fn=None, sites=None):
+    """
+    Configures the ``kl`` flag in the ``infer`` dict for all sample sites in
+    ``sites`` in a NumPyro model. If ``kl`` is ``analytic``, and ``TraceEnum_ELBO``
+    is being used, an attempt is made to analytically compute the KL divergence
+    in the ELBO at the corresponding site. If ``analytic`` is specified and
+    it is not possible to analytically compute the KL divergence then an error
+    is raised.
+
+    This can be used as either a function::
+
+        model = config_kl(model)
+
+    or as a decorator::
+
+        @config_kl
+        def model(*args, **kwargs):
+            ...
+
+    :param callable fn: Python callable with NumPyro primitives.
+    :param set sites: Sites for which to use analytic KL solution.
+        If ``None`` all sites are set to analytic.
+    """
+    if fn is None:  # support use as a decorator
+        return functools.partial(config_kl, sites=sites)
+
+    def config_fn(site):
+        if (
+            site["type"] == "sample"
+            and (not site["is_observed"])
+            and (sites is None or site["name"] in sites)
+        ):
+            return {"kl": site["infer"].get("kl", "analytic")}
+        return {}
+
+    return infer_config(fn, config_fn)
+
+
 def _get_shift(name):
     """helper function used internally in sarkka_bilmes_product"""
     return len(re.search(r"^(_PREV_)*", name).group(0)) // 6
@@ -162,7 +200,7 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
     time_to_init_vars = defaultdict(frozenset)  # PP... variables
     time_to_markov_dims = defaultdict(frozenset)  # dimensions at markov sites
     sum_vars, prod_vars = frozenset(), frozenset()
-    history = 1
+    history = 0
     log_measures = {}
     for site in model_trace.values():
         if site["type"] == "sample":
@@ -186,10 +224,14 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
             for dim, name in dim_to_name.items():
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.Bint[log_prob.shape[dim]])
-                    time_to_factors[time_dim].append(log_prob_factor)
                     history = max(
                         history, max(_get_shift(s) for s in dim_to_name.values())
                     )
+                    if history == 0:
+                        log_factors.append(log_prob_factor)
+                        prod_vars |= frozenset({name})
+                    else:
+                        time_to_factors[time_dim].append(log_prob_factor)
                     time_to_init_vars[time_dim] |= frozenset(
                         s for s in dim_to_name.values() if s.startswith("_PREV_")
                     )

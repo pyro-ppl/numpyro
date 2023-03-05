@@ -1,17 +1,18 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
 import os
 
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import device_get, jit, lax, pmap, random, vmap
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
-from jax.test_util import check_close
+from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -34,10 +35,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = jnp.array(0.0)
-    if kernel_cls is SA:
-        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
-    elif kernel_cls is BarkerMH:
-        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
+    if kernel_cls in [SA, BarkerMH]:
+        kernel = kernel_cls(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(
             potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass
@@ -81,7 +80,7 @@ def test_correlated_mvn(regularize):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples), true_mean, atol=0.02)
-    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D ** 2 < 0.02
+    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
@@ -183,7 +182,7 @@ def test_improper_normal(max_tree_depth):
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.05)
+    assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.007)
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
@@ -293,84 +292,14 @@ def test_change_point_x64():
         lambda12 = jnp.where(jnp.arange(len(data)) < tau * len(data), lambda1, lambda2)
         numpyro.sample("obs", dist.Poisson(lambda12), obs=data)
 
-    count_data = jnp.array(
-        [
-            13,
-            24,
-            8,
-            24,
-            7,
-            35,
-            14,
-            11,
-            15,
-            11,
-            22,
-            22,
-            11,
-            57,
-            11,
-            19,
-            29,
-            6,
-            19,
-            12,
-            22,
-            12,
-            18,
-            72,
-            32,
-            9,
-            7,
-            13,
-            19,
-            23,
-            27,
-            20,
-            6,
-            17,
-            13,
-            10,
-            14,
-            6,
-            16,
-            15,
-            7,
-            2,
-            15,
-            15,
-            19,
-            70,
-            49,
-            7,
-            53,
-            22,
-            21,
-            31,
-            19,
-            11,
-            18,
-            20,
-            12,
-            35,
-            17,
-            23,
-            17,
-            4,
-            2,
-            31,
-            30,
-            13,
-            27,
-            0,
-            39,
-            37,
-            5,
-            14,
-            13,
-            22,
-        ]
-    )
+    # fmt: off
+    count_data = jnp.array([
+        13, 24, 8, 24, 7, 35, 14, 11, 15, 11, 22, 22, 11, 57, 11, 19, 29, 6, 19, 12, 22,
+        12, 18, 72, 32, 9, 7, 13, 19, 23, 27, 20, 6, 17, 13, 10, 14, 6, 16, 15, 7, 2,
+        15, 15, 19, 70, 49, 7, 53, 22, 21, 31, 19, 11, 1, 20, 12, 35, 17, 23, 17, 4, 2,
+        31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
+    # fmt: on
+
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(4), count_data)
@@ -454,11 +383,29 @@ def test_mcmc_progbar():
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
-        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
+        tree_all(
+            tree_map(
+                partial(assert_allclose, atol=1e-4, rtol=1e-4),
+                mcmc1.get_samples(),
+                mcmc.get_samples(),
+            )
+        )
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
-    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
-    check_close(mcmc1.post_warmup_state, mcmc.post_warmup_state, atol=1e-4, rtol=1e-4)
+    tree_all(
+        tree_map(
+            partial(assert_allclose, atol=1e-4, rtol=1e-4),
+            mcmc1.get_samples(),
+            mcmc.get_samples(),
+        )
+    )
+    tree_all(
+        tree_map(
+            partial(assert_allclose, atol=1e-4, rtol=1e-4),
+            mcmc1.post_warmup_state,
+            mcmc.post_warmup_state,
+        )
+    )
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
@@ -586,7 +533,7 @@ def test_chain(use_init_params, chain_method):
 def test_chain_inside_jit(kernel_cls, chain_method):
     # NB: this feature is useful for consensus MC.
     # Caution: compiling time will be slow (~ 90s)
-    if chain_method == "parallel" and xla_bridge.device_count() == 1:
+    if chain_method == "parallel" and jax.device_count() == 1:
         pytest.skip("parallel method requires device_count greater than 1.")
     num_warmup, num_samples = 100, 2000
     # Here are settings which is currently supported.
@@ -716,7 +663,7 @@ def test_functional_beta_bernoulli_x64(algo):
     reason="without this mark, we have duplicated tests in Travis",
 )
 def test_functional_map(algo, map_fn):
-    if map_fn is pmap and xla_bridge.device_count() == 1:
+    if map_fn is pmap and jax.device_count() == 1:
         pytest.skip("pmap test requires device_count greater than 1.")
 
     true_mean, true_std = 1.0, 2.0
@@ -920,13 +867,15 @@ def test_forward_mode_differentiation():
     mcmc.run(random.PRNGKey(0))
 
 
-def test_SA_gradient_free():
+@pytest.mark.parametrize("num_chains", [1, 2])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_SA_chain_gradient_free(num_chains):
     def model():
         x = numpyro.sample("x", dist.Normal(0, 1))
         y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
         numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
 
-    mcmc = MCMC(SA(model), num_warmup=10, num_samples=10)
+    mcmc = MCMC(SA(model), num_warmup=10, num_samples=10, num_chains=num_chains)
     mcmc.run(random.PRNGKey(0))
 
 
@@ -1051,6 +1000,17 @@ def test_initial_inverse_mass_matrix_ndarray(dense_mass):
     assert_allclose(inverse_mass_matrix[("x", "z")], expected_mm)
 
 
+def test_loose_warning_for_missing_plate():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with numpyro.plate("N", 10):
+            numpyro.sample("obs", dist.Normal(x, 1), obs=jnp.ones((5, 10)))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    with pytest.warns(UserWarning, match="Missing a plate statement"):
+        mcmc.run(random.PRNGKey(1))
+
+
 def test_init_strategy_substituted_model():
     def model():
         numpyro.sample("x", dist.Normal(0, 1))
@@ -1060,3 +1020,63 @@ def test_init_strategy_substituted_model():
     mcmc = MCMC(NUTS(subs_model), num_warmup=10, num_samples=10)
     with pytest.warns(UserWarning, match="skipping initialization"):
         mcmc.run(random.PRNGKey(1))
+
+
+def test_discrete_site_without_infer_enumerate():
+    def model():
+        numpyro.sample("x", dist.Bernoulli(0.5))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    with pytest.warns(FutureWarning, match="enumerated sites"):
+        mcmc.run(random.PRNGKey(0))
+
+
+def test_vectorized_sampling_zero_sized():
+    J = 8
+    n = 0
+    sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
+
+    # Modified Eight Schools example
+    def eight_schools(J, sigma):
+        mu = numpyro.sample("mu", dist.Normal(0, 5))
+        tau = numpyro.sample("tau", dist.HalfCauchy(5))
+        with numpyro.plate("J", J):
+            theta = numpyro.sample("theta", dist.Normal(mu, tau))
+            numpyro.sample("scores", dist.Normal(theta, sigma), sample_shape=(n,))
+
+    nuts_kernel = NUTS(eight_schools)
+    mcmc = MCMC(
+        nuts_kernel,
+        num_warmup=50,
+        num_samples=100,
+        num_chains=2,
+        chain_method="vectorized",
+    )
+    rng_key = random.PRNGKey(0)
+    mcmc.run(rng_key, J, sigma, extra_fields=("potential_energy",))
+    assert mcmc.get_samples()["scores"].shape == (200, 0, 8)
+
+
+def test_fixed_num_steps():
+    data = dict()
+    data["x"] = np.random.rand(10)
+    data["y"] = data["x"] + np.random.rand(10) * 0.1
+
+    def model(data):
+        w = numpyro.sample("w", dist.Normal(10, 1))
+        b = numpyro.sample("b", dist.Normal(1, 1))
+        sigma = numpyro.sample("sigma", dist.Gamma(1, 2))
+        with numpyro.plate("size", np.size(data["y"])):
+            numpyro.sample("obs", dist.Normal(w * data["x"] + b, sigma), obs=data["y"])
+
+    hmc_kernel = HMC(model, num_steps=5)
+    mcmc = MCMC(
+        hmc_kernel,
+        num_samples=1000,
+        num_warmup=1000,
+        num_chains=1,
+    )
+    rng_key = random.PRNGKey(0)
+    mcmc.run(rng_key, data, extra_fields=("num_steps",))
+    num_steps_list = np.array(mcmc.get_extra_fields()["num_steps"])
+    assert all(step == 5 for step in num_steps_list)

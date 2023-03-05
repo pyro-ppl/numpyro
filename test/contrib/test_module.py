@@ -7,7 +7,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, test_util
+from jax import random
+from jax.tree_util import tree_all, tree_map
 
 import numpyro
 from numpyro import handlers
@@ -21,6 +22,10 @@ from numpyro.contrib.module import (
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:jax.tree_.+ is deprecated:FutureWarning"
+)
 
 
 def haiku_model_by_shape(x, y):
@@ -135,21 +140,25 @@ def test_update_params():
     assert params == {
         "a": {"b": {"c": {"d": ParamShape(())}, "e": 2}, "f": ParamShape((4,))}
     }
-    test_util.check_eq(
-        new_params,
-        {
-            "a": {
-                "b": {"c": {"d": np.array(4.0)}, "e": np.array(2)},
-                "f": np.full((4,), 5.0),
-            }
-        },
+
+    tree_all(
+        tree_map(
+            assert_allclose,
+            new_params,
+            {
+                "a": {
+                    "b": {"c": {"d": np.array(4.0)}, "e": np.array(2)},
+                    "f": np.full((4,), 5.0),
+                }
+            },
+        )
     )
 
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
-@pytest.mark.parametrize("init", ["shape", "kwargs"])
-def test_random_module_mcmc(backend, init):
-
+@pytest.mark.parametrize("init", ["args", "shape", "kwargs"])
+@pytest.mark.parametrize("callable_prior", [True, False])
+def test_random_module_mcmc(backend, init, callable_prior):
     if backend == "flax":
         import flax
 
@@ -175,17 +184,24 @@ def test_random_module_mcmc(backend, init):
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     if init == "shape":
+        args = ()
         kwargs = {"input_shape": (3,)}
     elif init == "kwargs":
+        args = ()
         kwargs = {kwargs_name: data}
+    elif init == "args":
+        args = (np.ones(3, dtype=np.float32),)
+        kwargs = {}
+
+    if callable_prior:
+        prior = (
+            lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
+        )
+    else:
+        prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
 
     def model(data, labels):
-        nn = random_module(
-            "nn",
-            linear_module,
-            {bias_name: dist.Cauchy(), weight_name: dist.Normal()},
-            **kwargs
-        )
+        nn = random_module("nn", linear_module, prior, *args, **kwargs)
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 

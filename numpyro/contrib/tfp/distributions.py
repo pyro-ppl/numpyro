@@ -4,6 +4,7 @@
 from functools import lru_cache
 import warnings
 
+from multipledispatch import dispatch
 import numpy as np
 
 import jax
@@ -11,9 +12,13 @@ import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb, distributions as tfd
 
 import numpyro.distributions as numpyro_dist
-from numpyro.distributions import Distribution as NumPyroDistribution, constraints
+from numpyro.distributions import (
+    Distribution as NumPyroDistribution,
+    constraints,
+    kl_divergence,
+)
 from numpyro.distributions.transforms import Transform, biject_to
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def _get_codomain(bijector):
@@ -129,6 +134,7 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "deprecated. You should import distributions directly from "
                 "tensorflow_probability.substrates.jax.distributions instead.",
                 FutureWarning,
+                stacklevel=find_stack_level(),
             )
             self.tfp_dist = tfd_class(*args, **kwargs)
 
@@ -156,8 +162,23 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
                 "concentration": constraints.positive,
                 "scale": constraints.positive,
             }
+        elif tfd_class is tfd.TruncatedNormal:
+            _PyroDist.arg_constraints = {
+                "low": constraints.real,
+                "high": constraints.real,
+                "loc": constraints.real,
+                "scale": constraints.positive,
+            }
+        elif tfd_class is tfd.TruncatedCauchy:
+            _PyroDist.arg_constraints = {
+                "low": constraints.real,
+                "high": constraints.real,
+                "loc": constraints.real,
+                "scale": constraints.positive,
+            }
         else:
-            if hasattr(numpyro_dist, tfd_class_name):
+            # Mixture distributions in tfp and numpyro are different.
+            if hasattr(numpyro_dist, tfd_class_name) and tfd_class_name != "Mixture":
                 numpyro_dist_class = getattr(numpyro_dist, tfd_class_name)
                 # resolve FooProbs/FooLogits namespaces
                 numpyro_dist_class = getattr(
@@ -182,6 +203,13 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
         d = TFPDistribution[tfd.Normal](0, 1)
 
+    Note that typical use cases do not require explicitly invoking this wrapper, since
+    NumPyro wraps TFP distributions automatically under the hood in model code, e.g.::
+
+        from tensorflow_probability.substrates.jax import distributions as tfd
+
+        def model():
+            numpyro.sample("x", tfd.Normal(0, 1))
     """
 
     def __getattr__(self, name):
@@ -194,11 +222,13 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
     @property
     def batch_shape(self):
-        return self.tfp_dist.batch_shape
+        # TFP shapes are special tuples that can not be used directly
+        # with lax.broadcast_shapes. So we convert them to tuple.
+        return tuple(self.tfp_dist.batch_shape)
 
     @property
     def event_shape(self):
-        return self.tfp_dist.event_shape
+        return tuple(self.tfp_dist.event_shape)
 
     @property
     def has_rsample(self):
@@ -246,6 +276,11 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             return TFPDistribution[fn.__class__](**fn.parameters)
+
+
+@dispatch(TFPDistribution, TFPDistribution)
+def kl_divergence(p, q):  # noqa: F811
+    return tfd.kl_divergence(p.tfp_dist, q.tfp_dist)
 
 
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistribution"]

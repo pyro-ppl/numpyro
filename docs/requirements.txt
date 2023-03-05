@@ -1,15 +1,19 @@
 dm-haiku
 flax
-funsor>=0.4.1
-ipython
-jax>=0.2.11
-jaxlib>=0.1.62
-jaxns>=0.0.7
-optax>=0.0.6
-nbsphinx==0.8.6
-readthedocs-sphinx-search==0.1.0
-sphinx==4.0.3
-sphinx-gallery
-sphinx_rtd_theme==0.5.2
-tensorflow_probability>=0.13
+funsor
+ipython<=8.6.0  # strict the version for https://github.com/ipython/ipython/issues/13845
+jax
+jaxlib
+jaxns==1.0.0
+Jinja2<3.1
+multipledispatch
+nbsphinx==0.8.9
+numpy
+optax
+pyyaml
+readthedocs-sphinx-search==0.1.2
+sphinx<5
+sphinx-gallery==0.10.1  # tutorial page is not rendered correctly with newer versions
+sphinx_rtd_theme==1.0.0
+tensorflow_probability
 tqdm

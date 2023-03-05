@@ -5,14 +5,21 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
-from jax import jit, random, tree_multimap, value_and_grad, vmap
+import jax
+from jax import jit, random, value_and_grad, vmap
 import jax.numpy as jnp
+from jax.tree_util import tree_map
+
+try:
+    import funsor
+except ImportError:
+    funsor = None
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.util import log_density
 import numpyro.optim as optim
 from numpyro.util import not_jax_tracer, optional
@@ -22,7 +29,7 @@ from numpyro.util import not_jax_tracer, optional
 @pytest.mark.parametrize("use_jit", [False, True])
 def test_mask(mask_last, use_jit):
     N = 10
-    mask = np.ones(N, dtype=np.bool)
+    mask = np.ones(N, dtype=bool)
     mask[-mask_last] = 0
 
     def model(data, mask):
@@ -224,7 +231,7 @@ def model_nested_plates_0():
         with numpyro.plate("inner", 5):
             y = numpyro.sample("x", dist.Normal(0.0, 1.0))
             assert y.shape == (5, 10)
-            z = numpyro.deterministic("z", x ** 2)
+            z = numpyro.deterministic("z", x**2)
             assert z.shape == (10,)
 
 
@@ -235,7 +242,7 @@ def model_nested_plates_1():
         with numpyro.plate("inner", 5):
             y = numpyro.sample("x", dist.Normal(0.0, 1.0))
             assert y.shape == (10, 5)
-            z = numpyro.deterministic("z", x ** 2)
+            z = numpyro.deterministic("z", x**2)
             assert z.shape == (10, 1)
 
 
@@ -248,7 +255,7 @@ def model_nested_plates_2():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         assert y.shape == (5, 1, 1)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -275,7 +282,7 @@ def model_dist_batch_shape():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, jnp.ones(10)))
         assert y.shape == (5, 1, 10)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -292,7 +299,7 @@ def model_subsample_1():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         assert y.shape == (5, 1, 1)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -310,7 +317,7 @@ def model_subsample_2():
     with inner:
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         assert y.shape == (5, 1, 1)
-        z = numpyro.deterministic("z", x ** 2)
+        z = numpyro.deterministic("z", x**2)
         assert z.shape == (10,)
 
     with outer, inner:
@@ -434,7 +441,7 @@ def test_subsample_gradient(scale, subsample):
                 svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
             )
         )(params)
-        grads = tree_multimap(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        grads = tree_map(lambda *vals: vals[0] + vals[1], grads1, grads2)
         loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])
@@ -577,18 +584,38 @@ def test_block():
 
 def test_scope():
     def fn():
-        return numpyro.sample("x", dist.Normal())
+        with numpyro.plate("N", 10):
+            return numpyro.sample("x", dist.Normal())
 
     with handlers.trace() as trace:
         with handlers.seed(rng_seed=1):
             with handlers.scope(prefix="a"):
                 fn()
             with handlers.scope(prefix="b"):
-                with handlers.scope(prefix="a"):
+                with handlers.scope(prefix="a", hide_types=["plate"]):
                     fn()
 
-    assert "a/x" in trace
-    assert "b/a/x" in trace
+    assert set(trace) == {"a/x", "b/a/x", "a/N", "b/N"}
+
+
+def test_scope_frames():
+    def model(y):
+        mu = numpyro.sample("mu", dist.Normal())
+        sigma = numpyro.sample("sigma", dist.HalfNormal())
+
+        with numpyro.plate("plate1", y.shape[0]):
+            numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+
+    scope_prefix = "scope"
+    scoped_model = handlers.scope(model, prefix=scope_prefix)
+
+    obs = np.random.normal(size=(10,))
+
+    trace = handlers.trace(handlers.seed(model, 0)).get_trace(obs)
+    scoped_trace = handlers.trace(handlers.seed(scoped_model, 0)).get_trace(obs)
+
+    assert trace["y"]["cond_indep_stack"][0].name in trace
+    assert scoped_trace[f"{scope_prefix}/y"]["cond_indep_stack"][0].name in scoped_trace
 
 
 def test_lift():
@@ -636,6 +663,7 @@ def test_lift_memoize():
             model()
 
 
+@pytest.mark.skipif(funsor is None, reason="require funsor installation")
 def test_collapse_beta_binomial():
     total_count = 10
     data = 3.0
@@ -674,6 +702,7 @@ def test_collapse_beta_binomial():
     assert_allclose(params1["c0"], params2["c0"])
 
 
+@pytest.mark.skipif(funsor is None, reason="require funsor installation")
 def test_collapse_beta_bernoulli():
     data = 0.0
 
@@ -757,4 +786,15 @@ def test_subsample_fn():
         )
 
         # test that values are not duplicated
-        assert len(set(subsamples[k])) == subsample_size
+        assert len(set(jax.device_get(subsamples[k]))) == subsample_size
+
+
+def test_sites_have_unique_names():
+    def model():
+        alpha = numpyro.sample("alpha", dist.Normal())
+        numpyro.deterministic("alpha", alpha * 2)
+
+    mcmc = MCMC(NUTS(model), num_chains=1, num_samples=10, num_warmup=10)
+    msg = "all sites must have unique names but got `alpha` duplicated"
+    with pytest.raises(AssertionError, match=msg):
+        mcmc.run(random.PRNGKey(0))

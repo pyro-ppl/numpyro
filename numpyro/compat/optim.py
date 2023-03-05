@@ -21,7 +21,7 @@ def ClippedAdam(kwargs):
     if lrd is not None:
 
         def step_size(i):
-            return init_lr * lrd ** i
+            return init_lr * lrd**i
 
     return optim.ClippedAdam(
         step_size=step_size, b1=b1, b2=b2, eps=eps, clip_norm=clip_norm

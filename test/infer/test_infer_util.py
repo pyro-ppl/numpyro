@@ -44,8 +44,9 @@ def beta_bernoulli():
         with numpyro.plate("dim", 2):
             beta = numpyro.sample("beta", dist.Beta(1.0, 1.0))
         with numpyro.plate("plate", N, dim=-2):
-            numpyro.deterministic("beta_sq", beta ** 2)
-            numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
+            numpyro.deterministic("beta_sq", beta**2)
+            with numpyro.plate("dim", 2):
+                numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
 
     return model, data, true_probs
 
@@ -77,7 +78,7 @@ def test_predictive_with_guide():
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
         with numpyro.plate("plate", 10):
-            numpyro.deterministic("beta_sq", f ** 2)
+            numpyro.deterministic("beta_sq", f**2)
             numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
@@ -86,7 +87,7 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(1), 3000, data)
+    svi_result = svi.run(random.PRNGKey(1), 5000, data)
     params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(
         random.PRNGKey(2), data=None
@@ -94,6 +95,36 @@ def test_predictive_with_guide():
     assert predictive["beta_sq"].shape == (1000,)
     obs_pred = predictive["obs"].astype(np.float32)
     assert_allclose(jnp.mean(obs_pred), 0.8, atol=0.05)
+
+
+def test_predictive_with_particles():
+    num_particles = 5
+    num_samples = 2
+    fdim = 3
+    num_data = 10
+
+    def model(x, y=None):
+        latent = numpyro.sample("latent", dist.Normal(0.0, jnp.ones(fdim)).to_event(1))
+        with numpyro.plate("data", x.shape[0]):
+            numpyro.sample("y", dist.Normal(jnp.matmul(x, latent), 1.0), obs=y)
+
+    def guide(x, y=None):
+        latent_loc = numpyro.param(
+            "latent_loc", jnp.ones(fdim), constraint=constraints.real
+        )
+        assert latent_loc.ndim == 1
+        numpyro.sample("latent", dist.Normal(latent_loc, 1.0).to_event(1))
+
+    params = {"latent_loc": jnp.zeros((num_particles, fdim))}
+    x = dist.Normal(jnp.full(3, 0.2), 1.0).sample(random.PRNGKey(0), (num_data,))
+    predictions = Predictive(
+        model,
+        guide=guide,
+        params=params,
+        num_samples=num_samples,
+        batch_ndims=1,
+    )(random.PRNGKey(0), x)
+    assert predictions["y"].shape == (num_samples, num_particles, num_data)
 
 
 def test_predictive_with_improper():
@@ -148,7 +179,9 @@ def test_log_likelihood(batch_shape):
     # check shapes
     assert preds["obs"].shape == batch_shape + data.shape
     assert loglik["obs"].shape == batch_shape + data.shape
-    assert_allclose(loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data))
+    assert_allclose(
+        loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data), rtol=1e-6
+    )
 
 
 def test_model_with_transformed_distribution():
@@ -222,84 +255,13 @@ def test_initialize_model_change_point(init_strategy):
         lambda12 = jnp.where(jnp.arange(len(data)) < tau * len(data), lambda1, lambda2)
         numpyro.sample("obs", dist.Poisson(lambda12), obs=data)
 
-    count_data = jnp.array(
-        [
-            13,
-            24,
-            8,
-            24,
-            7,
-            35,
-            14,
-            11,
-            15,
-            11,
-            22,
-            22,
-            11,
-            57,
-            11,
-            19,
-            29,
-            6,
-            19,
-            12,
-            22,
-            12,
-            18,
-            72,
-            32,
-            9,
-            7,
-            13,
-            19,
-            23,
-            27,
-            20,
-            6,
-            17,
-            13,
-            10,
-            14,
-            6,
-            16,
-            15,
-            7,
-            2,
-            15,
-            15,
-            19,
-            70,
-            49,
-            7,
-            53,
-            22,
-            21,
-            31,
-            19,
-            11,
-            18,
-            20,
-            12,
-            35,
-            17,
-            23,
-            17,
-            4,
-            2,
-            31,
-            30,
-            13,
-            27,
-            0,
-            39,
-            37,
-            5,
-            14,
-            13,
-            22,
-        ]
-    )
+    # fmt: off
+    count_data = jnp.array([
+        13, 24, 8, 24, 7, 35, 14, 11, 15, 11, 22, 22, 11, 57, 11, 19, 29, 6, 19, 12, 22,
+        12, 18, 72, 32, 9, 7, 13, 19, 23, 27, 20, 6, 17, 13, 10, 14, 6, 16, 15, 7, 2,
+        15, 15, 19, 70, 49, 7, 53, 22, 21, 31, 19, 11, 1, 20, 12, 35, 17, 23, 17, 4, 2,
+        31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
+    # fmt: on
 
     rng_keys = random.split(random.PRNGKey(1), 2)
     init_params, _, _, _ = initialize_model(

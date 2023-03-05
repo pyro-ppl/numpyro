@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
@@ -8,7 +10,14 @@ import pytest
 import jax
 from jax import jit, random, value_and_grad
 import jax.numpy as jnp
-from jax.test_util import check_close
+from jax.tree_util import tree_all, tree_map
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import optimizers
+else:
+    from jax.experimental import optimizers  # pytype: disable=import-error
 
 import numpyro
 from numpyro import optim
@@ -50,15 +59,14 @@ def test_renyi_elbo(alpha):
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
-@pytest.mark.parametrize(
-    "optimizer", [optim.Adam(0.05), jax.experimental.optimizers.adam(0.05)]
-)
+@pytest.mark.parametrize("optimizer", [optim.Adam(0.05), optimizers.adam(0.05)])
 def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
         alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
@@ -89,7 +97,8 @@ def test_run(progress_bar):
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
         alpha_q = numpyro.param(
@@ -119,7 +128,8 @@ def test_jitted_update_fn():
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
         alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
@@ -129,10 +139,11 @@ def test_jitted_update_fn():
     adam = optim.Adam(0.05)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
-    expected = svi.get_params(svi.update(svi_state, data)[0])
 
+    expected = svi.get_params(svi.update(svi_state, data)[0])
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
-    check_close(actual, expected, atol=1e-5)
+
+    tree_all(tree_map(partial(assert_allclose, atol=1e-5), actual, expected))
 
 
 def test_param():

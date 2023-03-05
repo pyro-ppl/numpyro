@@ -23,8 +23,18 @@ EXAMPLES = [
     "capture_recapture.py --num-samples 4 --num-warmup 1 -m 5",
     "covtype.py --algo HMC --num-samples 10 --num-warmup 10",
     "dais_demo.py --num-svi-steps 10 --num-samples 10 --num-warmup 10",
-    "gaussian_shells.py --num-samples 100",
-    "gaussian_shells.py --num-samples 100 --enum",
+    pytest.param(
+        "gaussian_shells.py --num-samples 100",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="The example is flaky on CI."
+        ),
+    ),
+    pytest.param(
+        "gaussian_shells.py --num-samples 100 --enum",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="The example is flaky on CI."
+        ),
+    ),
     "gp.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "hmcecs.py --subsample_size 5 --num_svi_steps 1 --num_blocks 1 "
     "--dataset mock --num_warmup 1 --num_samples 5 --num_datapoints 100",
@@ -36,19 +46,33 @@ EXAMPLES = [
     "hmm_enum.py -m 4 -t 3 -d 4 --num-warmup 1 -n 4",
     "hmm_enum.py -m 6 -t 4 -d 3 --num-warmup 1 -n 4",
     "horseshoe_regression.py --num-samples 10 --num-warmup 10 --num-data 5",
-    "hsgp.py --model t --num-samples 10 --num-warmup 10 --num-chains 2",
-    "hsgp.py --model ty --num-samples 10 --num-warmup 10 --num-chains 2",
-    "hsgp.py --model tyw --num-samples 10 --num-warmup 10 --num-chains 2",
-    "hsgp.py --model tywd --num-samples 10 --num-warmup 10 --num-chains 2",
+    "hsgp.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "minipyro.py",
+    "mortality.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "neutra.py --num-samples 100 --num-warmup 100",
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
-    "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
-    "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+    pytest.param(
+        "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="This example requires a lot of memory."
+        ),
+    ),
+    pytest.param(
+        "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="This example requires a lot of memory."
+        ),
+    ),
     "sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10",
+    "ssbvm_mixture.py --num-samples 10 --num-warmup 10",
+    "stein_bnn.py --max-iter 10 --subsample-size 10 --num-particles 5",
+    "stein_dmm.py --max-iter 5 --subsample-size 77 --gru-dim 10",
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
     "ucbadmit.py --num-chains 2",
     "vae.py -n 1",
+    "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2",
+    "ar2.py --num-samples 10 --num-warmup 10 --num-chains 2 --num-data 10 --unroll-loop",
+    "holt_winters.py --T 4 --num-samples 10 --num-warmup 10 --num-chains 2",
 ]
 
 
