@@ -95,7 +95,7 @@ class SVI(object):
 
         >>> def model(data):
         ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
-        ...     with numpyro.plate("N", data.shape[0]):
+        ...     with numpyro.plate("N", data.shape[0] if data is not None else 10):
         ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
         >>> def guide(data):
@@ -110,9 +110,15 @@ class SVI(object):
         >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
         >>> params = svi_result.params
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+        >>> # use guide to make predictive
+        >>> predictive = Predictive(model, guide, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
         >>> # get posterior samples
         >>> predictive = Predictive(guide, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(1), data)
+        >>> posterior_samples = predictive(random.PRNGKey(1), data=None)
+        >>> # use posterior samples to make predictive
+        >>> predictive = Predictive(model, guide, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
