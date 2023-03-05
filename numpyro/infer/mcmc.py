@@ -515,7 +515,9 @@ class MCMC(object):
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
-            with the input type to `potential_fn`.
+            with the input type to `potential_fn` provided to the kernel. If the kernel is
+            instantiated by a numpyro model, the initial parameters here correspond to latent
+            values in unconstrained space.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
@@ -546,7 +548,9 @@ class MCMC(object):
             `"adapt_state.step_size"` can be used to collect step sizes at each step.
         :type extra_fields: tuple or list of str
         :param init_params: Initial parameters to begin sampling. The type must be consistent
-            with the input type to `potential_fn`.
+            with the input type to `potential_fn` provided to the kernel. If the kernel is
+            instantiated by a numpyro model, the initial parameters here correspond to latent
+            values in unconstrained space.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
 

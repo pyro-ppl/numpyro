@@ -649,7 +649,7 @@ class HMC(MCMCKernel):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
+            new_init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
@@ -658,6 +658,8 @@ class HMC(MCMCKernel):
                 model_kwargs=model_kwargs,
                 forward_mode_differentiation=self._forward_mode_differentiation,
             )
+            if init_params is None:
+                init_params = new_init_params
             if self._init_fn is None:
                 self._init_fn, self._sample_fn = hmc(
                     potential_fn_gen=potential_fn,
