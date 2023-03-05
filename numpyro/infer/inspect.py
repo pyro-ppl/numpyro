@@ -358,7 +358,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         k: [name for name in trace if name in v] for k, v in plate_samples.items()
     }
 
-    def get_log_probs(sample):
+    def get_log_probs(**sample):
         class substitute_deterministic(handlers.substitute):
             def process_message(self, msg):
                 if msg["type"] == "deterministic":

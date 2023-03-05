@@ -118,4 +118,4 @@ def track_deps_pjit_rule(eqn, provenance_inputs):
     return track_deps_jaxpr(eqn.params["jaxpr"].jaxpr, provenance_inputs)
 
 
-track_deps_rules[pjit_p] = track_deps_call_rule
+track_deps_rules[pjit_p] = track_deps_pjit_rule
