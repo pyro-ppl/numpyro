@@ -37,15 +37,15 @@ import os
 
 import numpy as np
 
-from jax import nn, random
+from jax import nn, random, vmap
 import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.reparam import LocScaleReparam
+from numpyro.ops.indexing import Vindex
 
 
 def get_data():
@@ -57,55 +57,24 @@ def get_data():
     """
     # NB: the first annotator assessed each item 3 times
     positions = np.array([1, 1, 1, 2, 3, 4, 5])
+    # fmt: off
     annotations = np.array(
-        [
-            [1, 1, 1, 1, 1, 1, 1],
-            [3, 3, 3, 4, 3, 3, 4],
-            [1, 1, 2, 2, 1, 2, 2],
-            [2, 2, 2, 3, 1, 2, 1],
-            [2, 2, 2, 3, 2, 2, 2],
-            [2, 2, 2, 3, 3, 2, 2],
-            [1, 2, 2, 2, 1, 1, 1],
-            [3, 3, 3, 3, 4, 3, 3],
-            [2, 2, 2, 2, 2, 2, 3],
-            [2, 3, 2, 2, 2, 2, 3],
-            [4, 4, 4, 4, 4, 4, 4],
-            [2, 2, 2, 3, 3, 4, 3],
-            [1, 1, 1, 1, 1, 1, 1],
-            [2, 2, 2, 3, 2, 1, 2],
-            [1, 2, 1, 1, 1, 1, 1],
-            [1, 1, 1, 2, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1],
-            [2, 2, 2, 2, 2, 2, 1],
-            [2, 2, 2, 1, 3, 2, 2],
-            [2, 2, 2, 2, 2, 2, 2],
-            [2, 2, 2, 2, 2, 2, 1],
-            [2, 2, 2, 3, 2, 2, 2],
-            [2, 2, 1, 2, 2, 2, 2],
-            [1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1],
-            [2, 3, 2, 2, 2, 2, 2],
-            [1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 2, 1, 1, 2, 1],
-            [1, 1, 1, 1, 1, 1, 1],
-            [3, 3, 3, 3, 2, 3, 3],
-            [1, 1, 1, 1, 1, 1, 1],
-            [2, 2, 2, 2, 2, 2, 2],
-            [2, 2, 2, 3, 2, 3, 2],
-            [4, 3, 3, 4, 3, 4, 3],
-            [2, 2, 1, 2, 2, 3, 2],
-            [2, 3, 2, 3, 2, 3, 3],
-            [3, 3, 3, 3, 4, 3, 2],
-            [1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1],
-            [1, 2, 1, 2, 1, 1, 1],
-            [2, 3, 2, 2, 2, 2, 2],
-            [1, 2, 1, 1, 1, 1, 1],
-            [2, 2, 2, 2, 2, 2, 2],
-        ]
-    )
+        [[1, 1, 1, 1, 1, 1, 1], [3, 3, 3, 4, 3, 3, 4], [1, 1, 2, 2, 1, 2, 2],
+         [2, 2, 2, 3, 1, 2, 1], [2, 2, 2, 3, 2, 2, 2], [2, 2, 2, 3, 3, 2, 2],
+         [1, 2, 2, 2, 1, 1, 1], [3, 3, 3, 3, 4, 3, 3], [2, 2, 2, 2, 2, 2, 3],
+         [2, 3, 2, 2, 2, 2, 3], [4, 4, 4, 4, 4, 4, 4], [2, 2, 2, 3, 3, 4, 3],
+         [1, 1, 1, 1, 1, 1, 1], [2, 2, 2, 3, 2, 1, 2], [1, 2, 1, 1, 1, 1, 1],
+         [1, 1, 1, 2, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1],
+         [2, 2, 2, 2, 2, 2, 1], [2, 2, 2, 1, 3, 2, 2], [2, 2, 2, 2, 2, 2, 2],
+         [2, 2, 2, 2, 2, 2, 1], [2, 2, 2, 3, 2, 2, 2], [2, 2, 1, 2, 2, 2, 2],
+         [1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1], [2, 3, 2, 2, 2, 2, 2],
+         [1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1], [1, 1, 2, 1, 1, 2, 1],
+         [1, 1, 1, 1, 1, 1, 1], [3, 3, 3, 3, 2, 3, 3], [1, 1, 1, 1, 1, 1, 1],
+         [2, 2, 2, 2, 2, 2, 2], [2, 2, 2, 3, 2, 3, 2], [4, 3, 3, 4, 3, 4, 3],
+         [2, 2, 1, 2, 2, 3, 2], [2, 3, 2, 3, 2, 3, 3], [3, 3, 3, 3, 4, 3, 2],
+         [1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1], [1, 2, 1, 2, 1, 1, 1],
+         [2, 3, 2, 2, 2, 2, 2], [1, 2, 1, 1, 1, 1, 1], [2, 2, 2, 2, 2, 2, 2]])
+    # fmt: on
     # we minus 1 because in Python, the first index is 0
     return positions - 1, annotations - 1
 
@@ -123,7 +92,7 @@ def multinomial(annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             numpyro.sample("y", dist.Categorical(zeta[c]), obs=annotations)
@@ -144,7 +113,7 @@ def dawid_skene(positions, annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         # here we use Vindex to allow broadcasting for the second index `c`
         # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
@@ -167,12 +136,18 @@ def mace(positions, annotations):
         theta = numpyro.sample("theta", dist.Beta(0.5, 0.5))
 
     with numpyro.plate("item", num_items, dim=-2):
-        # NB: using constant logits for discrete uniform prior
-        # (NumPyro does not have DiscreteUniform distribution yet)
-        c = numpyro.sample("c", dist.Categorical(logits=jnp.zeros(num_classes)))
+        c = numpyro.sample(
+            "c",
+            dist.DiscreteUniform(0, num_classes - 1),
+            infer={"enumerate": "parallel"},
+        )
 
         with numpyro.plate("position", num_positions):
-            s = numpyro.sample("s", dist.Bernoulli(1 - theta[positions]))
+            s = numpyro.sample(
+                "s",
+                dist.Bernoulli(1 - theta[positions]),
+                infer={"enumerate": "parallel"},
+            )
             probs = jnp.where(
                 s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
             )
@@ -209,7 +184,7 @@ def hierarchical_dawid_skene(positions, annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             logits = Vindex(beta)[positions, c, :]
@@ -234,7 +209,7 @@ def item_difficulty(annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(eta[c], chi[c]).to_event(1))
@@ -272,7 +247,7 @@ def logistic_random_effects(positions, annotations):
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(pi))
+        c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
 
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
@@ -304,17 +279,48 @@ def main(args):
 
     mcmc = MCMC(
         NUTS(model),
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(random.PRNGKey(0), *data)
     mcmc.print_summary()
 
+    posterior_samples = mcmc.get_samples()
+    predictive = Predictive(model, posterior_samples, infer_discrete=True)
+    discrete_samples = predictive(random.PRNGKey(1), *data)
+
+    item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
+        discrete_samples["c"].squeeze(-1)
+    )
+    print("Histogram of the predicted class of each item:")
+    row_format = "{:>10}" * 5
+    print(row_format.format("", *["c={}".format(i) for i in range(4)]))
+    for i, row in enumerate(item_class):
+        print(row_format.format(f"item[{i}]", *row))
+
+
+# %%
+# .. note::
+#     In the above inference code, we marginalized the discrete latent variables `c`
+#     hence `mcmc.get_samples(...)` does not include samples of `c`. We then utilize
+#     `Predictive(..., infer_discrete=True)` to get posterior samples for `c`, which
+#     is stored in `discrete_samples`. To merge those discrete samples into the `mcmc`
+#     instance, we can use the following pattern::
+#
+#         chain_discrete_samples = jax.tree_util.tree_map(
+#             lambda x: x.reshape((args.num_chains, args.num_samples) + x.shape[1:]),
+#             discrete_samples)
+#         mcmc.get_samples().update(discrete_samples)
+#         mcmc.get_samples(group_by_chain=True).update(chain_discrete_samples)
+#
+#     This is useful when we want to pass the `mcmc` instance to `arviz` through
+#     `arviz.from_numpyro(mcmc)`.
+
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.11.0")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

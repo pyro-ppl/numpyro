@@ -7,25 +7,18 @@ import functools
 import warnings
 
 import jax
-from jax import lax, ops, random
+from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.util import identity
+from numpyro.util import find_stack_level, identity
 
 _PYRO_STACK = []
 
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def apply_stack(msg):
-    pointer = 0
-    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
-        handler.process_message(msg)
-        # When a Messenger sets the "stop" field of a message,
-        # it prevents any Messengers above it on the stack from being applied.
-        if msg.get("stop"):
-            break
+def default_process_message(msg):
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -33,6 +26,31 @@ def apply_stack(msg):
             )
         else:
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
+
+
+def apply_stack(msg):
+    """
+    Execute the effect stack at a single site according to the following scheme:
+
+        1. For each ``Messenger`` in the stack from bottom to top,
+           execute ``Messenger.process_message`` with the message;
+           if the message field "stop" is True, stop;
+           otherwise, continue
+        2. Apply default behavior (``default_process_message``) to finish remaining
+           site execution
+        3. For each ``Messenger`` in the stack from top to bottom,
+           execute ``Messenger.postprocess_message`` to update the message
+           and internal messenger state with the site results
+    """
+    pointer = 0
+    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
+        handler.process_message(msg)
+        # When a Messenger sets the "stop" field of a message,
+        # it prevents any Messengers above it on the stack from being applied.
+        if msg.get("stop"):
+            break
+
+    default_process_message(msg)
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
@@ -128,12 +146,57 @@ def sample(
         broadcastable with ``fn.batch_shape``. If provided, events with
         mask=True will be conditioned on ``obs`` and remaining events will be
         imputed by sampling. This introduces a latent sample site named ``name
-        + "_unobserved"`` which should be used by guides.
+        + "_unobserved"`` which should be used by guides in SVI. Note that this
+        argument is not intended to be used with MCMC.
     :return: sample from the stochastic `fn`.
     """
-    # if there are no active Messengers, we just draw a sample and return it as expected:
+    assert isinstance(
+        sample_shape, tuple
+    ), "sample_shape needs to be a tuple of integers"
+    if not isinstance(fn, numpyro.distributions.Distribution):
+        type_error = TypeError(
+            "It looks like you tried to use a fn that isn't an instance of "
+            "numpyro.distributions.Distribution, funsor.Funsor or "
+            "tensorflow_probability.distributions.Distribution. If you're using "
+            "funsor or tensorflow_probability, make sure they are correctly installed."
+        )
+
+        # fn can be a funsor.Funsor, but this won't be installed for all users
+        try:
+            from funsor import Funsor
+        except ImportError:
+            Funsor = None
+
+        # if Funsor import failed, or fn is not a Funsor it's also possible fn could be
+        # a tensorflow_probability distribution
+        if Funsor is None or not isinstance(fn, Funsor):
+            try:
+                from tensorflow_probability.substrates.jax import distributions as tfd
+
+                from numpyro.contrib.tfp.distributions import TFPDistribution
+            except ImportError:
+                # if tensorflow_probability fails to import here, then fn is not a
+                # numpyro Distribution or a Funsor, and it can't have been a tfp
+                # distribution either, so raising TypeError is ok
+                raise type_error
+
+            if isinstance(fn, tfd.Distribution):
+                with warnings.catch_warnings():
+                    # ignore FutureWarnings when instantiating TFPDistribution
+                    warnings.simplefilter("ignore", category=FutureWarning)
+                    # if fn is a tfp distribution we need to wrap it
+                    fn = TFPDistribution[fn.__class__](**fn.parameters)
+            else:
+                # if tensorflow_probability imported, but fn is not tfd.Distribution we
+                # still need to raise a type error
+                raise type_error
+
+    # if no active Messengers, draw a sample or return obs as expected:
     if not _PYRO_STACK:
-        return fn(rng_key=rng_key, sample_shape=sample_shape)
+        if obs is None:
+            return fn(rng_key=rng_key, sample_shape=sample_shape)
+        else:
+            return obs
 
     if obs_mask is not None:
         return _masked_observe(
@@ -163,7 +226,7 @@ def sample(
 def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
-    :mod:`jax.experimental.optimizers`. For an example of how `param` statements
+    :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
     can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
@@ -231,7 +294,44 @@ def deterministic(name, value):
     if not _PYRO_STACK:
         return value
 
-    initial_msg = {"type": "deterministic", "name": name, "value": value}
+    initial_msg = {
+        "type": "deterministic",
+        "name": name,
+        "value": value,
+        "cond_indep_stack": [],
+    }
+
+    # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg["value"]
+
+
+def mutable(name, init_value=None):
+    """
+    This primitive is used to store a mutable value that can be changed
+    during model execution::
+
+        a = numpyro.mutable("a", {"value": 1.})
+        a["value"] = 2.
+        assert numpyro.mutable("a")["value"] == 2.
+
+    For example, this can be used to store and update information like
+    running mean/variance in a neural network batch normalization layer.
+
+    :param str name: name of the mutable site.
+    :param init_value: mutable value to record in the trace.
+    """
+    if not _PYRO_STACK:
+        return init_value
+
+    initial_msg = {
+        "type": "mutable",
+        "name": name,
+        "fn": identity,
+        "args": (init_value,),
+        "kwargs": {},
+        "value": init_value,
+    }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
@@ -283,12 +383,12 @@ def get_mask():
 
 def module(name, nn, input_shape=None):
     """
-    Declare a :mod:`~jax.experimental.stax` style neural network inside a
+    Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
-    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.experimental.stax`
+    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.example_libraries.stax`
         constructor function.
     :param tuple input_shape: shape of the input taken by the
         neural network.
@@ -309,7 +409,12 @@ def module(name, nn, input_shape=None):
 
 
 def _subsample_fn(size, subsample_size, rng_key=None):
-    assert rng_key is not None, "Missing random key to generate subsample indices."
+    if rng_key is None:
+        raise ValueError(
+            "Missing random key to generate subsample indices."
+            " Algorithms like HMC/NUTS do not support subsampling."
+            " You might want to use SVI or HMCECS instead."
+        )
     if jax.default_backend() == "cpu":
         # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
         rng_keys = random.split(rng_key, subsample_size)
@@ -318,17 +423,7 @@ def _subsample_fn(size, subsample_size, rng_key=None):
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
-            val = ops.index_update(
-                val,
-                ops.index[
-                    [i, j],
-                ],
-                val[
-                    ops.index[
-                        [j, i],
-                    ]
-                ],
-            )
+            val = val.at[jnp.array([i, j])].set(val[jnp.array([j, i])])
             return val, None
 
         val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
@@ -358,7 +453,7 @@ class plate(Messenger):
         This can be used to apply a scaling factor by inference algorithms. e.g.
         when computing ELBO using a mini-batch.
     :param int dim: Optional argument to specify which dimension in the tensor
-        is used as the plate dim. If `None` (default), the leftmost available dim
+        is used as the plate dim. If `None` (default), the rightmost available dim
         is allocated.
     """
 
@@ -399,7 +494,8 @@ class plate(Messenger):
                 "subsample_size does not match len(subsample), {} vs {}.".format(
                     subsample_size, len(subsample)
                 )
-                + " Did you accidentally use different subsample_size in the model and guide?"
+                + " Did you accidentally use different subsample_size in the model and guide?",
+                stacklevel=find_stack_level(),
             )
         cond_indep_stack = msg["cond_indep_stack"]
         occupied_dims = {f.dim for f in cond_indep_stack}
@@ -425,7 +521,7 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
-        if msg["type"] not in ("param", "sample", "plate"):
+        if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
                     "Cannot use control flow primitive under a `plate` primitive."
@@ -437,6 +533,8 @@ class plate(Messenger):
         cond_indep_stack = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
+        if msg["type"] == "deterministic":
+            return
         if msg["type"] == "sample":
             expected_shape = self._get_batch_shape(cond_indep_stack)
             dist_batch_shape = msg["fn"].batch_shape
@@ -513,7 +611,7 @@ def factor(name, log_factor):
     """
     unit_dist = numpyro.distributions.distribution.Unit(log_factor)
     unit_value = unit_dist.sample(None)
-    sample(name, unit_dist, obs=unit_value)
+    sample(name, unit_dist, obs=unit_value, infer={"is_auxiliary": True})
 
 
 def prng_key():

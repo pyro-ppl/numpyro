@@ -3,15 +3,23 @@
 
 """
 Optimizer classes defined here are light wrappers over the corresponding optimizers
-sourced from :mod:`jax.experimental.optimizers` with an interface that is better
+sourced from :mod:`jax.example_libraries.optimizers` with an interface that is better
 suited for working with NumPyro inference algorithms.
 """
 
 from collections import namedtuple
-from typing import Callable, Tuple, TypeVar
+from typing import Any, Callable, Tuple, TypeVar
 
+import jax
 from jax import lax, value_and_grad
-from jax.experimental import optimizers
+
+from numpyro.util import _versiontuple
+
+if _versiontuple(jax.__version__) >= (0, 2, 25):
+    from jax.example_libraries import optimizers
+else:
+    from jax.experimental import optimizers  # pytype: disable=import-error
+
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
@@ -60,7 +68,7 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -69,17 +77,17 @@ class _NumPyroOptim(object):
         by reevaluating the function multiple times to get optimal
         parameters.
 
-        :param fn: objective function.
+        :param fn: an objective function returning a pair where the first item
+            is a scalar loss function to be differentiated and the second item
+            is an auxiliary output.
         :param state: current optimizer state.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
-        return out, self.update(grads, state)
+        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        return (out, aux), self.update(grads, state)
 
-    def eval_and_stable_update(
-        self, fn: Callable, state: _IterOptState
-    ) -> _IterOptState:
+    def eval_and_stable_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -90,14 +98,14 @@ class _NumPyroOptim(object):
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
+        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
             lambda _: (out, self.update(grads, state)),
             lambda _: (jnp.nan, state),
             None,
         )
-        return out, state
+        return (out, aux), state
 
     def get_params(self, state: _IterOptState) -> _Params:
         """
@@ -112,7 +120,7 @@ class _NumPyroOptim(object):
 
 def _add_doc(fn):
     def _wrapped(cls):
-        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`".format(
+        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.example_libraries.optimizers.{}`".format(
             fn.__name__
         )
         return cls
@@ -265,15 +273,52 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
         i, (flat_params, unravel_fn) = state
+
+        def loss_fn(x):
+            x = unravel_fn(x)
+            out, aux = fn(x)
+            if aux is not None:
+                raise ValueError(
+                    "Minimize does not support models with mutable states."
+                )
+            return out
+
         results = minimize(
-            lambda x: fn(unravel_fn(x)),
-            flat_params,
-            (),
-            method=self._method,
-            **self._kwargs
+            loss_fn, flat_params, (), method=self._method, **self._kwargs
         )
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
-        return out, state
+        return (out, None), state
+
+
+def optax_to_numpyro(transformation) -> _NumPyroOptim:
+    """
+    This function produces a ``numpyro.optim._NumPyroOptim`` instance from an
+    ``optax.GradientTransformation`` so that it can be used with
+    ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the
+    ``(init_fn, update_fn, get_params_fn)`` interface defined by
+    :mod:`jax.example_libraries.optimizers`.
+
+    :param transformation: An ``optax.GradientTransformation`` instance to wrap.
+    :return: An instance of ``numpyro.optim._NumPyroOptim`` wrapping the supplied
+        Optax optimizer.
+    """
+    import optax
+
+    def init_fn(params):
+        opt_state = transformation.init(params)
+        return params, opt_state
+
+    def update_fn(step, grads, state):
+        params, opt_state = state
+        updates, opt_state = transformation.update(grads, opt_state, params)
+        updated_params = optax.apply_updates(params, updates)
+        return updated_params, opt_state
+
+    def get_params_fn(state):
+        params, _ = state
+        return params
+
+    return _NumPyroOptim(lambda x, y, z: (x, y, z), init_fn, update_fn, get_params_fn)

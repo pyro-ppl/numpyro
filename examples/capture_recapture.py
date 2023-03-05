@@ -72,7 +72,11 @@ def model_1(capture_history, sex):
             with handlers.mask(mask=first_capture_mask):
                 mu_z_t = first_capture_mask * phi * z + (1 - first_capture_mask)
                 # NumPyro exactly sums out the discrete states z_t.
-                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                z = numpyro.sample(
+                    "z",
+                    dist.Bernoulli(dist.util.clamp_probs(mu_z_t)),
+                    infer={"enumerate": "parallel"},
+                )
                 mu_y_t = rho * z
                 numpyro.sample(
                     "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
@@ -112,7 +116,11 @@ def model_2(capture_history, sex):
             with handlers.mask(mask=first_capture_mask):
                 mu_z_t = first_capture_mask * phi_t * z + (1 - first_capture_mask)
                 # NumPyro exactly sums out the discrete states z_t.
-                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                z = numpyro.sample(
+                    "z",
+                    dist.Bernoulli(dist.util.clamp_probs(mu_z_t)),
+                    infer={"enumerate": "parallel"},
+                )
                 mu_y_t = rho * z
                 numpyro.sample(
                     "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
@@ -160,7 +168,11 @@ def model_3(capture_history, sex):
             with handlers.mask(mask=first_capture_mask):
                 mu_z_t = first_capture_mask * phi_t * z + (1 - first_capture_mask)
                 # NumPyro exactly sums out the discrete states z_t.
-                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                z = numpyro.sample(
+                    "z",
+                    dist.Bernoulli(dist.util.clamp_probs(mu_z_t)),
+                    infer={"enumerate": "parallel"},
+                )
                 mu_y_t = rho * z
                 numpyro.sample(
                     "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
@@ -202,7 +214,11 @@ def model_4(capture_history, sex):
             with handlers.mask(mask=first_capture_mask):
                 mu_z_t = first_capture_mask * phi * z + (1 - first_capture_mask)
                 # NumPyro exactly sums out the discrete states z_t.
-                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                z = numpyro.sample(
+                    "z",
+                    dist.Bernoulli(dist.util.clamp_probs(mu_z_t)),
+                    infer={"enumerate": "parallel"},
+                )
                 mu_y_t = rho * z
                 numpyro.sample(
                     "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
@@ -249,7 +265,11 @@ def model_5(capture_history, sex):
             with handlers.mask(mask=first_capture_mask):
                 mu_z_t = first_capture_mask * phi_t * z + (1 - first_capture_mask)
                 # NumPyro exactly sums out the discrete states z_t.
-                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                z = numpyro.sample(
+                    "z",
+                    dist.Bernoulli(dist.util.clamp_probs(mu_z_t)),
+                    infer={"enumerate": "parallel"},
+                )
                 mu_y_t = rho * z
                 numpyro.sample(
                     "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
@@ -288,8 +308,8 @@ def run_inference(model, capture_history, sex, rng_key, args):
         kernel = HMC(model)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )

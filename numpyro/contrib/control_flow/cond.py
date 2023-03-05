@@ -6,7 +6,7 @@ from functools import partial
 from jax import device_put, lax
 
 from numpyro import handlers
-from numpyro.contrib.control_flow.util import PytreeTrace
+from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, apply_stack
 
 
@@ -111,7 +111,7 @@ def cond(pred, true_fun, false_fun, operand):
        ...     return cond(cluster > 0, true_fun, false_fun, None)
        >>>
        >>> svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
-       >>> params, losses = svi.run(random.PRNGKey(0), num_steps=2500)
+       >>> svi_result = svi.run(random.PRNGKey(0), num_steps=2500)
 
     .. warning:: This is an experimental utility function that allows users to use
         JAX control flow with NumPyro's effect handlers. Currently, `sample` and
@@ -157,6 +157,8 @@ def cond(pred, true_fun, false_fun, operand):
     value, pytree_trace = msg["value"]
 
     for msg in pytree_trace.trace.values():
+        if msg["type"] == "plate":
+            continue
         apply_stack(msg)
 
     return value

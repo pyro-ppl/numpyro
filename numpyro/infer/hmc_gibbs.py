@@ -8,17 +8,7 @@ import warnings
 
 import numpy as np
 
-from jax import (
-    device_put,
-    grad,
-    hessian,
-    jacfwd,
-    jacobian,
-    lax,
-    ops,
-    random,
-    value_and_grad,
-)
+from jax import device_put, grad, hessian, jacfwd, jacobian, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit
@@ -27,6 +17,7 @@ import numpyro
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
+from numpyro.infer.initialization import init_to_sample
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import _unconstrain_reparam
 from numpyro.util import cond, fori_loop, identity
@@ -34,7 +25,7 @@ from numpyro.util import cond, fori_loop, identity
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
  - **z** - a dict of the current latent values (both HMC and Gibbs sites)
- - **hmc_state** - current hmc_state
+ - **hmc_state** - current :data:`~numpyro.infer.hmc.HMCState`
  - **rng_key** - random key for the current step
 """
 
@@ -80,13 +71,13 @@ class HMCGibbs(MCMCKernel):
         ...     numpyro.sample("obs", dist.Normal(x + y, 1.0), obs=jnp.array([1.0]))
         ...
         >>> def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
-        ...    y = hmc_sites['y']
-        ...    new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
-        ...    return {'x': new_x}
+        ...     y = hmc_sites['y']
+        ...     new_x = dist.Normal(0.8 * (1-y), jnp.sqrt(0.8)).sample(rng_key)
+        ...     return {'x': new_x}
         ...
         >>> hmc_kernel = NUTS(model)
         >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
-        >>> mcmc = MCMC(kernel, 100, 100, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=100, num_samples=100, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
 
@@ -134,9 +125,11 @@ class HMCGibbs(MCMCKernel):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         if self._prototype_trace is None:
             rng_key, key_u = random.split(rng_key)
-            self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-                *model_args, **model_kwargs
-            )
+            # We use init strategy to get around ImproperUniform which does not have
+            # sample method.
+            self._prototype_trace = trace(
+                substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+            ).get_trace(*model_args, **model_kwargs)
 
         rng_key, key_z = random.split(rng_key)
         gibbs_sites = {
@@ -195,7 +188,7 @@ def _discrete_gibbs_proposal_body_fn(
     rng_key, z, pe, log_weight_sum = val
     rng_key, rng_transition = random.split(rng_key)
     proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
-    z_new_flat = ops.index_update(z_init_flat, idx, proposal)
+    z_new_flat = z_init_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_weight_new = pe_init - pe_new
@@ -279,7 +272,7 @@ def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_si
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
     proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
-    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
@@ -296,7 +289,7 @@ def _discrete_modified_rw_proposal(
     i = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
     proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
     proposal = jnp.where(random.bernoulli(rng_stay, stay_prob), idx, proposal)
-    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
@@ -386,7 +379,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
-        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
@@ -417,9 +410,11 @@ class DiscreteHMCGibbs(HMCGibbs):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
-        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-            *model_args, **model_kwargs
-        )
+        # We use init strategy to get around ImproperUniform which does not have
+        # sample method.
+        self._prototype_trace = trace(
+            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+        ).get_trace(*model_args, **model_kwargs)
 
         self._support_sizes = {
             name: np.broadcast_to(
@@ -587,7 +582,7 @@ class HMCECS(HMCGibbs):
         ...
         >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
         >>> kernel = HMCECS(NUTS(model), num_blocks=10)
-        >>> mcmc = MCMC(kernel, 1000, 1000)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), data)
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.) < 0.1
@@ -615,17 +610,34 @@ class HMCECS(HMCGibbs):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
-        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(
-            *model_args, **model_kwargs
-        )
+        # We use init strategy to get around ImproperUniform which does not have
+        # sample method.
+        self._prototype_trace = trace(
+            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
+        ).get_trace(*model_args, **model_kwargs)
         self._subsample_plate_sizes = {
             name: site["args"]
             for name, site in self._prototype_trace.items()
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]
+            if site["type"] == "plate"
+            and (site["args"][1] is not None)
+            and site["args"][0] > site["args"][1]
         }  # i.e. size > subsample_size
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
         if self._proxy is not None:
+            if any(
+                {
+                    name
+                    for name, site in self._prototype_trace.items()
+                    if site["type"] == "sample"
+                    and (not site["is_observed"])
+                    and site["fn"].support.is_discrete
+                }
+            ):
+                raise RuntimeError(
+                    "Currently, the proxy does not support models with "
+                    "discrete latent sites."
+                )
             proxy_fn, gibbs_init, self._gibbs_update = self._proxy(
                 self._prototype_trace,
                 self._subsample_plate_sizes,
@@ -701,13 +713,17 @@ class HMCECS(HMCGibbs):
 
     @staticmethod
     def taylor_proxy(reference_params):
+        """
+        This is just a convenient static method which calls
+        :func:`~numpyro.infer.hmc_gibbs.taylor_proxy`.
+        """
         return taylor_proxy(reference_params)
 
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
     def estimator(likelihoods, params, gibbs_state):
         subsample_log_liks = defaultdict(float)
-        for (fn, value, name, subsample_dim) in likelihoods.values():
+        for fn, value, name, subsample_dim in likelihoods.values():
             subsample_log_liks[name] += _sum_all_except_at_dim(
                 fn.log_prob(value), subsample_dim
             )
@@ -727,7 +743,7 @@ def perturbed_method(subsample_plate_sizes, proxy_fn):
             diff = subsample_log_lik - proxy_value_subsample[name]
 
             unbiased_log_lik = proxy_value_all[name] + n * jnp.mean(diff)
-            variance = n ** 2 / m * jnp.var(diff)
+            variance = n**2 / m * jnp.var(diff)
             log_lik_sum += unbiased_log_lik - 0.5 * variance
         return log_lik_sum
 
@@ -740,9 +756,9 @@ def taylor_proxy(reference_params):
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
 
-    ** References: **
+    **References:**
 
-    [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
+    [1] Towards scaling up Markov chain Monte Carlo: an adaptive subsampling approach
         Bardenet., R., Doucet, A., Holmes, C. (2014)
     """
 
@@ -786,7 +802,7 @@ def taylor_proxy(reference_params):
                             log_lik[frame.name] += _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim
                             )
-                        else:
+                        elif frame.name in subsample_indices:
                             log_lik[frame.name] = _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim
                             )
@@ -974,5 +990,9 @@ class estimate_likelihood(numpyro.primitives.Messenger):
                     )
                     # mask the current likelihood
                     msg["fn"] = msg["fn"].mask(False)
-        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
+        elif (
+            msg["type"] == "plate"
+            and (msg["args"][1] is not None)
+            and msg["args"][0] > msg["args"][1]
+        ):
             self.subsample_plates[msg["name"]] = msg["value"]

@@ -96,8 +96,8 @@ class MCMC(object):
         self._initial_params = initial_params
         self._mcmc = mcmc.MCMC(
             kernel,
-            warmup_steps,
-            num_samples,
+            num_warmup=warmup_steps,
+            num_samples=num_samples,
             num_chains=num_chains,
             progress_bar=(not disable_progbar),
         )

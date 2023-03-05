@@ -29,11 +29,11 @@ UC Berkeley in Fall 1973:
    ====== ====== ============== =======
 
 This example replicates the multilevel model `m_glmm5` at [3], which is used to evaluate whether
-the data contain evidence of gender biased in admissions accross departments. This is a form of
+the data contain evidence of gender biased in admissions across departments. This is a form of
 Generalized Linear Mixed Models for binomial regression problem, which models
 
-    - varying intercepts accross departments,
-    - varying slopes (or the effects of being male) accross departments,
+    - varying intercepts across departments,
+    - varying slopes (or the effects of being male) across departments,
     - correlation between intercepts and slopes,
 
 and uses non-centered parameterization (or whitening).
@@ -92,9 +92,9 @@ def run_inference(dept, male, applications, admit, rng_key, args):
     kernel = NUTS(glmm)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
-        args.num_chains,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
+        num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
     mcmc.run(rng_key, dept, male, applications, admit)
@@ -151,7 +151,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.11.0")
     parser = argparse.ArgumentParser(
         description="UCBadmit gender discrimination using HMC"
     )

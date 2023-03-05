@@ -47,7 +47,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
    >>> num_warmup, num_samples = 1000, 1000
-   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
    >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP
@@ -86,8 +86,14 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
-from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
-from numpyro.util import not_jax_tracer
+from numpyro.primitives import (
+    _PYRO_STACK,
+    CondIndepStackFrame,
+    Messenger,
+    apply_stack,
+    plate,
+)
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "block",
@@ -112,7 +118,7 @@ class trace(Messenger):
     Returns a handler that records the inputs and outputs at primitive calls
     inside `fn`.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -131,10 +137,10 @@ class trace(Messenger):
                      {'args': (),
                       'fn': <numpyro.distributions.continuous.Normal object at 0x7f9e689b1eb8>,
                       'is_observed': False,
-                      'kwargs': {'rng_key': DeviceArray([0, 0], dtype=uint32)},
+                      'kwargs': {'rng_key': Array([0, 0], dtype=uint32)},
                       'name': 'a',
                       'type': 'sample',
-                      'value': DeviceArray(-0.20584235, dtype=float32)})])
+                      'value': Array(-0.20584235, dtype=float32)})])
     """
 
     def __enter__(self):
@@ -148,7 +154,7 @@ class trace(Messenger):
             # which has no name
             return
         assert not (
-            msg["type"] == "sample" and msg["name"] in self.trace
+            msg["type"] in ("sample", "deterministic") and msg["name"] in self.trace
         ), "all sites must have unique names but got `{}` duplicated".format(
             msg["name"]
         )
@@ -168,14 +174,14 @@ class trace(Messenger):
 
 class replay(Messenger):
     """
-    Given a callable `fn` and an execution trace `guide_trace`,
+    Given a callable `fn` and an execution trace `trace`,
     return a callable which substitutes `sample` calls in `fn` with
-    values from the corresponding site names in `guide_trace`.
+    values from the corresponding site names in `trace`.
 
     :param fn: Python callable with NumPyro primitives.
-    :param guide_trace: an OrderedDict containing execution metadata.
+    :param trace: an OrderedDict containing execution metadata.
 
-    **Example**
+    **Example:**
 
     .. doctest::
 
@@ -196,14 +202,26 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, guide_trace=None):
-        assert guide_trace is not None
-        self.guide_trace = guide_trace
+    def __init__(self, fn=None, trace=None):
+        assert trace is not None
+        self.trace = trace
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg["type"] in ("sample", "plate") and msg["name"] in self.guide_trace:
-            msg["value"] = self.guide_trace[msg["name"]]["value"]
+        if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
+            name = msg["name"]
+            guide_msg = self.trace[name]
+            if msg["type"] == "plate":
+                if guide_msg["type"] != "plate":
+                    raise RuntimeError(f"Site {name} must be a plate in trace.")
+                msg["value"] = guide_msg["value"]
+                return None
+            if msg["is_observed"]:
+                return None
+            if guide_msg["type"] != "sample" or guide_msg["is_observed"]:
+                raise RuntimeError(f"Site {name} must be sampled in trace.")
+            msg["value"] = guide_msg["value"]
+            msg["infer"] = guide_msg["infer"].copy()
 
 
 class block(Messenger):
@@ -216,6 +234,7 @@ class block(Messenger):
     :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
     :param list hide: list of site names to hide.
+    :param list expose_types: list of site types to expose, e.g. `['param']`.
 
     **Example:**
 
@@ -240,11 +259,13 @@ class block(Messenger):
        >>> assert 'b' in trace_block_a
     """
 
-    def __init__(self, fn=None, hide_fn=None, hide=None):
+    def __init__(self, fn=None, hide_fn=None, hide=None, expose_types=None):
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
             self.hide_fn = lambda msg: msg.get("name") in hide
+        elif expose_types is not None:
+            self.hide_fn = lambda msg: msg.get("type") not in expose_types
         else:
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
@@ -551,7 +572,7 @@ class reparam(Messenger):
                 msg["type"] = "deterministic"
                 msg["value"] = value
                 for key in list(msg.keys()):
-                    if key not in ("type", "name", "value"):
+                    if key not in ("type", "name", "value", "cond_indep_stack"):
                         del msg[key]
                 return
 
@@ -587,20 +608,27 @@ class scale(Messenger):
         msg["scale"] = (
             self.scale if msg.get("scale") is None else self.scale * msg["scale"]
         )
+        plate_to_scale = msg.setdefault("plate_to_scale", {})
+        scale = (
+            self.scale
+            if plate_to_scale.get(None) is None
+            else self.scale * plate_to_scale[None]
+        )
+        plate_to_scale[None] = scale
 
 
 class scope(Messenger):
     """
     This handler prepend a prefix followed by a divider to the name of sample sites.
 
-    Example::
+    **Example:**
 
     .. doctest::
 
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.handlers import scope, seed, trace
-        >>>
+
         >>> def model():
         ...     with scope(prefix="a"):
         ...         with scope(prefix="b", divider="."):
@@ -611,16 +639,26 @@ class scope(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
     :param str divider: a string to join the prefix and sample name; default to `'/'`
+    :param list hide_types: an optional list of side types to skip renaming.
     """
 
-    def __init__(self, fn=None, prefix="", divider="/"):
+    def __init__(self, fn=None, prefix="", divider="/", *, hide_types=None):
         self.prefix = prefix
         self.divider = divider
+        self.hide_types = [] if hide_types is None else hide_types
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg.get("name"):
+        if msg.get("name") and msg["type"] not in self.hide_types:
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
+
+        if msg.get("cond_indep_stack") and "plate" not in self.hide_types:
+            msg["cond_indep_stack"] = [
+                CondIndepStackFrame(
+                    f"{self.prefix}{self.divider}{i.name}", i.dim, i.size
+                )
+                for i in msg["cond_indep_stack"]
+            ]
 
 
 class seed(Messenger):
@@ -667,11 +705,11 @@ class seed(Messenger):
 
     def __init__(self, fn=None, rng_seed=None):
         if isinstance(rng_seed, int) or (
-            isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)
+            isinstance(rng_seed, (np.ndarray, jnp.ndarray)) and not jnp.shape(rng_seed)
         ):
             rng_seed = random.PRNGKey(rng_seed)
         if not (
-            isinstance(rng_seed, jnp.ndarray)
+            isinstance(rng_seed, (np.ndarray, jnp.ndarray))
             and rng_seed.dtype == jnp.uint32
             and rng_seed.shape == (2,)
         ):
@@ -703,6 +741,10 @@ class substitute(Messenger):
     If a `substitute_fn` is provided, then the value at the site is
     replaced by the value returned from the call to `substitute_fn`
     for the given site.
+
+    .. note:: This handler is mainly used for internal algorithms.
+        For conditioning a generative model on observed data, please
+        use the :class:`condition` handler.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict data: dictionary of `numpy.ndarray` values keyed by
@@ -738,7 +780,7 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "plate")) or msg.get(
+        if (msg["type"] not in ("sample", "param", "mutable", "plate")) or msg.get(
             "_control_flow_done", False
         ):
             if msg["type"] == "control_flow":
@@ -820,6 +862,7 @@ class do(Messenger):
                     "Attempting to intervene on variable {} multiple times,"
                     "this is almost certainly incorrect behavior".format(msg["name"]),
                     RuntimeWarning,
+                    stacklevel=find_stack_level(),
                 )
             msg["_intervener_id"] = self._intervener_id
 

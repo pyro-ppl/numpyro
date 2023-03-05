@@ -1,9 +1,19 @@
 dm-haiku
 flax
 funsor
-jax>=0.1.65
-jaxlib>=0.1.45
-nbsphinx==0.8.1
-sphinx-gallery
-tfp-nightly  # TODO: change this to tensorflow-probability when it is stable
+ipython<=8.6.0  # strict the version for https://github.com/ipython/ipython/issues/13845
+jax
+jaxlib
+jaxns==1.0.0
+Jinja2<3.1
+multipledispatch
+nbsphinx==0.8.9
+numpy
+optax
+pyyaml
+readthedocs-sphinx-search==0.1.2
+sphinx<5
+sphinx-gallery==0.10.1  # tutorial page is not rendered correctly with newer versions
+sphinx_rtd_theme==1.0.0
+tensorflow_probability
 tqdm

@@ -25,13 +25,21 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from functools import total_ordering
-import warnings
+from multipledispatch import dispatch
 
 from jax import lax
 import jax.numpy as jnp
+from jax.scipy.special import betaln, digamma, gammaln
 
-from numpyro.distributions.continuous import Normal
+from numpyro.distributions.continuous import (
+    Beta,
+    Dirichlet,
+    Gamma,
+    Kumaraswamy,
+    Normal,
+    Weibull,
+)
+from numpyro.distributions.discrete import CategoricalProbs
 from numpyro.distributions.distribution import (
     Delta,
     Distribution,
@@ -41,89 +49,12 @@ from numpyro.distributions.distribution import (
 )
 from numpyro.distributions.util import scale_and_mask, sum_rightmost
 
-_KL_REGISTRY = (
-    {}
-)  # Source of truth mapping a few general (type, type) pairs to functions.
-_KL_MEMOIZE = (
-    {}
-)  # Memoized version mapping many specific (type, type) pairs to functions.
-
-
-def register_kl(type_p, type_q):
-    if not isinstance(type_p, type) and issubclass(type_p, Distribution):
-        raise TypeError(
-            "Expected type_p to be a Distribution subclass but got {}".format(type_p)
-        )
-    if not isinstance(type_q, type) and issubclass(type_q, Distribution):
-        raise TypeError(
-            "Expected type_q to be a Distribution subclass but got {}".format(type_q)
-        )
-
-    def decorator(fun):
-        _KL_REGISTRY[type_p, type_q] = fun
-        _KL_MEMOIZE.clear()  # reset since lookup order may have changed
-        return fun
-
-    return decorator
-
-
-@total_ordering
-class _Match(object):
-    __slots__ = ["types"]
-
-    def __init__(self, *types):
-        self.types = types
-
-    def __eq__(self, other):
-        return self.types == other.types
-
-    def __le__(self, other):
-        for x, y in zip(self.types, other.types):
-            if not issubclass(x, y):
-                return False
-            if x is not y:
-                break
-        return True
-
-
-def _dispatch_kl(type_p, type_q):
-    """
-    Find the most specific approximate match, assuming single inheritance.
-    """
-    matches = [
-        (super_p, super_q)
-        for super_p, super_q in _KL_REGISTRY
-        if issubclass(type_p, super_p) and issubclass(type_q, super_q)
-    ]
-    if not matches:
-        return NotImplemented
-    # Check that the left- and right- lexicographic orders agree.
-    left_p, left_q = min(_Match(*m) for m in matches).types
-    right_q, right_p = min(_Match(*reversed(m)) for m in matches).types
-    left_fun = _KL_REGISTRY[left_p, left_q]
-    right_fun = _KL_REGISTRY[right_p, right_q]
-    if left_fun is not right_fun:
-        warnings.warn(
-            "Ambiguous kl_divergence({}, {}). Please register_kl({}, {})".format(
-                type_p.__name__, type_q.__name__, left_p.__name__, right_q.__name__
-            ),
-            RuntimeWarning,
-        )
-    return left_fun
-
 
 def kl_divergence(p, q):
     r"""
     Compute Kullback-Leibler divergence :math:`KL(p \| q)` between two distributions.
     """
-    try:
-        fun = _KL_MEMOIZE[type(p), type(q)]
-    except KeyError:
-        fun = _dispatch_kl(type(p), type(q))
-        _KL_MEMOIZE[type(p), type(q)] = fun
-    if fun is NotImplemented:
-        raise NotImplementedError
-    return fun(p, q)
+    raise NotImplementedError
 
 
 ################################################################################
@@ -131,34 +62,39 @@ def kl_divergence(p, q):
 ################################################################################
 
 
-@register_kl(Distribution, ExpandedDistribution)
-def _kl_dist_expanded(p, q):
+@dispatch(Distribution, ExpandedDistribution)
+def kl_divergence(p, q):
     kl = kl_divergence(p, q.base_dist)
     shape = lax.broadcast_shapes(p.batch_shape, q.batch_shape)
     return jnp.broadcast_to(kl, shape)
 
 
-@register_kl(ExpandedDistribution, Distribution)
-def _kl_expanded(p, q):
+@dispatch(ExpandedDistribution, Distribution)
+def kl_divergence(p, q):
     kl = kl_divergence(p.base_dist, q)
     shape = lax.broadcast_shapes(p.batch_shape, q.batch_shape)
     return jnp.broadcast_to(kl, shape)
 
 
-@register_kl(ExpandedDistribution, ExpandedDistribution)
-def _kl_expanded_expanded(p, q):
+@dispatch(ExpandedDistribution, ExpandedDistribution)
+def kl_divergence(p, q):
     kl = kl_divergence(p.base_dist, q.base_dist)
     shape = lax.broadcast_shapes(p.batch_shape, q.batch_shape)
     return jnp.broadcast_to(kl, shape)
 
 
-@register_kl(Delta, Distribution)
-def _kl_delta(p, q):
+@dispatch(Delta, Distribution)
+def kl_divergence(p, q):
     return -q.log_prob(p.v)
 
 
-@register_kl(Independent, Independent)
-def _kl_independent_independent(p, q):
+@dispatch(Delta, ExpandedDistribution)
+def kl_divergence(p, q):
+    return -q.log_prob(p.v)
+
+
+@dispatch(Independent, Independent)
+def kl_divergence(p, q):
     shared_ndims = min(p.reinterpreted_batch_ndims, q.reinterpreted_batch_ndims)
     p_ndims = p.reinterpreted_batch_ndims - shared_ndims
     q_ndims = q.reinterpreted_batch_ndims - shared_ndims
@@ -170,8 +106,8 @@ def _kl_independent_independent(p, q):
     return kl
 
 
-@register_kl(MaskedDistribution, MaskedDistribution)
-def _kl_masked_masked(p, q):
+@dispatch(MaskedDistribution, MaskedDistribution)
+def kl_divergence(p, q):
     if p._mask is False or q._mask is False:
         mask = False
     elif p._mask is True:
@@ -191,8 +127,84 @@ def _kl_masked_masked(p, q):
     return scale_and_mask(kl, mask=mask)
 
 
-@register_kl(Normal, Normal)
-def _kl_normal_normal(p, q):
+@dispatch(Normal, Normal)
+def kl_divergence(p, q):
     var_ratio = jnp.square(p.scale / q.scale)
     t1 = jnp.square((p.loc - q.loc) / q.scale)
     return 0.5 * (var_ratio + t1 - 1 - jnp.log(var_ratio))
+
+
+@dispatch(Beta, Beta)
+def kl_divergence(p, q):
+    # From https://en.wikipedia.org/wiki/Beta_distribution#Quantities_of_information_(entropy)
+    a, b = p.concentration1, p.concentration0
+    alpha, beta = q.concentration1, q.concentration0
+    a_diff = alpha - a
+    b_diff = beta - b
+    t1 = betaln(alpha, beta) - betaln(a, b)
+    t2 = a_diff * digamma(a) + b_diff * digamma(b)
+    t3 = (a_diff + b_diff) * digamma(a + b)
+    return t1 - t2 + t3
+
+
+@dispatch(CategoricalProbs, CategoricalProbs)
+def kl_divergence(p, q):
+    t = p.probs * (p.logits - q.logits)
+    t = jnp.where(q.probs == 0, jnp.inf, t)
+    t = jnp.where(p.probs == 0, 0.0, t)
+    return t.sum(-1)
+
+
+@dispatch(Dirichlet, Dirichlet)
+def kl_divergence(p, q):
+    # From http://bariskurt.com/kullback-leibler-divergence-between-two-dirichlet-and-beta-distributions/
+    sum_p_concentration = p.concentration.sum(-1)
+    sum_q_concentration = q.concentration.sum(-1)
+    t1 = gammaln(sum_p_concentration) - gammaln(sum_q_concentration)
+    t2 = (gammaln(p.concentration) - gammaln(q.concentration)).sum(-1)
+    t3 = p.concentration - q.concentration
+    t4 = digamma(p.concentration) - digamma(sum_p_concentration)[..., None]
+    return t1 - t2 + (t3 * t4).sum(-1)
+
+
+@dispatch(Gamma, Gamma)
+def kl_divergence(p, q):
+    # From https://en.wikipedia.org/wiki/Gamma_distribution#Kullback%E2%80%93Leibler_divergence
+    a, b = p.concentration, p.rate
+    alpha, beta = q.concentration, q.rate
+    b_ratio = beta / b
+    t1 = gammaln(alpha) - gammaln(a)
+    t2 = (a - alpha) * digamma(a)
+    t3 = alpha * jnp.log(b_ratio)
+    t4 = a * (b_ratio - 1)
+    return t1 + t2 - t3 + t4
+
+
+@dispatch(Weibull, Gamma)
+def kl_divergence(p, q):
+    # From https://arxiv.org/abs/1401.6853 Formula (28)
+    a, b = p.concentration, p.scale
+    alpha, beta = q.concentration, q.rate
+    a_reciprocal = 1 / a
+    b_beta = b * beta
+    t1 = jnp.log(a) + gammaln(alpha)
+    t2 = alpha * (jnp.euler_gamma * a_reciprocal - jnp.log(b_beta))
+    t3 = b_beta * jnp.exp(gammaln(a_reciprocal + 1))
+    return t1 + t2 + t3 - (jnp.euler_gamma + 1)
+
+
+@dispatch(Kumaraswamy, Beta)
+def kl_divergence(p, q):
+    # From https://arxiv.org/abs/1605.06197 Formula (12)
+    a, b = p.concentration1, p.concentration0
+    alpha, beta = q.concentration1, q.concentration0
+    b_reciprocal = jnp.reciprocal(b)
+    a_b = a * b
+    t1 = (alpha / a - 1) * (jnp.euler_gamma + digamma(b) + b_reciprocal)
+    t2 = jnp.log(a_b) + betaln(alpha, beta) + (b_reciprocal - 1)
+    a_ = jnp.expand_dims(a, -1)
+    b_ = jnp.expand_dims(b, -1)
+    a_b_ = jnp.expand_dims(a_b, -1)
+    m = jnp.arange(1, p.KL_KUMARASWAMY_BETA_TAYLOR_ORDER + 1)
+    t3 = (beta - 1) * b * (jnp.exp(betaln(m / a_, b_)) / (m + a_b_)).sum(-1)
+    return t1 + t2 + t3

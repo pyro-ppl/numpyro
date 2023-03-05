@@ -28,7 +28,6 @@ import time
 
 import numpy as np
 
-import jax
 from jax import vmap
 import jax.numpy as jnp
 import jax.random as random
@@ -74,7 +73,7 @@ def model(X, Y, hypers):
 
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers["c"]) + sigma ** 2 * jnp.eye(N)
+    k = kernel(kX, kX, eta1, eta2, hypers["c"]) + sigma**2 * jnp.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -92,9 +91,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, si
     P, N = X.shape[1], X.shape[0]
 
     probe = jnp.zeros((2, P))
-    probe = jax.ops.index_update(
-        probe, jax.ops.index[:, dimension], jnp.array([1.0, -1.0])
-    )
+    probe = probe.at[:, dimension].set(jnp.array([1.0, -1.0]))
 
     eta2 = jnp.square(eta1) * jnp.sqrt(xisq) / msq
     kappa = jnp.sqrt(msq) * lam / jnp.sqrt(msq + jnp.square(eta1 * lam))
@@ -102,7 +99,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, si
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma**2 * jnp.eye(N)
     k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -124,12 +121,8 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, si
     P, N = X.shape[1], X.shape[0]
 
     probe = jnp.zeros((4, P))
-    probe = jax.ops.index_update(
-        probe, jax.ops.index[:, dim1], jnp.array([1.0, 1.0, -1.0, -1.0])
-    )
-    probe = jax.ops.index_update(
-        probe, jax.ops.index[:, dim2], jnp.array([1.0, -1.0, 1.0, -1.0])
-    )
+    probe = probe.at[:, dim1].set(jnp.array([1.0, 1.0, -1.0, -1.0]))
+    probe = probe.at[:, dim2].set(jnp.array([1.0, -1.0, 1.0, -1.0]))
 
     eta2 = jnp.square(eta1) * jnp.sqrt(xisq) / msq
     kappa = jnp.sqrt(msq) * lam / jnp.sqrt(msq + jnp.square(eta1 * lam))
@@ -137,7 +130,7 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, si
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma**2 * jnp.eye(N)
     k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -168,12 +161,8 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
     start2 = 0
 
     for dim in range(P):
-        probe = jax.ops.index_update(
-            probe, jax.ops.index[start1 : start1 + 2, dim], jnp.array([1.0, -1.0])
-        )
-        vec = jax.ops.index_update(
-            vec, jax.ops.index[start2, start1 : start1 + 2], jnp.array([0.5, -0.5])
-        )
+        probe = probe.at[start1 : start1 + 2, dim].set(jnp.array([1.0, -1.0]))
+        vec = vec.at[start2, start1 : start1 + 2].set(jnp.array([0.5, -0.5]))
         start1 += 2
         start2 += 1
 
@@ -181,20 +170,14 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
         for dim2 in active_dims:
             if dim1 >= dim2:
                 continue
-            probe = jax.ops.index_update(
-                probe,
-                jax.ops.index[start1 : start1 + 4, dim1],
-                jnp.array([1.0, 1.0, -1.0, -1.0]),
+            probe = probe.at[start1 : start1 + 4, dim1].set(
+                jnp.array([1.0, 1.0, -1.0, -1.0])
             )
-            probe = jax.ops.index_update(
-                probe,
-                jax.ops.index[start1 : start1 + 4, dim2],
-                jnp.array([1.0, -1.0, 1.0, -1.0]),
+            probe = probe.at[start1 : start1 + 4, dim2].set(
+                jnp.array([1.0, -1.0, 1.0, -1.0])
             )
-            vec = jax.ops.index_update(
-                vec,
-                jax.ops.index[start2, start1 : start1 + 4],
-                jnp.array([0.25, -0.25, -0.25, 0.25]),
+            vec = vec.at[start2, start1 : start1 + 4].set(
+                jnp.array([0.25, -0.25, -0.25, 0.25])
             )
             start1 += 4
             start2 += 1
@@ -205,7 +188,7 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma**2 * jnp.eye(N)
     L = cho_factor(k_xx, lower=True)[0]
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -230,8 +213,8 @@ def run_inference(model, args, rng_key, X, Y, hypers):
     kernel = NUTS(model)
     mcmc = MCMC(
         kernel,
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
@@ -401,7 +384,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.11.0")
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)

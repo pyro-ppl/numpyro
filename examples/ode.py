@@ -90,8 +90,8 @@ def main(args):
     # use dense_mass for better mixing rate
     mcmc = MCMC(
         NUTS(model, dense_mass=True),
-        args.num_warmup,
-        args.num_samples,
+        num_warmup=args.num_warmup,
+        num_samples=args.num_samples,
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
@@ -100,7 +100,8 @@ def main(args):
 
     # predict populations
     pop_pred = Predictive(model, mcmc.get_samples())(PRNGKey(2), data.shape[0])["y"]
-    mu, pi = jnp.mean(pop_pred, 0), jnp.percentile(pop_pred, (10, 90), 0)
+    mu = jnp.mean(pop_pred, 0)
+    pi = jnp.percentile(pop_pred, jnp.array([10, 90]), 0)
     plt.figure(figsize=(8, 6), constrained_layout=True)
     plt.plot(year, data[:, 0], "ko", mfc="none", ms=4, label="true hare", alpha=0.67)
     plt.plot(year, data[:, 1], "bx", label="true lynx")
@@ -116,7 +117,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith("0.11.0")
     parser = argparse.ArgumentParser(description="Predator-Prey Model")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

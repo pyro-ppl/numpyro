@@ -4,7 +4,7 @@
 from collections import namedtuple
 from functools import partial
 
-from jax import grad, jacfwd, lax, ops, random
+from jax import grad, jacfwd, lax, random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -59,7 +59,7 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = MixedHMC(HMC(model, trajectory_length=1.2), num_discrete_updates=20)
-        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()
@@ -159,7 +159,7 @@ class MixedHMC(DiscreteHMCGibbs):
             )
 
             delta_pe_sum = delta_pe_sum + pe - hmc_state.potential_energy
-            ke_discrete = ops.index_update(ke_discrete, idx, ke_discrete_i)
+            ke_discrete = ke_discrete.at[idx].set(ke_discrete_i)
             hmc_state = hmc_state._replace(potential_energy=pe, z_grad=z_grad)
             return rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum
 
@@ -194,7 +194,7 @@ class MixedHMC(DiscreteHMCGibbs):
             # (see the note at total_time below)
             trajectory_length = arrival_times[idx] * time_unit
             arrival_times = arrival_times - arrival_times[idx]
-            arrival_times = ops.index_update(arrival_times, idx, 1.0)
+            arrival_times = arrival_times.at[idx].set(1.0)
 
             # this is a trick, so that in a sub-trajectory of HMC, we always accept the new proposal
             pe = jnp.inf

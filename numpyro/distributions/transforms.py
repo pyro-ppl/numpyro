@@ -7,9 +7,9 @@ import weakref
 
 import numpy as np
 
-from jax import lax, ops, vmap
+from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
-from jax.nn import softplus
+from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
@@ -22,7 +22,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "biject_to",
@@ -33,14 +33,15 @@ __all__ = [
     "CorrCholeskyTransform",
     "CorrMatrixCholeskyTransform",
     "ExpTransform",
-    "SoftplusTransform",
     "IdentityTransform",
-    "InvCholeskyTransform",
+    "L1BallTransform",
     "LowerCholeskyTransform",
+    "ScaledUnitLowerCholeskyTransform",
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
     "SigmoidTransform",
+    "SimplexToOrderedTransform",
     "SoftplusTransform",
     "SoftplusLowerCholeskyTransform",
     "StickBreakingTransform",
@@ -58,15 +59,6 @@ class Transform(object):
     domain = constraints.real
     codomain = constraints.real
     _inv = None
-
-    @property
-    def event_dim(self):
-        warnings.warn(
-            "transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
-            "get input event dim or Transform.codomain.event_dim to get output event dim.",
-            FutureWarning,
-        )
-        return self.domain.event_dim
 
     @property
     def inv(self):
@@ -103,6 +95,16 @@ class Transform(object):
         Defaults to preserving shape.
         """
         return shape
+
+    # Allow for pickle serialization of transforms.
+    def __getstate__(self):
+        attrs = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, weakref.ref):
+                attrs[k] = None
+            else:
+                attrs[k] = v
+        return attrs
 
 
 class _InverseTransform(Transform):
@@ -147,6 +149,11 @@ class AbsTransform(Transform):
         return jnp.abs(x)
 
     def _inverse(self, y):
+        warnings.warn(
+            "AbsTransform is not a bijective transform."
+            " The inverse of `y` will be `y`.",
+            stacklevel=find_stack_level(),
+        )
         return y
 
 
@@ -404,8 +411,7 @@ class CorrCholeskyTransform(Transform):
             matrix_to_tril_vec(z1m_cumprod_shifted, diagonal=-1)
         )
         # inverse of tanh
-        x = jnp.log((1 + t) / (1 - t)) / 2
-        return x
+        return jnp.arctanh(t)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # NB: because domain and codomain are two spaces with different dimensions, determinant of
@@ -452,7 +458,9 @@ class ExpTransform(Transform):
 
     @property
     def codomain(self):
-        if self.domain is constraints.real:
+        if self.domain is constraints.ordered_vector:
+            return constraints.positive_ordered_vector
+        elif self.domain is constraints.real:
             return constraints.positive
         elif isinstance(self.domain, constraints.greater_than):
             return constraints.greater_than(self.__call__(self.domain.lower_bound))
@@ -538,49 +546,51 @@ class IndependentTransform(Transform):
         return self.base_transform.inverse_shape(shape)
 
 
-class InvCholeskyTransform(Transform):
+class L1BallTransform(Transform):
     r"""
-    Transform via the mapping :math:`y = x @ x.T`, where `x` is a lower
-    triangular matrix with positive diagonal.
+    Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
     """
-
-    def __init__(self, domain=constraints.lower_cholesky):
-        warnings.warn(
-            "InvCholeskyTransform is deprecated. Please use CholeskyTransform"
-            " or CorrMatrixCholeskyTransform instead.",
-            FutureWarning,
-        )
-        assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
-        self.domain = domain
-
-    @property
-    def codomain(self):
-        if self.domain is constraints.lower_cholesky:
-            return constraints.positive_definite
-        elif self.domain is constraints.corr_cholesky:
-            return constraints.corr_matrix
+    domain = constraints.real_vector
+    codomain = constraints.l1_ball
 
     def __call__(self, x):
-        return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
+        # transform to (-1, 1) interval
+        t = jnp.tanh(x)
+
+        # apply stick-breaking transform
+        remainder = jnp.cumprod(1 - jnp.abs(t[..., :-1]), axis=-1)
+        pad_width = [(0, 0)] * (t.ndim - 1) + [(1, 0)]
+        remainder = jnp.pad(remainder, pad_width, mode="constant", constant_values=1.0)
+        return t * remainder
 
     def _inverse(self, y):
-        return jnp.linalg.cholesky(y)
+        # inverse stick-breaking
+        remainder = 1 - jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
+        pad_width = [(0, 0)] * (y.ndim - 1) + [(1, 0)]
+        remainder = jnp.pad(remainder, pad_width, mode="constant", constant_values=1.0)
+        finfo = jnp.finfo(y.dtype)
+        remainder = jnp.clip(remainder, a_min=finfo.tiny)
+        t = y / remainder
+
+        # inverse of tanh
+        t = jnp.clip(t, a_min=-1 + finfo.eps, a_max=1 - finfo.eps)
+        return jnp.arctanh(t)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        if self.domain is constraints.lower_cholesky:
-            # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
-            n = jnp.shape(x)[-1]
-            order = jnp.arange(n, 0, -1)
-            return n * jnp.log(2) + jnp.sum(
-                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
-            )
-        else:
-            # NB: see derivation in LKJCholesky implementation
-            n = jnp.shape(x)[-1]
-            order = jnp.arange(n - 1, -1, -1)
-            return jnp.sum(
-                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
-            )
+        # compute stick-breaking logdet
+        #   t1 -> t1
+        #   t2 -> t2 * (1 - abs(t1))
+        #   t3 -> t3 * (1 - abs(t1)) * (1 - abs(t2))
+        # hence jacobian is triangular and logdet is the sum of the log
+        # of the diagonal part of the jacobian
+        one_minus_remainder = jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
+        eps = jnp.finfo(y.dtype).eps
+        one_minus_remainder = jnp.clip(one_minus_remainder, a_max=1 - eps)
+        # log(remainder) = log1p(remainder - 1)
+        stick_breaking_logdet = jnp.sum(jnp.log1p(-one_minus_remainder), axis=-1)
+
+        tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.0), axis=-1)
+        return stick_breaking_logdet + tanh_logdet
 
 
 class LowerCholeskyAffine(Transform):
@@ -589,6 +599,19 @@ class LowerCholeskyAffine(Transform):
 
     :param loc: a real vector.
     :param scale_tril: a lower triangular matrix with positive diagonal.
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> from numpyro.distributions.transforms import LowerCholeskyAffine
+       >>> base = jnp.ones(2)
+       >>> loc = jnp.zeros(2)
+       >>> scale_tril = jnp.array([[0.3, 0.0], [1.0, 0.5]])
+       >>> affine = LowerCholeskyAffine(loc=loc, scale_tril=scale_tril)
+       >>> affine(base)
+       Array([0.3, 1.5], dtype=float32)
     """
     domain = constraints.real_vector
     codomain = constraints.real_vector
@@ -633,6 +656,13 @@ class LowerCholeskyAffine(Transform):
 
 
 class LowerCholeskyTransform(Transform):
+    """
+    Transform a real vector to a lower triangular cholesky
+    factor, where the strictly lower triangular submatrix is
+    unconstrained and the diagonal is parameterized with an
+    exponential transform.
+    """
+
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
 
@@ -660,6 +690,39 @@ class LowerCholeskyTransform(Transform):
         return _matrix_inverse_shape(shape)
 
 
+class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
+    r"""
+    Like `LowerCholeskyTransform` this `Transform` transforms
+    a real vector to a lower triangular cholesky factor. However
+    it does so via a decomposition
+
+    :math:`y = loc + unit\_scale\_tril\ @\ scale\_diag\ @\ x`.
+
+    where :math:`unit\_scale\_tril` has ones along the diagonal
+    and :math:`scale\_diag` is a diagonal matrix with all positive
+    entries that is parameterized with a softplus transform.
+    """
+    domain = constraints.real_vector
+    codomain = constraints.scaled_unit_lower_cholesky
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = softplus(x[..., -n:])
+        return (z + jnp.identity(n)) * diag[..., None]
+
+    def _inverse(self, y):
+        diag = jnp.diagonal(y, axis1=-2, axis2=-1)
+        z = matrix_to_tril_vec(y / diag[..., None], diagonal=-1)
+        return jnp.concatenate([z, _softplus_inv(diag)], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        diag = x[..., -n:]
+        diag_softplus = jnp.diagonal(y, axis1=-2, axis2=-1)
+        return (jnp.log(diag_softplus) * jnp.arange(n) - softplus(-diag)).sum(-1)
+
+
 class OrderedTransform(Transform):
     """
     Transform a real vector to an ordered vector.
@@ -668,6 +731,17 @@ class OrderedTransform(Transform):
 
     1. *Stan Reference Manual v2.20, section 10.6*,
        Stan Development Team
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> from numpyro.distributions.transforms import OrderedTransform
+       >>> base = jnp.ones(3)
+       >>> transform = OrderedTransform()
+       >>> assert jnp.allclose(transform(base), jnp.array([1., 3.7182817, 6.4365635]), rtol=1e-3, atol=1e-3)
+
     """
 
     domain = constraints.real_vector
@@ -697,10 +771,10 @@ class PermuteTransform(Transform):
 
     def _inverse(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(
-            jnp.zeros(size, dtype=jnp.result_type(int)),
-            self.permutation,
-            jnp.arange(size),
+        permutation_inv = (
+            jnp.zeros(size, dtype=jnp.result_type(int))
+            .at[self.permutation]
+            .set(jnp.arange(size))
         )
         return y[..., permutation_inv]
 
@@ -741,8 +815,61 @@ class SigmoidTransform(Transform):
         return logit(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        x_abs = jnp.abs(x)
-        return -x_abs - 2 * jnp.log1p(jnp.exp(-x_abs))
+        return -softplus(x) - softplus(-x)
+
+
+class SimplexToOrderedTransform(Transform):
+    """
+    Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
+    Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
+
+    :param anchor_point: Anchor point is a nuisance parameter to improve the identifiability of the transform.
+        For simplicity, we assume it is a scalar value, but it is broadcastable x.shape[:-1].
+        For more details please refer to Section 2.2 in [1]
+
+    **References:**
+
+    1. *Ordinal Regression Case Study, section 2.2*,
+       M. Betancourt, https://betanalpha.github.io/assets/case_studies/ordinal_regression.html
+
+    **Example**
+
+    .. doctest::
+
+       >>> import jax.numpy as jnp
+       >>> from numpyro.distributions.transforms import SimplexToOrderedTransform
+       >>> base = jnp.array([0.3, 0.1, 0.4, 0.2])
+       >>> transform = SimplexToOrderedTransform()
+       >>> assert jnp.allclose(transform(base), jnp.array([-0.8472978, -0.40546507, 1.3862944]), rtol=1e-3, atol=1e-3)
+
+    """
+
+    domain = constraints.simplex
+    codomain = constraints.ordered_vector
+
+    def __init__(self, anchor_point=0.0):
+        self.anchor_point = anchor_point
+
+    def __call__(self, x):
+        s = jnp.cumsum(x[..., :-1], axis=-1)
+        y = logit(s) + jnp.expand_dims(self.anchor_point, -1)
+        return y
+
+    def _inverse(self, y):
+        y = y - jnp.expand_dims(self.anchor_point, -1)
+        s = expit(y)
+        # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
+        # add two boundary points 0 and 1
+        pad_width = [(0, 0)] * (jnp.ndim(s) - 1) + [(1, 1)]
+        s = jnp.pad(s, pad_width, constant_values=(0, 1))
+        x = s[..., 1:] - s[..., :-1]
+        return x
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
+        # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
+        J_logdet = (softplus(y) + softplus(-y)).sum(-1)
+        return J_logdet
 
 
 def _softplus_inv(y):
@@ -789,7 +916,8 @@ class SoftplusLowerCholeskyTransform(Transform):
         return jnp.concatenate([z, diag], axis=-1)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        # the jacobian is diagonal, so logdet is the sum of diagonal
+        # `softplus` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return -softplus(-x[..., -n:]).sum(-1)
 
@@ -831,12 +959,10 @@ class StickBreakingTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
-        # |det|(J) = Product(y * (1 - z))
+        # |det|(J) = Product(y * (1 - sigmoid(x)))
+        #          = Product(y * sigmoid(x) * exp(-x))
         x = x - jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
-        z = jnp.clip(expit(x), a_min=jnp.finfo(x.dtype).tiny)
-        # XXX we use the identity 1 - z = z * exp(-x) to not worry about
-        # the case z ~ 1
-        return jnp.sum(jnp.log(y[..., :-1] * z) - x, axis=-1)
+        return jnp.sum(jnp.log(y[..., :-1]) + (log_sigmoid(x) - x), axis=-1)
 
     def forward_shape(self, shape):
         if len(shape) < 1:
@@ -881,7 +1007,8 @@ class UnpackTransform(Transform):
         if not_scalar and all(d == d0 for d in leading_dims[1:]):
             warnings.warn(
                 "UnpackTransform.inv might lead to an unexpected behavior because it"
-                " cannot transform a batch of unpacked arrays."
+                " cannot transform a batch of unpacked arrays.",
+                stacklevel=find_stack_level(),
             )
         return ravel_pytree(y)[0]
 
@@ -912,6 +1039,7 @@ class ConstraintRegistry(object):
             constraint = type(constraint)
 
         self._registry[constraint] = factory
+        return factory
 
     def __call__(self, constraint):
         try:
@@ -937,10 +1065,13 @@ def _transform_to_corr_matrix(constraint):
     )
 
 
+@biject_to.register(type(constraints.positive))
+def _transform_to_positive(constraint):
+    return ExpTransform()
+
+
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
-    if constraint is constraints.positive:
-        return ExpTransform()
     return ComposeTransform(
         [
             ExpTransform(),
@@ -959,6 +1090,8 @@ def _transform_to_less_than(constraint):
     )
 
 
+@biject_to.register(type(constraints.real_matrix))
+@biject_to.register(type(constraints.real_vector))
 @biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
     return IndependentTransform(
@@ -966,10 +1099,15 @@ def _biject_to_independent(constraint):
     )
 
 
+@biject_to.register(type(constraints.unit_interval))
+def _transform_to_unit_interval(constraint):
+    return SigmoidTransform()
+
+
+@biject_to.register(type(constraints.circular))
+@biject_to.register(constraints.open_interval)
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
-    if constraint is constraints.unit_interval:
-        return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
     return ComposeTransform(
         [
@@ -981,9 +1119,19 @@ def _transform_to_interval(constraint):
     )
 
 
+@biject_to.register(constraints.l1_ball)
+def _transform_to_l1_ball(constraint):
+    return L1BallTransform()
+
+
 @biject_to.register(constraints.lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
+
+
+@biject_to.register(constraints.scaled_unit_lower_cholesky)
+def _transform_to_scaled_unit_lower_cholesky(constraint):
+    return ScaledUnitLowerCholeskyTransform()
 
 
 @biject_to.register(constraints.ordered_vector)

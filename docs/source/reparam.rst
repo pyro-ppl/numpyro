@@ -51,3 +51,12 @@ Projected Normal Distributions
     :show-inheritance:
     :member-order: bysource
     :special-members: __call__
+
+Circular Distributions
+----------------------
+.. autoclass:: numpyro.infer.reparam.CircularReparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    :special-members: __call__

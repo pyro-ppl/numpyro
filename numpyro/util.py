@@ -3,16 +3,19 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+import inspect
+from itertools import zip_longest
 import os
 import random
 import re
+import warnings
 
 import numpy as np
 import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 
 import jax
-from jax import device_put, jit, lax, ops, vmap
+from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import host_callback
 from jax.flatten_util import ravel_pytree
@@ -20,6 +23,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
+_CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
 def set_rng_seed(rng_seed):
@@ -188,12 +192,16 @@ def progress_bar_factory(num_samples, num_chains):
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
     def _update_tqdm(arg, transform, device):
-        chain = int(str(device)[4:])
+        chain_match = _CHAIN_RE.search(str(device))
+        assert chain_match
+        chain = int(chain_match.group())
         tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
         tqdm_bars[chain].update(arg)
 
     def _close_tqdm(arg, transform, device):
-        chain = int(str(device)[4:])
+        chain_match = _CHAIN_RE.search(str(device))
+        assert chain_match
+        chain = int(chain_match.group())
         tqdm_bars[chain].update(arg)
         finished_chains.append(chain)
         if len(finished_chains) == num_chains:
@@ -300,6 +308,14 @@ def fori_collect(
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
+    # host_callback does not work yet with multi-GPU platforms
+    # See: https://github.com/google/jax/issues/6447
+    if num_chains > 1 and jax.default_backend() == "gpu":
+        warnings.warn(
+            "We will disable progress bar because it does not work yet on multi-GPUs platforms.",
+            stacklevel=find_stack_level(),
+        )
+        progbar = False
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
@@ -309,13 +325,15 @@ def fori_collect(
         collection = cond(
             idx >= 0,
             collection,
-            lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
+            lambda x: x.at[idx].set(ravel_pytree(transform(val))[0]),
             collection,
             identity,
         )
         return val, collection, start_idx, thinning
 
-    collection = jnp.zeros((collection_size,) + init_val_flat.shape)
+    collection = jnp.zeros(
+        (collection_size,) + init_val_flat.shape, dtype=init_val_flat.dtype
+    )
     if not progbar:
         last_val, collection, _, _ = fori_loop(
             0, upper, _body_fn, (init_val, collection, start_idx, thinning)
@@ -369,7 +387,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
 
     # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
     num_chunks = batch_size = int(np.prod(batch_shape))
-    prepend_shape = (-1,) if batch_size > 1 else ()
+    prepend_shape = (batch_size,) if batch_size > 1 else ()
     xs = tree_map(
         lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs
     )
@@ -392,6 +410,346 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(
-        lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
+        lambda y: jnp.reshape(
+            y, (int(np.prod(jnp.shape(y)[:map_ndims])),) + jnp.shape(y)[map_ndims:]
+        )[:batch_size],
+        ys,
     )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def format_shapes(
+    trace,
+    *,
+    compute_log_prob=False,
+    title="Trace Shapes:",
+    last_site=None,
+):
+    """
+    Given the trace of a function, returns a string showing a table of the shapes of
+    all sites in the trace.
+
+    Use :class:`~numpyro.handlers.trace` handler (or funsor
+    :class:`~numpyro.contrib.funsor.enum_messenger.trace` handler for enumeration) to
+    produce the trace.
+
+    :param dict trace: The model trace to format.
+    :param compute_log_prob: Compute log probabilities and display the shapes in the
+        table. Accepts True / False or a function which when given a dictionary
+        containing site-level metadata returns whether the log probability should be
+        calculated and included in the table.
+    :param str title: Title for the table of shapes.
+    :param str last_site: Name of a site in the model. If supplied, subsequent sites
+        are not displayed in the table.
+
+    Usage::
+
+        def model(*args, **kwargs):
+            ...
+
+        with numpyro.handlers.seed(rng_seed=1):
+            trace = numpyro.handlers.trace(model).get_trace(*args, **kwargs)
+        print(numpyro.util.format_shapes(trace))
+    """
+    if not trace.keys():
+        return title
+    rows = [[title]]
+
+    rows.append(["Param Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "param":
+            rows.append(
+                [name, None]
+                + [str(size) for size in getattr(site["value"], "shape", ())]
+            )
+        if name == last_site:
+            break
+
+    rows.append(["Sample Sites:"])
+    for name, site in trace.items():
+        if site["type"] == "sample":
+            # param shape
+            batch_shape = getattr(site["fn"], "batch_shape", ())
+            event_shape = getattr(site["fn"], "event_shape", ())
+            rows.append(
+                [f"{name} dist", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # value shape
+            event_dim = len(event_shape)
+            shape = getattr(site["value"], "shape", ())
+            batch_shape = shape[: len(shape) - event_dim]
+            event_shape = shape[len(shape) - event_dim :]
+            rows.append(
+                ["value", None]
+                + [str(size) for size in batch_shape]
+                + ["|", None]
+                + [str(size) for size in event_shape]
+            )
+
+            # log_prob shape
+            if (not callable(compute_log_prob) and compute_log_prob) or (
+                callable(compute_log_prob) and compute_log_prob(site)
+            ):
+                batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
+                rows.append(
+                    ["log_prob", None]
+                    + [str(size) for size in batch_shape]
+                    + ["|", None]
+                )
+        elif site["type"] == "plate":
+            shape = getattr(site["value"], "shape", ())
+            rows.append(
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
+            )
+
+        if name == last_site:
+            break
+
+    return _format_table(rows)
+
+
+# TODO: follow pyro.util.check_site_shape logics for more complete validation
+def _validate_model(model_trace, plate_warning="loose"):
+    # TODO: Consider exposing global configuration for those strategies.
+    assert plate_warning in ["loose", "strict", "error"]
+    enum_dims = set(
+        [
+            site["infer"]["name_to_dim"][name]
+            for name, site in model_trace.items()
+            if site["type"] == "sample"
+            and site["infer"].get("enumerate") == "parallel"
+            and site["infer"].get("name_to_dim") is not None
+        ]
+    )
+    # Check if plate is missing in the model.
+    for name, site in model_trace.items():
+        if site["type"] == "sample":
+            value_ndim = jnp.ndim(site["value"])
+            batch_shape = lax.broadcast_shapes(
+                tuple(site["fn"].batch_shape),
+                jnp.shape(site["value"])[: value_ndim - len(site["fn"].event_shape)],
+            )
+            plate_dims = set(f.dim for f in site["cond_indep_stack"])
+            batch_ndim = len(batch_shape)
+            for i in range(batch_ndim):
+                dim = -i - 1
+                if batch_shape[dim] > 1 and (dim not in (plate_dims | enum_dims)):
+                    # Skip checking if it is the `scan` dimension.
+                    if dim == -batch_ndim and site.get("_control_flow_done", False):
+                        continue
+                    message = (
+                        f"Missing a plate statement for batch dimension {dim}"
+                        f" at site '{name}'. You can use `numpyro.util.format_shapes`"
+                        " utility to check shapes at all sites of your model."
+                    )
+
+                    if plate_warning == "error":
+                        raise ValueError(message)
+                    elif plate_warning == "strict" or (len(plate_dims) > 0):
+                        warnings.warn(message, stacklevel=find_stack_level())
+
+
+def check_model_guide_match(model_trace, guide_trace):
+    """
+    Checks the following assumptions:
+
+    1. Each sample site in the model also appears in the guide and is not
+        marked auxiliary.
+    2. Each sample site in the guide either appears in the model or is marked,
+        auxiliary via ``infer={'is_auxiliary': True}``.
+    3. Each :class:`~numpyro.primitives.plate` statement in the guide also
+        appears in the model.
+    4. At each sample site that appears in both the model and guide, the model
+        and guide agree on sample shape.
+
+    :param dict model_trace: The model trace to check.
+    :param dict guide_trace: The guide trace to check.
+    :raises: RuntimeWarning, ValueError
+    """
+    # Check ordinary sample sites.
+    guide_vars = set(
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample" and not site.get("is_observed", False)
+    )
+    aux_vars = set(
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample"
+        if site["infer"].get("is_auxiliary")
+    )
+    model_vars = set(
+        name
+        for name, site in model_trace.items()
+        if site["type"] == "sample"
+        and not site.get("is_observed", False)
+        and not (
+            name not in guide_trace and site["infer"].get("enumerate") == "parallel"
+        )
+    )
+    enum_vars = set(
+        [
+            name
+            for name, site in model_trace.items()
+            if site["type"] == "sample"
+            and not site.get("is_observed", False)
+            and name not in guide_trace
+            and site["infer"].get("enumerate") == "parallel"
+        ]
+    )
+
+    if aux_vars & model_vars:
+        warnings.warn(
+            "Found auxiliary vars in the model: {}".format(aux_vars & model_vars),
+            stacklevel=find_stack_level(),
+        )
+    if not (guide_vars <= model_vars | aux_vars):
+        warnings.warn(
+            "Found non-auxiliary vars in guide but not model, "
+            "consider marking these infer={{'is_auxiliary': True}}:\n{}".format(
+                guide_vars - aux_vars - model_vars
+            ),
+            stacklevel=find_stack_level(),
+        )
+    if not (model_vars <= guide_vars | enum_vars):
+        warnings.warn(
+            "Found vars in model but not guide: {}".format(
+                model_vars - guide_vars - enum_vars
+            ),
+            stacklevel=find_stack_level(),
+        )
+
+    # Check shapes agree.
+    for name in model_vars & guide_vars:
+        model_site = model_trace[name]
+        guide_site = guide_trace[name]
+
+        if hasattr(model_site["fn"], "event_dim") and hasattr(
+            guide_site["fn"], "event_dim"
+        ):
+            if model_site["fn"].event_dim != guide_site["fn"].event_dim:
+                raise ValueError(
+                    "Model and guide event_dims disagree at site '{}': {} vs {}".format(
+                        name, model_site["fn"].event_dim, guide_site["fn"].event_dim
+                    )
+                )
+
+        if hasattr(model_site["fn"], "shape") and hasattr(guide_site["fn"], "shape"):
+            model_shape = model_site["fn"].shape(model_site["kwargs"]["sample_shape"])
+            guide_shape = guide_site["fn"].shape(guide_site["kwargs"]["sample_shape"])
+            if model_shape == guide_shape:
+                continue
+
+            for model_size, guide_size in zip_longest(
+                reversed(model_shape), reversed(guide_shape), fillvalue=1
+            ):
+                if model_size != guide_size:
+                    raise ValueError(
+                        "Model and guide shapes disagree at site '{}': {} vs {}".format(
+                            name, model_shape, guide_shape
+                        )
+                    )
+
+    # Check subsample sites introduced by plate.
+    model_vars = set(
+        name for name, site in model_trace.items() if site["type"] == "plate"
+    )
+    guide_vars = set(
+        name for name, site in guide_trace.items() if site["type"] == "plate"
+    )
+    if not (guide_vars <= model_vars):
+        warnings.warn(
+            "Found plate statements in guide but not model: {}".format(
+                guide_vars - model_vars
+            ),
+            stacklevel=find_stack_level(),
+        )
+
+
+def _format_table(rows):
+    """
+    Formats a right justified table using None as column separator.
+    """
+    # compute column widths
+    column_widths = [0, 0, 0]
+    for row in rows:
+        widths = [0, 0, 0]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                widths[j] += 1
+        for j in range(3):
+            column_widths[j] = max(column_widths[j], widths[j])
+
+    # justify columns
+    for i, row in enumerate(rows):
+        cols = [[], [], []]
+        j = 0
+        for cell in row:
+            if cell is None:
+                j += 1
+            else:
+                cols[j].append(cell)
+        cols = [
+            [""] * (width - len(col)) + col
+            if direction == "r"
+            else col + [""] * (width - len(col))
+            for width, col, direction in zip(column_widths, cols, "rrl")
+        ]
+        rows[i] = sum(cols, [])
+
+    # compute cell widths
+    cell_widths = [0] * len(rows[0])
+    for row in rows:
+        for j, cell in enumerate(row):
+            cell_widths[j] = max(cell_widths[j], len(cell))
+
+    # justify cells
+    return "\n".join(
+        " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
+        for row in rows
+    )
+
+
+def _versiontuple(version):
+    """
+    :param str version: Version, in string format.
+    Parse version string into tuple of ints.
+
+    Only to be used for the standard 'major.minor.patch' format,
+    such as ``'0.2.13'``.
+
+    Source: https://stackoverflow.com/a/11887825/4451315
+    """
+    return tuple([int(number) for number in version.split(".")])
+
+
+def find_stack_level() -> int:
+    """
+    Find the first place in the stack that is not inside numpyro
+    (tests notwithstanding).
+
+    Source:
+    https://github.com/pandas-dev/pandas/blob/ccb25ab1d24c4fb9691270706a59c8d319750870/pandas/util/_exceptions.py#L27-L48
+    """
+    import numpyro
+
+    pkg_dir = os.path.dirname(numpyro.__file__)
+
+    # https://stackoverflow.com/questions/17407119/python-inspect-stack-is-slow
+    frame = inspect.currentframe()
+    n = 0
+    while frame:
+        fname = inspect.getfile(frame)
+        if fname.startswith(pkg_dir):
+            frame = frame.f_back
+            n += 1
+        else:
+            break
+    return n

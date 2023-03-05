@@ -25,12 +25,12 @@ def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
         new_scale = cholesky_update(scale, new_sample - loc, weight)
         proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
         proposal_scale = cholesky_update(
-            proposal_scale, new_sample - samples, -(weight ** 2)
+            proposal_scale, new_sample - samples, -(weight**2)
         )
     else:
         var = jnp.square(scale) + weight * jnp.square(new_sample - loc)
         proposal_var = var - weight * jnp.square(samples - loc)
-        proposal_var = proposal_var - weight ** 2 * jnp.square(new_sample - samples)
+        proposal_var = proposal_var - weight**2 * jnp.square(new_sample - samples)
         proposal_scale = jnp.sqrt(proposal_var)
 
     proposal_loc = loc + weight * (new_sample - samples)
@@ -110,8 +110,9 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         dense_mass=False,
         model_args=(),
         model_kwargs=None,
-        rng_key=random.PRNGKey(0),
+        rng_key=None,
     ):
+        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
         nonlocal wa_steps
         wa_steps = num_warmup
         pe_fn = potential_fn
@@ -260,8 +261,8 @@ class SA(MCMCKernel):
     subset of approximate posterior samples of size num_chains x num_samples
     instead of num_chains x num_samples x adapt_state_size.
 
-    .. note:: We recommend to use this kernel with `progress_bar=False` in :class:`MCMC`
-        to reduce JAX's dispatch overhead.
+    .. note:: We recommend to use this kernel with `progress_bar=False` in
+        :class:`~numpyro.infer.mcmc.MCMC` to reduce JAX's dispatch overhead.
 
     **References:**
 
@@ -366,6 +367,10 @@ class SA(MCMCKernel):
         return init_state
 
     @property
+    def model(self):
+        return self._model
+
+    @property
     def sample_field(self):
         return "z"
 
@@ -383,8 +388,8 @@ class SA(MCMCKernel):
 
     def sample(self, state, model_args, model_kwargs):
         """
-        Run SA from the given :data:`~numpyro.infer.mcmc.SAState` and return the resulting
-        :data:`~numpyro.infer.mcmc.SAState`.
+        Run SA from the given :data:`~numpyro.infer.sa.SAState` and return the resulting
+        :data:`~numpyro.infer.sa.SAState`.
 
         :param SAState state: Represents the current state.
         :param model_args: Arguments provided to the model.
@@ -397,6 +402,4 @@ class SA(MCMCKernel):
         state = self.__dict__.copy()
         state["_sample_fn"] = None
         state["_init_fn"] = None
-        state["_postprocess_fn"] = None
-        state["_potential_fn_gen"] = None
         return state

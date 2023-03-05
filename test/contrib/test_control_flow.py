@@ -36,7 +36,7 @@ def test_scan():
     T = 10
     num_samples = 100
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 100, num_samples)
+    mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples)
     mcmc.run(random.PRNGKey(0), T=T)
     assert set(mcmc.get_samples()) == {"x", "y", "y2", "x_0", "y_0"}
     mcmc.print_summary()
@@ -111,7 +111,7 @@ def test_scan_constrain_reparam_compatible():
     fun_params = {"x": jnp.arange(1, T + 1) / 10, "y": -jnp.arange(T) / 5}
     actual_log_joint = potential_energy(fun_model, (T,), {}, fun_params)
     expected_log_joint = potential_energy(model, (T,), {}, params)
-    assert_allclose(actual_log_joint, expected_log_joint)
+    assert_allclose(actual_log_joint, expected_log_joint, rtol=1e-6)
 
 
 def test_scan_without_stack():
@@ -163,7 +163,8 @@ def test_cond():
         cond(cluster > 0, true_fun, false_fun, None)
 
     svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
-    params, losses = svi.run(random.PRNGKey(0), num_steps=2500)
+    svi_result = svi.run(random.PRNGKey(0), num_steps=2500)
+    params = svi_result.params
 
     predictive = Predictive(
         model,
@@ -195,3 +196,17 @@ def test_cond():
         atol=0.1,
     )
     assert_allclose([x.mean(), x.std()], [2.0, jnp.sqrt(5.0)], atol=0.5)
+
+
+def test_scan_promote():
+    def model():
+        def transition_fn(c, val):
+            with numpyro.plate("N", 3, dim=-1):
+                numpyro.sample("x", dist.Normal(0, 1), obs=1.0)
+            return None, None
+
+        scan(transition_fn, None, None, length=10)
+
+    tr = numpyro.handlers.trace(model).get_trace()
+    assert tr["x"]["value"].shape == (10, 1)
+    assert tr["x"]["fn"].log_prob(tr["x"]["value"]).shape == (10, 3)

@@ -28,6 +28,7 @@
 
 __all__ = [
     "boolean",
+    "circular",
     "corr_cholesky",
     "corr_matrix",
     "dependent",
@@ -36,6 +37,7 @@ __all__ = [
     "integer_greater_than",
     "interval",
     "is_dependent",
+    "l1_ball",
     "less_than",
     "lower_cholesky",
     "multinomial",
@@ -45,6 +47,8 @@ __all__ = [
     "positive_integer",
     "real",
     "real_vector",
+    "real_matrix",
+    "scaled_unit_lower_cholesky",
     "simplex",
     "sphere",
     "softplus_lower_cholesky",
@@ -52,6 +56,8 @@ __all__ = [
     "unit_interval",
     "Constraint",
 ]
+
+import math
 
 import numpy as np
 
@@ -72,6 +78,9 @@ class Constraint(object):
     def __call__(self, x):
         raise NotImplementedError
 
+    def __repr__(self):
+        return self.__class__.__name__[1:] + "()"
+
     def check(self, value):
         """
         Returns a byte tensor of `sample_shape + batch_shape` indicating
@@ -86,7 +95,20 @@ class Constraint(object):
         raise NotImplementedError
 
 
-class _Boolean(Constraint):
+class _SingletonConstraint(Constraint):
+    """
+    A constraint type which has only one canonical instance, like constraints.real,
+    and unlike constraints.interval.
+    """
+
+    def __new__(cls):
+        if (not hasattr(cls, "_instance")) or (type(cls._instance) is not cls):
+            # Do not use the singleton instance of a superclass of cls.
+            cls._instance = super(_SingletonConstraint, cls).__new__(cls)
+        return cls._instance
+
+
+class _Boolean(_SingletonConstraint):
     is_discrete = True
 
     def __call__(self, x):
@@ -96,7 +118,7 @@ class _Boolean(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _CorrCholesky(Constraint):
+class _CorrCholesky(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -107,7 +129,8 @@ class _CorrCholesky(Constraint):
         )
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         x_norm = jnp.linalg.norm(x, axis=-1)
-        unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
+        tol = jnp.finfo(x.dtype).eps * x.shape[-1] * 10
+        unit_norm_row = jnp.all(jnp.abs(x_norm - 1) <= tol, axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
     def feasible_like(self, prototype):
@@ -116,7 +139,7 @@ class _CorrCholesky(Constraint):
         )
 
 
-class _CorrMatrix(Constraint):
+class _CorrMatrix(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -212,8 +235,18 @@ class _GreaterThan(Constraint):
     def __call__(self, x):
         return x > self.lower_bound
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={})".format(self.lower_bound)
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
+
+
+class _Positive(_GreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0.0)
 
 
 class _IndependentConstraint(Constraint):
@@ -258,8 +291,25 @@ class _IndependentConstraint(Constraint):
         result = result.all(-1)
         return result
 
+    def __repr__(self):
+        return "{}({}, {})".format(
+            self.__class__.__name__[1:],
+            repr(self.base_constraint),
+            self.reinterpreted_batch_ndims,
+        )
+
     def feasible_like(self, prototype):
         return self.base_constraint.feasible_like(prototype)
+
+
+class _RealVector(_IndependentConstraint, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(_Real(), 1)
+
+
+class _RealMatrix(_IndependentConstraint, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(_Real(), 2)
 
 
 class _LessThan(Constraint):
@@ -268,6 +318,11 @@ class _LessThan(Constraint):
 
     def __call__(self, x):
         return x < self.upper_bound
+
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(upper_bound={})".format(self.upper_bound)
+        return fmt_string
 
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
@@ -283,6 +338,13 @@ class _IntegerInterval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={}, upper_bound={})".format(
+            self.lower_bound, self.upper_bound
+        )
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
@@ -296,8 +358,23 @@ class _IntegerGreaterThan(Constraint):
     def __call__(self, x):
         return (x % 1 == 0) & (x >= self.lower_bound)
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={})".format(self.lower_bound)
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
+
+
+class _IntegerPositive(_IntegerGreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(1)
+
+
+class _IntegerNonnegative(_IntegerGreaterThan, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0)
 
 
 class _Interval(Constraint):
@@ -308,13 +385,49 @@ class _Interval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound)
 
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={}, upper_bound={})".format(
+            self.lower_bound, self.upper_bound
+        )
+        return fmt_string
+
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(
             (self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype)
         )
 
+    def __eq__(self, other):
+        return (
+            isinstance(other, _Interval)
+            and self.lower_bound == other.lower_bound
+            and self.upper_bound == other.upper_bound
+        )
 
-class _LowerCholesky(Constraint):
+
+class _Circular(_Interval, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(-math.pi, math.pi)
+
+
+class _UnitInterval(_Interval, _SingletonConstraint):
+    def __init__(self):
+        super().__init__(0.0, 1.0)
+
+
+class _OpenInterval(_Interval):
+    def __call__(self, x):
+        return (x > self.lower_bound) & (x < self.upper_bound)
+
+    def __repr__(self):
+        fmt_string = self.__class__.__name__[1:]
+        fmt_string += "(lower_bound={}, upper_bound={})".format(
+            self.lower_bound, self.upper_bound
+        )
+        return fmt_string
+
+
+class _LowerCholesky(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -350,7 +463,24 @@ class _Multinomial(Constraint):
         return jax.numpy.broadcast_to(value, prototype.shape)
 
 
-class _OrderedVector(Constraint):
+class _L1Ball(_SingletonConstraint):
+    """
+    Constrain to the L1 ball of any dimension.
+    """
+
+    event_dim = 1
+    reltol = 10.0  # Relative to finfo.eps.
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        eps = jnp.finfo(x.dtype).eps
+        return jnp.abs(x).sum(axis=-1) < 1 + self.reltol * eps
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
+
+class _OrderedVector(_SingletonConstraint):
     event_dim = 1
 
     def __call__(self, x):
@@ -362,7 +492,7 @@ class _OrderedVector(Constraint):
         )
 
 
-class _PositiveDefinite(Constraint):
+class _PositiveDefinite(_SingletonConstraint):
     event_dim = 2
 
     def __call__(self, x):
@@ -379,7 +509,7 @@ class _PositiveDefinite(Constraint):
         )
 
 
-class _PositiveOrderedVector(Constraint):
+class _PositiveOrderedVector(_SingletonConstraint):
     """
     Constrains to a positive real-valued tensor where the elements are monotonically
     increasing along the `event_shape` dimension.
@@ -396,7 +526,7 @@ class _PositiveOrderedVector(Constraint):
         )
 
 
-class _Real(Constraint):
+class _Real(_SingletonConstraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float("inf")) & (x != float("-inf"))
@@ -405,7 +535,7 @@ class _Real(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _Simplex(Constraint):
+class _Simplex(_SingletonConstraint):
     event_dim = 1
 
     def __call__(self, x):
@@ -416,7 +546,7 @@ class _Simplex(Constraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
-class _SoftplusPositive(_GreaterThan):
+class _SoftplusPositive(_GreaterThan, _SingletonConstraint):
     def __init__(self):
         super().__init__(lower_bound=0.0)
 
@@ -431,7 +561,11 @@ class _SoftplusLowerCholesky(_LowerCholesky):
         )
 
 
-class _Sphere(Constraint):
+class _ScaledUnitLowerCholesky(_LowerCholesky):
+    pass
+
+
+class _Sphere(_SingletonConstraint):
     """
     Constrain to the Euclidean sphere of any dimension.
     """
@@ -454,6 +588,7 @@ class _Sphere(Constraint):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
+circular = _Circular()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
@@ -463,18 +598,22 @@ independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
+l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
-nonnegative_integer = _IntegerGreaterThan(0)
+nonnegative_integer = _IntegerNonnegative()
 ordered_vector = _OrderedVector()
-positive = _GreaterThan(0.0)
+positive = _Positive()
 positive_definite = _PositiveDefinite()
-positive_integer = _IntegerGreaterThan(1)
+positive_integer = _IntegerPositive()
 positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
-real_vector = independent(real, 1)
+real_vector = _RealVector()
+real_matrix = _RealMatrix()
 simplex = _Simplex()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
-unit_interval = _Interval(0.0, 1.0)
+unit_interval = _UnitInterval()
+open_interval = _OpenInterval

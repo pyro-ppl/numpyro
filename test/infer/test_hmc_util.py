@@ -9,8 +9,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import device_put, disable_jit, grad, jit, random, tree_map
+from jax import device_put, disable_jit, grad, jit, random
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.infer.hmc_util import (
@@ -125,7 +126,7 @@ def register_model(init_args):
             p_i={"x": 1.0},
             q_f={"x": jnp.sin(1.0)},
             p_f={"x": jnp.cos(1.0)},
-            m_inv=jnp.array([1.0]),
+            m_inv=np.array([1.0]),
             prec=1e-4,
         )
     ]
@@ -149,7 +150,7 @@ class HarmonicOscillator(object):
             p_i={"x": 0.0, "y": 1.0},
             q_f={"x": 1.0, "y": 0.0},
             p_f={"x": 0.0, "y": 1.0},
-            m_inv=jnp.array([1.0, 1.0]),
+            m_inv=np.array([1.0, 1.0]),
             prec=5.0e-3,
         )
     ]
@@ -158,7 +159,7 @@ class CircularPlanetaryMotion(object):
     @staticmethod
     def kinetic_fn(m_inv, p):
         z = jnp.stack([p["x"], p["y"]], axis=-1)
-        return 0.5 * jnp.dot(m_inv, z ** 2)
+        return 0.5 * jnp.dot(m_inv, z**2)
 
     @staticmethod
     def potential_fn(q):
@@ -174,7 +175,7 @@ class CircularPlanetaryMotion(object):
             p_i={"x": 0.0},
             q_f={"x": -0.02},
             p_f={"x": 0.0},
-            m_inv=jnp.array([1.0]),
+            m_inv=np.array([1.0]),
             prec=1.0e-4,
         )
     ]
@@ -231,14 +232,14 @@ def test_velocity_verlet(jitted, example):
 @pytest.mark.parametrize("init_step_size", [0.1, 10.0])
 def test_find_reasonable_step_size(jitted, init_step_size):
     def kinetic_fn(m_inv, p):
-        return 0.5 * jnp.sum(m_inv * p ** 2)
+        return 0.5 * jnp.sum(m_inv * p**2)
 
     def potential_fn(q):
-        return 0.5 * q ** 2
+        return 0.5 * q**2
 
     p_generator = lambda prototype, m_inv, rng_key: 1.0  # noqa: E731
     q = 0.0
-    m_inv = jnp.array([1.0])
+    m_inv = np.array([1.0])
 
     fn = (
         jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
@@ -404,14 +405,14 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
 @pytest.mark.parametrize("step_size", [0.01, 1.0, 100.0])
 def test_build_tree(step_size):
     def kinetic_fn(m_inv, p):
-        return 0.5 * jnp.sum(m_inv * p ** 2)
+        return 0.5 * jnp.sum(m_inv * p**2)
 
     def potential_fn(q):
-        return 0.5 * q ** 2
+        return 0.5 * q**2
 
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     vv_state = vv_init(0.0, 1.0)
-    inverse_mass_matrix = jnp.array([1.0])
+    inverse_mass_matrix = np.array([1.0])
     rng_key = random.PRNGKey(0)
 
     @jit

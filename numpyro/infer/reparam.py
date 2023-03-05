@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
+import math
 
+import numpy as np
+
+import jax
 import jax.numpy as jnp
 
 import numpyro
@@ -10,6 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
 from numpyro.distributions.util import is_identically_one, safe_normalize, sum_rightmost
 from numpyro.infer.autoguide import AutoContinuous
+from numpyro.util import not_jax_tracer
 
 
 class Reparam(ABC):
@@ -77,11 +82,19 @@ class LocScaleReparam(Reparam):
     """
 
     def __init__(self, centered=None, shape_params=()):
-        assert centered is None or isinstance(centered, (int, float))
+        assert centered is None or isinstance(
+            centered, (int, float, np.generic, np.ndarray, jnp.ndarray, jax.core.Tracer)
+        )
         assert isinstance(shape_params, (tuple, list))
         assert all(isinstance(name, str) for name in shape_params)
-        if isinstance(centered, (int, float)):
-            assert 0 <= centered and centered <= 1
+        if centered is not None:
+            is_valid = constraints.unit_interval.check(centered)
+            if not_jax_tracer(is_valid):
+                if not np.all(is_valid):
+                    raise ValueError(
+                        "`centered` argument does not satisfy `0 <= centered <= 1`."
+                    )
+
         self.centered = centered
         self.shape_params = shape_params
 
@@ -89,7 +102,7 @@ class LocScaleReparam(Reparam):
         assert obs is None, "LocScaleReparam does not support observe statements"
         centered = self.centered
         if is_identically_one(centered):
-            return name, fn, obs
+            return fn, obs
         event_shape = fn.event_shape
         fn, expand_shape, event_dim = self._unwrap(fn)
 
@@ -101,8 +114,12 @@ class LocScaleReparam(Reparam):
                 jnp.full(event_shape, 0.5),
                 constraint=constraints.unit_interval,
             )
-        params["loc"] = fn.loc * centered
-        params["scale"] = fn.scale ** centered
+        if isinstance(centered, (int, float, np.generic)) and centered == 0.0:
+            params["loc"] = jnp.zeros_like(fn.loc)
+            params["scale"] = jnp.ones_like(fn.scale)
+        else:
+            params["loc"] = fn.loc * centered
+            params["scale"] = fn.scale**centered
         decentered_fn = self._wrap(type(fn)(**params), expand_shape, event_dim)
 
         # Draw decentered noise.
@@ -131,14 +148,13 @@ class TransformReparam(Reparam):
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
         fn, expand_shape, event_dim = self._unwrap(fn)
-        if isinstance(fn, (dist.Uniform, dist.TruncatedCauchy, dist.TruncatedNormal)):
+        if not isinstance(fn, dist.TransformedDistribution):
             raise ValueError(
                 "TransformReparam does not automatically work with {}"
                 " distribution anymore. Please explicitly using"
                 " TransformedDistribution(base_dist, AffineTransform(...)) pattern"
                 " with TransformReparam.".format(type(fn).__name__)
             )
-        assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
         base_event_dim = event_dim
@@ -187,7 +203,7 @@ class NeuTraReparam(Reparam):
     """
     Neural Transport reparameterizer [1] of multiple latent variables.
 
-    This uses a trained :class:`~pyro.contrib.autoguide.AutoContinuous`
+    This uses a trained :class:`~numpyro.infer.autoguide.AutoContinuous`
     guide to alter the geometry of a model, typically for use e.g. in MCMC.
     Example usage::
 
@@ -234,10 +250,12 @@ class NeuTraReparam(Reparam):
         self._x_unconstrained = {}
 
     def _reparam_config(self, site):
-        if site["name"] in self.guide.prototype_trace and not site.get(
-            "is_observed", False
-        ):
-            return self
+        if site["name"] in self.guide.prototype_trace:
+            # We only reparam if this is an unobserved site in the guide
+            # prototype trace.
+            guide_site = self.guide.prototype_trace[site["name"]]
+            if not guide_site.get("is_observed", False):
+                return self
 
     def reparam(self, fn=None):
         return numpyro.handlers.reparam(fn, config=self._reparam_config)
@@ -288,3 +306,32 @@ class NeuTraReparam(Reparam):
         """
         x_unconstrained = self.transform(latent)
         return self.guide._unpack_and_constrain(x_unconstrained, self.params)
+
+
+class CircularReparam(Reparam):
+    """
+    Reparametrizer for :class:`~numpyro.distributions.VonMises` latent
+    variables.
+    """
+
+    def __call__(self, name, fn, obs):
+        # Support must be circular
+        support = fn.support
+        if isinstance(support, constraints.independent):
+            support = fn.support.base_constraint
+        assert support is constraints.circular
+
+        # Draw parameter-free noise.
+        new_fn = dist.ImproperUniform(constraints.real, fn.batch_shape, fn.event_shape)
+        value = numpyro.sample(
+            f"{name}_unwrapped",
+            new_fn,
+            obs=obs,
+        )
+
+        # Differentiably transform.
+        value = jnp.remainder(value + math.pi, 2 * math.pi) - math.pi
+
+        # Simulate a pyro.deterministic() site.
+        numpyro.factor(f"{name}_factor", fn.log_prob(value))
+        return None, value

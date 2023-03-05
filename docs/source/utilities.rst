@@ -69,6 +69,10 @@ init_to_feasible
 ^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.initialization.init_to_feasible
 
+init_to_mean
+^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_mean
+
 init_to_median
 ^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.initialization.init_to_median
@@ -88,19 +92,30 @@ init_to_value
 Tensor Indexing
 ---------------
 
-.. automodule:: numpyro.contrib.indexing
+.. automodule:: numpyro.ops.indexing
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-Model inspection
+Model Inspection
 ----------------
-.. autofunction:: numpyro.contrib.render.get_model_relations
+
+get_dependencies
+^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.inspect.get_dependencies
+
+get_model_relations
+^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.inspect.get_model_relations
 
 Visualization Utilities
 =======================
 
 render_model
 ------------
-.. autofunction:: numpyro.contrib.render.render_model
+.. autofunction:: numpyro.infer.inspect.render_model
+
+Trace Inspection
+----------------
+.. autofunction:: numpyro.util.format_shapes

@@ -74,7 +74,7 @@ def vindex(tensor, args):
 
     :param jnp.ndarray tensor: A tensor to be indexed.
     :param tuple args: An index, as args to ``__getitem__``.
-    :returns: A nonstandard interpetation of ``tensor[args]``.
+    :returns: A nonstandard interpretation of ``tensor[args]``.
     :rtype: jnp.ndarray
     """
     if not isinstance(args, tuple):

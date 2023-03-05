@@ -132,6 +132,7 @@ class BarkerMH(MCMCKernel):
         self._dense_mass = dense_mass
         self._target_accept_prob = target_accept_prob
         self._init_strategy = init_strategy
+        self._postprocess_fn = None
 
     @property
     def model(self):
@@ -288,6 +289,5 @@ class BarkerMH(MCMCKernel):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state["_postprocess_fn"] = None
         state["_wa_update"] = None
         return state

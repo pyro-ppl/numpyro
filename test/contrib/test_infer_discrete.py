@@ -12,6 +12,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers, infer
+from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions.util import is_identically_one
 
@@ -50,7 +51,6 @@ def log_prob_sum(trace):
 @pytest.mark.parametrize("length", [1, 2, 10])
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_hmm_smoke(length, temperature):
-
     # This should match the example in the infer_discrete docstring.
     def hmm(data, hidden_dim=10):
         transition = 0.3 / hidden_dim + 0.7 * jnp.eye(hidden_dim)
@@ -68,6 +68,49 @@ def test_hmm_smoke(length, temperature):
         return states, data
 
     true_states, data = handlers.seed(hmm, 0)([None] * length)
+    assert len(data) == length
+    assert len(true_states) == 1 + len(data)
+
+    decoder = infer_discrete(
+        config_enumerate(hmm), temperature=temperature, rng_key=random.PRNGKey(1)
+    )
+    inferred_states, _ = decoder(data)
+    assert len(inferred_states) == len(true_states)
+
+    logger.info("true states: {}".format(list(map(int, true_states))))
+    logger.info("inferred states: {}".format(list(map(int, inferred_states))))
+
+
+@pytest.mark.parametrize(
+    "length",
+    [
+        1,
+        2,
+        pytest.param(
+            10,
+            marks=pytest.mark.xfail(
+                reason="adjoint does not work with markov sum product yet."
+            ),
+        ),
+    ],
+)
+@pytest.mark.parametrize("temperature", [0, 1])
+def test_scan_hmm_smoke(length, temperature):
+    # This should match the example in the infer_discrete docstring.
+    def hmm(data, hidden_dim=10):
+        transition = 0.3 / hidden_dim + 0.7 * jnp.eye(hidden_dim)
+        means = jnp.arange(float(hidden_dim))
+
+        def transition_fn(state, y):
+            state = numpyro.sample("states", dist.Categorical(transition[state]))
+            y = numpyro.sample("obs", dist.Normal(means[state], 1.0), obs=y)
+            return state, (state, y)
+
+        _, (states, data) = scan(transition_fn, 0, data, length=length)
+
+        return [0] + [s for s in states], data
+
+    true_states, data = handlers.seed(hmm, 0)(None)
     assert len(data) == length
     assert len(true_states) == 1 + len(data)
 
@@ -342,7 +385,6 @@ def model_zzxx():
 
 
 def model2():
-
     data = [np.array([-1.0, -1.0, 0.0]), np.array([-1.0, 1.0])]
     p = numpyro.param("p", np.array([0.25, 0.75]))
     loc = numpyro.sample("loc", dist.Normal(0, 1).expand([2]).to_event(1))
@@ -360,7 +402,7 @@ def model2():
 @pytest.mark.parametrize("model", [model_zzxx, model2])
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_mcmc_model_side_enumeration(model, temperature):
-    mcmc = infer.MCMC(infer.NUTS(model), 0, 1)
+    mcmc = infer.MCMC(infer.NUTS(config_enumerate(model)), num_warmup=0, num_samples=1)
     mcmc.run(random.PRNGKey(0))
     mcmc_data = {
         k: v[0] for k, v in mcmc.get_samples().items() if k in ["loc", "scale"]
@@ -409,7 +451,7 @@ def test_distribution_masked(temperature):
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {
-        z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0.0, 1.0]
+        z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0, 1]
     }
 
     # Check  posterior over z.

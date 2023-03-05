@@ -35,15 +35,16 @@ import numpy as np
 
 from jax import lax, tree_util
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
-from numpyro.distributions.transforms import ComposeTransform, Transform
+from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
     lazy_property,
     promote_shapes,
     sum_rightmost,
     validate_sample,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints
 
@@ -85,16 +86,17 @@ COERCIONS = []
 
 
 class DistributionMeta(type):
+    def __init__(cls, *args, **kwargs):
+        signature = inspect.signature(functools.partial(cls.__init__, None))
+        cls.__signature__ = signature
+        return super().__init__(*args, **kwargs)
+
     def __call__(cls, *args, **kwargs):
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
                 return result
         return super().__call__(*args, **kwargs)
-
-    @property
-    def __wrapped__(cls):
-        return functools.partial(cls.__init__, None)
 
 
 class Distribution(metaclass=DistributionMeta):
@@ -140,15 +142,13 @@ class Distribution(metaclass=DistributionMeta):
 
     def tree_flatten(self):
         return (
-            tuple(
-                getattr(self, param) for param in sorted(self.arg_constraints.keys())
-            ),
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
             None,
         )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(**dict(zip(sorted(cls.arg_constraints.keys()), params)))
+        return cls(**dict(zip(cls.arg_constraints.keys(), params)))
 
     @staticmethod
     def set_default_validate_args(value):
@@ -156,7 +156,7 @@ class Distribution(metaclass=DistributionMeta):
             raise ValueError
         Distribution._validate_args = value
 
-    def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
+    def __init__(self, batch_shape=(), event_shape=(), *, validate_args=None):
         self._batch_shape = batch_shape
         self._event_shape = event_shape
         if validate_args is not None:
@@ -290,7 +290,8 @@ class Distribution(metaclass=DistributionMeta):
             if not np.all(mask):
                 warnings.warn(
                     "Out-of-support values provided to log prob method. "
-                    "The value argument should be within the support."
+                    "The value argument should be within the support.",
+                    stacklevel=find_stack_level(),
                 )
         return mask
 
@@ -564,7 +565,7 @@ class ExpandedDistribution(Distribution):
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
             sample_shape,
-        )
+        )[0]
 
     @property
     def support(self):
@@ -576,7 +577,8 @@ class ExpandedDistribution(Distribution):
     def sample(self, key, sample_shape=()):
         return self.sample_with_intermediates(key, sample_shape)[0]
 
-    def log_prob(self, value):
+    def log_prob(self, value, intermediates=None):
+        # TODO: utilize `intermediates`
         shape = lax.broadcast_shapes(
             self.batch_shape,
             jnp.shape(value)[: max(jnp.ndim(value) - self.event_dim, 0)],
@@ -677,7 +679,7 @@ class ImproperUniform(Distribution):
     arg_constraints = {}
     support = constraints.dependent
 
-    def __init__(self, support, batch_shape, event_shape, validate_args=None):
+    def __init__(self, support, batch_shape, event_shape, *, validate_args=None):
         self.support = constraints.independent(
             support, len(event_shape) - support.event_dim
         )
@@ -731,7 +733,7 @@ class Independent(Distribution):
 
     arg_constraints = {}
 
-    def __init__(self, base_dist, reinterpreted_batch_ndims, validate_args=None):
+    def __init__(self, base_dist, reinterpreted_batch_ndims, *, validate_args=None):
         if reinterpreted_batch_ndims > len(base_dist.batch_shape):
             raise ValueError(
                 "Expected reinterpreted_batch_ndims <= len(base_distribution.batch_shape), "
@@ -760,8 +762,8 @@ class Independent(Distribution):
         return self.base_dist.has_enumerate_support
 
     @property
-    def reparameterized_params(self):
-        return self.base_dist.reparameterized_params
+    def reparametrized_params(self):
+        return self.base_dist.reparametrized_params
 
     @property
     def mean(self):
@@ -919,7 +921,7 @@ class TransformedDistribution(Distribution):
 
     arg_constraints = {}
 
-    def __init__(self, base_distribution, transforms, validate_args=None):
+    def __init__(self, base_distribution, transforms, *, validate_args=None):
         if isinstance(transforms, Transform):
             transforms = [transforms]
         elif isinstance(transforms, list):
@@ -1051,14 +1053,46 @@ class TransformedDistribution(Distribution):
         )
 
 
+class FoldedDistribution(TransformedDistribution):
+    """
+    Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``,
+    but additionally supports :meth:`log_prob` .
+
+    :param Distribution base_dist: A univariate distribution to reflect.
+    """
+
+    support = constraints.positive
+
+    def __init__(self, base_dist, *, validate_args=None):
+        if base_dist.event_shape:
+            raise ValueError("Only univariate distributions can be folded.")
+        super().__init__(base_dist, AbsTransform(), validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value):
+        dim = max(len(self.batch_shape), jnp.ndim(value))
+        plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
+        return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_dist.tree_flatten()
+        return base_flatten, (type(self.base_dist), base_aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        base_cls, base_aux = aux_data
+        base_dist = base_cls.tree_unflatten(base_aux, params)
+        return cls(base_dist)
+
+
 class Delta(Distribution):
     arg_constraints = {
         "v": constraints.dependent(is_discrete=False),
         "log_density": constraints.real,
     }
-    reparameterized_params = ["v", "log_density"]
+    reparametrized_params = ["v", "log_density"]
 
-    def __init__(self, v=0.0, log_density=0.0, event_dim=0, validate_args=None):
+    def __init__(self, v=0.0, log_density=0.0, event_dim=0, *, validate_args=None):
         if event_dim > jnp.ndim(v):
             raise ValueError(
                 "Expected event_dim <= v.dim(), actual {} vs {}".format(
@@ -1117,7 +1151,7 @@ class Unit(Distribution):
     arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
 
-    def __init__(self, log_factor, validate_args=None):
+    def __init__(self, log_factor, *, validate_args=None):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
         self.log_factor = log_factor

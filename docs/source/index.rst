@@ -13,7 +13,11 @@ NumPyro documentation
    :maxdepth: 1
    :caption: API and Developer Reference
 
-   api
+   primitives
+   distributions
+   infer
+   handlers
+   contrib
    Change Log <https://github.com/pyro-ppl/numpyro/releases>
 
 .. nbgallery::
@@ -27,7 +31,10 @@ NumPyro documentation
    examples/vae
    examples/funnel
    examples/stochastic_volatility
+   examples/prodlda
    tutorials/model_rendering
+   tutorials/bad_posterior_geometry
+   tutorials/truncated_distributions
 
 .. nbgallery::
    :maxdepth: 1
@@ -37,6 +44,7 @@ NumPyro documentation
    examples/annotation
    examples/hmm_enum
    examples/capture_recapture
+   examples/gaussian_shells
    tutorials/discrete_imputation
 
 .. nbgallery::
@@ -49,15 +57,34 @@ NumPyro documentation
    tutorials/bayesian_imputation
    examples/gp
    examples/bnn
+   examples/dais_demo
    examples/sparse_regression
+   examples/horseshoe_regression
    examples/proportion_test
    examples/ucbadmit
-   examples/hmcecs
    examples/hmm
+   examples/hsgp
    examples/ode
    examples/neutra
-   examples/covtype
    examples/thompson_sampling
+   tutorials/bayesian_hierarchical_stacking
+   examples/ssbvm_mixture
+   examples/ar2
+   examples/holt_winters
+   examples/mortality
+   examples/zero_inflated_poisson
+   examples/cvae
+   tutorials/tbip
+
+.. nbgallery::
+   :maxdepth: 1
+   :caption: Other Inference Algorithms
+   :name: other-inference-algorithms
+
+   examples/covtype
+   examples/hmcecs
+   examples/stein_bnn
+   examples/stein_dmm
 
 
 Indices and tables
