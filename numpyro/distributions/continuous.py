@@ -682,12 +682,12 @@ class Gompertz(Distribution):
     The CDF, in terms of `concentration` and `rate`, is
 
     .. math::
-        F(x) = 1 - \\exp \\left\\{ - \\text{concentration} * \\left [ \\exp\\{\\frac{x}{\\text{rate}}\\} - 1 \\right ] \\right\\}
+        F(x) = 1 - \\exp \\left\\{ - \\text{con} * \\left [ \\exp\\{\\frac{x}{\\text{rate}}\\} - 1 \\right ] \\right\\}
 
     or, equivalently, for `scale = 1 / rate`,
 
     .. math::
-        F(x) = 1 - \\exp \\left\\{ - \\text{concentration} * \\left [ \\exp\\{\\text{scale} \\cdot x \\} - 1 \\right ] \\right\\}
+        F(x) = 1 - \\exp \\left\\{ - \\text{con} * \\left [ \\exp\\{\\text{scale} \\cdot x \\} - 1 \\right ] \\right\\}
     """
 
     arg_constraints = {
