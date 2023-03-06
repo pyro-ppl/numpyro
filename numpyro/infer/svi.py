@@ -111,13 +111,13 @@ class SVI(object):
         >>> params = svi_result.params
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
         >>> # use guide to make predictive
-        >>> predictive = Predictive(model, guide, params=params, num_samples=1000)
+        >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
         >>> samples = predictive(random.PRNGKey(1), data=None)
         >>> # get posterior samples
         >>> predictive = Predictive(guide, params=params, num_samples=1000)
         >>> posterior_samples = predictive(random.PRNGKey(1), data=None)
         >>> # use posterior samples to make predictive
-        >>> predictive = Predictive(model, guide, params=params, num_samples=1000)
+        >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
         >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param model: Python callable with Pyro primitives for the model.
