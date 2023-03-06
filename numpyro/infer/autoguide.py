@@ -1978,7 +1978,7 @@ class AutoRVRS(AutoContinuous):
 
         def model_log_density(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block():
+            with numpyro.handlers.block(expose_types=["param"]):
                 return -self._potential_fn(x_unpack)
 
         if self.adaptation_scheme == "fixed":
