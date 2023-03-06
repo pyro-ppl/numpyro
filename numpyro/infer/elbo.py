@@ -560,12 +560,15 @@ def _substitute_nonreparam(data, msg):
         return value
 
 
-def _get_latents(guide, args, kwargs, params):
+def _get_latents(model, guide, args, kwargs, params):
+    model = seed(substitute(model, data=params), rng_seed=0)
     guide = seed(substitute(guide, data=params), rng_seed=0)
     guide_tr = trace(guide).get_trace(*args, **kwargs)
+    model_tr = trace(replay(model, guide_tr)).get_trace(*args, **kwargs)
+    model_tr.update(guide_tr)
     return {
         name: site["value"]
-        for name, site in guide_tr.items()
+        for name, site in model_tr.items()
         if site["type"] == "sample" and not site.get("is_observed", False)
     }
 
@@ -573,7 +576,9 @@ def _get_latents(guide, args, kwargs, params):
 def get_nonreparam_deps(model, guide, args, kwargs, param_map, latents=None):
     """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
     if latents is None:
-        latents = eval_shape(partial(_get_latents, guide, args, kwargs, param_map))
+        latents = eval_shape(
+            partial(_get_latents, model, guide, args, kwargs, param_map)
+        )
 
     def fn(**latents):
         subs_fn = partial(_substitute_nonreparam, latents)
