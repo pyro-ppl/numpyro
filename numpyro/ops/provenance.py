@@ -94,7 +94,7 @@ track_deps_rules = {}
 
 # XXX: Currently, we use default rule for scan_p, cond_p, while_p, remat_p
 def _default_track_deps_rules(eqn, provenance_inputs):
-    provenance_outputs = frozenset.union(*provenance_inputs)
+    provenance_outputs = frozenset().union(*provenance_inputs)
     return [provenance_outputs] * len(eqn.outvars)
 
 
