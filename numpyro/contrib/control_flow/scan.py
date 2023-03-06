@@ -282,7 +282,6 @@ def scan_wrapper(
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         with handlers.block():
-
             # we need to tell unconstrained messenger in potential energy computation
             # that only the item at time `i` is needed when transforming
             fn = handlers.infer_config(

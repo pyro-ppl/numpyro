@@ -173,7 +173,6 @@ def test_iteration():
 
 def test_nesting():
     def testing():
-
         with markov():
             v1 = to_data(Tensor(jnp.ones(2), OrderedDict([("1", Bint[2])]), "real"))
             print(1, v1.shape)  # shapes should alternate

@@ -23,6 +23,7 @@ from numpyro.contrib.funsor.enum_messenger import (
 )
 from numpyro.contrib.funsor.infer_util import (
     config_enumerate,
+    config_kl,
     log_density,
     plate_to_enum_plate,
 )
@@ -32,6 +33,7 @@ funsor.set_backend("jax")
 
 __all__ = [
     "config_enumerate",
+    "config_kl",
     "enum",
     "infer_config",
     "infer_discrete",
