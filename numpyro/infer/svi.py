@@ -117,7 +117,7 @@ class SVI(object):
         >>> predictive = Predictive(guide, params=params, num_samples=1000)
         >>> posterior_samples = predictive(random.PRNGKey(1), data=None)
         >>> # use posterior samples to make predictive
-        >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+        >>> predictive = Predictive(model, posterior_samples, params=params, num_samples=1000)
         >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param model: Python callable with Pyro primitives for the model.
