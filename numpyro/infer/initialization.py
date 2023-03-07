@@ -47,8 +47,8 @@ def init_to_median(site=None, num_samples=15):
 
 def init_to_mean(site=None):
     """
-    Initialize to the prior mean. For priors with no `.sample` method implemented,
-    we defer to the :func:`init_to_uniform` strategy.
+    Initialize to the prior mean. For priors with no `.mean` property implemented,
+    we defer to the :func:`init_to_median` strategy.
     """
     if site is None:
         return partial(init_to_mean)
@@ -66,13 +66,13 @@ def init_to_mean(site=None):
             )
             return site["value"]
         try:
-            # Try .mean() method.
+            # Try .mean property.
             value = site["fn"].mean
             sample_shape = site["kwargs"].get("sample_shape")
             if sample_shape:
                 value = jnp.broadcast_to(value, sample_shape + jnp.shape(value))
         except (NotImplementedError, ValueError):
-            return init_to_uniform(site)
+            return init_to_median(site)
 
 
 def init_to_sample(site=None):
