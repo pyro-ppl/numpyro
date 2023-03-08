@@ -417,6 +417,9 @@ class EulerMaruyama(Distribution):
 
         return sde_log_prob + init_log_prob
 
+    def tree_flatten(self):
+        raise NotImplementedError
+
 
 class Exponential(Distribution):
     reparametrized_params = ["rate"]
@@ -506,7 +509,15 @@ class Chi2(Gamma):
 
     def __init__(self, df, *, validate_args=None):
         self.df = df
-        super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
+        super(Gamma, self).__init__(jnp.shape(df), validate_args=validate_args)
+
+    @property
+    def concentration(self):
+        return 0.5 * self.df
+
+    @property
+    def rate(self):
+        return 0.5
 
 
 class GaussianRandomWalk(Distribution):
@@ -550,11 +561,7 @@ class GaussianRandomWalk(Distribution):
         )
 
     def tree_flatten(self):
-        return (self.scale,), self.num_steps
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(*params, num_steps=aux_data)
+        return (self.scale,), ("scale", {"num_steps": self.num_steps})
 
 
 class HalfCauchy(Distribution):
@@ -563,11 +570,14 @@ class HalfCauchy(Distribution):
     arg_constraints = {"scale": constraints.positive}
 
     def __init__(self, scale=1.0, *, validate_args=None):
-        self._cauchy = Cauchy(0.0, scale)
         self.scale = scale
         super(HalfCauchy, self).__init__(
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
+
+    @property
+    def _cauchy(self):
+        return Cauchy(0.0, self.scale)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -598,11 +608,14 @@ class HalfNormal(Distribution):
     arg_constraints = {"scale": constraints.positive}
 
     def __init__(self, scale=1.0, *, validate_args=None):
-        self._normal = Normal(0.0, scale)
         self.scale = scale
         super(HalfNormal, self).__init__(
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
+
+    @property
+    def _normal(self):
+        return Normal(0.0, self.scale)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -883,12 +896,8 @@ class LKJ(TransformedDistribution):
         )
 
     def tree_flatten(self):
-        return (self.concentration,), (self.dimension, self.sample_method)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method = aux_data
-        return cls(dimension, *params, sample_method=sample_method)
+        extra = {"dimension": self.dimension, "sample_method": self.sample_method}
+        return (self.concentration,), ("concentration", extra)
 
 
 class LKJCholesky(Distribution):
@@ -950,11 +959,21 @@ class LKJCholesky(Distribution):
     ):
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
+        if sample_method not in ["onion", "cvine"]:
+            raise ValueError("`method` should be one of 'cvine' or 'onion'.")
         self.dimension = dimension
         self.concentration = concentration
+        self.sample_method = sample_method
         batch_shape = jnp.shape(concentration)
         event_shape = (dimension, dimension)
+        super(LKJCholesky, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
 
+    @lazy_property
+    def _beta(self):
         # We construct base distributions to generate samples for each method.
         # The purpose of this base distribution is to generate a distribution for
         # correlation matrices which is propotional to `det(M)^{\eta - 1}`.
@@ -963,33 +982,25 @@ class LKJCholesky(Distribution):
         # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2)
         # (up to a linear transform: x -> 2x - 1)
         Dm1 = self.dimension - 1
-        marginal_concentration = concentration + 0.5 * (self.dimension - 2)
+        marginal_concentration = self.concentration + 0.5 * (self.dimension - 2)
         offset = 0.5 * jnp.arange(Dm1)
-        if sample_method == "onion":
+        if self.sample_method == "onion":
             # The following construction follows from the algorithm in Section 3.2 of [1]:
             # NB: in [1], the method for case k > 1 can also work for the case k = 1.
             beta_concentration0 = (
                 jnp.expand_dims(marginal_concentration, axis=-1) - offset
             )
             beta_concentration1 = offset + 0.5
-            self._beta = Beta(beta_concentration1, beta_concentration0)
-        elif sample_method == "cvine":
+            beta = Beta(beta_concentration1, beta_concentration0)
+        else:
             # The following construction follows from the algorithm in Section 2.4 of [1]:
             # offset_tril is [0, 1, 1, 2, 2, 2,...] / 2
             offset_tril = matrix_to_tril_vec(jnp.broadcast_to(offset, (Dm1, Dm1)))
             beta_concentration = (
                 jnp.expand_dims(marginal_concentration, axis=-1) - offset_tril
             )
-            self._beta = Beta(beta_concentration, beta_concentration)
-        else:
-            raise ValueError("`method` should be one of 'cvine' or 'onion'.")
-        self.sample_method = sample_method
-
-        super(LKJCholesky, self).__init__(
-            batch_shape=batch_shape,
-            event_shape=event_shape,
-            validate_args=validate_args,
-        )
+            beta = Beta(beta_concentration, beta_concentration)
+        return beta
 
     def _cvine(self, key, size):
         # C-vine method first uses beta_dist to generate partial correlations,
@@ -1094,12 +1105,8 @@ class LKJCholesky(Distribution):
         return unnormalized - normalize_term
 
     def tree_flatten(self):
-        return (self.concentration,), (self.dimension, self.sample_method)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method = aux_data
-        return cls(dimension, *params, sample_method=sample_method)
+        extra = {"dimension": self.dimension, "sample_method": self.sample_method}
+        return (self.concentration,), ("concentration", extra)
 
 
 class LogNormal(TransformedDistribution):
@@ -1124,6 +1131,7 @@ class LogNormal(TransformedDistribution):
 
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
+    # TODO: unflatten LogNormal does not have base_dist, transforms attributes
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
@@ -1176,14 +1184,13 @@ class LogUniform(TransformedDistribution):
     def __init__(self, low, high, *, validate_args=None):
         base_dist = Uniform(jnp.log(low), jnp.log(high))
         self.low, self.high = promote_shapes(low, high)
-        self._support = constraints.interval(self.low, self.high)
         super(LogUniform, self).__init__(
             base_dist, ExpTransform(), validate_args=validate_args
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
-        return self._support
+        return constraints.interval(self.low, self.high)
 
     @property
     def mean(self):
@@ -2274,12 +2281,11 @@ class Uniform(Distribution):
     def __init__(self, low=0.0, high=1.0, *, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        self._support = constraints.interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
-        return self._support
+        return constraints.interval(low, high)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape
@@ -2306,10 +2312,10 @@ class Uniform(Distribution):
         return (self.high - self.low) ** 2 / 12.0
 
     def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)) and isinstance(
+        if isinstance(self.support.lower_bound, (int, float)) and isinstance(
             self._support.upper_bound, (int, float)
         ):
-            return (), (self._support.lower_bound, self._support.upper_bound)
+            return (), (self.support.lower_bound, self.support.upper_bound)
         else:
             return (self.low, self.high), ()
 
@@ -2391,6 +2397,7 @@ class BetaProportion(Beta):
     support = constraints.unit_interval
 
     def __init__(self, mean, concentration, *, validate_args=None):
+        # TODO: why not promote mean?
         self.concentration = jnp.broadcast_to(
             concentration, lax.broadcast_shapes(jnp.shape(concentration))
         )
@@ -2435,9 +2442,12 @@ class AsymmetricLaplaceQuantile(Distribution):
         super(AsymmetricLaplaceQuantile, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
-        asymmetry = (1 / ((1 / quantile) - 1)) ** 0.5
-        scale_classic = scale * asymmetry / quantile
-        self._ald = AsymmetricLaplace(loc=loc, scale=scale_classic, asymmetry=asymmetry)
+
+    @lazy_property
+    def _ald(self):
+        asymmetry = (1 / ((1 / self.quantile) - 1)) ** 0.5
+        scale_classic = self.scale * asymmetry / self.quantile
+        return AsymmetricLaplace(loc=self.loc, scale=scale_classic, asymmetry=asymmetry)
 
     def log_prob(self, value):
         if self._validate_args:

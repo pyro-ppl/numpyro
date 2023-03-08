@@ -140,15 +140,15 @@ class Distribution(metaclass=DistributionMeta):
         super().__init_subclass__(**kwargs)
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
-    @classmethod
     def tree_flatten(self):
-        params = {name: getattr(self, param) for param in self.arg_constraints.items()}
-        return tuple(params.values()), tuple(params.keys())
+        params = {name: getattr(self, param) for name, param in self.arg_constraints.items()}
+        # TODO: probably return {"args": names, "kwargs": extra, "attrs": ...}
+        return tuple(params.values()), tuple(params.keys()) + ({},)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         params = dict(zip(aux_data, params))
-        extra_params = aux_data[len(params):]
+        extra_params = aux_data[len(params)]
         params.update(extra_params)
         d = cls.__new__(cls)
         for name, value in params.items():
@@ -1067,6 +1067,7 @@ class TransformedDistribution(Distribution):
             " your usage cases."
         )
 
+    @classmethod
     def tree_unflatten(cls, aux_data, params):
         params = dict(zip(aux_data, params))
         return cls(**params)
@@ -1151,11 +1152,8 @@ class Delta(Distribution):
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
-        return (self.v, self.log_density), self.event_dim
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(*params, event_dim=aux_data)
+        aux_data = ("v", "log_density", {"event_dim": self.event_dim})
+        return (self.v, self.log_density), aux_data
 
 
 class Unit(Distribution):
