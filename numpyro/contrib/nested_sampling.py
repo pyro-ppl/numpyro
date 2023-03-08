@@ -117,10 +117,6 @@ class UniformReparam(Reparam):
         return None, transform(x)
 
 
-# TODO: Consider deprecating this wrapper. It might be better to only provide some
-#  utilities to help converting a NumPyro model to a Jaxns loglikelihood function.
-# TODO(Du Phan): We use TFP.distributions for priors, and general likelihood functions, so I feel this should be
-#  possible.
 class NestedSampler:
     """
     (EXPERIMENTAL) A wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_ ,
@@ -284,18 +280,12 @@ class NestedSampler:
 
         exact_ns = OrigNestedSampler(
             model=model,
-            num_live_points=model.U_ndims * 25,
-            num_parallel_samplers=1,
-            max_samples=1e4,
-            uncert_improvement_patience=2,
             **self.constructor_kwargs,
         )
 
         termination_reason, state = exact_ns(
-            random.PRNGKey(42),
-            term_cond=TerminationCondition(
-                live_evidence_frac=1e-4, **self.termination_kwargs
-            ),
+            rng_sampling,
+            term_cond=TerminationCondition(**self.termination_kwargs),
         )
         results = exact_ns.to_results(state, termination_reason)
 
