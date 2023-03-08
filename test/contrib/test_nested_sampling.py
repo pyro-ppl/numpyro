@@ -9,7 +9,10 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
+try:
+    from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
+except ImportError:
+    pytestmark = pytest.mark.skip(reason="jaxns is not installed")
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
