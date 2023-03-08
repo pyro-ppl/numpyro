@@ -87,7 +87,6 @@ def test_optim_multi_params(optim_class, args, kwargs):
 )
 @pytest.mark.filterwarnings("ignore:.*tree_multimap:FutureWarning")
 def test_numpyrooptim_no_double_jit(optim_class, args, kwargs):
-
     opt = optim_class(*args, **kwargs)
     if not isinstance(opt, optim._NumPyroOptim):
         opt = optim.optax_to_numpyro(opt)

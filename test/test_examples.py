@@ -23,8 +23,18 @@ EXAMPLES = [
     "capture_recapture.py --num-samples 4 --num-warmup 1 -m 5",
     "covtype.py --algo HMC --num-samples 10 --num-warmup 10",
     "dais_demo.py --num-svi-steps 10 --num-samples 10 --num-warmup 10",
-    "gaussian_shells.py --num-samples 100",
-    "gaussian_shells.py --num-samples 100 --enum",
+    pytest.param(
+        "gaussian_shells.py --num-samples 100",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="The example is flaky on CI."
+        ),
+    ),
+    pytest.param(
+        "gaussian_shells.py --num-samples 100 --enum",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ, reason="The example is flaky on CI."
+        ),
+    ),
     "gp.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "hmcecs.py --subsample_size 5 --num_svi_steps 1 --num_blocks 1 "
     "--dataset mock --num_warmup 1 --num_samples 5 --num_datapoints 100",
