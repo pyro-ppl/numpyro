@@ -11,7 +11,7 @@ import jax
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.infer.initialization import init_to_sample
-from numpyro.ops.provenance import ProvenanceArray, eval_provenance, get_provenance
+from numpyro.ops.provenance import eval_provenance
 from numpyro.ops.pytree import PytreeTrace
 
 
@@ -55,7 +55,7 @@ def _get_abstract_trace(model, model_args, model_kwargs):
     return jax.eval_shape(get_trace).trace
 
 
-def _get_log_probs(model, model_args, model_kwargs, sample):
+def _get_log_probs(model, model_args, model_kwargs, **sample):
     # Note: We use seed 0 for parameter initialization.
     with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
         data=sample
@@ -199,14 +199,12 @@ def get_dependencies(
 
     # Find direct prior dependencies among latent and observed sites.
     samples = {
-        name: ProvenanceArray(site["value"], frozenset({name}))
+        name: site["value"]
         for name, site in trace.items()
         if site["type"] == "sample" and not site["is_observed"]
     }
-    sample_deps = get_provenance(
-        eval_provenance(
-            partial(_get_log_probs, model, model_args, model_kwargs), samples
-        )
+    sample_deps = eval_provenance(
+        partial(_get_log_probs, model, model_args, model_kwargs), **samples
     )
     prior_dependencies = {n: {n: set()} for n in plates}  # no deps yet
     for i, downstream in enumerate(sample_sites):
@@ -360,7 +358,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         k: [name for name in trace if name in v] for k, v in plate_samples.items()
     }
 
-    def get_log_probs(sample):
+    def get_log_probs(**sample):
         class substitute_deterministic(handlers.substitute):
             def process_message(self, msg):
                 if msg["type"] == "deterministic":
@@ -384,24 +382,17 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         return provenance_arrays
 
     samples = {
-        name: ProvenanceArray(site["value"], frozenset({name}))
+        name: site["value"]
         for name, site in trace.items()
         if (site["type"] == "sample" and not site["is_observed"])
         or site["type"] == "deterministic"
     }
 
     params = {
-        name: jax.tree_util.tree_map(
-            lambda x: ProvenanceArray(x, frozenset({name})), site["value"]
-        )
-        for name, site in trace.items()
-        if site["type"] == "param"
+        name: site["value"] for name, site in trace.items() if site["type"] == "param"
     }
 
-    sample_and_params = {**samples, **params}
-    sample_params_deps = get_provenance(
-        eval_provenance(get_log_probs, sample_and_params)
-    )
+    sample_params_deps = eval_provenance(get_log_probs, **samples, **params)
 
     sample_sample = {}
     sample_param = {}
