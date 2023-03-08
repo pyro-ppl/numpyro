@@ -3,20 +3,22 @@
 
 from functools import singledispatch
 
-import jax.numpy as jnp
 from jax import random
+import jax.numpy as jnp
 
 try:
     from jaxns import (
         ExactNestedSampler as OrigNestedSampler,
+        Model,
+        NestedSamplerResults,
+        Prior,
+        PriorModelGen,
         TerminationCondition,
         plot_cornerplot,
         plot_diagnostics,
+        resample,
         summary,
-        NestedSamplerResults,
-        resample
     )
-    from jaxns import Model, Prior, PriorModelGen
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
@@ -48,7 +50,7 @@ def uniform_reparam_transform(d):
         return lambda q: outer_transform(uniform_reparam_transform(d.base_dist)(q))
 
     if isinstance(
-            d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
+        d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
     ):
         return lambda q: uniform_reparam_transform(d.base_dist)(q)
 
@@ -173,11 +175,11 @@ class NestedSampler:
     """
 
     def __init__(
-            self,
-            model,
-            *,
-            constructor_kwargs=None,
-            termination_kwargs=None,
+        self,
+        model,
+        *,
+        constructor_kwargs=None,
+        termination_kwargs=None,
     ):
         self.model = model
         self.constructor_kwargs = (
@@ -205,8 +207,8 @@ class NestedSampler:
             site["name"]
             for site in prototype_trace.values()
             if site["type"] == "sample"
-               and not site["is_observed"]
-               and site["infer"].get("enumerate", "") != "parallel"
+            and not site["is_observed"]
+            and site["infer"].get("enumerate", "") != "parallel"
         ]
         deterministics = [
             site["name"]
@@ -224,7 +226,7 @@ class NestedSampler:
             for site in prototype_trace.values()
         )
         if has_enum:
-            from numpyro.contrib.funsor import enum
+            from numpyro.contrib.funsor import enum, log_density as log_density_
 
             max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
             _validate_model(prototype_trace)
@@ -249,12 +251,36 @@ class NestedSampler:
             params = []
             for name in param_names:
                 shape = prototype_trace[name]["fn"].shape()
-                param = yield tfpd.Uniform(low=jnp.zeros(shape), high=jnp.ones(shape), name=name + "_base")
+                param = yield Prior(
+                    tfpd.Uniform(low=jnp.zeros(shape), high=jnp.ones(shape)),
+                    name=name + "_base",
+                )
                 params.append(param)
             return tuple(params)
 
-        model = Model(prior_model=prior_model,
-                      log_likelihood=loglik_fn)
+        model = Model(prior_model=prior_model, log_likelihood=loglik_fn)
+
+        default_constructor_kwargs = dict(
+            num_live_points=model.U_ndims * 25,
+            num_parallel_samplers=1,
+            max_samples=1e4,
+            uncert_improvement_patience=2,
+        )
+        default_termination_kwargs = dict(live_evidence_frac=1e-4)
+        # Fill-in missing values with defaults. This allows user to inspect what was actually used by inspecting
+        # these dictionaries
+        list(
+            map(
+                lambda item: self.constructor_kwargs.setdefault(*item),
+                default_constructor_kwargs.items(),
+            )
+        )
+        list(
+            map(
+                lambda item: self.termination_kwargs.setdefault(*item),
+                default_termination_kwargs.items(),
+            )
+        )
 
         exact_ns = OrigNestedSampler(
             model=model,
@@ -262,12 +288,15 @@ class NestedSampler:
             num_parallel_samplers=1,
             max_samples=1e4,
             uncert_improvement_patience=2,
-            **self.constructor_kwargs
+            **self.constructor_kwargs,
         )
 
-        termination_reason, state = exact_ns(random.PRNGKey(42),
-                                             term_cond=TerminationCondition(live_evidence_frac=1e-4,
-                                                                            **self.termination_kwargs))
+        termination_reason, state = exact_ns(
+            random.PRNGKey(42),
+            term_cond=TerminationCondition(
+                live_evidence_frac=1e-4, **self.termination_kwargs
+            ),
+        )
         results = exact_ns.to_results(state, termination_reason)
 
         # transform base samples back to original domains
@@ -295,8 +324,10 @@ class NestedSampler:
             raise RuntimeError(
                 "NestedSampler.run(...) method should be called first to obtain results."
             )
-
-        return resample(rng_key, self._results.samples, self._results.log_dp_mean, S=num_samples, replace=True)
+        weighted_samples, sample_weights = self.get_weighted_samples()
+        return resample(
+            rng_key, weighted_samples, sample_weights, S=num_samples, replace=True
+        )
 
     def get_weighted_samples(self):
         """
