@@ -28,21 +28,22 @@ except Exception as e:
     long_description = ""
 
 dev_reqs = [
-            "dm-haiku",
-            "flax",
-            "funsor>=0.4.1",
-            "graphviz",
-            "optax>=0.0.6",
-            "pyyaml",  # flax dependency
-            "tensorflow_probability>=0.17.0",
-        ]
+    "dm-haiku",
+    "flax",
+    "funsor>=0.4.1",
+    "graphviz",
+    "optax>=0.0.6",
+    "pyyaml",  # flax dependency
+    "tensorflow_probability>=0.17.0",
+]
 
 if MAJOR_PY_VERSION == 3 and MINOR_PY_VERSION >= 9:
     # TODO(Du Phan): Consider bumping python req to 3.9+
-    dev_reqs.append("jaxns>=2.0.0") # JAXNS req, but requires python >= 3.9 for modern PEP changes to annotations
+    dev_reqs.append(
+        "jaxns>=2.0.0"
+    )  # JAXNS req, but requires python >= 3.9 for modern PEP changes to annotations
 else:
     sys.stderr.write("Unable to meet `jaxns` requirement, as it requires python>=3.9\n")
-
 
 
 setup(

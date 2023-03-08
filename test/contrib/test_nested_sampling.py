@@ -9,6 +9,7 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
+
 try:
     from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
 except ImportError:
