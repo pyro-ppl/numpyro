@@ -22,7 +22,7 @@ try:
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
-        " installed with `pip install jaxns`"
+        " installed with `pip install jaxns` with python>=3.9"
     ) from e
 
 import tensorflow_probability.substrates.jax as tfp

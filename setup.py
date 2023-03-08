@@ -6,6 +6,8 @@ from __future__ import absolute_import, division, print_function
 import os
 import sys
 
+MAJOR_PY_VERSION, MINOR_PY_VERSION = sys.version_info[0], sys.version_info[1]
+
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +26,24 @@ except Exception as e:
     sys.stderr.write("Failed to read README.md:\n  {}\n".format(e))
     sys.stderr.flush()
     long_description = ""
+
+dev_reqs = [
+            "dm-haiku",
+            "flax",
+            "funsor>=0.4.1",
+            "graphviz",
+            "optax>=0.0.6",
+            "pyyaml",  # flax dependency
+            "tensorflow_probability>=0.17.0",
+        ]
+
+if MAJOR_PY_VERSION == 3 and MINOR_PY_VERSION >= 9:
+    # TODO(Du Phan): Consider bumping python req to 3.9+
+    dev_reqs.append("jaxns>=2.0.0") # JAXNS req, but requires python >= 3.9 for modern PEP changes to annotations
+else:
+    sys.stderr.write("Unable to meet `jaxns` requirement, as it requires python>=3.9\n")
+
+
 
 setup(
     name="numpyro",
@@ -58,16 +78,7 @@ setup(
             "pyro-api>=0.1.1",
             "scipy>=1.6,<1.7",
         ],
-        "dev": [
-            "dm-haiku",
-            "flax",
-            "funsor>=0.4.1",
-            "graphviz",
-            "jaxns>=2.0.0",
-            "optax>=0.0.6",
-            "pyyaml",  # flax dependency
-            "tensorflow_probability>=0.17.0",
-        ],
+        "dev": dev_reqs,
         "examples": [
             "arviz",
             "jupyter",
