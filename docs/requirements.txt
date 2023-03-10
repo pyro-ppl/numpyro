@@ -10,6 +10,7 @@ multipledispatch
 nbsphinx==0.8.9
 numpy
 optax
+pillow
 pyyaml
 readthedocs-sphinx-search==0.1.2
 sphinx<5
