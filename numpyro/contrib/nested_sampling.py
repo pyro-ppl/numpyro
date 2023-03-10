@@ -27,8 +27,6 @@ except ImportError as e:
 
 import tensorflow_probability.substrates.jax as tfp
 
-tfpd = tfp.distributions
-
 import numpyro
 import numpyro.distributions as dist
 from numpyro.handlers import reparam, seed, trace
@@ -37,6 +35,8 @@ from numpyro.infer.reparam import Reparam
 from numpyro.infer.util import _guess_max_plate_nesting, _validate_model, log_density
 
 __all__ = ["NestedSampler"]
+
+tfpd = tfp.distributions
 
 
 @singledispatch
@@ -222,7 +222,7 @@ class NestedSampler:
             for site in prototype_trace.values()
         )
         if has_enum:
-            from numpyro.contrib.funsor import enum, log_density as log_density_
+            from numpyro.contrib.funsor import enum
 
             max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
             _validate_model(prototype_trace)
