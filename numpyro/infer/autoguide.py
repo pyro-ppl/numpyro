@@ -1910,7 +1910,6 @@ class AutoRVRS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=1.0,
-        use_batch_sampler=True,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1937,7 +1936,6 @@ class AutoRVRS(AutoContinuous):
         self.T_lr = T_lr
         self.T_exponent = None # 0.25
         self.Z_target = 0.5
-        self.use_batch_sampler = use_batch_sampler
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -1972,11 +1970,8 @@ class AutoRVRS(AutoContinuous):
                 z = self.guide._sample_latent(*args, **kwargs)
             return z
 
-        def guide_log_prob(z, detach_params=False):
-            if detach_params:
-                z_and_params = {f"_{self.prefix}_latent": z, **jax.lax.stop_gradient(params)}
-            else:
-                z_and_params = {f"_{self.prefix}_latent": z, **params}
+        def guide_log_prob(z):
+            z_and_params = {f"_{self.prefix}_latent": z, **jax.lax.stop_gradient(params)}
             with handlers.block():
                 return log_density(self.guide._sample_latent, args, kwargs, z_and_params)[0]
 
@@ -1994,18 +1989,14 @@ class AutoRVRS(AutoContinuous):
             T = T_adapt["value"]
 
         def accept_log_prob_fn(z):
-            guide_lp = guide_log_prob(z, detach_params=True)
+            guide_lp = guide_log_prob(z)
             lw = model_log_density(z) - guide_lp
             a = sigmoid(lw + T)
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         keys = random.split(numpyro.prng_key(), self.S)
-        if self.use_batch_sampler:
-            zs, log_weight, log_a_sum, num_samples, first_log_a, guide_lp = batch_rejection_sampler(
-                accept_log_prob_fn, guide_sampler, keys)
-        else:
-            zs, log_weight, log_a_sum, num_samples, first_log_a, guide_lp = jax.vmap(partial(
-                rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
+        zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler(
+            accept_log_prob_fn, guide_sampler, keys)
         assert zs.shape == (self.S, self.latent_dim)
 
         # compute surrogate elbo
@@ -2017,9 +2008,7 @@ class AutoRVRS(AutoContinuous):
 
         ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
         ratio_bar = stop_gradient(ratio)
-        surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)) + (ratio_bar * Az)
-        surrogate = surrogate.sum()
-        log_Z = logsumexp(log_a_sum) - jnp.log(num_samples.sum())
+        surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
 
         # TODO: double check
         numpyro.factor("surrogate_factor", -surrogate +
@@ -2158,7 +2147,9 @@ def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys):
     last_val, buffer = jax.lax.while_loop(cond_fn, batch_body_fn, (batch_init_val, buffer))
     _, _, _, log_a_sum, num_samples, first_log_a, _, _ = last_val
     z, log_w, guide_lp, _ = buffer
-    return z, log_w, log_a_sum, num_samples, first_log_a, guide_lp
+    log_Z = logsumexp(log_a_sum) - jnp.log(num_samples.sum())
+
+    return z, log_w, log_Z, first_log_a, guide_lp
 
 
 
