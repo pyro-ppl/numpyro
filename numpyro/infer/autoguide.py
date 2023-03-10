@@ -1903,6 +1903,7 @@ class AutoRVRS(AutoContinuous):
         S=4,    # number of samples
         S_min=4,
         T=0.0,
+        T_lr=1.0,
         adaptation_scheme="var",
         epsilon=0.1,
         guide=None,
@@ -1933,8 +1934,8 @@ class AutoRVRS(AutoContinuous):
                 model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix)
 
         self.adaptation_scheme = adaptation_scheme
-        self.T_lr = 1.0
-        self.T_exponent = 0.25
+        self.T_lr = T_lr
+        self.T_exponent = None # 0.25
         self.Z_target = 0.5
         self.use_batch_sampler = use_batch_sampler
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
@@ -2120,18 +2121,18 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
 
 def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys):
     assert keys.ndim == 2
-    S_max = keys.shape[0]
+    S = keys.shape[0]
     prototype_z = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
                            jax.eval_shape(guide_sampler, keys[0]))
     init_val_except_key = (prototype_z, -jnp.inf, -jnp.inf, 0, -jnp.inf, 0, False)
-    batch_init_val_except_key = jax.tree_util.tree_map(
-        lambda x: jnp.broadcast_to(x, (S_max,) + jnp.shape(x)), init_val_except_key)
+    batch_init_val_except_key = tree_map(
+        lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), init_val_except_key)
     batch_init_val = (keys,) + batch_init_val_except_key
     buffer = (batch_init_val[1], batch_init_val[2], batch_init_val[-2], batch_init_val[-1])
 
     def cond_fn(val):
         _, buffer = val
-        return buffer[-1].sum() < S_max
+        return buffer[-1].sum() < S
 
     def body_fn(val):
         key, _, _, log_a_sum, num_samples, first_log_a, _, _ = val
@@ -2147,12 +2148,11 @@ def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys):
     def batch_body_fn(val):
         last_val, buffer = val
         new_val = jax.vmap(body_fn)(last_val)
-        buffer_extend = jax.tree_util.tree_map(
-            lambda a, b: jnp.concatenate([a, b]), buffer,
-            (new_val[1], new_val[2], new_val[-2], new_val[-1]))
-        is_accept = buffer_extend[-1]
-        maybe_accept_indices = jnp.argsort(is_accept)[-S_max:]
-        new_buffer = jax.tree_util.tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
+        buffer_extend = tree_map(
+            lambda a, b: jnp.concatenate([a, b]), buffer, (new_val[1], new_val[2], new_val[-2], new_val[-1]))
+        is_accepted = buffer_extend[-1]
+        maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
+        new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
         return new_val, new_buffer
 
     last_val, buffer = jax.lax.while_loop(cond_fn, batch_body_fn, (batch_init_val, buffer))
