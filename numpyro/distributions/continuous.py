@@ -670,7 +670,7 @@ class InverseGamma(TransformedDistribution):
 
 
 class Gompertz(Distribution):
-    """Gompertz Distribution sampling utilities.
+    r"""Gompertz Distribution sampling utilities.
 
     This implementation is based off the derivations from Wikipedia page for the
     Gompertz distribution. See https://en.wikipedia.org/wiki/Gompertz_distribution.
@@ -682,12 +682,12 @@ class Gompertz(Distribution):
     The CDF, in terms of `concentration` and `rate`, is
 
     .. math::
-        F(x) = 1 - \\exp \\left\\{ - \\text{con} * \\left [ \\exp\\{\\frac{x}{\\text{rate}}\\} - 1 \\right ] \\right\\}
+        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{\frac{x}{\text{rate}}\} - 1 \right ] \right\}
 
     or, equivalently, for `scale = 1 / rate`,
 
     .. math::
-        F(x) = 1 - \\exp \\left\\{ - \\text{con} * \\left [ \\exp\\{\\text{scale} \\cdot x \\} - 1 \\right ] \\right\\}
+        F(x) = 1 - \\exp \left\{ - \text{con} * \left [ \exp\{\text{scale} \cdot x \} - 1 \right ] \right\}
     """
 
     arg_constraints = {
