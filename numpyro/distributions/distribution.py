@@ -143,6 +143,11 @@ class Distribution(metaclass=DistributionMeta):
     def tree_flatten(self):
         params = {name: getattr(self, param) for name, param in self.arg_constraints.items()}
         # TODO: probably return {"args": names, "kwargs": extra, "attrs": ...}
+        # Tricky distributions:
+        #   + All distributions with base_dist
+        #   + TransformedDistribution with transforms attribute
+        # Attrs is used for things like `_support` in Uniform
+        # Probably we need to replace _support by unbroadcasted `_low`, `_high`
         return tuple(params.values()), tuple(params.keys()) + ({},)
 
     @classmethod
