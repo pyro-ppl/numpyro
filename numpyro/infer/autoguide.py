@@ -1917,8 +1917,8 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
-        if adaptation_scheme not in ["fixed", "var", "Z_target"]:
-            raise ValueError("adaptation_scheme must be one of 'fixed' or 'var' or 'Z_target'.")
+        if adaptation_scheme not in ["fixed", "var"]:
+            raise ValueError("adaptation_scheme must be one of 'fixed' or 'var'.")
 
         self.S = S
         self.T = T
@@ -1984,7 +1984,6 @@ class AutoRVRS(AutoContinuous):
             T = self.T
         else:
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
-            A_stats = numpyro.primitives.mutable("A_stats", {"value": jnp.zeros(self.S)})
             num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"]
 
@@ -1998,6 +1997,8 @@ class AutoRVRS(AutoContinuous):
         zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler(
             accept_log_prob_fn, guide_sampler, keys)
         assert zs.shape == (self.S, self.latent_dim)
+
+        numpyro.deterministic("first_log_a", first_log_a)
 
         # compute surrogate elbo
         az = sigmoid(log_weight + T)
@@ -2014,24 +2015,15 @@ class AutoRVRS(AutoContinuous):
         numpyro.factor("surrogate_factor", -surrogate +
                        stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S))
 
-        # TODO: instead of first_log_A we should compute T_grad in rejection_sampler
-        # and thus make use of all samples
-        if self.adaptation_scheme == "Z_target":
-            # Option 1: minimize (Z - Z_target) ** 2
+        if self.adaptation_scheme == "var":
+            # maximize var(a)
             a = stop_gradient(jnp.exp(first_log_a))
-            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
-            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
-        elif self.adaptation_scheme == "var":
-            # Option 2: maximize var(a)
-            a = stop_gradient(jnp.exp(first_log_a))
-            a_delta =  1 / (self.S - 1) * jnp.sum(a) - (self.S / (self.S - 1)) * a
+            a_delta = (jnp.sum(a) - self.S * a) / (self.S - 1)
             T_grad = 2 * jnp.mean(a_delta * (a - self.epsilon) * (1 - a)) / (1 - self.epsilon)
 
-        if self.adaptation_scheme in ["var", "Z_target"]:
             num_updates["value"] = num_updates["value"] + 1
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
-            A_stats["value"] = stop_gradient(first_log_a)
 
         return stop_gradient(zs)
 
