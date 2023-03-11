@@ -2100,46 +2100,44 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
 def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys):
     assert keys.ndim == 2
     S = keys.shape[0]
-    prototype_z = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                           jax.eval_shape(guide_sampler, keys[0]))
-    init_val_except_key = (prototype_z, -jnp.inf, -jnp.inf, 0, -jnp.inf, 0, False)
-    batch_init_val_except_key = tree_map(
-        lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), init_val_except_key)
-    batch_init_val = (keys,) + batch_init_val_except_key
-    buffer = (batch_init_val[1], batch_init_val[2], batch_init_val[-2], batch_init_val[-1])
+    z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+                      jax.eval_shape(guide_sampler, keys[0]))
+    zs_init = tree_map(lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), z_init)
+    neg_inf = jnp.full(S, -jnp.inf)
+    buffer = (zs_init, neg_inf, neg_inf, jnp.full(S, False))
+    init_val = (keys, neg_inf, neg_inf, jnp.array(0), buffer)
 
     def cond_fn(val):
-        _, buffer = val
-        return buffer[-1].sum() < S
+        is_accepted = val[-1][-1]
+        return is_accepted.sum() < S
 
     def body_fn(val):
-        key, _, _, log_a_sum, num_samples, first_log_a, _, _ = val
+        key, log_a_sum = val
         key_next, key_uniform, key_q = random.split(key, 3)
         z = guide_sampler(key_q)
         accept_log_prob, log_weight, guide_lp = accept_log_prob_fn(z)
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob
-        first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
+        # first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
         log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob]))
-        return key_next, z, log_weight, log_a_sum, num_samples + 1, first_log_a, guide_lp, is_accepted
+        return key_next, log_a_sum, (z, log_weight, guide_lp, is_accepted)
 
     def batch_body_fn(val):
-        last_val, buffer = val
-        new_val = jax.vmap(body_fn)(last_val)
+        keys, log_a_sum, first_log_a, num_samples, buffer = val
+        keys_next, log_a_sum, candidate = jax.vmap(body_fn)((keys, log_a_sum))
         buffer_extend = tree_map(
-            lambda a, b: jnp.concatenate([a, b]), buffer, (new_val[1], new_val[2], new_val[-2], new_val[-1]))
+            lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
         is_accepted = buffer_extend[-1]
         maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
         new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
-        return new_val, new_buffer
+        first_log_a = select(num_samples == 0, log_a_sum, first_log_a)
+        return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer
 
-    last_val, buffer = jax.lax.while_loop(cond_fn, batch_body_fn, (batch_init_val, buffer))
-    _, _, _, log_a_sum, num_samples, first_log_a, _, _ = last_val
+    _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
+        cond_fn, batch_body_fn, init_val)
     z, log_w, guide_lp, _ = buffer
-    log_Z = logsumexp(log_a_sum) - jnp.log(num_samples.sum())
-
+    log_Z = logsumexp(log_a_sum) - jnp.log(num_samples * S)
     return z, log_w, log_Z, first_log_a, guide_lp
-
 
 
 def _compose(f, g, x):
