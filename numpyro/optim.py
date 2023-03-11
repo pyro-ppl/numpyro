@@ -84,9 +84,11 @@ class _NumPyroOptim(object):
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        out, aux = fn(params)
-        grads = jax.jacfwd(lambda p: fn(p)[0])(params)
-        # (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        try:
+            (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        except:
+            out, aux = fn(params)
+            grads = jax.jacfwd(lambda p: fn(p)[0])(params)
         return (out, aux), self.update(grads, state)
 
     def eval_and_stable_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):

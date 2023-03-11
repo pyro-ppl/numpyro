@@ -47,7 +47,7 @@ from numpyro.infer.autoguide import (
     AutoSemiDAIS,
     AutoSurrogateLikelihoodDAIS,
     batch_rejection_sampler,
-    rejection_sampler_new,
+    batch_rejection_sampler_custom,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -1043,12 +1043,12 @@ def test_rejection_sampler_grad(T=-2.5, num_mc_samples=10):
     assert_allclose(actual_grad["log_scale"], expected_grad["log_scale"], atol=1e-7)
 
 
-def test_rejection_sampler_new_grad(T=-2.5, num_mc_samples=10):
+def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
     p = dist.Normal(0, 1)
 
     def accept_log_prob_fn(params, z):
         q = dist.Normal(**params)
-        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T)
+        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T), 0., 0.
 
     def guide_sampler(params, key):
         q = dist.Normal(**params)
@@ -1056,9 +1056,9 @@ def test_rejection_sampler_new_grad(T=-2.5, num_mc_samples=10):
 
     def get_z(params_raw, key):
         params = {"loc": params_raw["loc"], "scale": jnp.exp(params_raw["log_scale"])}
-        z, *_ = rejection_sampler_new(partial(accept_log_prob_fn, params),
-                                      partial(guide_sampler, params),
-                                      key)
+        z, *_ = batch_rejection_sampler_custom(partial(accept_log_prob_fn, params),
+                                               partial(guide_sampler, params),
+                                               key)
         return z, z
 
     def sample_z(params_raw, eps):
@@ -1066,8 +1066,7 @@ def test_rejection_sampler_new_grad(T=-2.5, num_mc_samples=10):
 
     params_raw = {"loc": 0.2, "log_scale": jnp.log(1.2)}
     keys = random.split(random.PRNGKey(0), num_mc_samples)
-    actual_grad, z = jax.vmap(jax.jacrev(get_z, has_aux=True), (None, 0))(
-        params_raw, keys)
+    actual_grad, z = jax.jacrev(get_z, has_aux=True)(params_raw, keys)
     eps = (z - params_raw["loc"]) / jnp.exp(params_raw["log_scale"])
     expected_grad = jax.vmap(jax.grad(sample_z), (None, 0))(params_raw, eps)
     assert_allclose(actual_grad["loc"], expected_grad["loc"], atol=1e-7)
