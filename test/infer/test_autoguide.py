@@ -231,8 +231,6 @@ def test_logistic_regression(auto_class, Elbo):
         print("auto_z_0_scale: ", params['auto_z_0_scale'])
     if auto_class == AutoRVRS:
         print("Final T_adapt: {:.4f}".format(svi_state.mutable_state['_T_adapt']['value'].item()))
-        a = np.exp(svi_state.mutable_state['A_stats']['value'])
-        print("Final a: {:.4f} +- {:.4f}    Min/Max: {:.4f} / {:.4f}".format(np.mean(a), np.std(a), np.min(a), np.max(a)))
 
     #assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
 
