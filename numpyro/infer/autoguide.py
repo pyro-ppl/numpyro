@@ -1935,7 +1935,6 @@ class AutoRVRS(AutoContinuous):
         self.adaptation_scheme = adaptation_scheme
         self.T_lr = T_lr
         self.T_exponent = None # 0.25
-        self.Z_target = 0.5
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -1994,8 +1993,7 @@ class AutoRVRS(AutoContinuous):
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         keys = random.split(numpyro.prng_key(), self.S)
-        zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler(
-            accept_log_prob_fn, guide_sampler, keys)
+        zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys)
         assert zs.shape == (self.S, self.latent_dim)
 
         numpyro.deterministic("first_log_a", first_log_a)
@@ -2011,7 +2009,6 @@ class AutoRVRS(AutoContinuous):
         ratio_bar = stop_gradient(ratio)
         surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
 
-        # TODO: double check
         numpyro.factor("surrogate_factor", -surrogate +
                        stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S))
 

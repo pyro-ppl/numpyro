@@ -46,7 +46,7 @@ from numpyro.infer.autoguide import (
     AutoRVRS,
     AutoSemiDAIS,
     AutoSurrogateLikelihoodDAIS,
-    rejection_sampler,
+    batch_rejection_sampler,
     rejection_sampler_new,
 )
 from numpyro.infer.initialization import (
@@ -988,7 +988,7 @@ def test_autosldais(
     assert dais_elbo > mf_elbo + 0.1
 
 
-def test_rejection_sampler(T=-2.5, num_mc_samples=10 ** 4):
+def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
     p = dist.Normal(0, 1)
     q = dist.Normal(0.2, 1.2)
 
@@ -1001,14 +1001,11 @@ def test_rejection_sampler(T=-2.5, num_mc_samples=10 ** 4):
         return q.sample(key)
 
     keys = random.split(random.PRNGKey(0), num_mc_samples)
-    z, _, log_a_sum, num_samples, _, _ = jax.vmap(partial(
-        rejection_sampler, accept_log_prob_fn, guide_sampler))(keys)
 
-    assert jnp.min(num_samples) > 0
+    z, _, log_Z_rejection, _, _ = batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys)
+
     assert_allclose(np.mean(z), 0, atol=0.02)
     assert_allclose(np.std(z), 1, atol=0.03)
-
-    log_Z_rejection = logsumexp(log_a_sum) - jnp.log(num_samples.sum())
 
     z_q = jax.vmap(guide_sampler)(keys)
     log_Z_q = logsumexp(accept_log_prob_fn(z_q)[0]) - jnp.log(num_mc_samples)
