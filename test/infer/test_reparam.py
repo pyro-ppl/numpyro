@@ -390,3 +390,12 @@ def test_unconstrained_reparam_scale():
     )
     log_det_site = handlers.trace(substituted_model).get_trace()["_x_log_det"]
     assert log_det_site["scale"] == 5.0
+
+
+def test_loc_scale_reparam_raise_for_log_normal():
+    def model():
+        numpyro.sample("x", dist.LogNormal(0, 1))
+
+    reparam_model = handlers.reparam(model, config={"x": LocScaleReparam(0)})
+    with pytest.raises(ValueError, match="LocScaleReparam.*"):
+        handlers.seed(reparam_model, rng_seed=0)()

@@ -21,7 +21,7 @@ from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import replay, seed, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim, optax_to_numpyro
 
@@ -95,7 +95,7 @@ class SVI(object):
 
         >>> def model(data):
         ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
-        ...     with numpyro.plate("N", data.shape[0]):
+        ...     with numpyro.plate("N", data.shape[0] if data is not None else 10):
         ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
         >>> def guide(data):
@@ -110,9 +110,15 @@ class SVI(object):
         >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
         >>> params = svi_result.params
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+        >>> # use guide to make predictive
+        >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
         >>> # get posterior samples
         >>> predictive = Predictive(guide, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(1), data)
+        >>> posterior_samples = predictive(random.PRNGKey(1), data=None)
+        >>> # use posterior samples to make predictive
+        >>> predictive = Predictive(model, posterior_samples, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -178,9 +184,15 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(
-            *args, **kwargs, **self.static_kwargs
-        )
+        init_guide_params = {
+            name: site["value"]
+            for name, site in guide_trace.items()
+            if site["type"] == "param"
+        }
+        model_trace = trace(
+            substitute(replay(model_init, guide_trace), init_guide_params)
+        ).get_trace(*args, **kwargs, **self.static_kwargs)
+
         params = {}
         inv_transforms = {}
         mutable_state = {}

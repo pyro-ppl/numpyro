@@ -190,6 +190,40 @@ def test_param():
     assert_allclose(actual_loss, expected_loss, rtol=1e-6)
 
 
+def test_shared_param_init():
+    shared_init = 1.0
+
+    def model():
+        # should receive initial value from guide when used in SVI
+        shared = numpyro.param("shared")
+        assert_allclose(shared, shared_init)
+
+    def guide():
+        numpyro.param("shared", lambda _: shared_init)
+
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    params = svi.get_params(svi_state)
+    # make sure the correct init ended up in the SVI state
+    assert_allclose(params["shared"], shared_init)
+
+
+def test_shared_param():
+    target_value = 5.0
+
+    def model():
+        shared = numpyro.param("shared")
+        # drive the shared parameter toward a target value
+        numpyro.factor("neg_loss", -((shared - target_value) ** 2))
+
+    def guide():
+        numpyro.param("shared", 1.0)
+
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 1000)
+    assert_allclose(svi_result.params["shared"], target_value, atol=0.1)
+
+
 def test_elbo_dynamic_support():
     x_prior = dist.TransformedDistribution(
         dist.Normal(),
