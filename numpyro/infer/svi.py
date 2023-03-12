@@ -38,7 +38,7 @@ SVIRunResult = namedtuple("SVIRunResult", ["params", "state", "losses"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **params** - the optimized parameters.
- - **state** - the last :class:`SVIState`
+ - **state** - the last :data:`SVIState`
  - **losses** - the losses collected at every step.
 """
 
@@ -337,7 +337,7 @@ class SVI(object):
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
             and `losses` is the collected loss during the process.
-        :rtype: SVIRunResult
+        :rtype: :data:`SVIRunResult`
         """
 
         if num_steps < 1:

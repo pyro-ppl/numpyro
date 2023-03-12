@@ -168,14 +168,6 @@ Gamma
     :show-inheritance:
     :member-order: bysource
 
-Gumbel
-^^^^^^
-.. autoclass:: numpyro.distributions.continuous.Gumbel
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 GaussianCopula
 ^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.copula.GaussianCopula
@@ -203,6 +195,14 @@ GaussianRandomWalk
 Gompertz
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Gompertz
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Gumbel
+^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Gumbel
     :members:
     :undoc-members:
     :show-inheritance:

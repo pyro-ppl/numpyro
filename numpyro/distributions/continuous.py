@@ -687,7 +687,7 @@ class Gompertz(Distribution):
     or, equivalently, for `scale = 1 / rate`,
 
     .. math::
-        F(x) = 1 - \\exp \left\{ - \text{con} * \left [ \exp\{\text{scale} \cdot x \} - 1 \right ] \right\}
+        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{\text{scale} \cdot x \} - 1 \right ] \right\}
     """
 
     arg_constraints = {
