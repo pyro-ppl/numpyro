@@ -6,6 +6,7 @@ jax
 jaxlib
 jaxns==1.0.0
 Jinja2<3.1
+matplotlib
 multipledispatch
 nbsphinx==0.8.9
 numpy
