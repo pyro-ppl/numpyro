@@ -16,11 +16,10 @@ try:
     from jaxns.prior_transforms import ContinuousPrior, PriorChain
     from jaxns.prior_transforms.prior import UniformBase
 except ImportError as e:
-    raise e
-    # raise ImportError(
-    #     "To use this module, please install `jaxns` package. It can be"
-    #     " installed with `pip install jaxns`"
-    # ) from e
+    raise ImportError(
+        "To use this module, please install `jaxns` package. It can be"
+        " installed with `pip install jaxns`"
+    ) from e
 
 import numpyro
 import numpyro.distributions as dist
