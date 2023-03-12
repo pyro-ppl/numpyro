@@ -1993,7 +1993,7 @@ class AutoRVRS(AutoContinuous):
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         keys = random.split(numpyro.prng_key(), self.S)
-        zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler(
+        zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler_custom(
             accept_log_prob_fn, guide_sampler, keys)
         assert zs.shape == (self.S, self.latent_dim)
 
@@ -2103,14 +2103,14 @@ def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys):
         z = guide_sampler(key)
         return z, accept_log_prob_fn(z)
 
-    return _rs_impl(sample_and_accept_fn, guide_sampler, keys)[1:]
-
-
-def _rs_impl(sample_and_accept_fn, guide_sampler, keys):
-    assert keys.ndim == 2
-    S = keys.shape[0]
     z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
                       jax.eval_shape(guide_sampler, keys[0]))
+    return _rs_impl(sample_and_accept_fn, z_init, keys)[1:]
+
+
+def _rs_impl(sample_and_accept_fn, z_init, keys):
+    assert keys.ndim == 2
+    S = keys.shape[0]
     zs_init = tree_map(lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), z_init)
     neg_inf = jnp.full(S, -jnp.inf)
     buffer = (keys, zs_init, neg_inf, neg_inf, jnp.full(S, False))
@@ -2154,40 +2154,40 @@ def _compose(f, g, x):
 
 def batch_rejection_sampler_custom(accept_log_prob_fn, guide_sampler, keys):
     key = keys[0]
-    sample_and_accept_fn, sample_and_accept_args = jax.closure_convert(
+    z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+                      jax.eval_shape(guide_sampler, key))
+    sample_and_accept_fn, aux_args = jax.closure_convert(
         partial(_compose, guide_sampler, accept_log_prob_fn), key)
-    sample_fn, sample_args = jax.closure_convert(guide_sampler, key)
-    aux_args = sample_and_accept_args + sample_args
-    return _rs_custom_impl(sample_and_accept_fn, sample_fn, len(sample_and_accept_args), keys, *aux_args)[1:]
+    return _rs_custom_impl(sample_and_accept_fn, z_init, keys, *aux_args)[1:]
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2))
-def _rs_custom_impl(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, keys, *aux_args):
-    sample_and_accept_args = aux_args[:num_sample_and_accept_args]
-    sample_args = aux_args[num_sample_and_accept_args:]
-    closed_sample_fn = lambda key: sample_fn(key, *sample_args)
-    closed_sample_and_accept_fn = lambda key: sample_and_accept_fn(key, *sample_and_accept_args)
-    return _rs_impl(closed_sample_and_accept_fn, closed_sample_fn, keys)
+@partial(jax.custom_vjp, nondiff_argnums=(0,))
+def _rs_custom_impl(sample_and_accept_fn, z_init, keys, *aux_args):
+    closed_sample_and_accept_fn = lambda key: sample_and_accept_fn(key, *aux_args)
+    return _rs_impl(closed_sample_and_accept_fn, z_init, keys)
 
 
-def _rs_fwd(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, keys, *aux_args):
-    out = _rs_custom_impl(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, keys, *aux_args)
-    sample_args = aux_args[num_sample_and_accept_args:]
+def _rs_fwd(sample_and_accept_fn, z_init, keys, *aux_args):
+    out = _rs_custom_impl(sample_and_accept_fn, z_init, keys, *aux_args)
     key_q = out[0]
-    return out, (key_q, sample_args)
+    return out, (key_q, aux_args)
 
 
-def _rs_bwd(sample_and_accept_fn, sample_fn, num_sample_and_accept_args, res, g):
-    key_q, sample_args = res
-    z_grads = g[1]
+def _rs_bwd(sample_and_accept_fn, res, g):
+    key_q, aux_args = res
+    _, z_grads, lw_grads, *_ = g
 
-    def sample_grad(key, z_grad):
-        _, guide_vjp = jax.vjp(partial(sample_fn, key), *sample_args)
-        return guide_vjp(z_grad)
+    def get_z_and_lw(key, *args):
+        z, (_, lw, _) = sample_and_accept_fn(key, *args)
+        return z, lw
 
-    sample_args_grads = jax.vmap(sample_grad)(key_q, z_grads)
+    def sample_grad(key, z_grad, lw_grad):
+        _, guide_vjp = jax.vjp(partial(get_z_and_lw, key), *aux_args)
+        return guide_vjp((z_grad, lw_grad))
+
+    sample_args_grads = jax.vmap(sample_grad)(key_q, z_grads, lw_grads)
     sample_args_grad = jax.tree_util.tree_map(lambda x: x.sum(0), sample_args_grads)
-    return (None,) * (num_sample_and_accept_args + 1) + sample_args_grad
+    return (None, None) + sample_args_grad
 
 
 _rs_custom_impl.defvjp(_rs_fwd, _rs_bwd)
