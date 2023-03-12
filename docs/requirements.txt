@@ -11,6 +11,7 @@ nbsphinx==0.8.9
 numpy
 optax
 pillow
+pylab-sdk
 pyyaml
 readthedocs-sphinx-search==0.1.2
 sphinx<5
