@@ -1891,7 +1891,6 @@ class AutoBNAFNormal(AutoContinuous):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
 
-
 class AutoRVRS(AutoContinuous):
     """
     """
@@ -1901,15 +1900,16 @@ class AutoRVRS(AutoContinuous):
         model,
         *,
         S=4,    # number of samples
-        S_min=4,
         T=0.0,
         T_lr=1.0,
-        adaptation_scheme="var",
+        adaptation_scheme="Z_target",
         epsilon=0.1,
         guide=None,
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=1.0,
+        Z_target=0.33,
+        T_exponent=0.25,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1917,8 +1917,8 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
-        if adaptation_scheme not in ["fixed", "var"]:
-            raise ValueError("adaptation_scheme must be one of 'fixed' or 'var'.")
+        if adaptation_scheme not in ["fixed", "Z_target"]:
+            raise ValueError("adaptation_scheme must be one of 'fixed' or 'Z_target'.")
 
         self.S = S
         self.T = T
@@ -1934,7 +1934,8 @@ class AutoRVRS(AutoContinuous):
 
         self.adaptation_scheme = adaptation_scheme
         self.T_lr = T_lr
-        self.T_exponent = None # 0.25
+        self.T_exponent = T_exponent
+        self.Z_target = Z_target
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -2010,14 +2011,14 @@ class AutoRVRS(AutoContinuous):
         ratio_bar = stop_gradient(ratio)
         surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
 
-        numpyro.factor("surrogate_factor", -surrogate +
-                       stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S))
+        elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
+        numpyro.factor("surrogate_factor", -surrogate + elbo_correction)
 
-        if self.adaptation_scheme == "var":
-            # maximize var(a)
+        if self.adaptation_scheme == "Z_target":
+            # minimize (Z - Z_target) ** 2
             a = stop_gradient(jnp.exp(first_log_a))
-            a_delta = (jnp.sum(a) - self.S * a) / (self.S - 1)
-            T_grad = 2 * jnp.mean(a_delta * (a - self.epsilon) * (1 - a)) / (1 - self.epsilon)
+            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
 
             num_updates["value"] = num_updates["value"] + 1
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
@@ -2192,4 +2193,3 @@ def _rs_bwd(sample_and_accept_fn, res, g):
 
 
 _rs_custom_impl.defvjp(_rs_fwd, _rs_bwd)
-
