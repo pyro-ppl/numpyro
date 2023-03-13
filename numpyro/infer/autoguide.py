@@ -1910,6 +1910,8 @@ class AutoRVRS(AutoContinuous):
         init_scale=1.0,
         Z_target=0.33,
         T_exponent=0.25,
+        buffer_size=100,
+        quantile=0.90,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1917,7 +1919,7 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
-        if adaptation_scheme not in ["fixed", "Z_target"]:
+        if adaptation_scheme not in ["fixed", "Z_target", "quantile"]:
             raise ValueError("adaptation_scheme must be one of 'fixed' or 'Z_target'.")
 
         self.S = S
@@ -1933,9 +1935,11 @@ class AutoRVRS(AutoContinuous):
                 model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix)
 
         self.adaptation_scheme = adaptation_scheme
+        self.quantile = quantile
         self.T_lr = T_lr
         self.T_exponent = T_exponent
         self.Z_target = Z_target
+        self.buffer_size = buffer_size
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -1987,6 +1991,9 @@ class AutoRVRS(AutoContinuous):
             num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"]
 
+        if self.adaptation_scheme == "quantile":
+            quantile_buffer = numpyro.primitives.mutable("_qbuffer", {"value": np.full(self.buffer_size, self.T)})
+
         def accept_log_prob_fn(z):
             guide_lp = guide_log_prob(z)
             lw = model_log_density(z) - guide_lp
@@ -2023,6 +2030,10 @@ class AutoRVRS(AutoContinuous):
             num_updates["value"] = num_updates["value"] + 1
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
+        elif self.adaptation_scheme == "quantile":
+            quantile_buffer["value"] = jnp.concatenate([first_lw, quantile_buffer["value"][:-self.S]])
+            T_adapt["value"] = jnp.where(num_updates["value"] % self.buffer_size == 0,
+                                         - jnp.quantile(quantile_buffer["value"], self.quantile), T_adapt["value"])
 
         return stop_gradient(zs)
 
