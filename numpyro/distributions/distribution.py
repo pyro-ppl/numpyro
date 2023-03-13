@@ -153,12 +153,13 @@ class Distribution(metaclass=DistributionMeta):
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         params = dict(zip(aux_data, params))
-        if len(params) < len(aux_data):
-            extra_params = aux_data[len(params)]
-            params.update(extra_params)
         d = cls.__new__(cls)
         for name, value in params.items():
             setattr(d, name, value)
+        if len(params) < len(aux_data):
+            extra_params = aux_data[len(params)]
+            for name, value in extra_params.items():
+                setattr(d, name, value)
         try:
             batch_shape, event_shape = cls.infer_shapes(
                 **{name: jnp.shape(value) for name, value in params.items()})

@@ -2335,6 +2335,10 @@ class Uniform(Distribution):
         d._low, d._high = params[0], params[1]
         return d
 
+    @staticmethod
+    def infer_shapes(low=(), high=()):
+        return lax.broadcast_shapes(low, high), ()
+
 
 class Weibull(Distribution):
     arg_constraints = {
