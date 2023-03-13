@@ -1910,6 +1910,8 @@ class AutoRVRS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=1.0,
+        Z_target=0.5,
+        T_exponent=0.25,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1917,7 +1919,7 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
-        if adaptation_scheme not in ["fixed", "var"]:
+        if adaptation_scheme not in ["fixed", "var", "Z_target"]:
             raise ValueError("adaptation_scheme must be one of 'fixed' or 'var'.")
 
         self.S = S
@@ -1934,7 +1936,8 @@ class AutoRVRS(AutoContinuous):
 
         self.adaptation_scheme = adaptation_scheme
         self.T_lr = T_lr
-        self.T_exponent = None # 0.25
+        self.T_exponent = T_exponent
+        self.Z_target = Z_target
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -2018,7 +2021,15 @@ class AutoRVRS(AutoContinuous):
             a = stop_gradient(jnp.exp(first_log_a))
             a_delta = (jnp.sum(a) - self.S * a) / (self.S - 1)
             T_grad = 2 * jnp.mean(a_delta * (a - self.epsilon) * (1 - a)) / (1 - self.epsilon)
+        elif self.adaptation_scheme == "Z_target":
+            # minimize (Z - Z_target) ** 2
+            a = stop_gradient(jnp.exp(first_log_a))
+            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1- a))
+        else:
+            T_grad = None
 
+        if T_grad is not None:
             num_updates["value"] = num_updates["value"] + 1
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
