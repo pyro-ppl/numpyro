@@ -141,20 +141,21 @@ class Distribution(metaclass=DistributionMeta):
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
     def tree_flatten(self):
-        params = {name: getattr(self, param) for name, param in self.arg_constraints.items()}
+        params = {name: getattr(self, name) for name in self.arg_constraints.keys()}
         # TODO: probably return {"args": names, "kwargs": extra, "attrs": ...}
         # Tricky distributions:
         #   + All distributions with base_dist
         #   + TransformedDistribution with transforms attribute
         # Attrs is used for things like `_support` in Uniform
         # Probably we need to replace _support by unbroadcasted `_low`, `_high`
-        return tuple(params.values()), tuple(params.keys()) + ({},)
+        return tuple(params.values()), tuple(params.keys())
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         params = dict(zip(aux_data, params))
-        extra_params = aux_data[len(params)]
-        params.update(extra_params)
+        if len(params) < len(aux_data):
+            extra_params = aux_data[len(params)]
+            params.update(extra_params)
         d = cls.__new__(cls)
         for name, value in params.items():
             setattr(d, name, value)
@@ -172,14 +173,12 @@ class Distribution(metaclass=DistributionMeta):
             raise ValueError
         Distribution._validate_args = value
 
-    def __init__(
-        self, batch_shape=(), event_shape=(), *, validate_args=None, in_vmap=False
-    ):
+    def __init__(self, batch_shape=(), event_shape=(), *, validate_args=None):
         self._batch_shape = batch_shape
         self._event_shape = event_shape
         if validate_args is not None:
             self._validate_args = validate_args
-        if self._validate_args and not in_vmap:
+        if self._validate_args:
             for param, constraint in self.arg_constraints.items():
                 if param not in self.__dict__ and isinstance(
                     getattr(type(self), param), lazy_property
@@ -1063,19 +1062,6 @@ class TransformedDistribution(Distribution):
     @property
     def variance(self):
         raise NotImplementedError
-
-    def tree_flatten(self):
-        raise NotImplementedError(
-            "Flatenning TransformedDistribution is only supported for some specific cases."
-            " Consider using `TransformReparam` to convert this distribution to the base_dist,"
-            " which is supported in most situtations. In addition, please reach out to us with"
-            " your usage cases."
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        params = dict(zip(aux_data, params))
-        return cls(**params)
 
 
 class FoldedDistribution(TransformedDistribution):

@@ -655,12 +655,19 @@ class InverseGamma(TransformedDistribution):
     support = constraints.positive
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
-        base_dist = Gamma(concentration, rate)
-        self.concentration = base_dist.concentration
-        self.rate = base_dist.rate
-        super(InverseGamma, self).__init__(
-            base_dist, PowerTransform(-1.0), validate_args=validate_args
+        self.concentration, self.rate = promote_shapes(concentration, rate)
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
+        super(TransformedDistribution, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
         )
+
+    @property
+    def base_dist(self):
+        return Gamma(self.concentration, self.rate)
+
+    @property
+    def transforms(self):
+        return [PowerTransform(-1)]
 
     @property
     def mean(self):
@@ -674,9 +681,6 @@ class InverseGamma(TransformedDistribution):
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-
     def cdf(self, x):
         return 1 - self.base_dist.cdf(1 / x)
 
@@ -689,7 +693,6 @@ class Gumbel(Distribution):
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-
         super(Gumbel, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
@@ -723,7 +726,7 @@ class Gumbel(Distribution):
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
-class Kumaraswamy(TransformedDistribution):
+class Kumaraswamy(Distribution):
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -744,13 +747,7 @@ class Kumaraswamy(TransformedDistribution):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0)
         )
-        base_dist = Uniform(0, 1).expand(batch_shape)
-        transforms = [
-            PowerTransform(1 / concentration0),
-            AffineTransform(1, -1),
-            PowerTransform(1 / concentration1),
-        ]
-        super().__init__(base_dist, transforms, validate_args=validate_args)
+        super().__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -778,9 +775,6 @@ class Kumaraswamy(TransformedDistribution):
     def variance(self):
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
 
 class Laplace(Distribution):
@@ -878,15 +872,20 @@ class LKJ(TransformedDistribution):
     def __init__(
         self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
     ):
-        base_dist = LKJCholesky(dimension, concentration, sample_method)
-        self.dimension, self.concentration = (
-            base_dist.dimension,
-            base_dist.concentration,
-        )
+        self.dimension, self.concentration = dimension, concentration
         self.sample_method = sample_method
-        super(LKJ, self).__init__(
-            base_dist, CorrMatrixCholeskyTransform().inv, validate_args=validate_args
+        batch_shape, event_shape = jnp.shape(concentration), (self.dimension, dimension)
+        super(TransformedDistribution, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
         )
+
+    @property
+    def batch_dist(self):
+        return LKJCholesky(self.dimension, self.concentration, self.sample_method)
+
+    @property
+    def transforms(self):
+        return [CorrMatrixCholeskyTransform().inv]
 
     @property
     def mean(self):
@@ -1115,11 +1114,19 @@ class LogNormal(TransformedDistribution):
     reparametrized_params = ["loc", "scale"]
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
-        base_dist = Normal(loc, scale)
-        self.loc, self.scale = base_dist.loc, base_dist.scale
-        super(LogNormal, self).__init__(
-            base_dist, ExpTransform(), validate_args=validate_args
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        super(TransformedDistribution, self).__init__(
+            batch_shape, validate_args=validate_args
         )
+
+    @property
+    def base_dist(self):
+        return Normal(self.loc, self.scale)
+
+    @property
+    def transforms(self):
+        return [ExpTransform()]
 
     @property
     def mean(self):
@@ -1128,10 +1135,6 @@ class LogNormal(TransformedDistribution):
     @property
     def variance(self):
         return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-    # TODO: unflatten LogNormal does not have base_dist, transforms attributes
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
@@ -1202,9 +1205,6 @@ class LogUniform(TransformedDistribution):
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
@@ -2080,14 +2080,19 @@ class Pareto(TransformedDistribution):
     reparametrized_params = ["scale", "alpha"]
 
     def __init__(self, scale, alpha, *, validate_args=None):
-        self.scale, self.alpha = promote_shapes(scale, alpha)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
-        scale, alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(
-            alpha, batch_shape
-        )
-        base_dist = Exponential(alpha)
-        transforms = [ExpTransform(), AffineTransform(loc=0, scale=scale)]
-        super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
+        self.scale = jnp.broadcast_to(scale, batch_shape)
+        self.alpha = jnp.broadcast_to(alpha, batch_shape)
+        super(TransformedDistribution, self).__init__(
+            batch_shape, validate_args=validate_args)
+
+    @property
+    def base_dist(self):
+        return Exponential(self.alpha)
+
+    @property
+    def transforms(self):
+        return [ExpTransform(), AffineTransform(loc=0, scale=self.scale)]
 
     @property
     def mean(self):
@@ -2114,9 +2119,6 @@ class Pareto(TransformedDistribution):
     def icdf(self, q):
         return self.scale / jnp.power(1 - q, 1 / self.alpha)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-
 
 class RelaxedBernoulliLogits(TransformedDistribution):
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
@@ -2124,12 +2126,16 @@ class RelaxedBernoulliLogits(TransformedDistribution):
 
     def __init__(self, temperature, logits, *, validate_args=None):
         self.temperature, self.logits = promote_shapes(temperature, logits)
-        base_dist = Logistic(logits / temperature, 1 / temperature)
-        transforms = [SigmoidTransform()]
-        super().__init__(base_dist, transforms, validate_args=validate_args)
+        batch_shape = lax.broadcast_shapes(jnp.shape(temperature), jnp.shape(logits))
+        super(TransformedDistribution, self).__init__(batch_shape, validate_args=validate_args)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+    @lazy_property
+    def base_dist(self):
+        return Logistic(self.logits / self.temperature, 1 / self.temperature)
+
+    @lazy_property
+    def transforms(self):
+        return [SigmoidTransform()]
 
 
 def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
