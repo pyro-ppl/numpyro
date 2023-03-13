@@ -675,19 +675,13 @@ class Gompertz(Distribution):
     This implementation is based off the derivations from Wikipedia page for the
     Gompertz distribution. See https://en.wikipedia.org/wiki/Gompertz_distribution.
 
-    However, we call the parameter "eta" a concentration parameter.
-    We also let the user specify a rate parameter instead of the scale parameter "b".
-    The two are related by rate = 1 / scale. By default, `rate` = 1.
+    However, we call the parameter "eta" a concentration parameter and the parameter
+    "b" a rate parameter (as opposed to scale parameter as in wikipedia description.)
 
-    The CDF, in terms of `concentration` and `rate`, is
-
-    .. math::
-        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{\frac{x}{\text{rate}}\} - 1 \right ] \right\}
-
-    or, equivalently, for `scale = 1 / rate`,
+    The CDF, in terms of `concentration` (`con`) and `rate`, is
 
     .. math::
-        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{\text{scale} \cdot x \} - 1 \right ] \right\}
+        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{x * rate \} - 1 \right ] \right\}
     """
 
     arg_constraints = {
@@ -697,7 +691,7 @@ class Gompertz(Distribution):
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
 
-    def __init__(self, concentration, rate=1.0, validate_args=None):
+    def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         super(Gompertz, self).__init__(
             batch_shape=lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate)),
@@ -712,23 +706,23 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        value_over_rate = value / self.rate
+        scaled_value = value * self.rate
         return (
             jnp.log(self.concentration)
-            - jnp.log(self.rate)
-            + value_over_rate
-            - self.concentration * jnp.expm1(value_over_rate)
+            + jnp.log(self.rate)
+            + scaled_value
+            - self.concentration * jnp.expm1(scaled_value)
         )
 
     def cdf(self, value):
-        return -jnp.expm1(-self.concentration * jnp.expm1(value / self.rate))
+        return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
     def icdf(self, q):
-        return self.rate * jnp.log1p(-jnp.log1p(-q) / self.concentration)
+        return jnp.log1p(-jnp.log1p(-q) / self.concentration) / self.rate
 
     @property
     def mean(self):
-        return -self.rate * jnp.exp(self.concentration) * expi(-self.concentration)
+        return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
 
 class Gumbel(Distribution):
