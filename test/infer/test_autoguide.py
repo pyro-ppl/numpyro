@@ -1000,7 +1000,7 @@ def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
 
     keys = random.split(random.PRNGKey(0), num_mc_samples)
 
-    z, _, log_Z_rejection, *_ = batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys)
+    z, _, log_Z_rejection, _, _ = batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys)
 
     assert_allclose(np.mean(z), 0, atol=0.02)
     assert_allclose(np.std(z), 1, atol=0.03)
