@@ -40,12 +40,12 @@ class LeftTruncatedDistribution(Distribution):
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         (self.low,) = promote_shapes(low, shape=batch_shape)
-        self._support = constraints.greater_than(low)
+        self._low = low
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
-        return self._support
+        return constraints.greater_than(self._low)
 
     @lazy_property
     def _tail_prob_at_low(self):
@@ -80,7 +80,7 @@ class LeftTruncatedDistribution(Distribution):
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.lower_bound, (int, float)):
+        if isinstance(self._low, (int, float)):
             return base_flatten, (
                 type(self.base_dist),
                 base_aux,

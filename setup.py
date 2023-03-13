@@ -65,6 +65,7 @@ setup(
             "graphviz",
             "jaxns==1.0.0",
             "optax>=0.0.6",
+            "pylab-sdk",  # jaxns dependency
             "pyyaml",  # flax dependency
             "tensorflow_probability>=0.17.0",
         ],

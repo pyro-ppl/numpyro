@@ -563,6 +563,10 @@ class GaussianRandomWalk(Distribution):
     def tree_flatten(self):
         return (self.scale,), ("scale", {"num_steps": self.num_steps})
 
+    @staticmethod
+    def infer_shape(scale, num_steps=1):
+        return scale, (num_steps,)
+
 
 class HalfCauchy(Distribution):
     reparametrized_params = ["scale"]
@@ -1743,7 +1747,7 @@ class CAR(Distribution):
                      {"is_sparse": self.is_sparse}))
 
     @staticmethod
-    def infer_shapes(loc, correlation, conditional_precision, adj_matrix, is_sparse=None):
+    def infer_shapes(loc, correlation, conditional_precision, adj_matrix, is_sparse=False):
         event_shape = adj_matrix[-1:]
         batch_shape = lax.broadcast_shapes(
             loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
@@ -2285,13 +2289,14 @@ class Uniform(Distribution):
     reparametrized_params = ["low", "high"]
 
     def __init__(self, low=0.0, high=1.0, *, validate_args=None):
+        self._low, self._high = low, high
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
-        return constraints.interval(low, high)
+        return constraints.interval(self._low, self._high)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape
@@ -2318,25 +2323,17 @@ class Uniform(Distribution):
         return (self.high - self.low) ** 2 / 12.0
 
     def tree_flatten(self):
-        if isinstance(self.support.lower_bound, (int, float)) and isinstance(
-            self._support.upper_bound, (int, float)
-        ):
-            return (), (self.support.lower_bound, self.support.upper_bound)
+        if isinstance(self._low, (int, float)) and isinstance(self._high, (int, float)):
+            return (), (self._low, self._high)
         else:
             return (self.low, self.high), ()
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         params = params + aux_data
-        d = Distribution.tree_flatten(cls, ("low", "high"), params)
-        d._support = constraints.interval(*params)
+        d = Distribution.tree_unflatten(cls, params, ("low", "high"))
+        d._low, d._high = params[0], params[1]
         return d
-
-    @staticmethod
-    def infer_shapes(low=(), high=()):
-        batch_shape = lax.broadcast_shapes(low, high)
-        event_shape = ()
-        return batch_shape, event_shape
 
 
 class Weibull(Distribution):

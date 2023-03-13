@@ -363,28 +363,12 @@ class SineBivariateVonMises(Distribution):
             jnp.shape(psi_concentration),
             jnp.shape(correlation),
         )
-        (
-            self.phi_loc,
-            self.psi_loc,
-            self.phi_concentration,
-            self.psi_concentration,
-            self.correlation,
-        ) = promote_shapes(
-            phi_loc,
-            psi_loc,
-            phi_concentration,
-            psi_concentration,
-            correlation,
-            shape=batch_shape,
-        )
-
+        self.phi_loc = jnp.broadcast_to(phi_loc, batch_shape)
+        self.psi_loc = jnp.broadcast_to(psi_loc, batch_shape)
+        self.phi_concentration = jnp.broadcast_to(phi_concentration, batch_shape)
+        self.psi_concentration = jnp.broadcast_to(psi_concentration, batch_shape)
+        self.correlation = jnp.broadcast_to(correlation, batch_shape)
         super().__init__(batch_shape, (2,), validate_args=validate_args)
-
-        self.phi_loc = jnp.broadcast_to(self.phi_loc, batch_shape)
-        self.psi_loc = jnp.broadcast_to(self.psi_loc, batch_shape)
-        self.phi_concentration = jnp.broadcast_to(self.phi_concentration, batch_shape)
-        self.psi_concentration = jnp.broadcast_to(self.psi_concentration, batch_shape)
-        self.correlation = jnp.broadcast_to(self.correlation, batch_shape)
 
     @lazy_property
     def norm_const(self):
@@ -530,6 +514,22 @@ class SineBivariateVonMises(Distribution):
         g1 = jnp.sum(1 / (b + 2 * eig) ** 2, axis=0)
         g2 = jnp.sum(-2 / (b + 2 * eig) ** 3, axis=0)
         return jnp.where(jnp.linalg.norm(eig, axis=0) != 0, b - g1 / g2, b)
+
+    @staticmethod
+    def infer_shapes(
+        phi_loc,
+        psi_loc,
+        phi_concentration,
+        psi_concentration,
+        correlation):
+        batch_shape = lax.broadcast_shapes(
+            phi_loc,
+            psi_loc,
+            phi_concentration,
+            psi_concentration,
+            correlation)
+        event_shape = (2,)
+        return batch_shape, event_shape
 
 
 class ProjectedNormal(Distribution):
