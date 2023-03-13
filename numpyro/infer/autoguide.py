@@ -1993,7 +1993,7 @@ class AutoRVRS(AutoContinuous):
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         keys = random.split(numpyro.prng_key(), self.S)
-        zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler_custom(
+        zs, log_weight, log_Z, first_log_a, first_lw, guide_lp = batch_rejection_sampler_custom(
             accept_log_prob_fn, guide_sampler, keys)
         assert zs.shape == (self.S, self.latent_dim)
 
@@ -2114,7 +2114,7 @@ def _rs_impl(sample_and_accept_fn, z_init, keys):
     zs_init = tree_map(lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), z_init)
     neg_inf = jnp.full(S, -jnp.inf)
     buffer = (keys, zs_init, neg_inf, neg_inf, jnp.full(S, False))
-    init_val = (keys, neg_inf, neg_inf, jnp.array(0), buffer)
+    init_val = (keys, neg_inf, neg_inf, neg_inf, jnp.array(0), buffer)
 
     def cond_fn(val):
         is_accepted = val[-1][-1]
@@ -2130,7 +2130,7 @@ def _rs_impl(sample_and_accept_fn, z_init, keys):
         return key_next, log_a_sum, (key_q, z, log_weight, guide_lp, is_accepted)
 
     def batch_body_fn(val):
-        keys, log_a_sum, first_log_a, num_samples, buffer = val
+        keys, log_a_sum, first_log_a, first_lw, num_samples, buffer = val
         keys_next, log_a_sum, candidate = jax.vmap(body_fn)((keys, log_a_sum))
         buffer_extend = tree_map(
             lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
@@ -2138,13 +2138,14 @@ def _rs_impl(sample_and_accept_fn, z_init, keys):
         maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
         new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
         first_log_a = select(num_samples == 0, log_a_sum, first_log_a)
-        return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer
+        first_lw = select(num_samples == 0, candidate[2], first_lw)
+        return keys_next, log_a_sum, first_log_a, first_lw, num_samples + 1, new_buffer
 
-    _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
+    _, log_a_sum, first_log_a, first_lw, num_samples, buffer = jax.lax.while_loop(
         cond_fn, batch_body_fn, init_val)
     key_q, z, log_w, guide_lp, _ = buffer
     log_Z = logsumexp(log_a_sum) - jnp.log(num_samples * S)
-    return key_q, z, log_w, log_Z, first_log_a, guide_lp
+    return key_q, z, log_w, log_Z, first_log_a, first_lw, guide_lp
 
 
 def _compose(f, g, x):
