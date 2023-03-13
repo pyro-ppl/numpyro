@@ -67,6 +67,7 @@ setup(
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency
             "pyyaml",  # flax dependency
+            "requests",  # pylab dependency
             "tensorflow_probability>=0.17.0",
         ],
         "examples": [
