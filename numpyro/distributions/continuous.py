@@ -670,10 +670,11 @@ class InverseGamma(TransformedDistribution):
 
 
 class Gompertz(Distribution):
-    r"""Gompertz Distribution sampling utilities.
+    r"""Gompertz Distribution.
 
-    This implementation is based off the derivations from Wikipedia page for the
-    Gompertz distribution. See https://en.wikipedia.org/wiki/Gompertz_distribution.
+    The Gompertz distribution is a distribution with support on the positive real line that is closely
+    related to the Gumbel distribution. This implementation follows the notation used in the Wikipedia
+    entry for the Gompertz distribution. See https://en.wikipedia.org/wiki/Gompertz_distribution.
 
     However, we call the parameter "eta" a concentration parameter and the parameter
     "b" a rate parameter (as opposed to scale parameter as in wikipedia description.)
