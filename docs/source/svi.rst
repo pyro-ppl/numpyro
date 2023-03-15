@@ -14,6 +14,10 @@ We offer a brief overview of the three most commonly used ELBO implementations i
     :show-inheritance:
     :member-order: bysource
 
+.. autodata:: numpyro.infer.svi.SVIState
+
+.. autodata:: numpyro.infer.svi.SVIRunResult
+
 ELBO
 ----
 

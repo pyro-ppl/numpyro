@@ -21,7 +21,7 @@ from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import replay, seed, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim, optax_to_numpyro
 
@@ -38,7 +38,7 @@ SVIRunResult = namedtuple("SVIRunResult", ["params", "state", "losses"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **params** - the optimized parameters.
- - **state** - the last :class:`SVIState`
+ - **state** - the last :data:`SVIState`
  - **losses** - the losses collected at every step.
 """
 
@@ -184,9 +184,15 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(
-            *args, **kwargs, **self.static_kwargs
-        )
+        init_guide_params = {
+            name: site["value"]
+            for name, site in guide_trace.items()
+            if site["type"] == "param"
+        }
+        model_trace = trace(
+            substitute(replay(model_init, guide_trace), init_guide_params)
+        ).get_trace(*args, **kwargs, **self.static_kwargs)
+
         params = {}
         inv_transforms = {}
         mutable_state = {}
@@ -331,7 +337,7 @@ class SVI(object):
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
             and `losses` is the collected loss during the process.
-        :rtype: SVIRunResult
+        :rtype: :data:`SVIRunResult`
         """
 
         if num_steps < 1:
