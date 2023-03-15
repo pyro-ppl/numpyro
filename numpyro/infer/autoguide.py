@@ -3,6 +3,7 @@
 
 # Adapted from pyro.infer.autoguide
 from abc import ABC, abstractmethod
+from collections import namedtuple
 from contextlib import ExitStack
 from functools import partial
 import warnings
@@ -14,6 +15,7 @@ from jax import grad, hessian, lax, random
 from jax.tree_util import tree_map
 from jax.lax import stop_gradient, select
 
+from numpyro.infer.hmc_util import dual_averaging, build_adaptation_schedule
 from numpyro.util import _versiontuple, find_stack_level
 
 if _versiontuple(jax.__version__) >= (0, 2, 25):
@@ -1891,6 +1893,74 @@ class AutoBNAFNormal(AutoContinuous):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
 
+TempAdaptState = namedtuple("TempAdaptState", ["temperature", "da_state", "window_idx"])
+
+
+def temperature_adapter(
+    init_temperature,
+    num_adapt_steps,
+    # find_reasonable_temperature=None,
+    target_accept_prob=0.33,
+):
+    """
+    A scheme to adapt tunable temperature during the warmup phase of HMC.
+
+    :param int num_adapt_steps: Number of warmup steps.
+    :param find_reasonable_temperature: A callable to find a reasonable temperature
+        at the beginning of each adaptation window.
+    :param float target_accept_prob: Target acceptance probability for temperature
+        adaptation using Dual Averaging. Increasing this value will lead to a smaller
+        temperature. Default to 0.33.
+    :return: a pair of (`init_fn`, `update_fn`).
+    """
+    da_init, da_update = dual_averaging()
+    adaptation_schedule = build_adaptation_schedule(num_adapt_steps)
+    num_windows = len(adaptation_schedule)
+
+    def init_fn(temperature=-1.0):
+        """
+        :param float temperature: Initial temperature.
+        :return: initial state of the adapt scheme.
+        """
+        # mimic hmc: subtract by log(10) to shrink towards smaller temperature
+        da_state = da_init(jnp.log(10) - temperature)
+        window_idx = jnp.array(0, dtype=jnp.result_type(int))
+        return TempAdaptState(temperature, da_state, window_idx)
+
+    def _update_at_window_end(state):
+        temperature, da_state, window_idx = state
+        da_state = da_init(jnp.log(10) - temperature)
+        return TempAdaptState(temperature, da_state, window_idx)
+
+    def update_fn(t, accept_prob, state):
+        """
+        :param int t: The current time step.
+        :param float accept_prob: Acceptance probability of the current time step.
+        :param state: Current state of the adapt scheme.
+        :return: new state of the adapt scheme.
+        """
+        temperature, da_state, window_idx = state
+        da_state = da_update(target_accept_prob - accept_prob, da_state)
+        # note: at the end of warmup phase, use average of log step_size
+        neg_temperature, neg_temperature_avg, *_ = da_state
+        temperature = jnp.where(t == (num_adapt_steps - 1),
+                                -neg_temperature_avg, -neg_temperature)
+        finfo = jnp.finfo(jnp.result_type(temperature))
+        temperature = jnp.clip(temperature, a_min=finfo.min, a_max=finfo.max)
+
+        # update mass matrix state
+        is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
+        t_at_window_end = t == jnp.asarray(adaptation_schedule)[window_idx, 1]
+        window_idx = jnp.where(t_at_window_end, window_idx + 1, window_idx)
+        state = TempAdaptState(temperature, da_state, window_idx)
+        state = jax.lax.cond(
+            t_at_window_end & is_middle_window,
+            state, _update_at_window_end, state, lambda x: x)
+        return state
+
+    return init_fn(init_temperature), update_fn
+
+
 class AutoRVRS(AutoContinuous):
     """
     """
@@ -1910,6 +1980,7 @@ class AutoRVRS(AutoContinuous):
         init_scale=1.0,
         Z_target=0.33,
         T_exponent=0.25,
+        num_warmup=500,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1917,8 +1988,8 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
-        if adaptation_scheme not in ["fixed", "Z_target"]:
-            raise ValueError("adaptation_scheme must be one of 'fixed' or 'Z_target'.")
+        if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
+            raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
 
         self.S = S
         self.T = T
@@ -1936,6 +2007,7 @@ class AutoRVRS(AutoContinuous):
         self.T_lr = T_lr
         self.T_exponent = T_exponent
         self.Z_target = Z_target
+        self.num_warmup = num_warmup
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -1953,6 +2025,9 @@ class AutoRVRS(AutoContinuous):
         with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
             self.guide(*args, **kwargs)
         self.prototype_guide_trace = tr
+        if self.adaptation_scheme == "dual_averaging":
+            self._da_init_state, self._da_update = temperature_adapter(
+                self.T, self.num_warmup, self.Z_target)
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -1980,12 +2055,16 @@ class AutoRVRS(AutoContinuous):
             with numpyro.handlers.block(expose_types=["param"]):
                 return -self._potential_fn(x_unpack)
 
-        if self.adaptation_scheme == "fixed":
-            T = self.T
-        else:
+        if self.adaptation_scheme == "Z_target":
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
             num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"]
+        elif self.adaptation_scheme == "dual_averaging":
+            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": self._da_init_state})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
+            T = T_adapt["value"].temperature
+        else:
+            T = self.T
 
         def accept_log_prob_fn(z):
             guide_lp = guide_log_prob(z)
@@ -2023,6 +2102,14 @@ class AutoRVRS(AutoContinuous):
             num_updates["value"] = num_updates["value"] + 1
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
+        elif self.adaptation_scheme == "dual_averaging":
+            Z = stop_gradient(jnp.exp(log_Z))
+            t = num_updates["value"]
+            T_adapt["value"] = lax.cond(
+                t < self.num_warmup,
+                (t, Z, T_adapt["value"]), lambda args: self._da_update(*args),
+                T_adapt["value"], lambda x: x)
+            num_updates["value"] = t + 1
 
         return stop_gradient(zs)
 

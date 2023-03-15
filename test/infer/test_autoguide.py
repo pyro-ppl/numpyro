@@ -93,7 +93,7 @@ def test_beta_bernoulli(auto_class):
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
     elif auto_class == AutoRVRS:
-        guide = auto_class(model, S=4, T=13., epsilon=0.1, adaptation_scheme="var",
+        guide = auto_class(model, S=4, T=13., epsilon=0.1, adaptation_scheme="dual_averaging",
                            init_loc_fn=init_strategy, init_scale=1.0)
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
