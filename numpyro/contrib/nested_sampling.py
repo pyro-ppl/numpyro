@@ -22,7 +22,7 @@ try:
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
-        " installed with `pip install jaxns` with python>=3.9"
+        " installed with `pip install jaxns` with python>=3.8"
     ) from e
 
 import tensorflow_probability.substrates.jax as tfp
@@ -222,7 +222,7 @@ class NestedSampler:
             for site in prototype_trace.values()
         )
         if has_enum:
-            from numpyro.contrib.funsor import enum
+            from numpyro.contrib.funsor import enum, log_density as log_density_
 
             max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
             _validate_model(prototype_trace)
