@@ -15,7 +15,7 @@ from jax import grad, hessian, lax, random
 from jax.tree_util import tree_map
 from jax.lax import stop_gradient, select
 
-from numpyro.infer.hmc_util import dual_averaging, build_adaptation_schedule
+from numpyro.infer.hmc_util import dual_averaging
 from numpyro.util import _versiontuple, find_stack_level
 
 if _versiontuple(jax.__version__) >= (0, 2, 25):
@@ -1898,7 +1898,7 @@ TempAdaptState = namedtuple("TempAdaptState", ["temperature", "da_state", "windo
 
 def temperature_adapter(
     init_temperature,
-    num_adapt_steps,
+    num_adapt_steps=float("inf"),
     # find_reasonable_temperature=None,
     target_accept_prob=0.33,
 ):
@@ -1914,23 +1914,21 @@ def temperature_adapter(
     :return: a pair of (`init_fn`, `update_fn`).
     """
     da_init, da_update = dual_averaging()
-    adaptation_schedule = build_adaptation_schedule(num_adapt_steps)
-    num_windows = len(adaptation_schedule)
+    init_window_size = 25
 
     def init_fn(temperature=-1.0):
         """
         :param float temperature: Initial temperature.
         :return: initial state of the adapt scheme.
         """
-        # mimic hmc: subtract by log(10) to shrink towards smaller temperature
-        da_state = da_init(jnp.log(10) - temperature)
+        da_state = da_init(-temperature)
         window_idx = jnp.array(0, dtype=jnp.result_type(int))
         return TempAdaptState(temperature, da_state, window_idx)
 
     def _update_at_window_end(state):
         temperature, da_state, window_idx = state
-        da_state = da_init(jnp.log(10) - temperature)
-        return TempAdaptState(temperature, da_state, window_idx)
+        da_state = da_init(-temperature)
+        return TempAdaptState(temperature, da_state, window_idx + 1)
 
     def update_fn(t, accept_prob, state):
         """
@@ -1941,22 +1939,15 @@ def temperature_adapter(
         """
         temperature, da_state, window_idx = state
         da_state = da_update(target_accept_prob - accept_prob, da_state)
-        # note: at the end of warmup phase, use average of log step_size
+        # note: at the end of warmup phase, use average of log temperature
         neg_temperature, neg_temperature_avg, *_ = da_state
         temperature = jnp.where(t == (num_adapt_steps - 1),
                                 -neg_temperature_avg, -neg_temperature)
-        finfo = jnp.finfo(jnp.result_type(temperature))
-        temperature = jnp.clip(temperature, a_min=finfo.min, a_max=finfo.max)
-
-        # update mass matrix state
-        is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
-        t_at_window_end = t == jnp.asarray(adaptation_schedule)[window_idx, 1]
+        t_at_window_end = t == (init_window_size * (2 ** (window_idx + 1) - 1) - 1)
         window_idx = jnp.where(t_at_window_end, window_idx + 1, window_idx)
-        state = TempAdaptState(temperature, da_state, window_idx)
-        state = jax.lax.cond(
-            t_at_window_end & is_middle_window,
-            state, _update_at_window_end, state, lambda x: x)
-        return state
+        da_state = jax.lax.cond(
+            t_at_window_end, -temperature, da_init, da_state, lambda x: x)
+        return TempAdaptState(temperature, da_state, window_idx)
 
     return init_fn(init_temperature), update_fn
 
@@ -1980,7 +1971,7 @@ class AutoRVRS(AutoContinuous):
         init_scale=1.0,
         Z_target=0.33,
         T_exponent=0.25,
-        num_warmup=500,
+        num_warmup=float("inf"),
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -2103,7 +2094,12 @@ class AutoRVRS(AutoContinuous):
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
         elif self.adaptation_scheme == "dual_averaging":
-            Z = stop_gradient(jnp.exp(log_Z))
+            # Z = stop_gradient(jnp.exp(log_Z))
+            # TODO: use log_a_sum instead of first_log_a?
+            a = stop_gradient(jnp.exp(first_log_a))
+            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
+            Z = self.Z_target + T_grad
             t = num_updates["value"]
             T_adapt["value"] = lax.cond(
                 t < self.num_warmup,
