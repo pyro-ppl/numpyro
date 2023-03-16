@@ -1970,7 +1970,8 @@ class AutoRVRS(AutoContinuous):
         init_loc_fn=init_to_uniform,
         init_scale=1.0,
         Z_target=0.33,
-        T_exponent=0.25,
+        T_exponent=None,
+        gamma=0.9,  # controls momentum (0.0 => no momentum)
         num_warmup=float("inf"),
     ):
         if S < 1:
@@ -1986,6 +1987,8 @@ class AutoRVRS(AutoContinuous):
         self.T = T
         self.epsilon = epsilon
         self.lambd = epsilon / (1 - epsilon)
+        self.gamma = gamma
+
         if guide is not None:
             if not isinstance(guide, AutoContinuous):
                 raise ValueError("We only support AutoContinuous guide in AutoRVRS.")
@@ -2048,6 +2051,8 @@ class AutoRVRS(AutoContinuous):
 
         if self.adaptation_scheme == "Z_target":
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
+            if self.gamma != 0.0:
+                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.array(0.0)})
             num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"]
         elif self.adaptation_scheme == "dual_averaging":
@@ -2091,6 +2096,10 @@ class AutoRVRS(AutoContinuous):
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
 
             num_updates["value"] = num_updates["value"] + 1
+            if self.gamma != 0.0:
+                T_grad_smoothed["value"] = self.gamma * T_grad_smoothed["value"] + (1.0 - self.gamma) * T_grad
+                T_grad = T_grad_smoothed["value"]
+
             T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
         elif self.adaptation_scheme == "dual_averaging":
