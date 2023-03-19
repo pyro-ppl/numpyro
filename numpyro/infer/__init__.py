@@ -6,6 +6,7 @@ from numpyro.infer.elbo import (
     ELBO,
     RenyiELBO,
     Trace_ELBO,
+    TraceEnum_ELBO,
     TraceGraph_ELBO,
     TraceMeanField_ELBO,
 )
@@ -13,6 +14,7 @@ from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.initialization import (
     init_to_feasible,
+    init_to_mean,
     init_to_median,
     init_to_sample,
     init_to_uniform,
@@ -29,6 +31,7 @@ from . import autoguide, reparam
 __all__ = [
     "autoguide",
     "init_to_feasible",
+    "init_to_mean",
     "init_to_median",
     "init_to_sample",
     "init_to_uniform",
@@ -49,6 +52,7 @@ __all__ = [
     "SA",
     "SVI",
     "Trace_ELBO",
+    "TraceEnum_ELBO",
     "TraceGraph_ELBO",
     "TraceMeanField_ELBO",
 ]

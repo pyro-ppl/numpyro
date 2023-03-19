@@ -168,9 +168,17 @@ Gamma
     :show-inheritance:
     :member-order: bysource
 
-Gumbel
-^^^^^^
-.. autoclass:: numpyro.distributions.continuous.Gumbel
+GaussianCopula
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopula
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GaussianCopulaBeta
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.copula.GaussianCopulaBeta
     :members:
     :undoc-members:
     :show-inheritance:
@@ -179,6 +187,22 @@ Gumbel
 GaussianRandomWalk
 ^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.GaussianRandomWalk
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Gompertz
+^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Gompertz
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Gumbel
+^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Gumbel
     :members:
     :undoc-members:
     :show-inheritance:
@@ -264,6 +288,14 @@ Logistic
     :show-inheritance:
     :member-order: bysource
 
+LowRankMultivariateNormal
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 MatrixNormal
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MatrixNormal
@@ -283,30 +315,6 @@ MultivariateNormal
 MultivariateStudentT
 ^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.MultivariateStudentT
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-GaussianCopula
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.copula.GaussianCopula
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-GaussianCopulaBeta
-^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.copula.GaussianCopulaBeta
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-LowRankMultivariateNormal
-^^^^^^^^^^^^^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
     :members:
     :undoc-members:
     :show-inheritance:

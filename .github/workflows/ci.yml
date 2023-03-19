@@ -28,6 +28,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install jaxlib
         pip install jax
+        pip install black
         pip install .[doc,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
@@ -50,7 +51,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -66,12 +67,12 @@ jobs:
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
         pip install jaxlib
         pip install jax
-        pip install .[dev,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install .[dev,test]
         pip freeze
     - name: Test with pytest
       run: |
-        CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/
+        CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
 
 
   test-inference:
@@ -80,7 +81,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -95,13 +96,14 @@ jobs:
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
         pip install jaxlib
         pip install jax
-        pip install .[dev,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install .[dev,test]
         pip freeze
     - name: Test with pytest
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
         pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
+        pytest -vs --durations=20 test/contrib
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
@@ -118,7 +120,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.8]
 
     steps:
     - uses: actions/checkout@v2
@@ -131,8 +133,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install jaxlib
         pip install jax
-        pip install .[dev,examples,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        pip install .[dev,examples,test]
         pip freeze
     - name: Test with pytest
       run: |

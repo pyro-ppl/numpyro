@@ -16,7 +16,7 @@ from numpyro.distributions.util import (
 
 class GaussianCopula(Distribution):
     """
-    A distribution that links the batch_shape[:-1] of marginal distribution `marginal_dist`
+    A distribution that links the `batch_shape[:-1]` of marginal distribution `marginal_dist`
     with a multivariate Gaussian copula modelling the correlation between the axes.
 
     :param Distribution marginal_dist: Distribution whose last batch axis is to be coupled.

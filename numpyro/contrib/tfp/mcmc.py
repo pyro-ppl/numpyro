@@ -74,6 +74,8 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
     This class can be used to convert a TFP kernel to a NumPyro-compatible one
     as follows::
 
+        from numpyro.contrib.tfp.mcmc import TFPKernel
+
         kernel = TFPKernel[tfp.mcmc.NoUTurnSampler](model, step_size=1.)
 
     .. note:: By default, uncalibrated kernels will be inner kernels of the

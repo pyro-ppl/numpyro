@@ -9,8 +9,8 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_jax_version_constraints = ">=0.2.13"
-_jaxlib_version_constraints = ">=0.1.65"
+_jax_version_constraints = ">=0.4"
+_jaxlib_version_constraints = ">=0.4"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
@@ -63,9 +63,12 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==1.0.0",
+            "jaxns>=2.0.1",
+            "matplotlib",
             "optax>=0.0.6",
+            "pylab-sdk",  # jaxns dependency
             "pyyaml",  # flax dependency
+            "requests",  # pylab dependency
             "tensorflow_probability>=0.17.0",
         ],
         "examples": [
@@ -94,9 +97,9 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
     ],
 )
