@@ -212,26 +212,26 @@ class MCMC(object):
 
         .. code-block::python
 
-			import jax
-			from jax.experimental import mesh_utils
-			from jax.sharding import PositionalSharding
-			import numpy as np
-			import numpyro
-			import numpyro.distributions as dist
-			from numpyro.infer import MCMC, NUTS
+            import jax
+            from jax.experimental import mesh_utils
+            from jax.sharding import PositionalSharding
+            import numpy as np
+            import numpyro
+            import numpyro.distributions as dist
+            from numpyro.infer import MCMC, NUTS
 
-			X = np.random.randn(128, 3)
-			y = np.random.randn(128)
+            X = np.random.randn(128, 3)
+            y = np.random.randn(128)
 
-			def model(X, y):
-			    beta = numpyro.sample("beta", dist.Normal(0, 1).expand([3]))
-			    numpyro.sample("obs", dist.Normal(X @ beta, 1), obs=y)
+            def model(X, y):
+                beta = numpyro.sample("beta", dist.Normal(0, 1).expand([3]))
+                numpyro.sample("obs", dist.Normal(X @ beta, 1), obs=y)
 
-			mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
-			sharding = PositionalSharding(mesh_utils.create_device_mesh((8,)))
-			X_shard = jax.device_put(X, sharding.reshape(8, 1))
-			y_shard = jax.device_put(y, sharding.reshape(8))
-			mcmc.run(jax.random.PRNGKey(0), X_shard, y_shard)
+            mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+            sharding = PositionalSharding(mesh_utils.create_device_mesh((8,)))
+            X_shard = jax.device_put(X, sharding.reshape(8, 1))
+            y_shard = jax.device_put(y, sharding.reshape(8))
+            mcmc.run(jax.random.PRNGKey(0), X_shard, y_shard)
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
