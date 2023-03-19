@@ -1971,8 +1971,9 @@ class AutoRVRS(AutoContinuous):
         init_scale=1.0,
         Z_target=0.33,
         T_exponent=None,
-        gamma=0.9,  # controls momentum (0.0 => no momentum)
+        gamma=0.90,  # controls momentum (0.0 => no momentum)
         num_warmup=float("inf"),
+        include_log_Z=True,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1988,6 +1989,7 @@ class AutoRVRS(AutoContinuous):
         self.epsilon = epsilon
         self.lambd = epsilon / (1 - epsilon)
         self.gamma = gamma
+        self.include_log_Z = include_log_Z
 
         if guide is not None:
             if not isinstance(guide, AutoContinuous):
@@ -2086,7 +2088,10 @@ class AutoRVRS(AutoContinuous):
         ratio_bar = stop_gradient(ratio)
         surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
 
-        elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
+        if self.include_log_Z:
+            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
+        else:
+            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum())
         numpyro.factor("surrogate_factor", -surrogate + elbo_correction)
 
         if self.adaptation_scheme == "Z_target":
