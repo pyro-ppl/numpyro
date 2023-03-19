@@ -228,6 +228,7 @@ class MCMC(object):
                 numpyro.sample("obs", dist.Normal(X @ beta, 1), obs=y)
 
             mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+            # See https://jax.readthedocs.io/en/latest/notebooks/Distributed_arrays_and_automatic_parallelization.html
             sharding = PositionalSharding(mesh_utils.create_device_mesh((8,)))
             X_shard = jax.device_put(X, sharding.reshape(8, 1))
             y_shard = jax.device_put(y, sharding.reshape(8))
