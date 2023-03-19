@@ -260,11 +260,13 @@ def _multinomial(key, p, n, n_max, shape=()):
     return jnp.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
-def multinomial(key, p, n, shape=()):
-    assert not isinstance(
-        n, jax.core.Tracer
-    ), "The total count parameter `n` should not be a jax abstract array."
-    n_max = int(np.max(jax.device_get(n)))
+def multinomial(key, p, n, shape=(), total_count_max=None):
+    if total_count_max is None:
+        if isinstance(n, jax.core.Tracer):
+            raise ValueError("Please specify total_count_max in Multinomial distribution.")
+        n_max = int(np.max(jax.device_get(n)))
+    else:
+        n_max = total_count_max
     return _multinomial(key, p, n, n_max, shape)
 
 

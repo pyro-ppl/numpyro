@@ -2743,3 +2743,17 @@ def test_vmapped_binomial_p0():
         return dist.Binomial(total_count=n, probs=0).sample(key)
 
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
+
+
+def test_multinomial_abstract_total_count():
+    probs = jnp.array([0.2, 0.5, 0.3])
+    key = random.PRNGKey(0)
+
+    def f(x):
+        total_count = x.sum(-1)
+        return dist.Multinomial(total_count, probs=probs, total_count_max=10).sample(key)
+
+    x = dist.Multinomial(10, probs).sample(key)
+    y = jax.jit(f)(x)
+    assert_allclose(x, y, rtol=1e-6)
+
