@@ -176,4 +176,3 @@ def test_mcmc_pickle_post_warmup():
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     pickled_mcmc.post_warmup_state = pickled_mcmc.last_state
     pickled_mcmc.run(random.PRNGKey(1))
-
