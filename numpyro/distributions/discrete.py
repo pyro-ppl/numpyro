@@ -505,7 +505,9 @@ class MultinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, probs, total_count=1, *, total_count_max=None, validate_args=None):
+    def __init__(
+        self, probs, total_count=1, *, total_count_max=None, validate_args=None
+    ):
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -523,7 +525,10 @@ class MultinomialProbs(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         return multinomial(
-            key, self.probs, self.total_count, shape=sample_shape + self.batch_shape,
+            key,
+            self.probs,
+            self.total_count,
+            shape=sample_shape + self.batch_shape,
             total_count_max=self.total_count_max,
         )
 
@@ -564,7 +569,9 @@ class MultinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, logits, total_count=1, *, total_count_max=None, validate_args=None):
+    def __init__(
+        self, logits, total_count=1, *, total_count_max=None, validate_args=None
+    ):
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -584,8 +591,11 @@ class MultinomialLogits(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         return multinomial(
-            key, self.probs, self.total_count, shape=sample_shape + self.batch_shape,
-            total_count_max=self.total_count_max
+            key,
+            self.probs,
+            self.total_count,
+            shape=sample_shape + self.batch_shape,
+            total_count_max=self.total_count_max,
         )
 
     @validate_sample
@@ -622,13 +632,23 @@ class MultinomialLogits(Distribution):
         return batch_shape, event_shape
 
 
-def Multinomial(total_count=1, probs=None, logits=None, *, total_count_max=None, validate_args=None):
+def Multinomial(
+    total_count=1, probs=None, logits=None, *, total_count_max=None, validate_args=None
+):
     if probs is not None:
-        return MultinomialProbs(probs, total_count, total_count_max=total_count_max,
-                                validate_args=validate_args)
+        return MultinomialProbs(
+            probs,
+            total_count,
+            total_count_max=total_count_max,
+            validate_args=validate_args,
+        )
     elif logits is not None:
-        return MultinomialLogits(logits, total_count, total_count_max=total_count_max,
-                                 validate_args=validate_args)
+        return MultinomialLogits(
+            logits,
+            total_count,
+            total_count_max=total_count_max,
+            validate_args=validate_args,
+        )
     else:
         raise ValueError("One of `probs` or `logits` must be specified.")
 

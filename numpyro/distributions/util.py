@@ -263,7 +263,9 @@ def _multinomial(key, p, n, n_max, shape=()):
 def multinomial(key, p, n, shape=(), total_count_max=None):
     if total_count_max is None:
         if isinstance(n, jax.core.Tracer):
-            raise ValueError("Please specify total_count_max in Multinomial distribution.")
+            raise ValueError(
+                "Please specify total_count_max in Multinomial distribution."
+            )
         n_max = int(np.max(jax.device_get(n)))
     else:
         n_max = total_count_max
