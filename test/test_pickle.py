@@ -168,3 +168,12 @@ def test_pickle_singleton_constraint():
     roundtripped_gt_cstr = pickle.loads(pickle.dumps(gt_cstr))
     assert type(roundtripped_gt_cstr) is type(gt_cstr)
     assert gt_cstr.lower_bound == roundtripped_gt_cstr.lower_bound
+
+
+def test_mcmc_pickle_post_warmup():
+    mcmc = MCMC(NUTS(normal_model), num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(0))
+    pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
+    pickled_mcmc.post_warmup_state = pickled_mcmc.last_state
+    pickled_mcmc.run(random.PRNGKey(1))
+
