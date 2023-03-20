@@ -2286,7 +2286,7 @@ def _rs_bwd(sample_and_accept_fn, res, g):
 _rs_custom_impl.defvjp(_rs_fwd, _rs_bwd)
 
 
-"""
+_semi_rvrs_impl = """
 class AutoSemiRVRS(AutoGuide):
     This implementation of :class:`AutoSemiDAIS` [1] combines a parametric
     variational distribution over global latent variables with Differentiable
@@ -2689,9 +2689,51 @@ class AutoSemiRVRS(AutoGuide):
 """
 
 
-def rs_vmap(guide_sampler, accept_fn):  # vector of inputs
+def rs_vmap(fn, zs, keys, params):
+    # zs: S x batch, keys: S x batch, params: batch
+    # sample_and_accept_fn(key, param) -> z, (accept_lp, lw, guide_lp)
     # TODO(fehiepsi)
     # fn -> out, stop_mask
     # filter out stopped inputs, resample the remaining inputs -> new inputs
     # evaluate the next rs step with the new inputs
     pass
+    # fn: keys, params, buffer -> new_keys, new_buffer, finished
+    # S x batch, batch, S x batch -> S x batch, S x batch, finished
+
+    def cond_fn(val):
+        is_accepted = val[-1][-1]
+        return is_accepted.sum() < S
+
+    def body_fn(key, log_a_sum, params):
+        key_next, key_uniform, key_q = random.split(key, 3)
+        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(key_q, params)
+        log_u = -random.exponential(key_uniform)
+        is_accepted = log_u < accept_log_prob
+        log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob]))
+        return key_next, log_a_sum, (key_q, z, log_weight, guide_lp, is_accepted)
+
+    def batch_body_fn(val):
+        resample_key, keys, log_a_sum, first_log_a, num_samples, buffer, idx = val
+        params = jax.tree_util.tree_map(lambda x: x[idx], params)
+        # TODO: deal with log_a_sum? we need to move out the update logic for log_a_sum
+        # to here and perform scatter logsumexp at idx
+        keys_next, log_a_sum, candidates = jax.vmap(jax.vmap(body_fn), in_axes=(0, 0, None))(
+			keys, log_a_sum, params)
+
+        # candidate is S x batch. We need to loop over the batch of candidates and idx
+        # and update the buffer
+        buffer_extend = tree_map(
+            lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
+        is_accepted = buffer_extend[-1]
+        maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
+        new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
+        first_log_a = select(num_samples == 0, log_a_sum, first_log_a)
+
+        is_accepted = new_buffer[-1]
+        weights = S - is_accepted.sum(-1)
+        weights = jnp.where(weights < 0, 0, weights)
+        weights = weights / weights.sum(-1, keepdims=-1)
+        # TODO: systematic resample indices
+        next_idx = idx
+        return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer, next_idx
+
