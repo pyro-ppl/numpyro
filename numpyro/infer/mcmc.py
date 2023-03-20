@@ -206,6 +206,34 @@ class MCMC(object):
         correctly. If you are using Jupyter Notebook or Jupyter Lab, please also install the
         corresponding extension package like `widgetsnbextension` or `jupyterlab_widgets`.
 
+    ..note:: If your dataset is large and you have access to multiple acceleration devices,
+        you can distribute the computation across multiple devices. Make sure that your jax version
+        is v0.4.4 or newer. For example,
+
+        .. code-block::python
+
+            import jax
+            from jax.experimental import mesh_utils
+            from jax.sharding import PositionalSharding
+            import numpy as np
+            import numpyro
+            import numpyro.distributions as dist
+            from numpyro.infer import MCMC, NUTS
+
+            X = np.random.randn(128, 3)
+            y = np.random.randn(128)
+
+            def model(X, y):
+                beta = numpyro.sample("beta", dist.Normal(0, 1).expand([3]))
+                numpyro.sample("obs", dist.Normal(X @ beta, 1), obs=y)
+
+            mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+            # See https://jax.readthedocs.io/en/latest/notebooks/Distributed_arrays_and_automatic_parallelization.html
+            sharding = PositionalSharding(mesh_utils.create_device_mesh((8,)))
+            X_shard = jax.device_put(X, sharding.reshape(8, 1))
+            y_shard = jax.device_put(y, sharding.reshape(8))
+            mcmc.run(jax.random.PRNGKey(0), X_shard, y_shard)
+
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
         and :class:`~numpyro.infer.hmc.NUTS` are available.
@@ -377,14 +405,16 @@ class MCMC(object):
 
     def _single_chain_mcmc(self, init, args, kwargs, collect_fields):
         rng_key, init_state, init_params = init
-        if init_state is None:
-            init_state = self.sampler.init(
+        # Check if _sample_fn is None, then we need to initialize the sampler.
+        if init_state is None or (getattr(self.sampler, "_sample_fn", None) is None):
+            new_init_state = self.sampler.init(
                 rng_key,
                 self.num_warmup,
                 init_params,
                 model_args=args,
                 model_kwargs=kwargs,
             )
+            init_state = new_init_state if init_state is None else init_state
         sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = (
             lambda x: self.sampler.get_diagnostics_str(x[0])
