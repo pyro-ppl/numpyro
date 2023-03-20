@@ -405,14 +405,16 @@ class MCMC(object):
 
     def _single_chain_mcmc(self, init, args, kwargs, collect_fields):
         rng_key, init_state, init_params = init
-        if init_state is None:
-            init_state = self.sampler.init(
+        # Check if _sample_fn is None, then we need to initialize the sampler.
+        if init_state is None or (getattr(self.sampler, "_sample_fn", None) is None):
+            new_init_state = self.sampler.init(
                 rng_key,
                 self.num_warmup,
                 init_params,
                 model_args=args,
                 model_kwargs=kwargs,
             )
+            init_state = new_init_state if init_state is None else init_state
         sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = (
             lambda x: self.sampler.get_diagnostics_str(x[0])
