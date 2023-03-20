@@ -990,23 +990,24 @@ def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
     p = dist.Normal(0, 1)
     q = dist.Normal(0.2, 1.2)
 
-    def accept_log_prob_fn(z):
+    def accept_log_prob_fn(z, _):
         guide_lp = q.log_prob(z)
         lw = p.log_prob(z) - guide_lp
         return jax.nn.log_sigmoid(lw + T), lw, guide_lp
 
-    def guide_sampler(key):
+    def guide_sampler(key, _):
         return q.sample(key)
 
     keys = random.split(random.PRNGKey(0), num_mc_samples)
 
-    z, _, log_Z_rejection, _, _ = batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys)
+    z, _, log_Z_rejection, _, _ = batch_rejection_sampler(
+        accept_log_prob_fn, guide_sampler, keys, None)
 
     assert_allclose(np.mean(z), 0, atol=0.02)
     assert_allclose(np.std(z), 1, atol=0.03)
 
-    z_q = jax.vmap(guide_sampler)(keys)
-    log_Z_q = logsumexp(accept_log_prob_fn(z_q)[0]) - jnp.log(num_mc_samples)
+    z_q = jax.vmap(guide_sampler)(keys, None)
+    log_Z_q = logsumexp(accept_log_prob_fn(z_q, None)[0]) - jnp.log(num_mc_samples)
 
     assert_allclose(log_Z_rejection, log_Z_q, atol=0.01)
 
@@ -1015,21 +1016,21 @@ def test_rejection_sampler_grad(T=-2.5, num_mc_samples=10):
     p = dist.Normal(0, 1)
     keys = random.split(random.PRNGKey(0), num_mc_samples)
 
-    def accept_log_prob_fn(params, z):
+    def accept_log_prob_fn(z, params):
         q = dist.Normal(**params)
         guide_lp = q.log_prob(z)
         lw = p.log_prob(z) - guide_lp
         return jax.nn.log_sigmoid(lw + T), lw, guide_lp
 
-    def guide_sampler(params, key):
+    def guide_sampler(key, params):
         q = dist.Normal(**params)
         return q.sample(key)
 
     def get_z(params_raw):
         params = {"loc": params_raw["loc"], "scale": jnp.exp(params_raw["log_scale"])}
-        z, *_ = batch_rejection_sampler(partial(accept_log_prob_fn, params),
-                                        partial(guide_sampler, params),
-                                        keys)
+        z, *_ = batch_rejection_sampler(accept_log_prob_fn,
+                                        guide_sampler,
+                                        keys, params)
         return z, z
 
     def sample_z(params_raw, eps):
@@ -1046,19 +1047,19 @@ def test_rejection_sampler_grad(T=-2.5, num_mc_samples=10):
 def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
     p = dist.Normal(0, 1)
 
-    def accept_log_prob_fn(params, z):
+    def accept_log_prob_fn(z, params):
         q = dist.Normal(**params)
         return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T), 0., 0.
 
-    def guide_sampler(params, key):
+    def guide_sampler(key, params):
         q = dist.Normal(**params)
         return q.sample(key)
 
     def get_z(params_raw, key):
         params = {"loc": params_raw["loc"], "scale": jnp.exp(params_raw["log_scale"])}
-        z, *_ = batch_rejection_sampler_custom(partial(accept_log_prob_fn, params),
-                                               partial(guide_sampler, params),
-                                               key)
+        z, *_ = batch_rejection_sampler_custom(accept_log_prob_fn,
+                                               guide_sampler,
+                                               key, params)
         return z, z
 
     def sample_z(params_raw, eps):

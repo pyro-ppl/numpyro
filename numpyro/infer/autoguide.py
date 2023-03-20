@@ -2029,26 +2029,33 @@ class AutoRVRS(AutoContinuous):
         raise NotImplementedError
 
     def _sample_latent(self, *args, **kwargs):
-        params = {}
-        for name, site in self.prototype_guide_trace.items():
+        model_params = {}
+        for name, site in self.prototype_trace.items():
             if site["type"] == "param":
-                params[name] = numpyro.param(
+                model_params[name] = numpyro.param(
                     name, site["value"],
                     constraint=site["kwargs"].pop("constraint", constraints.real))
+        guide_params = {}
+        for name, site in self.prototype_guide_trace.items():
+            if site["type"] == "param":
+                guide_params[name] = numpyro.param(
+                    name, site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real))
+        params = {"guide": guide_params, "model": model_params}
 
-        def guide_sampler(key):
-            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params):
+        def guide_sampler(key, params):
+            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params["guide"]):
                 z = self.guide._sample_latent(*args, **kwargs)
             return z
 
-        def guide_log_prob(z):
-            z_and_params = {f"_{self.prefix}_latent": z, **jax.lax.stop_gradient(params)}
+        def guide_log_prob(z, params):
+            z_and_params = {f"_{self.prefix}_latent": z, **params}
             with handlers.block():
                 return log_density(self.guide._sample_latent, args, kwargs, z_and_params)[0]
 
-        def model_log_density(x):
+        def model_log_density(x, params):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(expose_types=["param"]):
+            with numpyro.handlers.block(), handlers.substitute(data=params):
                 return -self._potential_fn(x_unpack)
 
         if self.adaptation_scheme == "Z_target":
@@ -2064,15 +2071,16 @@ class AutoRVRS(AutoContinuous):
         else:
             T = self.T
 
-        def accept_log_prob_fn(z):
-            guide_lp = guide_log_prob(z)
-            lw = model_log_density(z) - guide_lp
+        def accept_log_prob_fn(z, params):
+            params = jax.lax.stop_gradient(params)
+            guide_lp = guide_log_prob(z, jax.lax.stop_gradient(params["guide"]))
+            lw = model_log_density(z, params["model"]) - guide_lp
             a = sigmoid(lw + T)
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         keys = random.split(numpyro.prng_key(), self.S)
         zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler_custom(
-            accept_log_prob_fn, guide_sampler, keys)
+            accept_log_prob_fn, guide_sampler, keys, params)
         assert zs.shape == (self.S, self.latent_dim)
 
         numpyro.deterministic("first_log_a", first_log_a)
@@ -2196,17 +2204,17 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
     return z, log_w, log_a_sum, num_samples, first_log_a, guide_lp
 
 
-def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys):
-    def sample_and_accept_fn(key):
-        z = guide_sampler(key)
-        return z, accept_log_prob_fn(z)
+def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys, params):
+    def sample_and_accept_fn(key, params):
+        z = guide_sampler(key, params)
+        return z, accept_log_prob_fn(z, params)
 
     z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                      jax.eval_shape(guide_sampler, keys[0]))
-    return _rs_impl(sample_and_accept_fn, z_init, keys)[1:]
+                      jax.eval_shape(guide_sampler, keys[0], params))
+    return _rs_impl(sample_and_accept_fn, z_init, keys, params)[1:]
 
 
-def _rs_impl(sample_and_accept_fn, z_init, keys):
+def _rs_impl(sample_and_accept_fn, z_init, keys, params):
     assert keys.ndim == 2
     S = keys.shape[0]
     zs_init = tree_map(lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), z_init)
@@ -2218,24 +2226,24 @@ def _rs_impl(sample_and_accept_fn, z_init, keys):
         is_accepted = val[-1][-1]
         return is_accepted.sum() < S
 
-    def body_fn(val):
-        key, log_a_sum = val
+    def body_fn(key, params):
         key_next, key_uniform, key_q = random.split(key, 3)
-        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(key_q)
+        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(key_q, params)
         log_u = -random.exponential(key_uniform)
         is_accepted = log_u < accept_log_prob
-        log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob]))
-        return key_next, log_a_sum, (key_q, z, log_weight, guide_lp, is_accepted)
+        return key_next, accept_log_prob, (key_q, z, log_weight, guide_lp, is_accepted)
 
     def batch_body_fn(val):
         keys, log_a_sum, first_log_a, num_samples, buffer = val
-        keys_next, log_a_sum, candidate = jax.vmap(body_fn)((keys, log_a_sum))
+        keys_next, accept_log_prob, candidate = jax.vmap(
+            body_fn, in_axes=(0, None))(keys, params)
+        log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0)
         buffer_extend = tree_map(
             lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
         is_accepted = buffer_extend[-1]
         maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
         new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
-        first_log_a = select(num_samples == 0, log_a_sum, first_log_a)
+        first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
         return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer
 
     _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
@@ -2245,47 +2253,42 @@ def _rs_impl(sample_and_accept_fn, z_init, keys):
     return key_q, z, log_w, log_Z, first_log_a, guide_lp
 
 
-def _compose(f, g, x):
-    y = f(x)
-    return y, g(y)
+def batch_rejection_sampler_custom(accept_log_prob_fn, guide_sampler, keys, params):
+    def sample_and_accept_fn(key, params):
+        z = guide_sampler(key, params)
+        return z, accept_log_prob_fn(z, params)
 
-
-def batch_rejection_sampler_custom(accept_log_prob_fn, guide_sampler, keys):
-    key = keys[0]
     z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                      jax.eval_shape(guide_sampler, key))
-    sample_and_accept_fn, aux_args = jax.closure_convert(
-        partial(_compose, guide_sampler, accept_log_prob_fn), key)
-    return _rs_custom_impl(sample_and_accept_fn, z_init, keys, *aux_args)[1:]
+                      jax.eval_shape(guide_sampler, keys[0], params))
+    return _rs_custom_impl(sample_and_accept_fn, z_init, keys, params)[1:]
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0,))
-def _rs_custom_impl(sample_and_accept_fn, z_init, keys, *aux_args):
-    closed_sample_and_accept_fn = lambda key: sample_and_accept_fn(key, *aux_args)
-    return _rs_impl(closed_sample_and_accept_fn, z_init, keys)
+def _rs_custom_impl(sample_and_accept_fn, z_init, keys, params):
+    return _rs_impl(sample_and_accept_fn, z_init, keys, params)
 
 
-def _rs_fwd(sample_and_accept_fn, z_init, keys, *aux_args):
-    out = _rs_custom_impl(sample_and_accept_fn, z_init, keys, *aux_args)
+def _rs_fwd(sample_and_accept_fn, z_init, keys, params):
+    out = _rs_custom_impl(sample_and_accept_fn, z_init, keys, params)
     key_q = out[0]
-    return out, (key_q, aux_args)
+    return out, (key_q, params)
 
 
 def _rs_bwd(sample_and_accept_fn, res, g):
-    key_q, aux_args = res
+    key_q, params = res
     _, z_grads, lw_grads, *_ = g
 
-    def get_z_and_lw(key, *args):
-        z, (_, lw, _) = sample_and_accept_fn(key, *args)
+    def get_z_and_lw(key, params):
+        z, (_, lw, _) = sample_and_accept_fn(key, params)
         return z, lw
 
     def sample_grad(key, z_grad, lw_grad):
-        _, guide_vjp = jax.vjp(partial(get_z_and_lw, key), *aux_args)
+        _, guide_vjp = jax.vjp(partial(get_z_and_lw, key), params)
         return guide_vjp((z_grad, lw_grad))
 
-    sample_args_grads = jax.vmap(sample_grad)(key_q, z_grads, lw_grads)
-    sample_args_grad = jax.tree_util.tree_map(lambda x: x.sum(0), sample_args_grads)
-    return (None, None) + sample_args_grad
+    batch_params_grad = jax.vmap(sample_grad)(key_q, z_grads, lw_grads)
+    params_grad = jax.tree_util.tree_map(lambda x: x.sum(0), batch_params_grad)
+    return (None, None) + params_grad
 
 
 _rs_custom_impl.defvjp(_rs_fwd, _rs_bwd)
