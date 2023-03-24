@@ -169,13 +169,15 @@ class SVI(object):
 
             self.optim = optax_to_numpyro(optim)
 
-    def init(self, rng_key, *args, **kwargs):
+    def init(self, rng_key, *args, init_params=None, **kwargs):
         """
         Gets the initial SVI state.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: the initial :data:`SVIState`
@@ -183,12 +185,16 @@ class SVI(object):
         rng_key, model_seed, guide_seed = random.split(rng_key, 3)
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
+        if init_params is not None:
+            guide_init = substitute(guide_init, init_params)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
         init_guide_params = {
             name: site["value"]
             for name, site in guide_trace.items()
             if site["type"] == "param"
         }
+        if init_params is not None:
+            init_guide_params.update(init_params)
         model_trace = trace(
             substitute(replay(model_init, guide_trace), init_guide_params)
         ).get_trace(*args, **kwargs, **self.static_kwargs)
@@ -305,6 +311,7 @@ class SVI(object):
         progress_bar=True,
         stable_update=False,
         init_state=None,
+        init_params=None,
         **kwargs,
     ):
         """
@@ -333,6 +340,8 @@ class SVI(object):
                 # continue from the end of the previous svi run rather than beginning again from iteration 0
                 svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state)
 
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
@@ -351,7 +360,7 @@ class SVI(object):
             return svi_state, loss
 
         if init_state is None:
-            svi_state = self.init(rng_key, *args, **kwargs)
+            svi_state = self.init(rng_key, *args, init_params=init_params, **kwargs)
         else:
             svi_state = init_state
         if progress_bar:

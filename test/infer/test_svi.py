@@ -36,6 +36,10 @@ from numpyro.primitives import mutable as numpyro_mutable
 from numpyro.util import fori_loop
 
 
+def assert_equal(a, b, prec=0):
+    return jax.tree_util.tree_map(lambda a, b: assert_allclose(a, b, atol=prec), a, b)
+
+
 @pytest.mark.parametrize("alpha", [0.0, 2.0])
 def test_renyi_elbo(alpha):
     def model(x):
@@ -222,6 +226,26 @@ def test_shared_param():
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 1000)
     assert_allclose(svi_result.params["shared"], target_value, atol=0.1)
+
+
+def test_init_params():
+    init_params = {"b": 1.0, "c": 2.0}
+
+    def model():
+        numpyro.param("a", 0.0)
+        # should receive initial value from init_params
+        numpyro.param("b")
+
+    def guide():
+        # should receive initial value from init_params
+        numpyro.param("c")
+
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0), init_params=init_params)
+    params = svi.get_params(svi_state)
+    init_params["a"] = 0.0
+    # make sure init params ended up in the SVI state
+    assert_equal(params, init_params)
 
 
 def test_elbo_dynamic_support():
