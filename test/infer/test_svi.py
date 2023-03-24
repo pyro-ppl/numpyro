@@ -241,7 +241,7 @@ def test_init_params():
         numpyro.param("c")
 
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0), init_params)
+    svi_state = svi.init(random.PRNGKey(0), init_params=init_params)
     params = svi.get_params(svi_state)
     init_params["a"] = 0.0
     # make sure init params ended up in the SVI state

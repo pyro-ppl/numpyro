@@ -169,15 +169,15 @@ class SVI(object):
 
             self.optim = optax_to_numpyro(optim)
 
-    def init(self, rng_key, init_params=None, *args, **kwargs):
+    def init(self, rng_key, *args, init_params=None, **kwargs):
         """
         Gets the initial SVI state.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
-            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: the initial :data:`SVIState`
@@ -360,7 +360,7 @@ class SVI(object):
             return svi_state, loss
 
         if init_state is None:
-            svi_state = self.init(rng_key, init_params, *args, **kwargs)
+            svi_state = self.init(rng_key, *args, init_params=init_params, **kwargs)
         else:
             svi_state = init_state
         if progress_bar:
