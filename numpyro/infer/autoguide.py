@@ -2073,7 +2073,7 @@ class AutoRVRS(AutoContinuous):
 
         def accept_log_prob_fn(z, params):
             params = jax.lax.stop_gradient(params)
-            guide_lp = guide_log_prob(z, jax.lax.stop_gradient(params["guide"]))
+            guide_lp = guide_log_prob(z, params["guide"])
             lw = model_log_density(z, params["model"]) - guide_lp
             a = sigmoid(lw + T)
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
@@ -2284,11 +2284,11 @@ def _rs_bwd(sample_and_accept_fn, res, g):
 
     def sample_grad(key, z_grad, lw_grad):
         _, guide_vjp = jax.vjp(partial(get_z_and_lw, key), params)
-        return guide_vjp((z_grad, lw_grad))
+        return guide_vjp((z_grad, lw_grad))[0]
 
     batch_params_grad = jax.vmap(sample_grad)(key_q, z_grads, lw_grads)
     params_grad = jax.tree_util.tree_map(lambda x: x.sum(0), batch_params_grad)
-    return (None, None) + params_grad
+    return (None, None, params_grad)
 
 
 _rs_custom_impl.defvjp(_rs_fwd, _rs_bwd)
@@ -2741,7 +2741,23 @@ def rs_vmap(fn, zs, keys, params):
         weights = S - is_accepted.sum(-1)
         weights = jnp.where(weights < 0, 0, weights)
         weights = weights / weights.sum(-1, keepdims=-1)
-        # TODO: systematic resample indices
-        next_idx = idx
+        next_idx = get_systematic_resampling_indices(weights, keys, idx.shape[0])
         return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer, next_idx
+
+
+def get_systematic_resampling_indices(weights, rng_key, num_samples):
+    """Gets resampling indices based on systematic resampling."""
+    n = log_weights.shape[0]
+    cummulative_weight = weight.cumsum(axis=0)
+    cummulative_weight = cummulative_weight / cummulative_weight[-1]
+    cummulative_weight = cummulative_weight.reshape((n, -1)).swapaxes(0, 1)
+    m = cummulative_weight.shape[0]
+    uniform = jax.random.uniform(rng_key, (m,))
+    positions = (uniform[:, None] + np.arange(num_samples)) / num_samples
+    shift = jnp.arange(m)[:, None]
+    cummulative_weight = (cummulative_weight + 2 * shift).reshape(-1)
+    positions = (positions + 2 * shift).reshape(-1)
+    index = cummulative_weight.searchsorted(positions)
+    index = (index.reshape(m, num_samples) - n * shift).swapaxes(0, 1)
+    return index.reshape((num_samples,) + weights.shape[1:])
 
