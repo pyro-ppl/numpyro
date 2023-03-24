@@ -18,6 +18,7 @@ from numpyro.distributions.transforms import AffineTransform, biject_to
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.initialization import (
     init_to_feasible,
+    init_to_mean,
     init_to_median,
     init_to_sample,
     init_to_uniform,
@@ -240,6 +241,7 @@ def test_model_with_mask_false():
         init_to_uniform(radius=3),
         init_to_value(values={"tau": 0.7}),
         init_to_feasible,
+        init_to_mean,
         init_to_median,
         init_to_sample,
         init_to_uniform,

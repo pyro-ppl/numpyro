@@ -63,9 +63,12 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==1.0.0",
+            "jaxns>=2.0.1",
+            "matplotlib",
             "optax>=0.0.6",
+            "pylab-sdk",  # jaxns dependency
             "pyyaml",  # flax dependency
+            "requests",  # pylab dependency
             "tensorflow_probability>=0.17.0",
         ],
         "examples": [

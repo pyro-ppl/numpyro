@@ -1652,8 +1652,8 @@ class AutoLaplaceApproximation(AutoContinuous):
     Laplace approximation (quadratic approximation) approximates the posterior
     :math:`\log p(z | x)` by a multivariate normal distribution in the
     unconstrained space. Under the hood, it uses Delta distributions to
-    construct a MAP guide over the entire (unconstrained) latent space. Its
-    covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
+    construct a MAP (i.e. point estimate) guide over the entire (unconstrained) latent
+    space. Its covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
     at the MAP point of `z`.
 
     Usage::
