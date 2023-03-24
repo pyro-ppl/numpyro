@@ -174,6 +174,8 @@ class SVI(object):
         Gets the initial SVI state.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
@@ -338,6 +340,8 @@ class SVI(object):
                 # continue from the end of the previous svi run rather than beginning again from iteration 0
                 svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state)
 
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,

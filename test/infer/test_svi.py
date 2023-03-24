@@ -229,21 +229,22 @@ def test_shared_param():
 
 
 def test_init_params():
-    init_params = {"a": 0.0, "b": 1.0}
+    init_params = {"b": 1.0, "c": 2.0}
 
     def model():
-        # should receive initial value from guide when used in SVI
-        numpyro.param("a")
-        numpyro.param("c", 2.0)
+        numpyro.param("a", 0.0)
+        # should receive initial value from init_params
+        numpyro.param("b")
 
     def guide():
-        numpyro.param("b")
+        # should receive initial value from init_params
+        numpyro.param("c")
 
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0), init_params)
     params = svi.get_params(svi_state)
-    init_params["c"] = 2.0
-    # make sure the correct init ended up in the SVI state
+    init_params["a"] = 0.0
+    # make sure init params ended up in the SVI state
     assert_equal(params, init_params)
 
 
