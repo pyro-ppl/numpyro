@@ -71,19 +71,7 @@ def _sample_posterior(
     for name, node in sample_tr.items():
         if node["type"] != "sample":
             continue
-        if node["is_observed"]:
-            # "observed" values may be collapsed samples that depend on enumerated
-            # values, so we have to slice them down
-            # TODO this should really be handled entirely under the hood by adjoint
-            output = funsor.Reals[node["fn"].event_shape]
-            value = funsor.to_funsor(
-                node["value"], output, dim_to_name=node["infer"]["dim_to_name"]
-            )
-            value = value(**sample_subs)
-            node["value"] = funsor.to_data(
-                value, name_to_dim=node["infer"]["name_to_dim"]
-            )
-        else:
+        if node["infer"].get("enumerate") == "parallel":
             log_measure = approx_factors[log_measures[name]]
             sample_subs[name] = _get_support_value(log_measure, name)
             node["value"] = funsor.to_data(
