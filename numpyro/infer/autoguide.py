@@ -2539,6 +2539,43 @@ class AutoSemiRVRS(AutoGuide):
 
     def _sample_latent(self, *args, **kwargs):
         kwargs.pop("sample_shape", ())
+        plate_name, N, subsample_size = self._local_plate
+        D = self._local_latent_dim
+
+        model_params = {}
+        for name, site in self.prototype_trace.items():
+            if site["type"] == "param":
+                model_params[name] = numpyro.param(
+                    name, site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real))
+        local_guide_params = {}
+        for name, site in self.prototype_local_guide_trace.items():
+            if site["type"] == "param":
+                local_guide_params[name] = numpyro.param(
+                    name, site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real))
+        global_guide_params = {}
+        for name, site in self.prototype_global_guide_trace.items():
+            if site["type"] == "param":
+                global_guide_params[name] = numpyro.param(
+                    name, site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real))
+        with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
+            subsample_guide_params = jax.tree_util.tree_map(lambda x: x[idx], local_guide_params)
+			params = {"local_guide": subsample_guide_params, "model": model_params,
+					  "global_guide": global_guide_params}
+            local_guide = handlers.substitute(self.local_guide._sample_latent, data={name: idx})
+
+        # Step 1: getting model params, guide params with correct subsample for local params
+        # Step 2: update log density function to use subsample params
+        # Step 3: assume that vmap_rs is working
+        # Step 4: unpact S x batch zs
+        # be careful at the subsample weights
+
+        # AutoGuide inputs: model, local_model, global_guide, local_guide
+        # Prototype traces: model, global_guide, local_guide
+
+        # Assume AutoNormal guide's `create_plates` method accepts a plate
 
         def make_local_log_density(*local_args, **local_kwargs):
             def fn(x):
@@ -2557,62 +2594,48 @@ class AutoSemiRVRS(AutoGuide):
         ):
             global_output = self.base_guide.model(*args, **kwargs)
 
-        plate_name, N, subsample_size = self._local_plate
-        D, K = self._local_latent_dim, self.K
-
-        params = {}
-		for name, site in self.prototype_guide_trace.items():
-			if site["type"] == "param":
-				params[name] = numpyro.param(
-					name, site["value"],
-					constraint=site["kwargs"].pop("constraint", constraints.real))
-
-
-        # with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
-        def guide_sampler(inputs):
-            # inputs include loc, scale
+        def local_guide_sampler(inputs):
             key, params, T = inputs
             with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params):
-                # TODO: replace this by Normal(loc, scale).sample(...) / probably this is fine
-                z = self.local_guide._sample_latent(*args, **kwargs)
+                z = local_guide(*args, **kwargs)
             return z
 
-        def guide_log_prob(z, params):
+        def local_guide_log_prob(z, params):  # batch, _ -> batch
             z_and_params = {f"_{self.prefix}_latent": z, **jax.lax.stop_gradient(params)}
             with handlers.block():
-                return log_density(self.local_guide._sample_latent, args, kwargs, z_and_params)[0]
+                # TODO: get trace and compute log_density but keeping the batch dimension
+                return log_density(local_guide, args, kwargs, z_and_params)[1]
 
         def model_log_density(x):
             x_unpack = self._unpack_local_latent(x)
-            with numpyro.handlers.block(expose_types=["param"]):
+            with handlers.block(), handlers.substitute(data=params):
+                # TODO: make sure potential_fn return batch of logprob
                 return -self._potential_fn(global_output, x_unpack)
 
         if self.adaptation_scheme == "Z_target":
-            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
+            # TODO: we might need to keep stats of recent T.
+            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.full(N, self.T)})
             if self.gamma != 0.0:
-                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.array(0.0)})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
+                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.full(T, 0.0)})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(T, 0)})
             T = T_adapt["value"]
         elif self.adaptation_scheme == "dual_averaging":
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": self._da_init_state})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(T, 0)})
             T = T_adapt["value"].temperature
         else:
             T = self.T
+        T = T[idx]
 
-		with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
-            T = T[idx]
-            params = jax.tree_util.tree_map(lambda x: x[idx], params)
-
-        # revise accept_log_prob_fn to take all relevent inputs
-        def accept_log_prob_fn(z, inputs):  # z: S x batch
-            guide_lp = guide_log_prob(z, inputs)
-            lw = model_log_density(z) - guide_lp
+        def accept_log_prob_fn(z, params):
+            params = jax.lax.stop_gradient(params)
+            guide_lp = local_guide_log_prob(z, params["guide"])
+            lw = local_model_log_density(z, params["model"]) - guide_lp
             a = sigmoid(lw + T)
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
-        plate_size = 1  # TODO
         keys = random.split(numpyro.prng_key(), self.S * plate_size)
+        keys = keys.reshape((self.S, plate_size, 2))
         inputs = (keys, params, T)  # keys: S x batch, params: batch, T: batch
         zs, log_weight, log_Z, first_log_a, guide_lp = rs_vmap(
             accept_log_prob_fn, guide_sampler, inputs)
@@ -2639,6 +2662,7 @@ class AutoSemiRVRS(AutoGuide):
         elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S)
         numpyro.factor("surrogate_factor", -surrogate + elbo_correction)
 
+        # TODO: revise the logic here to only update state at subsample ind
         if self.adaptation_scheme == "Z_target":
             # minimize (Z - Z_target) ** 2
             a = stop_gradient(jnp.exp(first_log_a))
