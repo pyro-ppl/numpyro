@@ -635,6 +635,14 @@ class MultinomialLogits(Distribution):
 def Multinomial(
     total_count=1, probs=None, logits=None, *, total_count_max=None, validate_args=None
 ):
+    """Multinomial distribution.
+
+    :param total_count: number of trials. If this is a JAX array,
+        `total_count_max` is required to specify.
+    :param probs: event probabilities
+    :param logits: event log probabilities
+    :param int total_count_max: the maximum number of trials
+    """
     if probs is not None:
         return MultinomialProbs(
             probs,
