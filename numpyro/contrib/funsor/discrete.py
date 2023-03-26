@@ -67,15 +67,14 @@ def _sample_posterior(
 
     # construct a result trace to replay against the model
     sample_tr = model_tr.copy()
-    sample_subs = {}
     for name, node in sample_tr.items():
         if node["type"] != "sample":
             continue
         if node["infer"].get("enumerate") == "parallel":
             log_measure = approx_factors[log_measures[name]]
-            sample_subs[name] = _get_support_value(log_measure, name)
+            value = _get_support_value(log_measure, name)
             node["value"] = funsor.to_data(
-                sample_subs[name], name_to_dim=node["infer"]["name_to_dim"]
+                value, name_to_dim=node["infer"]["name_to_dim"]
             )
 
     data = {
