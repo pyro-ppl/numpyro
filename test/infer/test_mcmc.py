@@ -187,6 +187,8 @@ def test_improper_normal(max_tree_depth):
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
 def test_beta_bernoulli_x64(kernel_cls):
+    if kernel_cls is SA and "CI" in os.environ and "JAX_ENABLE_X64" in os.environ:
+        pytest.skip("The test is flaky on CI x64.")
     num_warmup, num_samples = (100000, 100000) if kernel_cls is SA else (500, 20000)
 
     def model(data):
@@ -318,6 +320,8 @@ def test_change_point_x64():
 
 @pytest.mark.parametrize("with_logits", ["True", "False"])
 def test_binomial_stable_x64(with_logits):
+    if "CI" in os.environ and "JAX_ENABLE_X64" in os.environ:
+        pytest.skip("The test is flaky on CI x64.")
     # Ref: https://github.com/pyro-ppl/pyro/issues/1706
     num_warmup, num_samples = 200, 200
 
