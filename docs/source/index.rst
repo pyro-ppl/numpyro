@@ -41,6 +41,7 @@ NumPyro documentation
    :caption: Discrete Latent Variables
    :name: discrete-latent-variables
 
+   tutorials/gmm
    examples/annotation
    examples/hmm_enum
    examples/capture_recapture
