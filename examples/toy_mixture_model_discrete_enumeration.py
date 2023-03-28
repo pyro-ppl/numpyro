@@ -15,9 +15,9 @@
 
  Because B is hidden and discrete we wish to marginalize it out of the model.
  This is done by:
-    1) marking the model method with `@pyro.infer.config_enumerate`
+    1) marking the model method with `@config_enumerate`
     2) marking the B sample site in the model with `infer={"enumerate": "parallel"}`
-    3) passing `pyro.infer.SVI` the `pyro.infer.TraceEnum_ELBO` loss function
+    3) passing `SVI` the `TraceEnum_ELBO` loss function
 """
 
 import argparse
