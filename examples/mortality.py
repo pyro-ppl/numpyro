@@ -33,11 +33,11 @@ full generative model of death rates is written as
 .. math:: :nowrap:
 
     \\begin{align}
-        \\alpha_{1s_1} & \\sim \\mathcal{N}(0,\\sigma_{\\alpha_{s_1}}^2) \\\\
-        \\alpha_{1s} & \\sim \\mathcal{N}(\\alpha_{1s_1(s_2)},\\sigma_{\\alpha_{s_2}}^2) \\\\
-        \\alpha_{2a} & \\sim \\mathcal{N}(\\alpha_{2,a-1},\\sigma_{\\alpha_a}^2) \\quad \\alpha_{2,0} = \\alpha_0 \\\\
-        \\beta_{2a} & \\sim \\mathcal{N}(\\beta_{2,a-1},\\sigma_{\\beta_a}^2) \\quad \\beta_{2,0} = \\beta_0 \\\\
-        \\pi_{t} & \\sim \\mathcal{N}(\\pi_{t-1},\\sigma_{\\pi}^2), \\quad \\pi_{0} = 0 \\\\
+        \\alpha_{1s_1} & \\sim \\text{Normal}(0,\\sigma_{\\alpha_{s_1}}^2) \\\\
+        \\alpha_{1s} & \\sim \\text{Normal}(\\alpha_{1s_1(s_2)},\\sigma_{\\alpha_{s_2}}^2) \\\\
+        \\alpha_{2a} & \\sim \\text{Normal}(\\alpha_{2,a-1},\\sigma_{\\alpha_a}^2) \\quad \\alpha_{2,0} = \\alpha_0 \\\\
+        \\beta_{2a} & \\sim \\text{Normal}(\\beta_{2,a-1},\\sigma_{\\beta_a}^2) \\quad \\beta_{2,0} = \\beta_0 \\\\
+        \\pi_{t} & \\sim \\text{Normal}(\\pi_{t-1},\\sigma_{\\pi}^2), \\quad \\pi_{0} = 0 \\\\
         \\text{logit}(m_{ast}) & = \\alpha_{1s} + \\alpha_{2a} + \\beta_{2a} t + \\pi_{t}
     \\end{align}
 
@@ -46,9 +46,9 @@ with the hyperpriors
 .. math:: :nowrap:
 
     \\begin{align}
-        \\alpha_0 & \\sim \\mathcal{N}(0,10), \\\\
-        \\beta_0 & \\sim \\mathcal{N}(0,10), \\\\
-        \\sigma_i & \\sim \\mathcal{N}^{+}(1)
+        \\alpha_0 & \\sim \\text{Normal}(0,10), \\\\
+        \\beta_0 & \\sim \\text{Normal}(0,10), \\\\
+        \\sigma_i & \\sim \\text{Half-Normal}(1)
     \\end{align}
 
 Further detail about the model terms can be found in [1].
