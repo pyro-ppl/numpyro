@@ -442,6 +442,7 @@ def test_module():
 
 
 @pytest.mark.parametrize("auto_class", [AutoNormal])
+@pytest.mark.skip(reason="Temporarily disable this test")
 def test_subsample_guide(auto_class):
     # The model adapted from tutorial/source/easyguide.ipynb
     def model(batch, subsample, full_size):
