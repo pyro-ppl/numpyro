@@ -3047,6 +3047,7 @@ def test_vmap_multivariate_normal_dist():
         )(double_batched_d).shape
     )
 
+
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.PRNGKey(0)
