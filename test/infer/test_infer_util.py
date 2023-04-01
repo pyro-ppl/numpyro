@@ -18,6 +18,7 @@ from numpyro.distributions.transforms import AffineTransform, biject_to
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.initialization import (
     init_to_feasible,
+    init_to_mean,
     init_to_median,
     init_to_sample,
     init_to_uniform,
@@ -31,6 +32,7 @@ from numpyro.infer.util import (
     log_likelihood,
     potential_energy,
     transform_fn,
+    unconstrain_fn,
 )
 import numpyro.optim as optim
 
@@ -219,6 +221,52 @@ def test_model_with_transformed_distribution():
     assert_allclose(actual_potential_energy, expected_potential_energy)
 
 
+def test_constrain_unconstrain():
+    x_prior = dist.HalfNormal(2)
+    y_prior = dist.LogNormal(scale=3.0)  # transformed distribution
+    z_constraint = constraints.positive
+
+    def model():
+        numpyro.sample("x", x_prior)
+        numpyro.sample("y", y_prior)
+        numpyro.param("z", init_value=2.0, constraint=z_constraint)
+
+    params = {"x": jnp.array(-5.0), "y": jnp.array(7.0), "z": jnp.array(3.0)}
+    model = handlers.seed(model, random.PRNGKey(0))
+    inv_transforms = {
+        "x": biject_to(x_prior.support),
+        "y": biject_to(y_prior.support),
+        "z": biject_to(z_constraint),
+    }
+    expected_constrained_samples = partial(transform_fn, inv_transforms)(params)
+    transforms = {
+        "x": biject_to(x_prior.support).inv,
+        "y": biject_to(y_prior.support).inv,
+        "z": biject_to(z_constraint).inv,
+    }
+    expected_unconstrained_samples = partial(transform_fn, transforms)(
+        expected_constrained_samples
+    )
+
+    actual_constrained_samples = constrain_fn(model, (), {}, params)
+    actual_unconstrained_samples = unconstrain_fn(
+        model, (), {}, actual_constrained_samples
+    )
+
+    assert_allclose(expected_constrained_samples["x"], actual_constrained_samples["x"])
+    assert_allclose(expected_constrained_samples["y"], actual_constrained_samples["y"])
+    assert_allclose(expected_constrained_samples["z"], actual_constrained_samples["z"])
+    assert_allclose(
+        expected_unconstrained_samples["x"], actual_unconstrained_samples["x"]
+    )
+    assert_allclose(
+        expected_unconstrained_samples["y"], actual_unconstrained_samples["y"]
+    )
+    assert_allclose(
+        expected_unconstrained_samples["z"], actual_unconstrained_samples["z"]
+    )
+
+
 def test_model_with_mask_false():
     def model():
         x = numpyro.sample("x", dist.Normal())
@@ -240,6 +288,7 @@ def test_model_with_mask_false():
         init_to_uniform(radius=3),
         init_to_value(values={"tau": 0.7}),
         init_to_feasible,
+        init_to_mean,
         init_to_median,
         init_to_sample,
         init_to_uniform,

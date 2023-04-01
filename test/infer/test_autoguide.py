@@ -443,7 +443,6 @@ def test_module():
 
 @pytest.mark.parametrize("auto_class", [AutoNormal])
 def test_subsample_guide(auto_class):
-
     # The model adapted from tutorial/source/easyguide.ipynb
     def model(batch, subsample, full_size):
         drift = numpyro.sample("drift", dist.LogNormal(-1, 0.5))

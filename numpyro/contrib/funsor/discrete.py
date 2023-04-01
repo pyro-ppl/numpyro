@@ -41,7 +41,6 @@ def _get_support_value_delta(funsor_dist, name, **kwargs):
 def _sample_posterior(
     model, first_available_dim, temperature, rng_key, *args, **kwargs
 ):
-
     if temperature == 0:
         sum_op, prod_op = funsor.ops.max, funsor.ops.add
         approx = funsor.approximations.argmax_approximate
@@ -68,27 +67,14 @@ def _sample_posterior(
 
     # construct a result trace to replay against the model
     sample_tr = model_tr.copy()
-    sample_subs = {}
     for name, node in sample_tr.items():
         if node["type"] != "sample":
             continue
-        if node["is_observed"]:
-            # "observed" values may be collapsed samples that depend on enumerated
-            # values, so we have to slice them down
-            # TODO this should really be handled entirely under the hood by adjoint
-            output = funsor.Reals[node["fn"].event_shape]
-            value = funsor.to_funsor(
-                node["value"], output, dim_to_name=node["infer"]["dim_to_name"]
-            )
-            value = value(**sample_subs)
+        if node["infer"].get("enumerate") == "parallel":
+            log_measure = approx_factors[log_measures[name]]
+            value = _get_support_value(log_measure, name)
             node["value"] = funsor.to_data(
                 value, name_to_dim=node["infer"]["name_to_dim"]
-            )
-        else:
-            log_measure = approx_factors[log_measures[name]]
-            sample_subs[name] = _get_support_value(log_measure, name)
-            node["value"] = funsor.to_data(
-                sample_subs[name], name_to_dim=node["infer"]["name_to_dim"]
             )
 
     data = {

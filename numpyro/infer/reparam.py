@@ -100,6 +100,15 @@ class LocScaleReparam(Reparam):
 
     def __call__(self, name, fn, obs):
         assert obs is None, "LocScaleReparam does not support observe statements"
+        support = fn.support
+        if isinstance(support, constraints.independent):
+            support = fn.support.base_constraint
+        if support is not constraints.real:
+            raise ValueError(
+                "LocScaleReparam only supports distributions with real "
+                f"support, but got {support} support at site {name}."
+            )
+
         centered = self.centered
         if is_identically_one(centered):
             return fn, obs
