@@ -1461,43 +1461,34 @@ class MultivariateNormal(Distribution):
         validate_args=None,
         batch_shape=None,
         event_shape=None,
-        in_vmap=False,
     ):
-        if not in_vmap:
-            if jnp.ndim(loc) == 0:
-                (loc,) = promote_shapes(loc, shape=(1,))
-            # temporary append a new axis to loc
-            loc = loc[..., jnp.newaxis]
-            if covariance_matrix is not None:
-                loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
-                self.scale_tril = jnp.linalg.cholesky(self.covariance_matrix)
-            elif precision_matrix is not None:
-                loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
-                self.scale_tril = cholesky_of_inverse(self.precision_matrix)
-            elif scale_tril is not None:
-                loc, self.scale_tril = promote_shapes(loc, scale_tril)
-            else:
-                raise ValueError(
-                    "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
-                    " must be specified."
-                )
-            batch_shape = lax.broadcast_shapes(
-                jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
-            )
-            event_shape = jnp.shape(self.scale_tril)[-1:]
-            self.loc = loc[..., 0]
+        if jnp.ndim(loc) == 0:
+            (loc,) = promote_shapes(loc, shape=(1,))
+        # temporary append a new axis to loc
+        loc = loc[..., jnp.newaxis]
+        if covariance_matrix is not None:
+            loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
+            self.scale_tril = jnp.linalg.cholesky(self.covariance_matrix)
+        elif precision_matrix is not None:
+            loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
+            self.scale_tril = cholesky_of_inverse(self.precision_matrix)
+        elif scale_tril is not None:
+            loc, self.scale_tril = promote_shapes(loc, scale_tril)
         else:
-            assert batch_shape is not None
-            assert event_shape is not None
-            # these arguments are always resolved before `vmap`ping.
-            self.scale_tril = scale_tril
-            self.loc = loc
+            raise ValueError(
+                "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
+                " must be specified."
+            )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
+        )
+        event_shape = jnp.shape(self.scale_tril)[-1:]
+        self.loc = loc[..., 0]
 
         super(MultivariateNormal, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
             validate_args=validate_args,
-            in_vmap=in_vmap,
         )
 
     def sample(self, key, sample_shape=()):
@@ -1594,13 +1585,11 @@ class MultivariateNormal(Distribution):
     def tree_unflatten(cls, aux_data, params):
         loc, scale_tril = params
         batch_shape, event_shape = aux_data
-        return cls(
-            loc=loc,
-            scale_tril=scale_tril,
-            batch_shape=batch_shape,
-            event_shape=event_shape,
-            in_vmap=True,
-        )
+        d = cls.__new__(cls)
+        d.loc = loc
+        d.scale_tril = scale_tril
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
     @staticmethod
     def infer_shapes(
@@ -2118,19 +2107,12 @@ class Normal(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(
-        self, loc=0.0, scale=1.0, *, validate_args=None, in_vmap=False, batch_shape=None
-    ):
-        if not in_vmap:
-            self.loc, self.scale = promote_shapes(loc, scale)
-            assert batch_shape is None, batch_shape
-            batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        else:
-            self.loc = loc
-            self.scale = scale
-            assert isinstance(batch_shape, tuple)
+    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(
-            batch_shape=batch_shape, validate_args=validate_args, in_vmap=in_vmap
+            batch_shape=batch_shape,
+            validate_args=validate_args,
         )
 
     def sample(self, key, sample_shape=()):
@@ -2164,17 +2146,19 @@ class Normal(Distribution):
     def tree_flatten(self):
         return (
             tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape,),
+            (self.batch_shape, self.event_shape),
         )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        batch_shape = aux_data[0]
-        return cls(
-            **dict(zip(cls.arg_constraints.keys(), params)),
-            batch_shape=batch_shape,
-            in_vmap=True,
-        )
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class Pareto(TransformedDistribution):
