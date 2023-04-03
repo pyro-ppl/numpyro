@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
+from numpyro.distributions import Normal
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
@@ -224,7 +225,7 @@ def scan_enum(
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
 
         if isinstance(site["fn"], Normal):
-            setattr(site['fn'], "_batch_shape", site['value'].shape)
+            setattr(site["fn"], "_batch_shape", site["value"].shape)
         # XXX: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
         # we don't record 1-size dimensions in this field
         time_dim = -min(
