@@ -1974,6 +1974,7 @@ class AutoRVRS(AutoContinuous):
         gamma=0.90,  # controls momentum (0.0 => no momentum)
         num_warmup=float("inf"),
         include_log_Z=True,
+        reparameterized=True,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -1990,6 +1991,7 @@ class AutoRVRS(AutoContinuous):
         self.lambd = epsilon / (1 - epsilon)
         self.gamma = gamma
         self.include_log_Z = include_log_Z
+        self.reparameterized = reparameterized
 
         if guide is not None:
             if not isinstance(guide, AutoContinuous):
@@ -2092,9 +2094,13 @@ class AutoRVRS(AutoContinuous):
         A_bar = stop_gradient(Az - Az.mean(0))
         assert az.shape == Az.shape == log_weight.shape == (self.S,)
 
-        ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
-        ratio_bar = stop_gradient(ratio)
-        surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
+        if self.reparameterized:
+            ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
+            ratio_bar = stop_gradient(ratio)
+            surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
+        else:
+            guide_lp = guide_log_prob(stop_gradient(zs), params["guide"])
+            surrogate = self.S / (self.S - 1) * (stop_gradient(A_bar * az) * guide_lp).sum()
 
         if self.include_log_Z:
             elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
