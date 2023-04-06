@@ -1976,6 +1976,7 @@ class AutoRVRS(AutoContinuous):
         include_log_Z=True,
         reparameterized=True,
     ):
+
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
         if init_scale <= 0.0:
@@ -2098,9 +2099,11 @@ class AutoRVRS(AutoContinuous):
             ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
             ratio_bar = stop_gradient(ratio)
             surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
+            #surrogate = self.S / (self.S - 1) * (2 * A_bar * az).sum() + (stop_gradient(az) * Az).sum()
         else:
-            guide_lp = guide_log_prob(stop_gradient(zs), params["guide"])
-            surrogate = self.S / (self.S - 1) * (stop_gradient(A_bar * az) * guide_lp).sum()
+            _guide_lp = jax.vmap(lambda z: guide_log_prob(stop_gradient(z), params["guide"]))(zs)
+            assert _guide_lp.shape == (self.S,)
+            surrogate = self.S / (self.S - 1) * (stop_gradient(A_bar * az) * _guide_lp).sum()
 
         if self.include_log_Z:
             elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
