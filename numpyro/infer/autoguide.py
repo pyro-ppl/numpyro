@@ -2132,7 +2132,7 @@ class AutoRVRS(AutoContinuous):
             if self.T_exponent is not None:
                 T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent)
             elif self.T_lr_drop is not None:
-                T_lr = self.T_lr * 0.1 ** (num_updates["value"] // self.T_lr_drop).astype(float)
+                T_lr = self.T_lr * 0.2 ** (num_updates["value"] // self.T_lr_drop).astype(float)
             else:
                 T_lr = self.T_lr
 
