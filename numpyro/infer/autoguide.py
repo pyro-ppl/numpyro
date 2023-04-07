@@ -1981,8 +1981,9 @@ class AutoRVRS(AutoContinuous):
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
         if init_scale <= 0.0:
             raise ValueError("init_scale must be positive.")
-        if T is not None and not isinstance(T, float):
-            raise ValueError("T must be None or a float.")
+        # NOTE: removed because not jittable
+        #if T is not None and not isinstance(T, float):
+        #    raise ValueError("T must be None or a float.")
         if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
             raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
 
