@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
-from numpyro.distributions import Normal
+from numpyro.distributions import ExpandedDistribution, Normal
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
@@ -98,6 +98,48 @@ def _promote_scanned_value_shapes(value, fn):
         )
     else:
         return value
+
+
+def _promote_batch_shape(x):
+    if isinstance(x, ExpandedDistribution) and isinstance(x.base_dist, Normal):
+        # this logic is a port of the reshaping operations previously present in the
+        # flattening/unflattening methods of ExpandedDistribution. This logic had
+        # to be taken out of these method in order for distribution to be compliant
+        # with the JAX expectations w.r.t pytree flattening/unflattening.
+        orig_batch_shape = x.batch_shape
+        orig_base_dist_batch_shape = x.base_dist.batch_shape
+        orig_base_dist_event_shape = x.base_dist.event_shape
+        orig_batch_shape_elems = orig_batch_shape[
+            : len(orig_batch_shape) - len(orig_base_dist_batch_shape)
+        ]
+        new_x = x
+
+        for k in x.base_dist.arg_constraints.keys():
+            attr = getattr(x.base_dist, k)
+            base_dist_attr_shapes = attr.shape
+            new_shapes_elems = base_dist_attr_shapes[
+                : len(base_dist_attr_shapes)
+                - (len(orig_base_dist_event_shape) + len(orig_base_dist_batch_shape))
+            ]
+            new_x._batch_shape = (*new_shapes_elems, *orig_batch_shape)
+            new_x.base_dist._batch_shape = (
+                *new_shapes_elems,
+                *tuple(1 for _ in orig_batch_shape_elems),
+                *orig_base_dist_batch_shape,
+            )
+            new_axes_locs = range(
+                len(new_shapes_elems),
+                len(new_shapes_elems) + len(orig_batch_shape_elems),
+            )
+            setattr(new_x.base_dist, k, jnp.expand_dims(attr, axis=new_axes_locs))
+        return new_x
+    elif isinstance(x, Normal):
+        new_x = x
+        resolved_batch_shape = new_x.loc.shape[: new_x.loc.ndim - new_x.event_dim]
+        new_x._batch_shape = resolved_batch_shape
+    else:
+        new_x = x
+    return new_x
 
 
 def scan_enum(
@@ -221,11 +263,11 @@ def scan_enum(
         if first_var is None:
             first_var = name
 
+        site["fn"] = _promote_batch_shape(site["fn"])
+
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
 
-        if isinstance(site["fn"], Normal):
-            setattr(site["fn"], "_batch_shape", site["value"].shape)
         # XXX: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
         # we don't record 1-size dimensions in this field
         time_dim = -min(
@@ -311,6 +353,7 @@ def scan_wrapper(
     for name, site in pytree_trace.trace.items():
         if site["type"] != "sample":
             continue
+        site["fn"] = _promote_batch_shape(site["fn"])
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
     return last_carry, (pytree_trace, ys)

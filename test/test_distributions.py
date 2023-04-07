@@ -20,7 +20,6 @@ from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
-from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.distributions import (
@@ -2646,14 +2645,6 @@ def test_special_dist_pytree(method, arg):
 
     jax.jit(f)(0)
     lax.map(f, np.ones(3))
-
-
-def test_expand_pytree():
-    def g(x):
-        return dist.Normal(x, 1).expand([10, 3])
-
-    assert lax.map(g, jnp.ones((5, 3))).batch_shape == (10, 3)
-    assert tree_map(lambda x: x[None], g(0)).batch_shape == (10, 3)
 
 
 def test_expand_no_unnecessary_batch_shape_expansion():
