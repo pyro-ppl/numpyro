@@ -726,6 +726,7 @@ class AutoDAIS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        init_loc=None,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -739,8 +740,8 @@ class AutoDAIS(AutoContinuous):
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
             raise ValueError("gamma_init must be in the open interval (0, 1).")
-        if init_scale <= 0.0:
-            raise ValueError("init_scale must be positive.")
+        #if init_scale <= 0.0:
+        #    raise ValueError("init_scale must be positive.")
 
         self.eta_init = eta_init
         self.eta_max = eta_max
@@ -748,6 +749,7 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
+        self.init_loc = init_loc
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -799,22 +801,25 @@ class AutoDAIS(AutoContinuous):
         )
         inv_mass_matrix = 0.5 / mass_matrix
 
+        init_loc = self.init_loc if self.init_loc is not None else self._init_latent
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix),
-            self._init_latent,
+            init_loc
         )
 
         if self.base_dist == "diagonal":
+            init_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale
             init_z_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
-                jnp.full(self.latent_dim, self._init_scale),
+                init_scale,
                 constraint=constraints.positive,
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
+            init_scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
-                jnp.identity(self.latent_dim) * self._init_scale,
+                init_scale_tril,
                 constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
