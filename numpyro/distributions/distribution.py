@@ -613,15 +613,27 @@ class ExpandedDistribution(Distribution):
             self.base_dist,
         )
         base_flatten, base_aux = base_dist.tree_flatten()
-        return base_flatten, (type(self.base_dist), base_aux, self.batch_shape)
+        return base_flatten, (
+            type(self.base_dist),
+            base_aux,
+            self.batch_shape,
+            prepend_ndim,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        base_cls, base_aux, batch_shape = aux_data
+        base_cls, base_aux, batch_shape, prepend_ndim = aux_data
         base_dist = base_cls.tree_unflatten(base_aux, params)
         prepend_shape = base_dist.batch_shape[
             : len(base_dist.batch_shape) - len(batch_shape)
         ]
+        if len(prepend_shape) == 0:
+            # in that case, no additional dimension was added
+            # to the flattened distribution, and the batch_shape
+            # manipulation happening during the flattening can be
+            # reverted
+            base_dist._batch_shape = base_dist.batch_shape[prepend_ndim:]
+            return cls(base_dist, batch_shape=batch_shape)
         return cls(base_dist, batch_shape=prepend_shape + batch_shape)
 
 
