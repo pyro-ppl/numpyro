@@ -993,22 +993,6 @@ class TraceEnum_ELBO(ELBO):
                         ],
                         1.0,
                     )
-                    #  scales_set = set()
-                    #  for name in group_names | group_sum_vars:
-                    #      site_scale = model_trace[name]["scale"]
-                    #      if site_scale is None:
-                    #          site_scale = 1.0
-                    #      if isinstance(site_scale, jnp.ndarray):
-                    #          raise ValueError(
-                    #              "Enumeration only supports scalar handlers.scale"
-                    #          )
-                    #      scales_set.add(float(site_scale))
-                    #  if len(scales_set) != 1:
-                    #      raise ValueError(
-                    #          "Expected all enumerated sample sites to share a common scale, "
-                    #          f"but found {len(scales_set)} different scales."
-                    #      )
-                    #  scale = next(iter(scales_set))
                     # combine deps
                     deps = frozenset().union(
                         *[model_deps[name] for name in group_names]

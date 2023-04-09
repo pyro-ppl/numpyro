@@ -2314,10 +2314,6 @@ def test_model_enum_subsample_1(scale):
         }
         return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
 
-    #  with pytest.raises(
-    #      ValueError, match="Expected all enumerated sample sites to share a common scale"
-    #  ):
-    # This never gets run because we don't support this yet.
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
     assert_equal(actual_loss, expected_loss, prec=1e-5)
@@ -2389,10 +2385,6 @@ def test_model_enum_subsample_2(scale):
         }
         return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
 
-    #  with pytest.raises(
-    #      ValueError, match="Expected all enumerated sample sites to share a common scale"
-    #  ):
-    # This never gets run because we don't support this yet.
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
     assert_equal(actual_loss, expected_loss, prec=1e-5)
@@ -2464,10 +2456,6 @@ def test_model_enum_subsample_3(scale):
         }
         return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
 
-    #  with pytest.raises(
-    #      ValueError, match="Expected all enumerated sample sites to share a common scale"
-    #  ):
-    # This never gets run because we don't support this yet.
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
     assert_equal(actual_loss, expected_loss, prec=1e-3)
