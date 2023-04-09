@@ -21,7 +21,7 @@ from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import replay, seed, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim, optax_to_numpyro
 
@@ -38,7 +38,7 @@ SVIRunResult = namedtuple("SVIRunResult", ["params", "state", "losses"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **params** - the optimized parameters.
- - **state** - the last :class:`SVIState`
+ - **state** - the last :data:`SVIState`
  - **losses** - the losses collected at every step.
 """
 
@@ -95,7 +95,7 @@ class SVI(object):
 
         >>> def model(data):
         ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
-        ...     with numpyro.plate("N", data.shape[0]):
+        ...     with numpyro.plate("N", data.shape[0] if data is not None else 10):
         ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
         >>> def guide(data):
@@ -110,9 +110,15 @@ class SVI(object):
         >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
         >>> params = svi_result.params
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+        >>> # use guide to make predictive
+        >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
         >>> # get posterior samples
         >>> predictive = Predictive(guide, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(1), data)
+        >>> posterior_samples = predictive(random.PRNGKey(1), data=None)
+        >>> # use posterior samples to make predictive
+        >>> predictive = Predictive(model, posterior_samples, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -163,13 +169,15 @@ class SVI(object):
 
             self.optim = optax_to_numpyro(optim)
 
-    def init(self, rng_key, *args, **kwargs):
+    def init(self, rng_key, *args, init_params=None, **kwargs):
         """
         Gets the initial SVI state.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: the initial :data:`SVIState`
@@ -177,10 +185,20 @@ class SVI(object):
         rng_key, model_seed, guide_seed = random.split(rng_key, 3)
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
+        if init_params is not None:
+            guide_init = substitute(guide_init, init_params)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(
-            *args, **kwargs, **self.static_kwargs
-        )
+        init_guide_params = {
+            name: site["value"]
+            for name, site in guide_trace.items()
+            if site["type"] == "param"
+        }
+        if init_params is not None:
+            init_guide_params.update(init_params)
+        model_trace = trace(
+            substitute(replay(model_init, guide_trace), init_guide_params)
+        ).get_trace(*args, **kwargs, **self.static_kwargs)
+
         params = {}
         inv_transforms = {}
         mutable_state = {}
@@ -293,6 +311,7 @@ class SVI(object):
         progress_bar=True,
         stable_update=False,
         init_state=None,
+        init_params=None,
         **kwargs,
     ):
         """
@@ -321,11 +340,13 @@ class SVI(object):
                 # continue from the end of the previous svi run rather than beginning again from iteration 0
                 svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state)
 
+        :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
+            this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
             and `losses` is the collected loss during the process.
-        :rtype: SVIRunResult
+        :rtype: :data:`SVIRunResult`
         """
 
         if num_steps < 1:
@@ -339,7 +360,7 @@ class SVI(object):
             return svi_state, loss
 
         if init_state is None:
-            svi_state = self.init(rng_key, *args, **kwargs)
+            svi_state = self.init(rng_key, *args, init_params=init_params, **kwargs)
         else:
             svi_state = init_state
         if progress_bar:

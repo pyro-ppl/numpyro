@@ -505,7 +505,9 @@ class MultinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, probs, total_count=1, *, validate_args=None):
+    def __init__(
+        self, probs, total_count=1, *, total_count_max=None, validate_args=None
+    ):
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -513,6 +515,7 @@ class MultinomialProbs(Distribution):
         )
         self.probs = promote_shapes(probs, shape=batch_shape + jnp.shape(probs)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
+        self.total_count_max = total_count_max
         super(MultinomialProbs, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
@@ -522,7 +525,11 @@ class MultinomialProbs(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         return multinomial(
-            key, self.probs, self.total_count, shape=sample_shape + self.batch_shape
+            key,
+            self.probs,
+            self.total_count,
+            shape=sample_shape + self.batch_shape,
+            total_count_max=self.total_count_max,
         )
 
     @validate_sample
@@ -562,7 +569,9 @@ class MultinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
 
-    def __init__(self, logits, total_count=1, *, validate_args=None):
+    def __init__(
+        self, logits, total_count=1, *, total_count_max=None, validate_args=None
+    ):
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -572,6 +581,7 @@ class MultinomialLogits(Distribution):
             logits, shape=batch_shape + jnp.shape(logits)[-1:]
         )[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
+        self.total_count_max = total_count_max
         super(MultinomialLogits, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
@@ -581,7 +591,11 @@ class MultinomialLogits(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         return multinomial(
-            key, self.probs, self.total_count, shape=sample_shape + self.batch_shape
+            key,
+            self.probs,
+            self.total_count,
+            shape=sample_shape + self.batch_shape,
+            total_count_max=self.total_count_max,
         )
 
     @validate_sample
@@ -618,11 +632,32 @@ class MultinomialLogits(Distribution):
         return batch_shape, event_shape
 
 
-def Multinomial(total_count=1, probs=None, logits=None, *, validate_args=None):
+def Multinomial(
+    total_count=1, probs=None, logits=None, *, total_count_max=None, validate_args=None
+):
+    """Multinomial distribution.
+
+    :param total_count: number of trials. If this is a JAX array,
+        it is required to specify `total_count_max`.
+    :param probs: event probabilities
+    :param logits: event log probabilities
+    :param int total_count_max: the maximum number of trials,
+        i.e. `max(total_count)`
+    """
     if probs is not None:
-        return MultinomialProbs(probs, total_count, validate_args=validate_args)
+        return MultinomialProbs(
+            probs,
+            total_count,
+            total_count_max=total_count_max,
+            validate_args=validate_args,
+        )
     elif logits is not None:
-        return MultinomialLogits(logits, total_count, validate_args=validate_args)
+        return MultinomialLogits(
+            logits,
+            total_count,
+            total_count_max=total_count_max,
+            validate_args=validate_args,
+        )
     else:
         raise ValueError("One of `probs` or `logits` must be specified.")
 

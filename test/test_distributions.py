@@ -407,6 +407,8 @@ CONTINUOUS = [
     ),
     T(dist.GaussianCopulaBeta, 2.0, 1.5, np.eye(3)),
     T(dist.GaussianCopulaBeta, 2.0, 1.5, np.full((5, 3, 3), np.eye(3))),
+    T(dist.Gompertz, np.array([1.7]), np.array([[2.0], [3.0]])),
+    T(dist.Gompertz, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.Gumbel, 0.0, 1.0),
     T(dist.Gumbel, 0.5, 2.0),
     T(dist.Gumbel, np.array([0.0, 0.5]), np.array([1.0, 2.0])),
@@ -1742,6 +1744,8 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if isinstance(d_jax, dist.CAR):
             pytest.skip("CAR distribution does not have `variance` implemented.")
+        if isinstance(d_jax, dist.Gompertz):
+            pytest.skip("Gompertz distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
             assert_allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
@@ -2739,3 +2743,18 @@ def test_vmapped_binomial_p0():
         return dist.Binomial(total_count=n, probs=0).sample(key)
 
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
+
+
+def test_multinomial_abstract_total_count():
+    probs = jnp.array([0.2, 0.5, 0.3])
+    key = random.PRNGKey(0)
+
+    def f(x):
+        total_count = x.sum(-1)
+        return dist.Multinomial(total_count, probs=probs, total_count_max=10).sample(
+            key
+        )
+
+    x = dist.Multinomial(10, probs).sample(key)
+    y = jax.jit(f)(x)
+    assert_allclose(x, y, rtol=1e-6)

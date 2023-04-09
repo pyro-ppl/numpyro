@@ -69,6 +69,10 @@ init_to_feasible
 ^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.initialization.init_to_feasible
 
+init_to_mean
+^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_mean
+
 init_to_median
 ^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.initialization.init_to_median
