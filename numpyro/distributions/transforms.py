@@ -13,7 +13,7 @@ from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import register_pytree_node, tree_flatten, tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
@@ -107,6 +107,19 @@ class Transform(object):
         return attrs
 
 
+class ParameterFreeTransform(Transform):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
+
+    def tree_flatten(self):
+        return (), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls()
+
+
 class _InverseTransform(Transform):
     def __init__(self, transform):
         super().__init__()
@@ -137,8 +150,15 @@ class _InverseTransform(Transform):
     def inverse_shape(self, shape):
         return self._inv.forward_shape(shape)
 
+    def tree_flatten(self):
+        return self._inv, None
 
-class AbsTransform(Transform):
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(params)
+
+
+class AbsTransform(ParameterFreeTransform):
     domain = constraints.real
     codomain = constraints.positive
 
@@ -214,6 +234,13 @@ class AffineTransform(Transform):
         return lax.broadcast_shapes(
             shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ())
         )
+
+    def tree_flatten(self):
+        return (self.loc, self.scale), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params)
 
 
 def _get_compose_transform_input_event_dim(parts):
