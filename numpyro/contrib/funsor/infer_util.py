@@ -42,6 +42,17 @@ def plate_to_enum_plate():
         numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
 
 
+def _config_fn_enumerate(site, default):
+    """helper function used internally in config_enumerate"""
+    if (
+        site["type"] == "sample"
+        and (not site["is_observed"])
+        and site["fn"].has_enumerate_support
+    ):
+        return {"enumerate": site["infer"].get("enumerate", default)}
+    return {}
+
+
 def config_enumerate(fn=None, default="parallel"):
     """
     Configures enumeration for all relevant sites in a NumPyro model.
@@ -68,17 +79,19 @@ def config_enumerate(fn=None, default="parallel"):
     """
     if fn is None:  # support use as a decorator
         return functools.partial(config_enumerate, default=default)
+    else:
+        return infer_config(fn, functools.partial(_config_fn_enumerate, default=default))
 
-    def config_fn(site):
-        if (
-            site["type"] == "sample"
-            and (not site["is_observed"])
-            and site["fn"].has_enumerate_support
-        ):
-            return {"enumerate": site["infer"].get("enumerate", default)}
-        return {}
 
-    return infer_config(fn, config_fn)
+def _config_fn_kl(site, sites):
+    """helper function used internally in config_kl"""
+    if (
+        site["type"] == "sample"
+        and (not site["is_observed"])
+        and (sites is None or site["name"] in sites)
+    ):
+        return {"kl": site["infer"].get("kl", "analytic")}
+    return {}
 
 
 def config_kl(fn=None, sites=None):
@@ -106,17 +119,8 @@ def config_kl(fn=None, sites=None):
     """
     if fn is None:  # support use as a decorator
         return functools.partial(config_kl, sites=sites)
-
-    def config_fn(site):
-        if (
-            site["type"] == "sample"
-            and (not site["is_observed"])
-            and (sites is None or site["name"] in sites)
-        ):
-            return {"kl": site["infer"].get("kl", "analytic")}
-        return {}
-
-    return infer_config(fn, config_fn)
+    else:
+        return infer_config(fn, functools.partial(_config_fn_kl, sites=sites))
 
 
 def _get_shift(name):
