@@ -80,7 +80,9 @@ def config_enumerate(fn=None, default="parallel"):
     if fn is None:  # support use as a decorator
         return functools.partial(config_enumerate, default=default)
     else:
-        return infer_config(fn, functools.partial(_config_fn_enumerate, default=default))
+        return infer_config(
+            fn, functools.partial(_config_fn_enumerate, default=default)
+        )
 
 
 def _config_fn_kl(site, sites):

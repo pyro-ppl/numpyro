@@ -75,17 +75,14 @@ def logistic_regression():
 def gmm(data, K):
     mix_proportions = numpyro.sample("phi", dist.Dirichlet(jnp.ones(K)))
     with numpyro.plate("num_clusters", K, dim=-1):
-        cluster_means = numpyro.sample(
-            "cluster_means", dist.Normal(jnp.arange(K), 1.0)
-        )
+        cluster_means = numpyro.sample("cluster_means", dist.Normal(jnp.arange(K), 1.0))
     with numpyro.plate("data", data.shape[0], dim=-1):
         assignments = numpyro.sample(
-            "assignments", dist.Categorical(mix_proportions),
-            infer={'enumerate': 'parallel'}
+            "assignments",
+            dist.Categorical(mix_proportions),
+            infer={"enumerate": "parallel"},
         )
-        numpyro.sample(
-            "obs", dist.Normal(cluster_means[assignments], 1.0), obs=data
-        )
+        numpyro.sample("obs", dist.Normal(cluster_means[assignments], 1.0), obs=data)
 
 
 @pytest.mark.parametrize("kernel", [BarkerMH, HMC, NUTS, SA])
