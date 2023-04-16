@@ -64,8 +64,14 @@ TRANSFORMS = {
         LowerCholeskyAffine, (jnp.array([1.0, 2.0]), jnp.eye(2))
     ),
     "permute": T(PermuteTransform, (jnp.array([1, 0]),)),
-    "power": T(PowerTransform, (_a(2.0),),),  # fmt: skip
-    "simplex_to_ordered": T(SimplexToOrderedTransform, (_a(1.0),),),  # fmt: skip
+    "power": T(
+        PowerTransform,
+        (_a(2.0),),
+    ),
+    "simplex_to_ordered": T(
+        SimplexToOrderedTransform,
+        (_a(1.0),),
+    ),
     "unpack": T(UnpackTransform, (_unpack,)),
     # unparametrized transforms
     "abs": T(AbsTransform, ()),
