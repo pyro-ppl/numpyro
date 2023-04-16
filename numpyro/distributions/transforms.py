@@ -60,6 +60,10 @@ class Transform(object):
     codomain = constraints.real
     _inv = None
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
+
     @property
     def inv(self):
         inv = None
@@ -106,18 +110,24 @@ class Transform(object):
                 attrs[k] = v
         return attrs
 
-
-class ParameterFreeTransform(Transform):
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
-
-    def tree_flatten(self):
-        return (), None
-
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls()
+        params_keys, aux_data = aux_data
+        self = cls.__new__(cls)
+        for k, v in zip(params_keys, params):
+            setattr(self, k, v)
+
+        for k, v in aux_data.items():
+            setattr(self, k, v)
+        return self
+
+
+class ParameterFreeTransform(Transform):
+    def tree_flatten(self):
+        return (), ((), dict())
+
+    def __eq__(self, other):
+        return isinstance(other, type(self))
 
 
 class _InverseTransform(Transform):
@@ -151,7 +161,7 @@ class _InverseTransform(Transform):
         return self._inv.forward_shape(shape)
 
     def tree_flatten(self):
-        return self._inv, None
+        return (self._inv,), (("_inv",), dict())
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -236,11 +246,15 @@ class AffineTransform(Transform):
         )
 
     def tree_flatten(self):
-        return (self.loc, self.scale), None
+        return (self.loc, self.scale, self.domain), (("loc", "scale", "domain"), dict())
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(*params)
+    def __eq__(self, other):
+        return (
+            isinstance(other, AffineTransform)
+            and jnp.array_equal(self.loc, other.loc)
+            and jnp.array_equal(self.scale, other.scale)
+            and self.domain == other.domain
+        )
 
 
 def _get_compose_transform_input_event_dim(parts):
@@ -345,6 +359,12 @@ class ComposeTransform(Transform):
             shape = part.inverse_shape(shape)
         return shape
 
+    def tree_flatten(self):
+        return (self.parts,), (("parts",), {})
+
+    def __eq__(self, other):
+        return isinstance(other, ComposeTransform) and self.parts == other.parts
+
 
 def _matrix_forward_shape(shape, offset=0):
     # Reshape from (..., N) to (..., D, D).
@@ -369,7 +389,7 @@ def _matrix_inverse_shape(shape, offset=0):
     return shape[:-2] + (N,)
 
 
-class CholeskyTransform(Transform):
+class CholeskyTransform(ParameterFreeTransform):
     r"""
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     positive definite matrix.
@@ -392,7 +412,7 @@ class CholeskyTransform(Transform):
         )
 
 
-class CorrCholeskyTransform(Transform):
+class CorrCholeskyTransform(ParameterFreeTransform):
     r"""
     Transforms a uncontrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
@@ -462,7 +482,7 @@ class CorrCholeskyTransform(Transform):
         return _matrix_inverse_shape(shape, offset=-1)
 
 
-class CorrMatrixCholeskyTransform(CholeskyTransform):
+class CorrMatrixCholeskyTransform(ParameterFreeTransform):
     r"""
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     correlation matrix.
@@ -509,8 +529,14 @@ class ExpTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
 
+    def tree_flatten(self):
+        return (self.domain,), (("domain",), dict())
 
-class IdentityTransform(Transform):
+    def __eq__(self, other):
+        return isinstance(other, ExpTransform) and self.domain == other.domain
+
+
+class IdentityTransform(ParameterFreeTransform):
     def __call__(self, x):
         return x
 
@@ -572,8 +598,21 @@ class IndependentTransform(Transform):
     def inverse_shape(self, shape):
         return self.base_transform.inverse_shape(shape)
 
+    def tree_flatten(self):
+        return (self.base_transform, self.reinterpreted_batch_ndims), (
+            ("base_transform", "reinterpreted_batch_ndims"),
+            dict(),
+        )
 
-class L1BallTransform(Transform):
+    def __eq__(self, other):
+        return (
+            isinstance(other, IndependentTransform)
+            and self.base_transform == other.base_transform
+            and self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
+        )
+
+
+class L1BallTransform(ParameterFreeTransform):
     r"""
     Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
     """
@@ -681,8 +720,17 @@ class LowerCholeskyAffine(Transform):
             raise ValueError("Too few dimensions on input")
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
 
+    def tree_flatten(self):
+        return (self.loc, self.scale_tril), (("loc", "scale_tril"), dict())
 
-class LowerCholeskyTransform(Transform):
+    def __eq__(self, other):
+        return isinstance(other, LowerCholeskyAffine) and (
+            jnp.array_equal(self.loc, other.loc)
+            and jnp.array_equal(self.scale_tril, other.scale_tril)
+        )
+
+
+class LowerCholeskyTransform(ParameterFreeTransform):
     """
     Transform a real vector to a lower triangular cholesky
     factor, where the strictly lower triangular submatrix is
@@ -750,7 +798,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         return (jnp.log(diag_softplus) * jnp.arange(n) - softplus(-diag)).sum(-1)
 
 
-class OrderedTransform(Transform):
+class OrderedTransform(ParameterFreeTransform):
     """
     Transform a real vector to an ordered vector.
 
@@ -808,6 +856,14 @@ class PermuteTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.full(jnp.shape(x)[:-1], 0.0)
 
+    def tree_flatten(self):
+        return (self.permutation,), (("permutation",), dict())
+
+    def __eq__(self, other):
+        return isinstance(other, PermuteTransform) and jnp.array_equal(
+            self.permutation, other.permutation
+        )
+
 
 class PowerTransform(Transform):
     domain = constraints.positive
@@ -831,8 +887,16 @@ class PowerTransform(Transform):
     def inverse_shape(self, shape):
         return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
 
+    def tree_flatten(self):
+        return (self.exponent,), (("exponent",), dict())
 
-class SigmoidTransform(Transform):
+    def __eq__(self, other):
+        return isinstance(other, PowerTransform) and jnp.array_equal(
+            self.exponent, other.exponent
+        )
+
+
+class SigmoidTransform(ParameterFreeTransform):
     codomain = constraints.unit_interval
 
     def __call__(self, x):
@@ -898,12 +962,20 @@ class SimplexToOrderedTransform(Transform):
         J_logdet = (softplus(y) + softplus(-y)).sum(-1)
         return J_logdet
 
+    def tree_flatten(self):
+        return (self.anchor_point,), (("anchor_point",), dict())
+
+    def __eq__(self, other):
+        return isinstance(other, SimplexToOrderedTransform) and jnp.array_equal(
+            self.anchor_point, other.anchor_point
+        )
+
 
 def _softplus_inv(y):
     return jnp.log(-jnp.expm1(-y)) + y
 
 
-class SoftplusTransform(Transform):
+class SoftplusTransform(ParameterFreeTransform):
     r"""
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
@@ -921,7 +993,7 @@ class SoftplusTransform(Transform):
         return -softplus(-x)
 
 
-class SoftplusLowerCholeskyTransform(Transform):
+class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
     """
     Transform from unconstrained vector to lower-triangular matrices with
     nonnegative diagonal entries. This is useful for parameterizing positive
@@ -955,7 +1027,7 @@ class SoftplusLowerCholeskyTransform(Transform):
         return _matrix_inverse_shape(shape)
 
 
-class StickBreakingTransform(Transform):
+class StickBreakingTransform(ParameterFreeTransform):
     domain = constraints.real_vector
     codomain = constraints.simplex
 
@@ -1047,6 +1119,13 @@ class UnpackTransform(Transform):
 
     def inverse_shape(self, shape):
         raise NotImplementedError
+
+    def tree_flatten(self):
+        # XXX: what if unpack_fn is a parametrized callable pytree?
+        return (), ((), {"unpack_fn": self.unpack_fn})
+
+    def __eq__(self, other):
+        return isinstance(other, UnpackTransform) and self.unpack_fn is other.unpack_fn
 
 
 ##########################################################
