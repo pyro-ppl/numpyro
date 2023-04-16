@@ -113,6 +113,13 @@ class BijectorTransform(Transform):
         batch_shape = shape[: len(shape) - len(out_event_shape)]
         return batch_shape + in_shape
 
+    def tree_flatten(self):
+        return self.bijector, ()
+
+    @classmethod
+    def tree_unflatten(cls, _, bijector):
+        return cls(bijector)
+
 
 @biject_to.register(BijectorConstraint)
 def _transform_to_bijector_constraint(constraint):
