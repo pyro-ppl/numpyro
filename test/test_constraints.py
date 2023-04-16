@@ -63,7 +63,7 @@ PARAMETRIZED_CONSTRAINTS = {
 @pytest.mark.parametrize(
     "constraint", SINGLETON_CONSTRAINTS.values(), ids=SINGLETON_CONSTRAINTS.keys()
 )
-def test_singleton_constrains_pytree(constraint):
+def test_singleton_constraint_pytree(constraint):
     # test that singleton constraints objects can be used as pytrees
     def in_cst(constraint, x):
         return x**2
@@ -93,7 +93,7 @@ def test_singleton_constrains_pytree(constraint):
     PARAMETRIZED_CONSTRAINTS.values(),
     ids=PARAMETRIZED_CONSTRAINTS.keys(),
 )
-def test_parametrized_constrains_pytree(cls, params):
+def test_parametrized_constraint_pytree(cls, params):
     constraint = cls(*params)
 
     # test that singleton constraints objects can be used as pytrees
