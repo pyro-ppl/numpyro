@@ -8,61 +8,30 @@ import pytest
 from jax import jit, vmap
 import jax.numpy as jnp
 
-from numpyro.distributions.constraints import (
-    boolean,
-    circular,
-    corr_cholesky,
-    corr_matrix,
-    greater_than,
-    independent,
-    integer_greater_than,
-    integer_interval,
-    interval,
-    l1_ball,
-    less_than,
-    lower_cholesky,
-    multinomial,
-    nonnegative_integer,
-    open_interval,
-    ordered_vector,
-    positive,
-    positive_definite,
-    positive_integer,
-    positive_ordered_vector,
-    real,
-    real_matrix,
-    real_vector,
-    scaled_unit_lower_cholesky,
-    simplex,
-    softplus_lower_cholesky,
-    softplus_positive,
-    sphere,
-    unit_interval,
-)
-
+from numpyro.distributions import constraints
 
 SINGLETON_CONSTRAINTS = {
-    "boolean": boolean,
-    "circular": circular,
-    "corr_cholesky": corr_cholesky,
-    "corr_matrix": corr_matrix,
-    "l1_ball": l1_ball,
-    "lower_cholesky": lower_cholesky,
-    "scaled_unit_lower_cholesky": scaled_unit_lower_cholesky,
-    "nonnegative_integer": nonnegative_integer,
-    "ordered_vector": ordered_vector,
-    "positive": positive,
-    "positive_definite": positive_definite,
-    "positive_integer": positive_integer,
-    "positive_ordered_vector": positive_ordered_vector,
-    "real": real,
-    "real_vector": real_vector,
-    "real_matrix": real_matrix,
-    "simplex": simplex,
-    "softplus_lower_cholesky": softplus_lower_cholesky,
-    "softplus_positive": softplus_positive,
-    "sphere": sphere,
-    "unit_interval": unit_interval,
+    "boolean": constraints.boolean,
+    "circular": constraints.circular,
+    "corr_cholesky": constraints.corr_cholesky,
+    "corr_matrix": constraints.corr_matrix,
+    "l1_ball": constraints.l1_ball,
+    "lower_cholesky": constraints.lower_cholesky,
+    "scaled_unit_lower_cholesky": constraints.scaled_unit_lower_cholesky,
+    "nonnegative_integer": constraints.nonnegative_integer,
+    "ordered_vector": constraints.ordered_vector,
+    "positive": constraints.positive,
+    "positive_definite": constraints.positive_definite,
+    "positive_integer": constraints.positive_integer,
+    "positive_ordered_vector": constraints.positive_ordered_vector,
+    "real": constraints.real,
+    "real_vector": constraints.real_vector,
+    "real_matrix": constraints.real_matrix,
+    "simplex": constraints.simplex,
+    "softplus_lower_cholesky": constraints.softplus_lower_cholesky,
+    "softplus_positive": constraints.softplus_positive,
+    "sphere": constraints.sphere,
+    "unit_interval": constraints.unit_interval,
 }
 
 _a = jnp.asarray
@@ -73,14 +42,19 @@ class T(namedtuple("TestCase", ["constraint_cls", "params"])):
 
 
 PARAMETRIZED_CONSTRAINTS = {
-    "greater_than": T(greater_than, (_a(0.0),)),
-    "less_than": T(less_than, (_a(-1.0),)),
-    "independent": T(independent, (greater_than(jnp.zeros((2,))), 1)),
-    "integer_interval": T(integer_interval, (_a(-1), _a(1))),
-    "integer_greater_than": T(integer_greater_than, (_a(1),)),
-    "interval": T(interval, (_a(-1.0), _a(1.0))),
-    "multinomial": T(multinomial, (_a(1.0),),),
-    "open_interval": T(open_interval, (_a(-1.0), _a(1.0))),
+    "greater_than": T(constraints.greater_than, (_a(0.0),)),
+    "less_than": T(constraints.less_than, (_a(-1.0),)),
+    "independent": T(
+        constraints.independent, (constraints.greater_than(jnp.zeros((2,))), 1)
+    ),
+    "integer_interval": T(constraints.integer_interval, (_a(-1), _a(1))),
+    "integer_greater_than": T(constraints.integer_greater_than, (_a(1),)),
+    "interval": T(constraints.interval, (_a(-1.0), _a(1.0))),
+    "multinomial": T(
+        constraints.multinomial,
+        (_a(1.0),),
+    ),
+    "open_interval": T(constraints.open_interval, (_a(-1.0), _a(1.0))),
 }
 
 # TODO: BijectorConstraint
