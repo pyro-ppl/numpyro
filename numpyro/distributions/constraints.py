@@ -62,6 +62,7 @@ import math
 import numpy as np
 
 import jax.numpy
+import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 
 
@@ -276,6 +277,11 @@ class _GreaterThan(Constraint):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
+    def __eq__(self, other):
+        return isinstance(other, _GreaterThan) and jnp.array_equal(
+            self.lower_bound, other.lower_bound
+        )
+
 
 class _Positive(_SingletonConstraint, _GreaterThan):
     def __init__(self):
@@ -340,6 +346,13 @@ class _IndependentConstraint(Constraint):
             {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
         )
 
+    def __eq__(self, other):
+        return (
+            isinstance(other, _IndependentConstraint)
+            and self.base_constraint == other.base_constraint
+            and self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
+        )
+
 
 class _RealVector(_IndependentConstraint, _SingletonConstraint):
     def __init__(self):
@@ -369,6 +382,11 @@ class _LessThan(Constraint):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
+    def __eq__(self, other):
+        return isinstance(other, _LessThan) and jnp.array_equal(
+            self.upper_bound, other.upper_bound
+        )
+
 
 class _IntegerInterval(Constraint):
     is_discrete = True
@@ -396,6 +414,13 @@ class _IntegerInterval(Constraint):
             dict(),
         )
 
+    def __eq__(self, other):
+        return (
+            isinstance(other, _IntegerInterval)
+            and jnp.array_equal(self.lower_bound, other.lower_bound)
+            and jnp.array_equal(self.upper_bound, other.upper_bound)
+        )
+
 
 class _IntegerGreaterThan(Constraint):
     is_discrete = True
@@ -416,6 +441,11 @@ class _IntegerGreaterThan(Constraint):
 
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
+
+    def __eq__(self, other):
+        return isinstance(other, _IntegerGreaterThan) and jnp.array_equal(
+            self.lower_bound, other.lower_bound
+        )
 
 
 class _IntegerPositive(_SingletonConstraint, _IntegerGreaterThan):
@@ -521,6 +551,11 @@ class _Multinomial(Constraint):
 
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
+
+    def __eq__(self, other):
+        return isinstance(other, _Multinomial) and jnp.array_equal(
+            self.upper_bound, other.upper_bound
+        )
 
 
 class _L1Ball(_SingletonConstraint):
