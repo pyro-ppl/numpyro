@@ -80,6 +80,8 @@ PARAMETRIZED_CONSTRAINTS = (
     open_interval,
 )
 
+# TODO: BijectorConstraint
+
 
 @pytest.mark.parametrize("constraint", SINGLETON_CONSTRAINTS)
 def test_singleton_constrains_pytree(constraint):

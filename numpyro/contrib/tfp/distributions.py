@@ -66,6 +66,13 @@ class BijectorConstraint(constraints.Constraint):
     def codomain(self):
         return _get_codomain(self.bijector)
 
+    def tree_flatten(self):
+        return self.bijector, ()
+
+    @classmethod
+    def tree_unflatten(cls, _, bijector):
+        return cls(bijector)
+
 
 class BijectorTransform(Transform):
     """
