@@ -482,7 +482,7 @@ class CorrCholeskyTransform(ParameterFreeTransform):
         return _matrix_inverse_shape(shape, offset=-1)
 
 
-class CorrMatrixCholeskyTransform(ParameterFreeTransform):
+class CorrMatrixCholeskyTransform(CholeskyTransform):
     r"""
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     correlation matrix.
