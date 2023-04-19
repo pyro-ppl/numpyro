@@ -56,7 +56,7 @@ setup(
             "isort>=5.0",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
-            "scipy>=1.6,<1.7",
+            "scipy>=1.6",
         ],
         "dev": [
             "dm-haiku",
