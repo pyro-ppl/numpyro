@@ -1448,10 +1448,10 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
 
 def test_zero_inflated_logits_probs_agree():
-    concentration = np.exp(np.random.normal(100))
-    rate = np.exp(np.random.normal(100))
+    concentration = np.exp(np.random.normal(1))
+    rate = np.exp(np.random.normal(1))
     d = dist.GammaPoisson(concentration, rate)
-    gate_logits = np.random.normal(100)
+    gate_logits = np.random.normal(0)
     gate_probs = expit(gate_logits)
     zi_logits = dist.ZeroInflatedDistribution(d, gate_logits=gate_logits)
     zi_probs = dist.ZeroInflatedDistribution(d, gate=gate_probs)
