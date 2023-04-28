@@ -19,6 +19,7 @@ from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
+from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
@@ -2758,3 +2759,46 @@ def test_multinomial_abstract_total_count():
     x = dist.Multinomial(10, probs).sample(key)
     y = jax.jit(f)(x)
     assert_allclose(x, y, rtol=1e-6)
+
+
+def test_normal_log_cdf():
+    # test if log_cdf method agrees with jax.scipy.stats.norm.logcdf
+    # and if exp(log_cdf) agrees with cdf
+    loc = jnp.array([[0.0, -10.0, 20.0]])
+    scale = jnp.array([[1, 5, 7]])
+    values = jnp.linspace(-5, 5, 100).reshape(-1, 1)
+    numpyro_log_cdf = dist.Normal(loc=loc, scale=scale).log_cdf(values)
+    numpyro_cdf = dist.Normal(loc=loc, scale=scale).cdf(values)
+    jax_log_cdf = jax_norm.logcdf(loc=loc, scale=scale, x=values)
+    assert_allclose(numpyro_log_cdf, jax_log_cdf)
+    assert_allclose(jnp.exp(numpyro_log_cdf), numpyro_cdf, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        -15.0,
+        jnp.array([[-15.0], [-10.0], [-5.0]]),
+        jnp.array([[[-15.0], [-10.0], [-5.0]], [[-14.0], [-9.0], [-4.0]]]),
+    ],
+)
+def test_truncated_normal_log_prob_in_tail(value):
+    # define set of distributions truncated in tail of distribution
+    loc = 1.35
+    scale = jnp.geomspace(0.01, 1, 10)
+    low, high = (-20, -1.0)
+    a, b = (low - loc) / scale, (high - loc) / scale  # rescale for jax input
+
+    numpyro_log_prob = dist.TruncatedNormal(loc, scale, low=low, high=high).log_prob(
+        value
+    )
+    jax_log_prob = jax_truncnorm.logpdf(value, loc=loc, scale=scale, a=a, b=b)
+    assert_allclose(numpyro_log_prob, jax_log_prob, rtol=1e-06)
+
+
+def test_sample_truncated_normal_in_tail():
+    # test, if samples from distributions truncated in
+    # tail of distribution returns any inf's
+    tail_dist = dist.TruncatedNormal(loc=0, scale=1, low=-16, high=-15)
+    samples = tail_dist.sample(random.PRNGKey(0), sample_shape=(10_000,))
+    assert ~jnp.isinf(samples).any()

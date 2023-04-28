@@ -47,6 +47,7 @@ from jax.scipy.special import (
     xlog1py,
     xlogy,
 )
+from jax.scipy.stats import norm as jax_norm
 
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
@@ -2076,6 +2077,9 @@ class Normal(Distribution):
     def cdf(self, value):
         scaled = (value - self.loc) / self.scale
         return ndtr(scaled)
+
+    def log_cdf(self, value):
+        return jax_norm.logcdf(value, loc=self.loc, scale=self.scale)
 
     def icdf(self, q):
         return self.loc + self.scale * ndtri(q)
