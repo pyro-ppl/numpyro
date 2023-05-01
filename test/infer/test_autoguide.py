@@ -45,6 +45,7 @@ from numpyro.infer.autoguide import (
     AutoNormal,
     AutoRVRS,
     AutoSemiDAIS,
+	AutoSemiRVRS,
     AutoSurrogateLikelihoodDAIS,
     batch_rejection_sampler,
     batch_rejection_sampler_custom,
@@ -1072,4 +1073,53 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
     expected_grad = jax.vmap(jax.grad(sample_z), (None, 0))(params_raw, eps)
     assert_allclose(actual_grad["loc"], expected_grad["loc"], atol=1e-7)
     assert_allclose(actual_grad["log_scale"], expected_grad["log_scale"], atol=1e-7)
+
+
+def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000):
+    X = RandomState(0).randn(N, P)
+    Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
+
+    def global_model():
+        return numpyro.sample("theta", dist.Normal(jnp.zeros(P), 1).to_event(1))
+
+    def local_model(subsample_size, theta):
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            X_batch = numpyro.subsample(X, event_dim=1)
+            Y_batch = numpyro.subsample(Y, event_dim=0)
+            tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
+            numpyro.sample(
+                "obs",
+                dist.Normal(X_batch @ theta, sigma_obs / jnp.sqrt(tau)),
+                obs=Y_batch,
+            )
+
+    def model12():
+        return local_model(12, global_model())
+
+    def model16():
+        return local_model(16, global_model())
+
+    def _get_optim():
+        scheduler = piecewise_constant_schedule(
+            1.0e-3, {15 * 1000: 1.0e-4, 30 * 1000: 1.0e-5}
+        )
+        return optax.chain(
+            optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
+        )
+
+    def create_plates(theta):
+        return numpyro.plate("N", N, subsample_size=16)
+
+    S = 6
+    global_guide = AutoNormal(global_model)
+    local_guide16 = AutoNormal(partial(local_model, 16), create_plates=create_plates)
+    guide16 = AutoSemiRVRS(
+        model16, global_guide, local_guide16, S=6,
+    )
+    svi_result16 = SVI(model16, guide16, _get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(0), num_steps
+    )
+
+    samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    assert samples16["theta"].shape == (S, P) and samples16["tau"].shape == (S, 16)
 
