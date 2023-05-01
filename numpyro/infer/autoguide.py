@@ -2368,7 +2368,7 @@ class AutoSemiRVRS(AutoGuide):
         init_loc_fn=init_to_uniform,
         Z_target=0.33,
         T_exponent=None,
-        gamma=0.9,  # controls momentum (0.0 => no momentum)
+        gamma=0.99,  # controls momentum (0.0 => no momentum)
         num_warmup=float("inf"),
         include_log_Z=True,
         reparameterized=True,
@@ -2376,8 +2376,8 @@ class AutoSemiRVRS(AutoGuide):
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
-        if T is not None and not isinstance(T, float):
-            raise ValueError("T must be None or a float.")
+        # if T is not None and not isinstance(T, float):
+        #     raise ValueError("T must be None or a float.")
         if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
             raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
 
@@ -2635,7 +2635,13 @@ class AutoSemiRVRS(AutoGuide):
                 T_grad = self.gamma * T_grad_smoothed["value"][subsample_idx] + (1.0 - self.gamma) * T_grad
                 T_grad_smoothed["value"] = T_grad_smoothed["value"].at[subsample_idx].set(T_grad)
 
-            T_lr = self.T_lr * jnp.power(num_updates["value"][subsample_idx], -self.T_exponent) if self.T_exponent is not None else self.T_lr
+            if self.T_exponent is not None:
+                T_lr = self.T_lr * jnp.power(num_updates["value"][subsample_idx], -self.T_exponent)
+            elif self.T_lr_drop is not None:
+                T_lr = self.T_lr * 0.1 ** (num_updates["value"][subsample_idx] // self.T_lr_drop).astype(jnp.result_type(float))
+            else:
+                T_lr = self.T_lr
+
             T_adapt["value"] = T_adapt["value"].at[subsample_idx].set(T_adapt["value"][subsample_idx] - T_lr * T_grad)
         elif self.adaptation_scheme == "dual_averaging":
             a = stop_gradient(jnp.exp(first_log_a))
