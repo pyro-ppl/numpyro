@@ -726,6 +726,7 @@ class AutoDAIS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        init_loc=None,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -739,8 +740,8 @@ class AutoDAIS(AutoContinuous):
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
             raise ValueError("gamma_init must be in the open interval (0, 1).")
-        if init_scale <= 0.0:
-            raise ValueError("init_scale must be positive.")
+        #if init_scale <= 0.0:
+        #    raise ValueError("init_scale must be positive.")
 
         self.eta_init = eta_init
         self.eta_max = eta_max
@@ -748,6 +749,7 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
+        self.init_loc = init_loc
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -799,22 +801,25 @@ class AutoDAIS(AutoContinuous):
         )
         inv_mass_matrix = 0.5 / mass_matrix
 
+        init_loc = self.init_loc if self.init_loc is not None else self._init_latent
         init_z_loc = numpyro.param(
             "{}_z_0_loc".format(self.prefix),
-            self._init_latent,
+            init_loc
         )
 
         if self.base_dist == "diagonal":
+            init_scale = jnp.full(self.latent_dim, self._init_scale) if isinstance(self._init_scale, float) else self._init_scale
             init_z_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
-                jnp.full(self.latent_dim, self._init_scale),
+                init_scale,
                 constraint=constraints.positive,
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
+            init_scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
-                jnp.identity(self.latent_dim) * self._init_scale,
+                init_scale_tril,
                 constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
@@ -1971,10 +1976,11 @@ class AutoRVRS(AutoContinuous):
         init_scale=1.0,
         Z_target=0.33,
         T_exponent=None,
-        gamma=0.90,  # controls momentum (0.0 => no momentum)
+        gamma=0.99,  # controls momentum (0.0 => no momentum)
         num_warmup=float("inf"),
         include_log_Z=True,
         reparameterized=True,
+        T_lr_drop=None,
     ):
 
         if S < 1:
@@ -1994,6 +2000,7 @@ class AutoRVRS(AutoContinuous):
         self.gamma = gamma
         self.include_log_Z = include_log_Z
         self.reparameterized = reparameterized
+        self.T_lr_drop = T_lr_drop
 
         if guide is not None:
             if not isinstance(guide, AutoContinuous):
@@ -2066,14 +2073,14 @@ class AutoRVRS(AutoContinuous):
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
             if self.gamma != 0.0:
                 T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.array(0.0)})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"]
         elif self.adaptation_scheme == "dual_averaging":
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": self._da_init_state})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
             T = T_adapt["value"].temperature
         else:
             T = self.T
+
+        num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
 
         def accept_log_prob_fn(z, params):
             params = jax.lax.stop_gradient(params)
@@ -2096,15 +2103,18 @@ class AutoRVRS(AutoContinuous):
         A_bar = stop_gradient(Az - Az.mean(0))
         assert az.shape == Az.shape == log_weight.shape == (self.S,)
 
+        S_ratio = self.S / (self.S - 1)
+
         if self.reparameterized:
             ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
             ratio_bar = stop_gradient(ratio)
-            surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
-            #surrogate = self.S / (self.S - 1) * (2 * A_bar * az).sum() + (stop_gradient(az) * Az).sum()
+            surrogate = S_ratio * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
+            #surrogate = S_ratio * (2 * A_bar * az).sum() + (stop_gradient(az) * Az).sum()
         else:
-            _guide_lp = jax.vmap(lambda z: guide_log_prob(stop_gradient(z), params["guide"]))(zs)
-            assert _guide_lp.shape == (self.S,)
-            surrogate = self.S / (self.S - 1) * (stop_gradient(A_bar * az) * _guide_lp).sum()
+            # recompute for simplicity
+            guide_lp = jax.vmap(lambda z: guide_log_prob(stop_gradient(z), params["guide"]))(zs)
+            assert guide_lp.shape == (self.S,)
+            surrogate = S_ratio * (stop_gradient(A_bar * (self.epsilon + (1 - self.epsilon) * az)) * guide_lp).sum()
 
         if self.include_log_Z:
             elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
@@ -2112,18 +2122,25 @@ class AutoRVRS(AutoContinuous):
             elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum())
         numpyro.factor("surrogate_factor", -surrogate + elbo_correction)
 
+        num_updates["value"] = num_updates["value"] + 1
+
         if self.adaptation_scheme == "Z_target":
             # minimize (Z - Z_target) ** 2
             a = stop_gradient(jnp.exp(first_log_a))
             a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
 
-            num_updates["value"] = num_updates["value"] + 1
             if self.gamma != 0.0:
                 T_grad_smoothed["value"] = self.gamma * T_grad_smoothed["value"] + (1.0 - self.gamma) * T_grad
                 T_grad = T_grad_smoothed["value"]
 
-            T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
+            if self.T_exponent is not None:
+                T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent)
+            elif self.T_lr_drop is not None:
+                T_lr = self.T_lr * 0.2 ** (num_updates["value"] // self.T_lr_drop).astype(float)
+            else:
+                T_lr = self.T_lr
+
             T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
         elif self.adaptation_scheme == "dual_averaging":
             # Z = stop_gradient(jnp.exp(log_Z))
@@ -2137,7 +2154,7 @@ class AutoRVRS(AutoContinuous):
                 t < self.num_warmup,
                 (t, Z, T_adapt["value"]), lambda args: self._da_update(*args),
                 T_adapt["value"], lambda x: x)
-            num_updates["value"] = t + 1
+            #num_updates["value"] = t + 1
 
         return stop_gradient(zs)
 
