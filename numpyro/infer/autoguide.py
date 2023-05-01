@@ -2304,92 +2304,67 @@ def _rs_bwd(sample_and_accept_fn, res, g):
 _rs_custom_impl.defvjp(_rs_fwd, _rs_bwd)
 
 
-_semi_rvrs_impl = """
 class AutoSemiRVRS(AutoGuide):
-    This implementation of :class:`AutoSemiDAIS` [1] combines a parametric
-    variational distribution over global latent variables with Differentiable
-    Annealed Importance Sampling (DAIS) [2, 3] to infer local latent variables.
-    Unlike :class:`AutoDAIS` this guide can be used in conjunction with data subsampling.
-    Note that the resulting ELBO can be understood as a particular realization of a
-    'locally enhanced bound' as described in reference [4].
-    **References:**
-    1. *Surrogate Likelihoods for Variational Annealed Importance Sampling*,
-       Martin Jankowiak, Du Phan
-    2. *MCMC Variational Inference via Uncorrected Hamiltonian Annealing*,
-       Tomas Geffner, Justin Domke
-    3. *Differentiable Annealed Importance Sampling and the Perils of Gradient Noise*,
-       Guodong Zhang, Kyle Hsu, Jianing Li, Chelsea Finn, Roger Grosse
-    4. *Variational Inference with Locally Enhanced Bounds for Hierarchical Models*,
-       Tomas Geffner, Justin Domke
+    """
+    This implementation of :class:`AutoSemiRVRS` [1] combines a parametric variational
+    distribution over global latent variables with RVRS to infer local latent variables.
+    Unlike :class:`AutoRVRS` this guide can be used in conjunction with data subsampling.
+
     Usage::
+
         def global_model():
             return numpyro.sample("theta", dist.Normal(0, 1))
+
         def local_model(theta):
             with numpyro.plate("data", 8, subsample_size=2):
                 tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
                 numpyro.sample("obs", dist.Normal(0.0, tau), obs=jnp.ones(2))
+
+        global_guide = AutoNormal(global_model)
+        local_guide = AutoNormal(local_model)
         model = lambda: local_model(global_model())
-        base_guide = AutoNormal(global_model)
-        guide = AutoSemiDAIS(model, local_model, base_guide, K=4)
+        guide = AutoSemiRVRS(model, global_guide, local_guide)
         svi = SVI(model, guide, ...)
         # sample posterior for particular data subset {3, 7}
         with handlers.substitute(data={"data": jnp.array([3, 7])}):
             samples = guide.sample_posterior(random.PRNGKey(1), params)
+
     :param callable model: A NumPyro model with global and local latent variables.
-    :param callable local_model: The portion of `model` that includes the local latent variables only.
-        The signature of `local_model` should be the return type of the global model with global latent
-        variables only.
-    :param callable base_guide: A guide for the global latent variables, e.g. an autoguide.
+    :param callable global_guide: A guide for the global latent variables, e.g. an autoguide.
         The return type should be a dictionary of latent sample sites names and corresponding samples.
+    :param callable local_guide: An auto guide for the local latent variables.
     :param str prefix: A prefix that will be prefixed to all internal sites.
-    :param int K: A positive integer that controls the number of HMC steps used.
-        Defaults to 4.
-    :param float eta_init: The initial value of the step size used in HMC. Defaults
-        to 0.01.
-    :param float eta_max: The maximum value of the learnable step size used in HMC.
-        Defaults to 0.1.
-    :param float gamma_init: The initial value of the learnable damping factor used
-        during partial momentum refreshments in HMC. Defaults to 0.9.
-    :param float init_scale: Initial scale for the standard deviation of the variational
-        distribution for each (unconstrained transformed) local latent variable. Defaults to 0.1.
+    """
 
     def __init__(
         self,
         model,
-        local_model,
-        base_guide,
+        global_guide,
+        local_guide,
         *,
         prefix="auto",
-        K=4,
-        eta_init=0.01,
-        eta_max=0.1,
-        gamma_init=0.9,
-        init_scale=0.1,
-        S=4,    # number of samples
+        S=4,
         T=0.0,
         T_lr=1.0,
         adaptation_scheme="Z_target",
         epsilon=0.1,
-        local_guide=None,
-        prefix="auto",
         init_loc_fn=init_to_uniform,
-        init_scale=1.0,
         Z_target=0.33,
         T_exponent=None,
         gamma=0.9,  # controls momentum (0.0 => no momentum)
         num_warmup=float("inf"),
+        include_log_Z=True,
+        reparameterized=True,
+        T_lr_drop=None,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
-        if init_scale <= 0.0:
-            raise ValueError("init_scale must be positive.")
         if T is not None and not isinstance(T, float):
             raise ValueError("T must be None or a float.")
         if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
             raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
 
-        self.local_model = local_model
-        self.base_guide = base_guide
+        self.global_guide = global_guide
         if local_guide is not None:
             if not isinstance(local_guide, AutoContinuous):
                 raise ValueError("We only support AutoContinuous guide in AutoRVRS.")
@@ -2401,15 +2376,9 @@ class AutoSemiRVRS(AutoGuide):
         self.epsilon = epsilon
         self.lambd = epsilon / (1 - epsilon)
         self.gamma = gamma
-
-        if guide is not None:
-            if not isinstance(guide, AutoContinuous):
-                raise ValueError("We only support AutoContinuous guide in AutoRVRS.")
-            self.guide = guide
-        else:
-            self.guide = AutoDiagonalNormal(
-                model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix)
-
+        self.include_log_Z = include_log_Z
+        self.reparameterized = reparameterized
+        self.T_lr_drop = T_lr_drop
         self.adaptation_scheme = adaptation_scheme
         self.T_lr = T_lr
         self.T_exponent = T_exponent
@@ -2419,6 +2388,7 @@ class AutoSemiRVRS(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
+        assert isinstance(self.prototype_trace, dict)
         # extract global/local/local_dim/plates
         subsample_plates = {
             name: site
@@ -2430,7 +2400,7 @@ class AutoSemiRVRS(AutoGuide):
         num_plates = len(subsample_plates)
         assert (
             num_plates == 1
-        ), f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
+        ), f"AutoSemiRVRS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
         subsample_axes = {}
@@ -2459,9 +2429,9 @@ class AutoSemiRVRS(AutoGuide):
             for k, v in local_init_locs.items()
         }
         _, shape_dict = _ravel_dict(one_sample)
-        local_init_latent = jax.vmap(
-            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,)
-        )(local_init_locs)
+        self._pack_local_latent = jax.vmap(
+            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,))
+        local_init_latent = self._pack_local_latent(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
@@ -2471,75 +2441,34 @@ class AutoSemiRVRS(AutoGuide):
         plate_full_size, plate_subsample_size = subsample_plates[plate_name]["args"]
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
+        self._subsample_axes = subsample_axes
 
-        rng_key = numpyro.prng_key()
-        with handlers.block(), handlers.seed(rng_seed=rng_key):
-            global_output = self.base_guide.model(*args, **kwargs)
-            (
-                _,
-                self._local_potential_fn_gen,
-                self._local_postprecess_fn,
-                _,
-            ) = initialize_model(
-                numpyro.prng_key(),
-                partial(_subsample_model, self.local_model),
-                init_strategy=self.init_loc_fn,
-                dynamic_args=True,
-                model_args=(global_output,),
-                model_kwargs={
-                    "_subsample_idx": {
-                        plate_name: subsample_plates[plate_name]["value"]
-                    }
-                },
-            )
-
-        for name, site in self.prototype_trace.items():
-            if (
-                site["type"] == "plate"
-                and isinstance(site["args"][1], int)
-                and site["args"][0] > site["args"][1]
-            ):
-                raise NotImplementedError(
-                    "AutoRVRS cannot be used in conjunction with data subsampling."
-                )
         with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
-            self.guide(*args, **kwargs)
-        self.prototype_guide_trace = tr
+            self.global_guide(*args, **kwargs)
+        self.prototype_global_guide_trace = tr
+
         if self.adaptation_scheme == "dual_averaging":
-            self._da_init_state, self._da_update = temperature_adapter(
-                self.T, self.num_warmup, self.Z_target)
+            self._da_init_state, self._da_update = temperature_adapter(self.T, self.num_warmup, self.Z_target)
 
     def __call__(self, *args, **kwargs):
         if self.prototype_trace is None:
             # run model to inspect the model structure
             self._setup_prototype(*args, **kwargs)
+        assert isinstance(self.prototype_trace, dict)
 
         global_latents, local_latent_flat = self._sample_latent(*args, **kwargs)
 
         # unpack continuous latent samples
         result = global_latents.copy()
-        _, N, subsample_size = self._local_plate
 
-        for name, unconstrained_value in self._unpack_local_latent(
-            local_latent_flat
-        ).items():
+        for name, unconstrained_value in jax.vmap(self._unpack_local_latent)(local_latent_flat).items():
             site = self.prototype_trace[name]
             with helpful_support_errors(site):
                 transform = biject_to(site["fn"].support)
-            value = transform(unconstrained_value)
+            value = jax.vmap(transform)(unconstrained_value)
             event_ndim = site["fn"].event_dim
-            if numpyro.get_mask() is False:
-                log_density = 0.0
-            else:
-                log_density = -transform.log_abs_det_jacobian(
-                    unconstrained_value, value
-                )
-                log_density = (N / subsample_size) * sum_rightmost(
-                    log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
-                )
-            delta_dist = dist.Delta(
-                value, log_density=log_density, event_dim=event_ndim
-            )
+            # Note: "surrogate_factor"'s guide_lp is log density in constrained space.
+            delta_dist = dist.Delta(value, log_density=0., event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
         return result
@@ -2549,112 +2478,115 @@ class AutoSemiRVRS(AutoGuide):
 
     def _sample_latent(self, *args, **kwargs):
         kwargs.pop("sample_shape", ())
-        plate_name, N, subsample_size = self._local_plate
-        D = self._local_latent_dim
+        plate_name, N, M = self._local_plate
 
+        global_latents = self.global_guide(*args, **kwargs)
+        rng_key = numpyro.prng_key()
         model_params = {}
+        assert isinstance(self.prototype_trace, dict)
         for name, site in self.prototype_trace.items():
             if site["type"] == "param":
-                model_params[name] = numpyro.param(
-                    name, site["value"],
-                    constraint=site["kwargs"].pop("constraint", constraints.real))
-        local_guide_params = {}
-        for name, site in self.prototype_local_guide_trace.items():
-            if site["type"] == "param":
-                local_guide_params[name] = numpyro.param(
-                    name, site["value"],
-                    constraint=site["kwargs"].pop("constraint", constraints.real))
-        global_guide_params = {}
-        for name, site in self.prototype_global_guide_trace.items():
-            if site["type"] == "param":
-                global_guide_params[name] = numpyro.param(
-                    name, site["value"],
-                    constraint=site["kwargs"].pop("constraint", constraints.real))
-        with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
-            subsample_guide_params = jax.tree_util.tree_map(lambda x: x[idx], local_guide_params)
-			params = {"local_guide": subsample_guide_params, "model": model_params,
-					  "global_guide": global_guide_params}
-            local_guide = handlers.substitute(self.local_guide._sample_latent, data={name: idx})
-
-        # Step 1: getting model params, guide params with correct subsample for local params
-        # Step 2: update log density function to use subsample params
-        # Step 3: assume that vmap_rs is working
-        # Step 4: unpact S x batch zs
-        # be careful at the subsample weights
-
-        # AutoGuide inputs: model, local_model, global_guide, local_guide
-        # Prototype traces: model, global_guide, local_guide
-
-        # Assume AutoNormal guide's `create_plates` method accepts a plate
-
-        def make_local_log_density(*local_args, **local_kwargs):
-            def fn(x):
-                x_unpack = self._unpack_local_latent(x)
-                with numpyro.handlers.block():
-                    return -self._local_potential_fn_gen(*local_args, **local_kwargs)(
-                        x_unpack
-                    )
-
-            return fn
-
-        global_latents = self.base_guide(*args, **kwargs)
-        rng_key = numpyro.prng_key()
+                model_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
         with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
-            data=global_latents
-        ):
-            global_output = self.base_guide.model(*args, **kwargs)
+            data=dict(**global_latents, **model_params
+        )):
+            global_output = jax.lax.stop_gradient(self.global_guide.model(*args, **kwargs))
 
-        def local_guide_sampler(inputs):
-            key, params, T = inputs
-            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params):
-                z = local_guide(*args, **kwargs)
-            return z
+        assert isinstance(self.local_guide.prototype_trace, dict)
+        local_guide_params = {}
+        for name, site in self.local_guide.prototype_trace.items():
+            if site["type"] == "param":
+                local_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
 
-        def local_guide_log_prob(z, params):  # batch, _ -> batch
-            z_and_params = {f"_{self.prefix}_latent": z, **jax.lax.stop_gradient(params)}
+        subsample_model = partial(_subsample_model, self.local_guide.model)
+        subsample_guide = partial(_subsample_model, self.local_guide)
+
+        def single_local_model_log_density(z, subsample_idx):
+            z_unpack = self._unpack_local_latent(z)
+            latent = self.local_guide._postprocess_fn(z_unpack)
             with handlers.block():
-                # TODO: get trace and compute log_density but keeping the batch dimension
-                return log_density(local_guide, args, kwargs, z_and_params)[1]
+                # Scale down potential_fn by N because potential_fn scales up the log_prob.
+                # We skip the warning because we are using subsample_idx with size 1 for a
+                # plate with subsample_size M.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
+                    return log_density(subsample_model, (global_output,), kwargs, latent)[0]
 
-        def model_log_density(x):
-            x_unpack = self._unpack_local_latent(x)
-            with handlers.block(), handlers.substitute(data=params):
-                # TODO: make sure potential_fn return batch of logprob
-                return -self._potential_fn(global_output, x_unpack)
+        def local_model_log_density(z, subsample_idx):
+            # shape: local_latent_flat -> (M,) | subsample_idx -> (M,) | out -> (M,)
+            return jax.vmap(single_local_model_log_density)(
+                jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1))
+
+        def single_local_guide_sampler(params, key, subsample_idx):
+            p = {k: jnp.take(v, subsample_idx, axis=self._subsample_axes[k]) for k, v in params.items()}
+            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=p):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
+                    latent = subsample_guide(global_output, **kwargs)
+            z_unpack = {}
+            assert isinstance(self.local_guide.prototype_trace, dict)
+            for name, site in self.local_guide.prototype_trace.items():
+                if name in latent:
+                    z_unpack = biject_to(site["fn"].support).inv(latent[name])
+            return self._pack_local_latent(z_unpack)
+
+        def local_guide_sampler(params, key, subsample_idx):
+            # shape: params -> (N,) | key -> (M,) | subsample_idx -> (M,) | out -> (M,)
+            return jax.vmap(single_local_guide_sampler, (None, 0, 0))(
+                params, jnp.expand_dims(key, 1), jnp.expand_dims(subsample_idx, 1))
+
+        def single_local_guide_log_density(params, z, subsample_idx):
+            z_unpack = self._unpack_local_latent(z)
+            latent = self.local_guide._postprocess_fn(z_unpack)
+            assert isinstance(latent, dict)
+            p = {k: jnp.take(v, subsample_idx, axis=self._subsample_axes[k]) for k, v in params.items()}
+            with handlers.block():
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
+                    return log_density(subsample_guide, (global_output,), kwargs, {**p, **latent})[0]
+
+        def local_guide_log_density(params, z, subsample_idx):
+            # shape: params -> (N,) | z -> (M,) | subsample_idx -> (M,) | out -> (M,)
+            return jax.vmap(single_local_guide_log_density, (None, 0, 0))(
+                params, jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1))
 
         if self.adaptation_scheme == "Z_target":
-            # TODO: we might need to keep stats of recent T.
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.full(N, self.T)})
             if self.gamma != 0.0:
-                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.full(T, 0.0)})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(T, 0)})
+                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.full(N, 0.0)})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(N, 0)})
             T = T_adapt["value"]
         elif self.adaptation_scheme == "dual_averaging":
-            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": self._da_init_state})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(T, 0)})
+            init_value = tree_map(lambda x: jnp.broadcast_to(x, (N,) + jnp.shape(x)), self._da_init_state)
+            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": init_value})
+            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(N, 0)})
             T = T_adapt["value"].temperature
         else:
-            T = self.T
-        T = T[idx]
+            T = jnp.full(N, self.T)
 
-        def accept_log_prob_fn(z, params):
+        def accept_log_prob_fn(params, z, subsample_idx):
+            # shape: z -> (M,) | params -> (N,) | subsample_idx -> (M,) | out -> (M,)
             params = jax.lax.stop_gradient(params)
-            guide_lp = local_guide_log_prob(z, params["guide"])
-            lw = local_model_log_density(z, params["model"]) - guide_lp
-            a = sigmoid(lw + T)
+            guide_lp = local_guide_log_density(params, z, subsample_idx)
+            lw = local_model_log_density(z, subsample_idx) - guide_lp
+            a = sigmoid(lw + T[subsample_idx])
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
-        keys = random.split(numpyro.prng_key(), self.S * plate_size)
-        keys = keys.reshape((self.S, plate_size, 2))
-        inputs = (keys, params, T)  # keys: S x batch, params: batch, T: batch
-        zs, log_weight, log_Z, first_log_a, guide_lp = rs_vmap(
-            accept_log_prob_fn, guide_sampler, inputs)
-        assert T.shape == (plate_size,)
-        assert zs.shape == (self.S, plate_size, self.latent_dim)
-        assert log_weight.shape == (self.S, plate_size)
-        assert log_Z.shape == (plate_size,)
-        assert first_log_a.shape == (self.S, plate_size)
-        assert guide_lp.shape == (self.S, plate_size)
+        subsample_plate = numpyro.plate(plate_name, N, subsample_size=M)
+        subsample_idx = subsample_plate._indices
+        rs_key, resample_key = random.split(numpyro.prng_key())
+        keys = random.split(rs_key, self.S)
+        zs, log_weight, log_Z, first_log_a, guide_lp = rs_local(
+            accept_log_prob_fn, local_guide_sampler, keys, resample_key, local_guide_params, subsample_idx)
+        assert T.shape == (N,)
+        assert zs.shape == (self.S, M, self._local_latent_dim)
+        assert log_weight.shape == (self.S, M)
+        assert log_Z.shape == (M,)
+        assert first_log_a.shape == (self.S, M)
+        assert guide_lp.shape == (self.S, M)
 
         numpyro.deterministic("first_log_a", first_log_a)
 
@@ -2663,126 +2595,71 @@ class AutoSemiRVRS(AutoGuide):
         log_a_eps_z = jnp.log(self.epsilon + (1 - self.epsilon) * az)
         Az = log_weight - log_sigmoid(log_weight + T)
         A_bar = stop_gradient(Az - Az.mean(0))
-        assert az.shape == Az.shape == log_weight.shape == (self.S,)
+        assert az.shape == Az.shape == log_weight.shape == (self.S, M)
 
+        assert self.reparameterized
         ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
         ratio_bar = stop_gradient(ratio)
         surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
 
+        assert self.include_log_Z
         elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S)
-        numpyro.factor("surrogate_factor", -surrogate + elbo_correction)
+        # Scale the factor by subsample factor N / M
+        numpyro.factor("surrogate_factor", (-surrogate + elbo_correction) * N / M)
 
-        # TODO: revise the logic here to only update state at subsample ind
         if self.adaptation_scheme == "Z_target":
             # minimize (Z - Z_target) ** 2
             a = stop_gradient(jnp.exp(first_log_a))
-            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            a_minus = 1 / (self.S - 1) * (a.sum(0) - a)
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
 
-            num_updates["value"] = num_updates["value"] + 1
+            num_updates["value"] = num_updates["value"].at[subsample_idx].set(num_updates["value"][subsample_idx] + 1)
             if self.gamma != 0.0:
-                T_grad_smoothed["value"] = self.gamma * T_grad_smoothed["value"] + (1.0 - self.gamma) * T_grad
-                T_grad = T_grad_smoothed["value"]
+                T_grad = self.gamma * T_grad_smoothed["value"][subsample_idx] + (1.0 - self.gamma) * T_grad
+                T_grad_smoothed["value"] = T_grad_smoothed["value"].at[subsample_idx].set(T_grad)
 
-            T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent) if self.T_exponent is not None else self.T_lr
-            T_adapt["value"] = T_adapt["value"] - T_lr * T_grad
+            T_lr = self.T_lr * jnp.power(num_updates["value"][subsample_idx], -self.T_exponent) if self.T_exponent is not None else self.T_lr
+            T_adapt["value"] = T_adapt["value"].at[subsample_idx].set(T_adapt["value"][subsample_idx] - T_lr * T_grad)
         elif self.adaptation_scheme == "dual_averaging":
-            # Z = stop_gradient(jnp.exp(log_Z))
-            # TODO: use log_a_sum instead of first_log_a?
             a = stop_gradient(jnp.exp(first_log_a))
-            a_minus = 1 / (self.S - 1) * (jnp.sum(a) - a)
+            a_minus = 1 / (self.S - 1) * (a.sum(0) - a)
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
             Z = self.Z_target + T_grad
-            t = num_updates["value"]
-            T_adapt["value"] = lax.cond(
+            t = num_updates["value"][subsample_idx]
+            T_adapt_old = tree_map(lambda x: x[subsample_idx], T_adapt["value"])
+            T_adapt_new = lax.cond(
                 t < self.num_warmup,
-                (t, Z, T_adapt["value"]), lambda args: self._da_update(*args),
-                T_adapt["value"], lambda x: x)
-            num_updates["value"] = t + 1
+                (t, Z, T_adapt_old), lambda args: self._da_update(*args),
+                T_adapt_old, lambda x: x)
+            T_adapt["value"] = tree_map(lambda x, x_new: x.at[subsample_idx].set(x_new), T_adapt["value"], T_adapt_new)
+            num_updates["value"] = num_updates["value"].at[subsample_idx].set(t + 1)
 
-        # TODO: repeat global_latents by S
+        global_latents = tree_map(lambda x: jnp.broadcast_to(x, (self.S,) + x.shape), global_latents)
         return global_latents, stop_gradient(zs)
-
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         def _single_sample(_rng_key):
             global_latents, local_flat = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
             )(*args, **kwargs)
-            results = global_latents.copy()
-            for name, unconstrained_value in self._unpack_local_latent(
-                local_flat
-            ).items():
-                site = self.prototype_trace[name]
-                transform = biject_to(site["fn"].support)
-                value = transform(unconstrained_value)
-                results[name] = value
-            return results
+
+            def unpack(global_latents, local_flat):
+                z_unpack = self._unpack_local_latent(local_flat)
+                local_latents = self.local_guide._postprocess_fn(z_unpack)
+                return {**global_latents, **local_latents}
+
+            return jax.vmap(unpack)(global_latents, local_flat)
 
         if sample_shape:
-            rng_key = random.split(rng_key, int(np.prod(sample_shape)))
-            samples = lax.map(_single_sample, rng_key)
-            return tree_map(
-                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
-                samples,
-            )
+            raise RuntimeError("Not support subsample + non-trivial sample_shape")
         else:
             return _single_sample(rng_key)
-"""
-
-
-def rs_vmap(fn, zs, keys, params):
-    # zs: S x batch, keys: S x batch, params: batch
-    # sample_and_accept_fn(key, param) -> z, (accept_lp, lw, guide_lp)
-    # TODO(fehiepsi)
-    # fn -> out, stop_mask
-    # filter out stopped inputs, resample the remaining inputs -> new inputs
-    # evaluate the next rs step with the new inputs
-    pass
-    # fn: keys, params, buffer -> new_keys, new_buffer, finished
-    # S x batch, batch, S x batch -> S x batch, S x batch, finished
-
-    def cond_fn(val):
-        is_accepted = val[-1][-1]
-        return is_accepted.sum() < S
-
-    def body_fn(key, log_a_sum, params):
-        key_next, key_uniform, key_q = random.split(key, 3)
-        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(key_q, params)
-        log_u = -random.exponential(key_uniform)
-        is_accepted = log_u < accept_log_prob
-        log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob]))
-        return key_next, log_a_sum, (key_q, z, log_weight, guide_lp, is_accepted)
-
-    def batch_body_fn(val):
-        resample_key, keys, log_a_sum, first_log_a, num_samples, buffer, idx = val
-        params = jax.tree_util.tree_map(lambda x: x[idx], params)
-        # TODO: deal with log_a_sum? we need to move out the update logic for log_a_sum
-        # to here and perform scatter logsumexp at idx
-        keys_next, log_a_sum, candidates = jax.vmap(jax.vmap(body_fn), in_axes=(0, 0, None))(
-			keys, log_a_sum, params)
-
-        # candidate is S x batch. We need to loop over the batch of candidates and idx
-        # and update the buffer
-        buffer_extend = tree_map(
-            lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
-        is_accepted = buffer_extend[-1]
-        maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
-        new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
-        first_log_a = select(num_samples == 0, log_a_sum, first_log_a)
-
-        is_accepted = new_buffer[-1]
-        weights = S - is_accepted.sum(-1)
-        weights = jnp.where(weights < 0, 0, weights)
-        weights = weights / weights.sum(-1, keepdims=-1)
-        next_idx = get_systematic_resampling_indices(weights, keys, idx.shape[0])
-        return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer, next_idx
 
 
 def get_systematic_resampling_indices(weights, rng_key, num_samples):
     """Gets resampling indices based on systematic resampling."""
-    n = log_weights.shape[0]
-    cummulative_weight = weight.cumsum(axis=0)
+    n = weights.shape[0]
+    cummulative_weight = weights.cumsum(axis=0)
     cummulative_weight = cummulative_weight / cummulative_weight[-1]
     cummulative_weight = cummulative_weight.reshape((n, -1)).swapaxes(0, 1)
     m = cummulative_weight.shape[0]
@@ -2794,4 +2671,119 @@ def get_systematic_resampling_indices(weights, rng_key, num_samples):
     index = cummulative_weight.searchsorted(positions)
     index = (index.reshape(m, num_samples) - n * shift).swapaxes(0, 1)
     return index.reshape((num_samples,) + weights.shape[1:])
+
+
+def rs_local(accept_log_prob_fn, guide_sampler, keys, resample_key, params, subsample_idx):
+    def sample_and_accept_fn(subsample_idx, key, params):
+        z = guide_sampler(subsample_idx, key, params)
+        return z, accept_log_prob_fn(z, subsample_idx, params)
+
+    M = subsample_idx.shape[0]
+    z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+                      jax.eval_shape(guide_sampler, subsample_idx, random.split(keys[0], M), params))
+    return _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params)[1:]
+
+
+def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params):
+    # sample_and_accept_fn(idx, key, param) -> z, (accept_lp, lw, guide_lp)
+    assert keys.ndim == 2
+    S = keys.shape[0]
+    M = subsample_idx.shape[0]
+    assert z_init.ndim == 2
+    assert z_init.shape[0] == M
+    zs_init = tree_map(lambda x: jnp.broadcast_to(x, (S,) + jnp.shape(x)), z_init)
+    neg_inf = jnp.full((S, M), -jnp.inf)
+    keys = jax.vmap(lambda k: random.split(k, M))(keys)
+    buffer = (keys, zs_init, neg_inf, neg_inf, jnp.full((S, M), False))
+    init_val = (resample_key, keys, neg_inf, neg_inf, jnp.full(M, 0), buffer)
+
+    def cond_fn(val):
+        is_accepted = val[-1][-1]
+        return (is_accepted.sum(0) < S).any()
+
+    def body_fn(key, resample_idx):
+        key_next, key_uniform, key_q = jax.vmap(lambda k: random.split(k, 3), out_axes=1)(key)
+        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(subsample_idx[resample_idx], key_q, params)
+        log_u = -jax.vmap(random.exponential)(key_uniform)
+        is_accepted = log_u < accept_log_prob
+        return key_next, accept_log_prob, (key_q, z, log_weight, guide_lp, is_accepted)
+
+    def batch_body_fn(val):
+        resample_key, keys, batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
+        resample_key, resample_subkey = random.split(resample_key)
+        # distribute batch-size resource to subsample items
+        is_accepted = batch_buffer[-1]
+        weights = S - is_accepted.sum(0)
+        weights = jnp.where(weights < 0, 0, weights)
+        weights = weights / weights.sum(-1, keepdims=True)
+        resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
+        assert resample_idxs.shape == (M,)
+
+        keys_next, batch_accept_log_prob, batch_candidate = jax.vmap(
+            body_fn, in_axes=(0, None))(keys, resample_idxs)
+
+        def update_idx(i, val):
+            batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
+            idx = resample_idxs[i]
+            accept_log_prob = batch_accept_log_prob[i]
+            candidate = batch_candidate[i]
+            buffer = tree_map(lambda x: x[:, idx], batch_buffer)
+            log_a_sum = batch_log_a_sum[:, idx]
+            first_log_a = batch_first_log_a[:, idx]
+            num_samples = batch_num_samples[idx]
+
+            buffer_extend = tree_map(
+                lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
+            is_accepted = buffer_extend[-1]
+            maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
+            new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
+            log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0)
+            first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
+
+            batch_buffer = tree_map(lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer)
+            batch_log_a_sum = batch_log_a_sum.at[:, idx].set(log_a_sum)
+            batch_first_log_a = batch_first_log_a.at[:, idx].set(first_log_a)
+            batch_num_samples = batch_num_samples.at[idx].set(num_samples + 1)
+            return batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
+
+        batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = lax.fori_loop(
+            0, M, update_idx, (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer))
+        return resample_key, keys_next, batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
+
+    _, _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
+        cond_fn, batch_body_fn, init_val)
+    key_q, z, log_w, guide_lp, _ = buffer
+    log_Z = logsumexp(log_a_sum, axis=0) - jnp.log(num_samples * S)
+    return key_q, z, log_w, log_Z, first_log_a, guide_lp
+
+
+@partial(jax.custom_vjp, nondiff_argnums=(0,))
+def _rs_local_custom_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params):
+    return _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params)
+
+
+def _rs_local_fwd(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params):
+    out = _rs_local_custom_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params)
+    key_q = out[0]
+    return out, (subsample_idx, key_q, params)
+
+
+def _rs_local_bwd(sample_and_accept_fn, res, g):
+    subsample_idx, key_q, params = res
+    _, z_grads, lw_grads, *_ = g
+
+    def get_z_and_lw(subsample_idx, key, params):
+        z, (_, lw, _) = sample_and_accept_fn(subsample_idx, key, params)
+        return z, lw
+
+    def sample_grad(subsample_idx, key, z_grad, lw_grad):
+        _, guide_vjp = jax.vjp(partial(get_z_and_lw, subsample_idx, key), params)
+        return guide_vjp((z_grad, lw_grad))[0]
+
+    batch_params_grad = jax.vmap(sample_grad)(subsample_idx, key_q, z_grads, lw_grads)
+    params_grad = jax.tree_util.tree_map(lambda x: x.sum(0), batch_params_grad)
+    return (None, None, None, None, params_grad)
+
+
+_rs_local_custom_impl.defvjp(_rs_local_fwd, _rs_local_bwd)
 
