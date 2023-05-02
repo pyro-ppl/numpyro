@@ -1133,6 +1133,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     rvrs16_results = SVI(model16, rvrs_guide16, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(seed+2), num_steps, init_params=mf_params,
     )
+    print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'].temperature)
     rvrs16_params = rvrs16_results.params
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+3), rvrs16_params, model16, rvrs_guide16)
@@ -1144,6 +1145,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     rvrs12_results = SVI(model12, rvrs_guide12, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(seed+4), num_steps, init_params=mf_params,
     )
+    print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'].temperature)
     rvrs12_params = rvrs12_results.params
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+5), rvrs12_params, model12, rvrs_guide12)
