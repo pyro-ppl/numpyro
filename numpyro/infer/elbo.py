@@ -165,6 +165,7 @@ class Trace_ELBO(ELBO):
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
                 else:
+                    return elbo_particle, None
                     raise ValueError(
                         "Currently, we only support mutable states with num_particles=1."
                     )

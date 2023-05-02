@@ -1075,7 +1075,9 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
     assert_allclose(actual_grad["log_scale"], expected_grad["log_scale"], atol=1e-7)
 
 
-def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000):
+def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000,
+	epsilon=0.1, Z_target=0.5, S=2, adaptation_scheme="dual_averaging", T_init=0.0, seed=0,
+):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
 
@@ -1110,18 +1112,54 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     def create_plates(theta):
         return numpyro.plate("N", N, subsample_size=16)
 
-    S = 6
     global_guide = AutoNormal(global_model)
     local_guide16 = AutoNormal(partial(local_model, 16), create_plates=create_plates)
-    guide16 = AutoSemiRVRS(
-        model16, global_guide, local_guide16, S=S,
-    )
-    svi_result16 = SVI(model16, guide16, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(0), num_steps
-    )
+    local_guide12 = AutoNormal(partial(local_model, 12), create_plates=create_plates)
 
-    samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    def mf_guide16():
+        global_guide()
+        local_guide16(jnp.zeros(P))
+
+    svi_mf = SVI(model16, mf_guide16, _get_optim(), Trace_ELBO())
+    mf_results = svi_mf.run(random.PRNGKey(seed), num_steps=num_steps)
+    mf_params = mf_results.params
+    mf_elbo = -Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(seed+1), mf_params, model16, mf_guide16)
+    print("MF ELBO:", mf_elbo)
+
+    rvrs_guide16 = AutoSemiRVRS(
+        model16, global_guide, local_guide16,
+        S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
+    rvrs16_results = SVI(model16, rvrs_guide16, _get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(seed+2), num_steps, init_params=mf_params,
+    )
+    rvrs16_params = rvrs16_results.params
+    rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(seed+3), rvrs16_params, model16, rvrs_guide16)
+    print("RVRS16 ELBO:", rvrs16_elbo)
+
+    rvrs_guide12 = AutoSemiRVRS(
+        model12, global_guide, local_guide12,
+        S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
+    rvrs12_results = SVI(model12, rvrs_guide12, _get_optim(), Trace_ELBO()).run(
+        random.PRNGKey(seed+4), num_steps, init_params=mf_params,
+    )
+    rvrs12_params = rvrs12_results.params
+    rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(seed+5), rvrs12_params, model12, rvrs_guide12)
+    print("RVRS12 ELBO:", rvrs12_elbo)
+
+    rvrs12_subs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
+        random.PRNGKey(seed+6), rvrs16_params, model12, rvrs_guide12)
+    print("RVRS12 ELBO (using RVRS16 params):", rvrs12_subs_elbo)
+
+    samples16 = rvrs_guide16.sample_posterior(random.PRNGKey(seed+7), rvrs16_params)
     assert samples16["theta"].shape == (S, P) and samples16["tau"].shape == (S, 16)
+
+    with handlers.substitute(
+        data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}):
+        samples = rvrs_guide12.sample_posterior(random.PRNGKey(seed+8), rvrs16_params, sample_shape=(100,))
+    assert samples["theta"].shape == (100, S, P)
 
 
 def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
