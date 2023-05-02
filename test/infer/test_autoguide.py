@@ -1114,7 +1114,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     global_guide = AutoNormal(global_model)
     local_guide16 = AutoNormal(partial(local_model, 16), create_plates=create_plates)
     guide16 = AutoSemiRVRS(
-        model16, global_guide, local_guide16, S=6,
+        model16, global_guide, local_guide16, S=S,
     )
     svi_result16 = SVI(model16, guide16, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
@@ -1122,4 +1122,39 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
     samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples16["theta"].shape == (S, P) and samples16["tau"].shape == (S, 16)
+
+
+def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
+    target_loc = np.linspace(1., 3., N)
+
+    def global_model():
+        numpyro.sample("a", dist.LogNormal(1., 0.3))
+        numpyro.sample("b", dist.LogNormal(2., 0.7))
+
+    def local_model(_):
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            loc = numpyro.subsample(target_loc, event_dim=0)
+            numpyro.sample("x", dist.LogNormal(loc, 0.4))
+            numpyro.sample("y", dist.LogNormal(loc, 0.6))
+
+    def create_plates(theta):
+        return numpyro.plate("N", N, subsample_size=subsample_size)
+
+    S = 6
+    global_guide = AutoNormal(global_model)
+    local_guide = AutoNormal(local_model, create_plates=create_plates)
+    model = lambda: local_model(global_model())
+    guide = AutoSemiRVRS(model, global_guide, local_guide, S=S, T=T, adaptation_scheme="dual_averaging")
+    svi_result = SVI(model, guide, optim.Adam(0.01), Trace_ELBO()).run(
+        random.PRNGKey(0), num_steps
+    )
+    params = svi_result.params
+    np.testing.assert_allclose(params["a_auto_loc"], 1.0, rtol=0.1)
+    np.testing.assert_allclose(params["a_auto_scale"], 0.3, rtol=0.1)
+    np.testing.assert_allclose(params["b_auto_loc"], 2.0, rtol=0.1)
+    np.testing.assert_allclose(params["b_auto_scale"], 0.7, rtol=0.1)
+    np.testing.assert_allclose(params["x_auto_loc"], target_loc, rtol=0.1)
+    np.testing.assert_allclose(params["x_auto_scale"], 0.4, rtol=0.1)
+    np.testing.assert_allclose(params["y_auto_loc"], target_loc, rtol=0.1)
+    np.testing.assert_allclose(params["y_auto_scale"], 0.6, rtol=0.1)
 
