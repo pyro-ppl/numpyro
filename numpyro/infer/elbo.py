@@ -130,8 +130,11 @@ class Trace_ELBO(ELBO):
             }
             params.update(mutable_params)
             if hasattr(guide, 'S'):
+                plates = {name: site["value"] for name, site in guide_trace.items()
+                          if site["type"] == "plate"}
+
                 def get_model_density(key, latent):
-                    with seed(rng_seed=key), substitute(data=latent):
+                    with seed(rng_seed=key), substitute(data={**latent, **plates}):
                         model_log_density, _ = log_density(
                             model, args, kwargs, params)
                     return model_log_density

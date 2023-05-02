@@ -2465,13 +2465,6 @@ class AutoSemiRVRS(AutoGuide):
             self.local_guide(global_output)
         self.prototype_local_guide_trace = tr
 
-        local_guide_subsample_axes = {}
-        assert plate_dim is not None
-        for name, site in self.prototype_local_guide_trace.items():
-            if site["type"] == "param":
-                local_guide_subsample_axes[name] = plate_dim - site["kwargs"]["event_dim"]
-        self._local_guide_subsample_axes = local_guide_subsample_axes
-
         if self.adaptation_scheme == "dual_averaging":
             self._da_init_state, self._da_update = temperature_adapter(self.T, self.num_warmup, self.Z_target)
 
@@ -2565,8 +2558,7 @@ class AutoSemiRVRS(AutoGuide):
                 jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1))
 
         def single_local_guide_sampler(subsample_idx, key, params):
-            p = {k: jnp.take(v, subsample_idx, axis=self._local_guide_subsample_axes[k]) for k, v in params.items()}
-            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=p):
+            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
@@ -2577,24 +2569,23 @@ class AutoSemiRVRS(AutoGuide):
                 if name in latent:
                     z_unpack[name] = biject_to(site["fn"].support).inv(latent[name])
             z = self._pack_local_latent(z_unpack)
-            return z[0]
+            return z
 
         def local_guide_sampler(subsample_idx, key, params):
             # shape: params -> (N,) | key -> (M,) | subsample_idx -> (M,) | out -> (M,)
             return jax.vmap(single_local_guide_sampler, (0, 0, None))(
-                jnp.expand_dims(subsample_idx, 1), key, params)
+                jnp.expand_dims(subsample_idx, 1), key, params)[:, 0]
 
         def single_local_guide_log_density(z, subsample_idx, params):
             z_unpack = self._unpack_local_latent(z)
             latent = self.local_guide._postprocess_fn(z_unpack)
             assert isinstance(latent, dict)
-            p = {k: jnp.take(v, subsample_idx, axis=self._local_guide_subsample_axes[k]) for k, v in params.items()}
             with handlers.block():
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     scale = N / subsample_idx.shape[0]
-                    return log_density(subsample_guide, (global_output,), kwargs, {**p, **latent})[0] / scale
+                    return log_density(subsample_guide, (global_output,), kwargs, {**params, **latent})[0] / scale
 
         def local_guide_log_density(z, subsample_idx, params):
             # shape: params -> (N,) | z -> (M,) | subsample_idx -> (M,) | out -> (M,)

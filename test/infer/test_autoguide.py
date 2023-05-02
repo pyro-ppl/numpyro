@@ -1078,6 +1078,7 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
 def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000,
 	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
     adaptation_scheme="dual_averaging",
+    # adaptation_scheme="fixed",
     # adaptation_scheme="Z_target",
 ):
     X = RandomState(0).randn(N, P)
@@ -1085,7 +1086,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     print()
     # print("X", X)
     # print("Y", Y)
-    fix_theta = True
+    fix_theta = False
 
     def global_model():
         if fix_theta:
@@ -1191,8 +1192,9 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
 def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_samples=5000,
 	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
-    adaptation_scheme="dual_averaging",
+    # adaptation_scheme="dual_averaging",
     # adaptation_scheme="Z_target",
+    adaptation_scheme="fixed",
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
@@ -1245,7 +1247,7 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
 			random.PRNGKey(seed+3), rvrs0_params, model0, rvrs_guide0)
         if adaptation_scheme == "Z_target":
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'])
-        else:
+        elif adaptation_scheme == "dual_averaging":
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'].temperature)
         print("RVRS ELBO:", rvrs_elbo)
         print(f"RVRS tau{i}:", rvrs0_params["auto_loc"])
