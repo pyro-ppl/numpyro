@@ -2774,7 +2774,7 @@ def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_k
         weights = jnp.where(weights < 0, 0, weights)
         weights = weights / weights.sum(-1, keepdims=True)
         resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
-        resample_idxs = jnp.arange(M)
+        # resample_idxs = jnp.arange(M)
         assert resample_idxs.shape == (M,)
 
         keys_next, batch_accept_log_prob, batch_candidate = jax.vmap(
@@ -2783,8 +2783,8 @@ def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_k
         def update_idx(i, val):
             batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
             idx = resample_idxs[i]
-            accept_log_prob = batch_accept_log_prob[:, idx]
-            candidate = tree_map(lambda x: x[:, idx], batch_candidate)
+            accept_log_prob = batch_accept_log_prob[:, i]
+            candidate = tree_map(lambda x: x[:, i], batch_candidate)
             buffer = tree_map(lambda x: x[:, idx], batch_buffer)
             log_a_sum = batch_log_a_sum[:, idx]
             first_log_a = batch_first_log_a[:, idx]

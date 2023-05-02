@@ -1077,15 +1077,15 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
 
 def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000,
 	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
-    # adaptation_scheme="dual_averaging",
-    adaptation_scheme="Z_target",
+    adaptation_scheme="dual_averaging",
+    # adaptation_scheme="Z_target",
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
     print()
     # print("X", X)
     # print("Y", Y)
-    fix_theta = False
+    fix_theta = True
 
     def global_model():
         if fix_theta:
@@ -1146,7 +1146,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     )
     if adaptation_scheme == "Z_target":
         print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'])
-    else:
+    elif adaptation_scheme == "dual_averaging":
         print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'].temperature)
     rvrs16_params = rvrs16_results.params
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
@@ -1164,7 +1164,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     )
     if adaptation_scheme == "Z_target":
         print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'])
-    else:
+    elif adaptation_scheme == "dual_averaging":
         print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'].temperature)
     rvrs12_params = rvrs12_results.params
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
@@ -1191,8 +1191,8 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
 def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_samples=5000,
 	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
-    # adaptation_scheme="dual_averaging",
-    adaptation_scheme="Z_target",
+    adaptation_scheme="dual_averaging",
+    # adaptation_scheme="Z_target",
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
@@ -1228,7 +1228,10 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
 
         local_guide0 = AutoDiagonalNormal(model0)
         mf_results = SVI(model0, local_guide0, _get_optim(), Trace_ELBO()).run(
-            random.PRNGKey(seed+1), num_steps, progress_bar=False)
+            random.PRNGKey(seed), num_steps, progress_bar=False)
+        mf_elbo = -Trace_ELBO(num_particles=num_samples).loss(
+			random.PRNGKey(seed+1), mf_results.params, model0, local_guide0)
+        print("MF ELBO:", mf_elbo)
         print(f"MF tau{i}:", mf_results.params["auto_loc"])
 
         rvrs_guide0 = AutoRVRS(
@@ -1238,10 +1241,13 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
 			random.PRNGKey(seed+2), num_steps, progress_bar=False
 		)
         rvrs0_params = rvrs0_results.params
+        rvrs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
+			random.PRNGKey(seed+3), rvrs0_params, model0, rvrs_guide0)
         if adaptation_scheme == "Z_target":
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'])
         else:
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'].temperature)
+        print("RVRS ELBO:", rvrs_elbo)
         print(f"RVRS tau{i}:", rvrs0_params["auto_loc"])
 
 
