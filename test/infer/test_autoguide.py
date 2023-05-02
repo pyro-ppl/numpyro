@@ -1076,12 +1076,19 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
 
 
 def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000,
-	epsilon=0.1, Z_target=0.5, S=2, adaptation_scheme="dual_averaging", T_init=0.0, seed=0,
+	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
+    # adaptation_scheme="dual_averaging",
+    adaptation_scheme="Z_target",
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
+    print("X", X)
+    print("Y", Y)
+    fix_theta = True
 
     def global_model():
+        if fix_theta:
+            return jnp.array([1., -0.5, 0.])
         return numpyro.sample("theta", dist.Normal(jnp.zeros(P), 1).to_event(1))
 
     def local_model(subsample_size, theta):
@@ -1109,12 +1116,12 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
             optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
         )
 
-    def create_plates(theta):
-        return numpyro.plate("N", N, subsample_size=16)
+    def create_plates(subsample_size, theta):
+        return numpyro.plate("N", N, subsample_size=subsample_size)
 
     global_guide = AutoNormal(global_model)
-    local_guide16 = AutoNormal(partial(local_model, 16), create_plates=create_plates)
-    local_guide12 = AutoNormal(partial(local_model, 12), create_plates=create_plates)
+    local_guide16 = AutoNormal(partial(local_model, 16), create_plates=partial(create_plates, 16))
+    local_guide12 = AutoNormal(partial(local_model, 12), create_plates=partial(create_plates, 12))
 
     def mf_guide16():
         global_guide()
@@ -1126,6 +1133,9 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     mf_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+1), mf_params, model16, mf_guide16)
     print("MF ELBO:", mf_elbo)
+    if not fix_theta:
+        print("MF theta:", mf_params["theta_auto_loc"])
+    print("MF tau:", mf_params["tau_auto_loc"])
 
     rvrs_guide16 = AutoSemiRVRS(
         model16, global_guide, local_guide16,
@@ -1133,11 +1143,17 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     rvrs16_results = SVI(model16, rvrs_guide16, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(seed+2), num_steps, init_params=mf_params,
     )
-    print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'].temperature)
+    if adaptation_scheme == "Z_target":
+        print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'])
+    else:
+        print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'].temperature)
     rvrs16_params = rvrs16_results.params
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+3), rvrs16_params, model16, rvrs_guide16)
     print("RVRS16 ELBO:", rvrs16_elbo)
+    if not fix_theta:
+        print("RVRS16 theta:", rvrs16_params["theta_auto_loc"])
+    print("RVRS16 tau:", rvrs16_params["tau_auto_loc"])
 
     rvrs_guide12 = AutoSemiRVRS(
         model12, global_guide, local_guide12,
@@ -1145,23 +1161,84 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     rvrs12_results = SVI(model12, rvrs_guide12, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(seed+4), num_steps, init_params=mf_params,
     )
-    print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'].temperature)
+    if adaptation_scheme == "Z_target":
+        print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'])
+    else:
+        print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'].temperature)
     rvrs12_params = rvrs12_results.params
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+5), rvrs12_params, model12, rvrs_guide12)
     print("RVRS12 ELBO:", rvrs12_elbo)
+    if not fix_theta:
+        print("RVRS12 theta:", rvrs12_params["theta_auto_loc"])
+    print("RVRS12 tau:", rvrs12_params["tau_auto_loc"])
 
     rvrs12_subs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+6), rvrs16_params, model12, rvrs_guide12)
     print("RVRS12 ELBO (using RVRS16 params):", rvrs12_subs_elbo)
 
     samples16 = rvrs_guide16.sample_posterior(random.PRNGKey(seed+7), rvrs16_params)
-    assert samples16["theta"].shape == (S, P) and samples16["tau"].shape == (S, 16)
+    if not fix_theta:
+        assert samples16["theta"].shape == (S, P) and samples16["tau"].shape == (S, 16)
 
     with handlers.substitute(
         data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}):
         samples = rvrs_guide12.sample_posterior(random.PRNGKey(seed+8), rvrs16_params, sample_shape=(100,))
-    assert samples["theta"].shape == (100, S, P)
+    if not fix_theta:
+        assert samples["theta"].shape == (100, S, P)
+
+
+def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_samples=5000,
+	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
+    # adaptation_scheme="dual_averaging",
+    adaptation_scheme="Z_target",
+):
+    X = RandomState(0).randn(N, P)
+    Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
+
+    def global_model():
+        return jnp.array([1., -0.5, 0.])
+
+    def local_model(data_index, theta):
+        X_i = X[data_index]
+        Y_i = Y[data_index]
+        tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
+        numpyro.sample(
+			"obs",
+			dist.Normal(X_i @ theta, sigma_obs / jnp.sqrt(tau)),
+			obs=Y_i,
+		)
+
+    def _get_optim():
+        scheduler = piecewise_constant_schedule(
+            1.0e-3, {15 * 1000: 1.0e-4, 30 * 1000: 1.0e-5}
+        )
+        return optax.chain(
+            optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
+        )
+
+    print()
+    for i in range(N):
+        def model0():
+            return local_model(i, global_model())
+
+        local_guide0 = AutoDiagonalNormal(model0)
+        mf_results = SVI(model0, local_guide0, _get_optim(), Trace_ELBO()).run(
+            random.PRNGKey(seed+1), num_steps, progress_bar=False)
+        print("MF tau:", jnp.exp(mf_results.params["auto_loc"]))
+
+        rvrs_guide0 = AutoRVRS(
+			model0, guide=local_guide0,
+			S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
+        rvrs0_results = SVI(model0, rvrs_guide0, _get_optim(), Trace_ELBO()).run(
+			random.PRNGKey(seed+2), num_steps, progress_bar=False
+		)
+        rvrs0_params = rvrs0_results.params
+        if adaptation_scheme == "Z_target":
+            print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'])
+        else:
+            print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'].temperature)
+        print("RVRS tau:", jnp.exp(rvrs0_params["auto_loc"]))
 
 
 def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
