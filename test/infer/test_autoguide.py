@@ -1082,7 +1082,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
-    print("X", X)
+    print("\nX", X)
     print("Y", Y)
     fix_theta = True
 
@@ -1095,7 +1095,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         with numpyro.plate("N", N, subsample_size=subsample_size):
             X_batch = numpyro.subsample(X, event_dim=1)
             Y_batch = numpyro.subsample(Y, event_dim=0)
-            tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
+            tau = numpyro.sample("tau", dist.Gamma(2.0, 2.0))
             numpyro.sample(
                 "obs",
                 dist.Normal(X_batch @ theta, sigma_obs / jnp.sqrt(tau)),
@@ -1195,6 +1195,8 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
+    print("\nX", X)
+    print("Y", Y)
 
     def global_model():
         return jnp.array([1., -0.5, 0.])
@@ -1202,7 +1204,7 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
     def local_model(data_index, theta):
         X_i = X[data_index]
         Y_i = Y[data_index]
-        tau = numpyro.sample("tau", dist.Gamma(5.0, 5.0))
+        tau = numpyro.sample("tau", dist.Gamma(2.0, 2.0))
         numpyro.sample(
 			"obs",
 			dist.Normal(X_i @ theta, sigma_obs / jnp.sqrt(tau)),
@@ -1217,15 +1219,15 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
             optax.scale_by_adam(), optax.scale_by_schedule(scheduler), optax.scale(-1.0)
         )
 
-    print()
     for i in range(N):
+        print("=====")
         def model0():
             return local_model(i, global_model())
 
         local_guide0 = AutoDiagonalNormal(model0)
         mf_results = SVI(model0, local_guide0, _get_optim(), Trace_ELBO()).run(
             random.PRNGKey(seed+1), num_steps, progress_bar=False)
-        print("MF tau:", jnp.exp(mf_results.params["auto_loc"]))
+        print(f"MF tau{i}:", mf_results.params["auto_loc"])
 
         rvrs_guide0 = AutoRVRS(
 			model0, guide=local_guide0,
@@ -1238,7 +1240,7 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'])
         else:
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'].temperature)
-        print("RVRS tau:", jnp.exp(rvrs0_params["auto_loc"]))
+        print(f"RVRS tau{i}:", rvrs0_params["auto_loc"])
 
 
 def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
