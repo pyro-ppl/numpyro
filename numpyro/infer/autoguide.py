@@ -2556,7 +2556,8 @@ class AutoSemiRVRS(AutoGuide):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
-                    return log_density(subsample_model, (global_output,), kwargs, latent)[0]
+                    scale = N / subsample_idx.shape[0]
+                    return log_density(subsample_model, (global_output,), kwargs, latent)[0] / scale
 
         def local_model_log_density(z, subsample_idx):
             # shape: local_latent_flat -> (M,) | subsample_idx -> (M,) | out -> (M,)
@@ -2592,7 +2593,8 @@ class AutoSemiRVRS(AutoGuide):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
-                    return log_density(subsample_guide, (global_output,), kwargs, {**p, **latent})[0]
+                    scale = N / subsample_idx.shape[0]
+                    return log_density(subsample_guide, (global_output,), kwargs, {**p, **latent})[0] / scale
 
         def local_guide_log_density(z, subsample_idx, params):
             # shape: params -> (N,) | z -> (M,) | subsample_idx -> (M,) | out -> (M,)
@@ -2772,7 +2774,7 @@ def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_k
         weights = jnp.where(weights < 0, 0, weights)
         weights = weights / weights.sum(-1, keepdims=True)
         resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
-        # resample_idxs = jnp.arange(M)
+        resample_idxs = jnp.arange(M)
         assert resample_idxs.shape == (M,)
 
         keys_next, batch_accept_log_prob, batch_candidate = jax.vmap(

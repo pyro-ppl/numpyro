@@ -1082,9 +1082,10 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
-    print("\nX", X)
-    print("Y", Y)
-    fix_theta = True
+    print()
+    # print("X", X)
+    # print("Y", Y)
+    fix_theta = False
 
     def global_model():
         if fix_theta:
@@ -1133,9 +1134,9 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     mf_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+1), mf_params, model16, mf_guide16)
     print("MF ELBO:", mf_elbo)
-    if not fix_theta:
-        print("MF theta:", mf_params["theta_auto_loc"])
-    print("MF tau:", mf_params["tau_auto_loc"])
+    # if not fix_theta:
+    #     print("MF theta:", mf_params["theta_auto_loc"])
+    # print("MF tau:", mf_params["tau_auto_loc"])
 
     rvrs_guide16 = AutoSemiRVRS(
         model16, global_guide, local_guide16,
@@ -1151,9 +1152,9 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+3), rvrs16_params, model16, rvrs_guide16)
     print("RVRS16 ELBO:", rvrs16_elbo)
-    if not fix_theta:
-        print("RVRS16 theta:", rvrs16_params["theta_auto_loc"])
-    print("RVRS16 tau:", rvrs16_params["tau_auto_loc"])
+    # if not fix_theta:
+    #     print("RVRS16 theta:", rvrs16_params["theta_auto_loc"])
+    # print("RVRS16 tau:", rvrs16_params["tau_auto_loc"])
 
     rvrs_guide12 = AutoSemiRVRS(
         model12, global_guide, local_guide12,
@@ -1169,9 +1170,9 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+5), rvrs12_params, model12, rvrs_guide12)
     print("RVRS12 ELBO:", rvrs12_elbo)
-    if not fix_theta:
-        print("RVRS12 theta:", rvrs12_params["theta_auto_loc"])
-    print("RVRS12 tau:", rvrs12_params["tau_auto_loc"])
+    # if not fix_theta:
+    #     print("RVRS12 theta:", rvrs12_params["theta_auto_loc"])
+    # print("RVRS12 tau:", rvrs12_params["tau_auto_loc"])
 
     rvrs12_subs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+6), rvrs16_params, model12, rvrs_guide12)
@@ -1195,7 +1196,8 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
 ):
     X = RandomState(0).randn(N, P)
     Y = X[:, 0] - 0.5 * X[:, 1] + sigma_obs * RandomState(1).randn(N)
-    print("\nX", X)
+    print()
+    print("X", X)
     print("Y", Y)
 
     def global_model():
