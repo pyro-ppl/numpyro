@@ -2704,7 +2704,9 @@ class AutoSemiRVRS(AutoGuide):
             return jax.vmap(unpack)(global_latents, local_flat)
 
         if sample_shape:
-            raise RuntimeError("Not support subsample + non-trivial sample_shape")
+            rng_key = random.split(rng_key, int(np.prod(sample_shape)))
+            samples = lax.map(_single_sample, rng_key)
+            return tree_map(lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]), samples)
         else:
             return _single_sample(rng_key)
 
