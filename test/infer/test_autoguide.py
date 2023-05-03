@@ -1153,7 +1153,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
                     random.PRNGKey(1), params=mf_params, sample_shape=(num_samples,))
         first_log_a = posterior_samples["first_log_a"].reshape(-1, N)
         log_Z = logsumexp(first_log_a, axis=0) - jnp.log(first_log_a.shape[0])
-        rvrs_elbo_T = rvrs_elbo_T - log_Z.sum()
+        rvrs_elbo_T = rvrs_elbo_T + log_Z.sum()
         print(f"RVRS16 T={T} ELBO:", rvrs_elbo_T)
 
     rvrs_guide16 = AutoSemiRVRS(
