@@ -1154,6 +1154,7 @@ class AutoSemiDAIS(AutoGuide):
         eta_max=0.1,
         gamma_init=0.9,
         init_scale=0.1,
+        init_loc=None,
     ):
         # init_loc_fn is only used to inspect the model.
         super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
@@ -1167,8 +1168,8 @@ class AutoSemiDAIS(AutoGuide):
             raise ValueError("eta_max must be positive.")
         if gamma_init <= 0.0 or gamma_init >= 1.0:
             raise ValueError("gamma_init must be in the open interval (0, 1).")
-        if init_scale <= 0.0:
-            raise ValueError("init_scale must be positive.")
+        # if init_scale <= 0.0:
+        #     raise ValueError("init_scale must be positive.")
 
         self.local_model = local_model
         self.base_guide = base_guide
@@ -1177,6 +1178,7 @@ class AutoSemiDAIS(AutoGuide):
         self.gamma_init = gamma_init
         self.K = K
         self.init_scale = init_scale
+        self.init_loc = init_loc
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -1349,11 +1351,11 @@ class AutoSemiDAIS(AutoGuide):
             )
             inv_mass_matrix = 0.5 / mass_matrix
             assert inv_mass_matrix.shape == (subsample_size, D)
-            z_0_loc_init = jnp.zeros((N, D))
+            z_0_loc_init = self.init_loc if self.init_loc is not None else jnp.zeros((N, D))
             z_0_loc = numpyro.param(
                 "{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1
             )
-            z_0_scale_init = jnp.ones((N, D)) * self.init_scale
+            z_0_scale_init = jnp.ones((N, D)) * self.init_scale if isinstance(self.init_scale, float) else self.init_scale
             z_0_scale = numpyro.param(
                 "{}_z_0_scale".format(self.prefix),
                 z_0_scale_init,
