@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import warnings
 
 from numpy.random import RandomState
 from numpy.testing import assert_allclose
@@ -1139,6 +1140,22 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     #     print("MF theta:", mf_params["theta_auto_loc"])
     # print("MF tau:", mf_params["tau_auto_loc"])
 
+    for T in list(range(11)) + [100, 1000, 10000]:
+        rvrs_guide_T = AutoSemiRVRS(
+			model16, global_guide, local_guide16,
+			S=S, T=T, adaptation_scheme="fixed", Z_target=Z_target, epsilon=epsilon, include_log_Z=False)
+        rvrs_elbo_T = -Trace_ELBO(num_particles=num_samples).loss(
+			random.PRNGKey(0), mf_params, model16, rvrs_guide_T)
+        with handlers.substitute(data={"N": jnp.arange(N)}):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                posterior_samples = rvrs_guide_T.sample_posterior(
+                    random.PRNGKey(1), params=mf_params, sample_shape=(num_samples,))
+        first_log_a = posterior_samples["first_log_a"].reshape(-1, N)
+        log_Z = logsumexp(first_log_a, axis=0) - jnp.log(first_log_a.shape[0])
+        rvrs_elbo_T = rvrs_elbo_T - log_Z.sum()
+        print(f"RVRS16 T={T} ELBO:", rvrs_elbo_T)
+
     rvrs_guide16 = AutoSemiRVRS(
         model16, global_guide, local_guide16,
         S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
@@ -1149,6 +1166,8 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'])
     elif adaptation_scheme == "dual_averaging":
         print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'].temperature)
+    else:
+        print("RVRS16 T:", T_init)
     rvrs16_params = rvrs16_results.params
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+3), rvrs16_params, model16, rvrs_guide16)
@@ -1167,6 +1186,8 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'])
     elif adaptation_scheme == "dual_averaging":
         print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'].temperature)
+    else:
+        print("RVRS12 T:", T_init)
     rvrs12_params = rvrs12_results.params
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
         random.PRNGKey(seed+5), rvrs12_params, model12, rvrs_guide12)

@@ -2502,6 +2502,9 @@ class AutoSemiRVRS(AutoGuide):
     def _sample_latent(self, *args, **kwargs):
         kwargs.pop("sample_shape", ())
         plate_name, N, M = self._local_plate
+        subsample_plate = numpyro.plate(plate_name, N, subsample_size=M)
+        subsample_idx = subsample_plate._indices
+        M = subsample_idx.shape[0]
 
         global_key = numpyro.prng_key()
         global_guide_params = {}
@@ -2614,8 +2617,6 @@ class AutoSemiRVRS(AutoGuide):
             a = sigmoid(lw + T[subsample_idx])
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
-        subsample_plate = numpyro.plate(plate_name, N, subsample_size=M)
-        subsample_idx = subsample_plate._indices
         rs_key, resample_key = random.split(numpyro.prng_key())
         keys = random.split(rs_key, self.S)
         zs, log_weight, log_Z, first_log_a, guide_lp = rs_local(
@@ -2642,8 +2643,10 @@ class AutoSemiRVRS(AutoGuide):
         ratio_bar = stop_gradient(ratio)
         surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
 
-        assert self.include_log_Z
-        elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S)
+        if self.include_log_Z:
+            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S)
+        else:
+            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum())
         # Scale the factor by subsample factor N / M
         factor = (-surrogate + elbo_correction) * N / M + global_lp * self.S
         numpyro.factor("surrogate_factor", factor)
@@ -2685,16 +2688,19 @@ class AutoSemiRVRS(AutoGuide):
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         def _single_sample(_rng_key):
-            global_latents, local_flat = handlers.substitute(
-                handlers.seed(self._sample_latent, _rng_key), params
-            )(*args, **kwargs)
+            with handlers.trace() as tr:
+                global_latents, local_flat = handlers.substitute(
+                    handlers.seed(self._sample_latent, _rng_key), params
+                )(*args, **kwargs)
+            deterministics = {name: site["value"] for name, site in tr.items()
+                              if site["type"] == "deterministic"}
 
             def unpack(global_latents, local_flat):
                 z_unpack = self._unpack_local_latent(local_flat)
                 local_latents = self.local_guide._postprocess_fn(z_unpack)
                 return {**global_latents, **local_latents}
 
-            return jax.vmap(unpack)(global_latents, local_flat)
+            return dict(**deterministics, **jax.vmap(unpack)(global_latents, local_flat))
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
