@@ -2301,6 +2301,16 @@ def test_composed_transform_1(batch_shape):
 
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
+def test_simplex_to_order_transform(batch_shape):
+    simplex = jnp.arange(5.) / jnp.arange(5.).sum()
+    simplex = jnp.broadcast_to(simplex, batch_shape + simplex.shape)
+    transform = SimplexToOrderedTransform()
+    out = transform(simplex)
+    assert out.shape == transform.forward_shape(simplex.shape)
+    assert simplex.shape == transform.inverse_shape(out.shape)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (5,)])
 @pytest.mark.parametrize("prepend_event_shape", [(), (4,)])
 @pytest.mark.parametrize("sample_shape", [(), (7,)])
 def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape):
