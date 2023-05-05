@@ -2302,7 +2302,7 @@ def test_composed_transform_1(batch_shape):
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_simplex_to_order_transform(batch_shape):
-    simplex = jnp.arange(5.) / jnp.arange(5.).sum()
+    simplex = jnp.arange(5.0) / jnp.arange(5.0).sum()
     simplex = jnp.broadcast_to(simplex, batch_shape + simplex.shape)
     transform = SimplexToOrderedTransform()
     out = transform(simplex)
