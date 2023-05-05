@@ -871,6 +871,12 @@ class SimplexToOrderedTransform(Transform):
         J_logdet = (softplus(y) + softplus(-y)).sum(-1)
         return J_logdet
 
+    def forward_shape(self, shape):
+        return shape[:-1] + (shape[-1] - 1,)
+
+    def inverse_shape(self, shape):
+        return shape[:-1] + (shape[-1] + 1,)
+
 
 def _softplus_inv(y):
     return jnp.log(-jnp.expm1(-y)) + y
