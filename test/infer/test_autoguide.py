@@ -1142,7 +1142,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
     for T in list(range(11)) + [100, 1000, 10000]:
         rvrs_guide_T = AutoSemiRVRS(
-			model16, global_guide, local_guide16,
+			model16, partial(local_model, 16), global_guide, local_guide16,
 			S=S, T=T, adaptation_scheme="fixed", Z_target=Z_target, epsilon=epsilon, include_log_Z=False)
         rvrs_elbo_T = -Trace_ELBO(num_particles=num_samples).loss(
 			random.PRNGKey(0), mf_params, model16, rvrs_guide_T)
@@ -1157,7 +1157,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         print(f"RVRS16 T={T} ELBO:", rvrs_elbo_T)
 
     rvrs_guide16 = AutoSemiRVRS(
-        model16, global_guide, local_guide16,
+        model16, partial(local_model, 16), global_guide, local_guide16,
         S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
     rvrs16_results = SVI(model16, rvrs_guide16, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(seed+2), num_steps, init_params=mf_params,
@@ -1177,7 +1177,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     # print("RVRS16 tau:", rvrs16_params["tau_auto_loc"])
 
     rvrs_guide12 = AutoSemiRVRS(
-        model12, global_guide, local_guide12,
+        model12, partial(local_model, 12), global_guide, local_guide12,
         S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
     rvrs12_results = SVI(model12, rvrs_guide12, _get_optim(), Trace_ELBO()).run(
         random.PRNGKey(seed+4), num_steps, init_params=mf_params,
@@ -1294,7 +1294,7 @@ def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
     global_guide = AutoNormal(global_model)
     local_guide = AutoNormal(local_model, create_plates=create_plates)
     model = lambda: local_model(global_model())
-    guide = AutoSemiRVRS(model, global_guide, local_guide, S=S, T=T, adaptation_scheme="dual_averaging")
+    guide = AutoSemiRVRS(model, local_model, global_guide, local_guide, S=S, T=T, adaptation_scheme="dual_averaging")
     svi_result = SVI(model, guide, optim.Adam(0.01), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
     )
@@ -1307,4 +1307,44 @@ def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
     np.testing.assert_allclose(params["x_auto_scale"], 0.4, rtol=0.1)
     np.testing.assert_allclose(params["y_auto_loc"], target_loc, rtol=0.1)
     np.testing.assert_allclose(params["y_auto_scale"], 0.6, rtol=0.1)
+
+
+def test_custom_local_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
+    target_loc = np.linspace(1., 3., N)
+
+    def global_model():
+        numpyro.sample("a", dist.LogNormal(1., 0.3))
+        numpyro.sample("b", dist.LogNormal(2., 0.7))
+
+    def local_model(_):
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            loc = numpyro.subsample(target_loc, event_dim=0)
+            numpyro.sample("x", dist.LogNormal(loc, 0.4))
+            numpyro.sample("y", dist.LogNormal(loc, 0.6))
+
+    def local_guide(_):
+        with numpyro.plate("N", N, subsample_size=subsample_size):
+            x_loc = numpyro.param("x_loc", jnp.zeros(N), event_dim=0)
+            x_scale = numpyro.param("x_scale", 0.1 * jnp.ones(N), event_dim=0, constraint=constraints.positive)
+            y_loc = numpyro.param("y_loc", jnp.zeros(N), event_dim=0)
+            y_scale = numpyro.param("y_scale", 0.1 * jnp.ones(N), event_dim=0, constraint=constraints.positive)
+            numpyro.sample("x", dist.LogNormal(x_loc, x_scale))
+            numpyro.sample("y", dist.LogNormal(y_loc, y_scale))
+
+    S = 6
+    global_guide = AutoNormal(global_model)
+    model = lambda: local_model(global_model())
+    guide = AutoSemiRVRS(model, local_model, global_guide, local_guide, S=S, T=T, adaptation_scheme="dual_averaging")
+    svi_result = SVI(model, guide, optim.Adam(0.01), Trace_ELBO()).run(
+        random.PRNGKey(0), num_steps
+    )
+    params = svi_result.params
+    np.testing.assert_allclose(params["a_auto_loc"], 1.0, rtol=0.1)
+    np.testing.assert_allclose(params["a_auto_scale"], 0.3, rtol=0.1)
+    np.testing.assert_allclose(params["b_auto_loc"], 2.0, rtol=0.1)
+    np.testing.assert_allclose(params["b_auto_scale"], 0.7, rtol=0.1)
+    np.testing.assert_allclose(params["x_loc"], target_loc, rtol=0.1)
+    np.testing.assert_allclose(params["x_scale"], 0.4, rtol=0.1)
+    np.testing.assert_allclose(params["y_loc"], target_loc, rtol=0.1)
+    np.testing.assert_allclose(params["y_scale"], 0.6, rtol=0.1)
 

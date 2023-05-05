@@ -2342,7 +2342,7 @@ class AutoSemiRVRS(AutoGuide):
         global_guide = AutoNormal(global_model)
         local_guide = AutoNormal(local_model)
         model = lambda: local_model(global_model())
-        guide = AutoSemiRVRS(model, global_guide, local_guide)
+        guide = AutoSemiRVRS(model, local_model, global_guide, local_guide)
         svi = SVI(model, guide, ...)
         # sample posterior for particular data subset {3, 7}
         with handlers.substitute(data={"data": jnp.array([3, 7])}):
@@ -2358,6 +2358,7 @@ class AutoSemiRVRS(AutoGuide):
     def __init__(
         self,
         model,
+        local_model,
         global_guide,
         local_guide,
         *,
@@ -2383,6 +2384,7 @@ class AutoSemiRVRS(AutoGuide):
         if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
             raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
 
+        self.local_model = local_model
         self.global_guide = global_guide
         self.local_guide = local_guide
         self.S = S
@@ -2456,16 +2458,25 @@ class AutoSemiRVRS(AutoGuide):
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
 
-        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
-            self.global_guide(*args, **kwargs)
-        self.prototype_global_guide_trace = tr
+        if self.global_guide is not None:
+            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+                self.global_guide(*args, **kwargs)
+            self.prototype_global_guide_trace = tr
 
-        with handlers.block(), handlers.seed(rng_seed=0):
-            global_output = self.global_guide.model(*args, **kwargs)
+            with handlers.block(), handlers.seed(rng_seed=0):
+                local_args = (self.global_guide.model(*args, **kwargs),)
+                local_kwargs = {}
+        else:
+            local_args = args
+            local_kwargs = kwargs
 
         with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
-            self.local_guide(global_output)
+            self.local_guide(*local_args, **local_kwargs)
         self.prototype_local_guide_trace = tr
+
+        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+            self.local_model(*local_args, **local_kwargs)
+        self.prototype_local_model_trace = tr
 
         if self.adaptation_scheme == "dual_averaging":
             self._da_init_state, self._da_update = temperature_adapter(self.T, self.num_warmup, self.Z_target)
@@ -2486,11 +2497,8 @@ class AutoSemiRVRS(AutoGuide):
             delta_dist = dist.Delta(value, log_density=0., event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
-        for name, unconstrained_value in jax.vmap(self._unpack_local_latent)(local_latent_flat).items():
+        for name, value in jax.vmap(self._unpack_local_latent)(local_latent_flat).items():
             site = self.prototype_trace[name]
-            with helpful_support_errors(site):
-                transform = biject_to(site["fn"].support)
-            value = jax.vmap(transform)(unconstrained_value)
             event_ndim = site["fn"].event_dim
             # Note: "surrogate_factor"'s guide_lp is log density in constrained space.
             delta_dist = dist.Delta(value, log_density=0., event_dim=event_ndim)
@@ -2510,30 +2518,35 @@ class AutoSemiRVRS(AutoGuide):
 
         global_key = numpyro.prng_key()
         global_guide_params = {}
-        assert isinstance(self.prototype_global_guide_trace, dict)
-        for name, site in self.prototype_global_guide_trace.items():
-            if site["type"] == "param":
-                global_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
-        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=global_key), handlers.substitute(data=global_guide_params):
-            self.global_guide(*args, **kwargs)
-        global_latents = {
-            name: site["value"] for name, site in tr.items()
-            if site["type"] == "sample" and not site.get("is_observed", False)}
         global_lp = 0.
-        for name, site in tr.items():
-            if name in global_latents:
-                global_lp = global_lp + site["fn"].log_prob(site["value"]).sum()
+        if self.global_guide is not None:
+            for name, site in self.prototype_global_guide_trace.items():
+                if site["type"] == "param":
+                    global_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
+            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=global_key), \
+					handlers.substitute(data=global_guide_params):
+                self.global_guide(*args, **kwargs)
+            global_latents = {
+                name: site["value"] for name, site in tr.items()
+                if site["type"] == "sample" and not site.get("is_observed", False)}
+            for name, site in tr.items():
+                if name in global_latents:
+                    global_lp = global_lp + site["fn"].log_prob(site["value"]).sum()
 
-        rng_key = numpyro.prng_key()
-        model_params = {}
-        assert isinstance(self.prototype_trace, dict)
-        for name, site in self.prototype_trace.items():
-            if site["type"] == "param":
-                model_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
-        with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
-            data=dict(**global_latents, **model_params
-        )):
-            global_output = jax.lax.stop_gradient(self.global_guide.model(*args, **kwargs))
+            rng_key = numpyro.prng_key()
+            model_params = {}
+            assert isinstance(self.prototype_trace, dict)
+            for name, site in self.prototype_trace.items():
+                if site["type"] == "param":
+                    model_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
+            with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
+                data=dict(**global_latents, **model_params
+            )):
+                local_args = (jax.lax.stop_gradient(self.global_guide.model(*args, **kwargs)),)
+                local_kwargs = {}
+        else:
+            local_args = args
+            local_kwargs = kwargs
 
         assert isinstance(self.prototype_local_guide_trace, dict)
         local_guide_params = {}
@@ -2541,12 +2554,11 @@ class AutoSemiRVRS(AutoGuide):
             if site["type"] == "param":
                 local_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
 
-        subsample_model = partial(_subsample_model, self.local_guide.model)
+        subsample_model = partial(_subsample_model, self.local_model)
         subsample_guide = partial(_subsample_model, self.local_guide)
 
         def single_local_model_log_density(z, subsample_idx):
-            z_unpack = self._unpack_local_latent(z)
-            latent = self.local_guide._postprocess_fn(z_unpack)
+            latent = self._unpack_local_latent(z)
             with handlers.block():
                 # Scale down potential_fn by N because potential_fn scales up the log_prob.
                 # We skip the warning because we are using subsample_idx with size 1 for a
@@ -2555,7 +2567,8 @@ class AutoSemiRVRS(AutoGuide):
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     scale = N / subsample_idx.shape[0]
-                    return log_density(subsample_model, (global_output,), kwargs, latent)[0] / scale
+                    kwargs.update(local_kwargs)
+                    return log_density(subsample_model, local_args, kwargs, latent)[0] / scale
 
         def local_model_log_density(z, subsample_idx):
             # shape: local_latent_flat -> (M,) | subsample_idx -> (M,) | out -> (M,)
@@ -2563,18 +2576,16 @@ class AutoSemiRVRS(AutoGuide):
                 jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1))
 
         def single_local_guide_sampler(subsample_idx, key, params):
-            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params):
+            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=key), handlers.substitute(data=params):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
-                    latent = subsample_guide(global_output, **kwargs)
-            z_unpack = {}
-            assert isinstance(self.local_guide.prototype_trace, dict)
-            for name, site in self.local_guide.prototype_trace.items():
-                if name in latent:
-                    z_unpack[name] = biject_to(site["fn"].support).inv(latent[name])
-            z = self._pack_local_latent(z_unpack)
-            return z
+                    kwargs.update(local_kwargs)
+                    subsample_guide(*local_args, **kwargs)
+            latent = {name: site["value"] for name, site in tr.items()
+                      if site["type"] == "sample" and not site.get("is_observed", False)}
+            z = self._pack_local_latent(latent)
+            return z  # flatten array in constrained space
 
         def local_guide_sampler(subsample_idx, key, params):
             # shape: params -> (N,) | key -> (M,) | subsample_idx -> (M,) | out -> (M,)
@@ -2582,15 +2593,15 @@ class AutoSemiRVRS(AutoGuide):
                 jnp.expand_dims(subsample_idx, 1), key, params)[:, 0]
 
         def single_local_guide_log_density(z, subsample_idx, params):
-            z_unpack = self._unpack_local_latent(z)
-            latent = self.local_guide._postprocess_fn(z_unpack)
+            latent = self._unpack_local_latent(z)
             assert isinstance(latent, dict)
             with handlers.block():
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     scale = N / subsample_idx.shape[0]
-                    return log_density(subsample_guide, (global_output,), kwargs, {**params, **latent})[0] / scale
+                    kwargs.update(local_kwargs)
+                    return log_density(subsample_guide, local_args, kwargs, {**params, **latent})[0] / scale
 
         def local_guide_log_density(z, subsample_idx, params):
             # shape: params -> (N,) | z -> (M,) | subsample_idx -> (M,) | out -> (M,)
@@ -2698,8 +2709,7 @@ class AutoSemiRVRS(AutoGuide):
                               if site["type"] == "deterministic"}
 
             def unpack(global_latents, local_flat):
-                z_unpack = self._unpack_local_latent(local_flat)
-                local_latents = self.local_guide._postprocess_fn(z_unpack)
+                local_latents = self._unpack_local_latent(local_flat)
                 return {**global_latents, **local_latents}
 
             return dict(**deterministics, **jax.vmap(unpack)(global_latents, local_flat))
