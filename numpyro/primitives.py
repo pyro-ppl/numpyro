@@ -135,14 +135,14 @@ def sample(
 
     :param str name: name of the sample site.
     :param fn: a stochastic function that returns a sample.
-    :param numpy.ndarray obs: observed value
+    :param jnp.ndarray obs: observed value
     :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
     :param dict infer: an optional dictionary containing additional information
         for inference algorithms. For example, if `fn` is a discrete distribution,
         setting `infer={'enumerate': 'parallel'}` to tell MCMC marginalize
         this discrete latent site.
-    :param numpy.ndarray obs_mask: Optional boolean array mask of shape
+    :param jnp.ndarray obs_mask: Optional boolean array mask of shape
         broadcastable with ``fn.batch_shape``. If provided, events with
         mask=True will be conditioned on ``obs`` and remaining events will be
         imputed by sampling. This introduces a latent sample site named ``name
@@ -235,7 +235,7 @@ def param(name, init_value=None, **kwargs):
         Note that the onus of using this to initialize the optimizer is
         on the user inference algorithm, since there is no global parameter
         store in NumPyro.
-    :type init_value: numpy.ndarray or callable
+    :type init_value: jnp.ndarray or callable
     :param constraint: NumPyro constraint, defaults to ``constraints.real``.
     :type constraint: numpyro.distributions.constraints.Constraint
     :param int event_dim: (optional) number of rightmost dimensions unrelated
@@ -289,7 +289,7 @@ def deterministic(name, value):
     values in the model execution trace.
 
     :param str name: name of the deterministic site.
-    :param numpy.ndarray value: deterministic value to record in the trace.
+    :param jnp.ndarray value: deterministic value to record in the trace.
     """
     if not _PYRO_STACK:
         return value
@@ -376,7 +376,7 @@ def get_mask():
             # ...
 
     :returns: The mask.
-    :rtype: None, bool, or numpy.ndarray
+    :rtype: None, bool, or jnp.ndarray
     """
     return _inspect()["mask"]
 
@@ -607,7 +607,7 @@ def factor(name, log_factor):
     probabilistic model.
 
     :param str name: Name of the trivial sample.
-    :param numpy.ndarray log_factor: A possibly batched log probability factor.
+    :param jnp.ndarray log_factor: A possibly batched log probability factor.
     """
     unit_dist = numpyro.distributions.distribution.Unit(log_factor)
     unit_value = unit_dist.sample(None)
@@ -657,11 +657,11 @@ def subsample(data, event_dim):
                 data = numpyro.subsample(data, event_dim=0)
                 # ...
 
-    :param numpy.ndarray data: A tensor of batched data.
+    :param jnp.ndarray data: A tensor of batched data.
     :param int event_dim: The event dimension of the data tensor. Dimensions to
         the left are considered batch dimensions.
     :returns: A subsampled version of ``data``
-    :rtype: ~numpy.ndarray
+    :rtype: ~jnp.ndarray
     """
     if not _PYRO_STACK:
         return data
