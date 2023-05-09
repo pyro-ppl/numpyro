@@ -44,6 +44,7 @@ from numpyro.distributions.util import (
     periodic_repeat,
     sum_rightmost,
 )
+from numpyro.infer import Predictive
 from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.initialization import init_to_median, init_to_uniform
 from numpyro.infer.util import helpful_support_errors, initialize_model
@@ -455,12 +456,25 @@ class AutoDelta(AutoGuide):
 
         return result
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         latent_samples = {
             k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
         }
-        return latent_samples
+        deterministic_vars = [
+            k for k, v in self.prototype_trace.items() if v["type"] == "deterministic"
+        ]
+        if not deterministic_vars:
+            return latent_samples
+        else:
+            predictive = Predictive(
+                model=self.model,
+                posterior_samples=latent_samples,
+                return_sites=deterministic_vars,
+                batch_ndims=len(sample_shape),
+            )
+            deterministic_samples = predictive(rng_key, *args, **kwargs)
+            return {**latent_samples, **deterministic_samples}
 
     def median(self, params):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
