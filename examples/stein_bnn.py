@@ -9,34 +9,36 @@ from the UCI regression benchmarks.
 """
 
 import argparse
-from collections import namedtuple
 import datetime
+from collections import namedtuple
 from functools import partial
 from time import time
 
-from matplotlib.collections import LineCollection
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from jax import random, vmap
+from matplotlib.collections import LineCollection
 from sklearn.model_selection import train_test_split
 
-from jax import random
-import jax.numpy as jnp
-
 import numpyro
-from numpyro.contrib.einstein import RBFKernel, SteinVI
+from numpyro import deterministic
+from numpyro.contrib.einstein import RBFKernel, SteinVI, IMQKernel
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
-from numpyro.infer import Predictive, Trace_ELBO, init_to_uniform
-from numpyro.infer.autoguide import AutoDelta
+from numpyro.infer import Predictive, init_to_uniform
+from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adagrad
 
 DataState = namedtuple("data", ["xtr", "xte", "ytr", "yte"])
 
 
+#TODO: add PPK (again + model selection)
+
 def load_data() -> DataState:
     _, fetch = load_dataset(BOSTON_HOUSING, shuffle=False)
     x, y = fetch()
-    xtr, xte, ytr, yte = train_test_split(x, y, train_size=0.90)
+    xtr, xte, ytr, yte = train_test_split(x, y, train_size=0.90, random_state=1)
 
     return DataState(*map(partial(jnp.array, dtype=float), (xtr, xte, ytr, yte)))
 
@@ -94,10 +96,10 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
     # precision prior on observations
     prec_obs = numpyro.sample("prec_obs", Gamma(1.0, 0.1))
     with numpyro.plate(
-        "data",
-        x.shape[0],
-        subsample_size=subsample_size,
-        dim=-1,
+            "data",
+            x.shape[0],
+            subsample_size=subsample_size,
+            dim=-1,
     ):
         batch_x = numpyro.subsample(x, event_dim=1)
         if y is not None:
@@ -105,10 +107,12 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
         else:
             batch_y = y
 
+        loc_y = deterministic('y_pred', jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2)
+
         numpyro.sample(
             "y",
             Normal(
-                jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2, 1.0 / jnp.sqrt(prec_obs)
+                loc_y, 1.0 / jnp.sqrt(prec_obs)
             ),  # 1 hidden layer with ReLU activation
             obs=batch_y,
         )
@@ -126,12 +130,12 @@ def main(args):
 
     stein = SteinVI(
         model,
-        AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=0.1)),
+        AutoNormal(model, init_loc_fn=partial(init_to_uniform, radius=.1)),
         Adagrad(0.05),
-        Trace_ELBO(20),  # estimate elbo with 20 particles (not stein particles!)
-        RBFKernel(),
+        IMQKernel(),
         repulsion_temperature=args.repulsion,
-        num_particles=args.num_particles,
+        num_stein_particles=args.num_stein_particles,
+        num_elbo_particles=args.num_elbo_particles
     )
     start = time()
 
@@ -159,9 +163,11 @@ def main(args):
     )  # use train data statistics when accessing generalization
     preds = pred(
         pred_key, xte, subsample_size=xte.shape[0], hidden_dim=args.hidden_dim
-    )["y"]
+    )["y_pred"]
 
-    y_pred = jnp.mean(preds, 1) * ytr_std + ytr_mean
+    assigns = random.randint(pred_key, (200,), minval=0, maxval=args.num_stein_particles)
+
+    y_pred = vmap(lambda a, p: p[a])(assigns, preds) * ytr_std + ytr_mean
     rmse = jnp.sqrt(jnp.mean((y_pred.mean(0) - data.yte) ** 2))
 
     print(rf"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
@@ -197,9 +203,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
     parser.add_argument("--max-iter", type=int, default=1000)
-    parser.add_argument("--repulsion", type=float, default=1.0)
+    parser.add_argument("--repulsion", type=float, default=1.)
     parser.add_argument("--verbose", type=bool, default=True)
-    parser.add_argument("--num-particles", type=int, default=100)
+    parser.add_argument("--num-elbo-particles", type=int, default=10)
+    parser.add_argument("--num-stein-particles", type=int, default=5)
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
