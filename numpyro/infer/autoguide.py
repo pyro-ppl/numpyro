@@ -2516,6 +2516,12 @@ class AutoSemiRVRS(AutoGuide):
         subsample_idx = subsample_plate._indices
         M = subsample_idx.shape[0]
 
+        model_params = {}
+        assert isinstance(self.prototype_trace, dict)
+        for name, site in self.prototype_trace.items():
+            if site["type"] == "param":
+                model_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
+
         global_key = numpyro.prng_key()
         global_guide_params = {}
         global_lp = 0.
@@ -2534,11 +2540,6 @@ class AutoSemiRVRS(AutoGuide):
                     global_lp = global_lp + site["fn"].log_prob(site["value"]).sum()
 
             rng_key = numpyro.prng_key()
-            model_params = {}
-            assert isinstance(self.prototype_trace, dict)
-            for name, site in self.prototype_trace.items():
-                if site["type"] == "param":
-                    model_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
             with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
                 data=dict(**global_latents, **model_params
             )):
@@ -2547,6 +2548,7 @@ class AutoSemiRVRS(AutoGuide):
         else:
             local_args = args
             local_kwargs = kwargs
+            global_latents = {}
 
         assert isinstance(self.prototype_local_guide_trace, dict)
         local_guide_params = {}
@@ -2568,7 +2570,8 @@ class AutoSemiRVRS(AutoGuide):
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     scale = N / subsample_idx.shape[0]
                     kwargs.update(local_kwargs)
-                    return log_density(subsample_model, local_args, kwargs, latent)[0] / scale
+                    latent_and_params = dict(**latent, **jax.lax.stop_gradient(model_params))
+                    return log_density(subsample_model, local_args, kwargs, latent_and_params)[0] / scale
 
         def local_model_log_density(z, subsample_idx):
             # shape: local_latent_flat -> (M,) | subsample_idx -> (M,) | out -> (M,)
