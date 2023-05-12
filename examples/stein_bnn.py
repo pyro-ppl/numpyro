@@ -24,16 +24,18 @@ from sklearn.model_selection import train_test_split
 import numpyro
 from numpyro import deterministic
 from numpyro.contrib.einstein import RBFKernel, SteinVI, IMQKernel
+from numpyro.contrib.einstein.kernels import PPK
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
 from numpyro.infer import Predictive, init_to_uniform
-from numpyro.infer.autoguide import AutoNormal
+from numpyro.infer.autoguide import AutoNormal, AutoDelta
 from numpyro.optim import Adagrad
 
 DataState = namedtuple("data", ["xtr", "xte", "ytr", "yte"])
 
 
 #TODO: add PPK (again + model selection)
+
 
 def load_data() -> DataState:
     _, fetch = load_dataset(BOSTON_HOUSING, shuffle=False)
@@ -128,11 +130,13 @@ def main(args):
 
     rng_key, inf_key = random.split(inf_key)
 
+    guide = AutoNormal(model, init_loc_fn=partial(init_to_uniform, radius=.1))
+
     stein = SteinVI(
         model,
-        AutoNormal(model, init_loc_fn=partial(init_to_uniform, radius=.1)),
+        guide,
         Adagrad(0.05),
-        IMQKernel(),
+        PPK(guide=guide, scale=1./10.), # IMQKernel(),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
         num_elbo_particles=args.num_elbo_particles

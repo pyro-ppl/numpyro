@@ -14,6 +14,8 @@ import jax.scipy.stats
 
 from numpyro.contrib.einstein.util import median_bandwidth, sqrth_and_inv_sqrth
 import numpyro.distributions as dist
+from numpyro.distributions import biject_to
+from numpyro.infer.autoguide import AutoNormal
 
 
 class PrecondMatrix(ABC):
@@ -467,3 +469,64 @@ class GraphicalKernel(SteinKernel):
             return jax.scipy.linalg.block_diag(*kernel_res)
 
         return kernel
+
+
+class PPK(SteinKernel):
+    def __init__(self, guide, scale=1.0):
+        self._mode = "norm"
+        self.guide = guide
+        self.scale = scale
+        assert isinstance(guide, AutoNormal), "PPK only implemented for AutoNormal"
+
+    def compute(
+            self,
+            particles: jnp.ndarray,
+            particle_info: Dict[str, Tuple[int, int]],
+            loss_fn: Callable[[jnp.ndarray], float],
+    ):
+        loc_idx = jnp.concatenate(
+            [
+                jnp.arange(*idx)
+                for name, idx in particle_info.items()
+                if name.endswith(f"{self.guide.prefix}_loc")
+            ]
+        )
+        scale_idx = jnp.concatenate(
+            [
+                jnp.arange(*idx)
+                for name, idx in particle_info.items()
+                if name.endswith(f"{self.guide.prefix}_scale")
+            ]
+        )
+
+        def kernel(x, y):
+            biject = biject_to(self.guide.scale_constraint)
+            x_loc = x[loc_idx]
+            x_scale = biject(x[scale_idx])
+            x_quad = (x_loc / x_scale) ** 2
+
+            y_loc = y[loc_idx]
+            y_scale = biject(y[scale_idx])
+            y_quad = (y_loc / y_scale) ** 2
+
+            cross_loc = x_loc * x_scale ** -2 + y_loc * y_scale ** -2
+            cross_var = 1 / (y_scale ** -2 + x_scale ** -2)
+            cross_quad = cross_loc ** 2 * cross_var
+
+            quad = jnp.exp(-self.scale / 2 * (x_quad + y_quad - cross_quad))
+
+            norm = (
+                    (2 * jnp.pi) ** ((1 - 2 * self.scale) * 1 / 2)
+                    * self.scale ** (-1 / 2)
+                    * cross_var ** (1 / 2)
+                    * x_scale ** (-self.scale)
+                    * y_scale ** (-self.scale)
+            )
+
+            return jnp.linalg.norm(norm * quad)
+
+        return kernel
+
+    @property
+    def mode(self):
+        return self._mode

@@ -320,7 +320,7 @@ class SteinVI:
 
         # 6. Return loss and gradients (based on parameter forces)
         res_grads = tree_map(lambda x: -x, {**classic_param_grads, **stein_param_grads})
-        return -jnp.mean(loss), res_grads
+        return jnp.linalg.norm(particle_grads), res_grads
 
     def init(self, rng_key, *args, **kwargs):
         """
@@ -458,6 +458,7 @@ class SteinVI:
             progbar=progress_bar,
             transform=collect_fn,
             return_last_val=True,
+            diagnostics_fn=lambda state: f"norm Stein force: {state[1]:.3f}"if progress_bar else None
         )
         state = last_res[0]
         return SteinVIRunResult(self.get_params(state), state, auxiliaries)
