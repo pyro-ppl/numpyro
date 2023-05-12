@@ -130,13 +130,13 @@ def main(args):
 
     rng_key, inf_key = random.split(inf_key)
 
-    guide = AutoNormal(model, init_loc_fn=partial(init_to_uniform, radius=.1))
+    guide = AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=.01))
 
     stein = SteinVI(
         model,
         guide,
         Adagrad(0.05),
-        PPK(guide=guide, scale=1./10.), # IMQKernel(),
+        RBFKernel(), # PPK(guide=guide, scale=.1),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
         num_elbo_particles=args.num_elbo_particles
@@ -207,9 +207,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
     parser.add_argument("--max-iter", type=int, default=1000)
-    parser.add_argument("--repulsion", type=float, default=1.)
+    parser.add_argument("--repulsion", type=float, default=.1)
     parser.add_argument("--verbose", type=bool, default=True)
-    parser.add_argument("--num-elbo-particles", type=int, default=10)
+    parser.add_argument("--num-elbo-particles", type=int, default=1)
     parser.add_argument("--num-stein-particles", type=int, default=5)
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
