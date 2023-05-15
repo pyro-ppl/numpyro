@@ -2812,3 +2812,9 @@ def test_sample_truncated_normal_in_tail():
     tail_dist = dist.TruncatedNormal(loc=0, scale=1, low=-16, high=-15)
     samples = tail_dist.sample(random.PRNGKey(0), sample_shape=(10_000,))
     assert ~jnp.isinf(samples).any()
+
+
+@jax.enable_custom_prng()
+def test_jax_custom_prng():
+    samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
+    assert ~jnp.isinf(samples).any()
