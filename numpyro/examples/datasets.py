@@ -164,7 +164,7 @@ def _load_mnist():
     def read_label(file):
         with gzip.open(file, "rb") as f:
             f.read(8)
-            data = np.frombuffer(f.read(), dtype=np.int8) / np.float32(255.0)
+            data = np.frombuffer(f.read(), dtype=np.int8)
             return data
 
     def read_img(file):
