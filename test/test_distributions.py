@@ -2666,6 +2666,43 @@ def test_expand_pytree():
     assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
 
 
+def test_expand_no_unnecessary_batch_shape_expansion():
+    # ExpandedDistribution can mutate the `batch_shape` of
+    # its base distribution in order to make ExpandedDistribution
+    # mappable, see #684. However, this mutation should not take
+    # place if no mapping operation is performed.
+
+    for arg in (jnp.array(1.0), jnp.ones((2,)), jnp.ones((2, 2))):
+        # Low level test: ensure that (tree_flatten o tree_unflatten)(expanded_dist)
+        # amounts to an identity operation.
+        d = dist.Normal(arg, arg).expand([10, 3, *arg.shape])
+        roundtripped_d = type(d).tree_unflatten(*d.tree_flatten()[::-1])
+        assert d.batch_shape == roundtripped_d.batch_shape
+        assert d.base_dist.batch_shape == roundtripped_d.base_dist.batch_shape
+        assert d.base_dist.event_shape == roundtripped_d.base_dist.event_shape
+        assert jnp.allclose(d.base_dist.loc, roundtripped_d.base_dist.loc)
+        assert jnp.allclose(d.base_dist.scale, roundtripped_d.base_dist.scale)
+
+        # High-level test: `jax.jit`ting a function returning an ExpandedDistribution
+        # (which involves an instance of the low-level case as it will transform
+        #  the original function by adding some flattening and unflattening steps)
+        # should return same object as its non-jitted equivalent.
+        def bs(arg):
+            return dist.Normal(arg, arg).expand([10, 3, *arg.shape])
+
+        d = bs(arg)
+        dj = jax.jit(bs)(arg)
+
+        assert isinstance(d, dist.ExpandedDistribution)
+        assert isinstance(dj, dist.ExpandedDistribution)
+
+        assert d.batch_shape == dj.batch_shape
+        assert d.base_dist.batch_shape == dj.base_dist.batch_shape
+        assert d.base_dist.event_shape == dj.base_dist.event_shape
+        assert jnp.allclose(d.base_dist.loc, dj.base_dist.loc)
+        assert jnp.allclose(d.base_dist.scale, dj.base_dist.scale)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
 def test_kl_delta_normal_shape(batch_shape):
     v = np.random.normal(size=batch_shape)
