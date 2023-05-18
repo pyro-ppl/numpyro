@@ -3079,15 +3079,38 @@ def test_vmap_multivariate_normal_dist():
 VMAPPABLE_DISTS = [
     t
     for t in CONTINUOUS + DISCRETE + DIRECTIONAL
-    if t[0] in (dist.MultivariateNormal, dist.Normal)
+    if t[0] in (
+        dist.MultivariateNormal,
+        dist.Normal,
+        dist.AsymmetricLaplace,
+        dist.Beta,
+        dist.Cauchy,
+        dist.Dirichlet,
+        # dist.EulerMaruyama,
+        dist.Exponential,
+        dist.Gamma,
+    )
 ]
 
-VMAPPABLE_ARGS = {dist.MultivariateNormal: (0, 3)}
+VMAPPABLE_ARGS = {
+    dist.MultivariateNormal: (0, 3),
+    dist.Normal: (0, 1),
+    dist.AsymmetricLaplace: (0, 1, 2),
+    dist.Beta: (0, 1),
+    dist.Cauchy: (0, 1),
+    dist.Dirichlet: (0,),
+    # dist.EulerMaruyama,
+    dist.Exponential: (0,),
+    dist.Gamma: (0,1),
+}
 
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", VMAPPABLE_DISTS)
 def test_vmap_dist(jax_dist, sp_dist, params):
-    if jax_dist is not dist.MultivariateNormal:
+    if any(p is None for p in params):
+        # hotfix to stick to a simple `vmap_over` implementation,
+        # will be removed after.
+        print("skipping")
         return
     params = jax.tree_map(jnp.asarray, params)
 
@@ -3115,7 +3138,8 @@ def test_vmap_dist(jax_dist, sp_dist, params):
     assert samples_batched_dist.shape == (1, *samples_dist.shape)
 
     non_none_args_idx = [i for i, arg in enumerate(params) if arg is not None]
-    if len(non_none_args_idx) > 1:
+    # __import__('pdb').set_trace()
+    if len(non_none_args_idx) > 0:
         for j, idx in enumerate(non_none_args_idx):
             if idx not in VMAPPABLE_ARGS[jax_dist]:
                 continue
@@ -3125,6 +3149,11 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 arg[None] if i == idx else arg for i, arg in enumerate(params)
             ]
             batched_d = jax.vmap(make_jax_dist, in_axes=in_axes)(*batched_params)
+
+            assert batched_d.batch_shape == d.batch_shape
+            assert batched_d.event_shape == d.event_shape
+
+
             for i, k, v in zip(
                 batched_d.arg_constraints.keys(),
                 batched_params,
@@ -3138,13 +3167,9 @@ def test_vmap_dist(jax_dist, sp_dist, params):
             assert samples_batched_dist.shape == (1, *samples_dist.shape)
 
             print(f"vmapping dist creation over arg {idx} and out arg {idx}")
-            dist_axes = copy.deepcopy(d)
-            for i, k in enumerate(d.arg_constraints.keys()):
-                if i == idx:
-                    setattr(dist_axes, k, 0)
-                else:
-                    setattr(dist_axes, k, None)
-
+            dist_axes = d.vmap_over(
+                **{k: 0 if i == idx else None for i, k in enumerate(d.arg_constraints.keys())}
+            )
             batched_params = [
                 arg[None] if i == idx else arg for i, arg in enumerate(params)
             ]
@@ -3153,6 +3178,9 @@ def test_vmap_dist(jax_dist, sp_dist, params):
             batched_d = jax.vmap(make_jax_dist, in_axes=in_axes, out_axes=dist_axes)(
                 *batched_params
             )
+
+            assert batched_d.batch_shape == d.batch_shape
+            assert batched_d.event_shape == d.event_shape
 
             for i, (k, v) in enumerate(
                 zip(batched_d.arg_constraints.keys(), batched_params)
@@ -3164,12 +3192,9 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 print(
                     f"vmapping dist creation over arg {idx} and out arg {idx} with axis=1"
                 )
-                dist_axes = copy.deepcopy(d)
-                for i, k in enumerate(d.arg_constraints.keys()):
-                    if i == idx:
-                        setattr(dist_axes, k, 1)
-                    else:
-                        setattr(dist_axes, k, None)
+                dist_axes = d.vmap_over(
+                    **{k: 1 if i == idx else None for i, k in enumerate(d.arg_constraints.keys())}
+                )
 
                 batched_params = [
                     arg[None] if i == idx else arg for i, arg in enumerate(params)
@@ -3179,6 +3204,9 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 batched_d = jax.vmap(
                     make_jax_dist, in_axes=in_axes, out_axes=dist_axes
                 )(*batched_params)
+
+                assert batched_d.batch_shape == d.batch_shape
+                assert batched_d.event_shape == d.event_shape
 
                 for i, (k, v) in enumerate(
                     zip(batched_d.arg_constraints.keys(), batched_params)

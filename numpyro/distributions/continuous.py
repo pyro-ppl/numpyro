@@ -24,6 +24,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+import copy
 
 import numpy as np
 
@@ -93,6 +94,13 @@ class AsymmetricLaplace(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
+    def vmap_over(self, loc=None, scale=None, asymmetry=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        dist_axes.asymmetry = asymmetry
+        return dist_axes
+
     @lazy_property
     def left_scale(self):
         return self.scale * self.asymmetry
@@ -148,6 +156,23 @@ class AsymmetricLaplace(Distribution):
             self.loc - self.right_scale * jnp.log((1 + k**2) * (1 - value)),
         )
 
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class Beta(Distribution):
     arg_constraints = {
@@ -170,6 +195,17 @@ class Beta(Distribution):
         self._dirichlet = Dirichlet(
             jnp.stack([concentration1, concentration0], axis=-1)
         )
+
+    def vmap_over(self, concentration1, concentration0):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration1 = concentration1
+        dist_axes.concentration0 = concentration0
+
+        if concentration1 is not None or concentration0 is not None:
+            dist_axes._dirichlet = 0
+        else:
+            dist_axes._dirichlet = None
+        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -194,6 +230,28 @@ class Beta(Distribution):
     def icdf(self, q):
         return betaincinv(self.concentration1, self.concentration0, q)
 
+    def tree_flatten(self):
+        return (
+            (
+                *tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+                self._dirichlet
+            ),
+            (
+                (*tuple(self.arg_constraints.keys()), "_dirichlet"),
+                (self.batch_shape, self.event_shape)
+            )
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        param_names, (batch_shape, event_shape) = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(param_names, params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 class Cauchy(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -206,6 +264,13 @@ class Cauchy(Distribution):
         super(Cauchy, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
+
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        return dist_axes
+
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -235,6 +300,23 @@ class Cauchy(Distribution):
     def icdf(self, q):
         return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
 
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class Dirichlet(Distribution):
     arg_constraints = {
@@ -255,6 +337,12 @@ class Dirichlet(Distribution):
             event_shape=event_shape,
             validate_args=validate_args,
         )
+
+    def vmap_over(self, concentration=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration = concentration
+        return dist_axes
+
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -290,6 +378,23 @@ class Dirichlet(Distribution):
         batch_shape = concentration[:-1]
         event_shape = concentration[-1:]
         return batch_shape, event_shape
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class EulerMaruyama(Distribution):
@@ -430,6 +535,11 @@ class Exponential(Distribution):
             batch_shape=jnp.shape(rate), validate_args=validate_args
         )
 
+    def vmap_over(self, rate=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.rate = rate
+        return dist_axes
+
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         return (
@@ -454,6 +564,22 @@ class Exponential(Distribution):
     def icdf(self, q):
         return -jnp.log1p(-q) / self.rate
 
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 class Gamma(Distribution):
     arg_constraints = {
@@ -469,6 +595,12 @@ class Gamma(Distribution):
         super(Gamma, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
+
+    def vmap_over(self, concentration=None, rate=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration = concentration
+        dist_axes.rate = rate
+        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -499,6 +631,25 @@ class Gamma(Distribution):
 
     def icdf(self, q):
         return gammaincinv(self.concentration, q) / self.rate
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
+
 
 
 class Chi2(Gamma):
@@ -1451,6 +1602,7 @@ class MultivariateNormal(Distribution):
         "precision_matrix",
         "scale_tril",
     ]
+    args_in_pytree = ("loc", "scale_tril")
 
     def __init__(
         self,
@@ -1490,6 +1642,12 @@ class MultivariateNormal(Distribution):
             event_shape=event_shape,
             validate_args=validate_args,
         )
+
+    def vmap_over(self, loc=None, scale_tril=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale_tril = scale_tril
+        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -2106,6 +2264,7 @@ class Normal(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
+    args_in_pytree = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -2114,6 +2273,12 @@ class Normal(Distribution):
             batch_shape=batch_shape,
             validate_args=validate_args,
         )
+
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
