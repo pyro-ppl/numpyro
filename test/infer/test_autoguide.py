@@ -182,11 +182,12 @@ def test_logistic_regression(auto_class, Elbo):
     logits = jnp.sum(true_coefs * data, axis=-1)
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
-    def model(data, labels):
+    def model(data=None, labels=None):
         coefs = numpyro.sample("coefs", dist.Normal(0, 1).expand([dim]).to_event())
-        logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
-        with numpyro.plate("N", len(data)):
-            return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+        if data is not None:
+            logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
+            with numpyro.plate("N", len(data)):
+                return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.001)
     rng_key_init = random.PRNGKey(1)
@@ -562,12 +563,12 @@ def test_subsample_guide(auto_class):
 )
 def test_autoguide_deterministic(auto_class):
     def model(y=None):
-        n = y.size if y is not None else 1
+        n, len_y = (y.size, len(y)) if y is not None else (1, 1)
 
         mu = numpyro.sample("mu", dist.Normal(0, 5))
         sigma = numpyro.param("sigma", 1, constraint=constraints.positive)
 
-        with numpyro.plate("N", len(y)):
+        with numpyro.plate("N", len_y):
             y = numpyro.sample("y", dist.Normal(mu, sigma).expand((n,)), obs=y)
         numpyro.deterministic("z", (y - mu) / sigma)
 
@@ -988,6 +989,7 @@ def test_autosldais(
     assert dais_elbo > mf_elbo + 0.1
 
 
+<<<<<<< HEAD
 def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
     p = dist.Normal(0, 1)
     q = dist.Normal(0.2, 1.2)
@@ -1348,3 +1350,33 @@ def test_custom_local_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000)
     np.testing.assert_allclose(params["y_loc"], target_loc, rtol=0.1)
     np.testing.assert_allclose(params["y_scale"], 0.6, rtol=0.1)
 
+
+def test_autodelta_capture_deterministic_variables():
+    def model():
+        x = numpyro.sample("x", dist.Normal())
+        numpyro.deterministic("x2", x**2)
+
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+    guide_samples = guide.sample_posterior(
+        rng_key=random.PRNGKey(1), params=svi_result.params
+    )
+    assert "x2" in guide_samples
+
+
+@pytest.mark.parametrize("shape", [(), (1,), (2, 3)])
+@pytest.mark.parametrize("sample_shape", [(), (1,), (2, 3)])
+def test_autodelta_sample_posterior_with_sample_shape(shape, sample_shape):
+    def model():
+        x = numpyro.sample("x", dist.Normal().expand(shape))
+        numpyro.deterministic("x2", x**2)
+
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+    guide_samples = guide.sample_posterior(
+        rng_key=random.PRNGKey(1), params=svi_result.params, sample_shape=sample_shape
+    )
+    assert guide_samples["x"].shape == sample_shape + shape
+    assert guide_samples["x2"].shape == sample_shape + shape

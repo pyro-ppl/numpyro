@@ -181,6 +181,10 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
             if site["type"] == "sample":
                 with helpful_support_errors(site):
                     return biject_to(site["fn"].support)(params[site["name"]])
+            elif site["type"] == "param":
+                constraint = site["kwargs"].pop("constraint", constraints.real)
+                with helpful_support_errors(site):
+                    return biject_to(constraint)(params[site["name"]])
             else:
                 return params[site["name"]]
 
@@ -191,6 +195,42 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
         for k, v in model_trace.items()
         if (k in params) or (return_deterministic and (v["type"] == "deterministic"))
     }
+
+
+def get_transforms(model, model_args, model_kwargs, params):
+    """
+    (EXPERIMENTAL INTERFACE) Retrieve (inverse) transforms via biject_to()
+    given a NumPyro model. This function supports 'param' sites.
+    NB: Parameter values are only used to retrieve the model trace.
+
+    :param model: a callable containing NumPyro primitives.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :param dict params: dictionary of values keyed by site names.
+    :return: `dict` of transformation keyed by site names.
+    """
+    substituted_model = substitute(model, data=params)
+    transforms, _, _, _ = _get_model_transforms(
+        substituted_model, model_args, model_kwargs
+    )
+    return transforms
+
+
+def unconstrain_fn(model, model_args, model_kwargs, params):
+    """
+    (EXPERIMENTAL INTERFACE) Given a NumPyro model and a dict of parameters,
+    this function applies the right transformation to convert parameter values
+    from constrained space to unconstrained space.
+
+    :param model: a callable containing NumPyro primitives.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :param dict params: dictionary of constrained values keyed by site
+        names.
+    :return: `dict` of transformation keyed by site names.
+    """
+    transforms = get_transforms(model, model_args, model_kwargs, params)
+    return transform_fn(transforms, params, invert=True)
 
 
 def _unconstrain_reparam(params, site):
@@ -449,6 +489,10 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                 for arg in args:
                     if not isinstance(getattr(support, arg), (int, float)):
                         replay_model = True
+        elif v["type"] == "param":
+            constraint = v["kwargs"].pop("constraint", constraints.real)
+            with helpful_support_errors(v, raise_warnings=True):
+                inv_transforms[k] = biject_to(constraint)
         elif v["type"] == "deterministic":
             replay_model = True
     return inv_transforms, replay_model, has_enumerate_support, model_trace
