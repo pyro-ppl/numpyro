@@ -35,19 +35,19 @@ def _numel(shape):
 
 
 class SteinVI:
-    """Stein variational inference for stein mixtures.
+    """Variational inference with stein mixtures.
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
-    :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param kernel_fn: Function that produces a logarithm of the statistical kernel to use with Stein inference
     :param num_stein_particles: number of particles for Stein inference.
-        (More particles capture more of the posterior distribution)
+        (More particles give more mixture components and therefore likely capture more of the posterior distribution)
+    :param num_elbo_particles: number of particles for to approximate the attractive force gradient.
+        (More particles give better gradient approximations)
     :param loss_temperature: scaling of loss factor
     :param repulsion_temperature: scaling of repulsive forces (Non-linear Stein)
-    :param enum: whether to apply automatic marginalization of discrete variables
     :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
                                    without Stein (E.g. parameters for large normal networks or other transformation)
     :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
@@ -65,17 +65,13 @@ class SteinVI:
         loss_temperature: float = 1.0,
         repulsion_temperature: float = 1.0,
         classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-        enum=True,
         **static_kwargs,
     ):
         self._inference_model = model
         self.model = model
         self.guide = guide
         self.optim = optim
-        self.classic_loss = Trace_ELBO(
-            num_particles=num_elbo_particles
-        )  # TODO: handle enum
-        self.stein_loss = SteinLoss(elbo_num_particles=num_elbo_particles)
+        self.stein_loss = SteinLoss(elbo_num_particles=num_elbo_particles)  # TODO: @OlaRonning handle enum
         self.kernel_fn = kernel_fn
         self.static_kwargs = static_kwargs
         self.num_particles = num_stein_particles
