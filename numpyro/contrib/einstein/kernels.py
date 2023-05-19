@@ -12,22 +12,9 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-from numpyro.contrib.einstein.util import median_bandwidth, sqrth_and_inv_sqrth
-import numpyro.distributions as dist
+from numpyro.contrib.einstein.util import median_bandwidth
 from numpyro.distributions import biject_to
 from numpyro.infer.autoguide import AutoNormal
-
-
-class PrecondMatrix(ABC):
-    @abstractmethod
-    def compute(self, particles: jnp.ndarray, loss_fn: Callable[[jnp.ndarray], float]):
-        """
-        Computes a preconditioning matrix for a given set of particles and a loss function
-
-        :param particles: The Stein particles to compute the preconditioning matrix from
-        :param loss_fn: Loss function given particles
-        """
-        raise NotImplementedError
 
 
 class SteinKernel(ABC):
@@ -320,89 +307,6 @@ class MixtureKernel(SteinKernel):
         for kf in self.kernel_fns:
             rng_key, krng_key = random.split(rng_key)
             kf.init(krng_key, particles_shape)
-
-
-class HessianPrecondMatrix(PrecondMatrix):
-    """
-    Calculates the constant precondition matrix based on the negative Hessian of the loss from [1].
-
-    **References:**
-
-    1. *Stein Variational Gradient Descent with Matrix-Valued Kernels* by Wang, Tang, Bajaj and Liu
-    """
-
-    def compute(self, particles, loss_fn):
-        hessian = -jax.vmap(jax.hessian(loss_fn))(particles)
-        return hessian
-
-
-class PrecondMatrixKernel(SteinKernel):
-    """
-    Calculates the const preconditioned kernel
-    :math:`k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
-    or anchor point preconditioned kernel
-    :math:`k(x,y) = \\sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
-    both from [1].
-
-    **References:**
-
-    1. "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
-
-    :param precond_matrix_fn: The constant preconditioning matrix
-    :param inner_kernel_fn: The inner kernel function
-    :param precond_mode: How to use the precondition matrix, either constant ('const')
-                         or as mixture with anchor points ('anchor_points')
-    """
-
-    def __init__(
-        self,
-        precond_matrix_fn: PrecondMatrix,
-        inner_kernel_fn: SteinKernel,
-        precond_mode="anchor_points",
-    ):
-        assert inner_kernel_fn.mode == "matrix"
-        assert precond_mode == "const" or precond_mode == "anchor_points"
-        self.precond_matrix_fn = precond_matrix_fn
-        self.inner_kernel_fn = inner_kernel_fn
-        self.precond_mode = precond_mode
-
-    @property
-    def mode(self):
-        return "matrix"
-
-    def compute(self, particles, particle_info, loss_fn):
-        qs = self.precond_matrix_fn.compute(particles, loss_fn)
-        if self.precond_mode == "const":
-            qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
-        qs_inv = jnp.linalg.inv(qs)
-        qs_sqrt, qs_inv, qs_inv_sqrt = sqrth_and_inv_sqrth(qs)
-        inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
-
-        def kernel(x, y):
-            if self.precond_mode == "const":
-                wxs = jnp.array([1.0])
-                wys = jnp.array([1.0])
-            else:
-                wxs = jax.nn.softmax(
-                    jax.vmap(
-                        lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(x)
-                    )(particles, qs_inv)
-                )
-                wys = jax.nn.softmax(
-                    jax.vmap(
-                        lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(y)
-                    )(particles, qs_inv)
-                )
-            return jnp.sum(
-                jax.vmap(
-                    lambda qs, qis, wx, wy: wx
-                    * wy
-                    * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose())
-                )(qs_sqrt, qs_inv_sqrt, wxs, wys),
-                axis=0,
-            )
-
-        return kernel
 
 
 class GraphicalKernel(SteinKernel):

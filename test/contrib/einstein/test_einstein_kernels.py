@@ -13,15 +13,12 @@ from jax import numpy as jnp, random
 from numpyro.contrib.einstein import SteinVI
 from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
-    HessianPrecondMatrix,
     IMQKernel,
     LinearKernel,
     MixtureKernel,
-    PrecondMatrixKernel,
     RandomFeatureKernel,
     RBFKernel,
 )
-from numpyro.infer import Trace_ELBO
 from numpyro.optim import Adam
 
 T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
@@ -66,18 +63,6 @@ TEST_CASES = [
         lambda x: x,
         {"matrix": np.array([[0.040711474, 0.0], [0.0, 0.040711474]])},
     ),
-    T(
-        lambda mode: PrecondMatrixKernel(
-            HessianPrecondMatrix(), RBFKernel(mode="matrix"), precond_mode="const"
-        ),
-        lambda d: {},
-        lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
-        {
-            "matrix": np.array(
-                [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
-            )
-        },
-    ),  # -hess = [[.02x_0^2 1] [1 .5x_1^2]]
 ]
 
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]
@@ -118,7 +103,7 @@ def test_apply_kernel(
     kernel_fn.init(random.PRNGKey(0), particles.shape)
     kernel_fn = kernel_fn.compute(particles, particle_info(d), loss_fn)
     v = np.ones_like(kval[mode])
-    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), kernel(mode))
+    stein = SteinVI(id, id, Adam(1.0), kernel(mode))
     value = stein._apply_kernel(kernel_fn, *tparticles, v)
     kval_ = copy(kval)
     if mode == "matrix":
