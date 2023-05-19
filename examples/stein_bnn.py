@@ -35,9 +35,6 @@ from numpyro.optim import Adagrad
 DataState = namedtuple("data", ["xtr", "xte", "ytr", "yte"])
 
 
-# TODO: add PPK (again + model selection)
-
-
 def load_data() -> DataState:
     _, fetch = load_dataset(BOSTON_HOUSING, shuffle=False)
     x, y = fetch()
