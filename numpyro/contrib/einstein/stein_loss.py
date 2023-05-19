@@ -1,11 +1,11 @@
-import jax.numpy as jnp
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from jax import random, vmap
 
 from numpyro.handlers import replay, seed
 from numpyro.infer import ELBO
-from numpyro.infer.util import (
-    log_density,
-)
+from numpyro.infer.util import log_density
 from numpyro.util import _validate_model, check_model_guide_match
 
 
@@ -37,16 +37,18 @@ class SteinLoss(ELBO):
     def __init__(self, elbo_num_particles=1):
         self.num_elbo_particles = elbo_num_particles
 
-    def loss(
-            self, rng_key, param_map, model, guide, *args, **kwargs
-    ):
-        log_model_densities, log_guide_densities, mutable_state = self.inner_loss_with_mutable_state(rng_key, param_map,
-                                                                                                     model, guide,
-                                                                                                     *args, **kwargs)
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        (
+            log_model_densities,
+            log_guide_densities,
+            mutable_state,
+        ) = self.inner_loss_with_mutable_state(
+            rng_key, param_map, model, guide, *args, **kwargs
+        )
         return log_model_densities, log_guide_densities
 
     def inner_loss_with_mutable_state(
-            self, rng_key, param_map, model, guide, *args, **kwargs
+        self, rng_key, param_map, model, guide, *args, **kwargs
     ):
         def single_particle_elbo(rng_key):
             params = param_map.copy()
@@ -89,9 +91,13 @@ class SteinLoss(ELBO):
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
         if self.num_elbo_particles == 1:
-            model_log_density, guide_log_density, mutable_state = single_particle_elbo(rng_key)
+            model_log_density, guide_log_density, mutable_state = single_particle_elbo(
+                rng_key
+            )
             return model_log_density, guide_log_density, mutable_state
         else:
             rng_keys = random.split(rng_key, self.num_elbo_particles)
-            model_log_densities, guide_log_densities, mutable_state = vmap(single_particle_elbo)(rng_keys)
+            model_log_densities, guide_log_densities, mutable_state = vmap(
+                single_particle_elbo
+            )(rng_keys)
             return model_log_densities, guide_log_densities, mutable_state

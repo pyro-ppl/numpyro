@@ -479,10 +479,10 @@ class PPK(SteinKernel):
         assert isinstance(guide, AutoNormal), "PPK only implemented for AutoNormal"
 
     def compute(
-            self,
-            particles: jnp.ndarray,
-            particle_info: Dict[str, Tuple[int, int]],
-            loss_fn: Callable[[jnp.ndarray], float],
+        self,
+        particles: jnp.ndarray,
+        particle_info: Dict[str, Tuple[int, int]],
+        loss_fn: Callable[[jnp.ndarray], float],
     ):
         loc_idx = jnp.concatenate(
             [
@@ -509,18 +509,18 @@ class PPK(SteinKernel):
             y_scale = biject(y[scale_idx])
             y_quad = (y_loc / y_scale) ** 2
 
-            cross_loc = x_loc * x_scale ** -2 + y_loc * y_scale ** -2
-            cross_var = 1 / (y_scale ** -2 + x_scale ** -2)
-            cross_quad = cross_loc ** 2 * cross_var
+            cross_loc = x_loc * x_scale**-2 + y_loc * y_scale**-2
+            cross_var = 1 / (y_scale**-2 + x_scale**-2)
+            cross_quad = cross_loc**2 * cross_var
 
             quad = jnp.exp(-self.scale / 2 * (x_quad + y_quad - cross_quad))
 
             norm = (
-                    (2 * jnp.pi) ** ((1 - 2 * self.scale) * 1 / 2)
-                    * self.scale ** (-1 / 2)
-                    * cross_var ** (1 / 2)
-                    * x_scale ** (-self.scale)
-                    * y_scale ** (-self.scale)
+                (2 * jnp.pi) ** ((1 - 2 * self.scale) * 1 / 2)
+                * self.scale ** (-1 / 2)
+                * cross_var ** (1 / 2)
+                * x_scale ** (-self.scale)
+                * y_scale ** (-self.scale)
             )
 
             return jnp.linalg.norm(norm * quad)

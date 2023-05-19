@@ -9,32 +9,32 @@ from the UCI regression benchmarks.
 """
 
 import argparse
-import datetime
 from collections import namedtuple
+import datetime
 from functools import partial
 from time import time
 
-import jax.numpy as jnp
+from matplotlib.collections import LineCollection
 import matplotlib.pyplot as plt
 import numpy as np
-from jax import random, vmap
-from matplotlib.collections import LineCollection
 from sklearn.model_selection import train_test_split
+
+from jax import random, vmap
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import deterministic
-from numpyro.contrib.einstein import RBFKernel, SteinVI, IMQKernel
-from numpyro.contrib.einstein.kernels import PPK
+from numpyro.contrib.einstein import RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
 from numpyro.infer import Predictive, init_to_uniform
-from numpyro.infer.autoguide import AutoNormal, AutoDelta
+from numpyro.infer.autoguide import AutoDelta
 from numpyro.optim import Adagrad
 
 DataState = namedtuple("data", ["xtr", "xte", "ytr", "yte"])
 
 
-#TODO: add PPK (again + model selection)
+# TODO: add PPK (again + model selection)
 
 
 def load_data() -> DataState:
@@ -98,10 +98,10 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
     # precision prior on observations
     prec_obs = numpyro.sample("prec_obs", Gamma(1.0, 0.1))
     with numpyro.plate(
-            "data",
-            x.shape[0],
-            subsample_size=subsample_size,
-            dim=-1,
+        "data",
+        x.shape[0],
+        subsample_size=subsample_size,
+        dim=-1,
     ):
         batch_x = numpyro.subsample(x, event_dim=1)
         if y is not None:
@@ -109,7 +109,7 @@ def model(x, y=None, hidden_dim=50, subsample_size=100):
         else:
             batch_y = y
 
-        loc_y = deterministic('y_pred', jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2)
+        loc_y = deterministic("y_pred", jnp.maximum(batch_x @ w1 + b1, 0) @ w2 + b2)
 
         numpyro.sample(
             "y",
@@ -130,16 +130,16 @@ def main(args):
 
     rng_key, inf_key = random.split(inf_key)
 
-    guide = AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=.01))
+    guide = AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=0.01))
 
     stein = SteinVI(
         model,
         guide,
         Adagrad(0.05),
-        RBFKernel(), # PPK(guide=guide, scale=.1),
+        RBFKernel(),  # PPK(guide=guide, scale=.1),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
-        num_elbo_particles=args.num_elbo_particles
+        num_elbo_particles=args.num_elbo_particles,
     )
     start = time()
 
@@ -169,7 +169,9 @@ def main(args):
         pred_key, xte, subsample_size=xte.shape[0], hidden_dim=args.hidden_dim
     )["y_pred"]
 
-    assigns = random.randint(pred_key, (200,), minval=0, maxval=args.num_stein_particles)
+    assigns = random.randint(
+        pred_key, (200,), minval=0, maxval=args.num_stein_particles
+    )
 
     y_pred = vmap(lambda a, p: p[a])(assigns, preds) * ytr_std + ytr_mean
     rmse = jnp.sqrt(jnp.mean((y_pred.mean(0) - data.yte) ** 2))
@@ -207,7 +209,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
     parser.add_argument("--max-iter", type=int, default=1000)
-    parser.add_argument("--repulsion", type=float, default=.1)
+    parser.add_argument("--repulsion", type=float, default=0.1)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-elbo-particles", type=int, default=1)
     parser.add_argument("--num-stein-particles", type=int, default=5)
