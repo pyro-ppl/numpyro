@@ -65,7 +65,7 @@ EXAMPLES = [
     ),
     "sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10",
     "ssbvm_mixture.py --num-samples 10 --num-warmup 10",
-    "stein_bnn.py --max-iter 10 --subsample-size 10 --num-particles 5",
+    "stein_bnn.py --max-iter 10 --subsample-size 10",
     "stein_dmm.py --max-iter 5 --subsample-size 77 --gru-dim 10",
     "stochastic_volatility.py --num-samples 100 --num-warmup 100",
     "toy_mixture_model_discrete_enumeration.py  --num-steps=1",

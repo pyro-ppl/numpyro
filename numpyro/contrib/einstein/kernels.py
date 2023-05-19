@@ -375,7 +375,7 @@ class GraphicalKernel(SteinKernel):
         return kernel
 
 
-class PPK(SteinKernel):
+class ProbabilityProductKernel(SteinKernel):
     def __init__(self, guide, scale=1.0):
         self._mode = "norm"
         self.guide = guide

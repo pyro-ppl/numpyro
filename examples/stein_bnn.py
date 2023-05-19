@@ -25,10 +25,11 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import deterministic
 from numpyro.contrib.einstein import RBFKernel, SteinVI
+from numpyro.contrib.einstein.kernels import ProbabilityProductKernel
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
 from numpyro.infer import Predictive, init_to_uniform
-from numpyro.infer.autoguide import AutoDelta
+from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adagrad
 
 DataState = namedtuple("data", ["xtr", "xte", "ytr", "yte"])
@@ -130,13 +131,13 @@ def main(args):
 
     rng_key, inf_key = random.split(inf_key)
 
-    guide = AutoDelta(model, init_loc_fn=partial(init_to_uniform, radius=0.01))
+    guide = AutoNormal(model, init_loc_fn=partial(init_to_uniform, radius=0.1))
 
     stein = SteinVI(
         model,
         guide,
         Adagrad(0.05),
-        RBFKernel(),  # PPK(guide=guide, scale=.1),
+        ProbabilityProductKernel(guide=guide, scale=0.1),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
         num_elbo_particles=args.num_elbo_particles,
@@ -208,8 +209,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
-    parser.add_argument("--max-iter", type=int, default=1000)
-    parser.add_argument("--repulsion", type=float, default=0.1)
+    parser.add_argument("--max-iter", type=int, default=300)
+    parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-elbo-particles", type=int, default=1)
     parser.add_argument("--num-stein-particles", type=int, default=5)
