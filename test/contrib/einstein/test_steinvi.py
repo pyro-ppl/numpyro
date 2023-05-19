@@ -14,11 +14,7 @@ from jax import random
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein import GraphicalKernel, RBFKernel, SteinVI, kernels
-from numpyro.contrib.einstein.kernels import (
-    HessianPrecondMatrix,
-    MixtureKernel,
-    PrecondMatrixKernel,
-)
+from numpyro.contrib.einstein.kernels import MixtureKernel
 import numpyro.distributions as dist
 from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
@@ -55,13 +51,6 @@ TKERNEL = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "
 class WrappedGraphicalKernel(GraphicalKernel):
     def __init__(self, mode):
         super().__init__(mode=mode, local_kernel_fns={"p1": RBFKernel("norm")})
-
-
-class WrappedPrecondMatrixKernel(PrecondMatrixKernel):
-    def __init__(self, mode):
-        super().__init__(
-            HessianPrecondMatrix(), RBFKernel(mode=mode), precond_mode="const"
-        )
 
 
 class WrappedMixtureKernel(MixtureKernel):
