@@ -21,7 +21,6 @@ from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution, Normal
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import IdentityTransform
-from numpyro.infer import Trace_ELBO
 from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.util import fori_collect, ravel_pytree
@@ -71,7 +70,9 @@ class SteinVI:
         self.model = model
         self.guide = guide
         self.optim = optim
-        self.stein_loss = SteinLoss(elbo_num_particles=num_elbo_particles)  # TODO: @OlaRonning handle enum
+        self.stein_loss = SteinLoss(
+            elbo_num_particles=num_elbo_particles
+        )  # TODO: @OlaRonning handle enum
         self.kernel_fn = kernel_fn
         self.static_kwargs = static_kwargs
         self.num_particles = num_stein_particles
