@@ -297,9 +297,9 @@ def main(args):
         model,
         guide,
         optax_to_numpyro(chain(adam(1e-2))),
-        Trace_ELBO(),
         RBFKernel(),
-        num_particles=args.num_particles,
+        num_elbo_particles=args.num_elbo_particles,
+        num_stein_particles=args.num_stein_particles,
     )
 
     seqs, rev_seqs, lengths = load_data()
@@ -332,7 +332,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-iter", type=int, default=1000)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
-    parser.add_argument("--num-particles", type=int, default=5)
+    parser.add_argument("--num-stein-particles", type=int, default=5)
+    parser.add_argument("--num-elbo-particles", type=int, default=5)
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--gru-dim", type=int, default=150)
     parser.add_argument("--rng-key", type=int, default=142)

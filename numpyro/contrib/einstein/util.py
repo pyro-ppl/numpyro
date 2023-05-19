@@ -48,6 +48,8 @@ def all_pairs_eucl_dist(a, b):
 
 
 def median_bandwidth(particles, factor_fn):
+    if particles.shape[0] == 1:
+        return 1.  # Median produces NaN for single particle
     dists = all_pairs_eucl_dist(particles, particles)
     bandwidth = (
         jnp.median(dists) ** 2 * factor_fn(particles.shape[0])

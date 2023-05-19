@@ -196,7 +196,7 @@ class SteinVI:
         # 2. Calculate loss and gradients for each parameter
         def scaled_loss(rng_key, classic_params, stein_params):
             params = {**classic_params, **stein_params}
-            loss_val = self.classic_loss.loss(
+            model_loss, guide_loss = self.stein_loss.loss(
                 rng_key,
                 params,
                 handlers.scale(self._inference_model, self.loss_temperature),
@@ -204,7 +204,8 @@ class SteinVI:
                 *args,
                 **kwargs,
             )
-            return -loss_val
+            elbo = model_loss - guide_loss
+            return -jnp.mean(elbo)
 
         def kernel_particles_loss_fn(particles):
             def pointwise_loss(rng_key, classic_params, stein_params):
@@ -229,9 +230,12 @@ class SteinVI:
             guide_loss = jax.nn.logsumexp(log_guide_densities, axis=0)
 
             losses, grads = jax.vmap(jax.value_and_grad(lambda ps: jnp.mean(pointwise_loss(rng_key,
-                                                                                  self.constrain_fn(classic_uparams),
-                                                                                  self.constrain_fn(unravel_pytree(ps)),
-                                                                                  )[0] - guide_loss)))(particles)
+                                                                                           self.constrain_fn(
+                                                                                               classic_uparams),
+                                                                                           self.constrain_fn(
+                                                                                               unravel_pytree(ps)),
+                                                                                           )[0] - guide_loss)))(
+                particles)
 
             return losses, grads
 
@@ -458,7 +462,7 @@ class SteinVI:
             progbar=progress_bar,
             transform=collect_fn,
             return_last_val=True,
-            diagnostics_fn=lambda state: f"norm Stein force: {state[1]:.3f}"if progress_bar else None
+            diagnostics_fn=lambda state: f"norm Stein force: {state[1]:.3f}" if progress_bar else None
         )
         state = last_res[0]
         return SteinVIRunResult(self.get_params(state), state, auxiliaries)

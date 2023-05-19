@@ -1008,11 +1008,13 @@ class Predictive(object):
         elif self.batch_ndims == 1:  # batch over parameters
             batch_size = jnp.shape(tree_flatten(self.params)[0][0])[0]
             rng_keys = random.split(rng_key, batch_size)
+            # TODO: better way to broadcast the model across particles?
+            zero_batch = {name: param for name, param in self.params.items() if param.shape[0] != batch_size}
             return jax.vmap(
-                partial(self._call_with_params, args=args, kwargs=kwargs),
+                lambda key, param: self._call_with_params(key, {**param, **zero_batch}, args=args, kwargs=kwargs),
                 in_axes=0,
                 out_axes=1,
-            )(rng_keys, self.params)
+            )(rng_keys, {name: param for name, param in self.params.items() if param.shape[0] == batch_size})
         else:
             raise NotImplementedError
 
