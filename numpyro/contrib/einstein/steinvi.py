@@ -199,9 +199,9 @@ class SteinVI:
         def kernel_particles_loss_fn(rng_key, particles):
             particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
             grads = vmap(
-                lambda i, key: grad(
+                lambda i: grad(
                     lambda particle: self.stein_loss.single_particle_loss(
-                        rng_key=key,
+                        rng_key=particle_keys[i],
                         model=handlers.scale(
                             self._inference_model, self.loss_temperature
                         ),
@@ -215,7 +215,7 @@ class SteinVI:
                         param_map=self.constrain_fn(classic_uparams),
                     )
                 )(particles[i])
-            )(jnp.arange(self.stein_loss.stein_num_particles), particle_keys)
+            )(jnp.arange(self.stein_loss.stein_num_particles))
 
             return grads
 
@@ -235,7 +235,7 @@ class SteinVI:
         particle_ljp_grads = kernel_particles_loss_fn(attractive_key, ctstein_particles)
 
         classic_param_grads = grad(
-            lambda cps: self.stein_loss.loss(
+            lambda cps: -self.stein_loss.loss(
                 classic_key,
                 self.constrain_fn(cps),
                 unravel_pytree_batched(ctstein_particles),
