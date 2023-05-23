@@ -34,7 +34,6 @@ from numpyro.optim import Adagrad
 
 DataState = namedtuple("data", ["xtr", "xte", "ytr", "yte"])
 
-
 def load_data() -> DataState:
     _, fetch = load_dataset(BOSTON_HOUSING, shuffle=False)
     x, y = fetch()
@@ -207,7 +206,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
     parser.add_argument("--max-iter", type=int, default=1000)
-    parser.add_argument("--repulsion", type=float, default=.1)
+    parser.add_argument("--repulsion", type=float, default=0.1)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-elbo-particles", type=int, default=1)
     parser.add_argument("--num-stein-particles", type=int, default=5)

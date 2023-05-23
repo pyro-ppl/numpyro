@@ -15,17 +15,17 @@ class SteinLoss:
         self.stein_num_particles = stein_num_particles
 
     def single_particle_loss(
-            self,
-            rng_key,
-            model,
-            guide,
-            selected_particle,
-            unravel_pytree,
-            flat_particles,
-            select_index,
-            model_args,
-            model_kwargs,
-            param_map,
+        self,
+        rng_key,
+        model,
+        guide,
+        selected_particle,
+        unravel_pytree,
+        flat_particles,
+        select_index,
+        model_args,
+        model_kwargs,
+        param_map,
     ):
         guide_key, model_key = random.split(rng_key, 2)
 
@@ -33,31 +33,31 @@ class SteinLoss:
         guide_keys = random.split(guide_key, self.stein_num_particles)
 
         seeded_chosen = seed(guide, guide_keys[select_index])
-        log_chosen_density, chosen_trace = log_density(seeded_chosen, model_args, model_kwargs,
-                                                       {**param_map, **selected_particle})
+        log_chosen_density, chosen_trace = log_density(
+            seeded_chosen, model_args, model_kwargs, {**param_map, **selected_particle}
+        )
 
         # 3. Score mixture guide
-        log_components_densities, component_traces = [], []
-        for i in jnp.arange(self.stein_num_particles):
-            log_components_density, component_trace = log_density(
+        def log_component_density(i):
+            log_cdensity, component_trace = log_density(
                 replay(seed(guide, guide_key[i]), chosen_trace),
                 model_args,
                 model_kwargs,
                 {**param_map, **unravel_pytree(flat_particles[i])},
             )
-            log_components_densities.append(log_components_density)
             # Validate
-            check_model_guide_match(
-                component_trace, chosen_trace
-            )
+            check_model_guide_match(component_trace, chosen_trace)
+            return log_cdensity
 
-        log_guide_density = logsumexp(jnp.array(log_components_densities))
+        log_guide_density = logsumexp(vmap(log_component_density)(jnp.arange(self.stein_num_particles)))
 
         # 4. Score model
         seeded_model = seed(model, model_key)
         log_model_density, model_trace = log_density(
-            replay(seeded_model, chosen_trace), model_args, model_kwargs,
-            {**param_map, **selected_particle}
+            replay(seeded_model, chosen_trace),
+            model_args,
+            model_kwargs,
+            {**param_map, **selected_particle},
         )
 
         # Validation

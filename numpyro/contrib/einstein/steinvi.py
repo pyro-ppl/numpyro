@@ -54,18 +54,18 @@ class SteinVI:
     """
 
     def __init__(
-            self,
-            model,
-            guide,
-            optim,
-            kernel_fn: SteinKernel,
-            num_stein_particles: int = 10,
-            num_elbo_particles: int = 10,
-            loss_temperature: float = 1.0,
-            repulsion_temperature: float = 1.0,
-            classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-            enum=True,
-            **static_kwargs,
+        self,
+        model,
+        guide,
+        optim,
+        kernel_fn: SteinKernel,
+        num_stein_particles: int = 10,
+        num_elbo_particles: int = 10,
+        loss_temperature: float = 1.0,
+        repulsion_temperature: float = 1.0,
+        classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
+        enum=True,
+        **static_kwargs,
     ):
         self._inference_model = model
         self.model = model
@@ -213,7 +213,8 @@ class SteinVI:
                         model_args=args,
                         model_kwargs=kwargs,
                         param_map=self.constrain_fn(classic_uparams),
-                    ))(particles[i])
+                    )
+                )(particles[i])
             )(jnp.arange(self.stein_loss.stein_num_particles), particle_keys)
 
             return grads
@@ -227,19 +228,23 @@ class SteinVI:
             ctparticle, _ = ravel_pytree(ctparams)
             return tparticle, ctparticle
 
-        tstein_particles, ctstein_particles = jax.vmap(particle_transform_fn)(stein_particles)
+        tstein_particles, ctstein_particles = jax.vmap(particle_transform_fn)(
+            stein_particles
+        )
 
         particle_ljp_grads = kernel_particles_loss_fn(attractive_key, ctstein_particles)
 
-        classic_param_grads = grad(lambda cps:
-                                   self.stein_loss.loss(classic_key,
-                                                        self.constrain_fn(cps),
-                                                        unravel_pytree_batched(ctstein_particles),
-                                                        handlers.scale(self._inference_model,
-                                                                       self.loss_temperature),
-                                                        self.guide,
-                                                        *args,
-                                                        **kwargs))(classic_uparams)
+        classic_param_grads = grad(
+            lambda cps: self.stein_loss.loss(
+                classic_key,
+                self.constrain_fn(cps),
+                unravel_pytree_batched(ctstein_particles),
+                handlers.scale(self._inference_model, self.loss_temperature),
+                self.guide,
+                *args,
+                **kwargs,
+            )
+        )(classic_uparams)
 
         # 3. Calculate kernel on monolithic particle
         kernel = self.kernel_fn.compute(  # TODO: Fix to use Stein loss
