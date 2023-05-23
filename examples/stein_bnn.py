@@ -206,8 +206,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
-    parser.add_argument("--max-iter", type=int, default=300)
-    parser.add_argument("--repulsion", type=float, default=1.0)
+    parser.add_argument("--max-iter", type=int, default=1000)
+    parser.add_argument("--repulsion", type=float, default=.1)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-elbo-particles", type=int, default=1)
     parser.add_argument("--num-stein-particles", type=int, default=5)

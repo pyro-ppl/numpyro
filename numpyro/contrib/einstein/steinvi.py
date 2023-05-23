@@ -8,9 +8,9 @@ from itertools import chain
 import operator
 from typing import Callable
 
-import jax
-import jax.numpy as jnp
+import jax  # TODO: fix imports
 import jax.random
+from jax import random, grad, vmap, numpy as jnp
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -54,25 +54,27 @@ class SteinVI:
     """
 
     def __init__(
-        self,
-        model,
-        guide,
-        optim,
-        kernel_fn: SteinKernel,
-        num_stein_particles: int = 10,
-        num_elbo_particles: int = 10,
-        loss_temperature: float = 1.0,
-        repulsion_temperature: float = 1.0,
-        classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-        **static_kwargs,
+            self,
+            model,
+            guide,
+            optim,
+            kernel_fn: SteinKernel,
+            num_stein_particles: int = 10,
+            num_elbo_particles: int = 10,
+            loss_temperature: float = 1.0,
+            repulsion_temperature: float = 1.0,
+            classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
+            enum=True,
+            **static_kwargs,
     ):
         self._inference_model = model
         self.model = model
         self.guide = guide
         self.optim = optim
-        self.stein_loss = SteinLoss(
-            elbo_num_particles=num_elbo_particles
-        )  # TODO: @OlaRonning handle enum
+        self.stein_loss = SteinLoss(  # TODO: @OlaRonning handle enum
+            elbo_num_particles=num_elbo_particles,
+            stein_num_particles=num_stein_particles,
+        )
         self.kernel_fn = kernel_fn
         self.static_kwargs = static_kwargs
         self.num_particles = num_stein_particles
@@ -94,15 +96,15 @@ class SteinVI:
 
     def _kernel_grad(self, kernel, x, y):
         if self.kernel_fn.mode == "norm":
-            return jax.grad(lambda x: kernel(x, y))(x)
+            return grad(lambda x: kernel(x, y))(x)
         elif self.kernel_fn.mode == "vector":
-            return jax.vmap(lambda i: jax.grad(lambda x: kernel(x, y)[i])(x)[i])(
+            return vmap(lambda i: grad(lambda x: kernel(x, y)[i])(x)[i])(
                 jnp.arange(x.shape[0])
             )
         else:
-            return jax.vmap(
+            return vmap(
                 lambda a: jnp.sum(
-                    jax.vmap(lambda b: jax.grad(lambda x: kernel(x, y)[a, b])(x)[b])(
+                    vmap(lambda b: grad(lambda x: kernel(x, y)[a, b])(x)[b])(
                         jnp.arange(x.shape[0])
                     )
                 )
@@ -191,79 +193,53 @@ class SteinVI:
         particle_info, _ = self._calc_particle_info(
             stein_uparams, stein_particles.shape[0]
         )
+        attractive_key, classic_key = random.split(rng_key)
 
-        # 2. Calculate loss and gradients for each parameter
-        def scaled_loss(rng_key, classic_params, stein_params):
-            params = {**classic_params, **stein_params}
-            model_loss, guide_loss = self.stein_loss.loss(
-                rng_key,
-                params,
-                handlers.scale(self._inference_model, self.loss_temperature),
-                self.guide,
-                *args,
-                **kwargs,
-            )
-            elbo = model_loss - guide_loss
-            return -jnp.mean(elbo)
+        # 2. Calculate gradients for each particle
+        def kernel_particles_loss_fn(rng_key, particles):
+            particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
+            grads = vmap(
+                lambda i, key: grad(
+                    lambda particle: self.stein_loss.single_particle_loss(
+                        rng_key=key,
+                        model=handlers.scale(
+                            self._inference_model, self.loss_temperature
+                        ),
+                        guide=self.guide,
+                        selected_particle=unravel_pytree(particle),
+                        unravel_pytree=unravel_pytree,
+                        flat_particles=particles,
+                        select_index=i,
+                        model_args=args,
+                        model_kwargs=kwargs,
+                        param_map=self.constrain_fn(classic_uparams),
+                    ))(particles[i])
+            )(jnp.arange(self.stein_loss.stein_num_particles), particle_keys)
 
-        def kernel_particles_loss_fn(particles):
-            def pointwise_loss(rng_key, classic_params, stein_params):
-                params = {**classic_params, **stein_params}
-                return self.stein_loss.loss(
-                    rng_key,
-                    params,
-                    handlers.scale(self._inference_model, self.loss_temperature),
-                    self.guide,
-                    *args,
-                    **kwargs,
-                )
-                # return log_model_density - log_guide_density
-
-            _, log_guide_densities = jax.vmap(
-                lambda ps: pointwise_loss(
-                    rng_key,
-                    self.constrain_fn(classic_uparams),
-                    self.constrain_fn(unravel_pytree(ps)),
-                )
-            )(particles)
-            guide_loss = jax.nn.logsumexp(log_guide_densities, axis=0)
-
-            losses, grads = jax.vmap(
-                jax.value_and_grad(
-                    lambda ps: jnp.mean(
-                        pointwise_loss(
-                            rng_key,
-                            self.constrain_fn(classic_uparams),
-                            self.constrain_fn(unravel_pytree(ps)),
-                        )[0]
-                        - guide_loss
-                    )
-                )
-            )(particles)
-
-            return losses, grads
+            return grads
 
         def particle_transform_fn(particle):
             params = unravel_pytree(particle)
 
             tparams = self.particle_transform_fn(params)
+            ctparams = self.constrain_fn(tparams)
             tparticle, _ = ravel_pytree(tparams)
-            return tparticle
+            ctparticle, _ = ravel_pytree(ctparams)
+            return tparticle, ctparticle
 
-        tstein_particles = jax.vmap(particle_transform_fn)(stein_particles)
+        tstein_particles, ctstein_particles = jax.vmap(particle_transform_fn)(stein_particles)
 
-        loss, particle_ljp_grads = kernel_particles_loss_fn(tstein_particles)
+        particle_ljp_grads = kernel_particles_loss_fn(attractive_key, ctstein_particles)
 
-        classic_param_grads = jax.vmap(
-            lambda ps: jax.grad(
-                lambda cps: scaled_loss(
-                    rng_key,
-                    self.constrain_fn(cps),
-                    self.constrain_fn(unravel_pytree(ps)),
-                )
-            )(classic_uparams)
-        )(stein_particles)
-        classic_param_grads = tree_map(partial(jnp.mean, axis=0), classic_param_grads)
+        classic_param_grads = grad(lambda cps:
+                                   self.stein_loss.loss(classic_key,
+                                                        self.constrain_fn(cps),
+                                                        unravel_pytree_batched(ctstein_particles),
+                                                        handlers.scale(self._inference_model,
+                                                                       self.loss_temperature),
+                                                        self.guide,
+                                                        *args,
+                                                        **kwargs))(classic_uparams)
 
         # 3. Calculate kernel on monolithic particle
         kernel = self.kernel_fn.compute(  # TODO: Fix to use Stein loss
