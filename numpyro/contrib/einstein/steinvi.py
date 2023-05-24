@@ -8,9 +8,7 @@ from itertools import chain
 import operator
 from typing import Callable
 
-import jax  # TODO: fix imports
-from jax import grad, numpy as jnp, random, vmap
-import jax.random
+from jax import grad, jacfwd, numpy as jnp, random, vmap
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -143,7 +141,7 @@ class SteinVI:
                 isinstance(inner_guide, AutoGuide)
                 and "_".join((inner_guide.prefix, "loc")) in name
             ):
-                site_key, particle_seed = jax.random.split(particle_seed)
+                site_key, particle_seed = random.split(particle_seed)
                 unconstrained_shape = transform.inverse_shape(value.shape)
                 init_value = jnp.expand_dims(
                     transform.inv(value), 0
@@ -157,14 +155,14 @@ class SteinVI:
             else:
                 site_fn = site["fn"]
                 site_args = site["args"]
-                site_key, particle_seed = jax.random.split(particle_seed)
+                site_key, particle_seed = random.split(particle_seed)
 
                 def _reinit(seed):
                     with handlers.seed(rng_seed=seed):
                         return site_fn(*site_args)
 
-                init_value = jax.vmap(_reinit)(
-                    jax.random.split(particle_seed, self.num_particles)
+                init_value = vmap(_reinit)(
+                    random.split(particle_seed, self.num_particles)
                 )
             return init_value, constraint
 
@@ -228,7 +226,7 @@ class SteinVI:
             ctparticle, _ = ravel_pytree(ctparams)
             return tparticle, ctparticle
 
-        tstein_particles, ctstein_particles = jax.vmap(particle_transform_fn)(
+        tstein_particles, ctstein_particles = vmap(particle_transform_fn)(
             stein_particles
         )
 
@@ -252,17 +250,17 @@ class SteinVI:
         )
 
         # 4. Calculate the attractive force and repulsive force on the monolithic particles
-        attractive_force = jax.vmap(
+        attractive_force = vmap(
             lambda y: jnp.sum(
-                jax.vmap(
+                vmap(
                     lambda x, x_ljp_grad: self._apply_kernel(kernel, x, y, x_ljp_grad)
                 )(tstein_particles, particle_ljp_grads),
                 axis=0,
             )
         )(tstein_particles)
-        repulsive_force = jax.vmap(
+        repulsive_force = vmap(
             lambda y: jnp.sum(
-                jax.vmap(
+                vmap(
                     lambda x: self.repulsion_temperature
                     * self._kernel_grad(kernel, x, y)
                 )(tstein_particles),
@@ -274,7 +272,7 @@ class SteinVI:
             def _nontrivial_jac(var_name, var):
                 if isinstance(self.particle_transforms[var_name], IdentityTransform):
                     return None
-                return jax.jacfwd(self.particle_transforms[var_name].inv)(var)
+                return jacfwd(self.particle_transforms[var_name].inv)(var)
 
             def _update_force(attr_force, rep_force, jac):
                 force = attr_force.reshape(-1) + rep_force.reshape(-1)
@@ -298,7 +296,7 @@ class SteinVI:
             return jac_particle
 
         particle_grads = (
-            jax.vmap(single_particle_grad)(
+            vmap(single_particle_grad)(
                 stein_particles, attractive_force, repulsive_force
             )
             / self.num_particles
@@ -320,7 +318,7 @@ class SteinVI:
             during the course of fitting).
         :return: initial :data:`SteinVIState`
         """
-        rng_key, kernel_seed, model_seed, guide_seed = jax.random.split(rng_key, 4)
+        rng_key, kernel_seed, model_seed, guide_seed = random.split(rng_key, 4)
         model_init = handlers.seed(self.model, model_seed)
         guide_init = handlers.seed(self.guide, guide_seed)
         guide_trace = handlers.trace(guide_init).get_trace(
@@ -329,7 +327,7 @@ class SteinVI:
         model_trace = handlers.trace(model_init).get_trace(
             *args, **kwargs, **self.static_kwargs
         )
-        rng_key, particle_seed = jax.random.split(rng_key)
+        rng_key, particle_seed = random.split(rng_key)
         guide_init_params = self._find_init_params(
             particle_seed, self.guide, guide_trace
         )
@@ -411,7 +409,7 @@ class SteinVI:
             during the course of fitting).
         :return: tuple of `(state, loss)`.
         """
-        rng_key, rng_key_mcmc, rng_key_step = jax.random.split(state.rng_key, num=3)
+        rng_key, rng_key_mcmc, rng_key_step = random.split(state.rng_key, num=3)
         params = self.optim.get_params(state.optim_state)
         optim_state = state.optim_state
         loss_val, grads = self._svgd_loss_and_grads(
@@ -461,12 +459,12 @@ class SteinVI:
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide.
-        :return: evaluate loss given the current parameter values (held within `state.optim_state`).
+        :return: normed stein force given the current parameter values (held within `state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given a state
-        _, _, rng_key_eval = jax.random.split(state.rng_key, num=3)
+        _, _, rng_key_eval = random.split(state.rng_key, num=3)
         params = self.optim.get_params(state.optim_state)
-        loss_val, _ = self._svgd_loss_and_grads(
+        normed_stein_force, _ = self._svgd_loss_and_grads(
             rng_key_eval, params, *args, **kwargs, **self.static_kwargs
         )
-        return loss_val
+        return normed_stein_force

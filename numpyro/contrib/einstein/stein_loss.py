@@ -70,6 +70,9 @@ class SteinLoss:
         return elbo
 
     def loss(self, rng_key, param_map, particles, model, guide, *args, **kwargs):
+        if not particles:
+            raise ValueError("Stein mixture undefined for empty guide.")
+
         flat_particles, unravel_pytree, _ = batch_ravel_pytree(particles, nbatch_dims=1)
 
         select_key, score_key = random.split(rng_key)
