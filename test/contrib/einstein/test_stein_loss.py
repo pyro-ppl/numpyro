@@ -8,7 +8,7 @@ from jax import numpy as jnp, random, value_and_grad
 
 import numpyro
 from numpyro.contrib.einstein.stein_loss import SteinLoss
-from numpyro.contrib.einstein.util import batch_ravel_pytree
+from numpyro.contrib.einstein.stein_util import batch_ravel_pytree
 import numpyro.distributions as dist
 from numpyro.infer import Trace_ELBO
 

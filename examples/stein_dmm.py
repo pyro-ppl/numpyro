@@ -28,7 +28,7 @@ from optax import adam, chain
 
 import numpyro
 from numpyro.contrib.einstein import SteinVI
-from numpyro.contrib.einstein.kernels import RBFKernel
+from numpyro.contrib.einstein.stein_kernels import RBFKernel
 import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.infer import Predictive

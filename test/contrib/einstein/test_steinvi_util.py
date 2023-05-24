@@ -11,7 +11,7 @@ import scipy
 from jax import numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
-from numpyro.contrib.einstein.util import batch_ravel_pytree, posdef, sqrth
+from numpyro.contrib.einstein.stein_util import batch_ravel_pytree, posdef, sqrth
 
 pd_matrices = [
     np.array(

@@ -13,8 +13,15 @@ from jax import random
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.einstein import GraphicalKernel, RBFKernel, SteinVI, kernels
-from numpyro.contrib.einstein.kernels import MixtureKernel
+from numpyro.contrib.einstein import (
+    GraphicalKernel,
+    IMQKernel,
+    LinearKernel,
+    RandomFeatureKernel,
+    RBFKernel,
+    SteinVI,
+)
+from numpyro.contrib.einstein.stein_kernels import MixtureKernel
 import numpyro.distributions as dist
 from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
@@ -37,11 +44,11 @@ from numpyro.infer.reparam import TransformReparam
 from numpyro.optim import Adam
 
 KERNELS = [
-    kernels.RBFKernel(),
-    kernels.LinearKernel(),
-    kernels.IMQKernel(),
-    kernels.GraphicalKernel(),
-    kernels.RandomFeatureKernel(),
+    RBFKernel(),
+    LinearKernel(),
+    IMQKernel(),
+    GraphicalKernel(),
+    RandomFeatureKernel(),
 ]
 
 np.set_printoptions(precision=100)

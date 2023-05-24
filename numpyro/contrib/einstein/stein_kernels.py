@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-from numpyro.contrib.einstein.util import median_bandwidth
+from numpyro.contrib.einstein.stein_util import median_bandwidth
 from numpyro.distributions import biject_to
 from numpyro.infer.autoguide import AutoNormal
 

@@ -25,7 +25,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import deterministic
 from numpyro.contrib.einstein import SteinVI
-from numpyro.contrib.einstein.kernels import ProbabilityProductKernel
+from numpyro.contrib.einstein.stein_kernels import ProbabilityProductKernel
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
 from numpyro.infer import Predictive, init_to_uniform

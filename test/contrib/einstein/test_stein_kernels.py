@@ -11,7 +11,7 @@ import pytest
 from jax import numpy as jnp, random
 
 from numpyro.contrib.einstein import SteinVI
-from numpyro.contrib.einstein.kernels import (
+from numpyro.contrib.einstein.stein_kernels import (
     GraphicalKernel,
     IMQKernel,
     LinearKernel,

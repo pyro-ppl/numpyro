@@ -4,7 +4,7 @@
 from jax import numpy as jnp, random, vmap
 from jax.nn import logsumexp
 
-from numpyro.contrib.einstein.util import batch_ravel_pytree
+from numpyro.contrib.einstein.stein_util import batch_ravel_pytree
 from numpyro.handlers import replay, seed
 from numpyro.infer.util import log_density
 from numpyro.util import _validate_model, check_model_guide_match

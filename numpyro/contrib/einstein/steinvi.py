@@ -12,9 +12,12 @@ from jax import grad, jacfwd, numpy as jnp, random, vmap
 from jax.tree_util import tree_map
 
 from numpyro import handlers
-from numpyro.contrib.einstein.kernels import SteinKernel
+from numpyro.contrib.einstein.stein_kernels import SteinKernel
 from numpyro.contrib.einstein.stein_loss import SteinLoss
-from numpyro.contrib.einstein.util import batch_ravel_pytree, get_parameter_transform
+from numpyro.contrib.einstein.stein_util import (
+    batch_ravel_pytree,
+    get_parameter_transform,
+)
 from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution, Normal
 from numpyro.distributions.constraints import real
