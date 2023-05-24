@@ -9,8 +9,8 @@ import operator
 from typing import Callable
 
 import jax  # TODO: fix imports
+from jax import grad, numpy as jnp, random, vmap
 import jax.random
-from jax import random, grad, vmap, numpy as jnp
 from jax.tree_util import tree_map
 
 from numpyro import handlers

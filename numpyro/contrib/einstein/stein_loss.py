@@ -1,11 +1,12 @@
-from jax import random, vmap, numpy as jnp
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+from jax import numpy as jnp, random, vmap
 from jax.nn import logsumexp
 
 from numpyro.contrib.einstein.util import batch_ravel_pytree
 from numpyro.handlers import replay, seed
-from numpyro.infer.util import (
-    log_density,
-)
+from numpyro.infer.util import log_density
 from numpyro.util import _validate_model, check_model_guide_match
 
 
@@ -49,7 +50,9 @@ class SteinLoss:
             check_model_guide_match(component_trace, chosen_trace)
             return log_cdensity
 
-        log_guide_density = logsumexp(vmap(log_component_density)(jnp.arange(self.stein_num_particles)))
+        log_guide_density = logsumexp(
+            vmap(log_component_density)(jnp.arange(self.stein_num_particles))
+        )
 
         # 4. Score model
         seeded_model = seed(model, model_key)
