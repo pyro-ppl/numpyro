@@ -19,13 +19,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import train_test_split
 
-from jax import random, vmap
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
 from numpyro import deterministic
-from numpyro.contrib.einstein import SteinVI
-from numpyro.contrib.einstein.stein_kernels import ProbabilityProductKernel
+from numpyro.contrib.einstein import IMQKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
 from numpyro.infer import Predictive, init_to_uniform
@@ -134,7 +133,8 @@ def main(args):
         model,
         guide,
         Adagrad(0.05),
-        ProbabilityProductKernel(guide=guide, scale=0.1),
+        IMQKernel(),
+        # ProbabilityProductKernel(guide=guide, scale=1.),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
         num_elbo_particles=args.num_elbo_particles,
@@ -157,7 +157,7 @@ def main(args):
         model,
         guide=stein.guide,
         params=stein.get_params(result.state),
-        num_samples=200,
+        num_samples=100,
         batch_ndims=1,  # stein particle dimension
     )
     xte, _, _ = normalize(
@@ -167,18 +167,14 @@ def main(args):
         pred_key, xte, subsample_size=xte.shape[0], hidden_dim=args.hidden_dim
     )["y_pred"]
 
-    assigns = random.randint(
-        pred_key, (200,), minval=0, maxval=args.num_stein_particles
-    )
-
-    y_pred = vmap(lambda a, p: p[a])(assigns, preds) * ytr_std + ytr_mean
+    y_pred = (preds * ytr_std + ytr_mean).mean(1)
     rmse = jnp.sqrt(jnp.mean((y_pred.mean(0) - data.yte) ** 2))
 
     print(rf"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
     print(rf"RMSE: {rmse:.2f}")
 
     # compute mean prediction and confidence interval around median
-    mean_prediction = jnp.mean(y_pred, 0)
+    mean_prediction = y_pred.mean(0)
 
     ran = np.arange(mean_prediction.shape[0])
     percentiles = np.percentile(
@@ -206,14 +202,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
-    parser.add_argument("--max-iter", type=int, default=1000)
-    parser.add_argument("--repulsion", type=float, default=0.1)
+    parser.add_argument("--max-iter", type=int, default=10_000)
+    parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
-    parser.add_argument("--num-elbo-particles", type=int, default=1)
-    parser.add_argument("--num-stein-particles", type=int, default=5)
+    parser.add_argument("--num-elbo-particles", type=int, default=50)
+    parser.add_argument("--num-stein-particles", type=int, default=20)
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
-    parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])
+    parser.add_argument("--device", default="gpu", choices=["gpu", "cpu"])
     parser.add_argument("--hidden-dim", default=50, type=int)
 
     args = parser.parse_args()

@@ -82,7 +82,7 @@ class SteinVI:
         self.loss_temperature = loss_temperature
         self.repulsion_temperature = repulsion_temperature
         self.enum = enum
-        self.classic_guide_params_fn = classic_guide_params_fn
+        self.model_params_fn = classic_guide_params_fn
         self.guide_param_names = None
         self.constrain_fn = None
         self.uconstrain_fn = None
@@ -178,13 +178,13 @@ class SteinVI:
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein
-        classic_uparams = {
+        model_uparams = {
             p: v
             for p, v in unconstr_params.items()
-            if p not in self.guide_param_names or self.classic_guide_params_fn(p)
+            if p not in self.guide_param_names or self.model_params_fn(p)
         }
         stein_uparams = {
-            p: v for p, v in unconstr_params.items() if p not in classic_uparams
+            p: v for p, v in unconstr_params.items() if p not in model_uparams
         }
         # 1. Collect each guide parameter into monolithic particles that capture correlations
         # between parameter values across each individual particle
@@ -201,20 +201,28 @@ class SteinVI:
             particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
             grads = vmap(
                 lambda i: grad(
-                    lambda particle: self.stein_loss.single_particle_loss(
-                        rng_key=particle_keys[i],
-                        model=handlers.scale(
-                            self._inference_model, self.loss_temperature
-                        ),
-                        guide=self.guide,
-                        selected_particle=unravel_pytree(particle),
-                        unravel_pytree=unravel_pytree,
-                        flat_particles=particles,
-                        select_index=i,
-                        model_args=args,
-                        model_kwargs=kwargs,
-                        param_map=self.constrain_fn(classic_uparams),
-                    )
+                    lambda particle: (
+                        vmap(
+                            lambda elbo_key: self.stein_loss.single_particle_loss(
+                                rng_key=elbo_key,
+                                model=handlers.scale(
+                                    self._inference_model, self.loss_temperature
+                                ),
+                                guide=self.guide,
+                                selected_particle=unravel_pytree(particle),
+                                unravel_pytree=unravel_pytree,
+                                flat_particles=particles,
+                                select_index=i,
+                                model_args=args,
+                                model_kwargs=kwargs,
+                                param_map=self.constrain_fn(model_uparams),
+                            )
+                        )(
+                            random.split(
+                                particle_keys[i], self.stein_loss.elbo_num_particles
+                            )
+                        )
+                    ).mean()
                 )(particles[i])
             )(jnp.arange(self.stein_loss.stein_num_particles))
 
@@ -245,7 +253,7 @@ class SteinVI:
                 *args,
                 **kwargs,
             )
-        )(classic_uparams)
+        )(model_uparams)
 
         # 3. Calculate kernel on monolithic particle
         kernel = self.kernel_fn.compute(  # TODO: Fix to use Stein loss
@@ -365,7 +373,7 @@ class SteinVI:
                 )
                 if site["name"] in guide_init_params:
                     pval, _ = guide_init_params[site["name"]]
-                    if self.classic_guide_params_fn(site["name"]):
+                    if self.model_params_fn(site["name"]):
                         pval = tree_map(lambda x: x[0], pval)
                 else:
                     pval = site["value"]

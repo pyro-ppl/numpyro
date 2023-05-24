@@ -96,5 +96,6 @@ class SteinLoss:
                 model_kwargs=kwargs,
                 param_map=param_map,
             )
+            - jnp.log(self.stein_num_particles)
         )(score_keys, assigns)
         return -elbos.mean()
