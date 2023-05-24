@@ -66,11 +66,11 @@ SteinVI Interface
 
 SteinVI Kernels
 ---------------
-.. autoclass:: numpyro.contrib.einstein.kernels.RBFKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.LinearKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.RandomFeatureKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.MixtureKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.GraphicalKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.ProbabilityProductKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.RBFKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.LinearKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.RandomFeatureKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.MixtureKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.GraphicalKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.ProbabilityProductKernel
 
 
