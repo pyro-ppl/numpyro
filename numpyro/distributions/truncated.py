@@ -18,6 +18,7 @@ from numpyro.distributions.continuous import (
 )
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    clamp_probs,
     is_prng_key,
     lazy_property,
     promote_shapes,
@@ -249,6 +250,23 @@ class TwoSidedTruncatedDistribution(Distribution):
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return self.base_dist.cdf(loc - sign * (loc - self.high))
 
+    @lazy_property
+    def _log_diff_tail_probs(self):
+        # use log_cdf method, if available, to avoid inf's in log_prob
+        # fall back to cdf, if log_cdf not available
+        log_cdf = getattr(self.base_dist, "log_cdf", None)
+        if callable(log_cdf):
+            return logsumexp(
+                a=jnp.stack([log_cdf(self.high), log_cdf(self.low)], axis=-1),
+                axis=-1,
+                b=jnp.array([1, -1]),  # subtract low from high
+            )
+
+        else:
+            loc = self.base_dist.loc
+            sign = jnp.where(loc >= self.low, 1.0, -1.0)
+            return jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
+
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
@@ -266,7 +284,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return (1 - sign) * loc + sign * self.base_dist.icdf(
-            (1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high
+            clamp_probs((1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
         )
 
     @validate_sample
@@ -276,10 +294,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = as-is
         # if low > loc
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
-        sign = jnp.where(self.base_dist.loc >= self.low, 1.0, -1.0)
-        return self.base_dist.log_prob(value) - jnp.log(
-            sign * (self._tail_prob_at_high - self._tail_prob_at_low)
-        )
+        return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()

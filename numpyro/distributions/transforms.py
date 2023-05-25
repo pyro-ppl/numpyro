@@ -972,6 +972,12 @@ class SimplexToOrderedTransform(Transform):
             self.anchor_point, other.anchor_point
         )
 
+    def forward_shape(self, shape):
+        return shape[:-1] + (shape[-1] - 1,)
+
+    def inverse_shape(self, shape):
+        return shape[:-1] + (shape[-1] + 1,)
+
 
 def _softplus_inv(y):
     return jnp.log(-jnp.expm1(-y)) + y

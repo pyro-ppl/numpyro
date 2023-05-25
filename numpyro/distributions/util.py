@@ -614,6 +614,8 @@ def safe_normalize(x, *, p=2):
 
 # src: https://github.com/google/jax/blob/5a41779fbe12ba7213cd3aa1169d3b0ffb02a094/jax/_src/random.py#L95
 def is_prng_key(key):
+    if isinstance(key, jax.random.PRNGKeyArray):
+        return key.shape == ()
     try:
         return key.shape == (2,) and key.dtype == np.uint32
     except AttributeError:

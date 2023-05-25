@@ -19,6 +19,7 @@ from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
+from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
@@ -1448,10 +1449,10 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
 
 def test_zero_inflated_logits_probs_agree():
-    concentration = np.exp(np.random.normal(100))
-    rate = np.exp(np.random.normal(100))
+    concentration = np.exp(np.random.normal(1))
+    rate = np.exp(np.random.normal(1))
     d = dist.GammaPoisson(concentration, rate)
-    gate_logits = np.random.normal(100)
+    gate_logits = np.random.normal(0)
     gate_probs = expit(gate_logits)
     zi_logits = dist.ZeroInflatedDistribution(d, gate_logits=gate_logits)
     zi_probs = dist.ZeroInflatedDistribution(d, gate=gate_probs)
@@ -2300,6 +2301,16 @@ def test_composed_transform_1(batch_shape):
 
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
+def test_simplex_to_order_transform(batch_shape):
+    simplex = jnp.arange(5.0) / jnp.arange(5.0).sum()
+    simplex = jnp.broadcast_to(simplex, batch_shape + simplex.shape)
+    transform = SimplexToOrderedTransform()
+    out = transform(simplex)
+    assert out.shape == transform.forward_shape(simplex.shape)
+    assert simplex.shape == transform.inverse_shape(out.shape)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (5,)])
 @pytest.mark.parametrize("prepend_event_shape", [(), (4,)])
 @pytest.mark.parametrize("sample_shape", [(), (7,)])
 def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape):
@@ -2655,6 +2666,43 @@ def test_expand_pytree():
     assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
 
 
+def test_expand_no_unnecessary_batch_shape_expansion():
+    # ExpandedDistribution can mutate the `batch_shape` of
+    # its base distribution in order to make ExpandedDistribution
+    # mappable, see #684. However, this mutation should not take
+    # place if no mapping operation is performed.
+
+    for arg in (jnp.array(1.0), jnp.ones((2,)), jnp.ones((2, 2))):
+        # Low level test: ensure that (tree_flatten o tree_unflatten)(expanded_dist)
+        # amounts to an identity operation.
+        d = dist.Normal(arg, arg).expand([10, 3, *arg.shape])
+        roundtripped_d = type(d).tree_unflatten(*d.tree_flatten()[::-1])
+        assert d.batch_shape == roundtripped_d.batch_shape
+        assert d.base_dist.batch_shape == roundtripped_d.base_dist.batch_shape
+        assert d.base_dist.event_shape == roundtripped_d.base_dist.event_shape
+        assert jnp.allclose(d.base_dist.loc, roundtripped_d.base_dist.loc)
+        assert jnp.allclose(d.base_dist.scale, roundtripped_d.base_dist.scale)
+
+        # High-level test: `jax.jit`ting a function returning an ExpandedDistribution
+        # (which involves an instance of the low-level case as it will transform
+        #  the original function by adding some flattening and unflattening steps)
+        # should return same object as its non-jitted equivalent.
+        def bs(arg):
+            return dist.Normal(arg, arg).expand([10, 3, *arg.shape])
+
+        d = bs(arg)
+        dj = jax.jit(bs)(arg)
+
+        assert isinstance(d, dist.ExpandedDistribution)
+        assert isinstance(dj, dist.ExpandedDistribution)
+
+        assert d.batch_shape == dj.batch_shape
+        assert d.base_dist.batch_shape == dj.base_dist.batch_shape
+        assert d.base_dist.event_shape == dj.base_dist.event_shape
+        assert jnp.allclose(d.base_dist.loc, dj.base_dist.loc)
+        assert jnp.allclose(d.base_dist.scale, dj.base_dist.scale)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
 def test_kl_delta_normal_shape(batch_shape):
     v = np.random.normal(size=batch_shape)
@@ -2758,3 +2806,52 @@ def test_multinomial_abstract_total_count():
     x = dist.Multinomial(10, probs).sample(key)
     y = jax.jit(f)(x)
     assert_allclose(x, y, rtol=1e-6)
+
+
+def test_normal_log_cdf():
+    # test if log_cdf method agrees with jax.scipy.stats.norm.logcdf
+    # and if exp(log_cdf) agrees with cdf
+    loc = jnp.array([[0.0, -10.0, 20.0]])
+    scale = jnp.array([[1, 5, 7]])
+    values = jnp.linspace(-5, 5, 100).reshape(-1, 1)
+    numpyro_log_cdf = dist.Normal(loc=loc, scale=scale).log_cdf(values)
+    numpyro_cdf = dist.Normal(loc=loc, scale=scale).cdf(values)
+    jax_log_cdf = jax_norm.logcdf(loc=loc, scale=scale, x=values)
+    assert_allclose(numpyro_log_cdf, jax_log_cdf)
+    assert_allclose(jnp.exp(numpyro_log_cdf), numpyro_cdf, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        -15.0,
+        jnp.array([[-15.0], [-10.0], [-5.0]]),
+        jnp.array([[[-15.0], [-10.0], [-5.0]], [[-14.0], [-9.0], [-4.0]]]),
+    ],
+)
+def test_truncated_normal_log_prob_in_tail(value):
+    # define set of distributions truncated in tail of distribution
+    loc = 1.35
+    scale = jnp.geomspace(0.01, 1, 10)
+    low, high = (-20, -1.0)
+    a, b = (low - loc) / scale, (high - loc) / scale  # rescale for jax input
+
+    numpyro_log_prob = dist.TruncatedNormal(loc, scale, low=low, high=high).log_prob(
+        value
+    )
+    jax_log_prob = jax_truncnorm.logpdf(value, loc=loc, scale=scale, a=a, b=b)
+    assert_allclose(numpyro_log_prob, jax_log_prob, rtol=1e-06)
+
+
+def test_sample_truncated_normal_in_tail():
+    # test, if samples from distributions truncated in
+    # tail of distribution returns any inf's
+    tail_dist = dist.TruncatedNormal(loc=0, scale=1, low=-16, high=-15)
+    samples = tail_dist.sample(random.PRNGKey(0), sample_shape=(10_000,))
+    assert ~jnp.isinf(samples).any()
+
+
+@jax.enable_custom_prng()
+def test_jax_custom_prng():
+    samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
+    assert ~jnp.isinf(samples).any()
