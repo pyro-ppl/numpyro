@@ -224,12 +224,18 @@ class _Dependent(Constraint):
             event_dim = self._event_dim
         return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
 
-    def tree_flatten(self):
-        return (), ((), dict())
+    def __eq__(self, other):
+        return (
+            type(self) is type(other)
+            and self._is_discrete == other._is_discrete
+            and self._event_dim == other._event_dim
+        )
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls()
+    def tree_flatten(self):
+        return (), (
+            (),
+            dict(_is_discrete=self._is_discrete, _event_dim=self._event_dim),
+        )
 
 
 class dependent_property(property, _Dependent):
@@ -278,7 +284,7 @@ class _GreaterThan(Constraint):
         return (self.lower_bound,), (("lower_bound",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, _GreaterThan) and jnp.array_equal(
+        return isinstance(other, _GreaterThan) & jnp.array_equal(
             self.lower_bound, other.lower_bound
         )
 
@@ -349,8 +355,8 @@ class _IndependentConstraint(Constraint):
     def __eq__(self, other):
         return (
             isinstance(other, _IndependentConstraint)
-            and self.base_constraint == other.base_constraint
-            and self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
+            & (self.base_constraint == other.base_constraint)
+            & (self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims)
         )
 
 
@@ -383,7 +389,7 @@ class _LessThan(Constraint):
         return (self.upper_bound,), (("upper_bound",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, _LessThan) and jnp.array_equal(
+        return isinstance(other, _LessThan) & jnp.array_equal(
             self.upper_bound, other.upper_bound
         )
 
@@ -417,8 +423,8 @@ class _IntegerInterval(Constraint):
     def __eq__(self, other):
         return (
             isinstance(other, _IntegerInterval)
-            and jnp.array_equal(self.lower_bound, other.lower_bound)
-            and jnp.array_equal(self.upper_bound, other.upper_bound)
+            & jnp.array_equal(self.lower_bound, other.lower_bound)
+            & jnp.array_equal(self.upper_bound, other.upper_bound)
         )
 
 
@@ -443,7 +449,7 @@ class _IntegerGreaterThan(Constraint):
         return (self.lower_bound,), (("lower_bound",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, _IntegerGreaterThan) and jnp.array_equal(
+        return isinstance(other, _IntegerGreaterThan) & jnp.array_equal(
             self.lower_bound, other.lower_bound
         )
 
@@ -481,8 +487,8 @@ class _Interval(Constraint):
     def __eq__(self, other):
         return (
             isinstance(other, _Interval)
-            and self.lower_bound == other.lower_bound
-            and self.upper_bound == other.upper_bound
+            & jnp.array_equal(self.lower_bound, other.lower_bound)
+            & jnp.array_equal(self.upper_bound, other.upper_bound)
         )
 
     def tree_flatten(self):
@@ -553,7 +559,7 @@ class _Multinomial(Constraint):
         return (self.upper_bound,), (("upper_bound",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, _Multinomial) and jnp.array_equal(
+        return isinstance(other, _Multinomial) & jnp.array_equal(
             self.upper_bound, other.upper_bound
         )
 

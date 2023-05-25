@@ -102,9 +102,9 @@ class InverseAutoregressiveTransform(Transform):
     def __eq__(self, other):
         return (
             isinstance(other, InverseAutoregressiveTransform)
-            and self.arn is other.arn
-            and self.log_scale_min_clip == other.log_scale_min_clip
-            and self.log_scale_max_clip == other.log_scale_max_clip
+            & (self.arn is other.arn)
+            & jnp.array_equal(self.log_scale_min_clip, other.log_scale_min_clip)
+            & jnp.array_equal(self.log_scale_max_clip, other.log_scale_max_clip)
         )
 
 

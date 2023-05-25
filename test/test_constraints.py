@@ -5,7 +5,7 @@ from collections import namedtuple
 
 import pytest
 
-from jax import jit, vmap
+from jax import jit, tree_map, vmap
 import jax.numpy as jnp
 
 from numpyro.distributions import constraints
@@ -37,24 +37,30 @@ SINGLETON_CONSTRAINTS = {
 _a = jnp.asarray
 
 
-class T(namedtuple("TestCase", ["constraint_cls", "params"])):
+class T(namedtuple("TestCase", ["constraint_cls", "params", "kwargs"])):
     pass
 
 
 PARAMETRIZED_CONSTRAINTS = {
-    "greater_than": T(constraints.greater_than, (_a(0.0),)),
-    "less_than": T(constraints.less_than, (_a(-1.0),)),
-    "independent": T(
-        constraints.independent, (constraints.greater_than(jnp.zeros((2,))), 1)
+    "dependent": T(
+        type(constraints.dependent), (), dict(is_discrete=True, event_dim=2)
     ),
-    "integer_interval": T(constraints.integer_interval, (_a(-1), _a(1))),
-    "integer_greater_than": T(constraints.integer_greater_than, (_a(1),)),
-    "interval": T(constraints.interval, (_a(-1.0), _a(1.0))),
+    "greater_than": T(constraints.greater_than, (_a(0.0),), dict()),
+    "less_than": T(constraints.less_than, (_a(-1.0),), dict()),
+    "independent": T(
+        constraints.independent,
+        (constraints.greater_than(jnp.zeros((2,))),),
+        dict(reinterpreted_batch_ndims=1),
+    ),
+    "integer_interval": T(constraints.integer_interval, (_a(-1), _a(1)), dict()),
+    "integer_greater_than": T(constraints.integer_greater_than, (_a(1),), dict()),
+    "interval": T(constraints.interval, (_a(-1.0), _a(1.0)), dict()),
     "multinomial": T(
         constraints.multinomial,
         (_a(1.0),),
+        dict(),
     ),
-    "open_interval": T(constraints.open_interval, (_a(-1.0), _a(1.0))),
+    "open_interval": T(constraints.open_interval, (_a(-1.0), _a(1.0)), dict()),
 }
 
 # TODO: BijectorConstraint
@@ -89,12 +95,12 @@ def test_singleton_constraint_pytree(constraint):
 
 
 @pytest.mark.parametrize(
-    "cls, params",
+    "cls, cst_args, cst_kwargs",
     PARAMETRIZED_CONSTRAINTS.values(),
     ids=PARAMETRIZED_CONSTRAINTS.keys(),
 )
-def test_parametrized_constraint_pytree(cls, params):
-    constraint = cls(*params)
+def test_parametrized_constraint_pytree(cls, cst_args, cst_kwargs):
+    constraint = cls(*cst_args, **cst_kwargs)
 
     # test that singleton constraints objects can be used as pytrees
     def in_cst(constraint, x):
@@ -118,3 +124,24 @@ def test_parametrized_constraint_pytree(cls, params):
         vmap(out_cst, in_axes=(None, 0), out_axes=None)(constraint, jnp.ones(3))
         == constraint
     )
+
+    if len(cst_args) > 0:
+        # test creating and manipulating vmapped constraints
+        vmapped_cst_args = tree_map(lambda x: x[None], cst_args)
+
+        vmapped_csts = jit(vmap(lambda args: cls(*args, **cst_kwargs), in_axes=(0,)))(
+            vmapped_cst_args
+        )
+        assert vmap(lambda x: x == constraint, in_axes=0)(vmapped_csts).all()
+
+        twice_vmapped_cst_args = tree_map(lambda x: x[None], vmapped_cst_args)
+
+        vmapped_csts = jit(
+            vmap(
+                vmap(lambda args: cls(*args, **cst_kwargs), in_axes=(0,)),
+                in_axes=(0,),
+            ),
+        )(twice_vmapped_cst_args)
+        assert vmap(vmap(lambda x: x == constraint, in_axes=0), in_axes=0)(
+            vmapped_csts
+        ).all()
