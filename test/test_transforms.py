@@ -175,3 +175,23 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
         assert vmap(vmap(lambda x: x == transform, in_axes=0), in_axes=0)(
             vmapped_transform
         ).all()
+
+
+@pytest.mark.parametrize(
+    "cls, transform_args, transform_kwargs",
+    TRANSFORMS.values(),
+    ids=TRANSFORMS.keys(),
+)
+def test_parametrized_transform_eq(cls, transform_args, transform_kwargs):
+    transform = cls(*transform_args, **transform_kwargs)
+    transform2 = cls(*transform_args, **transform_kwargs)
+    assert transform == transform2
+    assert transform != 1.0
+
+    # check that equality checks are robust to transforms parametrized
+    # by abstract values
+    @jit
+    def check_transforms(t1, t2):
+        return t1 == t2
+
+    assert check_transforms(transform, transform2)

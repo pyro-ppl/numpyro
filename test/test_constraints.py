@@ -145,3 +145,39 @@ def test_parametrized_constraint_pytree(cls, cst_args, cst_kwargs):
         assert vmap(vmap(lambda x: x == constraint, in_axes=0), in_axes=0)(
             vmapped_csts
         ).all()
+
+
+@pytest.mark.parametrize(
+    "cls, cst_args, cst_kwargs",
+    PARAMETRIZED_CONSTRAINTS.values(),
+    ids=PARAMETRIZED_CONSTRAINTS.keys(),
+)
+def test_parametrized_constraint_eq(cls, cst_args, cst_kwargs):
+    constraint = cls(*cst_args, **cst_kwargs)
+    constraint2 = cls(*cst_args, **cst_kwargs)
+    assert constraint == constraint2
+    assert constraint != 1
+
+    # check that equality checks are robust to constraints parametrized
+    # by abstract values
+    @jit
+    def check_constraints(c1, c2):
+        return c1 == c2
+
+    assert check_constraints(constraint, constraint2)
+
+
+@pytest.mark.parametrize(
+    "constraint", SINGLETON_CONSTRAINTS.values(), ids=SINGLETON_CONSTRAINTS.keys()
+)
+def test_singleton_constraint_eq(constraint):
+    assert constraint == constraint
+    assert constraint != 1
+
+    # check that equality checks are robust to constraints parametrized
+    # by abstract values
+    @jit
+    def check_constraints(c1, c2):
+        return c1 == c2
+
+    assert check_constraints(constraint, constraint)
