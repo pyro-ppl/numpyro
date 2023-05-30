@@ -249,9 +249,10 @@ class AffineTransform(Transform):
         return (self.loc, self.scale, self.domain), (("loc", "scale", "domain"), dict())
 
     def __eq__(self, other):
+        if not isinstance(other, AffineTransform):
+            return False
         return (
-            isinstance(other, AffineTransform)
-            & jnp.array_equal(self.loc, other.loc)
+            jnp.array_equal(self.loc, other.loc)
             & jnp.array_equal(self.scale, other.scale)
             & (self.domain == other.domain)
         )
@@ -363,9 +364,9 @@ class ComposeTransform(Transform):
         return (self.parts,), (("parts",), {})
 
     def __eq__(self, other):
-        return isinstance(other, ComposeTransform) & jnp.logical_and(
-            *(p1 == p2 for p1, p2 in zip(self.parts, other.parts))
-        )
+        if not isinstance(other, ComposeTransform):
+            return False
+        return jnp.logical_and(*(p1 == p2 for p1, p2 in zip(self.parts, other.parts)))
 
 
 def _matrix_forward_shape(shape, offset=0):
@@ -535,7 +536,9 @@ class ExpTransform(Transform):
         return (self.domain,), (("domain",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, ExpTransform) & (self.domain == other.domain)
+        if not isinstance(other, ExpTransform):
+            return False
+        return self.domain == other.domain
 
 
 class IdentityTransform(ParameterFreeTransform):
@@ -607,10 +610,10 @@ class IndependentTransform(Transform):
         )
 
     def __eq__(self, other):
-        return (
-            isinstance(other, IndependentTransform)
-            & (self.base_transform == other.base_transform)
-            & (self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims)
+        if not isinstance(other, IndependentTransform):
+            return False
+        return (self.base_transform == other.base_transform) & (
+            self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
         )
 
 
@@ -726,9 +729,10 @@ class LowerCholeskyAffine(Transform):
         return (self.loc, self.scale_tril), (("loc", "scale_tril"), dict())
 
     def __eq__(self, other):
-        return isinstance(other, LowerCholeskyAffine) & (
-            jnp.array_equal(self.loc, other.loc)
-            & jnp.array_equal(self.scale_tril, other.scale_tril)
+        if not isinstance(other, LowerCholeskyAffine):
+            return False
+        return jnp.array_equal(self.loc, other.loc) & jnp.array_equal(
+            self.scale_tril, other.scale_tril
         )
 
 
@@ -862,9 +866,9 @@ class PermuteTransform(Transform):
         return (self.permutation,), (("permutation",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, PermuteTransform) & jnp.array_equal(
-            self.permutation, other.permutation
-        )
+        if not isinstance(other, PermuteTransform):
+            return False
+        return jnp.array_equal(self.permutation, other.permutation)
 
 
 class PowerTransform(Transform):
@@ -893,9 +897,9 @@ class PowerTransform(Transform):
         return (self.exponent,), (("exponent",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, PowerTransform) & jnp.array_equal(
-            self.exponent, other.exponent
-        )
+        if not isinstance(other, PowerTransform):
+            return False
+        return jnp.array_equal(self.exponent, other.exponent)
 
 
 class SigmoidTransform(ParameterFreeTransform):
@@ -968,9 +972,9 @@ class SimplexToOrderedTransform(Transform):
         return (self.anchor_point,), (("anchor_point",), dict())
 
     def __eq__(self, other):
-        return isinstance(other, SimplexToOrderedTransform) & jnp.array_equal(
-            self.anchor_point, other.anchor_point
-        )
+        if not isinstance(other, SimplexToOrderedTransform):
+            return False
+        return jnp.array_equal(self.anchor_point, other.anchor_point)
 
     def forward_shape(self, shape):
         return shape[:-1] + (shape[-1] - 1,)
