@@ -139,7 +139,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.11.0")
+    assert numpyro.__version__.startswith("0.12.0")
     parser = argparse.ArgumentParser(
         description="Non-centered reparameterization example"
     )
