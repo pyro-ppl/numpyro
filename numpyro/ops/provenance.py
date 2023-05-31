@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import jax
-from jax._src.pjit import pjit_p
 from jax.api_util import flatten_fun, shaped_abstractify
 import jax.core as core
+from jax.experimental.pjit import pjit_p
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 from jax.interpreters.pxla import xla_pmap_p
-from jax.interpreters.xla import xla_call_p
 import jax.linear_util as lu
 import jax.numpy as jnp
 
@@ -102,7 +101,6 @@ def track_deps_call_rule(eqn, provenance_inputs):
 
 
 track_deps_rules[core.call_p] = track_deps_call_rule
-track_deps_rules[xla_call_p] = track_deps_call_rule
 track_deps_rules[xla_pmap_p] = track_deps_call_rule
 
 
