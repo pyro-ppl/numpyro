@@ -93,6 +93,21 @@ class InverseAutoregressiveTransform(Transform):
             log_scale = intermediates
             return log_scale.sum(-1)
 
+    def tree_flatten(self):
+        return (self.log_scale_min_clip, self.log_scale_max_clip), (
+            ("log_scale_min_clip", "log_scale_max_clip"),
+            {"arn": self.arn},
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, InverseAutoregressiveTransform):
+            return False
+        return (
+            (self.arn is other.arn)
+            & jnp.array_equal(self.log_scale_min_clip, other.log_scale_min_clip)
+            & jnp.array_equal(self.log_scale_max_clip, other.log_scale_max_clip)
+        )
+
 
 class BlockNeuralAutoregressiveTransform(Transform):
     """
@@ -139,3 +154,12 @@ class BlockNeuralAutoregressiveTransform(Transform):
         else:
             logdet = intermediates
             return logdet.sum(-1)
+
+    def tree_flatten(self):
+        return (), ((), {"bn_arn": self.bn_arn})
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, BlockNeuralAutoregressiveTransform)
+            and self.bn_arn is other.bn_arn
+        )
