@@ -40,6 +40,10 @@ log_density
 -----------
 .. autofunction:: numpyro.infer.util.log_density
 
+get_transforms
+--------------
+.. autofunction:: numpyro.infer.util.get_transforms
+
 transform_fn
 ------------
 .. autofunction:: numpyro.infer.util.transform_fn
@@ -47,6 +51,10 @@ transform_fn
 constrain_fn
 ------------
 .. autofunction:: numpyro.infer.util.constrain_fn
+
+unconstrain_fn
+--------------
+.. autofunction:: numpyro.infer.util.unconstrain_fn
 
 potential_energy
 ----------------

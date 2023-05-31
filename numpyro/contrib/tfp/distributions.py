@@ -66,6 +66,13 @@ class BijectorConstraint(constraints.Constraint):
     def codomain(self):
         return _get_codomain(self.bijector)
 
+    def tree_flatten(self):
+        return self.bijector, ()
+
+    @classmethod
+    def tree_unflatten(cls, _, bijector):
+        return cls(bijector)
+
 
 class BijectorTransform(Transform):
     """
@@ -105,6 +112,13 @@ class BijectorTransform(Transform):
         out_event_shape = self.bijector.forward_event_shape(in_shape)
         batch_shape = shape[: len(shape) - len(out_event_shape)]
         return batch_shape + in_shape
+
+    def tree_flatten(self):
+        return self.bijector, ()
+
+    @classmethod
+    def tree_unflatten(cls, _, bijector):
+        return cls(bijector)
 
 
 @biject_to.register(BijectorConstraint)

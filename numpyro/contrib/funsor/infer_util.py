@@ -42,6 +42,17 @@ def plate_to_enum_plate():
         numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
 
 
+def _config_enumerate_fn(site, default):
+    """helper function used internally in config_enumerate"""
+    if (
+        site["type"] == "sample"
+        and (not site["is_observed"])
+        and site["fn"].has_enumerate_support
+    ):
+        return {"enumerate": site["infer"].get("enumerate", default)}
+    return {}
+
+
 def config_enumerate(fn=None, default="parallel"):
     """
     Configures enumeration for all relevant sites in a NumPyro model.
@@ -69,16 +80,18 @@ def config_enumerate(fn=None, default="parallel"):
     if fn is None:  # support use as a decorator
         return functools.partial(config_enumerate, default=default)
 
-    def config_fn(site):
-        if (
-            site["type"] == "sample"
-            and (not site["is_observed"])
-            and site["fn"].has_enumerate_support
-        ):
-            return {"enumerate": site["infer"].get("enumerate", default)}
-        return {}
+    return infer_config(fn, functools.partial(_config_enumerate_fn, default=default))
 
-    return infer_config(fn, config_fn)
+
+def _config_kl_fn(site, sites):
+    """helper function used internally in config_kl"""
+    if (
+        site["type"] == "sample"
+        and (not site["is_observed"])
+        and (sites is None or site["name"] in sites)
+    ):
+        return {"kl": site["infer"].get("kl", "analytic")}
+    return {}
 
 
 def config_kl(fn=None, sites=None):
@@ -107,16 +120,7 @@ def config_kl(fn=None, sites=None):
     if fn is None:  # support use as a decorator
         return functools.partial(config_kl, sites=sites)
 
-    def config_fn(site):
-        if (
-            site["type"] == "sample"
-            and (not site["is_observed"])
-            and (sites is None or site["name"] in sites)
-        ):
-            return {"kl": site["infer"].get("kl", "analytic")}
-        return {}
-
-    return infer_config(fn, config_fn)
+    return infer_config(fn, functools.partial(_config_kl_fn, sites=sites))
 
 
 def _get_shift(name):
@@ -225,7 +229,8 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.Bint[log_prob.shape[dim]])
                     history = max(
-                        history, max(_get_shift(s) for s in dim_to_name.values())
+                        history,
+                        max(_get_shift(s) for s in dim_to_name.values()),
                     )
                     if history == 0:
                         log_factors.append(log_prob_factor)
@@ -282,7 +287,8 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
         raise ValueError(
             "Expected the joint log density is a scalar, but got {}. "
             "There seems to be something wrong at the following sites: {}.".format(
-                result.data.shape, {k.split("__BOUND")[0] for k in result.inputs}
+                result.data.shape,
+                {k.split("__BOUND")[0] for k in result.inputs},
             )
         )
     return result, model_trace, log_measures
@@ -310,6 +316,11 @@ def log_density(model, model_args, model_kwargs, params):
     :return: log of joint density and a corresponding model trace
     """
     result, model_trace, _ = _enum_log_density(
-        model, model_args, model_kwargs, params, funsor.ops.logaddexp, funsor.ops.add
+        model,
+        model_args,
+        model_kwargs,
+        params,
+        funsor.ops.logaddexp,
+        funsor.ops.add,
     )
     return result.data, model_trace

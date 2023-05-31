@@ -56,7 +56,7 @@ setup(
             "isort>=5.0",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
-            "scipy>=1.6,<1.7",
+            "scipy>=1.9",
         ],
         "dev": [
             "dm-haiku",
@@ -69,7 +69,7 @@ setup(
             "pylab-sdk",  # jaxns dependency
             "pyyaml",  # flax dependency
             "requests",  # pylab dependency
-            "tensorflow_probability>=0.17.0",
+            "tensorflow_probability>=0.18.0",
         ],
         "examples": [
             "arviz",
