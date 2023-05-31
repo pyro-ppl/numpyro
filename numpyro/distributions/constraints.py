@@ -62,6 +62,8 @@ import math
 import numpy as np
 
 import jax.numpy
+import jax.numpy as jnp
+from jax.tree_util import register_pytree_node
 
 
 class Constraint(object):
@@ -74,6 +76,10 @@ class Constraint(object):
 
     is_discrete = False
     event_dim = 0
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
     def __call__(self, x):
         raise NotImplementedError
@@ -94,8 +100,24 @@ class Constraint(object):
         """
         raise NotImplementedError
 
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        params_keys, aux_data = aux_data
+        self = cls.__new__(cls)
+        for k, v in zip(params_keys, params):
+            setattr(self, k, v)
 
-class _SingletonConstraint(Constraint):
+        for k, v in aux_data.items():
+            setattr(self, k, v)
+        return self
+
+
+class ParameterFreeConstraint(Constraint):
+    def tree_flatten(self):
+        return (), ((), dict())
+
+
+class _SingletonConstraint(ParameterFreeConstraint):
     """
     A constraint type which has only one canonical instance, like constraints.real,
     and unlike constraints.interval.
@@ -202,8 +224,23 @@ class _Dependent(Constraint):
             event_dim = self._event_dim
         return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
 
+    def __eq__(self, other):
+        return (
+            type(self) is type(other)
+            and self._is_discrete == other._is_discrete
+            and self._event_dim == other._event_dim
+        )
+
+    def tree_flatten(self):
+        return (), (
+            (),
+            dict(_is_discrete=self._is_discrete, _event_dim=self._event_dim),
+        )
+
 
 class dependent_property(property, _Dependent):
+    # XXX: this should not need to be pytree-able since it simply wraps a method
+    # and thus is automatically present once the method's object is created
     def __init__(
         self, fn=None, *, is_discrete=NotImplemented, event_dim=NotImplemented
     ):
@@ -243,8 +280,16 @@ class _GreaterThan(Constraint):
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
 
+    def tree_flatten(self):
+        return (self.lower_bound,), (("lower_bound",), dict())
 
-class _Positive(_GreaterThan, _SingletonConstraint):
+    def __eq__(self, other):
+        if not isinstance(other, _GreaterThan):
+            return False
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
+
+
+class _Positive(_SingletonConstraint, _GreaterThan):
     def __init__(self):
         super().__init__(0.0)
 
@@ -301,6 +346,20 @@ class _IndependentConstraint(Constraint):
     def feasible_like(self, prototype):
         return self.base_constraint.feasible_like(prototype)
 
+    def tree_flatten(self):
+        return (self.base_constraint,), (
+            ("base_constraint",),
+            {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, _IndependentConstraint):
+            return False
+
+        return (self.base_constraint == other.base_constraint) & (
+            self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
+        )
+
 
 class _RealVector(_IndependentConstraint, _SingletonConstraint):
     def __init__(self):
@@ -327,6 +386,14 @@ class _LessThan(Constraint):
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
 
+    def tree_flatten(self):
+        return (self.upper_bound,), (("upper_bound",), dict())
+
+    def __eq__(self, other):
+        if not isinstance(other, _LessThan):
+            return False
+        return jnp.array_equal(self.upper_bound, other.upper_bound)
+
 
 class _IntegerInterval(Constraint):
     is_discrete = True
@@ -348,6 +415,20 @@ class _IntegerInterval(Constraint):
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
+    def tree_flatten(self):
+        return (self.lower_bound, self.upper_bound), (
+            ("lower_bound", "upper_bound"),
+            dict(),
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, _IntegerInterval):
+            return False
+
+        return jnp.array_equal(self.lower_bound, other.lower_bound) & jnp.array_equal(
+            self.upper_bound, other.upper_bound
+        )
+
 
 class _IntegerGreaterThan(Constraint):
     is_discrete = True
@@ -366,13 +447,21 @@ class _IntegerGreaterThan(Constraint):
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
+    def tree_flatten(self):
+        return (self.lower_bound,), (("lower_bound",), dict())
 
-class _IntegerPositive(_IntegerGreaterThan, _SingletonConstraint):
+    def __eq__(self, other):
+        if not isinstance(other, _IntegerGreaterThan):
+            return False
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
+
+
+class _IntegerPositive(_SingletonConstraint, _IntegerGreaterThan):
     def __init__(self):
         super().__init__(1)
 
 
-class _IntegerNonnegative(_IntegerGreaterThan, _SingletonConstraint):
+class _IntegerNonnegative(_SingletonConstraint, _IntegerGreaterThan):
     def __init__(self):
         super().__init__(0)
 
@@ -398,19 +487,25 @@ class _Interval(Constraint):
         )
 
     def __eq__(self, other):
-        return (
-            isinstance(other, _Interval)
-            and self.lower_bound == other.lower_bound
-            and self.upper_bound == other.upper_bound
+        if not isinstance(other, _Interval):
+            return False
+        return jnp.array_equal(self.lower_bound, other.lower_bound) & jnp.array_equal(
+            self.upper_bound, other.upper_bound
+        )
+
+    def tree_flatten(self):
+        return (self.lower_bound, self.upper_bound), (
+            ("lower_bound", "upper_bound"),
+            dict(),
         )
 
 
-class _Circular(_Interval, _SingletonConstraint):
+class _Circular(_SingletonConstraint, _Interval):
     def __init__(self):
         super().__init__(-math.pi, math.pi)
 
 
-class _UnitInterval(_Interval, _SingletonConstraint):
+class _UnitInterval(_SingletonConstraint, _Interval):
     def __init__(self):
         super().__init__(0.0, 1.0)
 
@@ -461,6 +556,14 @@ class _Multinomial(Constraint):
         )
         value = jax.numpy.pad(jax.numpy.expand_dims(self.upper_bound, -1), pad_width)
         return jax.numpy.broadcast_to(value, prototype.shape)
+
+    def tree_flatten(self):
+        return (self.upper_bound,), (("upper_bound",), dict())
+
+    def __eq__(self, other):
+        if not isinstance(other, _Multinomial):
+            return False
+        return jnp.array_equal(self.upper_bound, other.upper_bound)
 
 
 class _L1Ball(_SingletonConstraint):
@@ -546,7 +649,7 @@ class _Simplex(_SingletonConstraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
-class _SoftplusPositive(_GreaterThan, _SingletonConstraint):
+class _SoftplusPositive(_SingletonConstraint, _GreaterThan):
     def __init__(self):
         super().__init__(lower_bound=0.0)
 

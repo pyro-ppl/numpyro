@@ -164,7 +164,6 @@ def _load_mnist():
     def read_label(file):
         with gzip.open(file, "rb") as f:
             f.read(8)
-            # TODO: fix upstream
             data = np.frombuffer(f.read(), dtype=np.int8)
             return data
 

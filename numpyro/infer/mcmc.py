@@ -206,11 +206,11 @@ class MCMC(object):
         correctly. If you are using Jupyter Notebook or Jupyter Lab, please also install the
         corresponding extension package like `widgetsnbextension` or `jupyterlab_widgets`.
 
-    ..note:: If your dataset is large and you have access to multiple acceleration devices,
+    .. note:: If your dataset is large and you have access to multiple acceleration devices,
         you can distribute the computation across multiple devices. Make sure that your jax version
         is v0.4.4 or newer. For example,
 
-        .. code-block::python
+        .. code-block:: python
 
             import jax
             from jax.experimental import mesh_utils
