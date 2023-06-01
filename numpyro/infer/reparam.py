@@ -72,8 +72,7 @@ class LocScaleReparam(Reparam):
     1. *Automatic Reparameterisation of Probabilistic Programs*,
        Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019)
 
-    :param float centered: optional centered parameter. If None (default) learn
-        a per-site per-element centering parameter in ``[0,1]``. If 0, fully
+    :param float centered: optional centered parameter. If None (default) considers centered parameter to be 0.5. If 0, fully
         decenter the distribution; if 1, preserve the centered distribution
         unchanged.
     :param shape_params: list of additional parameter names to copy unchanged from
