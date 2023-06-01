@@ -499,6 +499,14 @@ class _Interval(Constraint):
             dict(),
         )
 
+    def vmap_over(self, lower_bound, upper_bound):
+        import copy
+
+        axes = copy.copy(self)
+        axes.lower_bound = lower_bound
+        axes.upper_bound = upper_bound
+        return axes
+
 
 class _Circular(_SingletonConstraint, _Interval):
     def __init__(self):

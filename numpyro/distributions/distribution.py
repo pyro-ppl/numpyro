@@ -27,6 +27,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+import copy
 import functools
 import inspect
 import warnings
@@ -607,9 +608,13 @@ class ExpandedDistribution(Distribution):
         )
 
     def _should_use_new_flatten(self):
-        from numpyro.distributions import Normal
+        from numpyro.distributions import Normal, Uniform
 
-        return isinstance(self.base_dist, Normal)
+        return (
+            self.base_dist is None
+            or isinstance(self.base_dist, (Normal, Uniform))
+            or type(self.base_dist) is object
+        )
 
     @classmethod
     def _should_use_new_unflatten(cls, aux_data):
@@ -670,6 +675,13 @@ class ExpandedDistribution(Distribution):
             return cls._new_unflatten(aux_data, params)
         else:
             return cls._old_unflatten(aux_data, params)
+
+    def vmap_over(self, base_dist):
+        import copy
+
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = base_dist
+        return dist_axes
 
 
 class ImproperUniform(Distribution):
@@ -1092,12 +1104,28 @@ class TransformedDistribution(Distribution):
         raise NotImplementedError
 
     def tree_flatten(self):
-        raise NotImplementedError(
-            "Flatenning TransformedDistribution is only supported for some specific cases."
-            " Consider using `TransformReparam` to convert this distribution to the base_dist,"
-            " which is supported in most situtations. In addition, please reach out to us with"
-            " your usage cases."
+        return (
+            (self.transforms, self.base_dist),
+            (self.batch_shape, self.event_shape),
         )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        transforms, base_dist = params
+        d.transforms = transforms
+        d.base_dist = base_dist
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
+    def vmap_over(self, base_dist, transforms):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.base_dist = base_dist
+        dist_axes.transforms = transforms
+        return dist_axes
 
 
 class FoldedDistribution(TransformedDistribution):

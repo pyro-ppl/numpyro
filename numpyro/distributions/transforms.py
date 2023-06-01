@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
 import math
 import warnings
 import weakref
@@ -257,6 +258,13 @@ class AffineTransform(Transform):
             & (self.domain == other.domain)
         )
 
+    def vmap_over(self, loc, scale):
+        dist_axes = copy.copy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        dist_axes.domain = None
+        return dist_axes
+
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
@@ -498,6 +506,9 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
         n = jnp.shape(x)[-1]
         order = -jnp.arange(n - 1, -1, -1)
         return jnp.sum(order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1)
+
+    def vmap_over(self):
+        return None
 
 
 class ExpTransform(Transform):
@@ -900,6 +911,11 @@ class PowerTransform(Transform):
         if not isinstance(other, PowerTransform):
             return False
         return jnp.array_equal(self.exponent, other.exponent)
+
+    def vmap_over(self, exponent):
+        axes = copy.copy(self)
+        axes.exponent = exponent
+        return axes
 
 
 class SigmoidTransform(ParameterFreeTransform):

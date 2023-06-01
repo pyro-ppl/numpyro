@@ -52,7 +52,11 @@ from jax.scipy.stats import norm as jax_norm
 
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
-from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.distribution import (
+    Distribution,
+    ExpandedDistribution,
+    TransformedDistribution,
+)
 from numpyro.distributions.transforms import (
     AffineTransform,
     CorrMatrixCholeskyTransform,
@@ -197,7 +201,7 @@ class Beta(Distribution):
             jnp.stack([concentration1, concentration0], axis=-1)
         )
 
-    def vmap_over(self, concentration1, concentration0):
+    def vmap_over(self, concentration1=None, concentration0=None):
         dist_axes = copy.deepcopy(self)
         dist_axes.concentration1 = concentration1
         dist_axes.concentration0 = concentration0
@@ -234,25 +238,25 @@ class Beta(Distribution):
     def tree_flatten(self):
         return (
             (
-                *tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-                self._dirichlet
+                self._dirichlet,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
             ),
-            (
-                (*tuple(self.arg_constraints.keys()), "_dirichlet"),
-                (self.batch_shape, self.event_shape)
-            )
+            (self.batch_shape, self.event_shape),
         )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        param_names, (batch_shape, event_shape) = aux_data
+        batch_shape, event_shape = aux_data
+        _dirichlet, params = params
         assert isinstance(batch_shape, tuple)
         assert isinstance(event_shape, tuple)
         d = cls.__new__(cls)
-        for k, v in zip(param_names, params):
+        for k, v in zip(cls.arg_constraints.keys(), params):
             setattr(d, k, v)
         Distribution.__init__(d, batch_shape, event_shape)
+        d._dirichlet = _dirichlet
         return d
+
 
 class Cauchy(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -271,7 +275,6 @@ class Cauchy(Distribution):
         dist_axes.loc = loc
         dist_axes.scale = scale
         return dist_axes
-
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -343,7 +346,6 @@ class Dirichlet(Distribution):
         dist_axes = copy.deepcopy(self)
         dist_axes.concentration = concentration
         return dist_axes
-
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -582,6 +584,7 @@ class Exponential(Distribution):
         Distribution.__init__(d, batch_shape, event_shape)
         return d
 
+
 class Gamma(Distribution):
     arg_constraints = {
         "concentration": constraints.positive,
@@ -651,8 +654,6 @@ class Gamma(Distribution):
         return d
 
 
-
-
 class Chi2(Gamma):
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
@@ -660,6 +661,35 @@ class Chi2(Gamma):
     def __init__(self, df, *, validate_args=None):
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
+
+    def vmap_over(self, df=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration = df
+        dist_axes.rate = df
+        dist_axes.df = df
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(
+                getattr(self, param)
+                for param in {**self.arg_constraints, **Gamma.arg_constraints}.keys()
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(
+            {**cls.arg_constraints, **Gamma.arg_constraints}.keys(), params
+        ):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class GaussianRandomWalk(Distribution):
@@ -702,12 +732,28 @@ class GaussianRandomWalk(Distribution):
             self.batch_shape + self.event_shape,
         )
 
+    def vmap_over(self, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.scale = scale
+        return dist_axes
+
     def tree_flatten(self):
-        return (self.scale,), self.num_steps
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape, self.num_steps),
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(*params, num_steps=aux_data)
+        batch_shape, event_shape, num_steps = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        d.num_steps = num_steps
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class HalfCauchy(Distribution):
@@ -744,6 +790,34 @@ class HalfCauchy(Distribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.inf)
 
+    def vmap_over(self, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.scale = scale
+        dist_axes._cauchy = self._cauchy.vmap_over(scale, scale)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._cauchy,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        cauchy, params = params
+        d._cauchy = cauchy
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class HalfNormal(Distribution):
     reparametrized_params = ["scale"]
@@ -778,6 +852,34 @@ class HalfNormal(Distribution):
     @property
     def variance(self):
         return (1 - 2 / jnp.pi) * self.scale**2
+
+    def vmap_over(self, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.scale = scale
+        dist_axes._normal = self._normal.vmap_over(scale, scale)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._normal,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        normal, params = params
+        d._normal = normal
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class InverseGamma(TransformedDistribution):
@@ -815,10 +917,25 @@ class InverseGamma(TransformedDistribution):
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        return super(InverseGamma, self).tree_flatten()
 
     def cdf(self, x):
         return 1 - self.base_dist.cdf(1 / x)
+
+    def vmap_over(self, concentration=None, rate=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(concentration, rate)
+        dist_axes.concentration = concentration
+        dist_axes.rate = rate
+        dist_axes.transforms = None
+        return dist_axes
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = super(InverseGamma, cls).tree_unflatten(aux_data, params)
+        d.concentration = d.base_dist.concentration
+        d.rate = d.base_dist.rate
+        return d
 
 
 class Gompertz(Distribution):
@@ -877,6 +994,29 @@ class Gompertz(Distribution):
     def mean(self):
         return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
+    def vmap_over(self, concentration=None, rate=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration = concentration
+        dist_axes.rate = rate
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class Gumbel(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -918,6 +1058,29 @@ class Gumbel(Distribution):
 
     def icdf(self, q):
         return self.loc - self.scale * jnp.log(-jnp.log(q))
+
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class Kumaraswamy(TransformedDistribution):
@@ -976,8 +1139,33 @@ class Kumaraswamy(TransformedDistribution):
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
 
+    def vmap_over(self, concentration0=None, concentration1=None):
+        dist_axes = copy.copy(self)
+        if isinstance(dist_axes.base_dist, Uniform):
+            dist_axes.base_dist = dist_axes.base_dist.vmap_over(None, None)
+        else:
+            assert isinstance(dist_axes.base_dist, ExpandedDistribution)
+            dist_axes.base_dist = dist_axes.base_dist.vmap_over(None)
+        dist_axes.concentration0 = concentration0
+        dist_axes.concentration1 = concentration1
+        dist_axes.transforms = [
+            dist_axes.transforms[0].vmap_over(concentration0),
+            dist_axes.transforms[1].vmap_over(None, None),
+            dist_axes.transforms[2].vmap_over(concentration1),
+        ]
+        return dist_axes
+
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        params, aux_data = super(Kumaraswamy, self).tree_flatten()
+        return ((self.concentration0, self.concentration1), params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        (concentration0, concentration1), params = params
+        d = super(Kumaraswamy, cls).tree_unflatten(aux_data, params)
+        d.concentration0 = concentration0
+        d.concentration1 = concentration1
+        return d
 
 
 class Laplace(Distribution):
@@ -1020,6 +1208,29 @@ class Laplace(Distribution):
     def icdf(self, q):
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
+
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class LKJ(TransformedDistribution):
@@ -1092,13 +1303,29 @@ class LKJ(TransformedDistribution):
             self.batch_shape + (self.dimension, self.dimension),
         )
 
+    def vmap_over(self, concentration=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(concentration)
+        dist_axes.concentration = concentration
+        dist_axes.transforms = None
+        return dist_axes
+
     def tree_flatten(self):
-        return (self.concentration,), (self.dimension, self.sample_method)
+        params, aux_data = super(LKJ, self).tree_flatten()
+        return (self.concentration, params), (
+            (self.dimension, self.sample_method),
+            aux_data,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method = aux_data
-        return cls(dimension, *params, sample_method=sample_method)
+        concentration, params = params
+        (dimension, sample_method), aux_data = aux_data
+        d = super(LKJ, cls).tree_unflatten(aux_data, params)
+        d.dimension = dimension
+        d.sample_method = sample_method
+        d.concentration = concentration
+        return d
 
 
 class LKJCholesky(Distribution):
@@ -1303,13 +1530,35 @@ class LKJCholesky(Distribution):
         normalize_term = pi_constant + numerator - denominator
         return unnormalized - normalize_term
 
+    def vmap_over(self, concentration):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration = concentration
+        if dist_axes.sample_method == "onion":
+            dist_axes._beta = dist_axes._beta.vmap_over(None, concentration)
+        elif dist_axes.sample_method == "cvine":
+            dist_axes._beta = dist_axes._beta.vmap_over(concentration, concentration)
+        return dist_axes
+
     def tree_flatten(self):
-        return (self.concentration,), (self.dimension, self.sample_method)
+        return (
+            (self._beta, (self.concentration,)),
+            (self.dimension, self.sample_method, (self.batch_shape, self.event_shape)),
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method = aux_data
-        return cls(dimension, *params, sample_method=sample_method)
+        dimension, sample_method, (batch_shape, event_shape) = aux_data
+        _beta, params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._beta = _beta
+        d.dimension = dimension
+        d.sample_method = sample_method
+        return d
 
 
 class LogNormal(TransformedDistribution):
@@ -1332,11 +1581,28 @@ class LogNormal(TransformedDistribution):
     def variance(self):
         return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
+
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(loc, scale)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        dist_axes.transforms = None
+        return dist_axes
+
+    def tree_flatten(self):
+        params, aux_data = super(LogNormal, self).tree_flatten()
+        return ((self.loc, self.scale), params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        (loc, scale), params = params
+        d = super(LogNormal, cls).tree_unflatten(aux_data, params)
+        d.loc = loc
+        d.scale = scale
+        return d
 
 
 class Logistic(Distribution):
@@ -1378,6 +1644,29 @@ class Logistic(Distribution):
     def icdf(self, q):
         return self.loc + self.scale * logit(q)
 
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
@@ -1406,11 +1695,28 @@ class LogUniform(TransformedDistribution):
             - self.mean**2
         )
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
+
+    def vmap_over(self, low=None, high=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(low, high)
+        dist_axes.low = low
+        dist_axes.high = high
+        dist_axes._support = dist_axes._support.vmap_over(low, high)
+        return dist_axes
+
+    def tree_flatten(self):
+        params, aux_data = super(LogUniform, self).tree_flatten()
+        return ((self.low, self.high), params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        (low, high), params = params
+        d = super(LogUniform, cls).tree_unflatten(aux_data, params)
+        d.low = low
+        d.high = high
+        return d
 
 
 def _batch_solve_triangular(A, B):
@@ -1541,6 +1847,30 @@ class MatrixNormal(Distribution):
         log_prob = -0.5 * batched_trace_term - log_det_term
 
         return log_prob
+
+    def vmap_over(self, loc=None, scale_tril_row=None, scale_tril_column=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.scale_tril_row = scale_tril_row
+        dist_axes.scale_tril_column = scale_tril_column
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 def _batch_mahalanobis(bL, bx):
@@ -1946,32 +2276,6 @@ class CAR(Distribution):
         correlation = jnp.expand_dims(self.correlation, (-2, -1))
         return conditional_precision * (D - correlation * adj_matrix)
 
-    def tree_flatten(self):
-        if self.is_sparse:
-            return (self.loc, self.correlation, self.conditional_precision), (
-                self.is_sparse,
-                self.adj_matrix,
-            )
-        else:
-            return (
-                self.loc,
-                self.correlation,
-                self.conditional_precision,
-                self.adj_matrix,
-            ), (self.is_sparse,)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        is_sparse = aux_data[0]
-        if is_sparse:
-            loc, correlation, conditional_precision = params
-            adj_matrix = aux_data[1]
-        else:
-            loc, correlation, conditional_precision, adj_matrix = params
-        return cls(
-            loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse
-        )
-
     @staticmethod
     def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
         event_shape = adj_matrix[-1:]
@@ -1979,6 +2283,34 @@ class CAR(Distribution):
             loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
         )
         return batch_shape, event_shape
+
+    def vmap_over(
+        self, loc=None, correlation=None, conditional_precision=None, adj_matrix=None
+    ):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+        dist_axes.correlation = correlation
+        dist_axes.conditional_precision = conditional_precision
+        dist_axes.adj_matrix = adj_matrix
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            (self.is_sparse, self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        is_sparse, batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.is_sparse = is_sparse
+        return d
 
 
 class MultivariateStudentT(Distribution):
@@ -2075,6 +2407,36 @@ class MultivariateStudentT(Distribution):
         event_shape = (scale_tril[-1],)
         batch_shape = lax.broadcast_shapes(df, loc[:-1], scale_tril[:-2])
         return batch_shape, event_shape
+
+    def vmap_over(self, df=None, loc=None, scale_tril=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.df = df
+        dist_axes.loc = loc
+        dist_axes.scale_tril = scale_tril
+        dist_axes._chi2 = dist_axes._chi2.vmap_over(df)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._chi2,
+                (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        chi2, params = params
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._chi2 = chi2
+        return d
 
 
 def _batch_mv(bmat, bvec):
@@ -2260,6 +2622,37 @@ class LowRankMultivariateNormal(Distribution):
         batch_shape = lax.broadcast_shapes(loc[:-1], cov_factor[:-2], cov_diag[:-1])
         return batch_shape, event_shape
 
+    def vmap_over(self, loc=None, cov_factor=None, cov_diag=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.loc = loc
+
+        dist_axes.cov_factor = cov_factor
+        dist_axes.cov_diag = cov_diag
+        dist_axes._capacitance_tril = cov_diag if cov_diag is not None else cov_factor
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._capacitance_tril,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        capacitance_tril, params = params
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._capacitance_tril = capacitance_tril
+        return d
+
 
 class Normal(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -2369,8 +2762,25 @@ class Pareto(TransformedDistribution):
     def icdf(self, q):
         return self.scale / jnp.power(1 - q, 1 / self.alpha)
 
+    def vmap_over(self, scale=None, alpha=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(alpha)
+        dist_axes.scale = scale
+        dist_axes.alpha = alpha
+        dist_axes.transforms = [None, self.transforms[1].vmap_over(None, scale)]
+        return dist_axes
+
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        params, aux_data = super(Pareto, self).tree_flatten()
+        return ((self.scale, self.alpha), params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        (scale, alpha), params = params
+        d = super(Pareto, cls).tree_unflatten(aux_data, params)
+        d.scale = scale
+        d.alpha = alpha
+        return d
 
 
 class RelaxedBernoulliLogits(TransformedDistribution):
@@ -2383,8 +2793,27 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         transforms = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
 
+    def vmap_over(self, temperature=None, logits=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(
+            logits if logits is not None else temperature, temperature
+        )
+        dist_axes.temperature = temperature
+        dist_axes.logits = logits
+        dist_axes.transforms = None
+        return dist_axes
+
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        params, aux_data = super(RelaxedBernoulliLogits, self).tree_flatten()
+        return ((self.temperature, self.logits), params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        (temperature, logits), params = params
+        d = super(RelaxedBernoulliLogits, cls).tree_unflatten(aux_data, params)
+        d.temperature = temperature
+        d.logits = logits
+        return d
 
 
 def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
@@ -2450,6 +2879,29 @@ class SoftLaplace(Distribution):
     @property
     def variance(self):
         return (jnp.pi / 2 * self.scale) ** 2
+
+    def vmap_over(self, loc=None, scale=None):
+        dist_axes = copy.copy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class StudentT(Distribution):
@@ -2528,6 +2980,36 @@ class StudentT(Distribution):
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
         return scaled * self.scale + self.loc
 
+    def vmap_over(self, df=None, loc=None, scale=None):
+        dist_axes = copy.copy(self)
+        dist_axes.df = df
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        dist_axes._chi2 = dist_axes._chi2.vmap_over(df)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._chi2,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        _chi2, params = params
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._chi2 = _chi2
+        return d
+
 
 class Uniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
@@ -2567,27 +3049,40 @@ class Uniform(Distribution):
     def variance(self):
         return (self.high - self.low) ** 2 / 12.0
 
-    def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)) and isinstance(
-            self._support.upper_bound, (int, float)
-        ):
-            aux_data = (self._support.lower_bound, self._support.upper_bound)
-        else:
-            aux_data = None
-        return (self.low, self.high), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.interval(*aux_data)
-        return d
-
     @staticmethod
     def infer_shapes(low=(), high=()):
         batch_shape = lax.broadcast_shapes(low, high)
         event_shape = ()
         return batch_shape, event_shape
+
+    def vmap_over(self, low=None, high=None):
+        dist_axes = copy.copy(self)
+        dist_axes.low = low
+        dist_axes.high = high
+        dist_axes._support = dist_axes._support.vmap_over(low, high)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._support,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        _support, params = params
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._support = _support
+        return d
 
 
 class Weibull(Distribution):
@@ -2634,6 +3129,29 @@ class Weibull(Distribution):
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
 
+    def vmap_over(self, scale=None, concentration=None):
+        dist_axes = copy.copy(self)
+        dist_axes.scale = scale
+        dist_axes.concentration = concentration
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class BetaProportion(Beta):
     """
@@ -2662,6 +3180,40 @@ class BetaProportion(Beta):
             (1.0 - mean) * concentration,
             validate_args=validate_args,
         )
+
+    def vmap_over(self, mean=None, concentration=None):
+        dist_axes = copy.copy(self)
+        dist_axes.concentration = concentration
+        return super(BetaProportion, dist_axes).vmap_over(
+            concentration if concentration is not None else mean,
+            concentration if concentration is not None else mean,
+        )
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._dirichlet,
+                self.concentration,
+                self.concentration0,
+                self.concentration1,
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        _dirichlet, concentration, concentration0, concentration1 = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._dirichlet = _dirichlet
+        d.concentration = concentration
+        d.concentration0 = concentration0
+        d.concentration1 = concentration1
+        return d
 
 
 class AsymmetricLaplaceQuantile(Distribution):
@@ -2723,3 +3275,35 @@ class AsymmetricLaplaceQuantile(Distribution):
 
     def icdf(self, value):
         return self._ald.icdf(value)
+
+    def vmap_over(self, loc=None, scale=None, quantile=None):
+        dist_axes = copy.copy(self)
+        dist_axes.loc = loc
+        dist_axes.scale = scale
+        dist_axes.quantile = quantile
+        dist_axes._ald = dist_axes._ald.vmap_over(
+            loc=loc, scale=scale if scale is not None else quantile, asymmetry=quantile
+        )
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._ald,
+                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        _ald, params = params
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._ald = _ald
+        return d
