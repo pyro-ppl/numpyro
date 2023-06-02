@@ -69,7 +69,7 @@ class SteinLoss:
         elbo = log_model_density - log_guide_density
         return elbo
 
-    def loss(self, rng_key, param_map, particles, model, guide, *args, **kwargs):
+    def loss(self, rng_key, param_map, model, guide, particles, *args, **kwargs):
         if not particles:
             raise ValueError("Stein mixture undefined for empty guide.")
 
