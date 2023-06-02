@@ -8,7 +8,9 @@ from itertools import chain
 import operator
 from typing import Callable
 
-from jax import grad, jacfwd, numpy as jnp, random, vmap
+import jax  # TODO: fix imports
+import jax.random
+from jax import random, grad, vmap, numpy as jnp
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -247,9 +249,9 @@ class SteinVI:
             lambda cps: -self.stein_loss.loss(
                 classic_key,
                 self.constrain_fn(cps),
-                unravel_pytree_batched(ctstein_particles),
                 handlers.scale(self._inference_model, self.loss_temperature),
                 self.guide,
+                unravel_pytree_batched(ctstein_particles),
                 *args,
                 **kwargs,
             )
