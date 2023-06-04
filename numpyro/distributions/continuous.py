@@ -2291,18 +2291,33 @@ class CAR(Distribution):
         dist_axes.loc = loc
         dist_axes.correlation = correlation
         dist_axes.conditional_precision = conditional_precision
-        dist_axes.adj_matrix = adj_matrix
+        if not self.is_sparse:
+            dist_axes.adj_matrix = adj_matrix
+        else:
+            assert adj_matrix is None
         return dist_axes
 
     def tree_flatten(self):
-        return (
-            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            (self.is_sparse, self.batch_shape, self.event_shape),
-        )
+        if not self.is_sparse:
+            return (
+                (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
+                (self.is_sparse, self.batch_shape, self.event_shape),
+            )
+        else:
+            return (
+                (
+                    tuple(
+                        getattr(self, param)
+                        for param in self.arg_constraints.keys()
+                        if param != "adj_matrix"
+                    )
+                ),
+                (self.is_sparse, self.batch_shape, self.event_shape, self.adj_matrix),
+            )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        is_sparse, batch_shape, event_shape = aux_data
+        is_sparse, batch_shape, event_shape = aux_data[:3]
         assert isinstance(batch_shape, tuple)
         assert isinstance(event_shape, tuple)
         d = cls.__new__(cls)
@@ -2310,6 +2325,9 @@ class CAR(Distribution):
             setattr(d, k, v)
         Distribution.__init__(d, batch_shape, event_shape)
         d.is_sparse = is_sparse
+        if is_sparse:
+            assert len(aux_data) == 4
+            d.adj_matrix = aux_data[3]
         return d
 
 
