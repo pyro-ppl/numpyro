@@ -164,9 +164,10 @@ class _InverseTransform(Transform):
     def tree_flatten(self):
         return (self._inv,), (("_inv",), dict())
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(params)
+    def __eq__(self, other):
+        if not isinstance(other, _InverseTransform):
+            return False
+        return self._inv == other._inv
 
 
 class AbsTransform(ParameterFreeTransform):
