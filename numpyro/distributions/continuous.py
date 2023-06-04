@@ -201,17 +201,6 @@ class Beta(Distribution):
             jnp.stack([concentration1, concentration0], axis=-1)
         )
 
-    def vmap_over(self, concentration1=None, concentration0=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration1 = concentration1
-        dist_axes.concentration0 = concentration0
-
-        if concentration1 is not None or concentration0 is not None:
-            dist_axes._dirichlet = 0
-        else:
-            dist_axes._dirichlet = None
-        return dist_axes
-
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         return self._dirichlet.sample(key, sample_shape)[..., 0]
@@ -234,6 +223,17 @@ class Beta(Distribution):
 
     def icdf(self, q):
         return betaincinv(self.concentration1, self.concentration0, q)
+
+    def vmap_over(self, concentration1=None, concentration0=None):
+        dist_axes = copy.deepcopy(self)
+        dist_axes.concentration1 = concentration1
+        dist_axes.concentration0 = concentration0
+
+        if concentration1 is not None or concentration0 is not None:
+            dist_axes._dirichlet = 0
+        else:
+            dist_axes._dirichlet = None
+        return dist_axes
 
     def tree_flatten(self):
         return (

@@ -241,6 +241,37 @@ class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
         self.rate = rate
         super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
 
+    def vmap_over(self, rate=None, gate_logits=None):
+        dist_axes = super().vmap_over(
+            base_dist=self.base_dist.vmap_over(rate), gate_logits=gate_logits
+        )
+        dist_axes.rate = rate
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self.base_dist,
+                *tuple(
+                    getattr(self, param) for param in ("rate", "gate", "gate_logits")
+                ),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        base_dist, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("rate", "gate", "gate_logits"), params):
+            setattr(d, k, v)
+        dist.Distribution.__init__(d, batch_shape, event_shape)
+        d.base_dist = base_dist
+        return d
+
 
 class SparsePoisson(dist.Poisson):
     def __init__(self, rate, *, validate_args=None):
@@ -3126,6 +3157,26 @@ VMAPPABLE_DISTS = [
         dist.Weibull,
         dist.BetaProportion,
         dist.AsymmetricLaplaceQuantile,
+        # DISCRETE
+        dist.BetaBinomial,
+        dist.BernoulliProbs,
+        dist.BernoulliLogits,
+        dist.CategoricalProbs,
+        dist.CategoricalLogits,
+        dist.Delta,
+        dist.DirichletMultinomial,
+        dist.GammaPoisson,
+        dist.GeometricProbs,
+        dist.GeometricLogits,
+        dist.MultinomialProbs,
+        dist.MultinomialLogits,
+        dist.NegativeBinomialProbs,
+        dist.NegativeBinomialLogits,
+        dist.NegativeBinomial2,
+        dist.DiscreteUniform,
+        dist.Poisson,
+        dist.ZeroInflatedPoisson,
+        ZeroInflatedPoissonLogits,
     )
 ]
 
@@ -3170,6 +3221,25 @@ VMAPPABLE_ARGS = {
     dist.Weibull: (0, 1),
     dist.BetaProportion: (0, 1),
     dist.AsymmetricLaplaceQuantile: (0, 1, 2),
+    dist.BetaBinomial: (0, 1, 2),
+    dist.BernoulliProbs: (0,),
+    dist.BernoulliLogits: (0,),
+    dist.CategoricalProbs: (0,),
+    dist.CategoricalLogits: (0,),
+    dist.Delta: (0, 1),
+    dist.DirichletMultinomial: (0,),
+    dist.GammaPoisson: (0, 1),
+    dist.GeometricProbs: (0,),
+    dist.GeometricLogits: (0,),
+    dist.MultinomialProbs: (0,),
+    dist.MultinomialLogits: (0,),
+    dist.NegativeBinomialProbs: (0, 1),
+    dist.NegativeBinomialLogits: (0, 1),
+    dist.NegativeBinomial2: (0, 1),
+    dist.DiscreteUniform: (0, 1),
+    dist.Poisson: (0,),
+    dist.ZeroInflatedPoisson: (0, 1),
+    ZeroInflatedPoissonLogits: (0, 1),
 }
 
 
@@ -3215,7 +3285,10 @@ def test_vmap_dist(jax_dist, sp_dist, params):
             if i in vmappable_arg_idxs:
                 assert getattr(batched_d, k).shape == (1, *getattr(d, k).shape)
             else:
-                assert getattr(batched_d, k) == getattr(d, k)
+                if isinstance(getattr(d, k), np.ndarray):
+                    assert np.allclose(getattr(batched_d, k), getattr(d, k))
+                else:
+                    assert getattr(batched_d, k) == getattr(d, k)
 
     samples_dist = sample(d)
     samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
@@ -3310,13 +3383,14 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 for i, (k, v) in enumerate(
                     zip(batched_d.arg_constraints.keys(), batched_params)
                 ):
-                    init_v_shape = getattr(d, k).shape
-                    if i == idx:
-                        assert getattr(batched_d, k).shape == (
-                            init_v_shape[0],
-                            1,
-                            *init_v_shape[1:],
-                        )
+                    if i in VMAPPABLE_ARGS:
+                        init_v_shape = getattr(d, k).shape
+                        if i == idx:
+                            assert getattr(batched_d, k).shape == (
+                                init_v_shape[0],
+                                1,
+                                *init_v_shape[1:],
+                            )
 
 
 def test_multinomial_abstract_total_count():

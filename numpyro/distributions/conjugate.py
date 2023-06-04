@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+import copy
 
 from jax import lax, nn, random
 import jax.numpy as jnp
@@ -92,6 +93,37 @@ class BetaBinomial(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
+    def vmap_over(self, concentration1=None, concentration0=None, total_count=None):
+        dist_axes = copy.copy(self)
+        dist_axes.concentration1 = concentration1
+        dist_axes.concentration0 = concentration0
+        dist_axes.total_count = total_count
+        dist_axes._beta = dist_axes._beta.vmap_over(concentration1, concentration0)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._beta,
+                *tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        _beta, *params = params
+        # d = super(BetaBinomial, cls).tree_unflatten(aux_data, params)
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._beta = _beta
+        return d
+
 
 class DirichletMultinomial(Distribution):
     r"""
@@ -167,6 +199,42 @@ class DirichletMultinomial(Distribution):
         event_shape = concentration[-1:]
         return batch_shape, event_shape
 
+    def vmap_over(self, concentration=None):
+        dist_axes = copy.copy(self)
+        dist_axes.concentration = concentration
+        dist_axes._dirichlet = dist_axes._dirichlet.vmap_over(concentration)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._dirichlet,
+                *tuple(
+                    getattr(self, param)
+                    for param in self.arg_constraints.keys()
+                    if param != "total_count"
+                ),
+            ),
+            (self.batch_shape, self.event_shape, self.total_count),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape, total_count = aux_data
+        _dirichlet, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(
+            (param for param in cls.arg_constraints.keys() if param != "total_count"),
+            params,
+        ):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._dirichlet = _dirichlet
+        d.total_count = total_count
+        return d
+
 
 class GammaPoisson(Distribution):
     r"""
@@ -219,6 +287,35 @@ class GammaPoisson(Distribution):
         bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
         return bt
 
+    def vmap_over(self, concentration=None, rate=None):
+        dist_axes = copy.copy(self)
+        dist_axes.concentration = concentration
+        dist_axes.rate = rate
+        dist_axes._gamma = dist_axes._gamma.vmap_over(concentration, rate)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self._gamma,
+                *tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        _gamma, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._gamma = _gamma
+        return d
+
 
 def NegativeBinomial(total_count, probs=None, logits=None, *, validate_args=None):
     if probs is not None:
@@ -242,6 +339,45 @@ class NegativeBinomialProbs(GammaPoisson):
         rate = 1.0 / probs - 1.0
         super().__init__(concentration, rate, validate_args=validate_args)
 
+    def vmap_over(self, total_count=None, probs=None):
+        dist_axes = super(NegativeBinomialProbs, self).vmap_over(total_count, probs)
+        dist_axes.total_count = total_count
+        dist_axes.probs = probs
+        return dist_axes
+
+    def tree_flatten(self):
+        params, aux_data = (
+            (
+                self._gamma,
+                *tuple(
+                    getattr(self, param)
+                    for param in GammaPoisson.arg_constraints.keys()
+                ),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+        return (self.total_count, self.probs, *params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        total_count, probs, *params = params
+
+        # GammaPoisson bit
+        batch_shape, event_shape = aux_data
+        _gamma, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(GammaPoisson.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._gamma = _gamma
+
+        d.total_count = total_count
+        d.probs = probs
+        return d
+
 
 class NegativeBinomialLogits(GammaPoisson):
     arg_constraints = {
@@ -264,6 +400,24 @@ class NegativeBinomialLogits(GammaPoisson):
             + _log_beta_1(self.total_count, value)
         )
 
+    def vmap_over(self, total_count=None, logits=None):
+        dist_axes = super(NegativeBinomialLogits, self).vmap_over(total_count, logits)
+        dist_axes.total_count = total_count
+        dist_axes.logits = logits
+        return dist_axes
+
+    def tree_flatten(self):
+        params, aux_data = super(NegativeBinomialLogits, self).tree_flatten()
+        return (self.total_count, self.logits, *params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        total_count, logits, *params = params
+        d = super(NegativeBinomialLogits, cls).tree_unflatten(aux_data, params)
+        d.total_count = total_count
+        d.logits = logits
+        return d
+
 
 class NegativeBinomial2(GammaPoisson):
     """
@@ -279,6 +433,34 @@ class NegativeBinomial2(GammaPoisson):
     def __init__(self, mean, concentration, *, validate_args=None):
         rate = concentration / mean
         super().__init__(concentration, rate, validate_args=validate_args)
+
+    def vmap_over(self, mean=None, concentration=None):
+        return super(NegativeBinomial2, self).vmap_over(
+            concentration, concentration if concentration is not None else mean
+        )
+
+    # needs ovveriding because "mean" argname does not play well with setattr
+    def tree_flatten(self):
+        return (
+            (
+                self._gamma,
+                *tuple(getattr(self, param) for param in ("rate", "concentration")),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        _gamma, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("rate", "concentration"), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d._gamma = _gamma
+        return d
 
 
 def ZeroInflatedNegativeBinomial2(

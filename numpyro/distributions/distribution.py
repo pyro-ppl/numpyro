@@ -1206,12 +1206,28 @@ class Delta(Distribution):
     def variance(self):
         return jnp.zeros(self.batch_shape + self.event_shape)
 
+    def vmap_over(self, v=None, log_density=None):
+        dist_axes = copy.copy(self)
+        dist_axes.v = v
+        dist_axes.log_density = log_density
+        return dist_axes
+
     def tree_flatten(self):
-        return (self.v, self.log_density), self.event_dim
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(*params, event_dim=aux_data)
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 class Unit(Distribution):

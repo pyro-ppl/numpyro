@@ -56,7 +56,7 @@ __all__ = [
     "unit_interval",
     "Constraint",
 ]
-
+import copy
 import math
 
 import numpy as np
@@ -420,6 +420,12 @@ class _IntegerInterval(Constraint):
             ("lower_bound", "upper_bound"),
             dict(),
         )
+
+    def vmap_over(self, lower_bound=None, upper_bound=None):
+        dist_axes = copy.copy(self)
+        dist_axes.lower_bound = lower_bound
+        dist_axes.upper_bound = upper_bound
+        return dist_axes
 
     def __eq__(self, other):
         if not isinstance(other, _IntegerInterval):

@@ -24,6 +24,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+import copy
 
 import numpy as np
 
@@ -109,6 +110,28 @@ class BernoulliProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def vmap_over(self, probs=None):
+        dist_axes = copy.copy(self)
+        dist_axes.probs = probs
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -149,6 +172,28 @@ class BernoulliLogits(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
+
+    def vmap_over(self, logits=None):
+        dist_axes = copy.copy(self)
+        dist_axes.logits = logits
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 def Bernoulli(probs=None, logits=None, *, validate_args=None):
@@ -342,6 +387,28 @@ class CategoricalProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def vmap_over(self, probs=None):
+        dist_axes = copy.copy(self)
+        dist_axes.probs = probs
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
@@ -393,6 +460,28 @@ class CategoricalLogits(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
+
+    def vmap_over(self, logits=None):
+        dist_axes = copy.copy(self)
+        dist_axes.logits = logits
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 def Categorical(probs=None, logits=None, *, validate_args=None):
@@ -462,6 +551,30 @@ class DiscreteUniform(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def vmap_over(self, low=None, high=None):
+        dist_axes = copy.copy(self)
+        dist_axes.low = low
+        dist_axes.high = high
+        dist_axes._support = dist_axes._support.vmap_over(low, high)
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class OrderedLogistic(CategoricalProbs):
     """
@@ -497,6 +610,36 @@ class OrderedLogistic(CategoricalProbs):
         batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
         event_shape = ()
         return batch_shape, event_shape
+
+    def vmap_over(self, predictor=None, cutpoints=None):
+        dist_axes = super(OrderedLogistic, self).vmap_over(
+            probs=predictor if predictor is not None else cutpoints
+        )
+        dist_axes.predictor = predictor
+        return dist_axes
+
+    def tree_flatten(self):
+        params, aux_data = (
+            tuple(
+                getattr(self, param)
+                for param in CategoricalProbs.arg_constraints.keys()
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+        return (self.predictor, *params), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        predictor, *params = params
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(CategoricalProbs.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.predictor = predictor
+        return d
 
 
 class MultinomialProbs(Distribution):
@@ -561,6 +704,44 @@ class MultinomialProbs(Distribution):
         batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
         event_shape = probs[-1:]
         return batch_shape, event_shape
+
+    def vmap_over(self, probs=None):
+        dist_axes = copy.copy(self)
+        dist_axes.probs = probs
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                *tuple(
+                    getattr(self, param)
+                    for param in self.arg_constraints.keys()
+                    if param != "total_count"
+                ),
+            ),
+            (
+                self.batch_shape,
+                self.event_shape,
+                self.total_count,
+                self.total_count_max,
+            ),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape, total_count, total_count_max = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(
+            (param for param in cls.arg_constraints.keys() if param != "total_count"),
+            params,
+        ):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.total_count = total_count
+        d.total_count_max = total_count_max
+        return d
 
 
 class MultinomialLogits(Distribution):
@@ -630,6 +811,44 @@ class MultinomialLogits(Distribution):
         batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
         event_shape = logits[-1:]
         return batch_shape, event_shape
+
+    def vmap_over(self, logits=None):
+        dist_axes = copy.copy(self)
+        dist_axes.logits = logits
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                *tuple(
+                    getattr(self, param)
+                    for param in self.arg_constraints.keys()
+                    if param != "total_count"
+                ),
+            ),
+            (
+                self.batch_shape,
+                self.event_shape,
+                self.total_count,
+                self.total_count_max,
+            ),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape, total_count, total_count_max = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(
+            (param for param in cls.arg_constraints.keys() if param != "total_count"),
+            params,
+        ):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.total_count = total_count
+        d.total_count_max = total_count_max
+        return d
 
 
 def Multinomial(
@@ -724,6 +943,29 @@ class Poisson(Distribution):
         k = jnp.floor(value) + 1
         return gammaincc(k, self.rate)
 
+    def vmap_over(self, rate=None):
+        dist_axes = copy.copy(self)
+        dist_axes.rate = rate
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape, self.is_sparse),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape, is_sparse = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.is_sparse = is_sparse
+        return d
+
 
 class ZeroInflatedProbs(Distribution):
     arg_constraints = {"gate": constraints.unit_interval}
@@ -779,6 +1021,34 @@ class ZeroInflatedProbs(Distribution):
     def enumerate_support(self, expand=True):
         return self.base_dist.enumerate_support(expand=expand)
 
+    def vmap_over(self, base_dist=None, gate=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = base_dist
+        dist_axes.gate = gate
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self.base_dist,
+                *tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        base_dist, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.base_dist = base_dist
+        return d
+
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
     arg_constraints = {"gate_logits": constraints.real}
@@ -796,6 +1066,35 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         log_prob = log_prob_minus_log_gate + log_gate
         zero_log_prob = softplus(log_prob_minus_log_gate) + log_gate
         return jnp.where(value == 0, zero_log_prob, log_prob)
+
+    def vmap_over(self, base_dist=None, gate_logits=None):
+        dist_axes = copy.copy(self)
+        dist_axes.base_dist = base_dist
+        dist_axes.gate_logits = gate_logits
+        dist_axes.gate = gate_logits
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (
+                self.base_dist,
+                *tuple(getattr(self, param) for param in ("gate", "gate_logits")),
+            ),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        base_dist, *params = params
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("gate", "gate_logits"), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.base_dist = base_dist
+        return d
 
 
 def ZeroInflatedDistribution(
@@ -835,6 +1134,13 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         _, self.rate = promote_shapes(gate, rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
+    def vmap_over(self, gate=None, rate=None):
+        dist_axes = super().vmap_over(
+            base_dist=self.base_dist.vmap_over(rate), gate=gate
+        )
+        dist_axes.rate = rate
+        return dist_axes
+
 
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
@@ -871,6 +1177,28 @@ class GeometricProbs(Distribution):
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
 
+    def vmap_over(self, probs=None):
+        dist_axes = copy.copy(self)
+        dist_axes.probs = probs
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -905,6 +1233,28 @@ class GeometricLogits(Distribution):
     @property
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
+
+    def vmap_over(self, logits=None):
+        dist_axes = copy.copy(self)
+        dist_axes.logits = logits
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(cls.arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):
