@@ -14,6 +14,8 @@ from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
+from numpyro.distributions.discrete import BernoulliProbs, CategoricalProbs
+
 
 def _subs_wrapper(subs_map, i, length, site):
     if site["type"] != "sample":
@@ -136,6 +138,16 @@ def _promote_batch_shape(x):
     elif isinstance(x, Normal):
         new_x = x
         resolved_batch_shape = new_x.loc.shape[: new_x.loc.ndim - new_x.event_dim]
+        new_x._batch_shape = resolved_batch_shape
+    elif isinstance(x, BernoulliProbs):
+        new_x = x
+        resolved_batch_shape = new_x.probs.shape[: new_x.probs.ndim - new_x.event_dim]
+        new_x._batch_shape = resolved_batch_shape
+    elif isinstance(x, CategoricalProbs):
+        new_x = x
+        resolved_batch_shape = new_x.probs.shape[
+            : max(0, new_x.probs.ndim - new_x.event_dim - 1)
+        ]
         new_x._batch_shape = resolved_batch_shape
     else:
         new_x = x
