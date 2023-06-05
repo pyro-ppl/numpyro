@@ -47,6 +47,7 @@ from numpyro.distributions.util import (
 )
 from numpyro.util import find_stack_level, not_jax_tracer
 
+
 from . import constraints
 
 _VALIDATION_ENABLED = False
@@ -608,11 +609,11 @@ class ExpandedDistribution(Distribution):
         )
 
     def _should_use_new_flatten(self):
-        from numpyro.distributions import Normal, Uniform
+        from numpyro.distributions import Normal, Uniform, CategoricalProbs, BernoulliProbs
 
         return (
             self.base_dist is None
-            or isinstance(self.base_dist, (Normal, Uniform))
+            or isinstance(self.base_dist, (Normal, Uniform, BernoulliProbs, CategoricalProbs))
             or type(self.base_dist) is object
         )
 
@@ -947,22 +948,29 @@ class MaskedDistribution(Distribution):
         return self.base_dist.variance
 
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
+        # base_flatten, base_aux = self.base_dist.tree_flatten()
+        # if isinstance(self._mask, bool):
+        #     return base_flatten, (type(self.base_dist), base_aux, self._mask)
+        # else:
+        #     return (base_flatten, self._mask), (type(self.base_dist), base_aux)
         if isinstance(self._mask, bool):
-            return base_flatten, (type(self.base_dist), base_aux, self._mask)
+            return (self.base_dist,), (self.batch_shape, self.event_shape, self._mask)
         else:
-            return (base_flatten, self._mask), (type(self.base_dist), base_aux)
+            return (self.base_dist, self._mask), (self.batch_shape, self.event_shape)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         if len(aux_data) == 2:
-            base_flatten, mask = params
-            base_cls, base_aux = aux_data
+            base_dist, mask = params
+            batch_shape, event_shape = aux_data
         else:
-            base_flatten = params
-            base_cls, base_aux, mask = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, mask)
+            batch_shape, event_shape, mask = aux_data
+            base_dist, = params
+        d = cls.__new__(cls)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.base_dist = base_dist
+        d._mask = mask
+        return d
 
 
 class TransformedDistribution(Distribution):
