@@ -1,8 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
 from collections import OrderedDict
+import copy
 from functools import partial
 
 from jax import device_put, lax, random
@@ -11,13 +11,11 @@ from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
 from numpyro.distributions import ExpandedDistribution, Normal
+from numpyro.distributions.discrete import BernoulliProbs, CategoricalProbs
+from numpyro.distributions.distribution import MaskedDistribution
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
-
-from numpyro.distributions.discrete import BernoulliProbs, CategoricalProbs
-
-from numpyro.distributions.distribution import MaskedDistribution
 
 
 def _subs_wrapper(subs_map, i, length, site):
