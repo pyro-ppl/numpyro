@@ -11,12 +11,7 @@ import scipy
 from jax import numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
-from numpyro.contrib.einstein.util import (
-    batch_ravel_pytree,
-    posdef,
-    sqrth,
-    sqrth_and_inv_sqrth,
-)
+from numpyro.contrib.einstein.stein_util import batch_ravel_pytree, posdef, sqrth
 
 pd_matrices = [
     np.array(
@@ -66,25 +61,6 @@ def test_sqrth_shape(batch_shape):
     m = x @ np.swapaxes(x, -2, -1)
     s = sqrth(m)
     assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
-
-
-@pytest.mark.parametrize("m", pd_matrices)
-def test_sqrt_inv_sqrth(m):
-    msqrt, minv, minv_sqrt = sqrth_and_inv_sqrth(m)
-    assert_allclose(msqrt, scipy.linalg.sqrtm(m), atol=1e-5)
-    assert_allclose(minv, np.linalg.inv(m), atol=1e-4)
-    assert_allclose(minv_sqrt, np.linalg.inv(scipy.linalg.sqrtm(m)), atol=1e-5)
-
-
-@pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])
-def test_sqrth_and_inv_sqrth_shape(batch_shape):
-    dim = 4
-    x = np.random.normal(size=batch_shape + (dim, dim + 1))
-    m = x @ np.swapaxes(x, -2, -1)
-    s, i, si = sqrth_and_inv_sqrth(m)
-    assert_allclose(s @ np.swapaxes(s, -2, -1), m, rtol=1e-5)
-    assert_allclose(i, np.linalg.inv(m), rtol=1e-5)
-    assert_allclose(si @ np.swapaxes(si, -2, -1), i, rtol=1e-5)
 
 
 @pytest.mark.parametrize(
