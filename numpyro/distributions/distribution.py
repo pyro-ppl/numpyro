@@ -609,11 +609,18 @@ class ExpandedDistribution(Distribution):
         )
 
     def _should_use_new_flatten(self):
-        from numpyro.distributions import Normal, Uniform, CategoricalProbs, BernoulliProbs
+        from numpyro.distributions import (
+            Normal,
+            Uniform,
+            CategoricalProbs,
+            BernoulliProbs,
+        )
 
         return (
             self.base_dist is None
-            or isinstance(self.base_dist, (Normal, Uniform, BernoulliProbs, CategoricalProbs))
+            or isinstance(
+                self.base_dist, (Normal, Uniform, BernoulliProbs, CategoricalProbs)
+            )
             or type(self.base_dist) is object
         )
 
@@ -965,7 +972,7 @@ class MaskedDistribution(Distribution):
             batch_shape, event_shape = aux_data
         else:
             batch_shape, event_shape, mask = aux_data
-            base_dist, = params
+            (base_dist,) = params
         d = cls.__new__(cls)
         Distribution.__init__(d, batch_shape, event_shape)
         d.base_dist = base_dist
