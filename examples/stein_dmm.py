@@ -28,10 +28,10 @@ from optax import adam, chain
 
 import numpyro
 from numpyro.contrib.einstein import SteinVI
+from numpyro.contrib.einstein.mixture_guide_predictive import MixtureGuidePredictive
 from numpyro.contrib.einstein.stein_kernels import RBFKernel
 import numpyro.distributions as dist
 from numpyro.examples.datasets import JSB_CHORALES, load_dataset
-from numpyro.infer import Predictive
 from numpyro.optim import optax_to_numpyro
 
 
@@ -293,7 +293,7 @@ def vis_tune(i, tunes, lengths, name="stein_dmm.pdf"):
 def main(args):
     inf_key, pred_key = random.split(random.PRNGKey(seed=args.rng_seed), 2)
 
-    vi = SteinVI(
+    steinvi = SteinVI(
         model,
         guide,
         optax_to_numpyro(chain(adam(1e-2))),
@@ -303,7 +303,7 @@ def main(args):
     )
 
     seqs, rev_seqs, lengths = load_data()
-    results = vi.run(
+    results = steinvi.run(
         inf_key,
         args.max_iter,
         seqs,
@@ -312,11 +312,12 @@ def main(args):
         gru_dim=args.gru_dim,
         subsample_size=args.subsample_size,
     )
-    pred = Predictive(
+    pred = MixtureGuidePredictive(
         model,
+        guide,
         params=results.params,
         num_samples=1,
-        batch_ndims=1,
+        guide_sites=steinvi.guide_param_names,
     )
     seqs, rev_seqs, lengths = load_data("valid")
     pred_notes = pred(
@@ -328,8 +329,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--subsample-size", type=int, default=77)
-    parser.add_argument("--max-iter", type=int, default=1)
+    parser.add_argument("--subsample-size", type=int, default=10)
+    parser.add_argument("--max-iter", type=int, default=100)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-stein-particles", type=int, default=5)

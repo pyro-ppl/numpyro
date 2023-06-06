@@ -25,9 +25,10 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import deterministic
 from numpyro.contrib.einstein import IMQKernel, SteinVI
+from numpyro.contrib.einstein.mixture_guide_predictive import MixtureGuidePredictive
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
-from numpyro.infer import Predictive, init_to_uniform
+from numpyro.infer import init_to_uniform
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adagrad
 
@@ -153,12 +154,12 @@ def main(args):
     )
     time_taken = time() - start
 
-    pred = Predictive(
+    pred = MixtureGuidePredictive(
         model,
         guide=stein.guide,
         params=stein.get_params(result.state),
         num_samples=100,
-        batch_ndims=1,  # stein particle dimension
+        guide_sites=stein.guide_param_names,
     )
     xte, _, _ = normalize(
         data.xte, xtr_mean, xtr_std
@@ -167,7 +168,7 @@ def main(args):
         pred_key, xte, subsample_size=xte.shape[0], hidden_dim=args.hidden_dim
     )["y_pred"]
 
-    y_pred = (preds * ytr_std + ytr_mean).mean(1)
+    y_pred = preds * ytr_std + ytr_mean
     rmse = jnp.sqrt(jnp.mean((y_pred.mean(0) - data.yte) ** 2))
 
     print(rf"Time taken: {datetime.timedelta(seconds=int(time_taken))}")
@@ -177,9 +178,7 @@ def main(args):
     mean_prediction = y_pred.mean(0)
 
     ran = np.arange(mean_prediction.shape[0])
-    percentiles = np.percentile(
-        preds.reshape(-1, xte.shape[0]) * ytr_std + ytr_mean, [5.0, 95.0], axis=0
-    )
+    percentiles = np.percentile(preds * ytr_std + ytr_mean, [5.0, 95.0], axis=0)
 
     # make plots
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
@@ -202,11 +201,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
-    parser.add_argument("--max-iter", type=int, default=10_000)
+    parser.add_argument("--max-iter", type=int, default=1000)
     parser.add_argument("--repulsion", type=float, default=1.0)
     parser.add_argument("--verbose", type=bool, default=True)
     parser.add_argument("--num-elbo-particles", type=int, default=50)
-    parser.add_argument("--num-stein-particles", type=int, default=20)
+    parser.add_argument("--num-stein-particles", type=int, default=5)
     parser.add_argument("--progress-bar", type=bool, default=True)
     parser.add_argument("--rng-key", type=int, default=142)
     parser.add_argument("--device", default="cpu", choices=["gpu", "cpu"])

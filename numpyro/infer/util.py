@@ -4,7 +4,7 @@
 from collections import namedtuple
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Optional, Sequence
 import warnings
 
 import numpy as np
@@ -899,7 +899,7 @@ class Predictive(object):
         guide: Optional[Callable] = None,
         params: Optional[Dict] = None,
         num_samples: Optional[int] = None,
-        return_sites: Optional[List[str]] = None,
+        return_sites: Optional[Sequence[str]] = None,
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,
@@ -951,7 +951,9 @@ class Predictive(object):
             batch_shape = (1,) * (batch_ndims - 1) + (num_samples,)
 
         if return_sites is not None:
-            assert isinstance(return_sites, (list, tuple, set))
+            assert isinstance(
+                return_sites, (list, tuple, set)
+            )  # TODO: @OlaRonning highlight in PR
 
         self.model = model
         self.posterior_samples = {} if posterior_samples is None else posterior_samples
@@ -1005,29 +1007,17 @@ class Predictive(object):
         """
         if self.batch_ndims == 0 or self.params == {} or self.guide is None:
             return self._call_with_params(rng_key, self.params, args, kwargs)
+        # TODO: is this required with mixture_guide_predictive?
         elif self.batch_ndims == 1:  # batch over parameters
             batch_size = jnp.shape(tree_flatten(self.params)[0][0])[0]
             rng_keys = random.split(rng_key, batch_size)
-            # TODO: better way to broadcast the model across particles?
-            zero_batch = {
-                name: param
-                for name, param in self.params.items()
-                if param.shape[0] != batch_size
-            }
             return jax.vmap(
-                lambda key, param: self._call_with_params(
-                    key, {**param, **zero_batch}, args=args, kwargs=kwargs
+                lambda key, params: self._call_with_params(
+                    key, params=params, args=args, kwargs=kwargs
                 ),
                 in_axes=0,
                 out_axes=1,
-            )(
-                rng_keys,
-                {
-                    name: param
-                    for name, param in self.params.items()
-                    if param.shape[0] == batch_size
-                },
-            )
+            )(rng_keys, self.params)
         else:
             raise NotImplementedError
 
