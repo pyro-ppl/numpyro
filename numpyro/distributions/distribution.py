@@ -47,7 +47,6 @@ from numpyro.distributions.util import (
 )
 from numpyro.util import find_stack_level, not_jax_tracer
 
-
 from . import constraints
 
 _VALIDATION_ENABLED = False
@@ -610,10 +609,10 @@ class ExpandedDistribution(Distribution):
 
     def _should_use_new_flatten(self):
         from numpyro.distributions import (
+            BernoulliProbs,
+            CategoricalProbs,
             Normal,
             Uniform,
-            CategoricalProbs,
-            BernoulliProbs,
         )
 
         return (
