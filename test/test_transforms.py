@@ -140,6 +140,8 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
     assert jitted_in_t(transform, 1.0) == 1.0
     assert jitted_out_t(transform, 1.0) == transform
 
+    assert jitted_out_t(transform.inv, 1.0) == transform.inv
+
     assert jnp.allclose(
         vmap(in_t, in_axes=(None, 0), out_axes=0)(transform, jnp.ones(3)),
         jnp.ones(3),

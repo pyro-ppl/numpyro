@@ -73,7 +73,9 @@ class LocScaleReparam(Reparam):
        Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019)
 
     :param float centered: optional centered parameter. If None (default) learn
-        a per-site per-element centering parameter in ``[0,1]``. If 0, fully
+        a per-site per-element centering parameter in ``[0,1]`` initialized at value 0.5.
+        To sample the parameter, consider using :class:`~numpyro.handlers.lift` handler with a
+        prior like ``Uniform(0, 1)`` to cast the parameter to a latent variable. If 0, fully
         decenter the distribution; if 1, preserve the centered distribution
         unchanged.
     :param shape_params: list of additional parameter names to copy unchanged from
