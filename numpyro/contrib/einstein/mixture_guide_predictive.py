@@ -103,6 +103,6 @@ class MixtureGuidePredictive:
 
         return {
             self.mixture_assignment_sitename: assigns,
-            **samples_model,
             **samples_guide,
+            **samples_model,  # use samples from model if site in model and guide
         }
