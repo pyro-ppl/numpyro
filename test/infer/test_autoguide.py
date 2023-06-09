@@ -989,7 +989,6 @@ def test_autosldais(
     assert dais_elbo > mf_elbo + 0.1
 
 
-<<<<<<< HEAD
 def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
     p = dist.Normal(0, 1)
     q = dist.Normal(0.2, 1.2)
