@@ -1,26 +1,26 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from numpyro.contrib.einstein.kernels import (
+from numpyro.contrib.einstein.stein_kernels import (
     GraphicalKernel,
-    HessianPrecondMatrix,
     IMQKernel,
     LinearKernel,
-    PrecondMatrix,
-    PrecondMatrixKernel,
+    MixtureKernel,
+    ProbabilityProductKernel,
     RandomFeatureKernel,
     RBFKernel,
 )
+from numpyro.contrib.einstein.stein_loss import SteinLoss
 from numpyro.contrib.einstein.steinvi import SteinVI
 
 __all__ = [
     "SteinVI",
+    "SteinLoss",
     "RBFKernel",
-    "PrecondMatrix",
     "IMQKernel",
     "LinearKernel",
     "RandomFeatureKernel",
-    "HessianPrecondMatrix",
     "GraphicalKernel",
-    "PrecondMatrixKernel",
+    "MixtureKernel",
+    "ProbabilityProductKernel",
 ]
