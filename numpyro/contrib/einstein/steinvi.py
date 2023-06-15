@@ -68,7 +68,7 @@ class SteinVI:
         >>> stein_result = stein.run(random.PRNGKey(0), 2000, data)
         >>> params = stein_result.params
         >>> # use guide to make predictive
-        >>> predictive = MixtureGuidePredictive(model, guide=guide, params=params, num_samples=1000)
+        >>> predictive = MixtureGuidePredictive(model, guide, params, num_samples=1000, guide_sites=stein.guide_sites)
         >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param Callable model: Python callable with Pyro primitives for the model.
