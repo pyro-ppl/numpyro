@@ -13,8 +13,24 @@ from numpyro.infer.util import _predictive
 
 
 class MixtureGuidePredictive:
-    """
-    For single mixture component use numpyro.infer.Predictive.
+    """(EXPERIMENTAL INTERFACE) This class constructs the predictive distribution for
+    :class:`numpyro.contrib.einstein.steinvi.SteinVi`
+
+    .. Note:: For single mixture component use numpyro.infer.Predictive.
+
+    .. warning::
+        The `MixtureGuidePredictive` is experimental and will likely be replaced by
+        :class:`numpyro.infer.util.Predictive` in the future.
+
+    :param Callable model: Python callable containing Pyro primitives.
+    :param Callable guide: Python callable containing Pyro primitives to get posterior samples of sites.
+    :param Dict params:  Dictionary of values for param sites of model/guide
+    :param Sequence guide_sites: Names of sites that contribute to the Stein mixture.
+    :param Optional[int] num_samples:
+    :param Optional[Sequence[str]] return_sites: Sites to return. By default, only sample sites not present
+        in the guide are returned.
+    :param str mixture_assignment_sitename: Name of site for mixture component assignment for sites not in the Stein
+        mixture.
     """
 
     def __init__(
@@ -25,8 +41,6 @@ class MixtureGuidePredictive:
         guide_sites: Sequence,
         num_samples: Optional[int] = None,
         return_sites: Optional[Sequence[str]] = None,
-        infer_discrete: bool = False,
-        parallel: bool = False,
         mixture_assignment_sitename="mixture_assignments",
     ):
         self.model_predictive = partial(
@@ -37,11 +51,11 @@ class MixtureGuidePredictive:
             },
             num_samples=num_samples,
             return_sites=return_sites,
-            infer_discrete=infer_discrete,
-            parallel=parallel,
+            infer_discrete=False,
+            parallel=False,
         )
         self._batch_shape = (num_samples,)
-        self.parallel = parallel
+        self.parallel = False
         self.guide_params = {
             name: param for name, param in params.items() if name in guide_sites
         }

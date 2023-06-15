@@ -9,6 +9,7 @@ import operator
 from typing import Callable
 
 from jax import grad, jacfwd, numpy as jnp, random, vmap
+from jax.random import KeyArray
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -24,6 +25,7 @@ from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
+from numpyro.optim import _NumPyroOptim
 from numpyro.util import fori_collect, ravel_pytree
 
 SteinVIState = namedtuple("SteinVIState", ["optim_state", "rng_key"])
@@ -35,36 +37,68 @@ def _numel(shape):
 
 
 class SteinVI:
-    """Variational inference with stein mixtures.
+    """Variational inference with Stein mixtures.
 
-    :param model: Python callable with Pyro primitives for the model.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.distributions import constraints
+        >>> from numpyro.contrib.einstein import MixtureGuidePredictive, SteinVI, RBFKernel
+
+        >>> def model(data):
+        ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
+        ...     with numpyro.plate("N", data.shape[0] if data is not None else 10):
+        ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+        >>> def guide(data):
+        ...     alpha_q = numpyro.param("alpha_q", 15., constraint=constraints.positive)
+        ...     beta_q = numpyro.param("beta_q", lambda rng_key: random.exponential(rng_key),
+        ...                            constraint=constraints.positive)
+        ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+
+        >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
+        >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
+        >>> stein = SteinVI(model, guide, optimizer, kernel_fn=RBFKernel())
+        >>> stein_result = stein.run(random.PRNGKey(0), 2000, data)
+        >>> params = stein_result.params
+        >>> # use guide to make predictive
+        >>> predictive = MixtureGuidePredictive(model, guide, params, num_samples=1000, guide_sites=stein.guide_sites)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
+
+    :param Callable model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
-    :param kernel_fn: Function that produces a logarithm of the statistical kernel to use with Stein inference
-    :param num_stein_particles: number of particles for Stein inference.
-        (More particles give more mixture components and therefore likely capture more of the posterior distribution)
-    :param num_elbo_particles: number of particles for to approximate the attractive force gradient.
+    :param _NumPyroOptim optim: An instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param SteinKernel kernel_fn: Function that produces a logarithm of the statistical kernel to use with Stein mixture
+        inference.
+    :param num_stein_particles: Number of particles (i.e., mixture components) in the Stein mixture.
+    :param num_elbo_particles: Number of Monte Carlo draws used to approximate the attractive force gradient.
         (More particles give better gradient approximations)
-    :param loss_temperature: scaling of loss factor
-    :param repulsion_temperature: scaling of repulsive forces (Non-linear Stein)
-    :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
-                                   without Stein (E.g. parameters for large normal networks or other transformation)
-    :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
-        that remain constant during fitting.
+    :param Float loss_temperature: Scaling factor of the attractive force.
+    :param Float repulsion_temperature: Scaling factor of the repulsive force (Non-linear Stein)
+    :param Callable non_mixture_guide_param_fn: predicate on names of parameters in guide which should be optimized
+        classically without Stein (E.g. parameters for large normal networks or other transformation)
+    :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments that remain constant
+        during inference.
     """
 
     def __init__(
         self,
-        model,
-        guide,
-        optim,
+        model: Callable,
+        guide: Callable,
+        optim: _NumPyroOptim,
         kernel_fn: SteinKernel,
         num_stein_particles: int = 10,
         num_elbo_particles: int = 10,
         loss_temperature: float = 1.0,
         repulsion_temperature: float = 1.0,
-        classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
+        non_mixture_guide_params_fn: Callable[[str], bool] = lambda name: False,
         enum=True,
         **static_kwargs,
     ):
@@ -82,8 +116,8 @@ class SteinVI:
         self.loss_temperature = loss_temperature
         self.repulsion_temperature = repulsion_temperature
         self.enum = enum
-        self.model_params_fn = classic_guide_params_fn
-        self.guide_param_names = None
+        self.non_mixture_params_fn = non_mixture_guide_params_fn
+        self.guide_sites = None
         self.constrain_fn = None
         self.uconstrain_fn = None
         self.particle_transform_fn = None
@@ -178,14 +212,17 @@ class SteinVI:
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein
-        model_uparams = {
-            p: v
-            for p, v in unconstr_params.items()
-            if p not in self.guide_param_names or self.model_params_fn(p)
-        }
+        non_mixture_uparams = (
+            {  # Includes any marked guide parameters and all model parameters
+                p: v
+                for p, v in unconstr_params.items()
+                if p not in self.guide_sites or self.non_mixture_params_fn(p)
+            }
+        )
         stein_uparams = {
-            p: v for p, v in unconstr_params.items() if p not in model_uparams
+            p: v for p, v in unconstr_params.items() if p not in non_mixture_uparams
         }
+
         # 1. Collect each guide parameter into monolithic particles that capture correlations
         # between parameter values across each individual particle
         stein_particles, unravel_pytree, unravel_pytree_batched = batch_ravel_pytree(
@@ -197,7 +234,9 @@ class SteinVI:
         attractive_key, classic_key = random.split(rng_key)
 
         # 2. Calculate gradients for each particle
-        def kernel_particles_loss_fn(rng_key, particles):
+        def kernel_particles_loss_fn(
+            rng_key, particles
+        ):  # TODO: rewrite using def to utilize jax caching
             particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
             grads = vmap(
                 lambda i: grad(
@@ -215,7 +254,7 @@ class SteinVI:
                                 select_index=i,
                                 model_args=args,
                                 model_kwargs=kwargs,
-                                param_map=self.constrain_fn(model_uparams),
+                                param_map=self.constrain_fn(non_mixture_uparams),
                             )
                         )(
                             random.split(
@@ -237,13 +276,16 @@ class SteinVI:
             ctparticle, _ = ravel_pytree(ctparams)
             return tparticle, ctparticle
 
+        # 2.1 Lift particles to constraint space
         tstein_particles, ctstein_particles = vmap(particle_transform_fn)(
             stein_particles
         )
 
+        # 2.2 Compute particle gradients (for attractive force)
         particle_ljp_grads = kernel_particles_loss_fn(attractive_key, ctstein_particles)
 
-        classic_param_grads = grad(
+        # 2.2 Compute non-mixture parameter gradients
+        non_mixture_param_grads = grad(
             lambda cps: -self.stein_loss.loss(
                 classic_key,
                 self.constrain_fn(cps),
@@ -253,14 +295,14 @@ class SteinVI:
                 *args,
                 **kwargs,
             )
-        )(model_uparams)
+        )(non_mixture_uparams)
 
-        # 3. Calculate kernel on monolithic particle
-        kernel = self.kernel_fn.compute(  # TODO: Fix to use Stein loss
+        # 3. Calculate kernel of particles
+        kernel = self.kernel_fn.compute(
             stein_particles, particle_info, kernel_particles_loss_fn
         )
 
-        # 4. Calculate the attractive force and repulsive force on the monolithic particles
+        # 4. Calculate the attractive force and repulsive force on the particles
         attractive_force = vmap(
             lambda y: jnp.sum(
                 vmap(
@@ -317,16 +359,17 @@ class SteinVI:
         stein_param_grads = unravel_pytree_batched(particle_grads)
 
         # 6. Return loss and gradients (based on parameter forces)
-        res_grads = tree_map(lambda x: -x, {**classic_param_grads, **stein_param_grads})
+        res_grads = tree_map(
+            lambda x: -x, {**non_mixture_param_grads, **stein_param_grads}
+        )
         return jnp.linalg.norm(particle_grads), res_grads
 
-    def init(self, rng_key, *args, **kwargs):
-        """
-        :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
+    def init(self, rng_key: KeyArray, *args, **kwargs):
+        """Register random variable transformations, constraints and determine initialize positions of the particles.
+
+        :param KeyArray rng_key: Random number generator seed.
+        :param args: Arguments to the model / guide.
+        :param kwargs: Keyword arguments to the model / guide.
         :return: initial :data:`SteinVIState`
         """
         rng_key, kernel_seed, model_seed, guide_seed = random.split(rng_key, 4)
@@ -373,7 +416,7 @@ class SteinVI:
                 )
                 if site["name"] in guide_init_params:
                     pval, _ = guide_init_params[site["name"]]
-                    if self.model_params_fn(site["name"]):
+                    if self.non_mixture_params_fn(site["name"]):
                         pval = tree_map(lambda x: x[0], pval)
                 else:
                     pval = site["value"]
@@ -384,7 +427,7 @@ class SteinVI:
         if should_enum:
             mpn = _guess_max_plate_nesting(model_trace)
             self._inference_model = enum(config_enumerate(self.model), -mpn - 1)
-        self.guide_param_names = guide_param_names
+        self.guide_sites = guide_param_names
         self.constrain_fn = partial(transform_fn, inv_transforms)
         self.uconstrain_fn = partial(transform_fn, transforms)
         self.particle_transforms = particle_transforms

@@ -159,7 +159,7 @@ def main(args):
         guide=stein.guide,
         params=stein.get_params(result.state),
         num_samples=100,
-        guide_sites=stein.guide_param_names,
+        guide_sites=stein.guide_sites,
     )
     xte, _, _ = normalize(
         data.xte, xtr_mean, xtr_std

@@ -317,7 +317,7 @@ def main(args):
         guide,
         params=results.params,
         num_samples=1,
-        guide_sites=steinvi.guide_param_names,
+        guide_sites=steinvi.guide_sites,
     )
     seqs, rev_seqs, lengths = load_data("valid")
     pred_notes = pred(
