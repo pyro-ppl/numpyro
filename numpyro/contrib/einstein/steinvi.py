@@ -9,6 +9,7 @@ import operator
 from typing import Callable
 
 from jax import grad, jacfwd, numpy as jnp, random, vmap
+from jax.random import KeyArray
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -36,7 +37,39 @@ def _numel(shape):
 
 
 class SteinVI:
-    """Variational inference with stein mixtures.
+    """Variational inference with Stein mixtures.
+
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.distributions import constraints
+        >>> from numpyro.contrib.einstein import MixtureGuidePredictive, SteinVI, RBFKernel
+
+        >>> def model(data):
+        ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
+        ...     with numpyro.plate("N", data.shape[0] if data is not None else 10):
+        ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+        >>> def guide(data):
+        ...     alpha_q = numpyro.param("alpha_q", 15., constraint=constraints.positive)
+        ...     beta_q = numpyro.param("beta_q", lambda rng_key: random.exponential(rng_key),
+        ...                            constraint=constraints.positive)
+        ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+
+        >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
+        >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
+        >>> stein = SteinVI(model, guide, optimizer, kernel_fn=RBFKernel())
+        >>> stein_result = stein.run(random.PRNGKey(0), 2000, data)
+        >>> params = stein_result.params
+        >>> # use guide to make predictive
+        >>> predictive = MixtureGuidePredictive(model, guide=guide, params=params, num_samples=1000)
+        >>> samples = predictive(random.PRNGKey(1), data=None)
 
     :param Callable model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -84,7 +117,7 @@ class SteinVI:
         self.repulsion_temperature = repulsion_temperature
         self.enum = enum
         self.non_mixture_params_fn = non_mixture_guide_params_fn
-        self.guide_param_names = None
+        self.guide_sites = None
         self.constrain_fn = None
         self.uconstrain_fn = None
         self.particle_transform_fn = None
@@ -179,11 +212,13 @@ class SteinVI:
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein
-        non_mixture_uparams = {  # Includes any marked guide parameters and all model parameters
-            p: v
-            for p, v in unconstr_params.items()
-            if p not in self.guide_param_names or self.non_mixture_params_fn(p)
-        }
+        non_mixture_uparams = (
+            {  # Includes any marked guide parameters and all model parameters
+                p: v
+                for p, v in unconstr_params.items()
+                if p not in self.guide_sites or self.non_mixture_params_fn(p)
+            }
+        )
         stein_uparams = {
             p: v for p, v in unconstr_params.items() if p not in non_mixture_uparams
         }
@@ -199,7 +234,9 @@ class SteinVI:
         attractive_key, classic_key = random.split(rng_key)
 
         # 2. Calculate gradients for each particle
-        def kernel_particles_loss_fn(rng_key, particles):  # TODO: rewrite using def to utilize jax caching
+        def kernel_particles_loss_fn(
+            rng_key, particles
+        ):  # TODO: rewrite using def to utilize jax caching
             particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
             grads = vmap(
                 lambda i: grad(
@@ -322,16 +359,17 @@ class SteinVI:
         stein_param_grads = unravel_pytree_batched(particle_grads)
 
         # 6. Return loss and gradients (based on parameter forces)
-        res_grads = tree_map(lambda x: -x, {**non_mixture_param_grads, **stein_param_grads})
+        res_grads = tree_map(
+            lambda x: -x, {**non_mixture_param_grads, **stein_param_grads}
+        )
         return jnp.linalg.norm(particle_grads), res_grads
 
-    def init(self, rng_key, *args, **kwargs):
-        """
-        :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param args: Arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: Keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
+    def init(self, rng_key: KeyArray, *args, **kwargs):
+        """Register random variable transformations, constraints and determine initialize positions of the particles.
+
+        :param KeyArray rng_key: Random number generator seed.
+        :param args: Arguments to the model / guide.
+        :param kwargs: Keyword arguments to the model / guide.
         :return: initial :data:`SteinVIState`
         """
         rng_key, kernel_seed, model_seed, guide_seed = random.split(rng_key, 4)
@@ -389,7 +427,7 @@ class SteinVI:
         if should_enum:
             mpn = _guess_max_plate_nesting(model_trace)
             self._inference_model = enum(config_enumerate(self.model), -mpn - 1)
-        self.guide_param_names = guide_param_names
+        self.guide_sites = guide_param_names
         self.constrain_fn = partial(transform_fn, inv_transforms)
         self.uconstrain_fn = partial(transform_fn, transforms)
         self.particle_transforms = particle_transforms
@@ -444,9 +482,8 @@ class SteinVI:
         collect_fn=lambda val: val[1],  # TODO: refactor
         **kwargs,
     ):
-        """
+        """ """
 
-        """
         def bodyfn(_i, info):
             body_state = info[0]
             return (*self.update(body_state, *info[2:], **kwargs), *info[2:])

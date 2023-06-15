@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from numpyro.contrib.einstein.mixture_guide_predictive import MixtureGuidePredictive
 from numpyro.contrib.einstein.stein_kernels import (
     GraphicalKernel,
     IMQKernel,
@@ -23,4 +24,5 @@ __all__ = [
     "GraphicalKernel",
     "MixtureKernel",
     "ProbabilityProductKernel",
+    "MixtureGuidePredictive",
 ]
