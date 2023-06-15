@@ -482,8 +482,6 @@ class SteinVI:
         collect_fn=lambda val: val[1],  # TODO: refactor
         **kwargs,
     ):
-        """ """
-
         def bodyfn(_i, info):
             body_state = info[0]
             return (*self.update(body_state, *info[2:], **kwargs), *info[2:])
