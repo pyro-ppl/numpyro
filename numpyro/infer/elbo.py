@@ -10,7 +10,6 @@ from jax import eval_shape, random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
-import numpy as np
 
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
@@ -333,27 +332,32 @@ class RenyiELBO(ELBO):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
-            model_trace, guide_trace = get_importance_trace(seeded_model, seeded_guide, args, kwargs, param_map)
+            model_trace, guide_trace = get_importance_trace(
+                seeded_model, seeded_guide, args, kwargs, param_map
+            )
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="loose")
 
-            site_plates = {name: {frame for frame in site["cond_indep_stack"]}
-                           for name, site in model_trace.items() if site["type"] == "sample"}
+            site_plates = {
+                name: {frame for frame in site["cond_indep_stack"]}
+                for name, site in model_trace.items()
+                if site["type"] == "sample"
+            }
             if site_plates:
                 common_plates = set.intersection(*site_plates.values())
             else:
                 common_plates = set()
             common_plate_dims = {frame.dim for frame in common_plates}
-            common_plate_scale = 1.
+            common_plate_scale = 1.0
             for frame in common_plates:
                 subsample_size = frame.size
                 size = model_trace[frame.name]["args"][0]
                 common_plate_scale = common_plate_scale * size / subsample_size
 
             log_densities = {}
-            for trace_type, trace in {"guide": guide_trace, "model": model_trace}.items():
-                log_densities[trace_type] = 1.
-                for name, site in trace.items():
+            for trace_type, tr in {"guide": guide_trace, "model": model_trace}.items():
+                log_densities[trace_type] = 1.0
+                for site in tr.values():
                     if site["type"] != "sample":
                         continue
                     log_prob = site["log_prob"]

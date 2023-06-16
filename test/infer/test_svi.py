@@ -63,7 +63,6 @@ def test_renyi_elbo(alpha):
 
 
 def test_renyi_local():
-
     def model(subsample_size=None):
         with numpyro.plate("N", 100, subsample_size=subsample_size):
             numpyro.sample("x", dist.Normal(0, 1))
