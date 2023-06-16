@@ -10,6 +10,7 @@ from jax import eval_shape, random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+import numpy as np
 
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
@@ -332,32 +333,54 @@ class RenyiELBO(ELBO):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
-            guide_log_density, guide_trace = log_density(
-                seeded_guide, args, kwargs, param_map
-            )
-            # NB: we only want to substitute params not available in guide_trace
-            model_param_map = {
-                k: v for k, v in param_map.items() if k not in guide_trace
-            }
-            seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, model_trace = log_density(
-                seeded_model, args, kwargs, model_param_map
-            )
+            model_trace, guide_trace = get_importance_trace(seeded_model, seeded_guide, args, kwargs, param_map)
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="loose")
 
+            site_plates = {name: {frame for frame in site["cond_indep_stack"]}
+                           for name, site in model_trace.items() if site["type"] == "sample"}
+            if site_plates:
+                common_plates = set.intersection(*site_plates.values())
+            else:
+                common_plates = set()
+            common_plate_dims = {frame.dim for frame in common_plates}
+            common_plate_scale = 1.
+            for frame in common_plates:
+                subsample_size = frame.size
+                size = model_trace[frame.name]["args"][0]
+                common_plate_scale = common_plate_scale * size / subsample_size
+
+            log_densities = {}
+            for trace_type, trace in {"guide": guide_trace, "model": model_trace}.items():
+                log_densities[trace_type] = 1.
+                for name, site in trace.items():
+                    if site["type"] != "sample":
+                        continue
+                    log_prob = site["log_prob"]
+                    squeeze_axes = ()
+                    for dim in range(log_prob.ndim):
+                        neg_dim = dim - log_prob.ndim
+                        if neg_dim in common_plate_dims:
+                            continue
+                        log_prob = jnp.sum(log_prob, axis=dim, keepdims=True)
+                        squeeze_axes = squeeze_axes + (dim,)
+                    log_prob = jnp.squeeze(log_prob, squeeze_axes)
+                    log_densities[trace_type] = log_densities[trace_type] + log_prob
+
             # log p(z) - log q(z)
-            elbo = model_log_density - guide_log_density
-            return elbo
+            elbo = log_densities["model"] - log_densities["guide"]
+            # Do not scale elbo at common plate dimensions.
+            return elbo / common_plate_scale, common_plate_scale
 
         rng_keys = random.split(rng_key, self.num_particles)
-        elbos = vmap(single_particle_elbo)(rng_keys)
+        elbos, common_plate_scale = vmap(single_particle_elbo)(rng_keys)
         scaled_elbos = (1.0 - self.alpha) * elbos
-        avg_log_exp = logsumexp(scaled_elbos) - jnp.log(self.num_particles)
+        avg_log_exp = logsumexp(scaled_elbos, axis=0) - jnp.log(self.num_particles)
         weights = jnp.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1.0 - self.alpha)
-        weighted_elbo = jnp.dot(stop_gradient(weights), elbos) / self.num_particles
-        return -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
+        weighted_elbo = (stop_gradient(weights) * elbos).sum(0) / self.num_particles
+        loss = -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
+        return loss.sum() * jnp.mean(common_plate_scale)
 
 
 def _get_plate_stacks(trace):

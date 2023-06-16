@@ -62,6 +62,30 @@ def test_renyi_elbo(alpha):
     assert_allclose(elbo_grad, renyi_grad, rtol=1e-6)
 
 
+def test_renyi_local():
+
+    def model(subsample_size=None):
+        with numpyro.plate("N", 100, subsample_size=subsample_size):
+            numpyro.sample("x", dist.Normal(0, 1))
+            numpyro.sample("obs", dist.Bernoulli(0.6), obs=1)
+
+    def guide(subsample_size=None):
+        with numpyro.plate("N", 100, subsample_size=subsample_size):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+    def renyi_loss_fn(subsample_size=None):
+        return RenyiELBO(num_particles=10).loss(
+            random.PRNGKey(0), {}, model, guide, subsample_size
+        )
+
+    # Test that the scales are applied correctly.
+    # Here for each particle, log_p - log_q = log(0.6)
+    full_loss = renyi_loss_fn()
+    subsample_loss = renyi_loss_fn(subsample_size=2)
+    assert_allclose(full_loss, -jnp.log(0.6) * 100, rtol=1e-6)
+    assert_allclose(subsample_loss, full_loss, rtol=1e-6)
+
+
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
 @pytest.mark.parametrize("optimizer", [optim.Adam(0.05), optimizers.adam(0.05)])
 def test_beta_bernoulli(elbo, optimizer):
