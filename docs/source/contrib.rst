@@ -23,12 +23,11 @@ SVGD is well suited for capturing correlations between latent variables as a par
 The technique preserves the scalability of traditional VI approaches while offering the flexibility and modeling scope
 of methods such as Markov chain Monte Carlo (MCMC). SVGD is good at capturing multi-modality [3][4].
 
-``numpyro.contrib.einstein`` is a framework for particle-based inference using the ELBO-within-Stein algorithm.
+``numpyro.contrib.einstein`` is a framework for particle-based inference using the Stein mixture algorithm.
 The framework works on Stein mixtures, a restricted mixture of guide programs parameterized by Stein particles.
 Similarly to how SVGD works, Stein mixtures can approximate model posteriors by moving the Stein particles according
 to the Stein forces. Because the Stein particles parameterize a guide, they capture a neighborhood rather than a
-single point. This property means Stein mixtures significantly reduce the number of particles needed to represent
-high dimensional models.
+single point.
 
 ``numpyro.contrib.einstein`` mimics the interface from ``numpyro.infer.svi``, so trying SteinVI requires minimal
 change to the code for existing models inferred with SVI. For primary usage, see the
@@ -40,9 +39,8 @@ The framework currently supports several kernels, including:
 - `LinearKernel`
 - `RandomFeatureKernel`
 - `MixtureKernel`
-- `PrecondMatrixKernel`
-- `HessianPrecondMatrix`
 - `GraphicalKernel`
+- `ProbabilityProductKernel`
 
 For example, usage see:
 
@@ -68,10 +66,11 @@ SteinVI Interface
 
 SteinVI Kernels
 ---------------
-.. autoclass:: numpyro.contrib.einstein.kernels.RBFKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.LinearKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.RandomFeatureKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.MixtureKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.PrecondMatrixKernel
-.. autoclass:: numpyro.contrib.einstein.kernels.GraphicalKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.RBFKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.LinearKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.RandomFeatureKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.MixtureKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.GraphicalKernel
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.ProbabilityProductKernel
+
 

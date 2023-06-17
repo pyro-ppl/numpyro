@@ -12,20 +12,9 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-from numpyro.contrib.einstein.util import median_bandwidth, sqrth_and_inv_sqrth
-import numpyro.distributions as dist
-
-
-class PrecondMatrix(ABC):
-    @abstractmethod
-    def compute(self, particles: jnp.ndarray, loss_fn: Callable[[jnp.ndarray], float]):
-        """
-        Computes a preconditioning matrix for a given set of particles and a loss function
-
-        :param particles: The Stein particles to compute the preconditioning matrix from
-        :param loss_fn: Loss function given particles
-        """
-        raise NotImplementedError
+from numpyro.contrib.einstein.stein_util import median_bandwidth
+from numpyro.distributions import biject_to
+from numpyro.infer.autoguide import AutoNormal
 
 
 class SteinKernel(ABC):
@@ -320,89 +309,6 @@ class MixtureKernel(SteinKernel):
             kf.init(krng_key, particles_shape)
 
 
-class HessianPrecondMatrix(PrecondMatrix):
-    """
-    Calculates the constant precondition matrix based on the negative Hessian of the loss from [1].
-
-    **References:**
-
-    1. *Stein Variational Gradient Descent with Matrix-Valued Kernels* by Wang, Tang, Bajaj and Liu
-    """
-
-    def compute(self, particles, loss_fn):
-        hessian = -jax.vmap(jax.hessian(loss_fn))(particles)
-        return hessian
-
-
-class PrecondMatrixKernel(SteinKernel):
-    """
-    Calculates the const preconditioned kernel
-    :math:`k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
-    or anchor point preconditioned kernel
-    :math:`k(x,y) = \\sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
-    both from [1].
-
-    **References:**
-
-    1. "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
-
-    :param precond_matrix_fn: The constant preconditioning matrix
-    :param inner_kernel_fn: The inner kernel function
-    :param precond_mode: How to use the precondition matrix, either constant ('const')
-                         or as mixture with anchor points ('anchor_points')
-    """
-
-    def __init__(
-        self,
-        precond_matrix_fn: PrecondMatrix,
-        inner_kernel_fn: SteinKernel,
-        precond_mode="anchor_points",
-    ):
-        assert inner_kernel_fn.mode == "matrix"
-        assert precond_mode == "const" or precond_mode == "anchor_points"
-        self.precond_matrix_fn = precond_matrix_fn
-        self.inner_kernel_fn = inner_kernel_fn
-        self.precond_mode = precond_mode
-
-    @property
-    def mode(self):
-        return "matrix"
-
-    def compute(self, particles, particle_info, loss_fn):
-        qs = self.precond_matrix_fn.compute(particles, loss_fn)
-        if self.precond_mode == "const":
-            qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
-        qs_inv = jnp.linalg.inv(qs)
-        qs_sqrt, qs_inv, qs_inv_sqrt = sqrth_and_inv_sqrth(qs)
-        inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
-
-        def kernel(x, y):
-            if self.precond_mode == "const":
-                wxs = jnp.array([1.0])
-                wys = jnp.array([1.0])
-            else:
-                wxs = jax.nn.softmax(
-                    jax.vmap(
-                        lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(x)
-                    )(particles, qs_inv)
-                )
-                wys = jax.nn.softmax(
-                    jax.vmap(
-                        lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(y)
-                    )(particles, qs_inv)
-                )
-            return jnp.sum(
-                jax.vmap(
-                    lambda qs, qis, wx, wy: wx
-                    * wy
-                    * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose())
-                )(qs_sqrt, qs_inv_sqrt, wxs, wys),
-                axis=0,
-            )
-
-        return kernel
-
-
 class GraphicalKernel(SteinKernel):
     """
     Calculates graphical kernel :math:`k(x,y) = diag({K_l(x_l,y_l)})` for local kernels
@@ -467,3 +373,64 @@ class GraphicalKernel(SteinKernel):
             return jax.scipy.linalg.block_diag(*kernel_res)
 
         return kernel
+
+
+class ProbabilityProductKernel(SteinKernel):
+    def __init__(self, guide, scale=1.0):
+        self._mode = "norm"
+        self.guide = guide
+        self.scale = scale
+        assert isinstance(guide, AutoNormal), "PPK only implemented for AutoNormal"
+
+    def compute(
+        self,
+        particles: jnp.ndarray,
+        particle_info: Dict[str, Tuple[int, int]],
+        loss_fn: Callable[[jnp.ndarray], float],
+    ):
+        loc_idx = jnp.concatenate(
+            [
+                jnp.arange(*idx)
+                for name, idx in particle_info.items()
+                if name.endswith(f"{self.guide.prefix}_loc")
+            ]
+        )
+        scale_idx = jnp.concatenate(
+            [
+                jnp.arange(*idx)
+                for name, idx in particle_info.items()
+                if name.endswith(f"{self.guide.prefix}_scale")
+            ]
+        )
+
+        def kernel(x, y):
+            biject = biject_to(self.guide.scale_constraint)
+            x_loc = x[loc_idx]
+            x_scale = biject(x[scale_idx])
+            x_quad = (x_loc / x_scale) ** 2
+
+            y_loc = y[loc_idx]
+            y_scale = biject(y[scale_idx])
+            y_quad = (y_loc / y_scale) ** 2
+
+            cross_loc = x_loc * x_scale**-2 + y_loc * y_scale**-2
+            cross_var = 1 / (y_scale**-2 + x_scale**-2)
+            cross_quad = cross_loc**2 * cross_var
+
+            quad = jnp.exp(-self.scale / 2 * (x_quad + y_quad - cross_quad))
+
+            norm = (
+                (2 * jnp.pi) ** ((1 - 2 * self.scale) * 1 / 2)
+                * self.scale ** (-1 / 2)
+                * cross_var ** (1 / 2)
+                * x_scale ** (-self.scale)
+                * y_scale ** (-self.scale)
+            )
+
+            return jnp.linalg.norm(norm * quad)
+
+        return kernel
+
+    @property
+    def mode(self):
+        return self._mode

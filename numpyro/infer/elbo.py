@@ -22,6 +22,7 @@ from numpyro.infer.util import (
     log_density,
 )
 from numpyro.ops.provenance import eval_provenance
+from numpyro.primitives import plate
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 
@@ -330,6 +331,11 @@ class RenyiELBO(ELBO):
         Here :math:`\alpha \neq 1`. Default is 0.
     :param num_particles: The number of particles/samples
         used to form the objective (gradient) estimator. Default is 2.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling: the indices
+        of those plates will be the same across particles.
 
     **References:**
 
@@ -337,46 +343,103 @@ class RenyiELBO(ELBO):
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
 
-    def __init__(self, alpha=0, num_particles=2):
+    def __init__(self, alpha=0, num_particles=2, create_plates=None):
         if alpha == 1:
             raise ValueError(
                 "The order alpha should not be equal to 1. Please use ELBO class"
                 "for the case alpha = 1."
             )
         self.alpha = alpha
+        self.create_plates = create_plates
         super().__init__(num_particles=num_particles)
 
+    def _create_plates(self, key, *args, **kwargs):
+        with seed(rng_seed=key):
+            plates = self.create_plates(*args, **kwargs)
+        if isinstance(plates, plate):
+            plates = [plates]
+        assert all(
+            isinstance(p, plate) for p in plates
+        ), "create_plates() returned a non-plate"
+        plate_values = {}
+        for p in plates:
+            with p as idx:
+                plate_values[p.name] = idx
+        return plate_values
+
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        def single_particle_elbo(rng_key):
+        def single_particle_elbo(rng_key, indep_subsample_plates=()):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
-            guide_log_density, guide_trace = log_density(
-                seeded_guide, args, kwargs, param_map
-            )
-            # NB: we only want to substitute params not available in guide_trace
-            model_param_map = {
-                k: v for k, v in param_map.items() if k not in guide_trace
-            }
-            seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, model_trace = log_density(
-                seeded_model, args, kwargs, model_param_map
+            model_trace, guide_trace = get_importance_trace(
+                seeded_model, seeded_guide, args, kwargs, param_map
             )
             check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="loose")
 
+            site_plates = {
+                name: {frame for frame in site["cond_indep_stack"]}
+                for name, site in model_trace.items()
+                if site["type"] == "sample"
+            }
+            if site_plates:
+                common_plates = set.intersection(*site_plates.values())
+            else:
+                common_plates = set()
+            common_plate_scale = 1.0
+            for frame in common_plates:
+                subsample_size = frame.size
+                size = model_trace[frame.name]["args"][0]
+                if size > subsample_size and frame.name not in indep_subsample_plates:
+                    common_plates = common_plates - {frame}
+                else:
+                    common_plate_scale = common_plate_scale * size / subsample_size
+            common_plate_dims = {frame.dim for frame in common_plates}
+
+            log_densities = {}
+            for trace_type, tr in {"guide": guide_trace, "model": model_trace}.items():
+                log_densities[trace_type] = 1.0
+                for site in tr.values():
+                    if site["type"] != "sample":
+                        continue
+                    log_prob = site["log_prob"]
+                    squeeze_axes = ()
+                    for dim in range(log_prob.ndim):
+                        neg_dim = dim - log_prob.ndim
+                        if neg_dim in common_plate_dims:
+                            continue
+                        log_prob = jnp.sum(log_prob, axis=dim, keepdims=True)
+                        squeeze_axes = squeeze_axes + (dim,)
+                    log_prob = jnp.squeeze(log_prob, squeeze_axes)
+                    log_densities[trace_type] = log_densities[trace_type] + log_prob
+
             # log p(z) - log q(z)
-            elbo = model_log_density - guide_log_density
-            return elbo
+            elbo = log_densities["model"] - log_densities["guide"]
+            # Do not scale elbo at common plate dimensions.
+            return elbo / common_plate_scale, common_plate_scale
+
+        if self.create_plates is not None:
+            subkey, rng_key = random.split(rng_key)
+            plates = self._create_plates(subkey, *args, **kwargs)
+            model = substitute(model, data=plates)
+            guide = substitute(guide, data=plates)
+            plate_names = tuple(plates.keys())
+            compute_elbo_fn = partial(
+                single_particle_elbo, indep_subsample_plates=plate_names
+            )
+        else:
+            compute_elbo_fn = single_particle_elbo
 
         rng_keys = random.split(rng_key, self.num_particles)
-        elbos = vmap(single_particle_elbo)(rng_keys)
+        elbos, common_plate_scale = vmap(compute_elbo_fn)(rng_keys)
         scaled_elbos = (1.0 - self.alpha) * elbos
-        avg_log_exp = logsumexp(scaled_elbos) - jnp.log(self.num_particles)
+        avg_log_exp = logsumexp(scaled_elbos, axis=0) - jnp.log(self.num_particles)
         weights = jnp.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1.0 - self.alpha)
-        weighted_elbo = jnp.dot(stop_gradient(weights), elbos) / self.num_particles
-        return -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
+        weighted_elbo = (stop_gradient(weights) * elbos).mean(0)
+        loss = -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
+        return loss.sum() * jnp.mean(common_plate_scale)
 
 
 def _get_plate_stacks(trace):
@@ -1013,12 +1076,12 @@ class TraceEnum_ELBO(ELBO):
                     for key in deps:
                         site = guide_trace[key]
                         if site["infer"].get("enumerate") == "parallel":
-                            for plate in (
+                            for p in (
                                 frozenset(site["log_measure"].inputs) & elim_plates
                             ):
                                 raise ValueError(
                                     "Expected model enumeration to be no more global than guide enumeration, but found "
-                                    f"model enumeration sites upstream of guide site '{key}' in plate('{plate}')."
+                                    f"model enumeration sites upstream of guide site '{key}' in plate('{p}')."
                                     "Try converting some model enumeration sites to guide enumeration sites."
                                 )
                 cost_terms.append((cost, scale, deps))
