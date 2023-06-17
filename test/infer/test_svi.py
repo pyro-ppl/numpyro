@@ -85,6 +85,31 @@ def test_renyi_local():
     assert_allclose(subsample_loss, full_loss, rtol=1e-6)
 
 
+def test_renyi_create_plates():
+    probs = jnp.linspace(0.1, 0.9, 100)
+
+    def model():
+        with numpyro.plate("N", 100, subsample_size=2):
+            batch = numpyro.subsample(probs, event_dim=0)
+            numpyro.sample("x", dist.Normal(0, 1))
+            numpyro.sample("obs", dist.Bernoulli(batch), obs=1)
+
+    def guide():
+        with numpyro.plate("N", 100, subsample_size=2):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+    indep_loss = RenyiELBO(
+        num_particles=10,
+        create_plates=lambda: numpyro.plate("N", 100, subsample_size=2),
+    ).loss(random.PRNGKey(0), {}, model, guide)
+    dep_loss = RenyiELBO(num_particles=10, create_plates=lambda: []).loss(
+        random.PRNGKey(0), {}, model, guide
+    )
+    np.testing.assert_raises(
+        AssertionError, assert_allclose, indep_loss, dep_loss, rtol=1e-6
+    )
+
+
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
 @pytest.mark.parametrize("optimizer", [optim.Adam(0.05), optimizers.adam(0.05)])
 def test_beta_bernoulli(elbo, optimizer):
