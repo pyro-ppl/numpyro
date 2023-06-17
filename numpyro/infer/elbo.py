@@ -418,7 +418,7 @@ class RenyiELBO(ELBO):
         avg_log_exp = logsumexp(scaled_elbos, axis=0) - jnp.log(self.num_particles)
         weights = jnp.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1.0 - self.alpha)
-        weighted_elbo = (stop_gradient(weights) * elbos).sum(0) / self.num_particles
+        weighted_elbo = (stop_gradient(weights) * elbos).mean(0)
         loss = -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
         return loss.sum() * jnp.mean(common_plate_scale)
 
