@@ -471,7 +471,7 @@ class RenyiELBO(ELBO):
         assert weighted_elbo.shape == elbos.shape[1:]
         loss = -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
         # common_plate_scale should be the same across particles.
-        return loss.sum() * jnp.mean(common_plate_scale)
+        return loss.sum() * common_plate_scale[0]
 
 
 def _get_plate_stacks(trace):
