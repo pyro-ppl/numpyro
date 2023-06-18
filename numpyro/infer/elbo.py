@@ -337,6 +337,30 @@ class RenyiELBO(ELBO):
         automatically as usual. This is useful for data subsampling: the indices
         of those plates will be the same across particles.
 
+    Example::
+
+        def model(data):
+            with numpyro.plate("batch", 10000, subsample_size=100):
+                latent = numpyro.sample("latent", dist.Normal(0, 1))
+                batch = numpyro.subsample(data, event_dim=0)
+                numpyro.sample("data", dist.Bernoulli(logits=latent), obs=batch)
+
+        def guide(data):
+            w_loc = numpyro.param("w_loc", 1.)
+            w_scale = numpyro.param("w_scale", 1.)
+            with numpyro.plate("batch", 10000, subsample_size=100):
+                batch = numpyro.subsample(data, event_dim=0)
+                loc = w_loc * batch
+                scale = jnp.exp(w_scale * batch)
+                numpyro.sample("latent", dist.Normal(loc, scale))
+
+        def create_plates(data):
+            return numpyro.plate("batch", 10000, subsample_size=100)
+
+        elbo = RenyiELBO(num_particles=10, create_plates=create_plates)
+        svi = SVI(model, guide, optax.adam(0.1), elbo)
+
+
     **References:**
 
     1. *Renyi Divergence Variational Inference*, Yingzhen Li, Richard E. Turner
@@ -354,6 +378,7 @@ class RenyiELBO(ELBO):
         super().__init__(num_particles=num_particles)
 
     def _create_plates(self, key, *args, **kwargs):
+        assert self.create_plates is not None
         with seed(rng_seed=key):
             plates = self.create_plates(*args, **kwargs)
         if isinstance(plates, plate):
@@ -367,79 +392,105 @@ class RenyiELBO(ELBO):
                 plate_values[p.name] = idx
         return plate_values
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        def single_particle_elbo(rng_key, indep_subsample_plates=()):
-            model_seed, guide_seed = random.split(rng_key)
-            seeded_model = seed(model, model_seed)
-            seeded_guide = seed(guide, guide_seed)
-            model_trace, guide_trace = get_importance_trace(
-                seeded_model, seeded_guide, args, kwargs, param_map
-            )
-            check_model_guide_match(model_trace, guide_trace)
-            _validate_model(model_trace, plate_warning="loose")
+    def _single_particle_elbo(
+        self, model, guide, param_map, args, kwargs, rng_key, indep_subsample_plates=()
+    ):
+        model_seed, guide_seed = random.split(rng_key)
+        seeded_model = seed(model, model_seed)
+        seeded_guide = seed(guide, guide_seed)
+        model_trace, guide_trace = get_importance_trace(
+            seeded_model, seeded_guide, args, kwargs, param_map
+        )
+        check_model_guide_match(model_trace, guide_trace)
+        _validate_model(model_trace, plate_warning="loose")
 
-            site_plates = {
-                name: {frame for frame in site["cond_indep_stack"]}
-                for name, site in model_trace.items()
-                if site["type"] == "sample"
-            }
-            if site_plates:
-                common_plates = set.intersection(*site_plates.values())
-            else:
-                common_plates = set()
-            common_plate_scale = 1.0
-            for frame in common_plates:
-                subsample_size = frame.size
-                size = model_trace[frame.name]["args"][0]
-                if size > subsample_size and frame.name not in indep_subsample_plates:
-                    common_plates = common_plates - {frame}
+        site_plates = {
+            name: {frame for frame in site["cond_indep_stack"]}
+            for name, site in model_trace.items()
+            if site["type"] == "sample"
+        }
+        # We will compute Renyi elbos separately across dimensions
+        # defined in indep_plates. Then the final elbo is the sum
+        # of those independent elbos.
+        if site_plates:
+            indep_plates = set.intersection(*site_plates.values())
+        else:
+            indep_plates = set()
+        indep_plate_scale = 1.0
+        for frame in indep_plates:
+            subsample_size = frame.size
+            size = model_trace[frame.name]["args"][0]
+            if size > subsample_size:
+                # If a subsample plate is not obtained via create_plates, subsample
+                # indices are not the same across particles. Hence we can't compute
+                # renyi elbo separately across such plate dimension.
+                if frame.name not in indep_subsample_plates:
+                    indep_plates = indep_plates - {frame}
                 else:
-                    common_plate_scale = common_plate_scale * size / subsample_size
-            common_plate_dims = {frame.dim for frame in common_plates}
+                    indep_plate_scale = indep_plate_scale * size / subsample_size
+        indep_plate_dims = {frame.dim for frame in indep_plates}
 
-            log_densities = {}
-            for trace_type, tr in {"guide": guide_trace, "model": model_trace}.items():
-                log_densities[trace_type] = 1.0
-                for site in tr.values():
-                    if site["type"] != "sample":
+        log_densities = {}
+        for trace_type, tr in {"guide": guide_trace, "model": model_trace}.items():
+            log_densities[trace_type] = 1.0
+            for site in tr.values():
+                if site["type"] != "sample":
+                    continue
+                log_prob = site["log_prob"]
+                squeeze_axes = ()
+                for dim in range(log_prob.ndim):
+                    neg_dim = dim - log_prob.ndim
+                    if neg_dim in indep_plate_dims:
                         continue
-                    log_prob = site["log_prob"]
-                    squeeze_axes = ()
-                    for dim in range(log_prob.ndim):
-                        neg_dim = dim - log_prob.ndim
-                        if neg_dim in common_plate_dims:
-                            continue
-                        log_prob = jnp.sum(log_prob, axis=dim, keepdims=True)
-                        squeeze_axes = squeeze_axes + (dim,)
-                    log_prob = jnp.squeeze(log_prob, squeeze_axes)
-                    log_densities[trace_type] = log_densities[trace_type] + log_prob
+                    log_prob = jnp.sum(log_prob, axis=dim, keepdims=True)
+                    squeeze_axes = squeeze_axes + (dim,)
+                log_prob = jnp.squeeze(log_prob, squeeze_axes)
+                log_densities[trace_type] = log_densities[trace_type] + log_prob
 
-            # log p(z) - log q(z)
-            elbo = log_densities["model"] - log_densities["guide"]
-            # Do not scale elbo at common plate dimensions.
-            return elbo / common_plate_scale, common_plate_scale
+        # log p(z) - log q(z)
+        elbo = log_densities["model"] - log_densities["guide"]
+        # Log probabilities at indep_plates dimensions are scaled to MC approximate
+        # the "full size" log probabilities. Because we want to compute Renyi elbos
+        # separately across indep_plates dimensions, we will remove such scale now.
+        # We will apply such scale after getting those Renyi elbos.
+        return elbo / indep_plate_scale, indep_plate_scale
 
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         if self.create_plates is not None:
             subkey, rng_key = random.split(rng_key)
             plates = self._create_plates(subkey, *args, **kwargs)
             model = substitute(model, data=plates)
             guide = substitute(guide, data=plates)
             plate_names = tuple(plates.keys())
-            compute_elbo_fn = partial(
-                single_particle_elbo, indep_subsample_plates=plate_names
+            single_particle_elbo = partial(
+                self._single_particle_elbo,
+                model,
+                guide,
+                param_map,
+                args,
+                kwargs,
+                indep_subsample_plates=plate_names,
             )
         else:
-            compute_elbo_fn = single_particle_elbo
+            single_particle_elbo = partial(
+                self._single_particle_elbo, model, guide, param_map, args, kwargs
+            )
 
         rng_keys = random.split(rng_key, self.num_particles)
-        elbos, common_plate_scale = vmap(compute_elbo_fn)(rng_keys)
+        elbos, common_plate_scale = vmap(single_particle_elbo)(rng_keys)
+        assert common_plate_scale.shape == (self.num_particles,)
+        assert elbos.shape[0] == self.num_particles
         scaled_elbos = (1.0 - self.alpha) * elbos
         avg_log_exp = logsumexp(scaled_elbos, axis=0) - jnp.log(self.num_particles)
+        assert avg_log_exp.shape == elbos.shape[1:]
         weights = jnp.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1.0 - self.alpha)
         weighted_elbo = (stop_gradient(weights) * elbos).mean(0)
+        assert renyi_elbo.shape == elbos.shape[1:]
+        assert weighted_elbo.shape == elbos.shape[1:]
         loss = -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
-        return loss.sum() * jnp.mean(common_plate_scale)
+        # common_plate_scale should be the same across particles.
+        return loss.sum() * common_plate_scale[0]
 
 
 def _get_plate_stacks(trace):
