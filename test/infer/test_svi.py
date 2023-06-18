@@ -85,6 +85,35 @@ def test_renyi_local():
     assert_allclose(subsample_loss, full_loss, rtol=1e-6)
 
 
+def test_renyi_nonnested_plates():
+    def model():
+        with numpyro.plate("N", 10, subsample_size=2):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+        with numpyro.plate("M", 10, subsample_size=2):
+            numpyro.sample("y", dist.Normal(0, 1))
+
+    def get_plates():
+        n_plate = numpyro.plate("N", 10, subsample_size=2, dim=-3)
+        m_plate = numpyro.plate("M", 10, subsample_size=2, dim=-1)
+        return [n_plate, m_plate]
+
+    def get_elbo():
+        renyi_elbo = RenyiELBO(num_particles=10, create_plates=get_plates)
+        return renyi_elbo._single_particle_elbo(
+            model,
+            model,
+            {},
+            (),
+            {},
+            random.PRNGKey(0),
+            indep_subsample_plates=("N", "M"),
+        )
+
+    elbo, _ = get_elbo()
+    assert elbo.shape == ()
+
+
 @pytest.mark.parametrize(
     "n,k,indep_plates",
     [
@@ -124,7 +153,7 @@ def test_renyi_create_plates(n, k, indep_plates):
             n_plate = numpyro.plate("N", N, subsample_size=n, dim=-3)
             plates.append(n_plate)
         if "K" in indep_plates:
-            k_plate = numpyro.plate("K", K, subsample_size=k, dim=-3)
+            k_plate = numpyro.plate("K", K, subsample_size=k, dim=-1)
             plates.append(k_plate)
         return plates
 
