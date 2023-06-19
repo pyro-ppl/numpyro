@@ -1131,7 +1131,7 @@ class AutoSemiDAIS(AutoGuide):
     :param callable local_model: The portion of `model` that includes the local latent variables only.
         The signature of `local_model` should be the return type of the global model with global latent
         variables only.
-    :param callable guide_guide: An autoguide for the global latent variables.
+    :param callable global_guide: A guide for the global latent variables, e.g. an autoguide.
         The return type should be a dictionary of latent sample sites names and corresponding samples.
         If there is no global variable in the model, we can set this to None.
     :param str prefix: A prefix that will be prefixed to all internal sites.
