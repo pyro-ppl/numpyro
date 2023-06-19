@@ -829,6 +829,23 @@ def test_autosemidais_admissible_smoke():
     assert samples["sigma"].shape == (5,) and samples["log_sigma"].shape == (5, 2)
 
 
+def test_autosemidais_local_only():
+    data = jnp.linspace(0, 1, 10)
+
+    def model():
+        with numpyro.plate("N", 10, subsample_size=5, dim=-1):
+            batch = numpyro.subsample(data, event_dim=0)
+            numpyro.sample("x", dist.Normal(batch, 1))
+
+    guide = AutoSemiDAIS(model, model, None)
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 10)
+    samples = guide.sample_posterior(
+        random.PRNGKey(1), svi_result.params, sample_shape=(100,)
+    )
+    assert samples["x"].shape == (100, 5)
+
+
 def test_autosemidais_inadmissible_smoke():
     def global_model():
         return numpyro.sample("theta", dist.Normal(0, 1))
