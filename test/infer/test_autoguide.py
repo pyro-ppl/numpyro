@@ -840,7 +840,9 @@ def test_autosemidais_local_only():
     guide = AutoSemiDAIS(model, model, None)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 10)
-    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params, sample_shape=(100,))
+    samples = guide.sample_posterior(
+        random.PRNGKey(1), svi_result.params, sample_shape=(100,)
+    )
     assert samples["x"].shape == (100, 5)
 
 
