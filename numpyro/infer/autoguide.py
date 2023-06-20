@@ -1322,7 +1322,7 @@ class AutoSemiDAIS(AutoGuide):
                 data=global_latents
             ):
                 global_outputs = self.global_guide.model(*args, **kwargs)
-            local_args = (global_ouputs,)
+            local_args = (global_outputs,)
             local_kwargs = {}
         else:
             global_latents = {}
