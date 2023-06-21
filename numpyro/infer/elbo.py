@@ -22,7 +22,6 @@ from numpyro.infer.util import (
     log_density,
 )
 from numpyro.ops.provenance import eval_provenance
-from numpyro.primitives import plate
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 
