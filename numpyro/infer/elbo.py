@@ -406,8 +406,12 @@ class RenyiELBO(ELBO):
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         plate_key, rng_key = random.split(rng_key)
-        model = seed(model, plate_key, hide_types=["sample", "prng_key", "control_flow"])
-        guide = seed(guide, plate_key, hide_types=["sample", "prng_key", "control_flow"])
+        model = seed(
+            model, plate_key, hide_types=["sample", "prng_key", "control_flow"]
+        )
+        guide = seed(
+            guide, plate_key, hide_types=["sample", "prng_key", "control_flow"]
+        )
         single_particle_elbo = partial(
             self._single_particle_elbo, model, guide, param_map, args, kwargs
         )

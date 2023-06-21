@@ -110,12 +110,7 @@ def test_renyi_nonnested_plates():
 
 @pytest.mark.parametrize(
     "n,k",
-    [
-        (3, 5),
-        (2, 5),
-        (3, 3),
-        (2, 3)
-    ],
+    [(3, 5), (2, 5), (3, 3), (2, 3)],
     ids=str,
 )
 def test_renyi_create_plates(n, k):
@@ -169,8 +164,10 @@ def test_renyi_create_plates(n, k):
         renyi_idx01 = jnp.log(data)[jnp.array([0, 1])].sum() * N / 2
         renyi_idx02 = jnp.log(data)[jnp.array([0, 2])].sum() * N / 2
         renyi_idx12 = jnp.log(data)[jnp.array([1, 2])].sum() * N / 2
-        atol = jnp.min(jnp.abs(jnp.stack([renyi_idx01, renyi_idx02, renyi_idx12]) - renyi_random))
-        assert_allclose(atol, 0., atol=1e-5)
+        atol = jnp.min(
+            jnp.abs(jnp.stack([renyi_idx01, renyi_idx02, renyi_idx12]) - renyi_random)
+        )
+        assert_allclose(atol, 0.0, atol=1e-5)
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
