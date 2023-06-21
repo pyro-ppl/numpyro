@@ -93,13 +93,8 @@ def test_renyi_nonnested_plates():
         with numpyro.plate("M", 10, subsample_size=2):
             numpyro.sample("y", dist.Normal(0, 1))
 
-    def get_plates():
-        n_plate = numpyro.plate("N", 10, subsample_size=2, dim=-3)
-        m_plate = numpyro.plate("M", 10, subsample_size=2, dim=-1)
-        return [n_plate, m_plate]
-
     def get_elbo():
-        renyi_elbo = RenyiELBO(num_particles=10, create_plates=get_plates)
+        renyi_elbo = RenyiELBO(num_particles=10)
         return renyi_elbo._single_particle_elbo(
             model,
             model,
@@ -107,7 +102,6 @@ def test_renyi_nonnested_plates():
             (),
             {},
             random.PRNGKey(0),
-            indep_subsample_plates=("N", "M"),
         )
 
     elbo, _ = get_elbo()
@@ -115,21 +109,16 @@ def test_renyi_nonnested_plates():
 
 
 @pytest.mark.parametrize(
-    "n,k,indep_plates",
+    "n,k",
     [
-        (3, 5, ("N", "K")),
-        (2, 5, ("N", "K")),
-        (3, 3, ("N", "K")),
-        (2, 3, ("N", "K")),
-        (2, 5, ()),
-        (3, 3, ()),
-        (2, 3, ()),
-        (2, 3, ("N",)),
-        (2, 3, ("K",)),
+        (3, 5),
+        (2, 5),
+        (3, 3),
+        (2, 3)
     ],
     ids=str,
 )
-def test_renyi_create_plates(n, k, indep_plates):
+def test_renyi_create_plates(n, k):
     P = 10
     N, M, K = 3, 4, 5
     data = jnp.linspace(0.1, 0.9, N * M * K).reshape((N, M, K))
@@ -147,19 +136,8 @@ def test_renyi_create_plates(n, k, indep_plates):
     def guide(data, n=N, k=K, fix_indices=True):
         pass
 
-    def get_plates(data, n=N, k=K, fix_indices=True, indep_plates=["N", "K"]):
-        plates = []
-        if "N" in indep_plates:
-            n_plate = numpyro.plate("N", N, subsample_size=n, dim=-3)
-            plates.append(n_plate)
-        if "K" in indep_plates:
-            k_plate = numpyro.plate("K", K, subsample_size=k, dim=-1)
-            plates.append(k_plate)
-        return plates
-
-    def get_elbo(n=N, k=K, fix_indices=True, indep_plates=("N", "K")):
-        create_plates = partial(get_plates, indep_plates=indep_plates)
-        renyi_elbo = RenyiELBO(num_particles=P, create_plates=create_plates)
+    def get_elbo(n=N, k=K, fix_indices=True):
+        renyi_elbo = RenyiELBO(num_particles=P)
         return renyi_elbo._single_particle_elbo(
             model,
             guide,
@@ -167,66 +145,32 @@ def test_renyi_create_plates(n, k, indep_plates):
             (data,),
             dict(n=n, k=k, fix_indices=fix_indices),
             random.PRNGKey(0),
-            indep_subsample_plates=indep_plates,
         )
 
-    def get_renyi(n=N, k=K, fix_indices=True, indep_plates=("N", "K")):
-        create_plates = partial(get_plates, indep_plates=indep_plates)
-        renyi_elbo = RenyiELBO(num_particles=P, create_plates=create_plates)
+    def get_renyi(n=N, k=K, fix_indices=True):
+        renyi_elbo = RenyiELBO(num_particles=P)
         return -renyi_elbo.loss(
             random.PRNGKey(0), {}, model, guide, data, n=n, k=k, fix_indices=fix_indices
         )
 
-    def get_n_idx(n=N, k=K, indep_plates=("N", "K")):
-        create_plates = partial(get_plates, indep_plates=indep_plates)
-        renyi_elbo = RenyiELBO(num_particles=P, create_plates=create_plates)
-        subkey, _ = random.split(random.PRNGKey(0))
-        return renyi_elbo._create_plates(subkey, data, n=n, k=k)["N"]
-
-    elbo, scale = get_elbo(n=n, k=k, indep_plates=indep_plates)
-    expected_shape = ()
-    expected_elbo = jnp.log(data)
-    expected_scale = 1.0
-    if n == N or "N" in indep_plates:
-        expected_shape += (n,)
-        expected_elbo = expected_elbo[:n]
-        expected_scale = expected_scale * N / n
-    else:
-        expected_elbo = expected_elbo[:n].mean(0) * N
-    expected_shape += (M,)
-    if k == K or "K" in indep_plates:
-        expected_shape += (k,)
-        expected_elbo = expected_elbo[..., :k]
-        expected_scale = expected_scale * K / k
-    else:
-        expected_elbo = expected_elbo[..., :k].mean(-1) * K
+    elbo, scale = get_elbo(n=n, k=k)
+    expected_shape = (n, M, k)
+    expected_scale = N * K / n / k
+    expected_elbo = jnp.log(data)[:n, :, :k]
     assert elbo.shape == expected_shape
     assert_allclose(scale, expected_scale, rtol=1e-6)
     assert_allclose(elbo, expected_elbo, rtol=1e-6)
 
-    renyi = get_renyi(n=n, k=k, indep_plates=indep_plates)
+    renyi = get_renyi(n=n, k=k)
     assert_allclose(renyi, elbo.sum() * scale, rtol=1e-6)
 
-    # Tests for fix_indices=False.
     if (n, k) == (2, 5):
-        if "N" in indep_plates:
-            # With indep N, we have the same index across particles. Hence we can compute
-            # expected elbo as above.
-            n_idx = get_n_idx(n=2)
-            renyi_random = get_renyi(n=2, fix_indices=False)
-            assert_allclose(renyi_random, jnp.log(data)[n_idx].sum() * N / 2, rtol=1e-6)
-        else:
-            # With dep N, we have different indices across particles. Hence we get a different
-            # result.
-            renyi_random = get_renyi(n=2, fix_indices=False, indep_plates=())
-            for n_idx in [jnp.array([0, 1]), jnp.array([0, 2]), jnp.array([1, 2])]:
-                np.testing.assert_raises(
-                    AssertionError,
-                    np.testing.assert_allclose,
-                    renyi_random,
-                    jnp.log(data)[n_idx].sum() * N / 2,
-                    rtol=1e-6,
-                )
+        renyi_random = get_renyi(n=2, fix_indices=False)
+        renyi_idx01 = jnp.log(data)[jnp.array([0, 1])].sum() * N / 2
+        renyi_idx02 = jnp.log(data)[jnp.array([0, 2])].sum() * N / 2
+        renyi_idx12 = jnp.log(data)[jnp.array([1, 2])].sum() * N / 2
+        atol = jnp.min(jnp.abs(jnp.stack([renyi_idx01, renyi_idx02, renyi_idx12]) - renyi_random))
+        assert_allclose(atol, 0., atol=1e-5)
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
