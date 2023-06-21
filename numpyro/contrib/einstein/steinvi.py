@@ -20,11 +20,15 @@ from numpyro.contrib.einstein.stein_util import (
     get_parameter_transform,
 )
 from numpyro.contrib.funsor import config_enumerate, enum
-from numpyro.distributions import Distribution, Normal
+from numpyro.distributions import Distribution, Normal, biject_to
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer.autoguide import AutoGuide
-from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
+from numpyro.infer.util import (
+    _guess_max_plate_nesting,
+    helpful_support_errors,
+    transform_fn,
+)
 from numpyro.optim import _NumPyroOptim
 from numpyro.util import fori_collect, ravel_pytree
 
@@ -112,7 +116,7 @@ class SteinVI:
         )
         self.kernel_fn = kernel_fn
         self.static_kwargs = static_kwargs
-        self.num_particles = num_stein_particles
+        self.num_stein_particles = num_stein_particles
         self.loss_temperature = loss_temperature
         self.repulsion_temperature = repulsion_temperature
         self.enum = enum
@@ -170,24 +174,29 @@ class SteinVI:
     def _find_init_params(self, particle_seed, inner_guide, inner_guide_trace):
         def extract_info(site):
             nonlocal particle_seed
+            nonlocal inner_guide_trace
             name = site["name"]
-            value = site["value"]
             constraint = site["kwargs"].get("constraint", real)
             transform = get_parameter_transform(site)
-            if (
-                isinstance(inner_guide, AutoGuide)
-                and "_".join((inner_guide.prefix, "loc")) in name
+            if isinstance(inner_guide, AutoGuide) and name.endswith(
+                "_".join(("", inner_guide.prefix, "loc"))
             ):
                 site_key, particle_seed = random.split(particle_seed)
-                unconstrained_shape = transform.inverse_shape(value.shape)
-                init_value = jnp.expand_dims(
-                    transform.inv(value), 0
-                ) + Normal(  # Add gaussian noise
-                    scale=0.1
-                ).sample(
-                    particle_seed, (self.num_particles, *unconstrained_shape)
+                sample_site = inner_guide_trace[
+                    name.replace("_".join(("", inner_guide.prefix, "loc")), "")
+                ].copy()
+                sample_site_shape = sample_site["kwargs"]["sample_shape"]
+                sample_site["kwargs"]["sample_shape"] = (
+                    self.num_stein_particles,
+                    *sample_site_shape,
                 )
-                init_value = transform(init_value)
+                sample_site["kwargs"]["rng_key"] = site_key
+                sample_site["value"] = None
+                init_value_particles = inner_guide.init_loc_fn(sample_site)
+                with helpful_support_errors(sample_site):
+                    sample_transform = biject_to(sample_site["fn"].support)
+                init_value_particles = sample_transform.inv(init_value_particles)
+                init_value = transform(init_value_particles)
 
             else:
                 site_fn = site["fn"]
@@ -199,7 +208,7 @@ class SteinVI:
                         return site_fn(*site_args)
 
                 init_value = vmap(_reinit)(
-                    random.split(particle_seed, self.num_particles)
+                    random.split(particle_seed, self.num_stein_particles)
                 )
             return init_value, constraint
 
@@ -352,7 +361,7 @@ class SteinVI:
             vmap(single_particle_grad)(
                 stein_particles, attractive_force, repulsive_force
             )
-            / self.num_particles
+            / self.num_stein_particles
         )
 
         # 5. Decompose the monolithic particle forces back to concrete parameter values

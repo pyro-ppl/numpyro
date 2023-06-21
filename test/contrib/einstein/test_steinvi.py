@@ -161,7 +161,7 @@ def test_get_params(kernel, auto_guide, init_loc_fn, problem):
     for name, svi_param in svi_params.items():
         assert (
             stein_params[name].shape
-            == np.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+            == np.repeat(svi_param[None, ...], stein.num_stein_particles, axis=0).shape
         )
 
 
