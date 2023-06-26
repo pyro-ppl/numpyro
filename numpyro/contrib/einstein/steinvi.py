@@ -20,7 +20,7 @@ from numpyro.contrib.einstein.stein_util import (
     get_parameter_transform,
 )
 from numpyro.contrib.funsor import config_enumerate, enum
-from numpyro.distributions import Distribution, Normal, biject_to
+from numpyro.distributions import Distribution, biject_to
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer.autoguide import AutoGuide
