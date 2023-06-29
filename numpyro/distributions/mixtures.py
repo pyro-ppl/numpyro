@@ -196,7 +196,7 @@ class MixtureSameFamily(_MixtureBase):
         assert component_distribution.batch_shape[-1] == mixture_size, (
             "Component distribution batch shape last dimension "
             f"(size={component_distribution.batch_shape[-1]}) "
-            "needs to correspond to the mixture_size={mixture_size}!"
+            f"needs to correspond to the mixture_size={mixture_size}!"
         )
         self._mixing_distribution = mixing_distribution
         self._component_distribution = component_distribution
