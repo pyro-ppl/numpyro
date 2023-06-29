@@ -47,7 +47,11 @@ from numpyro.distributions.util import (
 from numpyro.infer import Predictive
 from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.initialization import init_to_median, init_to_uniform
-from numpyro.infer.util import helpful_support_errors, initialize_model, potential_energy
+from numpyro.infer.util import (
+    helpful_support_errors,
+    initialize_model,
+    potential_energy,
+)
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import not_jax_tracer
@@ -1229,7 +1233,8 @@ class AutoSemiDAIS(AutoGuide):
         }
         _, shape_dict = _ravel_dict(one_sample)
         self._pack_local_latent = jax.vmap(
-            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,))
+            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,)
+        )
         local_init_latent = self._pack_local_latent(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
@@ -1303,8 +1308,13 @@ class AutoSemiDAIS(AutoGuide):
             def fn(x):
                 x_unpack = self._unpack_local_latent(x)
                 with numpyro.handlers.block():
-                    return potential_energy(partial(_subsample_model, self.local_model),
-                                            local_args, local_kwargs, x_unpack)
+                    return -potential_energy(
+                        partial(_subsample_model, self.local_model),
+                        local_args,
+                        local_kwargs,
+                        x_unpack,
+                    )
+
             return fn
 
         if self.global_guide is not None:
@@ -1325,7 +1335,9 @@ class AutoSemiDAIS(AutoGuide):
         if self.local_guide is not None:
             for name, site in self.prototype_local_guide_trace.items():
                 if site["type"] == "param":
-                    local_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
+                    local_guide_params[name] = numpyro.param(
+                        name, site["value"], **site["kwargs"]
+                    )
 
         plate_name, N, subsample_size = self._local_plate
         D, K = self._local_latent_dim, self.K
@@ -1369,13 +1381,18 @@ class AutoSemiDAIS(AutoGuide):
             if self.local_guide is not None:
                 key = numpyro.prng_key()
                 subsample_guide = partial(_subsample_model, self.local_guide)
-                with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=key), handlers.substitute(data=local_guide_params):
+                with handlers.block(), handlers.trace() as tr, handlers.seed(
+                    rng_seed=key
+                ), handlers.substitute(data=local_guide_params):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         subsample_guide(*local_args, **local_kwargs)
-                    latent = {name: biject_to(site["fn"].support).inv(site["value"])
-                              for name, site in tr.items()
-                              if site["type"] == "sample" and not site.get("is_observed", False)}
+                    latent = {
+                        name: biject_to(site["fn"].support).inv(site["value"])
+                        for name, site in tr.items()
+                        if site["type"] == "sample"
+                        and not site.get("is_observed", False)
+                    }
                     z_0 = self._pack_local_latent(latent)
 
                 def base_z_dist_log_prob(z):
@@ -1385,10 +1402,21 @@ class AutoSemiDAIS(AutoGuide):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             scale = N / idx.shape[0]
-                            return potential_energy(subsample_guide, local_args, local_kwargs, {**local_guide_params, **latent}) / scale
+                            return (
+                                -potential_energy(
+                                    subsample_guide,
+                                    local_args,
+                                    local_kwargs,
+                                    {**local_guide_params, **latent},
+                                )
+                                / scale
+                            )
 
-                numpyro.sample("{}_z_0".format(self.prefix), dist.Delta(z_0, base_z_dist_log_prob(z_0)),
-                               infer={"is_auxiliary": True})
+                numpyro.sample(
+                    "{}_z_0".format(self.prefix),
+                    dist.Delta(z_0, base_z_dist_log_prob(z_0)),
+                    infer={"is_auxiliary": True},
+                )
             else:
                 z_0_loc_init = jnp.zeros((N, D))
                 z_0_loc = numpyro.param(
@@ -1404,7 +1432,9 @@ class AutoSemiDAIS(AutoGuide):
                 base_z_dist = dist.Normal(z_0_loc, z_0_scale).to_event(1)
                 assert base_z_dist.shape() == (subsample_size, D)
                 z_0 = numpyro.sample(
-                    "{}_z_0".format(self.prefix), base_z_dist, infer={"is_auxiliary": True}
+                    "{}_z_0".format(self.prefix),
+                    base_z_dist,
+                    infer={"is_auxiliary": True},
                 )
 
                 def base_z_dist_log_prob(x):

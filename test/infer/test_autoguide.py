@@ -717,7 +717,7 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         random.PRNGKey(0), num_steps
     )
 
-    # assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
+    assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
 
     samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples16["theta"].shape == (P,) and samples16["tau"].shape == (16,)
