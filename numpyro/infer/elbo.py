@@ -22,7 +22,6 @@ from numpyro.infer.util import (
     log_density,
 )
 from numpyro.ops.provenance import eval_provenance
-from numpyro.primitives import plate
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 
@@ -331,11 +330,6 @@ class RenyiELBO(ELBO):
         Here :math:`\alpha \neq 1`. Default is 0.
     :param num_particles: The number of particles/samples
         used to form the objective (gradient) estimator. Default is 2.
-    :param callable create_plates: An optional function inputing the same
-        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
-        or iterable of plates. Plates not returned will be created
-        automatically as usual. This is useful for data subsampling: the indices
-        of those plates will be the same across particles.
 
     Example::
 
@@ -354,10 +348,7 @@ class RenyiELBO(ELBO):
                 scale = jnp.exp(w_scale * batch)
                 numpyro.sample("latent", dist.Normal(loc, scale))
 
-        def create_plates(data):
-            return numpyro.plate("batch", 10000, subsample_size=100)
-
-        elbo = RenyiELBO(num_particles=10, create_plates=create_plates)
+        elbo = RenyiELBO(num_particles=10)
         svi = SVI(model, guide, optax.adam(0.1), elbo)
 
 
@@ -367,34 +358,16 @@ class RenyiELBO(ELBO):
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
 
-    def __init__(self, alpha=0, num_particles=2, create_plates=None):
+    def __init__(self, alpha=0, num_particles=2):
         if alpha == 1:
             raise ValueError(
                 "The order alpha should not be equal to 1. Please use ELBO class"
                 "for the case alpha = 1."
             )
         self.alpha = alpha
-        self.create_plates = create_plates
         super().__init__(num_particles=num_particles)
 
-    def _create_plates(self, key, *args, **kwargs):
-        assert self.create_plates is not None
-        with seed(rng_seed=key):
-            plates = self.create_plates(*args, **kwargs)
-        if isinstance(plates, plate):
-            plates = [plates]
-        assert all(
-            isinstance(p, plate) for p in plates
-        ), "create_plates() returned a non-plate"
-        plate_values = {}
-        for p in plates:
-            with p as idx:
-                plate_values[p.name] = idx
-        return plate_values
-
-    def _single_particle_elbo(
-        self, model, guide, param_map, args, kwargs, rng_key, indep_subsample_plates=()
-    ):
+    def _single_particle_elbo(self, model, guide, param_map, args, kwargs, rng_key):
         model_seed, guide_seed = random.split(rng_key)
         seeded_model = seed(model, model_seed)
         seeded_guide = seed(guide, guide_seed)
@@ -421,13 +394,7 @@ class RenyiELBO(ELBO):
             subsample_size = frame.size
             size = model_trace[frame.name]["args"][0]
             if size > subsample_size:
-                # If a subsample plate is not obtained via create_plates, subsample
-                # indices are not the same across particles. Hence we can't compute
-                # renyi elbo separately across such plate dimension.
-                if frame.name not in indep_subsample_plates:
-                    indep_plates = indep_plates - {frame}
-                else:
-                    indep_plate_scale = indep_plate_scale * size / subsample_size
+                indep_plate_scale = indep_plate_scale * size / subsample_size
         indep_plate_dims = {frame.dim for frame in indep_plates}
 
         log_densities = {}
@@ -456,25 +423,16 @@ class RenyiELBO(ELBO):
         return elbo / indep_plate_scale, indep_plate_scale
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        if self.create_plates is not None:
-            subkey, rng_key = random.split(rng_key)
-            plates = self._create_plates(subkey, *args, **kwargs)
-            model = substitute(model, data=plates)
-            guide = substitute(guide, data=plates)
-            plate_names = tuple(plates.keys())
-            single_particle_elbo = partial(
-                self._single_particle_elbo,
-                model,
-                guide,
-                param_map,
-                args,
-                kwargs,
-                indep_subsample_plates=plate_names,
-            )
-        else:
-            single_particle_elbo = partial(
-                self._single_particle_elbo, model, guide, param_map, args, kwargs
-            )
+        plate_key, rng_key = random.split(rng_key)
+        model = seed(
+            model, plate_key, hide_types=["sample", "prng_key", "control_flow"]
+        )
+        guide = seed(
+            guide, plate_key, hide_types=["sample", "prng_key", "control_flow"]
+        )
+        single_particle_elbo = partial(
+            self._single_particle_elbo, model, guide, param_map, args, kwargs
+        )
 
         rng_keys = random.split(rng_key, self.num_particles)
         elbos, common_plate_scale = vmap(single_particle_elbo)(rng_keys)
