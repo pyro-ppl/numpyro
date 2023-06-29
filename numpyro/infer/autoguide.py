@@ -1260,6 +1260,10 @@ class AutoSemiDAIS(AutoGuide):
                 self.local_guide(*local_args, **local_kwargs)
             self.prototype_local_guide_trace = tr
 
+        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+            self.local_model(*local_args, **local_kwargs)
+        self.prototype_local_model_trace = tr
+
     def __call__(self, *args, **kwargs):
         if self.prototype_trace is None:
             # run model to inspect the model structure
@@ -1301,19 +1305,6 @@ class AutoSemiDAIS(AutoGuide):
     def _sample_latent(self, *args, **kwargs):
         kwargs.pop("sample_shape", ())
 
-        def make_local_log_density(*local_args, **local_kwargs):
-            def fn(x):
-                x_unpack = self._unpack_local_latent(x)
-                with numpyro.handlers.block():
-                    return -potential_energy(
-                        partial(_subsample_model, self.local_model),
-                        local_args,
-                        local_kwargs,
-                        x_unpack,
-                    )
-
-            return fn
-
         if self.global_guide is not None:
             global_latents = self.global_guide(*args, **kwargs)
             rng_key = numpyro.prng_key()
@@ -1335,6 +1326,26 @@ class AutoSemiDAIS(AutoGuide):
                     local_guide_params[name] = numpyro.param(
                         name, site["value"], **site["kwargs"]
                     )
+
+        local_model_params = {}
+        for name, site in self.prototype_local_model_trace.items():
+            if site["type"] == "param":
+                local_model_params[name] = numpyro.param(
+                    name, site["value"], **site["kwargs"]
+                )
+
+        def make_local_log_density(*local_args, **local_kwargs):
+            def fn(x):
+                x_unpack = self._unpack_local_latent(x)
+                with numpyro.handlers.block():
+                    return -potential_energy(
+                        partial(_subsample_model, self.local_model),
+                        local_args,
+                        local_kwargs,
+                        {**x_unpack, **local_model_params},
+                    )
+
+            return fn
 
         plate_name, N, subsample_size = self._local_plate
         D, K = self._local_latent_dim, self.K
@@ -1409,10 +1420,8 @@ class AutoSemiDAIS(AutoGuide):
                                 / scale
                             )
 
-                numpyro.sample(
-                    "{}_z_0".format(self.prefix),
-                    dist.Delta(z_0, base_z_dist_log_prob(z_0)),
-                    infer={"is_auxiliary": True},
+                numpyro.factor(
+                    "{}_z_0_factor".format(self.prefix), base_z_dist_log_prob(z_0)
                 )
             else:
                 z_0_loc_init = jnp.zeros((N, D))
