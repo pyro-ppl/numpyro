@@ -1426,10 +1426,8 @@ class AutoSemiDAIS(AutoGuide):
                                 / scale
                             )
 
-                numpyro.sample(
-                    "{}_z_0".format(self.prefix),
-                    dist.Delta(z_0, base_z_dist_log_prob(z_0), event_dim=1),
-                    infer={"is_auxiliary": True},
+                numpyro.factor(
+                    "{}_z_0_factor".format(self.prefix), base_z_dist_log_prob(z_0)
                 )
             else:
                 z_0_loc_init = jnp.zeros((N, D))
