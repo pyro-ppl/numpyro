@@ -199,15 +199,20 @@ class SVI(object):
         if init_params is not None:
             init_guide_params.update(init_params)
         if self.multi_sample_guide:
-            latents = {name: site["value"][0] for name, site in guide_trace.items()
-                       if site["type"] == "sample" and site["value"].size > 0}
+            latents = {
+                name: site["value"][0]
+                for name, site in guide_trace.items()
+                if site["type"] == "sample" and site["value"].size > 0
+            }
             latents.update(init_guide_params)
             with trace() as model_trace, substitute(data=latents):
                 model_init(*args, **kwargs, **self.static_kwargs)
             for site in model_trace.values():
                 if site["type"] == "mutable":
-                    raise ValueError("mutable state in model is not supported for "
-                                     "multi-sample guide.")
+                    raise ValueError(
+                        "mutable state in model is not supported for "
+                        "multi-sample guide."
+                    )
         else:
             model_trace = trace(
                 substitute(replay(model_init, guide_trace), init_guide_params)

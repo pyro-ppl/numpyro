@@ -46,7 +46,7 @@ from numpyro.infer.autoguide import (
     AutoNormal,
     AutoRVRS,
     AutoSemiDAIS,
-	AutoSemiRVRS,
+    AutoSemiRVRS,
     AutoSurrogateLikelihoodDAIS,
     batch_rejection_sampler,
     batch_rejection_sampler_custom,
@@ -95,8 +95,15 @@ def test_beta_bernoulli(auto_class):
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
     elif auto_class == AutoRVRS:
-        guide = auto_class(model, S=4, T=13., epsilon=0.1, adaptation_scheme="dual_averaging",
-                           init_loc_fn=init_strategy, init_scale=1.0)
+        guide = auto_class(
+            model,
+            S=4,
+            T=13.0,
+            epsilon=0.1,
+            adaptation_scheme="dual_averaging",
+            init_loc_fn=init_strategy,
+            init_scale=1.0,
+        )
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
@@ -115,26 +122,36 @@ def test_beta_bernoulli(auto_class):
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
     if auto_class == AutoRVRS:
-        posterior_samples = jax.tree_util.tree_map(lambda x: x.reshape((-1,) + x.shape[2:]), posterior_samples)
+        posterior_samples = jax.tree_util.tree_map(
+            lambda x: x.reshape((-1,) + x.shape[2:]), posterior_samples
+        )
     posterior_mean = jnp.mean(posterior_samples["beta"], 0)
     posterior_std = jnp.std(posterior_samples["beta"], 0)
 
     if auto_class == AutoRVRS:
-        print("\nFINAL AutoDiag auto_loc: [1.19420906, -0.35535608]\nFINAL AutoDiag auto_scale: [0.69223469, 0.61101982]")
-        print("FINAL RVRS auto_loc", params['auto_loc'])
-        print("FINAL RVRS auto_scale", params['auto_scale'])
+        print(
+            "\nFINAL AutoDiag auto_loc: [1.19420906, -0.35535608]\nFINAL AutoDiag auto_scale: [0.69223469, 0.61101982]"
+        )
+        print("FINAL RVRS auto_loc", params["auto_loc"])
+        print("FINAL RVRS auto_scale", params["auto_scale"])
         print("AutoDiag posterior_mean:  [0.75519637 0.42030578]")
         print("AutoDiag posterior_std:  [0.11744191 0.14285692]")
         print("posterior_mean: ", posterior_mean)
         print("posterior_std: ", posterior_std)
         print("true posterior_mean: ", true_coefs)
-        final_elbo = jnp.mean(lax.map(lambda key: -Trace_ELBO().loss(key, params, model, guide, data),
-                              random.split(random.PRNGKey(2), 1000)))
+        final_elbo = jnp.mean(
+            lax.map(
+                lambda key: -Trace_ELBO().loss(key, params, model, guide, data),
+                random.split(random.PRNGKey(2), 1000),
+            )
+        )
         print("RVRS final elbo: ", final_elbo, "    (expected ~ -13.96)")
     elif auto_class == AutoDiagonalNormal:
-        final_elbo = -Trace_ELBO(num_particles=1000).loss(
-                random.PRNGKey(2), params, model, guide, data
-            ).item()
+        final_elbo = (
+            -Trace_ELBO(num_particles=1000)
+            .loss(random.PRNGKey(2), params, model, guide, data)
+            .item()
+        )
         print("AutoDiagonalNormal final elbo: ", final_elbo)
 
     assert_allclose(posterior_mean, true_coefs, atol=0.03)
@@ -173,7 +190,7 @@ def test_beta_bernoulli(auto_class):
 )
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO][:1])
 def test_logistic_regression(auto_class, Elbo):
-    if auto_class==AutoRVRS and Elbo is TraceMeanField_ELBO:
+    if auto_class == AutoRVRS and Elbo is TraceMeanField_ELBO:
         pytest.skip("Skip MeanField_ELBO for AutoRVRS.")
 
     N, dim = 100, 3
@@ -195,7 +212,9 @@ def test_logistic_regression(auto_class, Elbo):
         guide = auto_class(model, init_loc_fn=init_strategy)
     else:
         init_loc_fn = init_to_median(num_samples=100)
-        guide = auto_class(model, S=16, T=40.0, epsilon=0.05, init_scale=0.5, init_loc_fn=init_loc_fn)
+        guide = auto_class(
+            model, S=16, T=40.0, epsilon=0.05, init_scale=0.5, init_loc_fn=init_loc_fn
+        )
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
@@ -205,7 +224,7 @@ def test_logistic_regression(auto_class, Elbo):
         svi.loss = Trace_ELBO()
         _, elbo_loss = svi.update(svi_state, data, labels)
         svi.loss = TraceMeanField_ELBO()
-        #assert abs(mean_field_loss - elbo_loss) > 0.5
+        # assert abs(mean_field_loss - elbo_loss) > 0.5
 
     def body_fn(i, val):
         svi_state, loss = svi.update(val, data, labels)
@@ -215,11 +234,11 @@ def test_logistic_regression(auto_class, Elbo):
     params = svi.get_params(svi_state)
     if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal, AutoRVRS):
         median = guide.median(params)
-        #assert_allclose(median["coefs"], true_coefs, rtol=0.1)
+        # assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method
         if auto_class is not AutoDelta:
             median = guide.quantiles(params, [0.2, 0.5])
-            #assert_allclose(median["coefs"][1], true_coefs, rtol=0.1)
+            # assert_allclose(median["coefs"][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
@@ -227,15 +246,19 @@ def test_logistic_regression(auto_class, Elbo):
     expected_coefs = jnp.array([0.97, 2.05, 3.18])
     print("\nRVRS posterior: ", jnp.mean(posterior_samples["coefs"], (0, 1)))
     print("RVRS posterior std: ", jnp.std(posterior_samples["coefs"], (0, 1)))
-    #print("Expected posterior: ", expected_coefs)
+    # print("Expected posterior: ", expected_coefs)
 
-    if 'auto_z_0_loc' in params:
-        print("auto_z_0_loc: ", params['auto_z_0_loc'])
-        print("auto_z_0_scale: ", params['auto_z_0_scale'])
+    if "auto_z_0_loc" in params:
+        print("auto_z_0_loc: ", params["auto_z_0_loc"])
+        print("auto_z_0_scale: ", params["auto_z_0_scale"])
     if auto_class == AutoRVRS:
-        print("Final T_adapt: {:.4f}".format(svi_state.mutable_state['_T_adapt']['value'].item()))
+        print(
+            "Final T_adapt: {:.4f}".format(
+                svi_state.mutable_state["_T_adapt"]["value"].item()
+            )
+        )
 
-    #assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
+    # assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
 
 
 def test_iaf():
@@ -1010,7 +1033,7 @@ def test_autosldais(
     assert dais_elbo > mf_elbo + 0.1
 
 
-def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
+def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20**4):
     p = dist.Normal(0, 1)
     q = dist.Normal(0.2, 1.2)
 
@@ -1025,7 +1048,8 @@ def test_batch_rejection_sampler(T=-2.5, num_mc_samples=20 ** 4):
     keys = random.split(random.PRNGKey(0), num_mc_samples)
 
     z, _, log_Z_rejection, _, _ = batch_rejection_sampler(
-        accept_log_prob_fn, guide_sampler, keys, None)
+        accept_log_prob_fn, guide_sampler, keys, None
+    )
 
     assert_allclose(np.mean(z), 0, atol=0.02)
     assert_allclose(np.std(z), 1, atol=0.03)
@@ -1052,9 +1076,7 @@ def test_rejection_sampler_grad(T=-2.5, num_mc_samples=10):
 
     def get_z(params_raw):
         params = {"loc": params_raw["loc"], "scale": jnp.exp(params_raw["log_scale"])}
-        z, *_ = batch_rejection_sampler(accept_log_prob_fn,
-                                        guide_sampler,
-                                        keys, params)
+        z, *_ = batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys, params)
         return z, z
 
     def sample_z(params_raw, eps):
@@ -1073,7 +1095,7 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
 
     def accept_log_prob_fn(z, params):
         q = dist.Normal(**params)
-        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T), 0., 0.
+        return jax.nn.log_sigmoid(p.log_prob(z) - q.log_prob(z) + T), 0.0, 0.0
 
     def guide_sampler(key, params):
         q = dist.Normal(**params)
@@ -1081,9 +1103,9 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
 
     def get_z(params_raw, key):
         params = {"loc": params_raw["loc"], "scale": jnp.exp(params_raw["log_scale"])}
-        z, *_ = batch_rejection_sampler_custom(accept_log_prob_fn,
-                                               guide_sampler,
-                                               key, params)
+        z, *_ = batch_rejection_sampler_custom(
+            accept_log_prob_fn, guide_sampler, key, params
+        )
         return z, z
 
     def sample_z(params_raw, eps):
@@ -1098,8 +1120,17 @@ def test_rejection_sampler_custom_grad(T=-2.5, num_mc_samples=10):
     assert_allclose(actual_grad["log_scale"], expected_grad["log_scale"], atol=1e-7)
 
 
-def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000,
-	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
+def test_autosemirvrs(
+    N=18,
+    P=3,
+    sigma_obs=0.1,
+    num_steps=45 * 1000,
+    num_samples=5000,
+    epsilon=0.1,
+    Z_target=0.5,
+    S=2,
+    T_init=0.0,
+    seed=0,
     adaptation_scheme="dual_averaging",
     # adaptation_scheme="fixed",
     # adaptation_scheme="Z_target",
@@ -1113,7 +1144,7 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
     def global_model():
         if fix_theta:
-            return jnp.array([1., -0.5, 0.])
+            return jnp.array([1.0, -0.5, 0.0])
         return numpyro.sample("theta", dist.Normal(jnp.zeros(P), 1).to_event(1))
 
     def local_model(subsample_size, theta):
@@ -1145,8 +1176,12 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         return numpyro.plate("N", N, subsample_size=subsample_size)
 
     global_guide = AutoNormal(global_model)
-    local_guide16 = AutoNormal(partial(local_model, 16), create_plates=partial(create_plates, 16))
-    local_guide12 = AutoNormal(partial(local_model, 12), create_plates=partial(create_plates, 12))
+    local_guide16 = AutoNormal(
+        partial(local_model, 16), create_plates=partial(create_plates, 16)
+    )
+    local_guide12 = AutoNormal(
+        partial(local_model, 12), create_plates=partial(create_plates, 12)
+    )
 
     def mf_guide16():
         global_guide()
@@ -1156,7 +1191,8 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     mf_results = svi_mf.run(random.PRNGKey(seed), num_steps=num_steps)
     mf_params = mf_results.params
     mf_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed+1), mf_params, model16, mf_guide16)
+        random.PRNGKey(seed + 1), mf_params, model16, mf_guide16
+    )
     print("MF ELBO:", mf_elbo)
     # if not fix_theta:
     #     print("MF theta:", mf_params["theta_auto_loc"])
@@ -1164,77 +1200,129 @@ def test_autosemirvrs(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
     for T in list(range(11)) + [100, 1000, 10000]:
         rvrs_guide_T = AutoSemiRVRS(
-			model16, partial(local_model, 16), global_guide, local_guide16,
-			S=S, T=T, adaptation_scheme="fixed", Z_target=Z_target, epsilon=epsilon, include_log_Z=False)
+            model16,
+            partial(local_model, 16),
+            global_guide,
+            local_guide16,
+            S=S,
+            T=T,
+            adaptation_scheme="fixed",
+            Z_target=Z_target,
+            epsilon=epsilon,
+            include_log_Z=False,
+        )
         rvrs_elbo_T = -Trace_ELBO(num_particles=num_samples).loss(
-			random.PRNGKey(0), mf_params, model16, rvrs_guide_T)
+            random.PRNGKey(0), mf_params, model16, rvrs_guide_T
+        )
         with handlers.substitute(data={"N": jnp.arange(N)}):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 posterior_samples = rvrs_guide_T.sample_posterior(
-                    random.PRNGKey(1), params=mf_params, sample_shape=(num_samples,))
+                    random.PRNGKey(1), params=mf_params, sample_shape=(num_samples,)
+                )
         first_log_a = posterior_samples["first_log_a"].reshape(-1, N)
         log_Z = logsumexp(first_log_a, axis=0) - jnp.log(first_log_a.shape[0])
         rvrs_elbo_T = rvrs_elbo_T + log_Z.sum()
         print(f"RVRS16 T={T} ELBO:", rvrs_elbo_T)
 
     rvrs_guide16 = AutoSemiRVRS(
-        model16, partial(local_model, 16), global_guide, local_guide16,
-        S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
+        model16,
+        partial(local_model, 16),
+        global_guide,
+        local_guide16,
+        S=S,
+        T=T_init,
+        adaptation_scheme=adaptation_scheme,
+        Z_target=Z_target,
+        epsilon=epsilon,
+    )
     rvrs16_results = SVI(model16, rvrs_guide16, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(seed+2), num_steps, init_params=mf_params,
+        random.PRNGKey(seed + 2),
+        num_steps,
+        init_params=mf_params,
     )
     if adaptation_scheme == "Z_target":
-        print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'])
+        print("RVRS16 T:", rvrs16_results.state.mutable_state["_T_adapt"]["value"])
     elif adaptation_scheme == "dual_averaging":
-        print("RVRS16 T:", rvrs16_results.state.mutable_state['_T_adapt']['value'].temperature)
+        print(
+            "RVRS16 T:",
+            rvrs16_results.state.mutable_state["_T_adapt"]["value"].temperature,
+        )
     else:
         print("RVRS16 T:", T_init)
     rvrs16_params = rvrs16_results.params
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed+3), rvrs16_params, model16, rvrs_guide16)
+        random.PRNGKey(seed + 3), rvrs16_params, model16, rvrs_guide16
+    )
     print("RVRS16 ELBO:", rvrs16_elbo)
     # if not fix_theta:
     #     print("RVRS16 theta:", rvrs16_params["theta_auto_loc"])
     # print("RVRS16 tau:", rvrs16_params["tau_auto_loc"])
 
     rvrs_guide12 = AutoSemiRVRS(
-        model12, partial(local_model, 12), global_guide, local_guide12,
-        S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
+        model12,
+        partial(local_model, 12),
+        global_guide,
+        local_guide12,
+        S=S,
+        T=T_init,
+        adaptation_scheme=adaptation_scheme,
+        Z_target=Z_target,
+        epsilon=epsilon,
+    )
     rvrs12_results = SVI(model12, rvrs_guide12, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(seed+4), num_steps, init_params=mf_params,
+        random.PRNGKey(seed + 4),
+        num_steps,
+        init_params=mf_params,
     )
     if adaptation_scheme == "Z_target":
-        print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'])
+        print("RVRS12 T:", rvrs12_results.state.mutable_state["_T_adapt"]["value"])
     elif adaptation_scheme == "dual_averaging":
-        print("RVRS12 T:", rvrs12_results.state.mutable_state['_T_adapt']['value'].temperature)
+        print(
+            "RVRS12 T:",
+            rvrs12_results.state.mutable_state["_T_adapt"]["value"].temperature,
+        )
     else:
         print("RVRS12 T:", T_init)
     rvrs12_params = rvrs12_results.params
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed+5), rvrs12_params, model12, rvrs_guide12)
+        random.PRNGKey(seed + 5), rvrs12_params, model12, rvrs_guide12
+    )
     print("RVRS12 ELBO:", rvrs12_elbo)
     # if not fix_theta:
     #     print("RVRS12 theta:", rvrs12_params["theta_auto_loc"])
     # print("RVRS12 tau:", rvrs12_params["tau_auto_loc"])
 
     rvrs12_subs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed+6), rvrs16_params, model12, rvrs_guide12)
+        random.PRNGKey(seed + 6), rvrs16_params, model12, rvrs_guide12
+    )
     print("RVRS12 ELBO (using RVRS16 params):", rvrs12_subs_elbo)
 
-    samples16 = rvrs_guide16.sample_posterior(random.PRNGKey(seed+7), rvrs16_params)
+    samples16 = rvrs_guide16.sample_posterior(random.PRNGKey(seed + 7), rvrs16_params)
     if not fix_theta:
         assert samples16["theta"].shape == (S, P) and samples16["tau"].shape == (S, 16)
 
     with handlers.substitute(
-        data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}):
-        samples = rvrs_guide12.sample_posterior(random.PRNGKey(seed+8), rvrs16_params, sample_shape=(100,))
+        data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}
+    ):
+        samples = rvrs_guide12.sample_posterior(
+            random.PRNGKey(seed + 8), rvrs16_params, sample_shape=(100,)
+        )
     if not fix_theta:
         assert samples["theta"].shape == (100, S, P)
 
 
-def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_samples=5000,
-	epsilon=0.1, Z_target=0.5, S=2, T_init=0.0, seed=0,
+def test_dummy_autorvrs(
+    N=18,
+    P=3,
+    sigma_obs=0.1,
+    num_steps=10 * 1000,
+    num_samples=5000,
+    epsilon=0.1,
+    Z_target=0.5,
+    S=2,
+    T_init=0.0,
+    seed=0,
     # adaptation_scheme="dual_averaging",
     # adaptation_scheme="Z_target",
     adaptation_scheme="fixed",
@@ -1246,17 +1334,17 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
     print("Y", Y)
 
     def global_model():
-        return jnp.array([1., -0.5, 0.])
+        return jnp.array([1.0, -0.5, 0.0])
 
     def local_model(data_index, theta):
         X_i = X[data_index]
         Y_i = Y[data_index]
         tau = numpyro.sample("tau", dist.Gamma(2.0, 2.0))
         numpyro.sample(
-			"obs",
-			dist.Normal(X_i @ theta, sigma_obs / jnp.sqrt(tau)),
-			obs=Y_i,
-		)
+            "obs",
+            dist.Normal(X_i @ theta, sigma_obs / jnp.sqrt(tau)),
+            obs=Y_i,
+        )
 
     def _get_optim():
         scheduler = piecewise_constant_schedule(
@@ -1268,40 +1356,53 @@ def test_dummy_autorvrs(N=18, P=3, sigma_obs=0.1, num_steps=10 * 1000, num_sampl
 
     for i in range(N):
         print("=====")
+
         def model0():
             return local_model(i, global_model())
 
         local_guide0 = AutoDiagonalNormal(model0)
         mf_results = SVI(model0, local_guide0, _get_optim(), Trace_ELBO()).run(
-            random.PRNGKey(seed), num_steps, progress_bar=False)
+            random.PRNGKey(seed), num_steps, progress_bar=False
+        )
         mf_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-			random.PRNGKey(seed+1), mf_results.params, model0, local_guide0)
+            random.PRNGKey(seed + 1), mf_results.params, model0, local_guide0
+        )
         print("MF ELBO:", mf_elbo)
         print(f"MF tau{i}:", mf_results.params["auto_loc"])
 
         rvrs_guide0 = AutoRVRS(
-			model0, guide=local_guide0,
-			S=S, T=T_init, adaptation_scheme=adaptation_scheme, Z_target=Z_target, epsilon=epsilon)
+            model0,
+            guide=local_guide0,
+            S=S,
+            T=T_init,
+            adaptation_scheme=adaptation_scheme,
+            Z_target=Z_target,
+            epsilon=epsilon,
+        )
         rvrs0_results = SVI(model0, rvrs_guide0, _get_optim(), Trace_ELBO()).run(
-			random.PRNGKey(seed+2), num_steps, progress_bar=False
-		)
+            random.PRNGKey(seed + 2), num_steps, progress_bar=False
+        )
         rvrs0_params = rvrs0_results.params
         rvrs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-			random.PRNGKey(seed+3), rvrs0_params, model0, rvrs_guide0)
+            random.PRNGKey(seed + 3), rvrs0_params, model0, rvrs_guide0
+        )
         if adaptation_scheme == "Z_target":
-            print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'])
+            print(f"RVRS T{i}:", rvrs0_results.state.mutable_state["_T_adapt"]["value"])
         elif adaptation_scheme == "dual_averaging":
-            print(f"RVRS T{i}:", rvrs0_results.state.mutable_state['_T_adapt']['value'].temperature)
+            print(
+                f"RVRS T{i}:",
+                rvrs0_results.state.mutable_state["_T_adapt"]["value"].temperature,
+            )
         print("RVRS ELBO:", rvrs_elbo)
         print(f"RVRS tau{i}:", rvrs0_params["auto_loc"])
 
 
-def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
-    target_loc = np.linspace(1., 3., N)
+def test_indep_semirvrs(N=21, T=100.0, subsample_size=10, num_steps=10000):
+    target_loc = np.linspace(1.0, 3.0, N)
 
     def global_model():
-        numpyro.sample("a", dist.LogNormal(1., 0.3))
-        numpyro.sample("b", dist.LogNormal(2., 0.7))
+        numpyro.sample("a", dist.LogNormal(1.0, 0.3))
+        numpyro.sample("b", dist.LogNormal(2.0, 0.7))
 
     def local_model(_):
         with numpyro.plate("N", N, subsample_size=subsample_size):
@@ -1316,7 +1417,15 @@ def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
     global_guide = AutoNormal(global_model)
     local_guide = AutoNormal(local_model, create_plates=create_plates)
     model = lambda: local_model(global_model())
-    guide = AutoSemiRVRS(model, local_model, global_guide, local_guide, S=S, T=T, adaptation_scheme="dual_averaging")
+    guide = AutoSemiRVRS(
+        model,
+        local_model,
+        global_guide,
+        local_guide,
+        S=S,
+        T=T,
+        adaptation_scheme="dual_averaging",
+    )
     svi_result = SVI(model, guide, optim.Adam(0.01), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
     )
@@ -1331,12 +1440,12 @@ def test_indep_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
     np.testing.assert_allclose(params["y_auto_scale"], 0.6, rtol=0.1)
 
 
-def test_custom_local_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000):
-    target_loc = np.linspace(1., 3., N)
+def test_custom_local_semirvrs(N=21, T=100.0, subsample_size=10, num_steps=10000):
+    target_loc = np.linspace(1.0, 3.0, N)
 
     def global_model():
-        numpyro.sample("a", dist.LogNormal(1., 0.3))
-        numpyro.sample("b", dist.LogNormal(2., 0.7))
+        numpyro.sample("a", dist.LogNormal(1.0, 0.3))
+        numpyro.sample("b", dist.LogNormal(2.0, 0.7))
 
     def local_model(_):
         with numpyro.plate("N", N, subsample_size=subsample_size):
@@ -1347,16 +1456,34 @@ def test_custom_local_semirvrs(N=21, T=100., subsample_size=10, num_steps=10000)
     def local_guide(_):
         with numpyro.plate("N", N, subsample_size=subsample_size):
             x_loc = numpyro.param("x_loc", jnp.zeros(N), event_dim=0)
-            x_scale = numpyro.param("x_scale", 0.1 * jnp.ones(N), event_dim=0, constraint=constraints.positive)
+            x_scale = numpyro.param(
+                "x_scale",
+                0.1 * jnp.ones(N),
+                event_dim=0,
+                constraint=constraints.positive,
+            )
             y_loc = numpyro.param("y_loc", jnp.zeros(N), event_dim=0)
-            y_scale = numpyro.param("y_scale", 0.1 * jnp.ones(N), event_dim=0, constraint=constraints.positive)
+            y_scale = numpyro.param(
+                "y_scale",
+                0.1 * jnp.ones(N),
+                event_dim=0,
+                constraint=constraints.positive,
+            )
             numpyro.sample("x", dist.LogNormal(x_loc, x_scale))
             numpyro.sample("y", dist.LogNormal(y_loc, y_scale))
 
     S = 6
     global_guide = AutoNormal(global_model)
     model = lambda: local_model(global_model())
-    guide = AutoSemiRVRS(model, local_model, global_guide, local_guide, S=S, T=T, adaptation_scheme="dual_averaging")
+    guide = AutoSemiRVRS(
+        model,
+        local_model,
+        global_guide,
+        local_guide,
+        S=S,
+        T=T,
+        adaptation_scheme="dual_averaging",
+    )
     svi_result = SVI(model, guide, optim.Adam(0.01), Trace_ELBO()).run(
         random.PRNGKey(0), num_steps
     )

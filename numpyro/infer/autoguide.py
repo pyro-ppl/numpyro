@@ -831,7 +831,11 @@ class AutoDAIS(AutoContinuous):
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
-            init_scale_tril = jnp.identity(self.latent_dim) * self._init_scale if isinstance(self._init_scale, float) else self._init_scale
+            init_scale_tril = (
+                jnp.identity(self.latent_dim) * self._init_scale
+                if isinstance(self._init_scale, float)
+                else self._init_scale
+            )
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
                 init_scale_tril,
@@ -2019,26 +2023,27 @@ def temperature_adapter(
         da_state = da_update(target_accept_prob - accept_prob, da_state)
         # note: at the end of warmup phase, use average of log temperature
         neg_temperature, neg_temperature_avg, *_ = da_state
-        temperature = jnp.where(t == (num_adapt_steps - 1),
-                                -neg_temperature_avg, -neg_temperature)
+        temperature = jnp.where(
+            t == (num_adapt_steps - 1), -neg_temperature_avg, -neg_temperature
+        )
         t_at_window_end = t == (init_window_size * (2 ** (window_idx + 1) - 1) - 1)
         window_idx = jnp.where(t_at_window_end, window_idx + 1, window_idx)
         da_state = jax.lax.cond(
-            t_at_window_end, -temperature, da_init, da_state, lambda x: x)
+            t_at_window_end, -temperature, da_init, da_state, lambda x: x
+        )
         return TempAdaptState(temperature, da_state, window_idx)
 
     return init_fn(init_temperature), update_fn
 
 
 class AutoRVRS(AutoContinuous):
-    """
-    """
+    """ """
 
     def __init__(
         self,
         model,
         *,
-        S=4,    # number of samples
+        S=4,  # number of samples
         T=0.0,
         T_lr=1.0,
         adaptation_scheme="Z_target",
@@ -2055,16 +2060,17 @@ class AutoRVRS(AutoContinuous):
         reparameterized=True,
         T_lr_drop=None,
     ):
-
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
         if init_scale <= 0.0:
             raise ValueError("init_scale must be positive.")
         # NOTE: removed because not jittable
-        #if T is not None and not isinstance(T, float):
+        # if T is not None and not isinstance(T, float):
         #    raise ValueError("T must be None or a float.")
         if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
-            raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
+            raise ValueError(
+                "adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'."
+            )
 
         self.S = S
         self.T = T
@@ -2081,7 +2087,8 @@ class AutoRVRS(AutoContinuous):
             self.guide = guide
         else:
             self.guide = AutoDiagonalNormal(
-                model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix)
+                model, init_loc_fn=init_loc_fn, init_scale=init_scale, prefix=prefix
+            )
 
         self.adaptation_scheme = adaptation_scheme
         self.T_lr = T_lr
@@ -2107,7 +2114,8 @@ class AutoRVRS(AutoContinuous):
         self.prototype_guide_trace = tr
         if self.adaptation_scheme == "dual_averaging":
             self._da_init_state, self._da_update = temperature_adapter(
-                self.T, self.num_warmup, self.Z_target)
+                self.T, self.num_warmup, self.Z_target
+            )
 
     def _get_posterior(self):
         raise NotImplementedError
@@ -2117,25 +2125,33 @@ class AutoRVRS(AutoContinuous):
         for name, site in self.prototype_trace.items():
             if site["type"] == "param":
                 model_params[name] = numpyro.param(
-                    name, site["value"],
-                    constraint=site["kwargs"].pop("constraint", constraints.real))
+                    name,
+                    site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real),
+                )
         guide_params = {}
         for name, site in self.prototype_guide_trace.items():
             if site["type"] == "param":
                 guide_params[name] = numpyro.param(
-                    name, site["value"],
-                    constraint=site["kwargs"].pop("constraint", constraints.real))
+                    name,
+                    site["value"],
+                    constraint=site["kwargs"].pop("constraint", constraints.real),
+                )
         params = {"guide": guide_params, "model": model_params}
 
         def guide_sampler(key, params):
-            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(data=params["guide"]):
+            with handlers.block(), handlers.seed(rng_seed=key), handlers.substitute(
+                data=params["guide"]
+            ):
                 z = self.guide._sample_latent(*args, **kwargs)
             return z
 
         def guide_log_prob(z, params):
             z_and_params = {f"_{self.prefix}_latent": z, **params}
             with handlers.block():
-                return log_density(self.guide._sample_latent, args, kwargs, z_and_params)[0]
+                return log_density(
+                    self.guide._sample_latent, args, kwargs, z_and_params
+                )[0]
 
         def model_log_density(x, params):
             x_unpack = self._unpack_latent(x)
@@ -2143,17 +2159,25 @@ class AutoRVRS(AutoContinuous):
                 return -self._potential_fn(x_unpack)
 
         if self.adaptation_scheme == "Z_target":
-            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.array(self.T)})
+            T_adapt = numpyro.primitives.mutable(
+                "_T_adapt", {"value": jnp.array(self.T)}
+            )
             if self.gamma != 0.0:
-                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.array(0.0)})
+                T_grad_smoothed = numpyro.primitives.mutable(
+                    "_T_grad_smoothed", {"value": jnp.array(0.0)}
+                )
             T = T_adapt["value"]
         elif self.adaptation_scheme == "dual_averaging":
-            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": self._da_init_state})
+            T_adapt = numpyro.primitives.mutable(
+                "_T_adapt", {"value": self._da_init_state}
+            )
             T = T_adapt["value"].temperature
         else:
             T = self.T
 
-        num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.array(0)})
+        num_updates = numpyro.primitives.mutable(
+            "_num_updates", {"value": jnp.array(0)}
+        )
 
         def accept_log_prob_fn(z, params):
             params = jax.lax.stop_gradient(params)
@@ -2164,7 +2188,8 @@ class AutoRVRS(AutoContinuous):
 
         keys = random.split(numpyro.prng_key(), self.S)
         zs, log_weight, log_Z, first_log_a, guide_lp = batch_rejection_sampler_custom(
-            accept_log_prob_fn, guide_sampler, keys, params)
+            accept_log_prob_fn, guide_sampler, keys, params
+        )
         assert zs.shape == (self.S, self.latent_dim)
 
         numpyro.deterministic("first_log_a", first_log_a)
@@ -2181,18 +2206,33 @@ class AutoRVRS(AutoContinuous):
         if self.reparameterized:
             ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
             ratio_bar = stop_gradient(ratio)
-            surrogate = S_ratio * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
-            #surrogate = S_ratio * (2 * A_bar * az).sum() + (stop_gradient(az) * Az).sum()
+            surrogate = (
+                S_ratio * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum()
+                + (ratio_bar * Az).sum()
+            )
+            # surrogate = S_ratio * (2 * A_bar * az).sum() + (stop_gradient(az) * Az).sum()
         else:
             # recompute for simplicity
-            guide_lp = jax.vmap(lambda z: guide_log_prob(stop_gradient(z), params["guide"]))(zs)
+            guide_lp = jax.vmap(
+                lambda z: guide_log_prob(stop_gradient(z), params["guide"])
+            )(zs)
             assert guide_lp.shape == (self.S,)
-            surrogate = S_ratio * (stop_gradient(A_bar * (self.epsilon + (1 - self.epsilon) * az)) * guide_lp).sum()
+            surrogate = (
+                S_ratio
+                * (
+                    stop_gradient(A_bar * (self.epsilon + (1 - self.epsilon) * az))
+                    * guide_lp
+                ).sum()
+            )
 
         if self.include_log_Z:
-            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S)
+            elbo_correction = stop_gradient(
+                surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z * self.S
+            )
         else:
-            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum())
+            elbo_correction = stop_gradient(
+                surrogate + guide_lp.sum() + log_a_eps_z.sum()
+            )
         numpyro.factor("surrogate_factor", -surrogate + elbo_correction)
 
         num_updates["value"] = num_updates["value"] + 1
@@ -2204,13 +2244,17 @@ class AutoRVRS(AutoContinuous):
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a))
 
             if self.gamma != 0.0:
-                T_grad_smoothed["value"] = self.gamma * T_grad_smoothed["value"] + (1.0 - self.gamma) * T_grad
+                T_grad_smoothed["value"] = (
+                    self.gamma * T_grad_smoothed["value"] + (1.0 - self.gamma) * T_grad
+                )
                 T_grad = T_grad_smoothed["value"]
 
             if self.T_exponent is not None:
                 T_lr = self.T_lr * jnp.power(num_updates["value"], -self.T_exponent)
             elif self.T_lr_drop is not None:
-                T_lr = self.T_lr * 0.2 ** (num_updates["value"] // self.T_lr_drop).astype(float)
+                T_lr = self.T_lr * 0.2 ** (
+                    num_updates["value"] // self.T_lr_drop
+                ).astype(float)
             else:
                 T_lr = self.T_lr
 
@@ -2225,9 +2269,12 @@ class AutoRVRS(AutoContinuous):
             t = num_updates["value"]
             T_adapt["value"] = lax.cond(
                 t < self.num_warmup,
-                (t, Z, T_adapt["value"]), lambda args: self._da_update(*args),
-                T_adapt["value"], lambda x: x)
-            #num_updates["value"] = t + 1
+                (t, Z, T_adapt["value"]),
+                lambda args: self._da_update(*args),
+                T_adapt["value"],
+                lambda x: x,
+            )
+            # num_updates["value"] = t + 1
 
         return stop_gradient(zs)
 
@@ -2268,7 +2315,9 @@ class AutoRVRS(AutoContinuous):
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
             )(sample_shape=())
-            return jax.vmap(self._unpack_and_constrain, in_axes=(0, None))(latent_sample, params)
+            return jax.vmap(self._unpack_and_constrain, in_axes=(0, None))(
+                latent_sample, params
+            )
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
@@ -2294,12 +2343,24 @@ def rejection_sampler(accept_log_prob_fn, guide_sampler, key):
         is_accepted = log_u < accept_log_prob
         first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
         log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob]))
-        return key_next, z, log_weight, log_a_sum, num_samples + 1, first_log_a, guide_lp, is_accepted
+        return (
+            key_next,
+            z,
+            log_weight,
+            log_a_sum,
+            num_samples + 1,
+            first_log_a,
+            guide_lp,
+            is_accepted,
+        )
 
-    prototype_z = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                           jax.eval_shape(guide_sampler, key))
+    prototype_z = tree_map(
+        lambda x: jnp.zeros(x.shape, dtype=x.dtype), jax.eval_shape(guide_sampler, key)
+    )
     init_val = (key, prototype_z, -jnp.inf, -jnp.inf, 0, -jnp.inf, 0, False)
-    _, z, log_w, log_a_sum, num_samples, first_log_a, guide_lp, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+    _, z, log_w, log_a_sum, num_samples, first_log_a, guide_lp, _ = jax.lax.while_loop(
+        cond_fn, body_fn, init_val
+    )
 
     return z, log_w, log_a_sum, num_samples, first_log_a, guide_lp
 
@@ -2309,8 +2370,10 @@ def batch_rejection_sampler(accept_log_prob_fn, guide_sampler, keys, params):
         z = guide_sampler(key, params)
         return z, accept_log_prob_fn(z, params)
 
-    z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                      jax.eval_shape(guide_sampler, keys[0], params))
+    z_init = tree_map(
+        lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+        jax.eval_shape(guide_sampler, keys[0], params),
+    )
     return _rs_impl(sample_and_accept_fn, z_init, keys, params)[1:]
 
 
@@ -2335,11 +2398,13 @@ def _rs_impl(sample_and_accept_fn, z_init, keys, params):
 
     def batch_body_fn(val):
         keys, log_a_sum, first_log_a, num_samples, buffer = val
-        keys_next, accept_log_prob, candidate = jax.vmap(
-            body_fn, in_axes=(0, None))(keys, params)
+        keys_next, accept_log_prob, candidate = jax.vmap(body_fn, in_axes=(0, None))(
+            keys, params
+        )
         log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0)
         buffer_extend = tree_map(
-            lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
+            lambda a, b: jnp.concatenate([a, b]), candidate, buffer
+        )
         is_accepted = buffer_extend[-1]
         maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
         new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
@@ -2347,7 +2412,8 @@ def _rs_impl(sample_and_accept_fn, z_init, keys, params):
         return keys_next, log_a_sum, first_log_a, num_samples + 1, new_buffer
 
     _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
-        cond_fn, batch_body_fn, init_val)
+        cond_fn, batch_body_fn, init_val
+    )
     key_q, z, log_w, guide_lp, _ = buffer
     log_Z = logsumexp(log_a_sum) - jnp.log(num_samples * S)
     return key_q, z, log_w, log_Z, first_log_a, guide_lp
@@ -2358,8 +2424,10 @@ def batch_rejection_sampler_custom(accept_log_prob_fn, guide_sampler, keys, para
         z = guide_sampler(key, params)
         return z, accept_log_prob_fn(z, params)
 
-    z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                      jax.eval_shape(guide_sampler, keys[0], params))
+    z_init = tree_map(
+        lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+        jax.eval_shape(guide_sampler, keys[0], params),
+    )
     return _rs_custom_impl(sample_and_accept_fn, z_init, keys, params)[1:]
 
 
@@ -2453,7 +2521,9 @@ class AutoSemiRVRS(AutoGuide):
         # if T is not None and not isinstance(T, float):
         #     raise ValueError("T must be None or a float.")
         if adaptation_scheme not in ["fixed", "Z_target", "dual_averaging"]:
-            raise ValueError("adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'.")
+            raise ValueError(
+                "adaptation_scheme must be one of 'fixed', 'Z_target', or 'dual_averaging'."
+            )
 
         self.local_model = local_model
         self.global_guide = global_guide
@@ -2508,7 +2578,9 @@ class AutoSemiRVRS(AutoGuide):
             )
 
         local_init_locs = {
-            name: site["value"] for name, site in self.prototype_trace.items() if name in local_vars
+            name: site["value"]
+            for name, site in self.prototype_trace.items()
+            if name in local_vars
         }
 
         one_sample = {
@@ -2517,7 +2589,8 @@ class AutoSemiRVRS(AutoGuide):
         }
         _, shape_dict = _ravel_dict(one_sample)
         self._pack_local_latent = jax.vmap(
-            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,))
+            lambda x: _ravel_dict(x)[0], in_axes=(subsample_axes,)
+        )
         local_init_latent = self._pack_local_latent(local_init_locs)
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
@@ -2550,7 +2623,9 @@ class AutoSemiRVRS(AutoGuide):
         self.prototype_local_model_trace = tr
 
         if self.adaptation_scheme == "dual_averaging":
-            self._da_init_state, self._da_update = temperature_adapter(self.T, self.num_warmup, self.Z_target)
+            self._da_init_state, self._da_update = temperature_adapter(
+                self.T, self.num_warmup, self.Z_target
+            )
 
     def __call__(self, *args, **kwargs):
         if self.prototype_trace is None:
@@ -2565,14 +2640,16 @@ class AutoSemiRVRS(AutoGuide):
         for name, value in global_latents.items():
             site = self.prototype_trace[name]
             event_ndim = site["fn"].event_dim
-            delta_dist = dist.Delta(value, log_density=0., event_dim=event_ndim)
+            delta_dist = dist.Delta(value, log_density=0.0, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
-        for name, value in jax.vmap(self._unpack_local_latent)(local_latent_flat).items():
+        for name, value in jax.vmap(self._unpack_local_latent)(
+            local_latent_flat
+        ).items():
             site = self.prototype_trace[name]
             event_ndim = site["fn"].event_dim
             # Note: "surrogate_factor"'s guide_lp is log density in constrained space.
-            delta_dist = dist.Delta(value, log_density=0., event_dim=event_ndim)
+            delta_dist = dist.Delta(value, log_density=0.0, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
         return result
@@ -2591,30 +2668,39 @@ class AutoSemiRVRS(AutoGuide):
         assert isinstance(self.prototype_trace, dict)
         for name, site in self.prototype_trace.items():
             if site["type"] == "param":
-                model_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
+                model_params[name] = numpyro.param(
+                    name, site["value"], **site["kwargs"]
+                )
 
         global_key = numpyro.prng_key()
         global_guide_params = {}
-        global_lp = 0.
+        global_lp = 0.0
         if self.global_guide is not None:
             for name, site in self.prototype_global_guide_trace.items():
                 if site["type"] == "param":
-                    global_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
-            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=global_key), \
-					handlers.substitute(data=global_guide_params):
+                    global_guide_params[name] = numpyro.param(
+                        name, site["value"], **site["kwargs"]
+                    )
+            with handlers.block(), handlers.trace() as tr, handlers.seed(
+                rng_seed=global_key
+            ), handlers.substitute(data=global_guide_params):
                 self.global_guide(*args, **kwargs)
             global_latents = {
-                name: site["value"] for name, site in tr.items()
-                if site["type"] == "sample" and not site.get("is_observed", False)}
+                name: site["value"]
+                for name, site in tr.items()
+                if site["type"] == "sample" and not site.get("is_observed", False)
+            }
             for name, site in tr.items():
                 if name in global_latents:
                     global_lp = global_lp + site["fn"].log_prob(site["value"]).sum()
 
             rng_key = numpyro.prng_key()
             with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
-                data=dict(**global_latents, **model_params
-            )):
-                local_args = (jax.lax.stop_gradient(self.global_guide.model(*args, **kwargs)),)
+                data=dict(**global_latents, **model_params)
+            ):
+                local_args = (
+                    jax.lax.stop_gradient(self.global_guide.model(*args, **kwargs)),
+                )
                 local_kwargs = {}
         else:
             local_args = args
@@ -2625,7 +2711,9 @@ class AutoSemiRVRS(AutoGuide):
         local_guide_params = {}
         for name, site in self.prototype_local_guide_trace.items():
             if site["type"] == "param":
-                local_guide_params[name] = numpyro.param(name, site["value"], **site["kwargs"])
+                local_guide_params[name] = numpyro.param(
+                    name, site["value"], **site["kwargs"]
+                )
 
         subsample_model = partial(_subsample_model, self.local_model)
         subsample_guide = partial(_subsample_model, self.local_guide)
@@ -2641,30 +2729,44 @@ class AutoSemiRVRS(AutoGuide):
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     scale = N / subsample_idx.shape[0]
                     kwargs.update(local_kwargs)
-                    latent_and_params = dict(**latent, **jax.lax.stop_gradient(model_params))
-                    return log_density(subsample_model, local_args, kwargs, latent_and_params)[0] / scale
+                    latent_and_params = dict(
+                        **latent, **jax.lax.stop_gradient(model_params)
+                    )
+                    return (
+                        log_density(
+                            subsample_model, local_args, kwargs, latent_and_params
+                        )[0]
+                        / scale
+                    )
 
         def local_model_log_density(z, subsample_idx):
             # shape: local_latent_flat -> (M,) | subsample_idx -> (M,) | out -> (M,)
             return jax.vmap(single_local_model_log_density)(
-                jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1))
+                jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1)
+            )
 
         def single_local_guide_sampler(subsample_idx, key, params):
-            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=key), handlers.substitute(data=params):
+            with handlers.block(), handlers.trace() as tr, handlers.seed(
+                rng_seed=key
+            ), handlers.substitute(data=params):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     kwargs.update(local_kwargs)
                     subsample_guide(*local_args, **kwargs)
-            latent = {name: site["value"] for name, site in tr.items()
-                      if site["type"] == "sample" and not site.get("is_observed", False)}
+            latent = {
+                name: site["value"]
+                for name, site in tr.items()
+                if site["type"] == "sample" and not site.get("is_observed", False)
+            }
             z = self._pack_local_latent(latent)
             return z  # flatten array in constrained space
 
         def local_guide_sampler(subsample_idx, key, params):
             # shape: params -> (N,) | key -> (M,) | subsample_idx -> (M,) | out -> (M,)
             return jax.vmap(single_local_guide_sampler, (0, 0, None))(
-                jnp.expand_dims(subsample_idx, 1), key, params)[:, 0]
+                jnp.expand_dims(subsample_idx, 1), key, params
+            )[:, 0]
 
         def single_local_guide_log_density(z, subsample_idx, params):
             latent = self._unpack_local_latent(z)
@@ -2675,23 +2777,39 @@ class AutoSemiRVRS(AutoGuide):
                     kwargs = {"_subsample_idx": {plate_name: subsample_idx}}
                     scale = N / subsample_idx.shape[0]
                     kwargs.update(local_kwargs)
-                    return log_density(subsample_guide, local_args, kwargs, {**params, **latent})[0] / scale
+                    return (
+                        log_density(
+                            subsample_guide, local_args, kwargs, {**params, **latent}
+                        )[0]
+                        / scale
+                    )
 
         def local_guide_log_density(z, subsample_idx, params):
             # shape: params -> (N,) | z -> (M,) | subsample_idx -> (M,) | out -> (M,)
             return jax.vmap(single_local_guide_log_density, (0, 0, None))(
-                jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1), params)
+                jnp.expand_dims(z, 1), jnp.expand_dims(subsample_idx, 1), params
+            )
 
         if self.adaptation_scheme == "Z_target":
-            T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": jnp.full(N, self.T)})
+            T_adapt = numpyro.primitives.mutable(
+                "_T_adapt", {"value": jnp.full(N, self.T)}
+            )
             if self.gamma != 0.0:
-                T_grad_smoothed = numpyro.primitives.mutable("_T_grad_smoothed", {"value": jnp.full(N, 0.0)})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(N, 0)})
+                T_grad_smoothed = numpyro.primitives.mutable(
+                    "_T_grad_smoothed", {"value": jnp.full(N, 0.0)}
+                )
+            num_updates = numpyro.primitives.mutable(
+                "_num_updates", {"value": jnp.full(N, 0)}
+            )
             T = T_adapt["value"]
         elif self.adaptation_scheme == "dual_averaging":
-            init_value = tree_map(lambda x: jnp.broadcast_to(x, (N,) + jnp.shape(x)), self._da_init_state)
+            init_value = tree_map(
+                lambda x: jnp.broadcast_to(x, (N,) + jnp.shape(x)), self._da_init_state
+            )
             T_adapt = numpyro.primitives.mutable("_T_adapt", {"value": init_value})
-            num_updates = numpyro.primitives.mutable("_num_updates", {"value": jnp.full(N, 0)})
+            num_updates = numpyro.primitives.mutable(
+                "_num_updates", {"value": jnp.full(N, 0)}
+            )
             T = T_adapt["value"].temperature
         else:
             T = jnp.full(N, self.T)
@@ -2707,7 +2825,13 @@ class AutoSemiRVRS(AutoGuide):
         rs_key, resample_key = random.split(numpyro.prng_key())
         keys = random.split(rs_key, self.S)
         zs, log_weight, log_Z, first_log_a, guide_lp = rs_local(
-            accept_log_prob_fn, local_guide_sampler, keys, resample_key, local_guide_params, subsample_idx)
+            accept_log_prob_fn,
+            local_guide_sampler,
+            keys,
+            resample_key,
+            local_guide_params,
+            subsample_idx,
+        )
         assert T.shape == (N,)
         assert zs.shape == (self.S, M, self._local_latent_dim)
         assert log_weight.shape == (self.S, M)
@@ -2728,12 +2852,19 @@ class AutoSemiRVRS(AutoGuide):
         assert self.reparameterized
         ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
         ratio_bar = stop_gradient(ratio)
-        surrogate = self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum() + (ratio_bar * Az).sum()
+        surrogate = (
+            self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum()
+            + (ratio_bar * Az).sum()
+        )
 
         if self.include_log_Z:
-            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S)
+            elbo_correction = stop_gradient(
+                surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S
+            )
         else:
-            elbo_correction = stop_gradient(surrogate + guide_lp.sum() + log_a_eps_z.sum())
+            elbo_correction = stop_gradient(
+                surrogate + guide_lp.sum() + log_a_eps_z.sum()
+            )
         # Scale the factor by subsample factor N / M
         factor = (-surrogate + elbo_correction) * N / M + global_lp * self.S
         numpyro.factor("surrogate_factor", factor)
@@ -2745,19 +2876,36 @@ class AutoSemiRVRS(AutoGuide):
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a), axis=0)
             assert T_grad.shape == (M,)
 
-            num_updates["value"] = num_updates["value"].at[subsample_idx].set(num_updates["value"][subsample_idx] + 1)
+            num_updates["value"] = (
+                num_updates["value"]
+                .at[subsample_idx]
+                .set(num_updates["value"][subsample_idx] + 1)
+            )
             if self.gamma != 0.0:
-                T_grad = self.gamma * T_grad_smoothed["value"][subsample_idx] + (1.0 - self.gamma) * T_grad
-                T_grad_smoothed["value"] = T_grad_smoothed["value"].at[subsample_idx].set(T_grad)
+                T_grad = (
+                    self.gamma * T_grad_smoothed["value"][subsample_idx]
+                    + (1.0 - self.gamma) * T_grad
+                )
+                T_grad_smoothed["value"] = (
+                    T_grad_smoothed["value"].at[subsample_idx].set(T_grad)
+                )
 
             if self.T_exponent is not None:
-                T_lr = self.T_lr * jnp.power(num_updates["value"][subsample_idx], -self.T_exponent)
+                T_lr = self.T_lr * jnp.power(
+                    num_updates["value"][subsample_idx], -self.T_exponent
+                )
             elif self.T_lr_drop is not None:
-                T_lr = self.T_lr * 0.1 ** (num_updates["value"][subsample_idx] // self.T_lr_drop).astype(jnp.result_type(float))
+                T_lr = self.T_lr * 0.1 ** (
+                    num_updates["value"][subsample_idx] // self.T_lr_drop
+                ).astype(jnp.result_type(float))
             else:
                 T_lr = self.T_lr
 
-            T_adapt["value"] = T_adapt["value"].at[subsample_idx].set(T_adapt["value"][subsample_idx] - T_lr * T_grad)
+            T_adapt["value"] = (
+                T_adapt["value"]
+                .at[subsample_idx]
+                .set(T_adapt["value"][subsample_idx] - T_lr * T_grad)
+            )
         elif self.adaptation_scheme == "dual_averaging":
             a = stop_gradient(jnp.exp(first_log_a))
             a_minus = 1 / (self.S - 1) * (a.sum(0) - a)
@@ -2767,10 +2915,16 @@ class AutoSemiRVRS(AutoGuide):
             T_adapt_old = tree_map(lambda x: x[subsample_idx], T_adapt["value"])
             assert self.num_warmup == float("inf")
             T_adapt_new = jax.vmap(self._da_update)(t, Z, T_adapt_old)
-            T_adapt["value"] = tree_map(lambda x, x_new: x.at[subsample_idx].set(x_new), T_adapt["value"], T_adapt_new)
+            T_adapt["value"] = tree_map(
+                lambda x, x_new: x.at[subsample_idx].set(x_new),
+                T_adapt["value"],
+                T_adapt_new,
+            )
             num_updates["value"] = num_updates["value"].at[subsample_idx].set(t + 1)
 
-        global_latents = tree_map(lambda x: jnp.broadcast_to(x, (self.S,) + x.shape), global_latents)
+        global_latents = tree_map(
+            lambda x: jnp.broadcast_to(x, (self.S,) + x.shape), global_latents
+        )
         return global_latents, stop_gradient(zs)
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
@@ -2779,19 +2933,26 @@ class AutoSemiRVRS(AutoGuide):
                 global_latents, local_flat = handlers.substitute(
                     handlers.seed(self._sample_latent, _rng_key), params
                 )(*args, **kwargs)
-            deterministics = {name: site["value"] for name, site in tr.items()
-                              if site["type"] == "deterministic"}
+            deterministics = {
+                name: site["value"]
+                for name, site in tr.items()
+                if site["type"] == "deterministic"
+            }
 
             def unpack(global_latents, local_flat):
                 local_latents = self._unpack_local_latent(local_flat)
                 return {**global_latents, **local_latents}
 
-            return dict(**deterministics, **jax.vmap(unpack)(global_latents, local_flat))
+            return dict(
+                **deterministics, **jax.vmap(unpack)(global_latents, local_flat)
+            )
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]), samples)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]), samples
+            )
         else:
             return _single_sample(rng_key)
 
@@ -2813,18 +2974,26 @@ def get_systematic_resampling_indices(weights, rng_key, num_samples):
     return index.reshape((num_samples,) + weights.shape[1:])
 
 
-def rs_local(accept_log_prob_fn, guide_sampler, keys, resample_key, params, subsample_idx):
+def rs_local(
+    accept_log_prob_fn, guide_sampler, keys, resample_key, params, subsample_idx
+):
     def sample_and_accept_fn(subsample_idx, key, params):
         z = guide_sampler(subsample_idx, key, params)
         return z, accept_log_prob_fn(z, subsample_idx, params)
 
     M = subsample_idx.shape[0]
-    z_init = tree_map(lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-                      jax.eval_shape(guide_sampler, subsample_idx, random.split(keys[0], M), params))
-    return _rs_local_custom_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params)[1:]
+    z_init = tree_map(
+        lambda x: jnp.zeros(x.shape, dtype=x.dtype),
+        jax.eval_shape(guide_sampler, subsample_idx, random.split(keys[0], M), params),
+    )
+    return _rs_local_custom_impl(
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+    )[1:]
 
 
-def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params):
+def _rs_local_impl(
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+):
     # sample_and_accept_fn(idx, key, param) -> z, (accept_lp, lw, guide_lp)
     assert keys.ndim == 2
     S = keys.shape[0]
@@ -2842,14 +3011,25 @@ def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_k
         return (is_accepted.sum(0) < S).any()
 
     def body_fn(key, resample_idx):
-        key_next, key_uniform, key_q = jax.vmap(lambda k: random.split(k, 3), out_axes=1)(key)
-        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(subsample_idx[resample_idx], key_q, params)
+        key_next, key_uniform, key_q = jax.vmap(
+            lambda k: random.split(k, 3), out_axes=1
+        )(key)
+        z, (accept_log_prob, log_weight, guide_lp) = sample_and_accept_fn(
+            subsample_idx[resample_idx], key_q, params
+        )
         log_u = -jax.vmap(random.exponential)(key_uniform)
         is_accepted = log_u < accept_log_prob
         return key_next, accept_log_prob, (key_q, z, log_weight, guide_lp, is_accepted)
 
     def batch_body_fn(val):
-        resample_key, keys, batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
+        (
+            resample_key,
+            keys,
+            batch_log_a_sum,
+            batch_first_log_a,
+            batch_num_samples,
+            batch_buffer,
+        ) = val
         resample_key, resample_subkey = random.split(resample_key)
         # distribute batch-size resource to subsample items
         is_accepted = batch_buffer[-1]
@@ -2861,7 +3041,8 @@ def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_k
         assert resample_idxs.shape == (M,)
 
         keys_next, batch_accept_log_prob, batch_candidate = jax.vmap(
-            body_fn, in_axes=(0, None))(keys, resample_idxs)
+            body_fn, in_axes=(0, None)
+        )(keys, resample_idxs)
 
         def update_idx(i, val):
             batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
@@ -2874,37 +3055,67 @@ def _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_k
             num_samples = batch_num_samples[idx]
 
             buffer_extend = tree_map(
-                lambda a, b: jnp.concatenate([a, b]), candidate, buffer)
+                lambda a, b: jnp.concatenate([a, b]), candidate, buffer
+            )
             is_accepted = buffer_extend[-1]
             maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
             new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
-            log_a_sum = logsumexp(jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0)
+            log_a_sum = logsumexp(
+                jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0
+            )
             first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
 
-            batch_buffer = tree_map(lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer)
+            batch_buffer = tree_map(
+                lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer
+            )
             batch_log_a_sum = batch_log_a_sum.at[:, idx].set(log_a_sum)
             batch_first_log_a = batch_first_log_a.at[:, idx].set(first_log_a)
             batch_num_samples = batch_num_samples.at[idx].set(num_samples + 1)
             return batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
 
-        batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = lax.fori_loop(
-            0, M, update_idx, (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer))
-        return resample_key, keys_next, batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
+        (
+            batch_log_a_sum,
+            batch_first_log_a,
+            batch_num_samples,
+            batch_buffer,
+        ) = lax.fori_loop(
+            0,
+            M,
+            update_idx,
+            (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer),
+        )
+        return (
+            resample_key,
+            keys_next,
+            batch_log_a_sum,
+            batch_first_log_a,
+            batch_num_samples,
+            batch_buffer,
+        )
 
     _, _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
-        cond_fn, batch_body_fn, init_val)
+        cond_fn, batch_body_fn, init_val
+    )
     key_q, z, log_w, guide_lp, _ = buffer
     log_Z = logsumexp(log_a_sum, axis=0) - jnp.log(num_samples * S)
     return key_q, z, log_w, log_Z, first_log_a, guide_lp
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0,))
-def _rs_local_custom_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params):
-    return _rs_local_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params)
+def _rs_local_custom_impl(
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+):
+    return _rs_local_impl(
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+    )
 
 
-def _rs_local_fwd(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params):
-    out = _rs_local_custom_impl(sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params)
+def _rs_local_fwd(
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+):
+    out = _rs_local_custom_impl(
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+    )
     key_q = out[0]
     return out, (subsample_idx, key_q, params)
 
@@ -2927,4 +3138,3 @@ def _rs_local_bwd(sample_and_accept_fn, res, g):
 
 
 _rs_local_custom_impl.defvjp(_rs_local_fwd, _rs_local_bwd)
-

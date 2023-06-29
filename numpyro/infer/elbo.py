@@ -114,7 +114,14 @@ class Trace_ELBO(ELBO):
         self.num_particles = num_particles
 
     def loss_with_mutable_state(
-        self, rng_key, param_map, model, guide, *args, multi_sample_guide=False, **kwargs,
+        self,
+        rng_key,
+        param_map,
+        model,
+        guide,
+        *args,
+        multi_sample_guide=False,
+        **kwargs,
     ):
         def single_particle_elbo(rng_key):
             params = param_map.copy()
@@ -130,18 +137,25 @@ class Trace_ELBO(ELBO):
             }
             params.update(mutable_params)
             if multi_sample_guide:
-                plates = {name: site["value"] for name, site in guide_trace.items()
-                          if site["type"] == "plate"}
+                plates = {
+                    name: site["value"]
+                    for name, site in guide_trace.items()
+                    if site["type"] == "plate"
+                }
 
                 def get_model_density(key, latent):
                     with seed(rng_seed=key), substitute(data={**latent, **plates}):
-                        model_log_density, _ = log_density(
-                            model, args, kwargs, params)
+                        model_log_density, _ = log_density(model, args, kwargs, params)
                     return model_log_density
 
-                seeds = random.split(model_seed, guide.S)  # todo: change the attribute name
-                latents = {name: site["value"] for name, site in guide_trace.items()
-                           if site["type"] == "sample" and site["value"].size > 0}
+                seeds = random.split(
+                    model_seed, guide.S
+                )  # todo: change the attribute name
+                latents = {
+                    name: site["value"]
+                    for name, site in guide_trace.items()
+                    if site["type"] == "sample" and site["value"].size > 0
+                }
                 model_log_density = vmap(get_model_density)(seeds, latents)
                 assert model_log_density.ndim == 1
                 model_log_density = model_log_density.sum(0)
@@ -151,7 +165,8 @@ class Trace_ELBO(ELBO):
                 seeded_model = seed(model, model_seed)
                 seeded_model = replay(seeded_model, guide_trace)
                 model_log_density, model_trace = log_density(
-                    seeded_model, args, kwargs, params)
+                    seeded_model, args, kwargs, params
+                )
                 check_model_guide_match(model_trace, guide_trace)
                 _validate_model(model_trace, plate_warning="loose")
                 mutable_params.update(
