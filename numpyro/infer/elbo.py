@@ -130,7 +130,7 @@ class Trace_ELBO(ELBO):
                 if site["type"] == "mutable"
             }
             params.update(mutable_params)
-            if hasattr(guide, 'S'):
+            if multi_sample_guide:
                 plates = {name: site["value"] for name, site in guide_trace.items()
                           if site["type"] == "plate"}
 
