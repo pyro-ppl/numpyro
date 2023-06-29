@@ -236,6 +236,8 @@ def unconstrain_fn(model, model_args, model_kwargs, params):
 def _unconstrain_reparam(params, site):
     name = site["name"]
     if name in params:
+        if site["type"] != "sample":
+            return params[name]
         p = params[name]
         support = site["fn"].support
         with helpful_support_errors(site):

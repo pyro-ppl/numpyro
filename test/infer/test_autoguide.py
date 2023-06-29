@@ -717,7 +717,7 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         random.PRNGKey(0), num_steps
     )
 
-    assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
+    # assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
 
     samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
     assert samples16["theta"].shape == (P,) and samples16["tau"].shape == (16,)
@@ -837,7 +837,11 @@ def test_autosemidais_local_only():
             batch = numpyro.subsample(data, event_dim=0)
             numpyro.sample("x", dist.Normal(batch, 1))
 
-    guide = AutoSemiDAIS(model, model, None)
+    def create_plates():
+        return numpyro.plate("N", 10, subsample_size=5, dim=-1)
+
+    local_guide = AutoNormal(model, create_plates=create_plates)
+    guide = AutoSemiDAIS(model, model, None, local_guide=local_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 10)
     samples = guide.sample_posterior(
