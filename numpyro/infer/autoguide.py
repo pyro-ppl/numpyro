@@ -831,14 +831,9 @@ class AutoDAIS(AutoContinuous):
             )
             base_z_dist = dist.Normal(init_z_loc, init_z_scale).to_event()
         elif self.base_dist == "cholesky":
-            init_scale_tril = (
-                jnp.identity(self.latent_dim) * self._init_scale
-                if isinstance(self._init_scale, float)
-                else self._init_scale
-            )
             scale_tril = numpyro.param(
                 "{}_z_0_scale_tril".format(self.prefix),
-                init_scale_tril,
+                jnp.identity(self.latent_dim) * self._init_scale,
                 constraint=constraints.scaled_unit_lower_cholesky,
             )
             base_z_dist = dist.MultivariateNormal(init_z_loc, scale_tril=scale_tril)
