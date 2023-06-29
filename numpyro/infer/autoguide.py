@@ -1259,10 +1259,6 @@ class AutoSemiDAIS(AutoGuide):
                 self.local_guide(*local_args, **local_kwargs)
             self.prototype_local_guide_trace = tr
 
-        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
-            self.local_model(*local_args, **local_kwargs)
-        self.prototype_local_model_trace = tr
-
     def __call__(self, *args, **kwargs):
         if self.prototype_trace is None:
             # run model to inspect the model structure
