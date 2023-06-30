@@ -1415,7 +1415,7 @@ class AutoSemiDAIS(AutoGuide):
                     with handlers.block():
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            scale = N / idx.shape[0]
+                            scale = N / subsample_size
                             return (
                                 -potential_energy(
                                     subsample_guide,
@@ -1427,7 +1427,7 @@ class AutoSemiDAIS(AutoGuide):
                             )
 
                 numpyro.factor(
-                    "{}_z_0_factor".format(self.prefix), base_z_dist_log_prob(z_0)
+                    "{}_z_0_factor".format(self.prefix), base_z_dist_log_prob(z_0) / subsample_size
                 )
             else:
                 z_0_loc_init = jnp.zeros((N, D))
