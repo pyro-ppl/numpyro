@@ -1420,8 +1420,11 @@ class AutoSemiDAIS(AutoGuide):
                                 / scale
                             )
 
+                # The log_prob of z_0 will be broadcasted to `subsample_size` because this statement
+                # is run under the subsample plate. Hence we divide the log_prob by `subsample_size`.
                 numpyro.factor(
-                    "{}_z_0_factor".format(self.prefix), base_z_dist_log_prob(z_0) / subsample_size
+                    "{}_z_0_factor".format(self.prefix),
+                    base_z_dist_log_prob(z_0) / subsample_size,
                 )
             else:
                 z_0_loc_init = jnp.zeros((N, D))
