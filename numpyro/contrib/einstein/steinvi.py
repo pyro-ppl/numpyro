@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from copy import deepcopy
 import functools
 from functools import partial
 from itertools import chain
@@ -20,15 +21,10 @@ from numpyro.contrib.einstein.stein_util import (
     get_parameter_transform,
 )
 from numpyro.contrib.funsor import config_enumerate, enum
-from numpyro.distributions import Distribution, biject_to
-from numpyro.distributions.constraints import real
+from numpyro.distributions import Distribution
 from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer.autoguide import AutoGuide
-from numpyro.infer.util import (
-    _guess_max_plate_nesting,
-    helpful_support_errors,
-    transform_fn,
-)
+from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.optim import _NumPyroOptim
 from numpyro.util import fori_collect, ravel_pytree
 
@@ -106,6 +102,38 @@ class SteinVI:
         enum=True,
         **static_kwargs,
     ):
+        if isinstance(guide, AutoGuide):
+            not_comptaible_guides = [
+                "AutoIAFNormal",
+                "AutoBNAFNormal",
+                "AutoDAIS",
+                "AutoSemiDAIS",
+                "AutoSurrogateLikelihoodDAIS",
+            ]
+            guide_name = guide.__class__.__name__
+            assert guide_name not in not_comptaible_guides, (
+                f"SteinVI currently not compatible with {guide_name}. "
+                f"If you have a use case, feel free to open an issue."
+            )
+
+            init_loc_error_message = (
+                "SteinVI is not compatible with init_to_feasible, init_to_value, "
+                "and init_to_uniform with radius=0. If you have a use case, "
+                "feel free to open an issue."
+            )
+            if isinstance(guide.init_loc_fn, partial):
+                init_fn_name = guide.init_loc_fn.func.__name__
+                if init_fn_name == "init_to_uniform":
+                    assert (
+                        guide.init_loc_fn.keywords.get("radius", None) != 0
+                    ), init_loc_error_message
+            else:
+                init_fn_name = guide.init_loc_fn.__name__
+            assert init_fn_name not in [
+                "init_to_feasible",
+                "init_to_value",
+            ], init_loc_error_message
+
         self._inference_model = model
         self.model = model
         self.guide = guide
@@ -171,53 +199,21 @@ class SteinVI:
             start_index = end_index
         return res, end_index
 
-    def _find_init_params(self, particle_seed, inner_guide, inner_guide_trace):
-        def extract_info(site):
-            nonlocal particle_seed
-            nonlocal inner_guide_trace
-            name = site["name"]
-            constraint = site["kwargs"].get("constraint", real)
-            transform = get_parameter_transform(site)
-            if isinstance(inner_guide, AutoGuide) and name.endswith(
-                "_".join(("", inner_guide.prefix, "loc"))
-            ):
-                site_key, particle_seed = random.split(particle_seed)
-                sample_site = inner_guide_trace[
-                    name.replace("_".join(("", inner_guide.prefix, "loc")), "")
-                ].copy()
-                sample_site_shape = sample_site["kwargs"]["sample_shape"]
-                sample_site["kwargs"]["sample_shape"] = (
-                    self.num_stein_particles,
-                    *sample_site_shape,
-                )
-                sample_site["kwargs"]["rng_key"] = site_key
-                sample_site["value"] = None
-                init_value_particles = inner_guide.init_loc_fn(sample_site)
-                with helpful_support_errors(sample_site):
-                    sample_transform = biject_to(sample_site["fn"].support)
-                init_value_particles = sample_transform.inv(init_value_particles)
-                init_value = transform(init_value_particles)
+    def _find_init_params(self, particle_seed, inner_guide, model_args, model_kwargs):
+        def local_trace(key):
+            guide = deepcopy(inner_guide)
 
-            else:
-                site_fn = site["fn"]
-                site_args = site["args"]
-                site_key, particle_seed = random.split(particle_seed)
+            with handlers.seed(rng_seed=key), handlers.trace() as mixture_trace:
+                guide(*model_args, **model_kwargs)
 
-                def _reinit(seed):
-                    with handlers.seed(rng_seed=seed):
-                        return site_fn(*site_args)
+            init_params = {
+                name: site["value"]
+                for name, site in mixture_trace.items()
+                if site.get("type") == "param"
+            }
+            return init_params
 
-                init_value = vmap(_reinit)(
-                    random.split(particle_seed, self.num_stein_particles)
-                )
-            return init_value, constraint
-
-        init_params = {
-            name: extract_info(site)
-            for name, site in inner_guide_trace.items()
-            if site.get("type") == "param"
-        }
-        return init_params
+        return vmap(local_trace)(random.split(particle_seed, self.num_stein_particles))
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein
@@ -381,19 +377,25 @@ class SteinVI:
         :param kwargs: Keyword arguments to the model / guide.
         :return: initial :data:`SteinVIState`
         """
-        rng_key, kernel_seed, model_seed, guide_seed = random.split(rng_key, 4)
+
+        rng_key, kernel_seed, model_seed, guide_seed, particle_seed = random.split(
+            rng_key, 5
+        )
+
         model_init = handlers.seed(self.model, model_seed)
+        model_trace = handlers.trace(model_init).get_trace(
+            *args, **kwargs, **self.static_kwargs
+        )
+
+        guide_init_params = self._find_init_params(
+            particle_seed, self.guide, args, kwargs
+        )
+
         guide_init = handlers.seed(self.guide, guide_seed)
         guide_trace = handlers.trace(guide_init).get_trace(
             *args, **kwargs, **self.static_kwargs
         )
-        model_trace = handlers.trace(model_init).get_trace(
-            *args, **kwargs, **self.static_kwargs
-        )
-        rng_key, particle_seed = random.split(rng_key)
-        guide_init_params = self._find_init_params(
-            particle_seed, self.guide, guide_trace
-        )
+
         params = {}
         transforms = {}
         inv_transforms = {}
@@ -424,7 +426,7 @@ class SteinVI:
                     "particle_transform", IdentityTransform()
                 )
                 if site["name"] in guide_init_params:
-                    pval, _ = guide_init_params[site["name"]]
+                    pval = guide_init_params[site["name"]]
                     if self.non_mixture_params_fn(site["name"]):
                         pval = tree_map(lambda x: x[0], pval)
                 else:

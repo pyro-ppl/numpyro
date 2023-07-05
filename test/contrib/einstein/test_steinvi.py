@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from functools import partial
 import string
 
 import numpy as np
-from numpy.ma.testutils import assert_array_approx_equal
 import numpy.random as nrandom
+from numpy.testing import assert_allclose
 import pytest
 
 from jax import random
@@ -25,14 +26,19 @@ from numpyro.contrib.einstein.stein_kernels import MixtureKernel
 import numpyro.distributions as dist
 from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer import SVI, Trace_ELBO, init_to_mean, init_to_value
 from numpyro.infer.autoguide import (
+    AutoBNAFNormal,
+    AutoDAIS,
     AutoDelta,
     AutoDiagonalNormal,
+    AutoIAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
     AutoNormal,
+    AutoSemiDAIS,
+    AutoSurrogateLikelihoodDAIS,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -166,6 +172,67 @@ def test_get_params(kernel, auto_guide, init_loc_fn, problem):
 
 
 @pytest.mark.parametrize(
+    "auto_guide",
+    [
+        AutoIAFNormal,
+        AutoBNAFNormal,
+        AutoSemiDAIS,
+        AutoSurrogateLikelihoodDAIS,
+        AutoDAIS,
+    ],
+)
+def test_incompatiable_autoguide(auto_guide):
+    def model():
+        return
+
+    if auto_guide.__name__ == "AutoSurrogateLikelihoodDAIS":
+        guide = auto_guide(model, model)
+    elif auto_guide.__name__ == "AutoSemiDAIS":
+        guide = auto_guide(model, model, model)
+    else:
+        guide = auto_guide(model)
+
+    try:
+        SteinVI(
+            model,
+            guide,
+            Adam(1.0),
+            RBFKernel(),
+            num_stein_particles=1,
+        )
+        pytest.fail()
+    except AssertionError:
+        return
+
+
+@pytest.mark.parametrize(
+    "init_loc",
+    [
+        init_to_value,
+        init_to_feasible,
+        partial(init_to_value),
+        partial(init_to_feasible),
+        partial(init_to_uniform, radius=0),
+    ],
+)
+def test_incompatible_init_locs(init_loc):
+    def model():
+        return
+
+    try:
+        SteinVI(
+            model,
+            AutoDelta(model, init_loc_fn=init_loc),
+            Adam(1.0),
+            RBFKernel(),
+            num_stein_particles=1,
+        )
+        pytest.fail()
+    except AssertionError:
+        return
+
+
+@pytest.mark.parametrize(
     "auto_class",
     [
         AutoMultivariateNormal,
@@ -180,8 +247,8 @@ def test_get_params(kernel, auto_guide, init_loc_fn, problem):
     "init_loc_fn",
     [
         init_to_uniform,
-        init_to_feasible,
         init_to_median,
+        init_to_mean,
         init_to_sample,
     ],
 )
@@ -190,27 +257,31 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
     latent_dim = 3
 
     def model(obs):
-        a = numpyro.sample("a", Normal(0, 1))
+        a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
     rng_key = random.PRNGKey(0)
     guide_key, stein_key = random.split(rng_key)
-    inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
 
-    with handlers.seed(rng_seed=guide_key), handlers.trace() as inner_guide_tr:
-        inner_guide(obs)
+    guide = auto_class(model, init_loc_fn=init_loc_fn())
 
     steinvi = SteinVI(
         model,
-        auto_class(model, init_loc_fn=init_loc_fn()),
+        guide,
         Adam(1.0),
         RBFKernel(),
         num_stein_particles=num_particles,
     )
     state = steinvi.init(stein_key, obs)
+
     init_params = steinvi.get_params(state)
+
+    inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
+
+    with handlers.seed(rng_seed=guide_key), handlers.trace() as inner_guide_tr:
+        inner_guide(obs)
 
     for name, site in inner_guide_tr.items():
         if site.get("type") == "param":
@@ -223,9 +294,7 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                 assert np.alltrue(init_value != np.zeros(expected_shape))
                 assert np.unique(init_value).shape == init_value.reshape(-1).shape
             elif "scale" in name:
-                assert_array_approx_equal(init_value, np.full(expected_shape, 0.1))
-            else:
-                assert_array_approx_equal(init_value, np.full(expected_shape, 0.0))
+                assert_allclose(init_value[init_value != 0.0], 0.1, rtol=1e-6)
 
 
 @pytest.mark.parametrize("length", [1, 2, 3, 6])

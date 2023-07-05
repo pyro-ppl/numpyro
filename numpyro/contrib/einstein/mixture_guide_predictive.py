@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
-from typing import Callable, Dict, Optional, Sequence
+from typing import Callable, Dict, Optional, Sequence, Set
 
 from jax import numpy as jnp, random, tree_map, vmap
 from jax.tree_util import tree_flatten
@@ -40,7 +40,7 @@ class MixtureGuidePredictive:
         params: Dict,
         guide_sites: Sequence,
         num_samples: Optional[int] = None,
-        return_sites: Optional[Sequence[str]] = None,
+        return_sites: Optional[Sequence[str] | Set[str]] = None,
         mixture_assignment_sitename="mixture_assignments",
     ):
         self.model_predictive = partial(
