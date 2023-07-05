@@ -899,7 +899,7 @@ class Predictive(object):
         guide: Optional[Callable] = None,
         params: Optional[Dict] = None,
         num_samples: Optional[int] = None,
-        return_sites: Optional[List[str] | Set[str]] = None,
+        return_sites: Optional[List[str]] = None,
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,

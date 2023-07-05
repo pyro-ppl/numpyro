@@ -40,7 +40,7 @@ class MixtureGuidePredictive:
         params: Dict,
         guide_sites: Sequence,
         num_samples: Optional[int] = None,
-        return_sites: Optional[Sequence[str] | Set[str]] = None,
+        return_sites: Optional[Sequence[str]] = None,
         mixture_assignment_sitename="mixture_assignments",
     ):
         self.model_predictive = partial(
