@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
-from typing import Callable, Dict, Optional, Sequence, Set
+from typing import Callable, Dict, Optional, Sequence
 
 from jax import numpy as jnp, random, tree_map, vmap
 from jax.tree_util import tree_flatten

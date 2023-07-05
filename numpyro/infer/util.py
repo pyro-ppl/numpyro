@@ -4,7 +4,7 @@
 from collections import namedtuple
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional
 import warnings
 
 import numpy as np
