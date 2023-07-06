@@ -26,7 +26,7 @@ from numpyro.contrib.einstein.stein_kernels import MixtureKernel
 import numpyro.distributions as dist
 from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import SVI, Trace_ELBO, init_to_mean, init_to_value
+from numpyro.infer import Trace_ELBO, init_to_mean, init_to_value
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoDAIS,
