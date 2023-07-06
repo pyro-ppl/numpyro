@@ -114,23 +114,13 @@ def regression():
     return true_coefs, (data, labels), model
 
 
-########################################
-#  Stein Exterior (Smoke tests)
-########################################
-
-
 @pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize(
-    "init_loc_fn",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
-)
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_steinvi_smoke(kernel, auto_guide, init_loc_fn, problem):
+def test_kernel_smoke(kernel, problem):
     true_coefs, data, model = problem()
     stein = SteinVI(
         model,
-        auto_guide(model, init_loc_fn=init_loc_fn),
+        AutoNormal(model),
         Adam(1e-1),
         kernel,
     )
@@ -181,7 +171,7 @@ def test_get_params(kernel, auto_guide, init_loc_fn, problem):
         AutoDAIS,
     ],
 )
-def test_incompatiable_autoguide(auto_guide):
+def test_incompatible_autoguide(auto_guide):
     def model():
         return
 
@@ -253,7 +243,7 @@ def test_incompatible_init_locs(init_loc):
     ],
 )
 @pytest.mark.parametrize("num_particles", [1, 2, 10])
-def test_auto_guide(auto_class, init_loc_fn, num_particles):
+def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
     latent_dim = 3
 
     def model(obs):
@@ -295,6 +285,42 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                 assert np.unique(init_value).shape == init_value.reshape(-1).shape
             elif "scale" in name:
                 assert_allclose(init_value[init_value != 0.0], 0.1, rtol=1e-6)
+
+
+@pytest.mark.parametrize("num_particles", [1, 2, 10])
+def test_init_custom_guide(num_particles):
+    latent_dim = 3
+
+    def guide(obs):
+        aloc = numpyro.param(
+            "aloc", lambda rng_key: Normal().sample(rng_key, (latent_dim,))
+        )
+        numpyro.sample("a", Normal(aloc, 1).to_event(1))
+
+    def model(obs):
+        a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
+        return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
+
+    obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
+
+    rng_key = random.PRNGKey(0)
+    guide_key, stein_key = random.split(rng_key)
+
+    steinvi = SteinVI(
+        model,
+        guide,
+        Adam(1.0),
+        RBFKernel(),
+        num_stein_particles=num_particles,
+    )
+    init_params = steinvi.get_params(steinvi.init(stein_key, obs))
+
+    init_value = init_params["aloc"]
+    expected_shape = (num_particles, latent_dim)
+
+    assert expected_shape == init_value.shape
+    assert np.alltrue(init_value != np.zeros(expected_shape))
+    assert np.unique(init_value).shape == init_value.reshape(-1).shape
 
 
 @pytest.mark.parametrize("length", [1, 2, 3, 6])
