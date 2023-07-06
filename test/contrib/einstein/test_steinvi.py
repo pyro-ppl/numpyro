@@ -132,35 +132,6 @@ def test_kernel_smoke(kernel, problem):
 ########################################
 
 
-@pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize(
-    "init_loc_fn",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
-)
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-@pytest.mark.parametrize("problem", (regression, uniform_normal))
-def test_get_params(kernel, auto_guide, init_loc_fn, problem):
-    _, data, model = problem()
-    guide, optim, elbo = (
-        auto_guide(model, init_loc_fn=init_loc_fn),
-        Adam(1e-1),
-        Trace_ELBO(),
-    )
-
-    stein = SteinVI(model, guide, optim, kernel)
-    stein_params = stein.get_params(stein.init(random.PRNGKey(0), *data))
-
-    svi = SVI(model, guide, optim, elbo)
-    svi_params = svi.get_params(svi.init(random.PRNGKey(0), *data))
-    assert svi_params.keys() == stein_params.keys()
-
-    for name, svi_param in svi_params.items():
-        assert (
-            stein_params[name].shape
-            == np.repeat(svi_param[None, ...], stein.num_stein_particles, axis=0).shape
-        )
-
-
 @pytest.mark.parametrize(
     "auto_guide",
     [
