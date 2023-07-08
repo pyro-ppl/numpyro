@@ -745,9 +745,6 @@ class InverseGamma(TransformedDistribution):
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
-    def tree_flatten(self):
-        return super(InverseGamma, self).tree_flatten()
-
     def cdf(self, x):
         return 1 - self.base_dist.cdf(1 / x)
 

@@ -180,6 +180,7 @@ class BinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
+    pytree_data_fields = ("probs", "total_count")
 
     def __init__(self, probs, total_count=1, *, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -249,29 +250,6 @@ class BinomialProbs(Distribution):
         dist_axes.total_count = total_count
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (*tuple(getattr(self, param) for param in self.arg_constraints.keys()),),
-            (
-                self.batch_shape,
-                self.event_shape,
-            ),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(
-            cls.arg_constraints.keys(),
-            params,
-        ):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class BinomialLogits(Distribution):
     arg_constraints = {
@@ -280,6 +258,7 @@ class BinomialLogits(Distribution):
     }
     has_enumerate_support = True
     enumerate_support = BinomialProbs.enumerate_support
+    pytree_data_fields = ("logits", "total_count")
 
     def __init__(self, logits, total_count=1, *, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
@@ -331,29 +310,6 @@ class BinomialLogits(Distribution):
         dist_axes.logits = logits
         dist_axes.total_count = total_count
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            (*tuple(getattr(self, param) for param in self.arg_constraints.keys()),),
-            (
-                self.batch_shape,
-                self.event_shape,
-            ),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(
-            cls.arg_constraints.keys(),
-            params,
-        ):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
 
 def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
