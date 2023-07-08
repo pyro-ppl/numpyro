@@ -288,6 +288,11 @@ class _GreaterThan(Constraint):
             return False
         return jnp.array_equal(self.lower_bound, other.lower_bound)
 
+    def vmap_over(self, lower_bound):
+        axes = copy.copy(self)
+        axes.lower_bound = lower_bound
+        return axes
+
 
 class _Positive(_SingletonConstraint, _GreaterThan):
     def __init__(self):
@@ -393,6 +398,11 @@ class _LessThan(Constraint):
         if not isinstance(other, _LessThan):
             return False
         return jnp.array_equal(self.upper_bound, other.upper_bound)
+
+    def vmap_over(self, upper_bound):
+        axes = copy.copy(self)
+        axes.upper_bound = upper_bound
+        return axes
 
 
 class _IntegerInterval(Constraint):

@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
+
 from jax import lax, numpy as jnp
 
 import numpyro.distributions.constraints as constraints
@@ -106,18 +108,37 @@ class GaussianCopula(Distribution):
         return self.base_dist.scale_tril
 
     def tree_flatten(self):
-        marginal_flatten, marginal_aux = self.marginal_dist.tree_flatten()
-        return (marginal_flatten, self.base_dist.scale_tril), (
-            type(self.marginal_dist),
-            marginal_aux,
+        arg_constraints = {"marginal_dist": None, "base_dist": None}
+        return (
+            tuple(getattr(self, param) for param in arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
         )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        marginal_flatten, correlation_cholesky = params
-        marginal_cls, marginal_aux = aux_data
-        marginal_dist = marginal_cls.tree_unflatten(marginal_aux, marginal_flatten)
-        return cls(marginal_dist, correlation_cholesky=correlation_cholesky)
+        arg_constraints = {"marginal_dist": None, "base_dist": None}
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
+    def vmap_over(
+        self,
+        marginal_dist=None,
+        correlation_matrix=None,
+        correlation_cholesky=None,
+    ):
+        dist_axes = copy.copy(self)
+        dist_axes.marginal_dist = marginal_dist
+        dist_axes.base_dist = dist_axes.base_dist.vmap_over(
+            loc=correlation_matrix or correlation_cholesky,
+            scale_tril=correlation_matrix or correlation_cholesky,
+        )
+        return dist_axes
 
 
 class GaussianCopulaBeta(GaussianCopula):
@@ -148,15 +169,24 @@ class GaussianCopulaBeta(GaussianCopula):
             validate_args=validate_args,
         )
 
-    def tree_flatten(self):
-        return (
-            (self.concentration1, self.concentration0),
-            self.base_dist.scale_tril,
-        ), None
+    def vmap_over(
+        self,
+        concentration1=None,
+        concentration0=None,
+        correlation_matrix=None,
+        correlation_cholesky=None,
+    ):
+        return super().vmap_over(
+            self.marginal_dist.vmap_over(
+                concentration1=concentration1, concentration0=concentration0
+            ),
+            correlation_matrix=correlation_matrix,
+            correlation_cholesky=correlation_cholesky,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        (concentration1, concentration0), correlation_cholesky = params
-        return cls(
-            concentration1, concentration0, correlation_cholesky=correlation_cholesky
-        )
+        d = super().tree_unflatten(aux_data, params)
+        d.concentration0 = d.marginal_dist.concentration0
+        d.concentration1 = d.marginal_dist.concentration1
+        return d

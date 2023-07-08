@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
+
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
@@ -80,26 +82,27 @@ class LeftTruncatedDistribution(Distribution):
         )
 
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.lower_bound, (int, float)):
-            return base_flatten, (
-                type(self.base_dist),
-                base_aux,
-                self._support.lower_bound,
-            )
-        else:
-            return (base_flatten, self.low), (type(self.base_dist), base_aux)
+        params = (self.base_dist, self._support, self.low)
+        aux_data = (self.batch_shape, self.event_shape)
+        return params, aux_data
+
+    def vmap_over(self, low=None):
+        dist_axes = copy.copy(self)
+        dist_axes.low = low
+        dist_axes._support = dist_axes._support.vmap_over(low)
+        dist_axes.base_dist = None
+        return dist_axes
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, low = params
-            base_cls, base_aux = aux_data
-        else:
-            base_flatten = params
-            base_cls, base_aux, low = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, low=low)
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("base_dist", "_support", "low"), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
     @property
     def mean(self):
@@ -165,26 +168,27 @@ class RightTruncatedDistribution(Distribution):
         return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
 
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.upper_bound, (int, float)):
-            return base_flatten, (
-                type(self.base_dist),
-                base_aux,
-                self._support.upper_bound,
-            )
-        else:
-            return (base_flatten, self.high), (type(self.base_dist), base_aux)
+        params = (self.base_dist, self._support, self.high)
+        aux_data = (self.batch_shape, self.event_shape)
+        return params, aux_data
+
+    def vmap_over(self, high=None):
+        dist_axes = copy.copy(self)
+        dist_axes.high = high
+        dist_axes._support = dist_axes._support.vmap_over(high)
+        dist_axes.base_dist = None
+        return dist_axes
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, high = params
-            base_cls, base_aux = aux_data
-        else:
-            base_flatten = params
-            base_cls, base_aux, high = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, high=high)
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("base_dist", "_support", "high"), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
     @property
     def mean(self):
@@ -212,7 +216,10 @@ class RightTruncatedDistribution(Distribution):
 
 
 class TwoSidedTruncatedDistribution(Distribution):
-    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    arg_constraints = {
+        "low": constraints.dependent,
+        "high": constraints.dependent,
+    }
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
@@ -297,29 +304,28 @@ class TwoSidedTruncatedDistribution(Distribution):
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.lower_bound, (int, float)) and isinstance(
-            self._support.upper_bound, (int, float)
-        ):
-            return base_flatten, (
-                type(self.base_dist),
-                base_aux,
-                self._support.lower_bound,
-                self._support.upper_bound,
-            )
-        else:
-            return (base_flatten, self.low, self.high), (type(self.base_dist), base_aux)
+        params = (self.base_dist, self._support, self.low, self.high)
+        aux_data = (self.batch_shape, self.event_shape)
+        return params, aux_data
+
+    def vmap_over(self, low=None, high=None):
+        dist_axes = copy.copy(self)
+        dist_axes.low = low
+        dist_axes.high = high
+        dist_axes._support = dist_axes._support.vmap_over(low, high)
+        dist_axes.base_dist = None
+        return dist_axes
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, low, high = params
-            base_cls, base_aux = aux_data
-        else:
-            base_flatten = params
-            base_cls, base_aux, low, high = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, low=low, high=high)
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("base_dist", "_support", "low", "high"), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
     @property
     def mean(self):

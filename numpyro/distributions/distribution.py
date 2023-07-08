@@ -614,11 +614,13 @@ class ExpandedDistribution(Distribution):
             Normal,
             Uniform,
         )
+        from numpyro.distributions.directional import VonMises
 
         return (
             self.base_dist is None
             or isinstance(
-                self.base_dist, (Normal, Uniform, BernoulliProbs, CategoricalProbs)
+                self.base_dist,
+                (Normal, Uniform, BernoulliProbs, CategoricalProbs, VonMises),
             )
             or type(self.base_dist) is object
         )
@@ -658,16 +660,24 @@ class ExpandedDistribution(Distribution):
         return cls(base_dist, batch_shape=prepend_shape + batch_shape)
 
     def _new_flatten(self):
-        return (self.base_dist,), (self.batch_shape, self.event_shape)
+        return (self.base_dist,), (
+            self.batch_shape,
+            self.event_shape,
+            self._expanded_sizes,
+            self._interstitial_sizes,
+            None,
+        )
 
     @classmethod
     def _new_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
+        batch_shape, event_shape, _expanded_sizes, _interstitial_sizes, _ = aux_data
         (base_dist,) = params
         self = cls.__new__(cls)
         self.base_dist = base_dist
         self._batch_shape = batch_shape
         self._event_shape = event_shape
+        self._expanded_sizes = _expanded_sizes
+        self._interstitial_sizes = _interstitial_sizes
         return self
 
     def tree_flatten(self):
@@ -765,13 +775,28 @@ class ImproperUniform(Distribution):
         return mask
 
     def tree_flatten(self):
-        raise NotImplementedError(
-            "Cannot flattening ImproperPrior distribution for general supports. "
-            "Please raising a feature request for your specific `support`. "
-            "Alternatively, you can use '.mask(False)' pattern. "
-            "For example, to define an improper prior over positive domain, "
-            "we can use the distribution `dist.LogNormal(0, 1).mask(False)`."
+        arg_constraints = {"support": None}
+        return (
+            tuple(getattr(self, param) for param in arg_constraints.keys()),
+            (self.batch_shape, self.event_shape),
         )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        arg_constraints = {"support": None}
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
+    def vmap_over(self, support):
+        dist_axes = copy.copy(self)
+        dist_axes.support = support
+        return dist_axes
 
 
 class Independent(Distribution):
@@ -1163,15 +1188,8 @@ class FoldedDistribution(TransformedDistribution):
         plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
 
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        return base_flatten, (type(self.base_dist), base_aux)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        base_cls, base_aux = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, params)
-        return cls(base_dist)
+    def vmap_over(self, base_dist):
+        return super().vmap_over(base_dist, None)
 
 
 class Delta(Distribution):

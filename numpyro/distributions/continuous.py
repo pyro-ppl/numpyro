@@ -526,6 +526,33 @@ class EulerMaruyama(Distribution):
 
         return sde_log_prob + init_log_prob
 
+    def vmap_over(self, t=None, init_dist=None):
+        dist_axes = copy.copy(self)
+        dist_axes.t = t
+        dist_axes.init_dist = init_dist
+        return dist_axes
+
+    def tree_flatten(self):
+        arg_constraints = {**self.arg_constraints, "init_dist": None}
+        return (
+            tuple(getattr(self, param) for param in arg_constraints.keys()),
+            (self.batch_shape, self.event_shape, self.sde_fn),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        arg_constraints = {**cls.arg_constraints, "init_dist": None}
+
+        batch_shape, event_shape, sde_fn = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(arg_constraints.keys(), params):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        d.sde_fn = sde_fn
+        return d
+
 
 class Exponential(Distribution):
     reparametrized_params = ["rate"]
@@ -2293,6 +2320,7 @@ class CAR(Distribution):
         dist_axes.conditional_precision = conditional_precision
         if not self.is_sparse:
             dist_axes.adj_matrix = adj_matrix
+            dist_axes.precision_matrix = adj_matrix
         else:
             assert adj_matrix is None
         return dist_axes

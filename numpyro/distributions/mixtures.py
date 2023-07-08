@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
+
 import jax
 from jax import lax
 import jax.numpy as jnp
@@ -230,26 +232,27 @@ class MixtureSameFamily(_MixtureBase):
         return self.component_distribution.is_discrete
 
     def tree_flatten(self):
-        mixing_flat, mixing_aux = self.mixing_distribution.tree_flatten()
-        component_flat, component_aux = self.component_distribution.tree_flatten()
-        params = (mixing_flat, component_flat)
-        aux_data = (
-            (type(self.mixing_distribution), type(self.component_distribution)),
-            (mixing_aux, component_aux),
-        )
+        params = (self._component_distribution, self._mixing_distribution)
+        aux_data = (self.batch_shape, self.event_shape, self._mixture_size)
         return params, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        mixing_params, component_params = params
-        child_clss, child_aux = aux_data
-        mixing_cls, component_cls = child_clss
-        mixing_aux, component_aux = child_aux
-        mixing_dist = mixing_cls.tree_unflatten(mixing_aux, mixing_params)
-        component_dist = component_cls.tree_unflatten(component_aux, component_params)
-        return cls(
-            mixing_distribution=mixing_dist, component_distribution=component_dist
-        )
+        batch_shape, event_shape, _mixture_size = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("_component_distribution", "_mixing_distribution"), params):
+            setattr(d, k, v)
+        setattr(d, "_mixture_size", _mixture_size)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
+    def vmap_over(self, _component_distribution=None, _mixing_distribution=None):
+        d = copy.copy(self)
+        d._component_distribution = _component_distribution
+        d._mixing_distribution = _mixing_distribution
+        return d
 
     @property
     def component_mean(self):
@@ -377,32 +380,27 @@ class MixtureGeneral(_MixtureBase):
         return self.component_distributions[0].is_discrete
 
     def tree_flatten(self):
-        mixing_flat, mixing_aux = self.mixing_distribution.tree_flatten()
-        dists_flat, dists_aux = zip(
-            *(d.tree_flatten() for d in self.component_distributions)
-        )
-        params = (mixing_flat, dists_flat)
-        aux_data = (
-            (
-                type(self.mixing_distribution),
-                tuple(type(d) for d in self.component_distributions),
-            ),
-            (mixing_aux, dists_aux),
-        )
+        params = (self._component_distributions, self._mixing_distribution)
+        aux_data = (self.batch_shape, self.event_shape, self._mixture_size)
         return params, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        params_mix, params_dists = params
-        (cls_mix, cls_dists), (mixing_aux, dists_aux) = aux_data
-        mixing_dist = cls_mix.tree_unflatten(mixing_aux, params_mix)
-        distributions = [
-            c.tree_unflatten(a, p)
-            for c, a, p in zip(cls_dists, dists_aux, params_dists)
-        ]
-        return cls(
-            mixing_distribution=mixing_dist, component_distributions=distributions
-        )
+        batch_shape, event_shape, _mixture_size = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(("_component_distributions", "_mixing_distribution"), params):
+            setattr(d, k, v)
+        setattr(d, "_mixture_size", _mixture_size)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
+    def vmap_over(self, _component_distributions=None, _mixing_distribution=None):
+        d = copy.copy(self)
+        d._component_distributions = _component_distributions
+        d._mixing_distribution = _mixing_distribution
+        return d
 
     @property
     def component_mean(self):

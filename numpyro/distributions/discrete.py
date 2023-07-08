@@ -274,6 +274,35 @@ class BinomialProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def vmap_over(self, probs=None, total_count=None):
+        dist_axes = copy.copy(self)
+        dist_axes.probs = probs
+        dist_axes.total_count = total_count
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (*tuple(getattr(self, param) for param in self.arg_constraints.keys()),),
+            (
+                self.batch_shape,
+                self.event_shape,
+            ),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(
+            cls.arg_constraints.keys(),
+            params,
+        ):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
+
 
 class BinomialLogits(Distribution):
     arg_constraints = {
@@ -327,6 +356,35 @@ class BinomialLogits(Distribution):
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
+
+    def vmap_over(self, logits=None, total_count=None):
+        dist_axes = copy.copy(self)
+        dist_axes.logits = logits
+        dist_axes.total_count = total_count
+        return dist_axes
+
+    def tree_flatten(self):
+        return (
+            (*tuple(getattr(self, param) for param in self.arg_constraints.keys()),),
+            (
+                self.batch_shape,
+                self.event_shape,
+            ),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        batch_shape, event_shape = aux_data
+        assert isinstance(batch_shape, tuple)
+        assert isinstance(event_shape, tuple)
+        d = cls.__new__(cls)
+        for k, v in zip(
+            cls.arg_constraints.keys(),
+            params,
+        ):
+            setattr(d, k, v)
+        Distribution.__init__(d, batch_shape, event_shape)
+        return d
 
 
 def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
@@ -616,6 +674,7 @@ class OrderedLogistic(CategoricalProbs):
             probs=predictor if predictor is not None else cutpoints
         )
         dist_axes.predictor = predictor
+        dist_axes.cutpoints = cutpoints
         return dist_axes
 
     def tree_flatten(self):
@@ -626,11 +685,11 @@ class OrderedLogistic(CategoricalProbs):
             ),
             (self.batch_shape, self.event_shape),
         )
-        return (self.predictor, *params), aux_data
+        return (self.predictor, self.cutpoints, *params), aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        predictor, *params = params
+        predictor, cutpoints, *params = params
         batch_shape, event_shape = aux_data
         assert isinstance(batch_shape, tuple)
         assert isinstance(event_shape, tuple)
@@ -639,6 +698,7 @@ class OrderedLogistic(CategoricalProbs):
             setattr(d, k, v)
         Distribution.__init__(d, batch_shape, event_shape)
         d.predictor = predictor
+        d.cutpoints = cutpoints
         return d
 
 
