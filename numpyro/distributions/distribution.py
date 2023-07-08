@@ -150,9 +150,7 @@ class Distribution(metaclass=DistributionMeta):
         all_pytree_data_fields = ()
         for base in bases:
             if issubclass(base, Distribution):
-                all_pytree_data_fields += base.__dict__.get(
-                    "pytree_data_fields", ()
-                )
+                all_pytree_data_fields += base.__dict__.get("pytree_data_fields", ())
         return all_pytree_data_fields
 
     @classmethod
@@ -662,92 +660,6 @@ class ExpandedDistribution(Distribution):
         return jnp.broadcast_to(
             self.base_dist.variance, self.batch_shape + self.event_shape
         )
-
-    # def _should_use_new_flatten(self):
-    #     from numpyro.distributions import (
-    #         BernoulliProbs,
-    #         CategoricalProbs,
-    #         Normal,
-    #         Uniform,
-    #     )
-    #     from numpyro.distributions.directional import VonMises
-
-    #     return (
-    #         self.base_dist is None
-    #         or isinstance(
-    #             self.base_dist,
-    #             (Normal, Uniform, BernoulliProbs, CategoricalProbs, VonMises),
-    #         )
-    #         or type(self.base_dist) is object
-    #     )
-
-    # @classmethod
-    # def _should_use_new_unflatten(cls, aux_data):
-    #     return len(aux_data) != 4
-
-    # def _old_flatten(self):
-    #     prepend_ndim = len(self.batch_shape) - len(self.base_dist.batch_shape)
-    #     base_dist = tree_util.tree_map(
-    #         lambda x: promote_shapes(x, shape=(1,) * prepend_ndim + jnp.shape(x))[0],
-    #         self.base_dist,
-    #     )
-    #     base_flatten, base_aux = base_dist.tree_flatten()
-    #     return base_flatten, (
-    #         type(self.base_dist),
-    #         base_aux,
-    #         self.batch_shape,
-    #         prepend_ndim,
-    #     )
-
-    # @classmethod
-    # def _old_unflatten(cls, aux_data, params):
-    #     base_cls, base_aux, batch_shape, prepend_ndim = aux_data
-    #     base_dist = base_cls.tree_unflatten(base_aux, params)
-    #     prepend_shape = base_dist.batch_shape[
-    #         : len(base_dist.batch_shape) - len(batch_shape)
-    #     ]
-    #     if len(prepend_shape) == 0:
-    #         # in that case, no additional dimension was added
-    #         # to the flattened distribution, and the batch_shape
-    #         # manipulation happening during the flattening can be
-    #         # reverted
-    #         base_dist._batch_shape = base_dist.batch_shape[prepend_ndim:]
-    #         return cls(base_dist, batch_shape=batch_shape)
-    #     return cls(base_dist, batch_shape=prepend_shape + batch_shape)
-
-    # def _new_flatten(self):
-    #     return (self.base_dist,), (
-    #         self.batch_shape,
-    #         self.event_shape,
-    #         self._expanded_sizes,
-    #         self._interstitial_sizes,
-    #         None,
-    #     )
-
-    # @classmethod
-    # def _new_unflatten(cls, aux_data, params):
-    #     batch_shape, event_shape, _expanded_sizes, _interstitial_sizes, _ = aux_data
-    #     (base_dist,) = params
-    #     self = cls.__new__(cls)
-    #     self.base_dist = base_dist
-    #     self._batch_shape = batch_shape
-    #     self._event_shape = event_shape
-    #     self._expanded_sizes = _expanded_sizes
-    #     self._interstitial_sizes = _interstitial_sizes
-    #     return self
-
-    # def tree_flatten(self):
-    #     if self._should_use_new_flatten():
-    #         return self._new_flatten()
-    #     else:
-    #         return self._old_flatten()
-
-    # @classmethod
-    # def tree_unflatten(cls, aux_data, params):
-    #     if cls._should_use_new_unflatten(aux_data):
-    #         return cls._new_unflatten(aux_data, params)
-    #     else:
-    #         return cls._old_unflatten(aux_data, params)
 
     def vmap_over(self, base_dist):
         import copy
