@@ -73,6 +73,7 @@ class BernoulliProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
     has_enumerate_support = True
+    pytree_data_fields = ("probs",)
 
     def __init__(self, probs, *, validate_args=None):
         self.probs = probs
@@ -115,28 +116,12 @@ class BernoulliProbs(Distribution):
         dist_axes.probs = probs
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.boolean
     has_enumerate_support = True
+    pytree_data_fields = ("logits",)
 
     def __init__(self, logits=None, *, validate_args=None):
         self.logits = logits
@@ -177,23 +162,6 @@ class BernoulliLogits(Distribution):
         dist_axes = copy.copy(self)
         dist_axes.logits = logits
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
 
 def Bernoulli(probs=None, logits=None, *, validate_args=None):
@@ -399,6 +367,7 @@ def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
 class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
+    pytree_data_fields = ("probs",)
 
     def __init__(self, probs, *, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -450,27 +419,11 @@ class CategoricalProbs(Distribution):
         dist_axes.probs = probs
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
+    pytree_data_fields = ("logits",)
 
     def __init__(self, logits, *, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -524,23 +477,6 @@ class CategoricalLogits(Distribution):
         dist_axes.logits = logits
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 def Categorical(probs=None, logits=None, *, validate_args=None):
     if probs is not None:
@@ -554,6 +490,7 @@ def Categorical(probs=None, logits=None, *, validate_args=None):
 class DiscreteUniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     has_enumerate_support = True
+    pytree_data_fields = ("low", "high", "_support")
 
     def __init__(self, low=0, high=1, *, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
@@ -616,23 +553,6 @@ class DiscreteUniform(Distribution):
         dist_axes._support = dist_axes._support.vmap_over(low, high)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class OrderedLogistic(CategoricalProbs):
     """
@@ -652,6 +572,7 @@ class OrderedLogistic(CategoricalProbs):
         "predictor": constraints.real,
         "cutpoints": constraints.ordered_vector,
     }
+    pytree_data_fields = ("predictor", "cutpoints")
 
     def __init__(self, predictor, cutpoints, *, validate_args=None):
         if jnp.ndim(predictor) == 0:
@@ -677,36 +598,14 @@ class OrderedLogistic(CategoricalProbs):
         dist_axes.cutpoints = cutpoints
         return dist_axes
 
-    def tree_flatten(self):
-        params, aux_data = (
-            tuple(
-                getattr(self, param)
-                for param in CategoricalProbs.arg_constraints.keys()
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-        return (self.predictor, self.cutpoints, *params), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        predictor, cutpoints, *params = params
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(CategoricalProbs.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.predictor = predictor
-        d.cutpoints = cutpoints
-        return d
-
 
 class MultinomialProbs(Distribution):
     arg_constraints = {
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
     }
+    pytree_data_fields = ("probs",)
+    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self, probs, total_count=1, *, total_count_max=None, validate_args=None
@@ -770,45 +669,14 @@ class MultinomialProbs(Distribution):
         dist_axes.probs = probs
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                *tuple(
-                    getattr(self, param)
-                    for param in self.arg_constraints.keys()
-                    if param != "total_count"
-                ),
-            ),
-            (
-                self.batch_shape,
-                self.event_shape,
-                self.total_count,
-                self.total_count_max,
-            ),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape, total_count, total_count_max = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(
-            (param for param in cls.arg_constraints.keys() if param != "total_count"),
-            params,
-        ):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.total_count = total_count
-        d.total_count_max = total_count_max
-        return d
-
 
 class MultinomialLogits(Distribution):
     arg_constraints = {
         "logits": constraints.real_vector,
         "total_count": constraints.nonnegative_integer,
     }
+    pytree_data_fields = ("logits",)
+    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self, logits, total_count=1, *, total_count_max=None, validate_args=None
@@ -877,39 +745,6 @@ class MultinomialLogits(Distribution):
         dist_axes.logits = logits
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                *tuple(
-                    getattr(self, param)
-                    for param in self.arg_constraints.keys()
-                    if param != "total_count"
-                ),
-            ),
-            (
-                self.batch_shape,
-                self.event_shape,
-                self.total_count,
-                self.total_count_max,
-            ),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape, total_count, total_count_max = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(
-            (param for param in cls.arg_constraints.keys() if param != "total_count"),
-            params,
-        ):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.total_count = total_count
-        d.total_count_max = total_count_max
-        return d
-
 
 def Multinomial(
     total_count=1, probs=None, logits=None, *, total_count_max=None, validate_args=None
@@ -956,6 +791,8 @@ class Poisson(Distribution):
     """
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
+    pytree_data_fields = ("rate",)
+    pytree_aux_fields = ("is_sparse",)
 
     def __init__(self, rate, *, is_sparse=False, validate_args=None):
         self.rate = rate
@@ -1008,27 +845,10 @@ class Poisson(Distribution):
         dist_axes.rate = rate
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape, self.is_sparse),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape, is_sparse = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.is_sparse = is_sparse
-        return d
-
 
 class ZeroInflatedProbs(Distribution):
     arg_constraints = {"gate": constraints.unit_interval}
+    pytree_data_fields = ("base_dist", "gate")
 
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
@@ -1087,31 +907,10 @@ class ZeroInflatedProbs(Distribution):
         dist_axes.gate = gate
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self.base_dist,
-                *tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        base_dist, *params = params
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.base_dist = base_dist
-        return d
-
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
     arg_constraints = {"gate_logits": constraints.real}
+    pytree_data_fields = ("gate_logits",)
 
     def __init__(self, base_dist, gate_logits, *, validate_args=None):
         gate = _to_probs_bernoulli(gate_logits)
@@ -1133,28 +932,6 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         dist_axes.gate_logits = gate_logits
         dist_axes.gate = gate_logits
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            (
-                self.base_dist,
-                *tuple(getattr(self, param) for param in ("gate", "gate_logits")),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        base_dist, *params = params
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("gate", "gate_logits"), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.base_dist = base_dist
-        return d
 
 
 def ZeroInflatedDistribution(
@@ -1187,6 +964,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
     support = constraints.nonnegative_integer
+    pytree_data_fields = ("rate",)
 
     # TODO: resolve inconsistent parameter order w.r.t. Pyro
     # and support `gate_logits` argument
@@ -1205,6 +983,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
+    pytree_data_fields = ("probs",)
 
     def __init__(self, probs, *, validate_args=None):
         self.probs = probs
@@ -1242,27 +1021,11 @@ class GeometricProbs(Distribution):
         dist_axes.probs = probs
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
+    pytree_data_fields = ("logits",)
 
     def __init__(self, logits, *, validate_args=None):
         self.logits = logits
@@ -1298,23 +1061,6 @@ class GeometricLogits(Distribution):
         dist_axes = copy.copy(self)
         dist_axes.logits = logits
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):

@@ -344,6 +344,7 @@ class SparsePoisson(dist.Poisson):
 
 class FoldedNormal(dist.FoldedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc, scale, validate_args=None):
         self.loc = loc
@@ -351,15 +352,9 @@ class FoldedNormal(dist.FoldedDistribution):
         super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
 
     def vmap_over(self, loc=None, scale=None):
-        return super().vmap_over(
-            base_dist=self.base_dist.vmap_over(loc=loc, scale=scale)
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = super().tree_unflatten(aux_data, params)
-        d.loc = d.base_dist.loc
-        d.scale = d.base_dist.scale
+        d = super().vmap_over(base_dist=self.base_dist.vmap_over(loc=loc, scale=scale))
+        d.loc = loc
+        d.scale = scale
         return d
 
 
@@ -3357,7 +3352,6 @@ def test_vmap_dist(jax_dist, sp_dist, params):
     assert samples_batched_dist.shape == (1, *samples_dist.shape)
 
     non_none_args_idx = [i for i, arg in enumerate(params) if arg is not None]
-    # __import__('pdb').set_trace()
     if len(non_none_args_idx) > 0:
         for j, idx in enumerate(non_none_args_idx):
             if idx not in VMAPPABLE_ARGS[jax_dist]:

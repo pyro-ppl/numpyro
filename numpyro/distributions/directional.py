@@ -99,6 +99,7 @@ class VonMises(Distribution):
     arg_constraints = {"loc": constraints.real, "concentration": constraints.positive}
     reparametrized_params = ["loc"]
     support = constraints.circular
+    pytree_data_fields = ("loc", "concentration")
 
     def __init__(self, loc, concentration, *, validate_args=None):
         """von Mises distribution for sampling directions.
@@ -155,23 +156,6 @@ class VonMises(Distribution):
         dist_axes.loc = loc
         dist_axes.concentration = concentration
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
 
 PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
@@ -238,6 +222,7 @@ class SineSkewed(Distribution):
     """
 
     arg_constraints = {"skewness": constraints.l1_ball}
+    pytree_data_fields = ("base_dist", "skewness")
 
     support = constraints.independent(constraints.circular, 1)
 
@@ -313,26 +298,6 @@ class SineSkewed(Distribution):
         dist_axes.skewness = skewness
         return dist_axes
 
-    def tree_flatten(self):
-        arg_constraints = {**self.arg_constraints, "base_dist": None}
-        return (
-            tuple(getattr(self, param) for param in arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        arg_constraints = {**cls.arg_constraints, "base_dist": None}
-
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class SineBivariateVonMises(Distribution):
     r"""Unimodal distribution of two dependent angles on the 2-torus
@@ -388,6 +353,13 @@ class SineBivariateVonMises(Distribution):
     }
     support = constraints.independent(constraints.circular, 1)
     max_sample_iter = 1000
+    pytree_data_fields = (
+        "phi_loc",
+        "psi_loc",
+        "phi_concentration",
+        "psi_concentration",
+        "correlation",
+    )
 
     def __init__(
         self,
@@ -597,23 +569,6 @@ class SineBivariateVonMises(Distribution):
         dist_axes.correlation = correlation
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class ProjectedNormal(Distribution):
     """
@@ -644,6 +599,7 @@ class ProjectedNormal(Distribution):
     arg_constraints = {"concentration": constraints.real_vector}
     reparametrized_params = ["concentration"]
     support = constraints.sphere
+    pytree_data_fields = ("concentration",)
 
     def __init__(self, concentration, *, validate_args=None):
         assert jnp.ndim(concentration) >= 1
@@ -698,23 +654,6 @@ class ProjectedNormal(Distribution):
         dist_axes = copy.copy(self)
         dist_axes.concentration = concentration
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
 
 def _projected_normal_log_prob_2(concentration, value):

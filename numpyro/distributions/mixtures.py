@@ -185,6 +185,9 @@ class MixtureSameFamily(_MixtureBase):
        ()
     """
 
+    pytree_data_fields = ("_mixing_distribution", "_component_distribution")
+    pytree_aux_fields = ("_mixture_size",)
+
     def __init__(
         self, mixing_distribution, component_distribution, *, validate_args=None
     ):
@@ -230,23 +233,6 @@ class MixtureSameFamily(_MixtureBase):
     @property
     def is_discrete(self):
         return self.component_distribution.is_discrete
-
-    def tree_flatten(self):
-        params = (self._component_distribution, self._mixing_distribution)
-        aux_data = (self.batch_shape, self.event_shape, self._mixture_size)
-        return params, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape, _mixture_size = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("_component_distribution", "_mixing_distribution"), params):
-            setattr(d, k, v)
-        setattr(d, "_mixture_size", _mixture_size)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
     def vmap_over(self, _component_distribution=None, _mixing_distribution=None):
         d = copy.copy(self)
@@ -310,6 +296,9 @@ class MixtureGeneral(_MixtureBase):
        >>> mixture.sample(jax.random.PRNGKey(42)).shape
        ()
     """
+
+    pytree_data_fields = ("_mixing_distribution", "_component_distributions")
+    pytree_aux_fields = ("_mixture_size",)
 
     def __init__(
         self, mixing_distribution, component_distributions, *, validate_args=None
@@ -378,23 +367,6 @@ class MixtureGeneral(_MixtureBase):
     @property
     def is_discrete(self):
         return self.component_distributions[0].is_discrete
-
-    def tree_flatten(self):
-        params = (self._component_distributions, self._mixing_distribution)
-        aux_data = (self.batch_shape, self.event_shape, self._mixture_size)
-        return params, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape, _mixture_size = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("_component_distributions", "_mixing_distribution"), params):
-            setattr(d, k, v)
-        setattr(d, "_mixture_size", _mixture_size)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
     def vmap_over(self, _component_distributions=None, _mixing_distribution=None):
         d = copy.copy(self)

@@ -32,6 +32,7 @@ class LeftTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
+    pytree_data_fields = ("base_dist", "low", "_support")
 
     def __init__(self, base_dist, low=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -81,28 +82,12 @@ class LeftTruncatedDistribution(Distribution):
             sign * (self._tail_prob_at_high - self._tail_prob_at_low)
         )
 
-    def tree_flatten(self):
-        params = (self.base_dist, self._support, self.low)
-        aux_data = (self.batch_shape, self.event_shape)
-        return params, aux_data
-
     def vmap_over(self, low=None):
         dist_axes = copy.copy(self)
         dist_axes.low = low
         dist_axes._support = dist_axes._support.vmap_over(low)
         dist_axes.base_dist = None
         return dist_axes
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("base_dist", "_support", "low"), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
     @property
     def mean(self):
@@ -133,6 +118,7 @@ class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
+    pytree_data_fields = ("base_dist", "high", "_support")
 
     def __init__(self, base_dist, high=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -167,28 +153,12 @@ class RightTruncatedDistribution(Distribution):
     def log_prob(self, value):
         return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
 
-    def tree_flatten(self):
-        params = (self.base_dist, self._support, self.high)
-        aux_data = (self.batch_shape, self.event_shape)
-        return params, aux_data
-
     def vmap_over(self, high=None):
         dist_axes = copy.copy(self)
         dist_axes.high = high
         dist_axes._support = dist_axes._support.vmap_over(high)
         dist_axes.base_dist = None
         return dist_axes
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("base_dist", "_support", "high"), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
     @property
     def mean(self):
@@ -222,6 +192,7 @@ class TwoSidedTruncatedDistribution(Distribution):
     }
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
+    pytree_data_fields = ("base_dist", "low", "high", "_support")
 
     def __init__(self, base_dist, low=0.0, high=1.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -303,11 +274,6 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
-    def tree_flatten(self):
-        params = (self.base_dist, self._support, self.low, self.high)
-        aux_data = (self.batch_shape, self.event_shape)
-        return params, aux_data
-
     def vmap_over(self, low=None, high=None):
         dist_axes = copy.copy(self)
         dist_axes.low = low
@@ -315,17 +281,6 @@ class TwoSidedTruncatedDistribution(Distribution):
         dist_axes._support = dist_axes._support.vmap_over(low, high)
         dist_axes.base_dist = None
         return dist_axes
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("base_dist", "_support", "low", "high"), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
     @property
     def mean(self):

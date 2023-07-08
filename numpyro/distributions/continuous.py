@@ -87,6 +87,7 @@ class AsymmetricLaplace(Distribution):
     }
     reparametrized_params = ["loc", "scale", "asymmetry"]
     support = constraints.real
+    pytree_data_fields = ("loc", "scale", "asymmetry")
 
     def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
@@ -161,23 +162,6 @@ class AsymmetricLaplace(Distribution):
             self.loc - self.right_scale * jnp.log((1 + k**2) * (1 - value)),
         )
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Beta(Distribution):
     arg_constraints = {
@@ -186,6 +170,7 @@ class Beta(Distribution):
     }
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
+    pytree_data_fields = ("concentration0", "concentration1", "_dirichlet")
 
     def __init__(self, concentration1, concentration0, *, validate_args=None):
         self.concentration1, self.concentration0 = promote_shapes(
@@ -235,33 +220,12 @@ class Beta(Distribution):
             dist_axes._dirichlet = None
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._dirichlet,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        _dirichlet, params = params
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._dirichlet = _dirichlet
-        return d
-
 
 class Cauchy(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -304,23 +268,6 @@ class Cauchy(Distribution):
     def icdf(self, q):
         return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Dirichlet(Distribution):
     arg_constraints = {
@@ -328,6 +275,7 @@ class Dirichlet(Distribution):
     }
     reparametrized_params = ["concentration"]
     support = constraints.simplex
+    pytree_data_fields = ("concentration",)
 
     def __init__(self, concentration, *, validate_args=None):
         if jnp.ndim(concentration) < 1:
@@ -382,23 +330,6 @@ class Dirichlet(Distribution):
         event_shape = concentration[-1:]
         return batch_shape, event_shape
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class EulerMaruyama(Distribution):
     """
@@ -415,6 +346,8 @@ class EulerMaruyama(Distribution):
     """
 
     arg_constraints = {"t": constraints.ordered_vector}
+    pytree_data_fields = ("t", "init_dist")
+    pytree_aux_fields = ("sde_fn",)
 
     def __init__(self, t, sde_fn, init_dist, *, validate_args=None):
         self.t = t
@@ -532,32 +465,12 @@ class EulerMaruyama(Distribution):
         dist_axes.init_dist = init_dist
         return dist_axes
 
-    def tree_flatten(self):
-        arg_constraints = {**self.arg_constraints, "init_dist": None}
-        return (
-            tuple(getattr(self, param) for param in arg_constraints.keys()),
-            (self.batch_shape, self.event_shape, self.sde_fn),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        arg_constraints = {**cls.arg_constraints, "init_dist": None}
-
-        batch_shape, event_shape, sde_fn = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.sde_fn = sde_fn
-        return d
-
 
 class Exponential(Distribution):
     reparametrized_params = ["rate"]
     arg_constraints = {"rate": constraints.positive}
     support = constraints.positive
+    pytree_data_fields = ("rate",)
 
     def __init__(self, rate=1.0, *, validate_args=None):
         self.rate = rate
@@ -594,23 +507,6 @@ class Exponential(Distribution):
     def icdf(self, q):
         return -jnp.log1p(-q) / self.rate
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Gamma(Distribution):
     arg_constraints = {
@@ -619,6 +515,7 @@ class Gamma(Distribution):
     }
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
+    pytree_data_fields = ("concentration", "rate")
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -663,27 +560,11 @@ class Gamma(Distribution):
     def icdf(self, q):
         return gammaincinv(self.concentration, q) / self.rate
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Chi2(Gamma):
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
+    pytree_data_fields = ("df",)
 
     def __init__(self, df, *, validate_args=None):
         self.df = df
@@ -696,33 +577,13 @@ class Chi2(Gamma):
         dist_axes.df = df
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(
-                getattr(self, param)
-                for param in {**self.arg_constraints, **Gamma.arg_constraints}.keys()
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(
-            {**cls.arg_constraints, **Gamma.arg_constraints}.keys(), params
-        ):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class GaussianRandomWalk(Distribution):
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ["scale"]
+    pytree_data_fields = ("scale",)
+    pytree_aux_fields = ("num_steps",)
 
     def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
         assert (
@@ -764,29 +625,12 @@ class GaussianRandomWalk(Distribution):
         dist_axes.scale = scale
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape, self.num_steps),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape, num_steps = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        d.num_steps = num_steps
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class HalfCauchy(Distribution):
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
+    pytree_data_fields = ("_cauchy", "scale")
 
     def __init__(self, scale=1.0, *, validate_args=None):
         self._cauchy = Cauchy(0.0, scale)
@@ -823,33 +667,12 @@ class HalfCauchy(Distribution):
         dist_axes._cauchy = self._cauchy.vmap_over(scale, scale)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._cauchy,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        cauchy, params = params
-        d._cauchy = cauchy
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class HalfNormal(Distribution):
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
+    pytree_data_fields = ("_normal", "scale")
 
     def __init__(self, scale=1.0, *, validate_args=None):
         self._normal = Normal(0.0, scale)
@@ -886,28 +709,6 @@ class HalfNormal(Distribution):
         dist_axes._normal = self._normal.vmap_over(scale, scale)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._normal,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        normal, params = params
-        d._normal = normal
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class InverseGamma(TransformedDistribution):
     """
@@ -922,6 +723,7 @@ class InverseGamma(TransformedDistribution):
     }
     reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
+    pytree_data_fields = ("concentration", "rate")
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         base_dist = Gamma(concentration, rate)
@@ -957,13 +759,6 @@ class InverseGamma(TransformedDistribution):
         dist_axes.transforms = None
         return dist_axes
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = super(InverseGamma, cls).tree_unflatten(aux_data, params)
-        d.concentration = d.base_dist.concentration
-        d.rate = d.base_dist.rate
-        return d
-
 
 class Gompertz(Distribution):
     r"""Gompertz Distribution.
@@ -987,6 +782,7 @@ class Gompertz(Distribution):
     }
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
+    pytree_data_fields = ("concentration", "rate")
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -1027,28 +823,12 @@ class Gompertz(Distribution):
         dist_axes.rate = rate
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Gumbel(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -1092,23 +872,6 @@ class Gumbel(Distribution):
         dist_axes.scale = scale
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Kumaraswamy(TransformedDistribution):
     arg_constraints = {
@@ -1117,6 +880,7 @@ class Kumaraswamy(TransformedDistribution):
     }
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
+    pytree_data_fields = ("concentration0", "concentration1")
     # XXX: This flag is used to approximate the Taylor expansion
     # of KL(Kumaraswamy||Beta) following
     # https://arxiv.org/abs/1605.06197 Formula (12)
@@ -1182,23 +946,12 @@ class Kumaraswamy(TransformedDistribution):
         ]
         return dist_axes
 
-    def tree_flatten(self):
-        params, aux_data = super(Kumaraswamy, self).tree_flatten()
-        return ((self.concentration0, self.concentration1), params), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        (concentration0, concentration1), params = params
-        d = super(Kumaraswamy, cls).tree_unflatten(aux_data, params)
-        d.concentration0 = concentration0
-        d.concentration1 = concentration1
-        return d
-
 
 class Laplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -1241,23 +994,6 @@ class Laplace(Distribution):
         dist_axes.loc = loc
         dist_axes.scale = scale
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
 
 class LKJ(TransformedDistribution):
@@ -1309,6 +1045,8 @@ class LKJ(TransformedDistribution):
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
+    pytree_data_fields = ("concentration",)
+    pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
         self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
@@ -1336,23 +1074,6 @@ class LKJ(TransformedDistribution):
         dist_axes.concentration = concentration
         dist_axes.transforms = None
         return dist_axes
-
-    def tree_flatten(self):
-        params, aux_data = super(LKJ, self).tree_flatten()
-        return (self.concentration, params), (
-            (self.dimension, self.sample_method),
-            aux_data,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        concentration, params = params
-        (dimension, sample_method), aux_data = aux_data
-        d = super(LKJ, cls).tree_unflatten(aux_data, params)
-        d.dimension = dimension
-        d.sample_method = sample_method
-        d.concentration = concentration
-        return d
 
 
 class LKJCholesky(Distribution):
@@ -1408,6 +1129,8 @@ class LKJCholesky(Distribution):
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_cholesky
+    pytree_data_fields = ("_beta", "concentration")
+    pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
         self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
@@ -1566,32 +1289,12 @@ class LKJCholesky(Distribution):
             dist_axes._beta = dist_axes._beta.vmap_over(concentration, concentration)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (self._beta, (self.concentration,)),
-            (self.dimension, self.sample_method, (self.batch_shape, self.event_shape)),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method, (batch_shape, event_shape) = aux_data
-        _beta, params = params
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._beta = _beta
-        d.dimension = dimension
-        d.sample_method = sample_method
-        return d
-
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         base_dist = Normal(loc, scale)
@@ -1619,23 +1322,12 @@ class LogNormal(TransformedDistribution):
         dist_axes.transforms = None
         return dist_axes
 
-    def tree_flatten(self):
-        params, aux_data = super(LogNormal, self).tree_flatten()
-        return ((self.loc, self.scale), params), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        (loc, scale), params = params
-        d = super(LogNormal, cls).tree_unflatten(aux_data, params)
-        d.loc = loc
-        d.scale = scale
-        return d
-
 
 class Logistic(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -1677,27 +1369,11 @@ class Logistic(Distribution):
         dist_axes.scale = scale
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
+    pytree_data_fields = ("low", "high", "_support")
 
     def __init__(self, low, high, *, validate_args=None):
         base_dist = Uniform(jnp.log(low), jnp.log(high))
@@ -1732,18 +1408,6 @@ class LogUniform(TransformedDistribution):
         dist_axes.high = high
         dist_axes._support = dist_axes._support.vmap_over(low, high)
         return dist_axes
-
-    def tree_flatten(self):
-        params, aux_data = super(LogUniform, self).tree_flatten()
-        return ((self.low, self.high), params), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        (low, high), params = params
-        d = super(LogUniform, cls).tree_unflatten(aux_data, params)
-        d.low = low
-        d.high = high
-        return d
 
 
 def _batch_solve_triangular(A, B):
@@ -1812,6 +1476,7 @@ class MatrixNormal(Distribution):
         "scale_tril_row",
         "scale_tril_column",
     ]
+    pytree_data_fields = ("loc", "scale_tril_row", "scale_tril_column")
 
     def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
         event_shape = loc.shape[-2:]
@@ -1882,23 +1547,6 @@ class MatrixNormal(Distribution):
         dist_axes.scale_tril_column = scale_tril_column
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 def _batch_mahalanobis(bL, bx):
     if bL.shape[:-1] == bx.shape:
@@ -1960,7 +1608,7 @@ class MultivariateNormal(Distribution):
         "precision_matrix",
         "scale_tril",
     ]
-    args_in_pytree = ("loc", "scale_tril")
+    pytree_data_fields = ("loc", "scale_tril")
 
     def __init__(
         self,
@@ -2091,22 +1739,6 @@ class MultivariateNormal(Distribution):
 
         return MultivariateNormal(loc=new_loc, scale_tril=new_scale_tril)
 
-    def tree_flatten(self):
-        return (
-            self.loc,
-            self.scale_tril,
-        ), (self.batch_shape, self.event_shape)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        loc, scale_tril = params
-        batch_shape, event_shape = aux_data
-        d = cls.__new__(cls)
-        d.loc = loc
-        d.scale_tril = scale_tril
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
     @staticmethod
     def infer_shapes(
         loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
@@ -2164,6 +1796,8 @@ class CAR(Distribution):
         "conditional_precision",
         "adj_matrix",
     ]
+    pytree_data_fields = ("loc", "correlation", "conditional_precision", "adj_matrix")
+    pytree_aux_fields = ("is_sparse", "adj_matrix")
 
     def __init__(
         self,
@@ -2326,36 +1960,29 @@ class CAR(Distribution):
         return dist_axes
 
     def tree_flatten(self):
+        data, aux = super().tree_flatten()
+        adj_matrix_data_idx = type(self).gather_pytree_data_fields().index("adj_matrix")
+        adj_matrix_aux_idx = type(self).gather_pytree_aux_fields().index("adj_matrix")
+
         if not self.is_sparse:
-            return (
-                (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-                (self.is_sparse, self.batch_shape, self.event_shape),
-            )
+            aux = list(aux)
+            aux[adj_matrix_aux_idx] = None
+            aux = tuple(aux)
         else:
-            return (
-                (
-                    tuple(
-                        getattr(self, param)
-                        for param in self.arg_constraints.keys()
-                        if param != "adj_matrix"
-                    )
-                ),
-                (self.is_sparse, self.batch_shape, self.event_shape, self.adj_matrix),
-            )
+            data = list(data)
+            data[adj_matrix_data_idx] = None
+            data = tuple(data)
+        return data, aux
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        is_sparse, batch_shape, event_shape = aux_data[:3]
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.is_sparse = is_sparse
-        if is_sparse:
-            assert len(aux_data) == 4
-            d.adj_matrix = aux_data[3]
+        d = super().tree_unflatten(aux_data, params)
+        if not d.is_sparse:
+            adj_matrix_data_idx = cls.gather_pytree_data_fields().index("adj_matrix")
+            setattr(d, "adj_matrix", params[adj_matrix_data_idx])
+        else:
+            adj_matrix_aux_idx = cls.gather_pytree_aux_fields().index("adj_matrix")
+            setattr(d, "adj_matrix", aux_data[adj_matrix_aux_idx])
         return d
 
 
@@ -2367,6 +1994,7 @@ class MultivariateStudentT(Distribution):
     }
     support = constraints.real_vector
     reparametrized_params = ["df", "loc", "scale_tril"]
+    pytree_data_fields = ("df", "loc", "scale_tril", "_chi2")
 
     def __init__(
         self,
@@ -2462,28 +2090,6 @@ class MultivariateStudentT(Distribution):
         dist_axes._chi2 = dist_axes._chi2.vmap_over(df)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._chi2,
-                (tuple(getattr(self, param) for param in self.arg_constraints.keys())),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        chi2, params = params
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._chi2 = chi2
-        return d
-
 
 def _batch_mv(bmat, bvec):
     r"""
@@ -2542,6 +2148,7 @@ class LowRankMultivariateNormal(Distribution):
     }
     support = constraints.real_vector
     reparametrized_params = ["loc", "cov_factor", "cov_diag"]
+    pytree_data_fields = ("loc", "cov_factor", "cov_diag", "_capacitance_tril")
 
     def __init__(self, loc, cov_factor, cov_diag, *, validate_args=None):
         if jnp.ndim(loc) < 1:
@@ -2677,34 +2284,12 @@ class LowRankMultivariateNormal(Distribution):
         dist_axes._capacitance_tril = cov_diag if cov_diag is not None else cov_factor
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._capacitance_tril,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        capacitance_tril, params = params
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._capacitance_tril = capacitance_tril
-        return d
-
 
 class Normal(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    args_in_pytree = ("loc", "scale")
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -2751,27 +2336,11 @@ class Normal(Distribution):
     def variance(self):
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class Pareto(TransformedDistribution):
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
+    pytree_data_fields = ("scale", "alpha")
 
     def __init__(self, scale, alpha, *, validate_args=None):
         self.scale, self.alpha = promote_shapes(scale, alpha)
@@ -2816,22 +2385,11 @@ class Pareto(TransformedDistribution):
         dist_axes.transforms = [None, self.transforms[1].vmap_over(None, scale)]
         return dist_axes
 
-    def tree_flatten(self):
-        params, aux_data = super(Pareto, self).tree_flatten()
-        return ((self.scale, self.alpha), params), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        (scale, alpha), params = params
-        d = super(Pareto, cls).tree_unflatten(aux_data, params)
-        d.scale = scale
-        d.alpha = alpha
-        return d
-
 
 class RelaxedBernoulliLogits(TransformedDistribution):
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
+    pytree_data_fields = ("temperature", "logits")
 
     def __init__(self, temperature, logits, *, validate_args=None):
         self.temperature, self.logits = promote_shapes(temperature, logits)
@@ -2848,18 +2406,6 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         dist_axes.logits = logits
         dist_axes.transforms = None
         return dist_axes
-
-    def tree_flatten(self):
-        params, aux_data = super(RelaxedBernoulliLogits, self).tree_flatten()
-        return ((self.temperature, self.logits), params), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        (temperature, logits), params = params
-        d = super(RelaxedBernoulliLogits, cls).tree_unflatten(aux_data, params)
-        d.temperature = temperature
-        d.logits = logits
-        return d
 
 
 def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
@@ -2891,6 +2437,7 @@ class SoftLaplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
+    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc, scale, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -2932,23 +2479,6 @@ class SoftLaplace(Distribution):
         dist_axes.scale = scale
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class StudentT(Distribution):
     arg_constraints = {
@@ -2958,6 +2488,7 @@ class StudentT(Distribution):
     }
     support = constraints.real
     reparametrized_params = ["df", "loc", "scale"]
+    pytree_data_fields = ("df", "loc", "scale", "_chi2")
 
     def __init__(self, df, loc=0.0, scale=1.0, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
@@ -3034,32 +2565,11 @@ class StudentT(Distribution):
         dist_axes._chi2 = dist_axes._chi2.vmap_over(df)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._chi2,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        _chi2, params = params
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._chi2 = _chi2
-        return d
-
 
 class Uniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     reparametrized_params = ["low", "high"]
+    pytree_data_fields = ("low", "high", "_support")
 
     def __init__(self, low=0.0, high=1.0, *, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
@@ -3108,28 +2618,6 @@ class Uniform(Distribution):
         dist_axes._support = dist_axes._support.vmap_over(low, high)
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self._support,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        _support, params = params
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._support = _support
-        return d
-
 
 class Weibull(Distribution):
     arg_constraints = {
@@ -3138,6 +2626,7 @@ class Weibull(Distribution):
     }
     support = constraints.positive
     reparametrized_params = ["scale", "concentration"]
+    pytree_data_fields = ("scale", "concentration")
 
     def __init__(self, scale, concentration, *, validate_args=None):
         self.concentration, self.scale = promote_shapes(concentration, scale)
@@ -3181,23 +2670,6 @@ class Weibull(Distribution):
         dist_axes.concentration = concentration
         return dist_axes
 
-    def tree_flatten(self):
-        return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
 
 class BetaProportion(Beta):
     """
@@ -3216,6 +2688,7 @@ class BetaProportion(Beta):
     }
     reparametrized_params = ["mean", "concentration"]
     support = constraints.unit_interval
+    pytree_data_fields = ("concentration",)
 
     def __init__(self, mean, concentration, *, validate_args=None):
         self.concentration = jnp.broadcast_to(
@@ -3235,31 +2708,6 @@ class BetaProportion(Beta):
             concentration if concentration is not None else mean,
         )
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            (
-                self._dirichlet,
-                self.concentration,
-                self.concentration0,
-                self.concentration1,
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        _dirichlet, concentration, concentration0, concentration1 = params
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._dirichlet = _dirichlet
-        d.concentration = concentration
-        d.concentration0 = concentration0
-        d.concentration1 = concentration1
-        return d
 
 
 class AsymmetricLaplaceQuantile(Distribution):
@@ -3285,6 +2733,7 @@ class AsymmetricLaplaceQuantile(Distribution):
     }
     reparametrized_params = ["loc", "scale", "quantile"]
     support = constraints.real
+    pytree_data_fields = ("loc", "scale", "quantile", "_ald")
 
     def __init__(self, loc=0.0, scale=1.0, quantile=0.5, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
@@ -3331,25 +2780,3 @@ class AsymmetricLaplaceQuantile(Distribution):
             loc=loc, scale=scale if scale is not None else quantile, asymmetry=quantile
         )
         return dist_axes
-
-    def tree_flatten(self):
-        return (
-            (
-                self._ald,
-                tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        _ald, params = params
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(cls.arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d._ald = _ald
-        return d

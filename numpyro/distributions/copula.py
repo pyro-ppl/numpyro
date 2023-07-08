@@ -35,6 +35,8 @@ class GaussianCopula(Distribution):
         "correlation_cholesky",
     ]
 
+    pytree_data_fields = ("marginal_dist", "base_dist")
+
     def __init__(
         self,
         marginal_dist,
@@ -107,25 +109,6 @@ class GaussianCopula(Distribution):
     def correlation_cholesky(self):
         return self.base_dist.scale_tril
 
-    def tree_flatten(self):
-        arg_constraints = {"marginal_dist": None, "base_dist": None}
-        return (
-            tuple(getattr(self, param) for param in arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        arg_constraints = {"marginal_dist": None, "base_dist": None}
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
-
     def vmap_over(
         self,
         marginal_dist=None,
@@ -149,6 +132,7 @@ class GaussianCopulaBeta(GaussianCopula):
         "correlation_cholesky": constraints.corr_cholesky,
     }
     support = constraints.independent(constraints.unit_interval, 1)
+    pytree_data_fields = ("concentration1", "concentration0")
 
     def __init__(
         self,
@@ -176,17 +160,13 @@ class GaussianCopulaBeta(GaussianCopula):
         correlation_matrix=None,
         correlation_cholesky=None,
     ):
-        return super().vmap_over(
+        d = super().vmap_over(
             self.marginal_dist.vmap_over(
                 concentration1=concentration1, concentration0=concentration0
             ),
             correlation_matrix=correlation_matrix,
             correlation_cholesky=correlation_cholesky,
         )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = super().tree_unflatten(aux_data, params)
-        d.concentration0 = d.marginal_dist.concentration0
-        d.concentration1 = d.marginal_dist.concentration1
+        d.concentration1 = concentration1
+        d.concentration0 = concentration0
         return d
