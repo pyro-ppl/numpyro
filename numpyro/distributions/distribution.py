@@ -34,7 +34,7 @@ import warnings
 
 import numpy as np
 
-from jax import lax, tree_util
+from jax import lax, tree_map, tree_util
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
@@ -136,6 +136,7 @@ class Distribution(metaclass=DistributionMeta):
     _validate_args = False
     pytree_data_fields = ()
     pytree_aux_fields = ("_batch_shape", "_event_shape")
+    attr_atomic_ndim = dict()
 
     # register Distribution as a pytree
     # ref: https://github.com/google/jax/issues/2916
@@ -152,6 +153,17 @@ class Distribution(metaclass=DistributionMeta):
             if issubclass(base, Distribution):
                 all_pytree_data_fields += base.__dict__.get("pytree_data_fields", ())
         return all_pytree_data_fields
+
+    def promote_batch_shape(self):
+        attr_name = list(self.attr_atomic_ndim.keys())[0]
+        attr_atomic_ndim = self.attr_atomic_ndim[attr_name]
+        attr = getattr(self, attr_name)
+        resolved_batch_shape = attr.shape[
+            : max(0, attr.ndim - self.event_dim - attr_atomic_ndim)
+        ]
+        new_self = copy.deepcopy(self)
+        new_self._batch_shape = resolved_batch_shape
+        return new_self
 
     @classmethod
     def gather_pytree_aux_fields(cls):
@@ -543,6 +555,44 @@ class ExpandedDistribution(Distribution):
         self._interstitial_sizes = interstitial_sizes
         super().__init__(new_shape, base_dist.event_shape)
 
+    def promote_batch_shape(self):
+        orig_delta_batch_shape = self.batch_shape[
+            : len(self.batch_shape) - len(self.base_dist.batch_shape)
+        ]
+
+        new_self = copy.deepcopy(self)
+
+        # new dimensions coming from a vmap or numpyro scan/enum operation
+        promoted_base_dist = new_self.base_dist.promote_batch_shape()
+        new_shapes_elems = promoted_base_dist.batch_shape[
+            : len(promoted_base_dist.batch_shape) - len(self.base_dist.batch_shape)
+        ]
+
+        # The new dimensions are appended in front of the previous ExpandedDistribution
+        # batch dimensions. However, these batch dimensions are now present in
+        # the base distribution. Thus the dimensions present in the original
+        # ExpandedDistribution batch_shape, but not in the original base distribution
+        # batch_shape are now intermediate dimensions: to maintain broadcastability,
+        # the attribute of the batch distribution are expanded with such intermediate
+        # dimensions.
+        new_self._batch_shape = (*new_shapes_elems, *self.batch_shape)
+
+        new_self.base_dist._batch_shape = (
+            *new_shapes_elems,
+            *tuple(1 for _ in orig_delta_batch_shape),
+            *self.base_dist.batch_shape,
+        )
+        new_axes_locs = range(
+            len(new_shapes_elems),
+            len(new_shapes_elems) + len(orig_delta_batch_shape),
+        )
+        new_base_dist = tree_map(
+            lambda x: jnp.expand_dims(x, axis=new_axes_locs), new_self.base_dist
+        )
+
+        new_self.base_dist = new_base_dist
+        return new_self
+
     @staticmethod
     def _broadcast_shape(existing_shape, new_shape):
         if len(new_shape) < len(existing_shape):
@@ -897,6 +947,13 @@ class MaskedDistribution(Distribution):
         self.base_dist = base_dist
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
 
+    def promote_batch_shape(self):
+        new_self = copy.copy(self)
+        new_base_dist = self.base_dist.promote_batch_shape()
+        new_self._batch_shape = new_base_dist.batch_shape
+        new_self.base_dist = new_base_dist
+        return new_self
+
     @property
     def has_enumerate_support(self):
         return self.base_dist.has_enumerate_support
@@ -1208,6 +1265,7 @@ class Unit(Distribution):
 
     arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
+    pytree_data_fields = ("log_factor",)
 
     def __init__(self, log_factor, *, validate_args=None):
         batch_shape = jnp.shape(log_factor)
@@ -1216,6 +1274,9 @@ class Unit(Distribution):
         super(Unit, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
+
+    def promote_batch_shape(self):
+        return self
 
     def sample(self, key, sample_shape=()):
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)

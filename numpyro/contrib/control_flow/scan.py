@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict
-import copy
 from functools import partial
 
 from jax import device_put, lax, random
@@ -10,9 +9,6 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
-from numpyro.distributions import ExpandedDistribution, Normal
-from numpyro.distributions.discrete import BernoulliProbs, CategoricalProbs
-from numpyro.distributions.distribution import MaskedDistribution
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
@@ -101,87 +97,6 @@ def _promote_scanned_value_shapes(value, fn):
         )
     else:
         return value
-
-
-def _promote_batch_shape(x):
-    if isinstance(x, ExpandedDistribution) and isinstance(
-        x.base_dist, (Normal, BernoulliProbs, CategoricalProbs)
-    ):
-        # this logic is a port of the reshaping operations previously present in the
-        # flattening/unflattening methods of ExpandedDistribution. This logic had
-        # to be taken out of these method in order for distribution to be compliant
-        # with the JAX expectations w.r.t pytree flattening/unflattening.
-
-        # prepend_ndim = len(x.batch_shape) - len(x.base_dist.batch_shape)
-        orig_batch_shape = x.batch_shape
-        orig_base_dist_batch_shape = x.base_dist.batch_shape
-        orig_base_dist_event_shape = x.base_dist.event_shape
-        orig_batch_shape_elems = orig_batch_shape[
-            : len(orig_batch_shape) - len(orig_base_dist_batch_shape)
-        ]
-
-        new_x = copy.copy(x)
-
-        for k in x.base_dist.arg_constraints.keys():
-            attr = getattr(x.base_dist, k)
-            print("attr shape", attr.shape)
-            base_dist_attr_shapes = attr.shape
-            if isinstance(x.base_dist, CategoricalProbs):
-                # parameters have an extra dimension
-                # XXX: how to handle this in general?
-                new_shapes_elems = base_dist_attr_shapes[
-                    : max(
-                        0,
-                        len(base_dist_attr_shapes)
-                        - (
-                            len(orig_base_dist_event_shape)
-                            + len(orig_base_dist_batch_shape)
-                        )
-                        - 1,
-                    )
-                ]
-            else:
-                new_shapes_elems = base_dist_attr_shapes[
-                    : len(base_dist_attr_shapes)
-                    - (
-                        len(orig_base_dist_event_shape)
-                        + len(orig_base_dist_batch_shape)
-                    )
-                ]
-            new_x._batch_shape = (*new_shapes_elems, *orig_batch_shape)
-            new_x.base_dist._batch_shape = (
-                *new_shapes_elems,
-                *tuple(1 for _ in orig_batch_shape_elems),
-                *orig_base_dist_batch_shape,
-            )
-            new_axes_locs = range(
-                len(new_shapes_elems),
-                len(new_shapes_elems) + len(orig_batch_shape_elems),
-            )
-            setattr(new_x.base_dist, k, jnp.expand_dims(attr, axis=new_axes_locs))
-        return new_x
-    elif isinstance(x, Normal):
-        new_x = copy.copy(x)
-        resolved_batch_shape = new_x.loc.shape[: new_x.loc.ndim - new_x.event_dim]
-        new_x._batch_shape = resolved_batch_shape
-    elif isinstance(x, BernoulliProbs):
-        new_x = copy.copy(x)
-        resolved_batch_shape = new_x.probs.shape[: new_x.probs.ndim - new_x.event_dim]
-        new_x._batch_shape = resolved_batch_shape
-    elif isinstance(x, CategoricalProbs):
-        new_x = copy.copy(x)
-        resolved_batch_shape = new_x.probs.shape[
-            : max(0, new_x.probs.ndim - new_x.event_dim - 1)
-        ]
-        new_x._batch_shape = resolved_batch_shape
-    elif isinstance(x, MaskedDistribution):
-        new_x = copy.copy(x)
-        new_base_dist = _promote_batch_shape(x.base_dist)
-        new_x._batch_shape = new_base_dist.batch_shape
-        new_x.base_dist = new_base_dist
-    else:
-        new_x = x
-    return new_x
 
 
 def scan_enum(
@@ -305,7 +220,7 @@ def scan_enum(
         if first_var is None:
             first_var = name
 
-        site["fn"] = _promote_batch_shape(site["fn"])
+        site["fn"] = site["fn"].promote_batch_shape()
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
 
@@ -394,7 +309,7 @@ def scan_wrapper(
     for name, site in pytree_trace.trace.items():
         if site["type"] != "sample":
             continue
-        site["fn"] = _promote_batch_shape(site["fn"])
+        site["fn"] = site["fn"].promote_batch_shape()
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
     return last_carry, (pytree_trace, ys)

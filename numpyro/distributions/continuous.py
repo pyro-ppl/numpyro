@@ -1295,6 +1295,7 @@ class LogNormal(TransformedDistribution):
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
     pytree_data_fields = ("loc", "scale")
+    attr_atomic_ndim = {"loc": 0}
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         base_dist = Normal(loc, scale)
@@ -1695,49 +1696,6 @@ class MultivariateNormal(Distribution):
         return jnp.broadcast_to(
             jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
-
-    def infer_post_vmap_shapes(self, vmap_axes):
-        """
-        Transform a `vmap`-ed `MultivariateNormal` mapped according to
-        `vmap_axes` into a batched `MultivariateNormal`.
-
-
-        Note: The vmapped axis turned into a batch axis is placed
-        at the leftmost position of the batch shape.
-        """
-        # TODO: take into account the case of muliple vmap transformations
-        # in a row by allowing `vmap_axes` to be a tuple of tree prefixes.
-        assert isinstance(vmap_axes, MultivariateNormal)
-        # handle loc
-        scale_tril_shape = self.scale_tril.shape
-        loc_vmap_axis = vmap_axes.loc
-        scale_tril_vmap_axis = vmap_axes.scale_tril
-
-        if loc_vmap_axis is None:
-            new_loc = self.loc
-        else:
-            assert isinstance(loc_vmap_axis, int)
-            new_loc = jnp.moveaxis(
-                self.loc,
-                source=tuple(range(len(self.loc.shape))),
-                destination=(loc_vmap_axis,)
-                + tuple(t for t in range(len(self.loc.shape)) if t != loc_vmap_axis),
-            )
-
-        if scale_tril_vmap_axis is None:
-            new_scale_tril = self.scale_tril
-        else:
-            assert isinstance(scale_tril_vmap_axis, int)
-            new_scale_tril = jnp.moveaxis(
-                self.scale_tril,
-                source=tuple(range(len(scale_tril_shape))),
-                destination=(scale_tril_vmap_axis,)
-                + tuple(
-                    t for t in range(len(scale_tril_shape)) if t != scale_tril_vmap_axis
-                ),
-            )
-
-        return MultivariateNormal(loc=new_loc, scale_tril=new_scale_tril)
 
     @staticmethod
     def infer_shapes(
@@ -2290,6 +2248,7 @@ class Normal(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
     pytree_data_fields = ("loc", "scale")
+    attr_atomic_ndim = {"loc": 0}
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
