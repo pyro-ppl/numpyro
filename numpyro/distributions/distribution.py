@@ -772,6 +772,7 @@ class ImproperUniform(Distribution):
 
     arg_constraints = {}
     support = constraints.dependent
+    pytree_data_fields = ("support",)
 
     def __init__(self, support, batch_shape, event_shape, *, validate_args=None):
         self.support = constraints.independent(
@@ -791,25 +792,6 @@ class ImproperUniform(Distribution):
         if batch_dim < jnp.ndim(mask):
             mask = jnp.all(jnp.reshape(mask, jnp.shape(mask)[:batch_dim] + (-1,)), -1)
         return mask
-
-    def tree_flatten(self):
-        arg_constraints = {"support": None}
-        return (
-            tuple(getattr(self, param) for param in arg_constraints.keys()),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        arg_constraints = {"support": None}
-        batch_shape, event_shape = aux_data
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(arg_constraints.keys(), params):
-            setattr(d, k, v)
-        Distribution.__init__(d, batch_shape, event_shape)
-        return d
 
     def vmap_over(self, support):
         dist_axes = copy.copy(self)
@@ -841,6 +823,8 @@ class Independent(Distribution):
     """
 
     arg_constraints = {}
+    pytree_data_fields = ("base_dist",)
+    pytree_aux_fields = ("reinterpreted_batch_ndims",)
 
     def __init__(self, base_dist, reinterpreted_batch_ndims, *, validate_args=None):
         if reinterpreted_batch_ndims > len(base_dist.batch_shape):
@@ -904,20 +888,6 @@ class Independent(Distribution):
             self.reinterpreted_batch_ndims
         )
 
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        return base_flatten, (
-            type(self.base_dist),
-            base_aux,
-            self.reinterpreted_batch_ndims,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        base_cls, base_aux, reinterpreted_batch_ndims = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, params)
-        return cls(base_dist, reinterpreted_batch_ndims)
-
 
 class MaskedDistribution(Distribution):
     """
@@ -931,6 +901,8 @@ class MaskedDistribution(Distribution):
     """
 
     arg_constraints = {}
+    pytree_data_fields = ("base_dist", "_mask")
+    pytree_aux_fields = "_mask"
 
     def __init__(self, base_dist, mask):
         if isinstance(mask, bool):
@@ -1004,28 +976,29 @@ class MaskedDistribution(Distribution):
         return self.base_dist.variance
 
     def tree_flatten(self):
-        # base_flatten, base_aux = self.base_dist.tree_flatten()
-        # if isinstance(self._mask, bool):
-        #     return base_flatten, (type(self.base_dist), base_aux, self._mask)
-        # else:
-        #     return (base_flatten, self._mask), (type(self.base_dist), base_aux)
+        data, aux = super().tree_flatten()
+        _mask_data_idx = type(self).gather_pytree_data_fields().index("_mask")
+        _mask_aux_idx = type(self).gather_pytree_aux_fields().index("_mask")
+
         if isinstance(self._mask, bool):
-            return (self.base_dist,), (self.batch_shape, self.event_shape, self._mask)
+            data = list(data)
+            data[_mask_data_idx] = None
+            data = tuple(data)
         else:
-            return (self.base_dist, self._mask), (self.batch_shape, self.event_shape)
+            aux = list(aux)
+            aux[_mask_aux_idx] = None
+            aux = tuple(aux)
+        return data, aux
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_dist, mask = params
-            batch_shape, event_shape = aux_data
+        d = super().tree_unflatten(aux_data, params)
+        _mask_data_idx = cls.gather_pytree_data_fields().index("_mask")
+        _mask_aux_idx = cls.gather_pytree_aux_fields().index("_mask")
+        if aux_data[_mask_aux_idx] is None:
+            setattr(d, "_mask", params[_mask_data_idx])
         else:
-            batch_shape, event_shape, mask = aux_data
-            (base_dist,) = params
-        d = cls.__new__(cls)
-        Distribution.__init__(d, batch_shape, event_shape)
-        d.base_dist = base_dist
-        d._mask = mask
+            setattr(d, "_mask", aux_data[_mask_aux_idx])
         return d
 
 

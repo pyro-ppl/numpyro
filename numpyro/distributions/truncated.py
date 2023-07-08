@@ -391,10 +391,3 @@ class TruncatedPolyaGamma(Distribution):
         sum_even = jnp.exp(logsumexp(even_terms, axis=-1))
         sum_odd = jnp.exp(logsumexp(odd_terms, axis=-1))
         return jnp.log(sum_even - sum_odd) - 0.5 * jnp.log(2.0 * jnp.pi)
-
-    def tree_flatten(self):
-        return (), self.batch_shape
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(batch_shape=aux_data)
