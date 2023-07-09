@@ -1,8 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
-
 import jax
 from jax import lax
 import jax.numpy as jnp
@@ -234,12 +232,6 @@ class MixtureSameFamily(_MixtureBase):
     def is_discrete(self):
         return self.component_distribution.is_discrete
 
-    def vmap_over(self, _component_distribution=None, _mixing_distribution=None):
-        d = copy.copy(self)
-        d._component_distribution = _component_distribution
-        d._mixing_distribution = _mixing_distribution
-        return d
-
     @property
     def component_mean(self):
         return self.component_distribution.mean
@@ -367,12 +359,6 @@ class MixtureGeneral(_MixtureBase):
     @property
     def is_discrete(self):
         return self.component_distributions[0].is_discrete
-
-    def vmap_over(self, _component_distributions=None, _mixing_distribution=None):
-        d = copy.copy(self)
-        d._component_distributions = _component_distributions
-        d._mixing_distribution = _mixing_distribution
-        return d
 
     @property
     def component_mean(self):

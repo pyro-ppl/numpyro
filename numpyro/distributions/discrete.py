@@ -24,8 +24,6 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-import copy
-
 import numpy as np
 
 import jax
@@ -112,11 +110,6 @@ class BernoulliProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def vmap_over(self, probs=None):
-        dist_axes = copy.copy(self)
-        dist_axes.probs = probs
-        return dist_axes
-
 
 class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -159,11 +152,6 @@ class BernoulliLogits(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
-
-    def vmap_over(self, logits=None):
-        dist_axes = copy.copy(self)
-        dist_axes.logits = logits
-        return dist_axes
 
 
 def Bernoulli(probs=None, logits=None, *, validate_args=None):
@@ -245,12 +233,6 @@ class BinomialProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def vmap_over(self, probs=None, total_count=None):
-        dist_axes = copy.copy(self)
-        dist_axes.probs = probs
-        dist_axes.total_count = total_count
-        return dist_axes
-
 
 class BinomialLogits(Distribution):
     arg_constraints = {
@@ -305,12 +287,6 @@ class BinomialLogits(Distribution):
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
-
-    def vmap_over(self, logits=None, total_count=None):
-        dist_axes = copy.copy(self)
-        dist_axes.logits = logits
-        dist_axes.total_count = total_count
-        return dist_axes
 
 
 def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
@@ -373,11 +349,6 @@ class CategoricalProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def vmap_over(self, probs=None):
-        dist_axes = copy.copy(self)
-        dist_axes.probs = probs
-        return dist_axes
-
 
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
@@ -430,11 +401,6 @@ class CategoricalLogits(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
-
-    def vmap_over(self, logits=None):
-        dist_axes = copy.copy(self)
-        dist_axes.logits = logits
-        return dist_axes
 
 
 def Categorical(probs=None, logits=None, *, validate_args=None):
@@ -505,13 +471,6 @@ class DiscreteUniform(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def vmap_over(self, low=None, high=None):
-        dist_axes = copy.copy(self)
-        dist_axes.low = low
-        dist_axes.high = high
-        dist_axes._support = dist_axes._support.vmap_over(low, high)
-        return dist_axes
-
 
 class OrderedLogistic(CategoricalProbs):
     """
@@ -548,14 +507,6 @@ class OrderedLogistic(CategoricalProbs):
         batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
         event_shape = ()
         return batch_shape, event_shape
-
-    def vmap_over(self, predictor=None, cutpoints=None):
-        dist_axes = super(OrderedLogistic, self).vmap_over(
-            probs=predictor if predictor is not None else cutpoints
-        )
-        dist_axes.predictor = predictor
-        dist_axes.cutpoints = cutpoints
-        return dist_axes
 
 
 class MultinomialProbs(Distribution):
@@ -622,11 +573,6 @@ class MultinomialProbs(Distribution):
         batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
         event_shape = probs[-1:]
         return batch_shape, event_shape
-
-    def vmap_over(self, probs=None):
-        dist_axes = copy.copy(self)
-        dist_axes.probs = probs
-        return dist_axes
 
 
 class MultinomialLogits(Distribution):
@@ -698,11 +644,6 @@ class MultinomialLogits(Distribution):
         batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
         event_shape = logits[-1:]
         return batch_shape, event_shape
-
-    def vmap_over(self, logits=None):
-        dist_axes = copy.copy(self)
-        dist_axes.logits = logits
-        return dist_axes
 
 
 def Multinomial(
@@ -799,11 +740,6 @@ class Poisson(Distribution):
         k = jnp.floor(value) + 1
         return gammaincc(k, self.rate)
 
-    def vmap_over(self, rate=None):
-        dist_axes = copy.copy(self)
-        dist_axes.rate = rate
-        return dist_axes
-
 
 class ZeroInflatedProbs(Distribution):
     arg_constraints = {"gate": constraints.unit_interval}
@@ -860,12 +796,6 @@ class ZeroInflatedProbs(Distribution):
     def enumerate_support(self, expand=True):
         return self.base_dist.enumerate_support(expand=expand)
 
-    def vmap_over(self, base_dist=None, gate=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = base_dist
-        dist_axes.gate = gate
-        return dist_axes
-
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
     arg_constraints = {"gate_logits": constraints.real}
@@ -884,13 +814,6 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         log_prob = log_prob_minus_log_gate + log_gate
         zero_log_prob = softplus(log_prob_minus_log_gate) + log_gate
         return jnp.where(value == 0, zero_log_prob, log_prob)
-
-    def vmap_over(self, base_dist=None, gate_logits=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = base_dist
-        dist_axes.gate_logits = gate_logits
-        dist_axes.gate = gate_logits
-        return dist_axes
 
 
 def ZeroInflatedDistribution(
@@ -931,13 +854,6 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         _, self.rate = promote_shapes(gate, rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
-    def vmap_over(self, gate=None, rate=None):
-        dist_axes = super().vmap_over(
-            base_dist=self.base_dist.vmap_over(rate), gate=gate
-        )
-        dist_axes.rate = rate
-        return dist_axes
-
 
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
@@ -975,11 +891,6 @@ class GeometricProbs(Distribution):
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
 
-    def vmap_over(self, probs=None):
-        dist_axes = copy.copy(self)
-        dist_axes.probs = probs
-        return dist_axes
-
 
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -1015,11 +926,6 @@ class GeometricLogits(Distribution):
     @property
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
-
-    def vmap_over(self, logits=None):
-        dist_axes = copy.copy(self)
-        dist_axes.logits = logits
-        return dist_axes
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):

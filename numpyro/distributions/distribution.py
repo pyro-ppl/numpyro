@@ -711,13 +711,6 @@ class ExpandedDistribution(Distribution):
             self.base_dist.variance, self.batch_shape + self.event_shape
         )
 
-    def vmap_over(self, base_dist):
-        import copy
-
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = base_dist
-        return dist_axes
-
 
 class ImproperUniform(Distribution):
     """
@@ -792,11 +785,6 @@ class ImproperUniform(Distribution):
         if batch_dim < jnp.ndim(mask):
             mask = jnp.all(jnp.reshape(mask, jnp.shape(mask)[:batch_dim] + (-1,)), -1)
         return mask
-
-    def vmap_over(self, support):
-        dist_axes = copy.copy(self)
-        dist_axes.support = support
-        return dist_axes
 
 
 class Independent(Distribution):
@@ -1141,12 +1129,6 @@ class TransformedDistribution(Distribution):
     def variance(self):
         raise NotImplementedError
 
-    def vmap_over(self, base_dist, transforms):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.base_dist = base_dist
-        dist_axes.transforms = transforms
-        return dist_axes
-
 
 class FoldedDistribution(TransformedDistribution):
     """
@@ -1168,9 +1150,6 @@ class FoldedDistribution(TransformedDistribution):
         dim = max(len(self.batch_shape), jnp.ndim(value))
         plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
-
-    def vmap_over(self, base_dist):
-        return super().vmap_over(base_dist, None)
 
 
 class Delta(Distribution):
@@ -1219,12 +1198,6 @@ class Delta(Distribution):
     @property
     def variance(self):
         return jnp.zeros(self.batch_shape + self.event_shape)
-
-    def vmap_over(self, v=None, log_density=None):
-        dist_axes = copy.copy(self)
-        dist_axes.v = v
-        dist_axes.log_density = log_density
-        return dist_axes
 
 
 class Unit(Distribution):

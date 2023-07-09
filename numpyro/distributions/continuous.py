@@ -24,8 +24,6 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-import copy
-
 import numpy as np
 
 from jax import lax, vmap
@@ -52,11 +50,7 @@ from jax.scipy.stats import norm as jax_norm
 
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
-from numpyro.distributions.distribution import (
-    Distribution,
-    ExpandedDistribution,
-    TransformedDistribution,
-)
+from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
     AffineTransform,
     CorrMatrixCholeskyTransform,
@@ -99,13 +93,6 @@ class AsymmetricLaplace(Distribution):
         super(AsymmetricLaplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
-
-    def vmap_over(self, loc=None, scale=None, asymmetry=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        dist_axes.asymmetry = asymmetry
-        return dist_axes
 
     @lazy_property
     def left_scale(self):
@@ -209,17 +196,6 @@ class Beta(Distribution):
     def icdf(self, q):
         return betaincinv(self.concentration1, self.concentration0, q)
 
-    def vmap_over(self, concentration1=None, concentration0=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration1 = concentration1
-        dist_axes.concentration0 = concentration0
-
-        if concentration1 is not None or concentration0 is not None:
-            dist_axes._dirichlet = 0
-        else:
-            dist_axes._dirichlet = None
-        return dist_axes
-
 
 class Cauchy(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -233,12 +209,6 @@ class Cauchy(Distribution):
         super(Cauchy, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
-
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -289,11 +259,6 @@ class Dirichlet(Distribution):
             event_shape=event_shape,
             validate_args=validate_args,
         )
-
-    def vmap_over(self, concentration=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration = concentration
-        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -459,12 +424,6 @@ class EulerMaruyama(Distribution):
 
         return sde_log_prob + init_log_prob
 
-    def vmap_over(self, t=None, init_dist=None):
-        dist_axes = copy.copy(self)
-        dist_axes.t = t
-        dist_axes.init_dist = init_dist
-        return dist_axes
-
 
 class Exponential(Distribution):
     reparametrized_params = ["rate"]
@@ -477,11 +436,6 @@ class Exponential(Distribution):
         super(Exponential, self).__init__(
             batch_shape=jnp.shape(rate), validate_args=validate_args
         )
-
-    def vmap_over(self, rate=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.rate = rate
-        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -524,12 +478,6 @@ class Gamma(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def vmap_over(self, concentration=None, rate=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration = concentration
-        dist_axes.rate = rate
-        return dist_axes
-
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -569,13 +517,6 @@ class Chi2(Gamma):
     def __init__(self, df, *, validate_args=None):
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
-
-    def vmap_over(self, df=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration = df
-        dist_axes.rate = df
-        dist_axes.df = df
-        return dist_axes
 
 
 class GaussianRandomWalk(Distribution):
@@ -620,11 +561,6 @@ class GaussianRandomWalk(Distribution):
             self.batch_shape + self.event_shape,
         )
 
-    def vmap_over(self, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.scale = scale
-        return dist_axes
-
 
 class HalfCauchy(Distribution):
     reparametrized_params = ["scale"]
@@ -661,12 +597,6 @@ class HalfCauchy(Distribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.inf)
 
-    def vmap_over(self, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.scale = scale
-        dist_axes._cauchy = self._cauchy.vmap_over(scale, scale)
-        return dist_axes
-
 
 class HalfNormal(Distribution):
     reparametrized_params = ["scale"]
@@ -702,12 +632,6 @@ class HalfNormal(Distribution):
     @property
     def variance(self):
         return (1 - 2 / jnp.pi) * self.scale**2
-
-    def vmap_over(self, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.scale = scale
-        dist_axes._normal = self._normal.vmap_over(scale, scale)
-        return dist_axes
 
 
 class InverseGamma(TransformedDistribution):
@@ -747,14 +671,6 @@ class InverseGamma(TransformedDistribution):
 
     def cdf(self, x):
         return 1 - self.base_dist.cdf(1 / x)
-
-    def vmap_over(self, concentration=None, rate=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(concentration, rate)
-        dist_axes.concentration = concentration
-        dist_axes.rate = rate
-        dist_axes.transforms = None
-        return dist_axes
 
 
 class Gompertz(Distribution):
@@ -814,12 +730,6 @@ class Gompertz(Distribution):
     def mean(self):
         return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
-    def vmap_over(self, concentration=None, rate=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration = concentration
-        dist_axes.rate = rate
-        return dist_axes
-
 
 class Gumbel(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -862,12 +772,6 @@ class Gumbel(Distribution):
 
     def icdf(self, q):
         return self.loc - self.scale * jnp.log(-jnp.log(q))
-
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        return dist_axes
 
 
 class Kumaraswamy(TransformedDistribution):
@@ -927,22 +831,6 @@ class Kumaraswamy(TransformedDistribution):
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
 
-    def vmap_over(self, concentration0=None, concentration1=None):
-        dist_axes = copy.copy(self)
-        if isinstance(dist_axes.base_dist, Uniform):
-            dist_axes.base_dist = dist_axes.base_dist.vmap_over(None, None)
-        else:
-            assert isinstance(dist_axes.base_dist, ExpandedDistribution)
-            dist_axes.base_dist = dist_axes.base_dist.vmap_over(None)
-        dist_axes.concentration0 = concentration0
-        dist_axes.concentration1 = concentration1
-        dist_axes.transforms = [
-            dist_axes.transforms[0].vmap_over(concentration0),
-            dist_axes.transforms[1].vmap_over(None, None),
-            dist_axes.transforms[2].vmap_over(concentration1),
-        ]
-        return dist_axes
-
 
 class Laplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -985,12 +873,6 @@ class Laplace(Distribution):
     def icdf(self, q):
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
-
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        return dist_axes
 
 
 class LKJ(TransformedDistribution):
@@ -1064,13 +946,6 @@ class LKJ(TransformedDistribution):
             jnp.identity(self.dimension),
             self.batch_shape + (self.dimension, self.dimension),
         )
-
-    def vmap_over(self, concentration=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(concentration)
-        dist_axes.concentration = concentration
-        dist_axes.transforms = None
-        return dist_axes
 
 
 class LKJCholesky(Distribution):
@@ -1277,15 +1152,6 @@ class LKJCholesky(Distribution):
         normalize_term = pi_constant + numerator - denominator
         return unnormalized - normalize_term
 
-    def vmap_over(self, concentration):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.concentration = concentration
-        if dist_axes.sample_method == "onion":
-            dist_axes._beta = dist_axes._beta.vmap_over(None, concentration)
-        elif dist_axes.sample_method == "cvine":
-            dist_axes._beta = dist_axes._beta.vmap_over(concentration, concentration)
-        return dist_axes
-
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -1311,14 +1177,6 @@ class LogNormal(TransformedDistribution):
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
-
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(loc, scale)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        dist_axes.transforms = None
-        return dist_axes
 
 
 class Logistic(Distribution):
@@ -1361,12 +1219,6 @@ class Logistic(Distribution):
     def icdf(self, q):
         return self.loc + self.scale * logit(q)
 
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        return dist_axes
-
 
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
@@ -1398,14 +1250,6 @@ class LogUniform(TransformedDistribution):
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
-
-    def vmap_over(self, low=None, high=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(low, high)
-        dist_axes.low = low
-        dist_axes.high = high
-        dist_axes._support = dist_axes._support.vmap_over(low, high)
-        return dist_axes
 
 
 def _batch_solve_triangular(A, B):
@@ -1538,13 +1382,6 @@ class MatrixNormal(Distribution):
 
         return log_prob
 
-    def vmap_over(self, loc=None, scale_tril_row=None, scale_tril_column=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale_tril_row = scale_tril_row
-        dist_axes.scale_tril_column = scale_tril_column
-        return dist_axes
-
 
 def _batch_mahalanobis(bL, bx):
     if bL.shape[:-1] == bx.shape:
@@ -1646,12 +1483,6 @@ class MultivariateNormal(Distribution):
             event_shape=event_shape,
             validate_args=validate_args,
         )
-
-    def vmap_over(self, loc=None, scale_tril=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale_tril = scale_tril
-        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -1900,20 +1731,6 @@ class CAR(Distribution):
         )
         return batch_shape, event_shape
 
-    def vmap_over(
-        self, loc=None, correlation=None, conditional_precision=None, adj_matrix=None
-    ):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.correlation = correlation
-        dist_axes.conditional_precision = conditional_precision
-        if not self.is_sparse:
-            dist_axes.adj_matrix = adj_matrix
-            dist_axes.precision_matrix = adj_matrix
-        else:
-            assert adj_matrix is None
-        return dist_axes
-
     def tree_flatten(self):
         data, aux = super().tree_flatten()
         adj_matrix_data_idx = type(self).gather_pytree_data_fields().index("adj_matrix")
@@ -2036,14 +1853,6 @@ class MultivariateStudentT(Distribution):
         event_shape = (scale_tril[-1],)
         batch_shape = lax.broadcast_shapes(df, loc[:-1], scale_tril[:-2])
         return batch_shape, event_shape
-
-    def vmap_over(self, df=None, loc=None, scale_tril=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.df = df
-        dist_axes.loc = loc
-        dist_axes.scale_tril = scale_tril
-        dist_axes._chi2 = dist_axes._chi2.vmap_over(df)
-        return dist_axes
 
 
 def _batch_mv(bmat, bvec):
@@ -2230,15 +2039,6 @@ class LowRankMultivariateNormal(Distribution):
         batch_shape = lax.broadcast_shapes(loc[:-1], cov_factor[:-2], cov_diag[:-1])
         return batch_shape, event_shape
 
-    def vmap_over(self, loc=None, cov_factor=None, cov_diag=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-
-        dist_axes.cov_factor = cov_factor
-        dist_axes.cov_diag = cov_diag
-        dist_axes._capacitance_tril = cov_diag if cov_diag is not None else cov_factor
-        return dist_axes
-
 
 class Normal(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -2254,12 +2054,6 @@ class Normal(Distribution):
             batch_shape=batch_shape,
             validate_args=validate_args,
         )
-
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.deepcopy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        return dist_axes
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -2333,14 +2127,6 @@ class Pareto(TransformedDistribution):
     def icdf(self, q):
         return self.scale / jnp.power(1 - q, 1 / self.alpha)
 
-    def vmap_over(self, scale=None, alpha=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(alpha)
-        dist_axes.scale = scale
-        dist_axes.alpha = alpha
-        dist_axes.transforms = [None, self.transforms[1].vmap_over(None, scale)]
-        return dist_axes
-
 
 class RelaxedBernoulliLogits(TransformedDistribution):
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
@@ -2352,16 +2138,6 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
-
-    def vmap_over(self, temperature=None, logits=None):
-        dist_axes = copy.copy(self)
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(
-            logits if logits is not None else temperature, temperature
-        )
-        dist_axes.temperature = temperature
-        dist_axes.logits = logits
-        dist_axes.transforms = None
-        return dist_axes
 
 
 def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
@@ -2428,12 +2204,6 @@ class SoftLaplace(Distribution):
     @property
     def variance(self):
         return (jnp.pi / 2 * self.scale) ** 2
-
-    def vmap_over(self, loc=None, scale=None):
-        dist_axes = copy.copy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        return dist_axes
 
 
 class StudentT(Distribution):
@@ -2513,14 +2283,6 @@ class StudentT(Distribution):
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
         return scaled * self.scale + self.loc
 
-    def vmap_over(self, df=None, loc=None, scale=None):
-        dist_axes = copy.copy(self)
-        dist_axes.df = df
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        dist_axes._chi2 = dist_axes._chi2.vmap_over(df)
-        return dist_axes
-
 
 class Uniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
@@ -2566,13 +2328,6 @@ class Uniform(Distribution):
         batch_shape = lax.broadcast_shapes(low, high)
         event_shape = ()
         return batch_shape, event_shape
-
-    def vmap_over(self, low=None, high=None):
-        dist_axes = copy.copy(self)
-        dist_axes.low = low
-        dist_axes.high = high
-        dist_axes._support = dist_axes._support.vmap_over(low, high)
-        return dist_axes
 
 
 class Weibull(Distribution):
@@ -2620,12 +2375,6 @@ class Weibull(Distribution):
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
 
-    def vmap_over(self, scale=None, concentration=None):
-        dist_axes = copy.copy(self)
-        dist_axes.scale = scale
-        dist_axes.concentration = concentration
-        return dist_axes
-
 
 class BetaProportion(Beta):
     """
@@ -2655,15 +2404,6 @@ class BetaProportion(Beta):
             (1.0 - mean) * concentration,
             validate_args=validate_args,
         )
-
-    def vmap_over(self, mean=None, concentration=None):
-        dist_axes = copy.copy(self)
-        dist_axes.concentration = concentration
-        return super(BetaProportion, dist_axes).vmap_over(
-            concentration if concentration is not None else mean,
-            concentration if concentration is not None else mean,
-        )
-        return dist_axes
 
 
 class AsymmetricLaplaceQuantile(Distribution):
@@ -2726,13 +2466,3 @@ class AsymmetricLaplaceQuantile(Distribution):
 
     def icdf(self, value):
         return self._ald.icdf(value)
-
-    def vmap_over(self, loc=None, scale=None, quantile=None):
-        dist_axes = copy.copy(self)
-        dist_axes.loc = loc
-        dist_axes.scale = scale
-        dist_axes.quantile = quantile
-        dist_axes._ald = dist_axes._ald.vmap_over(
-            loc=loc, scale=scale if scale is not None else quantile, asymmetry=quantile
-        )
-        return dist_axes

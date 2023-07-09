@@ -56,7 +56,6 @@ __all__ = [
     "unit_interval",
     "Constraint",
 ]
-import copy
 import math
 
 import numpy as np
@@ -288,11 +287,6 @@ class _GreaterThan(Constraint):
             return False
         return jnp.array_equal(self.lower_bound, other.lower_bound)
 
-    def vmap_over(self, lower_bound):
-        axes = copy.copy(self)
-        axes.lower_bound = lower_bound
-        return axes
-
 
 class _Positive(_SingletonConstraint, _GreaterThan):
     def __init__(self):
@@ -399,11 +393,6 @@ class _LessThan(Constraint):
             return False
         return jnp.array_equal(self.upper_bound, other.upper_bound)
 
-    def vmap_over(self, upper_bound):
-        axes = copy.copy(self)
-        axes.upper_bound = upper_bound
-        return axes
-
 
 class _IntegerInterval(Constraint):
     is_discrete = True
@@ -430,12 +419,6 @@ class _IntegerInterval(Constraint):
             ("lower_bound", "upper_bound"),
             dict(),
         )
-
-    def vmap_over(self, lower_bound=None, upper_bound=None):
-        dist_axes = copy.copy(self)
-        dist_axes.lower_bound = lower_bound
-        dist_axes.upper_bound = upper_bound
-        return dist_axes
 
     def __eq__(self, other):
         if not isinstance(other, _IntegerInterval):
@@ -514,14 +497,6 @@ class _Interval(Constraint):
             ("lower_bound", "upper_bound"),
             dict(),
         )
-
-    def vmap_over(self, lower_bound, upper_bound):
-        import copy
-
-        axes = copy.copy(self)
-        axes.lower_bound = lower_bound
-        axes.upper_bound = upper_bound
-        return axes
 
 
 class _Circular(_SingletonConstraint, _Interval):

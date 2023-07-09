@@ -1,8 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
-
 from jax import lax, nn, random
 import jax.numpy as jnp
 from jax.scipy.special import betainc, betaln, gammaln
@@ -95,14 +93,6 @@ class BetaBinomial(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
-    def vmap_over(self, concentration1=None, concentration0=None, total_count=None):
-        dist_axes = copy.copy(self)
-        dist_axes.concentration1 = concentration1
-        dist_axes.concentration0 = concentration0
-        dist_axes.total_count = total_count
-        dist_axes._beta = dist_axes._beta.vmap_over(concentration1, concentration0)
-        return dist_axes
-
 
 class DirichletMultinomial(Distribution):
     r"""
@@ -180,12 +170,6 @@ class DirichletMultinomial(Distribution):
         event_shape = concentration[-1:]
         return batch_shape, event_shape
 
-    def vmap_over(self, concentration=None):
-        dist_axes = copy.copy(self)
-        dist_axes.concentration = concentration
-        dist_axes._dirichlet = dist_axes._dirichlet.vmap_over(concentration)
-        return dist_axes
-
 
 class GammaPoisson(Distribution):
     r"""
@@ -239,13 +223,6 @@ class GammaPoisson(Distribution):
         bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
         return bt
 
-    def vmap_over(self, concentration=None, rate=None):
-        dist_axes = copy.copy(self)
-        dist_axes.concentration = concentration
-        dist_axes.rate = rate
-        dist_axes._gamma = dist_axes._gamma.vmap_over(concentration, rate)
-        return dist_axes
-
 
 def NegativeBinomial(total_count, probs=None, logits=None, *, validate_args=None):
     if probs is not None:
@@ -270,12 +247,6 @@ class NegativeBinomialProbs(GammaPoisson):
         rate = 1.0 / probs - 1.0
         super().__init__(concentration, rate, validate_args=validate_args)
 
-    def vmap_over(self, total_count=None, probs=None):
-        dist_axes = super(NegativeBinomialProbs, self).vmap_over(total_count, probs)
-        dist_axes.total_count = total_count
-        dist_axes.probs = probs
-        return dist_axes
-
 
 class NegativeBinomialLogits(GammaPoisson):
     arg_constraints = {
@@ -299,12 +270,6 @@ class NegativeBinomialLogits(GammaPoisson):
             + _log_beta_1(self.total_count, value)
         )
 
-    def vmap_over(self, total_count=None, logits=None):
-        dist_axes = super(NegativeBinomialLogits, self).vmap_over(total_count, logits)
-        dist_axes.total_count = total_count
-        dist_axes.logits = logits
-        return dist_axes
-
 
 class NegativeBinomial2(GammaPoisson):
     """
@@ -320,11 +285,6 @@ class NegativeBinomial2(GammaPoisson):
     def __init__(self, mean, concentration, *, validate_args=None):
         rate = concentration / mean
         super().__init__(concentration, rate, validate_args=validate_args)
-
-    def vmap_over(self, mean=None, concentration=None):
-        return super(NegativeBinomial2, self).vmap_over(
-            concentration, concentration if concentration is not None else mean
-        )
 
 
 def ZeroInflatedNegativeBinomial2(

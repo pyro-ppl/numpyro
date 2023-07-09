@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
 
 from jax import lax, numpy as jnp
 
@@ -109,20 +108,6 @@ class GaussianCopula(Distribution):
     def correlation_cholesky(self):
         return self.base_dist.scale_tril
 
-    def vmap_over(
-        self,
-        marginal_dist=None,
-        correlation_matrix=None,
-        correlation_cholesky=None,
-    ):
-        dist_axes = copy.copy(self)
-        dist_axes.marginal_dist = marginal_dist
-        dist_axes.base_dist = dist_axes.base_dist.vmap_over(
-            loc=correlation_matrix or correlation_cholesky,
-            scale_tril=correlation_matrix or correlation_cholesky,
-        )
-        return dist_axes
-
 
 class GaussianCopulaBeta(GaussianCopula):
     arg_constraints = {
@@ -152,21 +137,3 @@ class GaussianCopulaBeta(GaussianCopula):
             correlation_cholesky,
             validate_args=validate_args,
         )
-
-    def vmap_over(
-        self,
-        concentration1=None,
-        concentration0=None,
-        correlation_matrix=None,
-        correlation_cholesky=None,
-    ):
-        d = super().vmap_over(
-            self.marginal_dist.vmap_over(
-                concentration1=concentration1, concentration0=concentration0
-            ),
-            correlation_matrix=correlation_matrix,
-            correlation_cholesky=correlation_cholesky,
-        )
-        d.concentration1 = concentration1
-        d.concentration0 = concentration0
-        return d

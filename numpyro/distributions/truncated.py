@@ -1,8 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
-
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
@@ -82,13 +80,6 @@ class LeftTruncatedDistribution(Distribution):
             sign * (self._tail_prob_at_high - self._tail_prob_at_low)
         )
 
-    def vmap_over(self, low=None):
-        dist_axes = copy.copy(self)
-        dist_axes.low = low
-        dist_axes._support = dist_axes._support.vmap_over(low)
-        dist_axes.base_dist = None
-        return dist_axes
-
     @property
     def mean(self):
         if isinstance(self.base_dist, Normal):
@@ -152,13 +143,6 @@ class RightTruncatedDistribution(Distribution):
     @validate_sample
     def log_prob(self, value):
         return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
-
-    def vmap_over(self, high=None):
-        dist_axes = copy.copy(self)
-        dist_axes.high = high
-        dist_axes._support = dist_axes._support.vmap_over(high)
-        dist_axes.base_dist = None
-        return dist_axes
 
     @property
     def mean(self):
@@ -273,14 +257,6 @@ class TwoSidedTruncatedDistribution(Distribution):
         # if low > loc
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
-
-    def vmap_over(self, low=None, high=None):
-        dist_axes = copy.copy(self)
-        dist_axes.low = low
-        dist_axes.high = high
-        dist_axes._support = dist_axes._support.vmap_over(low, high)
-        dist_axes.base_dist = None
-        return dist_axes
 
     @property
     def mean(self):

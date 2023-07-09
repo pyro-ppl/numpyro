@@ -47,6 +47,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
+from numpyro.distributions.vmap_util import vmap_over
 from numpyro.nn import AutoregressiveNN
 
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
@@ -148,8 +149,10 @@ class SineSkewedUniform(dist.SineSkewed):
         base_dist = dist.Uniform(lower, upper, **kwargs).to_event(lower.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
-    def vmap_over(self, skewness=None):
-        return super().vmap_over(base_dist=None, skewness=skewness)
+
+@vmap_over.register
+def _vmap_over_sine_skewed_uniform(self: SineSkewedUniform, skewness=None):
+    return vmap_over.dispatch(dist.SineSkewed)(self, base_dist=None, skewness=skewness)
 
 
 class SineSkewedVonMises(dist.SineSkewed):
@@ -158,8 +161,10 @@ class SineSkewedVonMises(dist.SineSkewed):
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
-    def vmap_over(self, skewness=None):
-        return super().vmap_over(base_dist=None, skewness=skewness)
+
+@vmap_over.register
+def _vmap_over_sine_skewed_von_mises(self: SineSkewedVonMises, skewness=None):
+    return vmap_over.dispatch(dist.SineSkewed)(self, base_dist=None, skewness=skewness)
 
 
 class SineSkewedVonMisesBatched(dist.SineSkewed):
@@ -168,8 +173,12 @@ class SineSkewedVonMisesBatched(dist.SineSkewed):
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
         super().__init__(base_dist, skewness, **kwargs)
 
-    def vmap_over(self, skewness=None):
-        return super().vmap_over(base_dist=None, skewness=skewness)
+
+@vmap_over.register
+def _vmap_over_sine_skewed_von_mises_batched(
+    self: SineSkewedVonMisesBatched, skewness=None
+):
+    return vmap_over.dispatch(dist.SineSkewed)(self, base_dist=None, skewness=skewness)
 
 
 class _GaussianMixture(dist.MixtureSameFamily):
@@ -184,12 +193,6 @@ class _GaussianMixture(dist.MixtureSameFamily):
             component_distribution=component_dist,
         )
 
-    def vmap_over(self, loc=None, scale=None):
-        component_distribution = self.component_distribution.vmap_over(
-            loc=loc, scale=scale
-        )
-        return super().vmap_over(_component_distribution=component_distribution)
-
     @property
     def loc(self):
         return self.component_distribution.loc
@@ -197,6 +200,16 @@ class _GaussianMixture(dist.MixtureSameFamily):
     @property
     def scale(self):
         return self.component_distribution.scale
+
+
+@vmap_over.register
+def _vmap_over_gaussian_mixture(self: _GaussianMixture, loc=None, scale=None):
+    component_distribution = vmap_over(
+        self.component_distribution, loc=loc, scale=scale
+    )
+    return vmap_over.dispatch(dist.MixtureSameFamily)(
+        self, _component_distribution=component_distribution
+    )
 
 
 class _Gaussian2DMixture(dist.MixtureSameFamily):
@@ -213,10 +226,6 @@ class _Gaussian2DMixture(dist.MixtureSameFamily):
             component_distribution=component_dist,
         )
 
-    def vmap_over(self, loc=None):
-        component_distribution = self.component_distribution.vmap_over(loc=loc)
-        return super().vmap_over(_component_distribution=component_distribution)
-
     @property
     def loc(self):
         return self.component_distribution.loc
@@ -224,6 +233,14 @@ class _Gaussian2DMixture(dist.MixtureSameFamily):
     @property
     def covariance_matrix(self):
         return self.component_distribution.covariance_matrix
+
+
+@vmap_over.register
+def _vmap_over_gaussian_2d_mixture(self: _Gaussian2DMixture, loc=None):
+    component_distribution = vmap_over(self.component_distribution, loc=loc)
+    return vmap_over.dispatch(dist.MixtureSameFamily)(
+        self, _component_distribution=component_distribution
+    )
 
 
 class _GeneralMixture(dist.MixtureGeneral):
@@ -249,11 +266,15 @@ class _GeneralMixture(dist.MixtureGeneral):
     def scales(self):
         return self.component_distributions[0].scale
 
-    def vmap_over(self, locs=None, scales=None):
-        component_distributions = [
-            d.vmap_over(locs, scales) for d in self.component_distributions
-        ]
-        return super().vmap_over(_component_distributions=component_distributions)
+
+@vmap_over.register
+def _vmap_over_general_mixture(self: _GeneralMixture, locs=None, scales=None):
+    component_distributions = [
+        vmap_over(d, loc=locs, scale=scales) for d in self.component_distributions
+    ]
+    return vmap_over.dispatch(dist.MixtureGeneral)(
+        self, _component_distributions=component_distributions
+    )
 
 
 class _General2DMixture(dist.MixtureGeneral):
@@ -280,11 +301,15 @@ class _General2DMixture(dist.MixtureGeneral):
     def covariance_matrices(self):
         return self.component_distributions[0].covariance_matrix
 
-    def vmap_over(self, locs=None):
-        component_distributions = [
-            d.vmap_over(locs) for d in self.component_distributions
-        ]
-        return super().vmap_over(_component_distributions=component_distributions)
+
+@vmap_over.register
+def _vmap_over_general_2d_mixture(self: _General2DMixture, locs=None):
+    component_distributions = [
+        vmap_over(d, loc=locs) for d in self.component_distributions
+    ]
+    return vmap_over.dispatch(dist.MixtureGeneral)(
+        self, _component_distributions=component_distributions
+    )
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -299,41 +324,25 @@ class _ImproperWrapper(dist.ImproperUniform):
 
 class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
     arg_constraints = {"rate": constraints.positive, "gate_logits": constraints.real}
+    pytree_data_fields = ("rate",)
 
     def __init__(self, rate, gate_logits, *, validate_args=None):
         self.rate = rate
         super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
 
-    def vmap_over(self, rate=None, gate_logits=None):
-        dist_axes = super().vmap_over(
-            base_dist=self.base_dist.vmap_over(rate), gate_logits=gate_logits
-        )
-        dist_axes.rate = rate
-        return dist_axes
 
-    def tree_flatten(self):
-        return (
-            (
-                self.base_dist,
-                *tuple(
-                    getattr(self, param) for param in ("rate", "gate", "gate_logits")
-                ),
-            ),
-            (self.batch_shape, self.event_shape),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        batch_shape, event_shape = aux_data
-        base_dist, *params = params
-        assert isinstance(batch_shape, tuple)
-        assert isinstance(event_shape, tuple)
-        d = cls.__new__(cls)
-        for k, v in zip(("rate", "gate", "gate_logits"), params):
-            setattr(d, k, v)
-        dist.Distribution.__init__(d, batch_shape, event_shape)
-        d.base_dist = base_dist
-        return d
+@vmap_over.register
+def _vmap_over_zero_inflated_poisson_logits(
+    self: ZeroInflatedPoissonLogits, rate=None, gate_logits=None
+):
+    dist_axes = vmap_over.dispatch(dist.discrete.ZeroInflatedLogits)(
+        self,
+        base_dist=vmap_over(self.base_dist, rate=rate),
+        gate_logits=gate_logits,
+        gate=gate_logits,
+    )
+    dist_axes.rate = rate
+    return dist_axes
 
 
 class SparsePoisson(dist.Poisson):
@@ -350,11 +359,15 @@ class FoldedNormal(dist.FoldedDistribution):
         self.scale = scale
         super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
 
-    def vmap_over(self, loc=None, scale=None):
-        d = super().vmap_over(base_dist=self.base_dist.vmap_over(loc=loc, scale=scale))
-        d.loc = loc
-        d.scale = scale
-        return d
+
+@vmap_over.register
+def _vmap_over_folded_normal(self: "FoldedNormal", loc=None, scale=None):
+    d = vmap_over.dispatch(dist.FoldedDistribution)(
+        self, base_dist=vmap_over(self.base_dist, loc=loc, scale=scale)
+    )
+    d.loc = loc
+    d.scale = scale
+    return d
 
 
 class _SparseCAR(dist.CAR):
@@ -3080,12 +3093,13 @@ def test_vmap_dist(jax_dist, sp_dist, params):
             # dist_axes = d.vmap_over(
             #     **{k: 0 if i == idx else None for i, k in enumerate(inspect.signature(jax_dist).parameters.keys())}
             # )
-            dist_axes = d.vmap_over(
+            dist_axes = vmap_over(
+                d,
                 **{
                     k: 0
                     for i, k in enumerate(inspect.signature(jax_dist).parameters.keys())
                     if i == idx
-                }
+                },
             )
             batched_params = [
                 arg[None] if i == idx else arg for i, arg in enumerate(params)
@@ -3113,14 +3127,15 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 # dist_axes = d.vmap_over(
                 #     **{k: 1 if i == idx else None for i, k in enumerate(d.arg_constraints.keys())}
                 # )
-                dist_axes = d.vmap_over(
+                dist_axes = vmap_over(
+                    d,
                     **{
                         k: 1
                         for i, k in enumerate(
                             inspect.signature(jax_dist).parameters.keys()
                         )
                         if i == idx
-                    }
+                    },
                 )
 
                 batched_params = [
