@@ -902,7 +902,7 @@ class MaskedDistribution(Distribution):
 
     arg_constraints = {}
     pytree_data_fields = ("base_dist", "_mask")
-    pytree_aux_fields = "_mask"
+    pytree_aux_fields = ("_mask",)
 
     def __init__(self, base_dist, mask):
         if isinstance(mask, bool):

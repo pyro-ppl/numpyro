@@ -123,6 +123,7 @@ class BernoulliLogits(Distribution):
     support = constraints.boolean
     has_enumerate_support = True
     pytree_data_fields = ("logits",)
+    attr_atomic_ndim = {"logits": 0}
 
     def __init__(self, logits=None, *, validate_args=None):
         self.logits = logits
