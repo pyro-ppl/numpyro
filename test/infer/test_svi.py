@@ -87,10 +87,10 @@ def test_renyi_local():
 
 def test_renyi_nonnested_plates():
     def model():
-        with numpyro.plate("N", 10, subsample_size=2):
+        with numpyro.plate("N", 10):
             numpyro.sample("x", dist.Normal(0, 1))
 
-        with numpyro.plate("M", 10, subsample_size=2):
+        with numpyro.plate("M", 10):
             numpyro.sample("y", dist.Normal(0, 1))
 
     def get_elbo():
