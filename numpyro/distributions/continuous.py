@@ -1443,7 +1443,7 @@ class MultivariateNormal(Distribution):
         "precision_matrix",
         "scale_tril",
     ]
-    pytree_data_fields = ("loc", "scale_tril")
+    pytree_data_fields = ("loc", "covariance_matrix", "precision_matrix", "scale_tril")
 
     def __init__(
         self,

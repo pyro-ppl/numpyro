@@ -178,11 +178,15 @@ class Distribution(metaclass=DistributionMeta):
     def tree_flatten(self):
         all_pytree_data_fields_names = type(self).gather_pytree_data_fields()
         all_pytree_data_fields_vals = tuple(
-            getattr(self, attr_name) for attr_name in all_pytree_data_fields_names
+            # getattr(self, attr_name) for attr_name in all_pytree_data_fields_names
+            self.__dict__.get(attr_name)
+            for attr_name in all_pytree_data_fields_names
         )
         all_pytree_aux_fields_names = type(self).gather_pytree_aux_fields()
         all_pytree_aux_fields_vals = tuple(
-            getattr(self, attr_name) for attr_name in all_pytree_aux_fields_names
+            # getattr(self, attr_name) for attr_name in all_pytree_aux_fields_names
+            self.__dict__.get(attr_name)
+            for attr_name in all_pytree_aux_fields_names
         )
         return (
             all_pytree_data_fields_vals,

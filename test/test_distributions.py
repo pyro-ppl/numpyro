@@ -2897,9 +2897,9 @@ def test_vmapped_binomial_p0():
 
 def _get_vmappable_dist_init_params(jax_dist):
     if jax_dist.__name__ == ("_TruncatedCauchy"):
-        return (2, 3)
+        return [2, 3]
     elif jax_dist.__name__ == ("_TruncatedNormal"):
-        return (2, 3)
+        return [2, 3]
     elif issubclass(jax_dist, dist.Distribution):
         init_parameters = list(inspect.signature(jax_dist.__init__).parameters.keys())[
             1:
@@ -2907,7 +2907,7 @@ def _get_vmappable_dist_init_params(jax_dist):
         vmap_over_parameters = list(
             inspect.signature(vmap_over.dispatch(jax_dist)).parameters.keys()
         )[1:]
-        return tuple(
+        return list(
             [
                 i
                 for i, name in enumerate(init_parameters)
@@ -2940,20 +2940,9 @@ def _tree_equal(t1, t2):
 def test_vmap_dist(jax_dist, sp_dist, params):
     param_names = list(inspect.signature(jax_dist).parameters.keys())
     vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
+    vmappable_param_idxs = vmappable_param_idxs[: len(params)]
 
     if len(vmappable_param_idxs) == 0:
-        return
-
-    if jax_dist in (_SparseCAR, _ImproperWrapper, dist.GaussianCopulaBeta):
-        # In these cases, lazy_property is causing side effects by populating
-        # new fields in distribution after a `sample`  call is made, causing
-        # tree comparison operation to fail.
-        return
-
-    if jax_dist is _GeneralMixture:
-        # skip this distribution because the _GeneralMixture.__init__ turns
-        # 1d inputs into 0d attributes, thus breaks the expectations of
-        # the vmapping test case where in_axes=1, only done for rank>=1 tensors.
         return
 
     def make_jax_dist(*params):
@@ -2963,6 +2952,15 @@ def test_vmap_dist(jax_dist, sp_dist, params):
         return d.sample(random.PRNGKey(0))
 
     d = make_jax_dist(*params)
+
+    if isinstance(d, _SparseCAR) and d.is_sparse:
+        # In this case, since csr arrays are not jittable,
+        # _SparseCAR has a csr_matrix as part of its pytree
+        # definition (not as a pytree leaf). This causes pytree
+        # operations like tree_map to fail, since these functions
+        # compare the pytree def of each of the arguments using ==
+        # which is ambiguous for array-like objects.
+        return
 
     in_out_axes_cases = [
         # vmap over all args
@@ -2993,6 +2991,10 @@ def test_vmap_dist(jax_dist, sp_dist, params):
             )
             for idx in vmappable_param_idxs
             if isinstance(params[idx], jnp.ndarray) and jnp.array(params[idx]).ndim > 0
+            # skip this distribution because _GeneralMixture.__init__ turns
+            # 1d inputs into 0d attributes, thus breaks the expectations of
+            # the vmapping test case where in_axes=1, only done for rank>=1 tensors.
+            and jax_dist is not _GeneralMixture
         ),
     ]
 
@@ -3003,6 +3005,10 @@ def test_vmap_dist(jax_dist, sp_dist, params):
             else arg
             for arg, ax in zip(params, in_axes)
         ]
+        # Recreate the jax_dist to avoid side effects coming from `d.sample`
+        # triggering lazy_property computations, which, in a few cases, break
+        # vmap_over's expectations regarding existing attributes to be vmapped.
+        d = make_jax_dist(*params)
         batched_d = jax.vmap(make_jax_dist, in_axes=in_axes, out_axes=out_axes)(
             *batched_params
         )
