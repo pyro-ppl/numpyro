@@ -376,8 +376,9 @@ class RenyiELBO(ELBO):
                 size = model_trace[frame.name]["args"][0]
                 if size > subsample_size:
                     raise ValueError(
-                        f"Subsample plate `{frame.name}` should cover"
-                        " all random variables."
+                        "RenyiELBO only supports subsampling in plates that are common"
+                        " to all sample sites, e.g. a data plate that encloses the"
+                        " entire model."
                     )
 
         indep_plate_scale = 1.0
