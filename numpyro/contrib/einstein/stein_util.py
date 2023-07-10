@@ -25,21 +25,6 @@ def sqrth(m):
     return msqrt
 
 
-def sqrth_and_inv_sqrth(m):
-    """
-    Given a positive definite matrix, get its Hermitian square root, its inverse,
-    and the Hermitian square root of its inverse.
-    """
-    mlambda, mvec = jnp.linalg.eigh(m)
-    mvec_t = jnp.swapaxes(mvec, -2, -1)
-    mlambdasqrt = jnp.maximum(mlambda, 1e-5) ** 0.5
-    msqrt = (mvec * jnp.expand_dims(mlambdasqrt, -2)) @ mvec_t
-    mlambdasqrt_inv = jnp.maximum(1 / mlambdasqrt, 1e-5**0.5)
-    minv_sqrt = (mvec * jnp.expand_dims(mlambdasqrt_inv, -2)) @ mvec_t
-    minv = minv_sqrt @ jnp.swapaxes(minv_sqrt, -2, -1)
-    return msqrt, minv, minv_sqrt
-
-
 def all_pairs_eucl_dist(a, b):
     a_sqr = jnp.sum(a**2, 1)[None, :]
     b_sqr = jnp.sum(b**2, 1)[:, None]
@@ -48,6 +33,8 @@ def all_pairs_eucl_dist(a, b):
 
 
 def median_bandwidth(particles, factor_fn):
+    if particles.shape[0] == 1:
+        return 1.0  # Median produces NaN for single particle
     dists = all_pairs_eucl_dist(particles, particles)
     bandwidth = (
         jnp.median(dists) ** 2 * factor_fn(particles.shape[0])

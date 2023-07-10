@@ -260,7 +260,6 @@ class NestedSampler:
             num_live_points=model.U_ndims * 25,
             num_parallel_samplers=1,
             max_samples=1e4,
-            uncert_improvement_patience=2,
         )
         default_termination_kwargs = dict(live_evidence_frac=1e-4)
         # Fill-in missing values with defaults. This allows user to inspect what was actually used by inspecting

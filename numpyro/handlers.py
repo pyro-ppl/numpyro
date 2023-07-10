@@ -674,6 +674,7 @@ class seed(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param rng_seed: a random number generator seed.
     :type rng_seed: int, jnp.ndarray scalar, or jax.random.PRNGKey
+    :param list hide_types: an optional list of side types to skip seeding, e.g. ['plate'].
 
     .. note::
 
@@ -703,7 +704,7 @@ class seed(Messenger):
        >>> assert x == y
     """
 
-    def __init__(self, fn=None, rng_seed=None):
+    def __init__(self, fn=None, rng_seed=None, hide_types=None):
         if isinstance(rng_seed, int) or (
             isinstance(rng_seed, (np.ndarray, jnp.ndarray)) and not jnp.shape(rng_seed)
         ):
@@ -715,19 +716,19 @@ class seed(Messenger):
         ):
             raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
         self.rng_key = rng_seed
+        self.hide_types = [] if hide_types is None else hide_types
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if (
-            msg["type"] == "sample"
-            and not msg["is_observed"]
-            and msg["kwargs"]["rng_key"] is None
-        ) or msg["type"] in ["prng_key", "plate", "control_flow"]:
-            if msg["value"] is not None:
-                # no need to create a new key when value is available
-                return
-            self.rng_key, rng_key_sample = random.split(self.rng_key)
-            msg["kwargs"]["rng_key"] = rng_key_sample
+        if msg["type"] in self.hide_types:
+            return
+        if msg["type"] not in ["sample", "prng_key", "plate", "control_flow"]:
+            return
+        if (msg["kwargs"]["rng_key"] is not None) or (msg["value"] is not None):
+            # no need to create a new key when value is available
+            return
+        self.rng_key, rng_key_sample = random.split(self.rng_key)
+        msg["kwargs"]["rng_key"] = rng_key_sample
 
 
 class substitute(Messenger):

@@ -2,34 +2,43 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from functools import partial
 import string
 
 import numpy as np
-from numpy.ma.testutils import assert_array_approx_equal
 import numpy.random as nrandom
+from numpy.testing import assert_allclose
 import pytest
 
 from jax import random
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.einstein import GraphicalKernel, RBFKernel, SteinVI, kernels
-from numpyro.contrib.einstein.kernels import (
-    HessianPrecondMatrix,
-    MixtureKernel,
-    PrecondMatrixKernel,
+from numpyro.contrib.einstein import (
+    GraphicalKernel,
+    IMQKernel,
+    LinearKernel,
+    RandomFeatureKernel,
+    RBFKernel,
+    SteinVI,
 )
+from numpyro.contrib.einstein.stein_kernels import MixtureKernel
 import numpyro.distributions as dist
 from numpyro.distributions import Bernoulli, Normal, Poisson
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer import Trace_ELBO, init_to_mean, init_to_value
 from numpyro.infer.autoguide import (
+    AutoBNAFNormal,
+    AutoDAIS,
     AutoDelta,
     AutoDiagonalNormal,
+    AutoIAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
     AutoNormal,
+    AutoSemiDAIS,
+    AutoSurrogateLikelihoodDAIS,
 )
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -41,11 +50,11 @@ from numpyro.infer.reparam import TransformReparam
 from numpyro.optim import Adam
 
 KERNELS = [
-    kernels.RBFKernel(),
-    kernels.LinearKernel(),
-    kernels.IMQKernel(),
-    kernels.GraphicalKernel(),
-    kernels.RandomFeatureKernel(),
+    RBFKernel(),
+    LinearKernel(),
+    IMQKernel(),
+    GraphicalKernel(),
+    RandomFeatureKernel(),
 ]
 
 np.set_printoptions(precision=100)
@@ -55,13 +64,6 @@ TKERNEL = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "
 class WrappedGraphicalKernel(GraphicalKernel):
     def __init__(self, mode):
         super().__init__(mode=mode, local_kernel_fns={"p1": RBFKernel("norm")})
-
-
-class WrappedPrecondMatrixKernel(PrecondMatrixKernel):
-    def __init__(self, mode):
-        super().__init__(
-            HessianPrecondMatrix(), RBFKernel(mode=mode), precond_mode="const"
-        )
 
 
 class WrappedMixtureKernel(MixtureKernel):
@@ -112,25 +114,14 @@ def regression():
     return true_coefs, (data, labels), model
 
 
-########################################
-#  Stein Exterior (Smoke tests)
-########################################
-
-
 @pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize(
-    "init_loc_fn",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
-)
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_steinvi_smoke(kernel, auto_guide, init_loc_fn, problem):
+def test_kernel_smoke(kernel, problem):
     true_coefs, data, model = problem()
     stein = SteinVI(
         model,
-        auto_guide(model, init_loc_fn=init_loc_fn),
+        AutoNormal(model),
         Adam(1e-1),
-        Trace_ELBO(),
         kernel,
     )
     stein.run(random.PRNGKey(0), 1, *data)
@@ -141,33 +132,65 @@ def test_steinvi_smoke(kernel, auto_guide, init_loc_fn, problem):
 ########################################
 
 
-@pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize(
-    "init_loc_fn",
-    (init_to_uniform(), init_to_sample(), init_to_median(), init_to_feasible()),
+    "auto_guide",
+    [
+        AutoIAFNormal,
+        AutoBNAFNormal,
+        AutoSemiDAIS,
+        AutoSurrogateLikelihoodDAIS,
+        AutoDAIS,
+    ],
 )
-@pytest.mark.parametrize("auto_guide", (AutoDelta, AutoNormal))  # add transforms
-@pytest.mark.parametrize("problem", (regression, uniform_normal))
-def test_get_params(kernel, auto_guide, init_loc_fn, problem):
-    _, data, model = problem()
-    guide, optim, elbo = (
-        auto_guide(model, init_loc_fn=init_loc_fn),
-        Adam(1e-1),
-        Trace_ELBO(),
-    )
+def test_incompatible_autoguide(auto_guide):
+    def model():
+        return
 
-    stein = SteinVI(model, guide, optim, elbo, kernel)
-    stein_params = stein.get_params(stein.init(random.PRNGKey(0), *data))
+    if auto_guide.__name__ == "AutoSurrogateLikelihoodDAIS":
+        guide = auto_guide(model, model)
+    elif auto_guide.__name__ == "AutoSemiDAIS":
+        guide = auto_guide(model, model, model)
+    else:
+        guide = auto_guide(model)
 
-    svi = SVI(model, guide, optim, elbo)
-    svi_params = svi.get_params(svi.init(random.PRNGKey(0), *data))
-    assert svi_params.keys() == stein_params.keys()
-
-    for name, svi_param in svi_params.items():
-        assert (
-            stein_params[name].shape
-            == np.repeat(svi_param[None, ...], stein.num_particles, axis=0).shape
+    try:
+        SteinVI(
+            model,
+            guide,
+            Adam(1.0),
+            RBFKernel(),
+            num_stein_particles=1,
         )
+        pytest.fail()
+    except AssertionError:
+        return
+
+
+@pytest.mark.parametrize(
+    "init_loc",
+    [
+        init_to_value,
+        init_to_feasible,
+        partial(init_to_value),
+        partial(init_to_feasible),
+        partial(init_to_uniform, radius=0),
+    ],
+)
+def test_incompatible_init_locs(init_loc):
+    def model():
+        return
+
+    try:
+        SteinVI(
+            model,
+            AutoDelta(model, init_loc_fn=init_loc),
+            Adam(1.0),
+            RBFKernel(),
+            num_stein_particles=1,
+        )
+        pytest.fail()
+    except AssertionError:
+        return
 
 
 @pytest.mark.parametrize(
@@ -185,38 +208,41 @@ def test_get_params(kernel, auto_guide, init_loc_fn, problem):
     "init_loc_fn",
     [
         init_to_uniform,
-        init_to_feasible,
         init_to_median,
+        init_to_mean,
         init_to_sample,
     ],
 )
 @pytest.mark.parametrize("num_particles", [1, 2, 10])
-def test_auto_guide(auto_class, init_loc_fn, num_particles):
+def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
     latent_dim = 3
 
     def model(obs):
-        a = numpyro.sample("a", Normal(0, 1))
+        a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
 
     rng_key = random.PRNGKey(0)
     guide_key, stein_key = random.split(rng_key)
+
+    guide = auto_class(model, init_loc_fn=init_loc_fn())
+
+    steinvi = SteinVI(
+        model,
+        guide,
+        Adam(1.0),
+        RBFKernel(),
+        num_stein_particles=num_particles,
+    )
+    state = steinvi.init(stein_key, obs)
+
+    init_params = steinvi.get_params(state)
+
     inner_guide = auto_class(model, init_loc_fn=init_loc_fn())
 
     with handlers.seed(rng_seed=guide_key), handlers.trace() as inner_guide_tr:
         inner_guide(obs)
-
-    steinvi = SteinVI(
-        model,
-        auto_class(model, init_loc_fn=init_loc_fn()),
-        Adam(1.0),
-        Trace_ELBO(),
-        RBFKernel(),
-        num_particles=num_particles,
-    )
-    state = steinvi.init(stein_key, obs)
-    init_params = steinvi.get_params(state)
 
     for name, site in inner_guide_tr.items():
         if site.get("type") == "param":
@@ -229,38 +255,43 @@ def test_auto_guide(auto_class, init_loc_fn, num_particles):
                 assert np.alltrue(init_value != np.zeros(expected_shape))
                 assert np.unique(init_value).shape == init_value.reshape(-1).shape
             elif "scale" in name:
-                assert_array_approx_equal(init_value, np.full(expected_shape, 0.1))
-            else:
-                assert_array_approx_equal(init_value, np.full(expected_shape, 0.0))
+                assert_allclose(init_value[init_value != 0.0], 0.1, rtol=1e-6)
 
 
-def test_svgd_loss_and_grads():
-    true_coefs, data, model = uniform_normal()
-    guide = AutoDelta(model)
-    loss = Trace_ELBO()
-    stein_uparams = {
-        "alpha_auto_loc": np.array(
-            [
-                -1.2,
-            ]
-        ),
-        "loc_base_auto_loc": np.array(
-            [
-                1.53,
-            ]
-        ),
-    }
-    stein = SteinVI(model, guide, Adam(0.1), loss, RBFKernel())
-    stein.init(random.PRNGKey(0), *data)
-    svi = SVI(model, guide, Adam(0.1), loss)
-    svi.init(random.PRNGKey(0), *data)
-    expected_loss = loss.loss(
-        random.PRNGKey(1), svi.constrain_fn(stein_uparams), model, guide, *data
+@pytest.mark.parametrize("num_particles", [1, 2, 10])
+def test_init_custom_guide(num_particles):
+    latent_dim = 3
+
+    def guide(obs):
+        aloc = numpyro.param(
+            "aloc", lambda rng_key: Normal().sample(rng_key, (latent_dim,))
+        )
+        numpyro.sample("a", Normal(aloc, 1).to_event(1))
+
+    def model(obs):
+        a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
+        return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
+
+    obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
+
+    rng_key = random.PRNGKey(0)
+    guide_key, stein_key = random.split(rng_key)
+
+    steinvi = SteinVI(
+        model,
+        guide,
+        Adam(1.0),
+        RBFKernel(),
+        num_stein_particles=num_particles,
     )
-    stein_loss, stein_grad = stein._svgd_loss_and_grads(
-        random.PRNGKey(1), stein_uparams, *data
-    )
-    assert expected_loss == stein_loss
+    init_params = steinvi.get_params(steinvi.init(stein_key, obs))
+
+    init_value = init_params["aloc"]
+    expected_shape = (num_particles, latent_dim)
+
+    assert expected_shape == init_value.shape
+    assert np.alltrue(init_value != np.zeros(expected_shape))
+    assert np.unique(init_value).shape == init_value.reshape(-1).shape
 
 
 @pytest.mark.parametrize("length", [1, 2, 3, 6])
@@ -276,7 +307,7 @@ def test_param_size(length, depth, t):
     sizes = Poisson(5).sample(seed, (length, nrandom.randint(0, 10))) + 1
     total_size = sum(map(lambda size: size.prod(), sizes))
     uparam = t(nest(np.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes)
-    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
+    stein = SteinVI(id, id, Adam(1.0), RBFKernel())
     assert stein._param_size(uparam) == total_size, f"Failed for seed {seed}"
 
 
@@ -316,7 +347,7 @@ def test_calc_particle_info_nested():
         for i in range(num_params)
     }
 
-    stein = SteinVI(id, id, Adam(1.0), Trace_ELBO(), RBFKernel())
+    stein = SteinVI(id, id, Adam(1.0), RBFKernel())
     pinfo, _ = stein._calc_particle_info(uparams, num_particles)
     start = 0
     tot_size = sum(map(lambda size: size.prod(), sizes)) // num_particles

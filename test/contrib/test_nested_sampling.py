@@ -85,7 +85,7 @@ def test_dense_mass(rho):
             "x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov)
         )
 
-    ns = NestedSampler(model)
+    ns = NestedSampler(model, constructor_kwargs={"num_live_points": 200})
     ns.run(random.PRNGKey(0))
 
     samples = ns.get_samples(random.PRNGKey(1), 1000)["x"]
