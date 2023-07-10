@@ -186,7 +186,9 @@ def _vmap_over_gaussian_copula(
     correlation_matrix=None,
     correlation_cholesky=None,
 ):
-    dist_axes = _default_vmap_over(dist, marginal_dist=marginal_dist)
+    dist_axes = _default_vmap_over(
+        dist, marginal_dist=marginal_dist, correlation_matrix=correlation_matrix
+    )
     dist_axes.base_dist = vmap_over(
         dist.base_dist,
         loc=correlation_matrix or correlation_cholesky,
@@ -213,6 +215,7 @@ def _vmap_over_gausian_copula_beta(
         correlation_matrix=correlation_matrix,
         correlation_cholesky=correlation_cholesky,
     )
+    __import__('pdb').set_trace()
     d.concentration1 = concentration1
     d.concentration0 = concentration0
     return d
