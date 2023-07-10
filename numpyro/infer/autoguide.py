@@ -1144,7 +1144,8 @@ class AutoSemiDAIS(AutoGuide):
     :param callable global_guide: A guide for the global latent variables, e.g. an autoguide.
         The return type should be a dictionary of latent sample sites names and corresponding samples.
         If there is no global variable in the model, we can set this to None.
-    :param callable local_guide: An optional guide for the local latent variables.
+    :param callable local_guide: An optional guide for specifying the DAIS base distribution for
+        local latent variables.
     :param str prefix: A prefix that will be prefixed to all internal sites.
     :param int K: A positive integer that controls the number of HMC steps used.
         Defaults to 4.

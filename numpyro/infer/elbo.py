@@ -404,6 +404,17 @@ class RenyiELBO(ELBO):
             indep_plates = set.intersection(*site_plates.values())
         else:
             indep_plates = set()
+        for frame in set.union(*site_plates.values()):
+            if frame not in indep_plates:
+                subsample_size = frame.size
+                size = model_trace[frame.name]["args"][0]
+                if size > subsample_size:
+                    raise ValueError(
+                        "RenyiELBO only supports subsampling in plates that are common"
+                        " to all sample sites, e.g. a data plate that encloses the"
+                        " entire model."
+                    )
+
         indep_plate_scale = 1.0
         for frame in indep_plates:
             subsample_size = frame.size
@@ -414,7 +425,7 @@ class RenyiELBO(ELBO):
 
         log_densities = {}
         for trace_type, tr in {"guide": guide_trace, "model": model_trace}.items():
-            log_densities[trace_type] = 1.0
+            log_densities[trace_type] = 0.0
             for site in tr.values():
                 if site["type"] != "sample":
                     continue

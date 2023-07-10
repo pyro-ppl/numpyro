@@ -87,10 +87,10 @@ def test_renyi_local():
 
 def test_renyi_nonnested_plates():
     def model():
-        with numpyro.plate("N", 10, subsample_size=2):
+        with numpyro.plate("N", 10):
             numpyro.sample("x", dist.Normal(0, 1))
 
-        with numpyro.plate("M", 10, subsample_size=2):
+        with numpyro.plate("M", 10):
             numpyro.sample("y", dist.Normal(0, 1))
 
     def get_elbo():
@@ -171,7 +171,7 @@ def test_renyi_create_plates(n, k):
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
-@pytest.mark.parametrize("optimizer", [optim.Adam(0.05), optimizers.adam(0.05)])
+@pytest.mark.parametrize("optimizer", [optim.Adam(0.01), optimizers.adam(0.01)])
 def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
@@ -193,14 +193,14 @@ def test_beta_bernoulli(elbo, optimizer):
         svi_state, _ = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 4000, body_fn, svi_state)
+    svi_state = fori_loop(0, 10000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    actual_posterior_mean = 0.75  # (8 + 1) / (8 + 1 + 2 + 1)
+    actual_posterior_mean = (data.sum() + 1) / (data.shape[0] + 2)
     assert_allclose(
         params["alpha_q"] / (params["alpha_q"] + params["beta_q"]),
         actual_posterior_mean,
-        atol=0.05,
-        rtol=0.05,
+        atol=0.03,
+        rtol=0.03,
     )
 
 
