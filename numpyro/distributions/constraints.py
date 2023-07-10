@@ -56,6 +56,7 @@ __all__ = [
     "unit_interval",
     "Constraint",
 ]
+
 import math
 
 import numpy as np

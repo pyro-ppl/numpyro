@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-
 from jax import lax, numpy as jnp
 
 import numpyro.distributions.constraints as constraints
