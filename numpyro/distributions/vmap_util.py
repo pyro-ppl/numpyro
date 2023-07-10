@@ -215,7 +215,7 @@ def _vmap_over_gausian_copula_beta(
         correlation_matrix=correlation_matrix,
         correlation_cholesky=correlation_cholesky,
     )
-    __import__('pdb').set_trace()
+    __import__("pdb").set_trace()
     d.concentration1 = concentration1
     d.concentration0 = concentration0
     return d

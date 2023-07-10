@@ -2895,7 +2895,7 @@ def test_vmapped_binomial_p0():
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
 
 
-def get_vmappable_args(jax_dist):
+def _get_vmappable_dist_init_params(jax_dist):
     if jax_dist.__name__ == ("_TruncatedCauchy"):
         return (2, 3)
     elif jax_dist.__name__ == ("_TruncatedNormal"):
@@ -2929,26 +2929,32 @@ def _allclose_or_equal(a1, a2):
         return a2 == a1 or a2 is a1
 
 
+def _tree_equal(t1, t2):
+    t = jax.tree_util.tree_map(_allclose_or_equal, t1, t2)
+    return jnp.all(jax.flatten_util.ravel_pytree(t)[0])
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_vmap_dist(jax_dist, sp_dist, params):
-    # In these cases, lazy_property is causing side effects by populating
-    # new fields in distribution after a `sample`  call is made, causing
-    # tree comparison operation to fail.
+    param_names = list(inspect.signature(jax_dist).parameters.keys())
+    vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
+
+    if len(vmappable_param_idxs) == 0:
+        return
+
     if jax_dist in (_SparseCAR, _ImproperWrapper, dist.GaussianCopulaBeta):
+        # In these cases, lazy_property is causing side effects by populating
+        # new fields in distribution after a `sample`  call is made, causing
+        # tree comparison operation to fail.
         return
 
-    arg_names = list(inspect.signature(jax_dist).parameters.keys())
-    vmappable_arg_idxs = get_vmappable_args(jax_dist)
-
-    if len(vmappable_arg_idxs) == 0:
+    if jax_dist is _GeneralMixture:
+        # skip this distribution because the _GeneralMixture.__init__ turns
+        # 1d inputs into 0d attributes, thus breaks the expectations of
+        # the vmapping test case where in_axes=1, only done for rank>=1 tensors.
         return
-
-    params = tuple(
-        jax.tree_map(jnp.asarray, p) if i in vmappable_arg_idxs else p
-        for (i, p) in enumerate(params)
-    )
 
     def make_jax_dist(*params):
         return jax_dist(*params)
@@ -2958,192 +2964,56 @@ def test_vmap_dist(jax_dist, sp_dist, params):
 
     d = make_jax_dist(*params)
 
-    print("vmapping dist creation over all args")
-    batched_params = tuple(
-        jax.tree_map(lambda x: x[None], p) if i in vmappable_arg_idxs else p
-        for (i, p) in enumerate(params)
-    )
-
-    in_axes = tuple(0 if i in vmappable_arg_idxs else None for i in range(len(params)))
-
-    batched_d = jax.vmap(make_jax_dist, in_axes=in_axes)(*batched_params)
-
-    for i, k in enumerate(arg_names):
-        attribute = getattr(d, k, None)
-
-        if i in vmappable_arg_idxs:
-            batched_attribute = vmap(
-                lambda d: getattr(d, k, None), in_axes=(0,)
-            )(batched_d)
-            assert jax.tree_util.tree_all(
-                jax.tree_util.tree_map(
-                    lambda x, y: x.shape == (1, *y.shape),
-                    batched_attribute,
-                    attribute,
-                )
+    in_out_axes_cases = [
+        # vmap over all args
+        (
+            tuple(0 if i in vmappable_param_idxs else None for i in range(len(params))),
+            0,
+        ),
+        # vmap over a single arg, out over all attributes of a distribution
+        *(
+            ([0 if i == idx else None for i in range(len(params))], 0)
+            for idx in vmappable_param_idxs
+            if params[idx] is not None
+        ),
+        # vmap over a single arg, out over the associated attribute of the distribution
+        *(
+            (
+                [0 if i == idx else None for i in range(len(params))],
+                vmap_over(d, **{param_names[idx]: 0}),
             )
-
-        else:
-            batched_attribute = getattr(batched_d, k, None)
-            if attribute is None or batched_attribute is None:
-                assert attribute is None and batched_attribute is None
-                continue
-
-            assert jax.tree_util.tree_all(
-                jax.tree_util.tree_map(_allclose_or_equal, attribute, batched_attribute)
+            for idx in vmappable_param_idxs
+            if params[idx] is not None
+        ),
+        # vmap over a single arg, axis=1, (out single attribute, axis=1)
+        *(
+            (
+                [1 if i == idx else None for i in range(len(params))],
+                vmap_over(d, **{param_names[idx]: 1}),
             )
+            for idx in vmappable_param_idxs
+            if isinstance(params[idx], jnp.ndarray) and jnp.array(params[idx]).ndim > 0
+        ),
+    ]
 
-    samples_dist = sample(d)
-    samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
-    assert samples_batched_dist.shape == (1, *samples_dist.shape)
-
-    print("vmapping dist creation over individual args")
-
-    for idx in vmappable_arg_idxs:
-        print(f"vmapping dist creation over arg {idx}")
-        arg = params[idx]
-        arg_name = arg_names[idx]
-
-        if arg is None:
-            continue
-
-        in_axes = [0 if i == idx else None for i in range(len(params))]
+    for in_axes, out_axes in in_out_axes_cases:
         batched_params = [
-            jax.tree_map(lambda x: x[None], arg) if i == idx else arg
-            for i, arg in enumerate(params)
+            jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
+            if isinstance(ax, int)
+            else arg
+            for arg, ax in zip(params, in_axes)
         ]
-        batched_d = jax.vmap(make_jax_dist, in_axes=in_axes)(*batched_params)
-
-        assert batched_d.batch_shape == d.batch_shape
-        assert batched_d.event_shape == d.event_shape
-
-        for i, k in enumerate(arg_names):
-            attribute = getattr(d, k, None)
-
-            if i == idx:
-                batched_attribute = vmap(
-                    lambda d: getattr(d, k, None), in_axes=(0,)
-                )(batched_d)
-                assert jax.tree_util.tree_all(
-                    jax.tree_util.tree_map(
-                        lambda x, y: x.shape == (1, *y.shape),
-                        batched_attribute,
-                        attribute,
-                    )
-                )
-
-            else:
-                batched_attribute = getattr(batched_d, k, None)
-                if attribute is None or batched_attribute is None:
-                    assert attribute is None and batched_attribute is None
-                    continue
-
-                assert jax.tree_util.tree_all(
-                    jax.tree_util.tree_map(
-                        _allclose_or_equal, attribute, batched_attribute
-                    )
-                )
-
-        samples_dist = sample(d)
-        samples_batched_dist = jax.vmap(sample, in_axes=(0,))(batched_d)
-        assert samples_batched_dist.shape == (1, *samples_dist.shape)
-
-        print(f"vmapping dist creation over arg {idx} and out arg {idx}")
-        dist_axes = vmap_over(d, **({arg_name: 0}))
-
-        batched_params = [
-            jax.tree_map(lambda x: x[None], arg) if i == idx else arg
-            for i, arg in enumerate(params)
-        ]
-        in_axes = [0 if i == idx else None for i in range(len(params))]
-
-        batched_d = jax.vmap(make_jax_dist, in_axes=in_axes, out_axes=dist_axes)(
+        batched_d = jax.vmap(make_jax_dist, in_axes=in_axes, out_axes=out_axes)(
             *batched_params
         )
+        eq = vmap(lambda x, y: _tree_equal(x, y), in_axes=(out_axes, None))(
+            batched_d, d
+        )
+        assert eq == jnp.array([True])
 
-        assert batched_d.batch_shape == d.batch_shape
-        assert batched_d.event_shape == d.event_shape
-
-        for i, k in enumerate(arg_names):
-            attribute = getattr(d, k, None)
-
-            if i == idx:
-                batched_attribute = vmap(
-                    lambda d: getattr(d, k, None), in_axes=(dist_axes,)
-                )(batched_d)
-
-                assert jax.tree_util.tree_all(
-                    jax.tree_util.tree_map(
-                        lambda x, y: x.shape == (1, *y.shape),
-                        batched_attribute,
-                        attribute,
-                    )
-                )
-
-            else:
-                batched_attribute = getattr(batched_d, k, None)
-                if attribute is None or batched_attribute is None:
-                    assert attribute is None and batched_attribute is None
-                    continue
-                assert jax.tree_util.tree_all(
-                    jax.tree_util.tree_map(
-                        _allclose_or_equal, attribute, batched_attribute
-                    )
-                )
-
-        if (
-            isinstance(params[idx], jnp.ndarray)
-            and jnp.array(params[idx]).ndim > 0
-            and jax_dist is not _GeneralMixture
-        ):
-            print(
-                f"vmapping dist creation over arg {idx} and out arg {idx} with axis=1"
-            )
-            dist_axes = vmap_over(d, **{arg_name: 1})
-
-            batched_params = [
-                jax.tree_map(lambda x: x[None], arg) if i == idx else arg
-                for i, arg in enumerate(params)
-            ]
-            in_axes = [0 if i == idx else None for i in range(len(params))]
-
-            batched_d = jax.vmap(make_jax_dist, in_axes=in_axes, out_axes=dist_axes)(
-                *batched_params
-            )
-
-            assert batched_d.batch_shape == d.batch_shape
-            assert batched_d.event_shape == d.event_shape
-
-            for i, k in enumerate(arg_names):
-                attribute = getattr(d, k, None)
-
-                if i in vmappable_arg_idxs:
-                    if i == idx:
-                        batched_attribute = vmap(
-                            lambda d: getattr(d, k, none), in_axes=(dist_axes,), out_axes=1
-                        )(batched_d)
-                        # cannot check
-                        # `batched_param.shape == (param_shape[0], 1, *param.shape[1:])`
-                        # directly because jax_dist.__init__  may do some broadcasting
-                        # under the hood.
-                        assert batched_attribute.shape[0] == attribute.shape[0]
-                        assert batched_attribute.shape[2:] == attribute.shape[1:]
-                    else:
-                        batched_attribute = vmap(
-                            lambda d: getattr(d, k, none), in_axes=(dist_axes,), out_axes=1
-                        )(batched_d)
-
-                else:
-                    batched_attribute = getattr(batched_d, k, None)
-                    if attribute is None or batched_attribute is None:
-                        assert attribute is None and batched_attribute is None
-                        continue
-
-                    assert jax.tree_util.tree_all(
-                        jax.tree_util.tree_map(
-                            _allclose_or_equal, attribute, batched_attribute
-                        )
-                    )
+        samples_dist = sample(d)
+        samples_batched_dist = jax.vmap(sample, in_axes=(out_axes,))(batched_d)
+        assert samples_batched_dist.shape == (1, *samples_dist.shape)
 
 
 def test_multinomial_abstract_total_count():
