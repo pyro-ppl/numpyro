@@ -62,8 +62,116 @@ def test_renyi_elbo(alpha):
     assert_allclose(elbo_grad, renyi_grad, rtol=1e-6)
 
 
+def test_renyi_local():
+    def model(subsample_size=None):
+        with numpyro.plate("N", 100, subsample_size=subsample_size):
+            numpyro.sample("x", dist.Normal(0, 1))
+            numpyro.sample("obs", dist.Bernoulli(0.6), obs=1)
+
+    def guide(subsample_size=None):
+        with numpyro.plate("N", 100, subsample_size=subsample_size):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+    def renyi_loss_fn(subsample_size=None):
+        return RenyiELBO(num_particles=10).loss(
+            random.PRNGKey(0), {}, model, guide, subsample_size
+        )
+
+    # Test that the scales are applied correctly.
+    # Here for each particle, log_p - log_q = log(0.6)
+    full_loss = renyi_loss_fn()
+    subsample_loss = renyi_loss_fn(subsample_size=2)
+    assert_allclose(full_loss, -jnp.log(0.6) * 100, rtol=1e-6)
+    assert_allclose(subsample_loss, full_loss, rtol=1e-6)
+
+
+def test_renyi_nonnested_plates():
+    def model():
+        with numpyro.plate("N", 10):
+            numpyro.sample("x", dist.Normal(0, 1))
+
+        with numpyro.plate("M", 10):
+            numpyro.sample("y", dist.Normal(0, 1))
+
+    def get_elbo():
+        renyi_elbo = RenyiELBO(num_particles=10)
+        return renyi_elbo._single_particle_elbo(
+            model,
+            model,
+            {},
+            (),
+            {},
+            random.PRNGKey(0),
+        )
+
+    elbo, _ = get_elbo()
+    assert elbo.shape == ()
+
+
+@pytest.mark.parametrize(
+    "n,k",
+    [(3, 5), (2, 5), (3, 3), (2, 3)],
+    ids=str,
+)
+def test_renyi_create_plates(n, k):
+    P = 10
+    N, M, K = 3, 4, 5
+    data = jnp.linspace(0.1, 0.9, N * M * K).reshape((N, M, K))
+
+    def model(data, n=N, k=K, fix_indices=True):
+        with numpyro.plate("N", N, subsample_size=n, dim=-3):
+            with numpyro.plate("M", M, dim=-2):
+                with numpyro.plate("K", K, subsample_size=k, dim=-1):
+                    if fix_indices:
+                        batch = data[:n, :, :k]
+                    else:
+                        batch = numpyro.subsample(data, event_dim=0)
+                    numpyro.sample("data", dist.Bernoulli(batch), obs=1)
+
+    def guide(data, n=N, k=K, fix_indices=True):
+        pass
+
+    def get_elbo(n=N, k=K, fix_indices=True):
+        renyi_elbo = RenyiELBO(num_particles=P)
+        return renyi_elbo._single_particle_elbo(
+            model,
+            guide,
+            {},
+            (data,),
+            dict(n=n, k=k, fix_indices=fix_indices),
+            random.PRNGKey(0),
+        )
+
+    def get_renyi(n=N, k=K, fix_indices=True):
+        renyi_elbo = RenyiELBO(num_particles=P)
+        return -renyi_elbo.loss(
+            random.PRNGKey(0), {}, model, guide, data, n=n, k=k, fix_indices=fix_indices
+        )
+
+    elbo, scale = get_elbo(n=n, k=k)
+    expected_shape = (n, M, k)
+    expected_scale = N * K / n / k
+    expected_elbo = jnp.log(data)[:n, :, :k]
+    assert elbo.shape == expected_shape
+    assert_allclose(scale, expected_scale, rtol=1e-6)
+    assert_allclose(elbo, expected_elbo, rtol=1e-6)
+
+    renyi = get_renyi(n=n, k=k)
+    assert_allclose(renyi, elbo.sum() * scale, rtol=1e-6)
+
+    if (n, k) == (2, 5):
+        renyi_random = get_renyi(n=2, fix_indices=False)
+        renyi_idx01 = jnp.log(data)[jnp.array([0, 1])].sum() * N / 2
+        renyi_idx02 = jnp.log(data)[jnp.array([0, 2])].sum() * N / 2
+        renyi_idx12 = jnp.log(data)[jnp.array([1, 2])].sum() * N / 2
+        atol = jnp.min(
+            jnp.abs(jnp.stack([renyi_idx01, renyi_idx02, renyi_idx12]) - renyi_random)
+        )
+        assert_allclose(atol, 0.0, atol=1e-5)
+
+
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
-@pytest.mark.parametrize("optimizer", [optim.Adam(0.05), optimizers.adam(0.05)])
+@pytest.mark.parametrize("optimizer", [optim.Adam(0.01), optimizers.adam(0.01)])
 def test_beta_bernoulli(elbo, optimizer):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
@@ -85,13 +193,14 @@ def test_beta_bernoulli(elbo, optimizer):
         svi_state, _ = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 2000, body_fn, svi_state)
+    svi_state = fori_loop(0, 10000, body_fn, svi_state)
     params = svi.get_params(svi_state)
+    actual_posterior_mean = (data.sum() + 1) / (data.shape[0] + 2)
     assert_allclose(
         params["alpha_q"] / (params["alpha_q"] + params["beta_q"]),
-        0.8,
-        atol=0.05,
-        rtol=0.05,
+        actual_posterior_mean,
+        atol=0.03,
+        rtol=0.03,
     )
 
 
