@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
-from numpyro.distributions.vmap_util import promote_batch_shape
+from numpyro.distributions.batch_util import promote_batch_shape
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer

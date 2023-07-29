@@ -29,6 +29,7 @@ from numpyro.distributions import (
     kl_divergence,
     transforms,
 )
+from numpyro.distributions.batch_util import vmap_over
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -47,7 +48,6 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.distributions.vmap_util import vmap_over
 from numpyro.nn import AutoregressiveNN
 
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
