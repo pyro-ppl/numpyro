@@ -5,6 +5,9 @@ import copy
 from functools import singledispatch
 from typing import Union
 
+from jax import tree_map
+import jax.numpy as jnp
+
 from numpyro.distributions import constraints
 from numpyro.distributions.conjugate import (
     BetaBinomial,
@@ -45,7 +48,12 @@ from numpyro.distributions.discrete import (
     ZeroInflatedPoisson,
     ZeroInflatedProbs,
 )
-from numpyro.distributions.distribution import Distribution, ExpandedDistribution
+from numpyro.distributions.distribution import (
+    Distribution,
+    ExpandedDistribution,
+    MaskedDistribution,
+    Unit,
+)
 from numpyro.distributions.transforms import (
     AffineTransform,
     CorrCholeskyTransform,
@@ -495,3 +503,75 @@ def _vmap_over_half_normal(dist: HalfNormal, scale=None):
     dist_axes = _default_vmap_over(dist, scale=scale)
     dist_axes._normal = vmap_over(dist._normal, loc=scale, scale=scale)
     return dist_axes
+
+
+@singledispatch
+def promote_batch_shape(d: Distribution):
+    raise NotImplementedError
+
+
+@promote_batch_shape.register
+def _default_promote_batch_shape(d: Distribution):
+    attr_name = list(d.arg_constraints.keys())[0]
+    attr_event_dim = d.arg_constraints[attr_name].event_dim
+    attr = getattr(d, attr_name)
+    resolved_batch_shape = attr.shape[
+        : max(0, attr.ndim - d.event_dim - attr_event_dim)
+    ]
+    new_self = copy.deepcopy(d)
+    new_self._batch_shape = resolved_batch_shape
+    return new_self
+
+
+@promote_batch_shape.register
+def _promote_batch_shape_expanded(d: ExpandedDistribution):
+    orig_delta_batch_shape = d.batch_shape[
+        : len(d.batch_shape) - len(d.base_dist.batch_shape)
+    ]
+
+    new_self = copy.deepcopy(d)
+
+    # new dimensions coming from a vmap or numpyro scan/enum operation
+    promoted_base_dist = promote_batch_shape(new_self.base_dist)
+    new_shapes_elems = promoted_base_dist.batch_shape[
+        : len(promoted_base_dist.batch_shape) - len(d.base_dist.batch_shape)
+    ]
+
+    # The new dimensions are appended in front of the previous ExpandedDistribution
+    # batch dimensions. However, these batch dimensions are now present in
+    # the base distribution. Thus the dimensions present in the original
+    # ExpandedDistribution batch_shape, but not in the original base distribution
+    # batch_shape are now intermediate dimensions: to maintain broadcastability,
+    # the attribute of the batch distribution are expanded with such intermediate
+    # dimensions.
+    new_self._batch_shape = (*new_shapes_elems, *d.batch_shape)
+
+    new_self.base_dist._batch_shape = (
+        *new_shapes_elems,
+        *tuple(1 for _ in orig_delta_batch_shape),
+        *d.base_dist.batch_shape,
+    )
+    new_axes_locs = range(
+        len(new_shapes_elems),
+        len(new_shapes_elems) + len(orig_delta_batch_shape),
+    )
+    new_base_dist = tree_map(
+        lambda x: jnp.expand_dims(x, axis=new_axes_locs), new_self.base_dist
+    )
+
+    new_self.base_dist = new_base_dist
+    return new_self
+
+
+@promote_batch_shape.register
+def _promote_batch_shape_masked(d: MaskedDistribution):
+    new_self = copy.copy(d)
+    new_base_dist = promote_batch_shape(d.base_dist)
+    new_self._batch_shape = new_base_dist.batch_shape
+    new_self.base_dist = new_base_dist
+    return new_self
+
+
+@promote_batch_shape.register
+def _promote_batch_shape_unit(d: Unit):
+    return d
