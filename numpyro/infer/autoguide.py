@@ -12,8 +12,8 @@ import numpy as np
 
 import jax
 from jax import grad, hessian, lax, random
+from jax.lax import select, stop_gradient
 from jax.tree_util import tree_map
-from jax.lax import stop_gradient, select
 
 from numpyro.infer.hmc_util import dual_averaging
 from numpyro.util import _versiontuple, find_stack_level
@@ -23,9 +23,9 @@ if _versiontuple(jax.__version__) >= (0, 2, 25):
 else:
     from jax.experimental import stax
 
+from jax.nn import log_sigmoid, sigmoid
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
-from jax.nn import log_sigmoid, sigmoid
 
 import numpyro
 from numpyro import handlers
@@ -1653,9 +1653,9 @@ class AutoMultivariateNormal(AutoContinuous):
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(
-            quantiles
-        )
+        latent = dist.Normal(
+            transform.loc, jnp.linalg.norm(transform.scale_tril, axis=-1)
+        ).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -1834,9 +1834,9 @@ class AutoLaplaceApproximation(AutoContinuous):
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(
-            quantiles
-        )
+        latent = dist.Normal(
+            transform.loc, jnp.norm(transform.scale_tril, axis=-1)
+        ).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 

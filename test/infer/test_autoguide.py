@@ -4,6 +4,7 @@
 from functools import partial
 import warnings
 
+import numpy as np
 from numpy.random import RandomState
 from numpy.testing import assert_allclose
 import pytest
@@ -11,7 +12,6 @@ import pytest
 import jax
 from jax import jacobian, jit, lax, random
 from jax.tree_util import tree_all, tree_map
-import numpy as np
 
 from numpyro.util import _versiontuple
 
@@ -22,7 +22,6 @@ else:
 
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
-
 import optax
 from optax import piecewise_constant_schedule
 
