@@ -136,7 +136,6 @@ class Distribution(metaclass=DistributionMeta):
     _validate_args = False
     pytree_data_fields = ()
     pytree_aux_fields = ("_batch_shape", "_event_shape")
-    attr_atomic_ndim = dict()
 
     # register Distribution as a pytree
     # ref: https://github.com/google/jax/issues/2916
@@ -155,11 +154,11 @@ class Distribution(metaclass=DistributionMeta):
         return all_pytree_data_fields
 
     def promote_batch_shape(self):
-        attr_name = list(self.attr_atomic_ndim.keys())[0]
-        attr_atomic_ndim = self.attr_atomic_ndim[attr_name]
+        attr_name = list(self.arg_constraints.keys())[0]
+        attr_event_dim = self.arg_constraints[attr_name].event_dim
         attr = getattr(self, attr_name)
         resolved_batch_shape = attr.shape[
-            : max(0, attr.ndim - self.event_dim - attr_atomic_ndim)
+            : max(0, attr.ndim - self.event_dim - attr_event_dim)
         ]
         new_self = copy.deepcopy(self)
         new_self._batch_shape = resolved_batch_shape

@@ -1158,7 +1158,6 @@ class LogNormal(TransformedDistribution):
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
     pytree_data_fields = ("loc", "scale")
-    attr_atomic_ndim = {"loc": 0}
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         base_dist = Normal(loc, scale)
@@ -2045,7 +2044,6 @@ class Normal(Distribution):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
     pytree_data_fields = ("loc", "scale")
-    attr_atomic_ndim = {"loc": 0}
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)

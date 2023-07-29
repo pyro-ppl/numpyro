@@ -73,7 +73,6 @@ class BernoulliProbs(Distribution):
     support = constraints.boolean
     has_enumerate_support = True
     pytree_data_fields = ("probs",)
-    attr_atomic_ndim = {"probs": 0}
 
     def __init__(self, probs, *, validate_args=None):
         self.probs = probs
@@ -117,7 +116,6 @@ class BernoulliLogits(Distribution):
     support = constraints.boolean
     has_enumerate_support = True
     pytree_data_fields = ("logits",)
-    attr_atomic_ndim = {"logits": 0}
 
     def __init__(self, logits=None, *, validate_args=None):
         self.logits = logits
@@ -303,7 +301,6 @@ class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
     pytree_data_fields = ("probs",)
-    attr_atomic_ndim = {"probs": 1}
 
     def __init__(self, probs, *, validate_args=None):
         if jnp.ndim(probs) < 1:
