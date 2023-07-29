@@ -81,7 +81,6 @@ class AsymmetricLaplace(Distribution):
     }
     reparametrized_params = ["loc", "scale", "asymmetry"]
     support = constraints.real
-    pytree_data_fields = ("loc", "scale", "asymmetry")
 
     def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
@@ -201,7 +200,6 @@ class Cauchy(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -245,7 +243,6 @@ class Dirichlet(Distribution):
     }
     reparametrized_params = ["concentration"]
     support = constraints.simplex
-    pytree_data_fields = ("concentration",)
 
     def __init__(self, concentration, *, validate_args=None):
         if jnp.ndim(concentration) < 1:
@@ -429,7 +426,6 @@ class Exponential(Distribution):
     reparametrized_params = ["rate"]
     arg_constraints = {"rate": constraints.positive}
     support = constraints.positive
-    pytree_data_fields = ("rate",)
 
     def __init__(self, rate=1.0, *, validate_args=None):
         self.rate = rate
@@ -469,7 +465,6 @@ class Gamma(Distribution):
     }
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
-    pytree_data_fields = ("concentration", "rate")
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -512,7 +507,6 @@ class Gamma(Distribution):
 class Chi2(Gamma):
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
-    pytree_data_fields = ("df",)
 
     def __init__(self, df, *, validate_args=None):
         self.df = df
@@ -523,7 +517,6 @@ class GaussianRandomWalk(Distribution):
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ["scale"]
-    pytree_data_fields = ("scale",)
     pytree_aux_fields = ("num_steps",)
 
     def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
@@ -647,7 +640,6 @@ class InverseGamma(TransformedDistribution):
     }
     reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
-    pytree_data_fields = ("concentration", "rate")
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         base_dist = Gamma(concentration, rate)
@@ -695,7 +687,6 @@ class Gompertz(Distribution):
     }
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
-    pytree_data_fields = ("concentration", "rate")
 
     def __init__(self, concentration, rate=1.0, *, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -735,7 +726,6 @@ class Gumbel(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -781,7 +771,6 @@ class Kumaraswamy(TransformedDistribution):
     }
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
-    pytree_data_fields = ("concentration0", "concentration1")
     # XXX: This flag is used to approximate the Taylor expansion
     # of KL(Kumaraswamy||Beta) following
     # https://arxiv.org/abs/1605.06197 Formula (12)
@@ -836,7 +825,6 @@ class Laplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -924,7 +912,6 @@ class LKJ(TransformedDistribution):
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
-    pytree_data_fields = ("concentration",)
     pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
@@ -1157,7 +1144,6 @@ class LogNormal(TransformedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         base_dist = Normal(loc, scale)
@@ -1182,7 +1168,6 @@ class Logistic(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -1317,7 +1302,6 @@ class MatrixNormal(Distribution):
         "scale_tril_row",
         "scale_tril_column",
     ]
-    pytree_data_fields = ("loc", "scale_tril_row", "scale_tril_column")
 
     def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
         event_shape = loc.shape[-2:]
@@ -1442,7 +1426,6 @@ class MultivariateNormal(Distribution):
         "precision_matrix",
         "scale_tril",
     ]
-    pytree_data_fields = ("loc", "covariance_matrix", "precision_matrix", "scale_tril")
 
     def __init__(
         self,
@@ -1581,7 +1564,6 @@ class CAR(Distribution):
         "conditional_precision",
         "adj_matrix",
     ]
-    pytree_data_fields = ("loc", "correlation", "conditional_precision", "adj_matrix")
     pytree_aux_fields = ("is_sparse", "adj_matrix")
 
     def __init__(
@@ -2043,7 +2025,6 @@ class Normal(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -2088,7 +2069,6 @@ class Normal(Distribution):
 class Pareto(TransformedDistribution):
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
-    pytree_data_fields = ("scale", "alpha")
 
     def __init__(self, scale, alpha, *, validate_args=None):
         self.scale, self.alpha = promote_shapes(scale, alpha)
@@ -2129,7 +2109,6 @@ class Pareto(TransformedDistribution):
 class RelaxedBernoulliLogits(TransformedDistribution):
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
-    pytree_data_fields = ("temperature", "logits")
 
     def __init__(self, temperature, logits, *, validate_args=None):
         self.temperature, self.logits = promote_shapes(temperature, logits)
@@ -2167,7 +2146,6 @@ class SoftLaplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc, scale, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -2335,7 +2313,6 @@ class Weibull(Distribution):
     }
     support = constraints.positive
     reparametrized_params = ["scale", "concentration"]
-    pytree_data_fields = ("scale", "concentration")
 
     def __init__(self, scale, concentration, *, validate_args=None):
         self.concentration, self.scale = promote_shapes(concentration, scale)

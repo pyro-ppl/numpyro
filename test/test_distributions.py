@@ -352,7 +352,6 @@ class SparsePoisson(dist.Poisson):
 
 class FoldedNormal(dist.FoldedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
-    pytree_data_fields = ("loc", "scale")
 
     def __init__(self, loc, scale, validate_args=None):
         self.loc = loc

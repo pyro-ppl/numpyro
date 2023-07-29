@@ -239,7 +239,6 @@ class NegativeBinomialProbs(GammaPoisson):
         "probs": constraints.unit_interval,
     }
     support = constraints.nonnegative_integer
-    pytree_data_fields = ("total_count", "probs")
 
     def __init__(self, total_count, probs, *, validate_args=None):
         self.total_count, self.probs = promote_shapes(total_count, probs)
@@ -254,7 +253,6 @@ class NegativeBinomialLogits(GammaPoisson):
         "logits": constraints.real,
     }
     support = constraints.nonnegative_integer
-    pytree_data_fields = ("total_count", "logits")
 
     def __init__(self, total_count, logits, *, validate_args=None):
         self.total_count, self.logits = promote_shapes(total_count, logits)
@@ -281,6 +279,7 @@ class NegativeBinomial2(GammaPoisson):
         "concentration": constraints.positive,
     }
     support = constraints.nonnegative_integer
+    pytree_data_fields = ("concentration",)
 
     def __init__(self, mean, concentration, *, validate_args=None):
         rate = concentration / mean

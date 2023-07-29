@@ -72,7 +72,6 @@ class BernoulliProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
     has_enumerate_support = True
-    pytree_data_fields = ("probs",)
 
     def __init__(self, probs, *, validate_args=None):
         self.probs = probs
@@ -115,7 +114,6 @@ class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.boolean
     has_enumerate_support = True
-    pytree_data_fields = ("logits",)
 
     def __init__(self, logits=None, *, validate_args=None):
         self.logits = logits
@@ -168,7 +166,6 @@ class BinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    pytree_data_fields = ("probs", "total_count")
 
     def __init__(self, probs, total_count=1, *, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -240,7 +237,6 @@ class BinomialLogits(Distribution):
     }
     has_enumerate_support = True
     enumerate_support = BinomialProbs.enumerate_support
-    pytree_data_fields = ("logits", "total_count")
 
     def __init__(self, logits, total_count=1, *, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
@@ -300,7 +296,6 @@ def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
 class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
-    pytree_data_fields = ("probs",)
 
     def __init__(self, probs, *, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -351,7 +346,6 @@ class CategoricalProbs(Distribution):
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
-    pytree_data_fields = ("logits",)
 
     def __init__(self, logits, *, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -488,7 +482,6 @@ class OrderedLogistic(CategoricalProbs):
         "predictor": constraints.real,
         "cutpoints": constraints.ordered_vector,
     }
-    pytree_data_fields = ("predictor", "cutpoints")
 
     def __init__(self, predictor, cutpoints, *, validate_args=None):
         if jnp.ndim(predictor) == 0:
@@ -689,7 +682,6 @@ class Poisson(Distribution):
     """
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
-    pytree_data_fields = ("rate",)
     pytree_aux_fields = ("is_sparse",)
 
     def __init__(self, rate, *, is_sparse=False, validate_args=None):
@@ -797,7 +789,6 @@ class ZeroInflatedProbs(Distribution):
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
     arg_constraints = {"gate_logits": constraints.real}
-    pytree_data_fields = ("gate_logits",)
 
     def __init__(self, base_dist, gate_logits, *, validate_args=None):
         gate = _to_probs_bernoulli(gate_logits)
@@ -856,7 +847,6 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
-    pytree_data_fields = ("probs",)
 
     def __init__(self, probs, *, validate_args=None):
         self.probs = probs
@@ -893,7 +883,6 @@ class GeometricProbs(Distribution):
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
-    pytree_data_fields = ("logits",)
 
     def __init__(self, logits, *, validate_args=None):
         self.logits = logits

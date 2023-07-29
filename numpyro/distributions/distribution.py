@@ -149,7 +149,12 @@ class Distribution(metaclass=DistributionMeta):
         all_pytree_data_fields = ()
         for base in bases:
             if issubclass(base, Distribution):
-                all_pytree_data_fields += base.__dict__.get("pytree_data_fields", ())
+                all_pytree_data_fields += base.__dict__.get(
+                    "pytree_data_fields",
+                    tuple(base.__dict__.get("arg_constraints", {}).keys()),
+                )
+        # remove duplicates
+        all_pytree_data_fields = tuple(set(all_pytree_data_fields))
         return all_pytree_data_fields
 
     @classmethod
@@ -160,6 +165,8 @@ class Distribution(metaclass=DistributionMeta):
         for base in bases:
             if issubclass(base, Distribution):
                 all_pytree_aux_fields += base.__dict__.get("pytree_aux_fields", ())
+        # remove duplicates
+        all_pytree_aux_fields = tuple(set(all_pytree_aux_fields))
         return all_pytree_aux_fields
 
     def tree_flatten(self):
@@ -1104,7 +1111,6 @@ class Delta(Distribution):
         "log_density": constraints.real,
     }
     reparametrized_params = ["v", "log_density"]
-    pytree_data_fields = ("v", "log_density")
 
     def __init__(self, v=0.0, log_density=0.0, event_dim=0, *, validate_args=None):
         if event_dim > jnp.ndim(v):
@@ -1157,7 +1163,6 @@ class Unit(Distribution):
 
     arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
-    pytree_data_fields = ("log_factor",)
 
     def __init__(self, log_factor, *, validate_args=None):
         batch_shape = jnp.shape(log_factor)

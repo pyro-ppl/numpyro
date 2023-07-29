@@ -98,7 +98,6 @@ class VonMises(Distribution):
     arg_constraints = {"loc": constraints.real, "concentration": constraints.positive}
     reparametrized_params = ["loc"]
     support = constraints.circular
-    pytree_data_fields = ("loc", "concentration")
 
     def __init__(self, loc, concentration, *, validate_args=None):
         """von Mises distribution for sampling directions.
@@ -340,13 +339,6 @@ class SineBivariateVonMises(Distribution):
     }
     support = constraints.independent(constraints.circular, 1)
     max_sample_iter = 1000
-    pytree_data_fields = (
-        "phi_loc",
-        "psi_loc",
-        "phi_concentration",
-        "psi_concentration",
-        "correlation",
-    )
 
     def __init__(
         self,
@@ -570,7 +562,6 @@ class ProjectedNormal(Distribution):
     arg_constraints = {"concentration": constraints.real_vector}
     reparametrized_params = ["concentration"]
     support = constraints.sphere
-    pytree_data_fields = ("concentration",)
 
     def __init__(self, concentration, *, validate_args=None):
         assert jnp.ndim(concentration) >= 1
