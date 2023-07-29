@@ -24,6 +24,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 
 from jax import lax, vmap
@@ -1434,8 +1435,6 @@ class MultivariateNormal(Distribution):
         precision_matrix=None,
         scale_tril=None,
         validate_args=None,
-        batch_shape=None,
-        event_shape=None,
     ):
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
@@ -1459,7 +1458,6 @@ class MultivariateNormal(Distribution):
         )
         event_shape = jnp.shape(self.scale_tril)[-1:]
         self.loc = loc[..., 0]
-
         super(MultivariateNormal, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
@@ -2030,8 +2028,7 @@ class Normal(Distribution):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(
-            batch_shape=batch_shape,
-            validate_args=validate_args,
+            batch_shape=batch_shape, validate_args=validate_args
         )
 
     def sample(self, key, sample_shape=()):
