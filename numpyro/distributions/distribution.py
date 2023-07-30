@@ -133,6 +133,8 @@ class Distribution(metaclass=DistributionMeta):
     has_enumerate_support = False
     reparametrized_params = []
     _validate_args = False
+    pytree_data_fields = ()
+    pytree_aux_fields = ("_batch_shape", "_event_shape")
 
     # register Distribution as a pytree
     # ref: https://github.com/google/jax/issues/2916
@@ -140,15 +142,73 @@ class Distribution(metaclass=DistributionMeta):
         super().__init_subclass__(**kwargs)
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
+    @classmethod
+    def gather_pytree_data_fields(cls):
+        bases = inspect.getmro(cls)
+
+        all_pytree_data_fields = ()
+        for base in bases:
+            if issubclass(base, Distribution):
+                all_pytree_data_fields += base.__dict__.get(
+                    "pytree_data_fields",
+                    tuple(base.__dict__.get("arg_constraints", {}).keys()),
+                )
+        # remove duplicates
+        all_pytree_data_fields = tuple(set(all_pytree_data_fields))
+        return all_pytree_data_fields
+
+    @classmethod
+    def gather_pytree_aux_fields(cls):
+        bases = inspect.getmro(cls)
+
+        all_pytree_aux_fields = ()
+        for base in bases:
+            if issubclass(base, Distribution):
+                all_pytree_aux_fields += base.__dict__.get("pytree_aux_fields", ())
+        # remove duplicates
+        all_pytree_aux_fields = tuple(set(all_pytree_aux_fields))
+        return all_pytree_aux_fields
+
     def tree_flatten(self):
+        all_pytree_data_fields_names = type(self).gather_pytree_data_fields()
+        all_pytree_data_fields_vals = tuple(
+            # getattr(self, attr_name) for attr_name in all_pytree_data_fields_names
+            self.__dict__.get(attr_name)
+            for attr_name in all_pytree_data_fields_names
+        )
+        all_pytree_aux_fields_names = type(self).gather_pytree_aux_fields()
+        all_pytree_aux_fields_vals = tuple(
+            # getattr(self, attr_name) for attr_name in all_pytree_aux_fields_names
+            self.__dict__.get(attr_name)
+            for attr_name in all_pytree_aux_fields_names
+        )
         return (
-            tuple(getattr(self, param) for param in self.arg_constraints.keys()),
-            None,
+            all_pytree_data_fields_vals,
+            all_pytree_aux_fields_vals,
         )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(**dict(zip(cls.arg_constraints.keys(), params)))
+        pytree_data_fields = cls.gather_pytree_data_fields()
+        pytree_aux_fields = cls.gather_pytree_aux_fields()
+
+        pytree_data_fields_dict = dict(zip(pytree_data_fields, params))
+        pytree_aux_fields_dict = dict(zip(pytree_aux_fields, aux_data))
+
+        d = cls.__new__(cls)
+
+        for k, v in pytree_data_fields_dict.items():
+            setattr(d, k, v)
+
+        for k, v in pytree_aux_fields_dict.items():
+            setattr(d, k, v)
+
+        Distribution.__init__(
+            d,
+            pytree_aux_fields_dict["_batch_shape"],
+            pytree_aux_fields_dict["_event_shape"],
+        )
+        return d
 
     @staticmethod
     def set_default_validate_args(value):
@@ -468,6 +528,11 @@ class Distribution(metaclass=DistributionMeta):
 
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
+    pytree_data_fields = ("base_dist",)
+    pytree_aux_fields = (
+        "_expanded_sizes",
+        "_interstitial_sizes",
+    )
 
     def __init__(self, base_dist, batch_shape=()):
         if isinstance(base_dist, ExpandedDistribution):
@@ -606,36 +671,6 @@ class ExpandedDistribution(Distribution):
             self.base_dist.variance, self.batch_shape + self.event_shape
         )
 
-    def tree_flatten(self):
-        prepend_ndim = len(self.batch_shape) - len(self.base_dist.batch_shape)
-        base_dist = tree_util.tree_map(
-            lambda x: promote_shapes(x, shape=(1,) * prepend_ndim + jnp.shape(x))[0],
-            self.base_dist,
-        )
-        base_flatten, base_aux = base_dist.tree_flatten()
-        return base_flatten, (
-            type(self.base_dist),
-            base_aux,
-            self.batch_shape,
-            prepend_ndim,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        base_cls, base_aux, batch_shape, prepend_ndim = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, params)
-        prepend_shape = base_dist.batch_shape[
-            : len(base_dist.batch_shape) - len(batch_shape)
-        ]
-        if len(prepend_shape) == 0:
-            # in that case, no additional dimension was added
-            # to the flattened distribution, and the batch_shape
-            # manipulation happening during the flattening can be
-            # reverted
-            base_dist._batch_shape = base_dist.batch_shape[prepend_ndim:]
-            return cls(base_dist, batch_shape=batch_shape)
-        return cls(base_dist, batch_shape=prepend_shape + batch_shape)
-
 
 class ImproperUniform(Distribution):
     """
@@ -690,6 +725,7 @@ class ImproperUniform(Distribution):
 
     arg_constraints = {}
     support = constraints.dependent
+    pytree_data_fields = ("support",)
 
     def __init__(self, support, batch_shape, event_shape, *, validate_args=None):
         self.support = constraints.independent(
@@ -709,15 +745,6 @@ class ImproperUniform(Distribution):
         if batch_dim < jnp.ndim(mask):
             mask = jnp.all(jnp.reshape(mask, jnp.shape(mask)[:batch_dim] + (-1,)), -1)
         return mask
-
-    def tree_flatten(self):
-        raise NotImplementedError(
-            "Cannot flattening ImproperPrior distribution for general supports. "
-            "Please raising a feature request for your specific `support`. "
-            "Alternatively, you can use '.mask(False)' pattern. "
-            "For example, to define an improper prior over positive domain, "
-            "we can use the distribution `dist.LogNormal(0, 1).mask(False)`."
-        )
 
 
 class Independent(Distribution):
@@ -744,6 +771,8 @@ class Independent(Distribution):
     """
 
     arg_constraints = {}
+    pytree_data_fields = ("base_dist",)
+    pytree_aux_fields = ("reinterpreted_batch_ndims",)
 
     def __init__(self, base_dist, reinterpreted_batch_ndims, *, validate_args=None):
         if reinterpreted_batch_ndims > len(base_dist.batch_shape):
@@ -807,20 +836,6 @@ class Independent(Distribution):
             self.reinterpreted_batch_ndims
         )
 
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        return base_flatten, (
-            type(self.base_dist),
-            base_aux,
-            self.reinterpreted_batch_ndims,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        base_cls, base_aux, reinterpreted_batch_ndims = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, params)
-        return cls(base_dist, reinterpreted_batch_ndims)
-
 
 class MaskedDistribution(Distribution):
     """
@@ -834,6 +849,8 @@ class MaskedDistribution(Distribution):
     """
 
     arg_constraints = {}
+    pytree_data_fields = ("base_dist", "_mask")
+    pytree_aux_fields = ("_mask",)
 
     def __init__(self, base_dist, mask):
         if isinstance(mask, bool):
@@ -900,22 +917,30 @@ class MaskedDistribution(Distribution):
         return self.base_dist.variance
 
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
+        data, aux = super().tree_flatten()
+        _mask_data_idx = type(self).gather_pytree_data_fields().index("_mask")
+        _mask_aux_idx = type(self).gather_pytree_aux_fields().index("_mask")
+
         if isinstance(self._mask, bool):
-            return base_flatten, (type(self.base_dist), base_aux, self._mask)
+            data = list(data)
+            data[_mask_data_idx] = None
+            data = tuple(data)
         else:
-            return (base_flatten, self._mask), (type(self.base_dist), base_aux)
+            aux = list(aux)
+            aux[_mask_aux_idx] = None
+            aux = tuple(aux)
+        return data, aux
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, mask = params
-            base_cls, base_aux = aux_data
+        d = super().tree_unflatten(aux_data, params)
+        _mask_data_idx = cls.gather_pytree_data_fields().index("_mask")
+        _mask_aux_idx = cls.gather_pytree_aux_fields().index("_mask")
+        if aux_data[_mask_aux_idx] is None:
+            setattr(d, "_mask", params[_mask_data_idx])
         else:
-            base_flatten = params
-            base_cls, base_aux, mask = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, mask)
+            setattr(d, "_mask", aux_data[_mask_aux_idx])
+        return d
 
 
 class TransformedDistribution(Distribution):
@@ -932,6 +957,7 @@ class TransformedDistribution(Distribution):
     """
 
     arg_constraints = {}
+    pytree_data_fields = ("base_dist", "transforms")
 
     def __init__(self, base_distribution, transforms, *, validate_args=None):
         if isinstance(transforms, Transform):
@@ -1056,14 +1082,6 @@ class TransformedDistribution(Distribution):
     def variance(self):
         raise NotImplementedError
 
-    def tree_flatten(self):
-        raise NotImplementedError(
-            "Flatenning TransformedDistribution is only supported for some specific cases."
-            " Consider using `TransformReparam` to convert this distribution to the base_dist,"
-            " which is supported in most situtations. In addition, please reach out to us with"
-            " your usage cases."
-        )
-
 
 class FoldedDistribution(TransformedDistribution):
     """
@@ -1085,16 +1103,6 @@ class FoldedDistribution(TransformedDistribution):
         dim = max(len(self.batch_shape), jnp.ndim(value))
         plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
-
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        return base_flatten, (type(self.base_dist), base_aux)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        base_cls, base_aux = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, params)
-        return cls(base_dist)
 
 
 class Delta(Distribution):
@@ -1142,13 +1150,6 @@ class Delta(Distribution):
     @property
     def variance(self):
         return jnp.zeros(self.batch_shape + self.event_shape)
-
-    def tree_flatten(self):
-        return (self.v, self.log_density), self.event_dim
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(*params, event_dim=aux_data)
 
 
 class Unit(Distribution):

@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
+from numpyro.distributions.batch_util import promote_batch_shape
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
@@ -220,6 +221,7 @@ def scan_enum(
         if first_var is None:
             first_var = name
 
+        site["fn"] = promote_batch_shape(site["fn"])
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
 
@@ -308,6 +310,7 @@ def scan_wrapper(
     for name, site in pytree_trace.trace.items():
         if site["type"] != "sample":
             continue
+        site["fn"] = promote_batch_shape(site["fn"])
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
     return last_carry, (pytree_trace, ys)

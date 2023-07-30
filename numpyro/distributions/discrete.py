@@ -407,6 +407,7 @@ def Categorical(probs=None, logits=None, *, validate_args=None):
 class DiscreteUniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     has_enumerate_support = True
+    pytree_data_fields = ("low", "high", "_support")
 
     def __init__(self, low=0, high=1, *, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
@@ -504,6 +505,8 @@ class MultinomialProbs(Distribution):
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
     }
+    pytree_data_fields = ("probs",)
+    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self, probs, total_count=1, *, total_count_max=None, validate_args=None
@@ -568,6 +571,8 @@ class MultinomialLogits(Distribution):
         "logits": constraints.real_vector,
         "total_count": constraints.nonnegative_integer,
     }
+    pytree_data_fields = ("logits",)
+    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self, logits, total_count=1, *, total_count_max=None, validate_args=None
@@ -677,6 +682,7 @@ class Poisson(Distribution):
     """
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
+    pytree_aux_fields = ("is_sparse",)
 
     def __init__(self, rate, *, is_sparse=False, validate_args=None):
         self.rate = rate
@@ -727,6 +733,7 @@ class Poisson(Distribution):
 
 class ZeroInflatedProbs(Distribution):
     arg_constraints = {"gate": constraints.unit_interval}
+    pytree_data_fields = ("base_dist", "gate")
 
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
@@ -828,6 +835,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
     support = constraints.nonnegative_integer
+    pytree_data_fields = ("rate",)
 
     # TODO: resolve inconsistent parameter order w.r.t. Pyro
     # and support `gate_logits` argument

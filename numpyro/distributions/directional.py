@@ -214,6 +214,7 @@ class SineSkewed(Distribution):
     """
 
     arg_constraints = {"skewness": constraints.l1_ball}
+    pytree_data_fields = ("base_dist", "skewness")
 
     support = constraints.independent(constraints.circular, 1)
 

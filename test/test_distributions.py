@@ -12,6 +12,7 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 import scipy
+from scipy.sparse import csr_matrix
 import scipy.stats as osp
 
 import jax
@@ -20,7 +21,6 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
-from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.distributions import (
@@ -29,6 +29,7 @@ from numpyro.distributions import (
     kl_divergence,
     transforms,
 )
+from numpyro.distributions.batch_util import vmap_over
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
@@ -149,11 +150,21 @@ class SineSkewedUniform(dist.SineSkewed):
         super().__init__(base_dist, skewness, **kwargs)
 
 
+@vmap_over.register
+def _vmap_over_sine_skewed_uniform(self: SineSkewedUniform, skewness=None):
+    return vmap_over.dispatch(dist.SineSkewed)(self, base_dist=None, skewness=skewness)
+
+
 class SineSkewedVonMises(dist.SineSkewed):
     def __init__(self, skewness, **kwargs):
         von_loc, von_conc = (np.array([0.0]), np.array([1.0]))
         base_dist = dist.VonMises(von_loc, von_conc, **kwargs).to_event(von_loc.ndim)
         super().__init__(base_dist, skewness, **kwargs)
+
+
+@vmap_over.register
+def _vmap_over_sine_skewed_von_mises(self: SineSkewedVonMises, skewness=None):
+    return vmap_over.dispatch(dist.SineSkewed)(self, base_dist=None, skewness=skewness)
 
 
 class SineSkewedVonMisesBatched(dist.SineSkewed):
@@ -163,65 +174,142 @@ class SineSkewedVonMisesBatched(dist.SineSkewed):
         super().__init__(base_dist, skewness, **kwargs)
 
 
-def _GaussianMixture(mixing_probs, loc, scale):
-    component_dist = dist.Normal(loc=loc, scale=scale)
-    mixing_distribution = dist.Categorical(probs=mixing_probs)
-    return dist.MixtureSameFamily(
-        mixing_distribution=mixing_distribution,
-        component_distribution=component_dist,
+@vmap_over.register
+def _vmap_over_sine_skewed_von_mises_batched(
+    self: SineSkewedVonMisesBatched, skewness=None
+):
+    return vmap_over.dispatch(dist.SineSkewed)(self, base_dist=None, skewness=skewness)
+
+
+class _GaussianMixture(dist.MixtureSameFamily):
+    arg_constraints = {}
+    reparametrized_params = []
+
+    def __init__(self, mixing_probs, loc, scale):
+        component_dist = dist.Normal(loc=loc, scale=scale)
+        mixing_distribution = dist.Categorical(probs=mixing_probs)
+        super().__init__(
+            mixing_distribution=mixing_distribution,
+            component_distribution=component_dist,
+        )
+
+    @property
+    def loc(self):
+        return self.component_distribution.loc
+
+    @property
+    def scale(self):
+        return self.component_distribution.scale
+
+
+@vmap_over.register
+def _vmap_over_gaussian_mixture(self: _GaussianMixture, loc=None, scale=None):
+    component_distribution = vmap_over(
+        self.component_distribution, loc=loc, scale=scale
+    )
+    return vmap_over.dispatch(dist.MixtureSameFamily)(
+        self, _component_distribution=component_distribution
     )
 
 
-_GaussianMixture.arg_constraints = {}
-_GaussianMixture.reparametrized_params = []
-_GaussianMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+class _Gaussian2DMixture(dist.MixtureSameFamily):
+    arg_constraints = {}
+    reparametrized_params = []
+
+    def __init__(self, mixing_probs, loc, covariance_matrix):
+        component_dist = dist.MultivariateNormal(
+            loc=loc, covariance_matrix=covariance_matrix
+        )
+        mixing_distribution = dist.Categorical(probs=mixing_probs)
+        super().__init__(
+            mixing_distribution=mixing_distribution,
+            component_distribution=component_dist,
+        )
+
+    @property
+    def loc(self):
+        return self.component_distribution.loc
+
+    @property
+    def covariance_matrix(self):
+        return self.component_distribution.covariance_matrix
 
 
-def _Gaussian2DMixture(mixing_probs, loc, cov_matrix):
-    component_dist = dist.MultivariateNormal(loc=loc, covariance_matrix=cov_matrix)
-    mixing_distribution = dist.Categorical(probs=mixing_probs)
-    return dist.MixtureSameFamily(
-        mixing_distribution=mixing_distribution,
-        component_distribution=component_dist,
+@vmap_over.register
+def _vmap_over_gaussian_2d_mixture(self: _Gaussian2DMixture, loc=None):
+    component_distribution = vmap_over(self.component_distribution, loc=loc)
+    return vmap_over.dispatch(dist.MixtureSameFamily)(
+        self, _component_distribution=component_distribution
     )
 
 
-_Gaussian2DMixture.arg_constraints = {}
-_Gaussian2DMixture.reparametrized_params = []
-_Gaussian2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+class _GeneralMixture(dist.MixtureGeneral):
+    arg_constraints = {}
+    reparametrized_params = []
+
+    def __init__(self, mixing_probs, locs, scales):
+        component_dists = [
+            dist.Normal(loc=loc_, scale=scale_) for loc_, scale_ in zip(locs, scales)
+        ]
+        mixing_distribution = dist.Categorical(probs=mixing_probs)
+        return super().__init__(
+            mixing_distribution=mixing_distribution,
+            component_distributions=component_dists,
+        )
+
+    @property
+    def locs(self):
+        # hotfix for vmapping tests, which cannot easily check non-array attributes
+        return self.component_distributions[0].loc
+
+    @property
+    def scales(self):
+        return self.component_distributions[0].scale
 
 
-def _GeneralMixture(mixing_probs, locs, scales):
-    component_dists = [
-        dist.Normal(loc=loc_, scale=scale_) for loc_, scale_ in zip(locs, scales)
+@vmap_over.register
+def _vmap_over_general_mixture(self: _GeneralMixture, locs=None, scales=None):
+    component_distributions = [
+        vmap_over(d, loc=locs, scale=scales) for d in self.component_distributions
     ]
-    mixing_distribution = dist.Categorical(probs=mixing_probs)
-    return dist.MixtureGeneral(
-        mixing_distribution=mixing_distribution,
-        component_distributions=component_dists,
+    return vmap_over.dispatch(dist.MixtureGeneral)(
+        self, _component_distributions=component_distributions
     )
 
 
-_GeneralMixture.arg_constraints = {}
-_GeneralMixture.reparametrized_params = []
-_GeneralMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+class _General2DMixture(dist.MixtureGeneral):
+    arg_constraints = {}
+    reparametrized_params = []
+
+    def __init__(self, mixing_probs, locs, covariance_matrices):
+        component_dists = [
+            dist.MultivariateNormal(loc=loc_, covariance_matrix=covariance_matrix)
+            for loc_, covariance_matrix in zip(locs, covariance_matrices)
+        ]
+        mixing_distribution = dist.Categorical(probs=mixing_probs)
+        return super().__init__(
+            mixing_distribution=mixing_distribution,
+            component_distributions=component_dists,
+        )
+
+    @property
+    def locs(self):
+        # hotfix for vmapping tests, which cannot easily check non-array attributes
+        return self.component_distributions[0].loc
+
+    @property
+    def covariance_matrices(self):
+        return self.component_distributions[0].covariance_matrix
 
 
-def _General2DMixture(mixing_probs, locs, cov_matrices):
-    component_dists = [
-        dist.MultivariateNormal(loc=loc_, covariance_matrix=cov_)
-        for loc_, cov_ in zip(locs, cov_matrices)
+@vmap_over.register
+def _vmap_over_general_2d_mixture(self: _General2DMixture, locs=None):
+    component_distributions = [
+        vmap_over(d, loc=locs) for d in self.component_distributions
     ]
-    mixing_distribution = dist.Categorical(probs=mixing_probs)
-    return dist.MixtureGeneral(
-        mixing_distribution=mixing_distribution,
-        component_distributions=component_dists,
+    return vmap_over.dispatch(dist.MixtureGeneral)(
+        self, _component_distributions=component_distributions
     )
-
-
-_General2DMixture.arg_constraints = {}
-_General2DMixture.reparametrized_params = []
-_General2DMixture.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class _ImproperWrapper(dist.ImproperUniform):
@@ -236,10 +324,25 @@ class _ImproperWrapper(dist.ImproperUniform):
 
 class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
     arg_constraints = {"rate": constraints.positive, "gate_logits": constraints.real}
+    pytree_data_fields = ("rate",)
 
     def __init__(self, rate, gate_logits, *, validate_args=None):
         self.rate = rate
         super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
+
+
+@vmap_over.register
+def _vmap_over_zero_inflated_poisson_logits(
+    self: ZeroInflatedPoissonLogits, rate=None, gate_logits=None
+):
+    dist_axes = vmap_over.dispatch(dist.discrete.ZeroInflatedLogits)(
+        self,
+        base_dist=vmap_over(self.base_dist, rate=rate),
+        gate_logits=gate_logits,
+        gate=gate_logits,
+    )
+    dist_axes.rate = rate
+    return dist_axes
 
 
 class SparsePoisson(dist.Poisson):
@@ -255,9 +358,15 @@ class FoldedNormal(dist.FoldedDistribution):
         self.scale = scale
         super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return dist.FoldedDistribution.tree_unflatten(aux_data, params)
+
+@vmap_over.register
+def _vmap_over_folded_normal(self: "FoldedNormal", loc=None, scale=None):
+    d = vmap_over.dispatch(dist.FoldedDistribution)(
+        self, base_dist=vmap_over(self.base_dist, loc=loc, scale=scale)
+    )
+    d.loc = loc
+    d.scale = scale
+    return d
 
 
 class _SparseCAR(dist.CAR):
@@ -2658,14 +2767,6 @@ def test_special_dist_pytree(method, arg):
     lax.map(f, np.ones(3))
 
 
-def test_expand_pytree():
-    def g(x):
-        return dist.Normal(x, 1).expand([10, 3])
-
-    assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
-    assert tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
-
-
 def test_expand_no_unnecessary_batch_shape_expansion():
     # ExpandedDistribution can mutate the `batch_shape` of
     # its base distribution in order to make ExpandedDistribution
@@ -2791,6 +2892,133 @@ def test_vmapped_binomial_p0():
         return dist.Binomial(total_count=n, probs=0).sample(key)
 
     jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
+
+
+def _get_vmappable_dist_init_params(jax_dist):
+    if jax_dist.__name__ == ("_TruncatedCauchy"):
+        return [2, 3]
+    elif jax_dist.__name__ == ("_TruncatedNormal"):
+        return [2, 3]
+    elif issubclass(jax_dist, dist.Distribution):
+        init_parameters = list(inspect.signature(jax_dist.__init__).parameters.keys())[
+            1:
+        ]
+        vmap_over_parameters = list(
+            inspect.signature(vmap_over.dispatch(jax_dist)).parameters.keys()
+        )[1:]
+        return list(
+            [
+                i
+                for i, name in enumerate(init_parameters)
+                if name in vmap_over_parameters
+            ]
+        )
+    else:
+        raise ValueError
+
+
+def _allclose_or_equal(a1, a2):
+    if isinstance(a1, np.ndarray):
+        return np.allclose(a2, a1)
+    elif isinstance(a1, jnp.ndarray):
+        return jnp.allclose(a2, a1)
+    elif isinstance(a1, csr_matrix):
+        return np.allclose(a2.todense(), a1.todense())
+    else:
+        return a2 == a1 or a2 is a1
+
+
+def _tree_equal(t1, t2):
+    t = jax.tree_util.tree_map(_allclose_or_equal, t1, t2)
+    return jnp.all(jax.flatten_util.ravel_pytree(t)[0])
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_vmap_dist(jax_dist, sp_dist, params):
+    param_names = list(inspect.signature(jax_dist).parameters.keys())
+    vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
+    vmappable_param_idxs = vmappable_param_idxs[: len(params)]
+
+    if len(vmappable_param_idxs) == 0:
+        return
+
+    def make_jax_dist(*params):
+        return jax_dist(*params)
+
+    def sample(d: dist.Distribution):
+        return d.sample(random.PRNGKey(0))
+
+    d = make_jax_dist(*params)
+
+    if isinstance(d, _SparseCAR) and d.is_sparse:
+        # In this case, since csr arrays are not jittable,
+        # _SparseCAR has a csr_matrix as part of its pytree
+        # definition (not as a pytree leaf). This causes pytree
+        # operations like tree_map to fail, since these functions
+        # compare the pytree def of each of the arguments using ==
+        # which is ambiguous for array-like objects.
+        return
+
+    in_out_axes_cases = [
+        # vmap over all args
+        (
+            tuple(0 if i in vmappable_param_idxs else None for i in range(len(params))),
+            0,
+        ),
+        # vmap over a single arg, out over all attributes of a distribution
+        *(
+            ([0 if i == idx else None for i in range(len(params))], 0)
+            for idx in vmappable_param_idxs
+            if params[idx] is not None
+        ),
+        # vmap over a single arg, out over the associated attribute of the distribution
+        *(
+            (
+                [0 if i == idx else None for i in range(len(params))],
+                vmap_over(d, **{param_names[idx]: 0}),
+            )
+            for idx in vmappable_param_idxs
+            if params[idx] is not None
+        ),
+        # vmap over a single arg, axis=1, (out single attribute, axis=1)
+        *(
+            (
+                [1 if i == idx else None for i in range(len(params))],
+                vmap_over(d, **{param_names[idx]: 1}),
+            )
+            for idx in vmappable_param_idxs
+            if isinstance(params[idx], jnp.ndarray) and jnp.array(params[idx]).ndim > 0
+            # skip this distribution because _GeneralMixture.__init__ turns
+            # 1d inputs into 0d attributes, thus breaks the expectations of
+            # the vmapping test case where in_axes=1, only done for rank>=1 tensors.
+            and jax_dist is not _GeneralMixture
+        ),
+    ]
+
+    for in_axes, out_axes in in_out_axes_cases:
+        batched_params = [
+            jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
+            if isinstance(ax, int)
+            else arg
+            for arg, ax in zip(params, in_axes)
+        ]
+        # Recreate the jax_dist to avoid side effects coming from `d.sample`
+        # triggering lazy_property computations, which, in a few cases, break
+        # vmap_over's expectations regarding existing attributes to be vmapped.
+        d = make_jax_dist(*params)
+        batched_d = jax.vmap(make_jax_dist, in_axes=in_axes, out_axes=out_axes)(
+            *batched_params
+        )
+        eq = vmap(lambda x, y: _tree_equal(x, y), in_axes=(out_axes, None))(
+            batched_d, d
+        )
+        assert eq == jnp.array([True])
+
+        samples_dist = sample(d)
+        samples_batched_dist = jax.vmap(sample, in_axes=(out_axes,))(batched_d)
+        assert samples_batched_dist.shape == (1, *samples_dist.shape)
 
 
 def test_multinomial_abstract_total_count():
