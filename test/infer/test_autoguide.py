@@ -183,6 +183,27 @@ def test_logistic_regression(auto_class, Elbo):
     assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
 
 
+def test_mvn_quantile():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1).expand([2]).to_event(1))
+
+    guide = AutoMultivariateNormal(model)
+    with handlers.seed(rng_seed=random.PRNGKey(0)):
+        guide()
+    params = {
+        "auto_loc": jnp.zeros(2),
+        "auto_scale_tril": jnp.array([[1.0, 0.0], [0.5, 0.5]]),
+    }
+    actual = guide.quantiles(params, quantiles=0.3)["x"]
+    mvn = dist.MultivariateNormal(
+        params["auto_loc"], scale_tril=params["auto_scale_tril"]
+    )
+    expected = dist.Normal(params["auto_loc"], jnp.sqrt(mvn.variance)).icdf(
+        jnp.array(0.3)
+    )
+    assert_allclose(actual, expected, rtol=1e-5)
+
+
 def test_iaf():
     # test for substitute logic for exposed methods `sample_posterior` and `get_transforms`
     N, dim = 3000, 3

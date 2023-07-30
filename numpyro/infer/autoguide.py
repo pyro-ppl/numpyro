@@ -1648,7 +1648,7 @@ class AutoMultivariateNormal(AutoContinuous):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
         latent = dist.Normal(
-            transform.loc, jnp.linalg.norm(transform.scale_tril, axix=-1)
+            transform.loc, jnp.linalg.norm(transform.scale_tril, axis=-1)
         ).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
