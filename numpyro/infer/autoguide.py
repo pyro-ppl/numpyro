@@ -1647,9 +1647,9 @@ class AutoMultivariateNormal(AutoContinuous):
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(
-            quantiles
-        )
+        latent = dist.Normal(
+            transform.loc, jnp.linalg.norm(transform.scale_tril, axis=-1)
+        ).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -1828,9 +1828,9 @@ class AutoLaplaceApproximation(AutoContinuous):
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(
-            quantiles
-        )
+        latent = dist.Normal(
+            transform.loc, jnp.linalg.norm(transform.scale_tril, axis=-1)
+        ).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 

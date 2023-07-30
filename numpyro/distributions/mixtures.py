@@ -320,7 +320,9 @@ class MixtureGeneral(_MixtureBase):
         # distributions match, but for now we just check the type, since __eq__
         # isn't consistently implemented for all support types.
         support_type = type(component_distributions[0].support)
-        if any(type(d.support) != support_type for d in component_distributions[1:]):
+        if any(
+            type(d.support) is not support_type for d in component_distributions[1:]
+        ):
             raise ValueError("All component distributions must have the same support.")
 
         self._mixing_distribution = mixing_distribution
