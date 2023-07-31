@@ -7,6 +7,7 @@ import warnings
 import tqdm
 
 import jax
+import numpy as np
 
 from numpyro.util import _versiontuple, find_stack_level
 
@@ -411,7 +412,7 @@ class SVI(object):
                             ),
                             refresh=False,
                         )
-            losses = jnp.stack(losses)
+            losses = np.stack(losses)
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
