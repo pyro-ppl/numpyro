@@ -394,7 +394,7 @@ class SVI(object):
                 batch = max(num_steps // 20, 1)
                 for i in t:
                     svi_state, loss = jit(body_fn)(svi_state, None)
-                    losses.append(loss)
+                    losses.append(jax.device_get(loss))
                     if i % batch == 0:
                         if stable_update:
                             valid_losses = [x for x in losses[i - batch :] if x == x]
