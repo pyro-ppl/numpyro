@@ -375,8 +375,8 @@ class SVI(object):
         :rtype: :data:`SVIRunResult`
         """
 
-        if num_steps < 1:
-            raise ValueError("num_steps must be a positive integer.")
+        if num_steps <= 0:
+            raise ValueError("num_steps must be a non-negative integer.")
 
         def body_fn(svi_state, _):
             if stable_update:
@@ -412,7 +412,7 @@ class SVI(object):
                             ),
                             refresh=False,
                         )
-            losses = np.stack(losses)
+            losses = np.stack(losses) if losses else np.array([], dtype=jnp.result_type(float))
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
