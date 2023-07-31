@@ -183,6 +183,9 @@ class MixtureSameFamily(_MixtureBase):
        ()
     """
 
+    pytree_data_fields = ("_mixing_distribution", "_component_distribution")
+    pytree_aux_fields = ("_mixture_size",)
+
     def __init__(
         self, mixing_distribution, component_distribution, *, validate_args=None
     ):
@@ -228,28 +231,6 @@ class MixtureSameFamily(_MixtureBase):
     @property
     def is_discrete(self):
         return self.component_distribution.is_discrete
-
-    def tree_flatten(self):
-        mixing_flat, mixing_aux = self.mixing_distribution.tree_flatten()
-        component_flat, component_aux = self.component_distribution.tree_flatten()
-        params = (mixing_flat, component_flat)
-        aux_data = (
-            (type(self.mixing_distribution), type(self.component_distribution)),
-            (mixing_aux, component_aux),
-        )
-        return params, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        mixing_params, component_params = params
-        child_clss, child_aux = aux_data
-        mixing_cls, component_cls = child_clss
-        mixing_aux, component_aux = child_aux
-        mixing_dist = mixing_cls.tree_unflatten(mixing_aux, mixing_params)
-        component_dist = component_cls.tree_unflatten(component_aux, component_params)
-        return cls(
-            mixing_distribution=mixing_dist, component_distribution=component_dist
-        )
 
     @property
     def component_mean(self):
@@ -308,6 +289,9 @@ class MixtureGeneral(_MixtureBase):
        ()
     """
 
+    pytree_data_fields = ("_mixing_distribution", "_component_distributions")
+    pytree_aux_fields = ("_mixture_size",)
+
     def __init__(
         self, mixing_distribution, component_distributions, *, validate_args=None
     ):
@@ -336,7 +320,9 @@ class MixtureGeneral(_MixtureBase):
         # distributions match, but for now we just check the type, since __eq__
         # isn't consistently implemented for all support types.
         support_type = type(component_distributions[0].support)
-        if any(type(d.support) != support_type for d in component_distributions[1:]):
+        if any(
+            type(d.support) is not support_type for d in component_distributions[1:]
+        ):
             raise ValueError("All component distributions must have the same support.")
 
         self._mixing_distribution = mixing_distribution
@@ -375,34 +361,6 @@ class MixtureGeneral(_MixtureBase):
     @property
     def is_discrete(self):
         return self.component_distributions[0].is_discrete
-
-    def tree_flatten(self):
-        mixing_flat, mixing_aux = self.mixing_distribution.tree_flatten()
-        dists_flat, dists_aux = zip(
-            *(d.tree_flatten() for d in self.component_distributions)
-        )
-        params = (mixing_flat, dists_flat)
-        aux_data = (
-            (
-                type(self.mixing_distribution),
-                tuple(type(d) for d in self.component_distributions),
-            ),
-            (mixing_aux, dists_aux),
-        )
-        return params, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        params_mix, params_dists = params
-        (cls_mix, cls_dists), (mixing_aux, dists_aux) = aux_data
-        mixing_dist = cls_mix.tree_unflatten(mixing_aux, params_mix)
-        distributions = [
-            c.tree_unflatten(a, p)
-            for c, a, p in zip(cls_dists, dists_aux, params_dists)
-        ]
-        return cls(
-            mixing_distribution=mixing_dist, component_distributions=distributions
-        )
 
     @property
     def component_mean(self):

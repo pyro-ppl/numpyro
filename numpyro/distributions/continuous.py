@@ -157,6 +157,7 @@ class Beta(Distribution):
     }
     reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
+    pytree_data_fields = ("concentration0", "concentration1", "_dirichlet")
 
     def __init__(self, concentration1, concentration0, *, validate_args=None):
         self.concentration1, self.concentration0 = promote_shapes(
@@ -308,6 +309,8 @@ class EulerMaruyama(Distribution):
     """
 
     arg_constraints = {"t": constraints.ordered_vector}
+    pytree_data_fields = ("t", "init_dist")
+    pytree_aux_fields = ("sde_fn",)
 
     def __init__(self, t, sde_fn, init_dist, *, validate_args=None):
         self.t = t
@@ -515,6 +518,7 @@ class GaussianRandomWalk(Distribution):
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ["scale"]
+    pytree_aux_fields = ("num_steps",)
 
     def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
         assert (
@@ -551,18 +555,12 @@ class GaussianRandomWalk(Distribution):
             self.batch_shape + self.event_shape,
         )
 
-    def tree_flatten(self):
-        return (self.scale,), self.num_steps
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(*params, num_steps=aux_data)
-
 
 class HalfCauchy(Distribution):
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
+    pytree_data_fields = ("_cauchy", "scale")
 
     def __init__(self, scale=1.0, *, validate_args=None):
         self._cauchy = Cauchy(0.0, scale)
@@ -598,6 +596,7 @@ class HalfNormal(Distribution):
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
+    pytree_data_fields = ("_normal", "scale")
 
     def __init__(self, scale=1.0, *, validate_args=None):
         self._normal = Normal(0.0, scale)
@@ -662,9 +661,6 @@ class InverseGamma(TransformedDistribution):
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
     def cdf(self, x):
         return 1 - self.base_dist.cdf(1 / x)
@@ -825,9 +821,6 @@ class Kumaraswamy(TransformedDistribution):
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-
 
 class Laplace(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -920,6 +913,7 @@ class LKJ(TransformedDistribution):
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
+    pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
         self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
@@ -940,14 +934,6 @@ class LKJ(TransformedDistribution):
             jnp.identity(self.dimension),
             self.batch_shape + (self.dimension, self.dimension),
         )
-
-    def tree_flatten(self):
-        return (self.concentration,), (self.dimension, self.sample_method)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method = aux_data
-        return cls(dimension, *params, sample_method=sample_method)
 
 
 class LKJCholesky(Distribution):
@@ -1003,6 +989,8 @@ class LKJCholesky(Distribution):
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_cholesky
+    pytree_data_fields = ("_beta", "concentration")
+    pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
         self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
@@ -1152,14 +1140,6 @@ class LKJCholesky(Distribution):
         normalize_term = pi_constant + numerator - denominator
         return unnormalized - normalize_term
 
-    def tree_flatten(self):
-        return (self.concentration,), (self.dimension, self.sample_method)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        dimension, sample_method = aux_data
-        return cls(dimension, *params, sample_method=sample_method)
-
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -1180,9 +1160,6 @@ class LogNormal(TransformedDistribution):
     @property
     def variance(self):
         return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
@@ -1231,6 +1208,7 @@ class Logistic(Distribution):
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
+    pytree_data_fields = ("low", "high", "_support")
 
     def __init__(self, low, high, *, validate_args=None):
         base_dist = Uniform(jnp.log(low), jnp.log(high))
@@ -1254,9 +1232,6 @@ class LogUniform(TransformedDistribution):
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
@@ -1530,14 +1505,6 @@ class MultivariateNormal(Distribution):
             jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
 
-    def tree_flatten(self):
-        return (self.loc, self.scale_tril), None
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        loc, scale_tril = params
-        return cls(loc, scale_tril=scale_tril)
-
     @staticmethod
     def infer_shapes(
         loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
@@ -1595,6 +1562,7 @@ class CAR(Distribution):
         "conditional_precision",
         "adj_matrix",
     ]
+    pytree_aux_fields = ("is_sparse", "adj_matrix")
 
     def __init__(
         self,
@@ -1734,32 +1702,6 @@ class CAR(Distribution):
         correlation = jnp.expand_dims(self.correlation, (-2, -1))
         return conditional_precision * (D - correlation * adj_matrix)
 
-    def tree_flatten(self):
-        if self.is_sparse:
-            return (self.loc, self.correlation, self.conditional_precision), (
-                self.is_sparse,
-                self.adj_matrix,
-            )
-        else:
-            return (
-                self.loc,
-                self.correlation,
-                self.conditional_precision,
-                self.adj_matrix,
-            ), (self.is_sparse,)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        is_sparse = aux_data[0]
-        if is_sparse:
-            loc, correlation, conditional_precision = params
-            adj_matrix = aux_data[1]
-        else:
-            loc, correlation, conditional_precision, adj_matrix = params
-        return cls(
-            loc, correlation, conditional_precision, adj_matrix, is_sparse=is_sparse
-        )
-
     @staticmethod
     def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
         event_shape = adj_matrix[-1:]
@@ -1767,6 +1709,32 @@ class CAR(Distribution):
             loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
         )
         return batch_shape, event_shape
+
+    def tree_flatten(self):
+        data, aux = super().tree_flatten()
+        adj_matrix_data_idx = type(self).gather_pytree_data_fields().index("adj_matrix")
+        adj_matrix_aux_idx = type(self).gather_pytree_aux_fields().index("adj_matrix")
+
+        if not self.is_sparse:
+            aux = list(aux)
+            aux[adj_matrix_aux_idx] = None
+            aux = tuple(aux)
+        else:
+            data = list(data)
+            data[adj_matrix_data_idx] = None
+            data = tuple(data)
+        return data, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = super().tree_unflatten(aux_data, params)
+        if not d.is_sparse:
+            adj_matrix_data_idx = cls.gather_pytree_data_fields().index("adj_matrix")
+            setattr(d, "adj_matrix", params[adj_matrix_data_idx])
+        else:
+            adj_matrix_aux_idx = cls.gather_pytree_aux_fields().index("adj_matrix")
+            setattr(d, "adj_matrix", aux_data[adj_matrix_aux_idx])
+        return d
 
 
 class MultivariateStudentT(Distribution):
@@ -1777,6 +1745,7 @@ class MultivariateStudentT(Distribution):
     }
     support = constraints.real_vector
     reparametrized_params = ["df", "loc", "scale_tril"]
+    pytree_data_fields = ("df", "loc", "scale_tril", "_chi2")
 
     def __init__(
         self,
@@ -1922,6 +1891,7 @@ class LowRankMultivariateNormal(Distribution):
     }
     support = constraints.real_vector
     reparametrized_params = ["loc", "cov_factor", "cov_diag"]
+    pytree_data_fields = ("loc", "cov_factor", "cov_diag", "_capacitance_tril")
 
     def __init__(self, loc, cov_factor, cov_diag, *, validate_args=None):
         if jnp.ndim(loc) < 1:
@@ -2132,9 +2102,6 @@ class Pareto(TransformedDistribution):
     def icdf(self, q):
         return self.scale / jnp.power(1 - q, 1 / self.alpha)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
-
 
 class RelaxedBernoulliLogits(TransformedDistribution):
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
@@ -2145,9 +2112,6 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
 
 def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
@@ -2223,6 +2187,7 @@ class StudentT(Distribution):
     }
     support = constraints.real
     reparametrized_params = ["df", "loc", "scale"]
+    pytree_data_fields = ("df", "loc", "scale", "_chi2")
 
     def __init__(self, df, loc=0.0, scale=1.0, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(
@@ -2295,6 +2260,7 @@ class StudentT(Distribution):
 class Uniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     reparametrized_params = ["low", "high"]
+    pytree_data_fields = ("low", "high", "_support")
 
     def __init__(self, low=0.0, high=1.0, *, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
@@ -2329,22 +2295,6 @@ class Uniform(Distribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.0
-
-    def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)) and isinstance(
-            self._support.upper_bound, (int, float)
-        ):
-            aux_data = (self._support.lower_bound, self._support.upper_bound)
-        else:
-            aux_data = None
-        return (self.low, self.high), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.interval(*aux_data)
-        return d
 
     @staticmethod
     def infer_shapes(low=(), high=()):
@@ -2415,6 +2365,7 @@ class BetaProportion(Beta):
     }
     reparametrized_params = ["mean", "concentration"]
     support = constraints.unit_interval
+    pytree_data_fields = ("concentration",)
 
     def __init__(self, mean, concentration, *, validate_args=None):
         self.concentration = jnp.broadcast_to(
@@ -2450,6 +2401,7 @@ class AsymmetricLaplaceQuantile(Distribution):
     }
     reparametrized_params = ["loc", "scale", "quantile"]
     support = constraints.real
+    pytree_data_fields = ("loc", "scale", "quantile", "_ald")
 
     def __init__(self, loc=0.0, scale=1.0, quantile=0.5, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(

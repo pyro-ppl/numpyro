@@ -30,6 +30,7 @@ class LeftTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
+    pytree_data_fields = ("base_dist", "low", "_support")
 
     def __init__(self, base_dist, low=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -79,28 +80,6 @@ class LeftTruncatedDistribution(Distribution):
             sign * (self._tail_prob_at_high - self._tail_prob_at_low)
         )
 
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.lower_bound, (int, float)):
-            return base_flatten, (
-                type(self.base_dist),
-                base_aux,
-                self._support.lower_bound,
-            )
-        else:
-            return (base_flatten, self.low), (type(self.base_dist), base_aux)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, low = params
-            base_cls, base_aux = aux_data
-        else:
-            base_flatten = params
-            base_cls, base_aux, low = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, low=low)
-
     @property
     def mean(self):
         if isinstance(self.base_dist, Normal):
@@ -130,6 +109,7 @@ class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
+    pytree_data_fields = ("base_dist", "high", "_support")
 
     def __init__(self, base_dist, high=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -164,28 +144,6 @@ class RightTruncatedDistribution(Distribution):
     def log_prob(self, value):
         return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
 
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.upper_bound, (int, float)):
-            return base_flatten, (
-                type(self.base_dist),
-                base_aux,
-                self._support.upper_bound,
-            )
-        else:
-            return (base_flatten, self.high), (type(self.base_dist), base_aux)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, high = params
-            base_cls, base_aux = aux_data
-        else:
-            base_flatten = params
-            base_cls, base_aux, high = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, high=high)
-
     @property
     def mean(self):
         if isinstance(self.base_dist, Normal):
@@ -212,9 +170,13 @@ class RightTruncatedDistribution(Distribution):
 
 
 class TwoSidedTruncatedDistribution(Distribution):
-    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    arg_constraints = {
+        "low": constraints.dependent,
+        "high": constraints.dependent,
+    }
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
+    pytree_data_fields = ("base_dist", "low", "high", "_support")
 
     def __init__(self, base_dist, low=0.0, high=1.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -295,31 +257,6 @@ class TwoSidedTruncatedDistribution(Distribution):
         # if low > loc
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
-
-    def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.lower_bound, (int, float)) and isinstance(
-            self._support.upper_bound, (int, float)
-        ):
-            return base_flatten, (
-                type(self.base_dist),
-                base_aux,
-                self._support.lower_bound,
-                self._support.upper_bound,
-            )
-        else:
-            return (base_flatten, self.low, self.high), (type(self.base_dist), base_aux)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        if len(aux_data) == 2:
-            base_flatten, low, high = params
-            base_cls, base_aux = aux_data
-        else:
-            base_flatten = params
-            base_cls, base_aux, low, high = aux_data
-        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
-        return cls(base_dist, low=low, high=high)
 
     @property
     def mean(self):
@@ -430,10 +367,3 @@ class TruncatedPolyaGamma(Distribution):
         sum_even = jnp.exp(logsumexp(even_terms, axis=-1))
         sum_odd = jnp.exp(logsumexp(odd_terms, axis=-1))
         return jnp.log(sum_even - sum_odd) - 0.5 * jnp.log(2.0 * jnp.pi)
-
-    def tree_flatten(self):
-        return (), self.batch_shape
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(batch_shape=aux_data)
