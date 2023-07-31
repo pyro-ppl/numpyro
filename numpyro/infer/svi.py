@@ -7,6 +7,7 @@ import warnings
 import tqdm
 
 import jax
+import numpy as np
 
 from numpyro.util import _versiontuple, find_stack_level
 
@@ -349,8 +350,8 @@ class SVI(object):
         :rtype: :data:`SVIRunResult`
         """
 
-        if num_steps < 1:
-            raise ValueError("num_steps must be a positive integer.")
+        if num_steps <= 0:
+            raise ValueError("num_steps must be a non-negative integer.")
 
         def body_fn(svi_state, _):
             if stable_update:
@@ -369,7 +370,7 @@ class SVI(object):
                 batch = max(num_steps // 20, 1)
                 for i in t:
                     svi_state, loss = jit(body_fn)(svi_state, None)
-                    losses.append(loss)
+                    losses.append(jax.device_get(loss))
                     if i % batch == 0:
                         if stable_update:
                             valid_losses = [x for x in losses[i - batch :] if x == x]
@@ -386,7 +387,7 @@ class SVI(object):
                             ),
                             refresh=False,
                         )
-            losses = jnp.stack(losses)
+            losses = np.stack(losses) if losses else np.array([], dtype=jnp.result_type(float))
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
