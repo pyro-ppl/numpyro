@@ -477,7 +477,7 @@ class SineBivariateVonMises(Distribution):
             phi_key, key = random.split(key)
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
 
-            x = jnp.sqrt(1 + 2 * eig / b0) * random.normal(acg_key, shape)
+            x = 1./jnp.sqrt(1 + 2 * eig / b0) * random.normal(acg_key, shape)
             x /= jnp.linalg.norm(
                 x, axis=1, keepdims=True
             )  # Angular Central Gaussian distribution
