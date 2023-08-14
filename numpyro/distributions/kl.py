@@ -85,12 +85,12 @@ def kl_divergence(p, q):
 
 @dispatch(Delta, Distribution)
 def kl_divergence(p, q):
-    return -q.log_prob(p.v)
+    return -q.log_prob(p.v) + p.log_density
 
 
 @dispatch(Delta, ExpandedDistribution)
 def kl_divergence(p, q):
-    return -q.log_prob(p.v)
+    return -q.log_prob(p.v) + p.log_density
 
 
 @dispatch(Independent, Independent)
