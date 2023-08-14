@@ -2320,12 +2320,19 @@ class AutoRVRS(AutoContinuous):
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         def _single_sample(_rng_key):
-            latent_sample = handlers.substitute(
-                handlers.seed(self._sample_latent, _rng_key), params
-            )(sample_shape=())
-            return jax.vmap(self._unpack_and_constrain, in_axes=(0, None))(
+            with handlers.trace() as tr:
+                latent_sample = handlers.substitute(
+                    handlers.seed(self._sample_latent, _rng_key), params
+                )(sample_shape=())
+            deterministics = {
+                name: site["value"]
+                for name, site in tr.items()
+                if site["type"] == "deterministic"
+            }
+            latents = jax.vmap(self._unpack_and_constrain, in_axes=(0, None))(
                 latent_sample, params
             )
+            return {**deterministics, **latents}
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
