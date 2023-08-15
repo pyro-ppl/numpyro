@@ -2814,6 +2814,15 @@ def test_kl_delta_normal_shape(batch_shape):
     assert kl_divergence(p, q).shape == batch_shape
 
 
+def test_kl_delta_normal():
+    v = np.random.normal()
+    loc = np.random.normal()
+    scale = np.exp(np.random.normal())
+    p = dist.Delta(v, 10.)
+    q = dist.Normal(loc, scale)
+    assert_allclose(kl_divergence(p, q), 10. - q.log_prob(v))
+
+
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
 @pytest.mark.parametrize("event_shape", [(), (4,), (2, 3)], ids=str)
 def test_kl_independent_normal(batch_shape, event_shape):
