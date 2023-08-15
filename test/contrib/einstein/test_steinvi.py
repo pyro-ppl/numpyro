@@ -10,7 +10,7 @@ import numpy.random as nrandom
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import numpy as jnp, random
 
 import numpyro
 from numpyro import handlers
@@ -191,6 +191,27 @@ def test_incompatible_init_locs(init_loc):
         pytest.fail()
     except AssertionError:
         return
+
+
+def test_stein_reinit():
+    num_particles = 4
+
+    def model():
+        numpyro.sample("x", Normal(0, 1.0))
+
+    stein = SteinVI(
+        model,
+        AutoDelta(model),
+        Adam(1.0),
+        RBFKernel(),
+        num_stein_particles=num_particles,
+    )
+
+    for i in range(2):
+        with handlers.seed(rng_seed=i):
+            params = stein.get_params(stein.init(numpyro.prng_key()))
+            xs = params["x_auto_loc"]
+            assert jnp.unique(xs).shape == xs.shape
 
 
 @pytest.mark.parametrize(
