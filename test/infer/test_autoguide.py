@@ -141,7 +141,8 @@ def test_beta_bernoulli(auto_class):
         print("true posterior_mean: ", true_coefs)
         final_elbo = jnp.mean(
             lax.map(
-                lambda key: -Trace_ELBO().loss(key, params, model, guide, data),
+                lambda key: -Trace_ELBO().loss(key, params, model, guide, data,
+                    multi_sample_guide=True),
                 random.split(random.PRNGKey(2), 1000),
             )
         )
@@ -1233,7 +1234,8 @@ def test_autosemirvrs(
             include_log_Z=False,
         )
         rvrs_elbo_T = -Trace_ELBO(num_particles=num_samples).loss(
-            random.PRNGKey(0), mf_params, model16, rvrs_guide_T
+            random.PRNGKey(0), mf_params, model16, rvrs_guide_T,
+            multi_sample_guide=True,
         )
         with handlers.substitute(data={"N": jnp.arange(N)}):
             with warnings.catch_warnings():
@@ -1273,7 +1275,8 @@ def test_autosemirvrs(
         print("RVRS16 T:", T_init)
     rvrs16_params = rvrs16_results.params
     rvrs16_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed + 3), rvrs16_params, model16, rvrs_guide16
+        random.PRNGKey(seed + 3), rvrs16_params, model16, rvrs_guide16,
+        multi_sample_guide=True,
     )
     print("RVRS16 ELBO:", rvrs16_elbo)
     # if not fix_theta:
@@ -1307,7 +1310,8 @@ def test_autosemirvrs(
         print("RVRS12 T:", T_init)
     rvrs12_params = rvrs12_results.params
     rvrs12_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed + 5), rvrs12_params, model12, rvrs_guide12
+        random.PRNGKey(seed + 5), rvrs12_params, model12, rvrs_guide12,
+        multi_sample_guide=True,
     )
     print("RVRS12 ELBO:", rvrs12_elbo)
     # if not fix_theta:
@@ -1315,7 +1319,8 @@ def test_autosemirvrs(
     # print("RVRS12 tau:", rvrs12_params["tau_auto_loc"])
 
     rvrs12_subs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(seed + 6), rvrs16_params, model12, rvrs_guide12
+        random.PRNGKey(seed + 6), rvrs16_params, model12, rvrs_guide12,
+        multi_sample_guide=True,
     )
     print("RVRS12 ELBO (using RVRS16 params):", rvrs12_subs_elbo)
 
@@ -1405,7 +1410,8 @@ def test_dummy_autorvrs(
         )
         rvrs0_params = rvrs0_results.params
         rvrs_elbo = -Trace_ELBO(num_particles=num_samples).loss(
-            random.PRNGKey(seed + 3), rvrs0_params, model0, rvrs_guide0
+            random.PRNGKey(seed + 3), rvrs0_params, model0, rvrs_guide0,
+            multi_sample_guide=True,
         )
         if adaptation_scheme == "Z_target":
             print(f"RVRS T{i}:", rvrs0_results.state.mutable_state["_T_adapt"]["value"])
