@@ -2530,6 +2530,7 @@ class AutoSemiRVRS(AutoGuide):
         include_log_Z=True,
         reparameterized=True,
         T_lr_drop=None,
+        subsample_plate=None,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -2556,6 +2557,7 @@ class AutoSemiRVRS(AutoGuide):
         self.T_exponent = T_exponent
         self.Z_target = Z_target
         self.num_warmup = num_warmup
+        self.subsample_plate = subsample_plate
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -2569,6 +2571,8 @@ class AutoSemiRVRS(AutoGuide):
             and isinstance(site["args"][1], int)
             and site["args"][0] > site["args"][1]
         }
+        if self.subsample_plate is not None:
+            subsample_plates[self.subsample_plate] = self.prototype_trace[self.subsample_plate]
         num_plates = len(subsample_plates)
         assert (
             num_plates == 1
@@ -2942,7 +2946,7 @@ class AutoSemiRVRS(AutoGuide):
         )
         return global_latents, stop_gradient(zs)
 
-    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), parallel=False, **kwargs):
         def _single_sample(_rng_key):
             with handlers.trace() as tr:
                 global_latents, local_flat = handlers.substitute(
@@ -2964,7 +2968,10 @@ class AutoSemiRVRS(AutoGuide):
 
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
-            samples = lax.map(_single_sample, rng_key)
+            if parallel:
+                samples = jax.vmap(_single_sample)(rng_key)
+            else:
+                samples = lax.map(_single_sample, rng_key)
             return tree_map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]), samples
             )
