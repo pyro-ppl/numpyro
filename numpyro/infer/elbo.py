@@ -34,8 +34,9 @@ class ELBO:
 
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
-    :param vectorize_particles: Whether to use `jax.vmap` to obtain elbos over the
-        particles. If False, we will use `jax.lax.map`. Defaults to True.
+    :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
+        num_particles-many particles in parallel. If False use `jax.lax.map`.
+        Defaults to True.
     """
 
     """
@@ -112,8 +113,9 @@ class Trace_ELBO(ELBO):
 
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
-    :param vectorize_particles: Whether to use `jax.vmap` to obtain elbos over the
-        particles. If False, we will use `jax.lax.map`. Defaults to True.
+    :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
+        num_particles-many particles in parallel. If False use `jax.lax.map`.
+        Defaults to True.
     """
 
     def loss_with_mutable_state(
@@ -320,8 +322,9 @@ class RenyiELBO(ELBO):
         Here :math:`\alpha \neq 1`. Default is 0.
     :param num_particles: The number of particles/samples
         used to form the objective (gradient) estimator. Default is 2.
-    :param vectorize_particles: Whether to use `jax.vmap` to obtain elbos over the
-        particles. If False, we will use `jax.lax.map`. Defaults to True.
+    :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
+        num_particles-many particles in parallel. If False use `jax.lax.map`.
+        Defaults to True.
 
     Example::
 
