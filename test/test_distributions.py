@@ -2818,9 +2818,9 @@ def test_kl_delta_normal():
     v = np.random.normal()
     loc = np.random.normal()
     scale = np.exp(np.random.normal())
-    p = dist.Delta(v, 10.)
+    p = dist.Delta(v, 10.0)
     q = dist.Normal(loc, scale)
-    assert_allclose(kl_divergence(p, q), 10. - q.log_prob(v))
+    assert_allclose(kl_divergence(p, q), 10.0 - q.log_prob(v))
 
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
