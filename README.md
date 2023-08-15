@@ -276,7 +276,7 @@ conda install -c conda-forge numpyro
    Your options are:
 
    - Call the distribution directly and provide a `PRNGKey`, e.g. `dist.Normal(0, 1).sample(PRNGKey(0))`
-   - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=PRNGKey(0))`.
+   - Provide the `key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), key=PRNGKey(0))`.
    - Wrap the code in a `seed` handler, used either as a context manager or as a function that wraps over the original callable. e.g.
 
         ```python
