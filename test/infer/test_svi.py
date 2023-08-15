@@ -170,6 +170,28 @@ def test_renyi_create_plates(n, k):
         assert_allclose(atol, 0.0, atol=1e-5)
 
 
+def test_vectorized_particle():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0, constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    vmap_results = SVI(
+        model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=True)
+    ).run(random.PRNGKey(0), 100, data)
+    map_results = SVI(
+        model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=False)
+    ).run(random.PRNGKey(0), 100, data)
+    assert_allclose(vmap_results.losses, map_results.losses, atol=1e-5)
+
+
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
 @pytest.mark.parametrize("optimizer", [optim.Adam(0.01), optimizers.adam(0.01)])
 def test_beta_bernoulli(elbo, optimizer):
