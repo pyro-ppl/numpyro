@@ -137,6 +137,7 @@ class SteinVI:
         self._inference_model = model
         self.model = model
         self.guide = guide
+        self._init_guide = deepcopy(guide)
         self.optim = optim
         self.stein_loss = SteinLoss(  # TODO: @OlaRonning handle enum
             elbo_num_particles=num_elbo_particles,
@@ -388,7 +389,7 @@ class SteinVI:
         )
 
         guide_init_params = self._find_init_params(
-            particle_seed, self.guide, args, kwargs
+            particle_seed, self._init_guide, args, kwargs
         )
 
         guide_init = handlers.seed(self.guide, guide_seed)
