@@ -2872,7 +2872,7 @@ class AutoSemiRVRS(AutoGuide):
         ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
         ratio_bar = stop_gradient(ratio)
         surrogate = (
-            self.S / (self.S - 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum()
+            self.S / max(self.S - 1, 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum()
             + (ratio_bar * Az).sum()
         )
 
@@ -2891,7 +2891,7 @@ class AutoSemiRVRS(AutoGuide):
         if self.adaptation_scheme == "Z_target":
             # minimize (Z - Z_target) ** 2
             a = stop_gradient(jnp.exp(first_log_a))
-            a_minus = 1 / (self.S - 1) * (a.sum(0) - a)
+            a_minus = 1 / max(self.S - 1, 1) * (a.sum(0) - a)
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a), axis=0)
             assert T_grad.shape == (M,)
 
@@ -2927,7 +2927,7 @@ class AutoSemiRVRS(AutoGuide):
             )
         elif self.adaptation_scheme == "dual_averaging":
             a = stop_gradient(jnp.exp(first_log_a))
-            a_minus = 1 / (self.S - 1) * (a.sum(0) - a)
+            a_minus = 1 / max(self.S - 1, 1) * (a.sum(0) - a)
             T_grad = jnp.mean((a_minus - self.Z_target) * a * (1 - a), axis=0)
             Z = self.Z_target + T_grad
             t = num_updates["value"][subsample_idx]
