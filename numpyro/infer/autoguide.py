@@ -2858,6 +2858,15 @@ class AutoSemiRVRS(AutoGuide):
         assert first_log_a.shape == (self.S, M)
         assert guide_lp.shape == (self.S, M)
 
+        if isinstance(self.include_log_Z, int):
+            keys_ = jax.random.split(numpyro.prng_key(), self.include_log_Z)
+            zs_ = jax.vmap(single_local_guide_sampler, (None, 0, None))(subsample_idx, keys_, local_guide_params)
+            assert zs_.shape == (self.include_log_Z, M, self._local_latent_dim)
+            first_log_a, *_ = jax.vmap(accept_log_prob_fn, (0, None, None))(zs_, subsample_idx, local_guide_params)
+            assert first_log_a.shape == (self.include_log_Z, M)
+            log_Z = logsumexp(first_log_a, axis=0) - jnp.log(self.include_log_Z)
+            assert log_Z.shape == (M,)
+
         numpyro.deterministic("first_log_a", first_log_a)
 
         # compute surrogate elbo
