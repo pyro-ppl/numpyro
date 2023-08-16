@@ -2858,7 +2858,8 @@ class AutoSemiRVRS(AutoGuide):
         assert first_log_a.shape == (self.S, M)
         assert guide_lp.shape == (self.S, M)
 
-        if isinstance(self.include_log_Z, int):
+        if not isinstance(self.include_log_Z, bool):
+            assert isinstance(self.include_log_Z, int)
             keys_ = jax.random.split(numpyro.prng_key(), self.include_log_Z)
             zs_ = jax.vmap(single_local_guide_sampler, (None, 0, None))(subsample_idx, keys_, local_guide_params)
             assert zs_.shape == (self.include_log_Z, M, self._local_latent_dim)
