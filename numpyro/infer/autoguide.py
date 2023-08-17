@@ -1172,6 +1172,7 @@ class AutoSemiDAIS(AutoGuide):
         eta_max=0.1,
         gamma_init=0.9,
         init_scale=0.1,
+        subsample_plate=None,
     ):
         # init_loc_fn is only used to inspect the model.
         super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
@@ -1196,6 +1197,7 @@ class AutoSemiDAIS(AutoGuide):
         self.gamma_init = gamma_init
         self.K = K
         self.init_scale = init_scale
+        self.subsample_plate = subsample_plate
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -1208,6 +1210,8 @@ class AutoSemiDAIS(AutoGuide):
             and isinstance(site["args"][1], int)
             and site["args"][0] > site["args"][1]
         }
+        if self.subsample_plate is not None:
+            subsample_plates[self.subsample_plate] = self.prototype_trace[self.subsample_plate]
         num_plates = len(subsample_plates)
         assert (
             num_plates == 1
