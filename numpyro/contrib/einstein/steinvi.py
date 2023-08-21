@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from collections.abc import Callable
 from copy import deepcopy
 import functools
 from functools import partial
 from itertools import chain
 import operator
-from typing import Callable
 
 from jax import grad, jacfwd, numpy as jnp, random, vmap
 from jax.random import KeyArray

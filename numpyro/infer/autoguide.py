@@ -11,16 +11,9 @@ import numpy as np
 
 import jax
 from jax import grad, hessian, lax, random
-from jax.tree_util import tree_map
-
-from numpyro.util import _versiontuple, find_stack_level
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries import stax
-else:
-    from jax.experimental import stax
-
+from jax.example_libraries import stax
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers
@@ -54,7 +47,7 @@ from numpyro.infer.util import (
 )
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "AutoContinuous",

@@ -350,7 +350,7 @@ class MixtureGeneral(_MixtureBase):
         """The list of component distributions in the mixture
 
         :return: The list of component distributions
-        :rtype: List[Distribution]
+        :rtype: list[Distribution]
         """
         return self._component_distributions
 

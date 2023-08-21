@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Tuple
+from collections.abc import Callable
 
 import numpy as np
 
@@ -30,7 +30,7 @@ class SteinKernel(ABC):
     def compute(
         self,
         particles: jnp.ndarray,
-        particle_info: Dict[str, Tuple[int, int]],
+        particle_info: dict[str, tuple[int, int]],
         loss_fn: Callable[[jnp.ndarray], float],
     ):
         """
@@ -279,7 +279,7 @@ class MixtureKernel(SteinKernel):
     :param kernel_fns: Different kernel functions to mix together
     """
 
-    def __init__(self, ws: List[float], kernel_fns: List[SteinKernel], mode="norm"):
+    def __init__(self, ws: list[float], kernel_fns: list[SteinKernel], mode="norm"):
         assert len(ws) == len(kernel_fns)
         assert len(kernel_fns) > 1
         assert all(kf.mode == mode for kf in kernel_fns)
@@ -328,7 +328,7 @@ class GraphicalKernel(SteinKernel):
     def __init__(
         self,
         mode="matrix",
-        local_kernel_fns: Dict[str, SteinKernel] = None,
+        local_kernel_fns: dict[str, SteinKernel] = None,
         default_kernel_fn: SteinKernel = RBFKernel(),
     ):
         assert mode == "matrix"
@@ -385,7 +385,7 @@ class ProbabilityProductKernel(SteinKernel):
     def compute(
         self,
         particles: jnp.ndarray,
-        particle_info: Dict[str, Tuple[int, int]],
+        particle_info: dict[str, tuple[int, int]],
         loss_fn: Callable[[jnp.ndarray], float],
     ):
         loc_idx = jnp.concatenate(

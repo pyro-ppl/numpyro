@@ -3,16 +3,8 @@
 
 import numpy as np
 
-import jax
 from jax import random
-
-from numpyro.util import _versiontuple
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries import stax
-else:
-    from jax.experimental import stax
-
+from jax.example_libraries import stax
 from jax.nn import sigmoid, softplus
 from jax.nn.initializers import glorot_uniform, normal, uniform
 import jax.numpy as jnp
