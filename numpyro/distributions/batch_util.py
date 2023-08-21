@@ -53,6 +53,7 @@ from numpyro.distributions.distribution import (
     ExpandedDistribution,
     MaskedDistribution,
     Unit,
+    Independent,
 )
 from numpyro.distributions.transforms import (
     AffineTransform,
@@ -524,7 +525,7 @@ def _default_promote_batch_shape(d: Distribution):
 
 
 @promote_batch_shape.register
-def _promote_batch_shape_expanded(d: ExpandedDistribution):
+def _promote_batch_shape_expanded(d: Union[ExpandedDistribution, Independent]):
     orig_delta_batch_shape = d.batch_shape[
         : len(d.batch_shape) - len(d.base_dist.batch_shape)
     ]
