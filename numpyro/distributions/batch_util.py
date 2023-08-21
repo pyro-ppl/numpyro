@@ -563,6 +563,7 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
     new_self.base_dist = new_base_dist
     return new_self
 
+
 @promote_batch_shape.register
 def _promote_batch_shape_masked(d: MaskedDistribution):
     new_self = copy.copy(d)
