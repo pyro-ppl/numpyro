@@ -1,21 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from functools import namedtuple, partial
+from collections import namedtuple
+from functools import partial
 import warnings
 
 import tqdm
 
-import jax
-
-from numpyro.util import _versiontuple, find_stack_level
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries import optimizers
-else:
-    from jax.experimental import optimizers  # pytype: disable=import-error
-
 from jax import jit, lax, random
+from jax.example_libraries import optimizers
 import jax.numpy as jnp
 from jax.tree_util import tree_map
 
@@ -24,6 +17,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import helpful_support_errors, transform_fn
 from numpyro.optim import _NumPyroOptim, optax_to_numpyro
+from numpyro.util import find_stack_level
 
 SVIState = namedtuple("SVIState", ["optim_state", "mutable_state", "rng_key"])
 """
