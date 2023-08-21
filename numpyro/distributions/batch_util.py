@@ -51,9 +51,9 @@ from numpyro.distributions.discrete import (
 from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
+    Independent,
     MaskedDistribution,
     Unit,
-    Independent,
 )
 from numpyro.distributions.transforms import (
     AffineTransform,
