@@ -8,7 +8,8 @@ suited for working with NumPyro inference algorithms.
 """
 
 from collections import namedtuple
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from jax import lax, value_and_grad
 from jax.example_libraries import optimizers
