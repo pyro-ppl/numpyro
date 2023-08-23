@@ -4,7 +4,7 @@
 from collections import namedtuple
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Optional
 import warnings
 
 import numpy as np
@@ -896,12 +896,12 @@ class Predictive(object):
     def __init__(
         self,
         model: Callable,
-        posterior_samples: Optional[Dict] = None,
+        posterior_samples: Optional[dict] = None,
         *,
         guide: Optional[Callable] = None,
-        params: Optional[Dict] = None,
+        params: Optional[dict] = None,
         num_samples: Optional[int] = None,
-        return_sites: Optional[List[str]] = None,
+        return_sites: Optional[list[str]] = None,
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,

@@ -19,7 +19,6 @@ density interval for the effect of making a call.
 
 import argparse
 import os
-from typing import Tuple
 
 from jax import random
 import jax.numpy as jnp
@@ -31,7 +30,7 @@ import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 
-def make_dataset(rng_key) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def make_dataset(rng_key) -> tuple[jnp.ndarray, jnp.ndarray]:
     """
     Make simulated dataset where potential customers who get a
     sales calls have ~2% higher chance of making another purchase.
@@ -160,7 +159,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.12.1")
+    assert numpyro.__version__.startswith("0.13.0")
     parser = argparse.ArgumentParser(description="Testing whether  ")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)

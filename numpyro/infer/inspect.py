@@ -1,10 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
 from functools import partial
 import itertools
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Optional
 
 import jax
 
@@ -72,7 +73,7 @@ def get_dependencies(
     model: Callable,
     model_args: Optional[tuple] = None,
     model_kwargs: Optional[dict] = None,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     r"""
     Infers dependency structure about a conditioned model.
 

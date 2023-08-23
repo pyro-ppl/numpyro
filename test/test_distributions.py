@@ -2112,7 +2112,7 @@ def test_beta_proportion_invalid_mean():
         (constraints.real, -1, True),
         (
             constraints.real,
-            np.array([np.inf, np.NINF, np.nan, np.pi]),
+            np.array([np.inf, -np.inf, np.nan, np.pi]),
             np.array([False, False, False, True]),
         ),
         (constraints.simplex, np.array([0.1, 0.3, 0.6]), True),

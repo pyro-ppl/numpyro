@@ -1,8 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable, Sequence
 from functools import partial
-from typing import Callable, Dict, Optional, Sequence
+from typing import Optional
 
 from jax import numpy as jnp, random, tree_map, vmap
 from jax.tree_util import tree_flatten
@@ -24,7 +25,7 @@ class MixtureGuidePredictive:
 
     :param Callable model: Python callable containing Pyro primitives.
     :param Callable guide: Python callable containing Pyro primitives to get posterior samples of sites.
-    :param Dict params:  Dictionary of values for param sites of model/guide
+    :param dict params:  Dictionary of values for param sites of model/guide
     :param Sequence guide_sites: Names of sites that contribute to the Stein mixture.
     :param Optional[int] num_samples:
     :param Optional[Sequence[str]] return_sites: Sites to return. By default, only sample sites not present
@@ -37,7 +38,7 @@ class MixtureGuidePredictive:
         self,
         model: Callable,
         guide: Callable,
-        params: Dict,
+        params: dict,
         guide_sites: Sequence,
         num_samples: Optional[int] = None,
         return_sites: Optional[Sequence[str]] = None,

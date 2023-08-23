@@ -12,20 +12,12 @@ import numpy as np
 
 import jax
 from jax import grad, hessian, lax, random
-from jax.tree_util import tree_map
-from jax.lax import stop_gradient, select
-
-from numpyro.infer.hmc_util import dual_averaging
-from numpyro.util import _versiontuple, find_stack_level
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries import stax
-else:
-    from jax.experimental import stax
-
-import jax.numpy as jnp
-from jax.scipy.special import logsumexp
+from jax.example_libraries import stax
 from jax.nn import log_sigmoid, sigmoid
+import jax.numpy as jnp
+from jax.lax import stop_gradient, select
+from jax.scipy.special import logsumexp
+from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers
@@ -51,6 +43,7 @@ from numpyro.distributions.util import (
 )
 from numpyro.infer import Predictive
 from numpyro.infer.elbo import Trace_ELBO
+from numpyro.infer.hmc_util import dual_averaging
 from numpyro.infer.initialization import init_to_median, init_to_uniform
 from numpyro.infer.util import (
     helpful_support_errors,
@@ -60,7 +53,7 @@ from numpyro.infer.util import (
 )
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "AutoContinuous",

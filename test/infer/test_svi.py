@@ -9,15 +9,9 @@ import pytest
 
 import jax
 from jax import jit, random, value_and_grad
+from jax.example_libraries import optimizers
 import jax.numpy as jnp
 from jax.tree_util import tree_all, tree_map
-
-from numpyro.util import _versiontuple
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries import optimizers
-else:
-    from jax.experimental import optimizers  # pytype: disable=import-error
 
 import numpyro
 from numpyro import optim

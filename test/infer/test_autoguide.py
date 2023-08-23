@@ -4,25 +4,17 @@
 from functools import partial
 import warnings
 
+import numpy as np
 from numpy.random import RandomState
 from numpy.testing import assert_allclose
 import pytest
 
 import jax
 from jax import jacobian, jit, lax, random
-from jax.tree_util import tree_all, tree_map
-import numpy as np
-
-from numpyro.util import _versiontuple
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries.stax import Dense
-else:
-    from jax.experimental.stax import Dense
-
+from jax.example_libraries.stax import Dense
 import jax.numpy as jnp
+from jax.tree_util import tree_all, tree_map
 from jax.scipy.special import logsumexp
-
 import optax
 from optax import piecewise_constant_schedule
 

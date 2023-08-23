@@ -8,18 +8,11 @@ suited for working with NumPyro inference algorithms.
 """
 
 from collections import namedtuple
-from typing import Any, Callable, Tuple, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
-import jax
 from jax import lax, value_and_grad
-
-from numpyro.util import _versiontuple
-
-if _versiontuple(jax.__version__) >= (0, 2, 25):
-    from jax.example_libraries import optimizers
-else:
-    from jax.experimental import optimizers  # pytype: disable=import-error
-
+from jax.example_libraries import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
@@ -39,7 +32,7 @@ __all__ = [
 
 _Params = TypeVar("_Params")
 _OptState = TypeVar("_OptState")
-_IterOptState = Tuple[int, _OptState]
+_IterOptState = tuple[int, _OptState]
 
 
 class _NumPyroOptim(object):
@@ -68,7 +61,7 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
+    def eval_and_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -87,7 +80,7 @@ class _NumPyroOptim(object):
         (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
         return (out, aux), self.update(grads, state)
 
-    def eval_and_stable_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
+    def eval_and_stable_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -273,7 +266,7 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(self, fn: Callable[[Any], Tuple], state: _IterOptState):
+    def eval_and_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
         i, (flat_params, unravel_fn) = state
 
         def loss_fn(x):

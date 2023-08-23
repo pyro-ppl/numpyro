@@ -9,8 +9,8 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_jax_version_constraints = ">=0.4.7"
-_jaxlib_version_constraints = ">=0.4.7"
+_jax_version_constraints = ">=0.4.14"
+_jaxlib_version_constraints = ">=0.4.14"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
@@ -97,7 +97,6 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
