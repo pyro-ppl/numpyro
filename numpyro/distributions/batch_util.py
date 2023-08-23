@@ -524,7 +524,7 @@ def _default_promote_batch_shape(d: Distribution):
     return new_self
 
 
-@promote_batch_shape.register(Independent)
+@promote_batch_shape.register
 def _promote_batch_shape_expanded(d: ExpandedDistribution):
     orig_delta_batch_shape = d.batch_shape[
         : len(d.batch_shape) - len(d.base_dist.batch_shape)
@@ -562,6 +562,9 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
 
     new_self.base_dist = new_base_dist
     return new_self
+
+
+promote_batch_shape.register(Independent, _promote_batch_shape_expanded)
 
 
 @promote_batch_shape.register
