@@ -1165,6 +1165,8 @@ class AutoSemiDAIS(AutoGuide):
         eta_max=0.1,
         gamma_init=0.9,
         init_scale=0.1,
+        subsample_plate=None,
+        amortize_local=False,
     ):
         # init_loc_fn is only used to inspect the model.
         super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
@@ -1189,6 +1191,8 @@ class AutoSemiDAIS(AutoGuide):
         self.gamma_init = gamma_init
         self.K = K
         self.init_scale = init_scale
+        self.subsample_plate = subsample_plate
+        self.amortize_local = amortize_local
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -1201,6 +1205,8 @@ class AutoSemiDAIS(AutoGuide):
             and isinstance(site["args"][1], int)
             and site["args"][0] > site["args"][1]
         }
+        if self.subsample_plate is not None:
+            subsample_plates[self.subsample_plate] = self.prototype_trace[self.subsample_plate]
         num_plates = len(subsample_plates)
         assert (
             num_plates == 1
@@ -1351,37 +1357,68 @@ class AutoSemiDAIS(AutoGuide):
         D, K = self._local_latent_dim, self.K
 
         with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
-            eta0 = numpyro.param(
-                "{}_eta0".format(self.prefix),
-                jnp.ones(N) * self.eta_init,
-                constraint=constraints.interval(0, self.eta_max),
-                event_dim=0,
-            )
-            eta_coeff = numpyro.param(
-                "{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0
-            )
+            if self.amortize_local:
+                eta0 = numpyro.param(
+                    "{}_eta0".format(self.prefix),
+                    self.eta_init,
+                    constraint=constraints.interval(0, self.eta_max),
+                )
+                eta0 = jnp.broadcast_to(eta0, idx.shape)
+                eta_coeff = numpyro.param(
+                    "{}_eta_coeff".format(self.prefix),
+                    0.0,
+                )
+                eta_coeff = jnp.broadcast_to(eta_coeff, idx.shape)
+                gamma = numpyro.param(
+                    "{}_gamma".format(self.prefix),
+                    0.9,
+                    constraint=constraints.interval(0, 1),
+                )
+                gamma = jnp.broadcast_to(gamma, idx.shape)
+                betas = numpyro.param(
+                    "{}_beta_increments".format(self.prefix),
+                    jnp.ones(K),
+                    constraint=constraints.positive,
+                )
+                betas = jnp.broadcast_to(betas, idx.shape + (K,))
+                mass_matrix = numpyro.param(
+                    "{}_mass_matrix".format(self.prefix),
+                    jnp.ones(D),
+                    constraint=constraints.positive,
+                )
+                mass_matrix = jnp.broadcast_to(mass_matrix, idx.shape + (D,))
+            else:
+                eta0 = numpyro.param(
+                    "{}_eta0".format(self.prefix),
+                    jnp.ones(N) * self.eta_init,
+                    constraint=constraints.interval(0, self.eta_max),
+                    event_dim=0,
+                )
+                eta_coeff = numpyro.param(
+                    "{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0
+                )
+                gamma = numpyro.param(
+                    "{}_gamma".format(self.prefix),
+                    jnp.ones(N) * 0.9,
+                    constraint=constraints.interval(0, 1),
+                    event_dim=0,
+                )
+                betas = numpyro.param(
+                    "{}_beta_increments".format(self.prefix),
+                    jnp.ones((N, K)),
+                    constraint=constraints.positive,
+                    event_dim=1,
+                )
+                mass_matrix = numpyro.param(
+                    "{}_mass_matrix".format(self.prefix),
+                    jnp.ones((N, D)),
+                    constraint=constraints.positive,
+                    event_dim=1,
+                )
 
-            gamma = numpyro.param(
-                "{}_gamma".format(self.prefix),
-                jnp.ones(N) * 0.9,
-                constraint=constraints.interval(0, 1),
-                event_dim=0,
-            )
-            betas = numpyro.param(
-                "{}_beta_increments".format(self.prefix),
-                jnp.ones((N, K)),
-                constraint=constraints.positive,
-                event_dim=1,
-            )
             betas = jnp.cumsum(betas, axis=-1)
             betas = betas / betas[..., -1:]
 
-            mass_matrix = numpyro.param(
-                "{}_mass_matrix".format(self.prefix),
-                jnp.ones((N, D)),
-                constraint=constraints.positive,
-                event_dim=1,
-            )
             inv_mass_matrix = 0.5 / mass_matrix
             assert inv_mass_matrix.shape == (subsample_size, D)
 
@@ -1427,17 +1464,31 @@ class AutoSemiDAIS(AutoGuide):
                     base_z_dist_log_prob(z_0) / subsample_size,
                 )
             else:
-                z_0_loc_init = jnp.zeros((N, D))
-                z_0_loc = numpyro.param(
-                    "{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1
-                )
-                z_0_scale_init = jnp.ones((N, D)) * self.init_scale
-                z_0_scale = numpyro.param(
-                    "{}_z_0_scale".format(self.prefix),
-                    z_0_scale_init,
-                    constraint=constraints.positive,
-                    event_dim=1,
-                )
+                if self.amortize_local:
+                    z_0_loc_init = jnp.zeros(D)
+                    z_0_loc = numpyro.param(
+                        "{}_z_0_loc".format(self.prefix), z_0_loc_init,
+                    )
+                    z_0_loc = jnp.broadcast_to(z_0_loc, idx.shape + (D,))
+                    z_0_scale_init = jnp.ones(D) * self.init_scale
+                    z_0_scale = numpyro.param(
+                        "{}_z_0_scale".format(self.prefix),
+                        z_0_scale_init,
+                        constraint=constraints.positive,
+                    )
+                    z_0_scale = jnp.broadcast_to(z_0_scale, idx.shape + (D,))
+                else:
+                    z_0_loc_init = jnp.zeros((N, D))
+                    z_0_loc = numpyro.param(
+                        "{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1
+                    )
+                    z_0_scale_init = jnp.ones((N, D)) * self.init_scale
+                    z_0_scale = numpyro.param(
+                        "{}_z_0_scale".format(self.prefix),
+                        z_0_scale_init,
+                        constraint=constraints.positive,
+                        event_dim=1,
+                    )
                 base_z_dist = dist.Normal(z_0_loc, z_0_scale).to_event(1)
                 assert base_z_dist.shape() == (subsample_size, D)
                 z_0 = numpyro.sample(
