@@ -212,16 +212,26 @@ def test_scan_promote():
     assert tr["x"]["fn"].log_prob(tr["x"]["value"]).shape == (10, 3)
 
 
-def test_scan_masked():
+def test_scan_plate_mask():
     def model(y=None, T=10):
         def transition(carry, y_curr):
             x_prev, t = carry
             with numpyro.plate("N", 10, dim=-1):
                 with mask(mask=(t < T)):
-                    x_curr = numpyro.sample('x', dist.Normal(jnp.zeros((10, 3)), jnp.ones((10, 3))).to_event(1))
-                    y_curr = numpyro.sample('y', dist.Normal(x_curr, jnp.ones((10, 3))).to_event(1), obs=y_curr)
+                    x_curr = numpyro.sample(
+                        "x",
+                        dist.Normal(jnp.zeros((10, 3)), jnp.ones((10, 3))).to_event(1),
+                    )
+                    y_curr = numpyro.sample(
+                        "y",
+                        dist.Normal(x_curr, jnp.ones((10, 3))).to_event(1),
+                        obs=y_curr,
+                    )
                     return (x_curr, t + 1), None
-        x0 = numpyro.sample('x_0', dist.Normal(jnp.zeros((10, 3)), jnp.ones((10, 3))).to_event(1))
+
+        x0 = numpyro.sample(
+            "x_0", dist.Normal(jnp.zeros((10, 3)), jnp.ones((10, 3))).to_event(1)
+        )
 
         x, t = scan(transition, (x0, 0), y, length=T)
         return (x, y)
