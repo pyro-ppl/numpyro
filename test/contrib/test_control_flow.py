@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.contrib.control_flow import cond, scan
 import numpyro.distributions as dist
-from numpyro.handlers import seed, substitute, trace, mask
+from numpyro.handlers import mask, seed, substitute, trace
 from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO
 from numpyro.infer.util import potential_energy
 
