@@ -2575,6 +2575,7 @@ class AutoSemiRVRS(AutoGuide):
         reparameterized=True,
         T_lr_drop=None,
         subsample_plate=None,
+        max_rs_steps=None,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -2602,6 +2603,7 @@ class AutoSemiRVRS(AutoGuide):
         self.Z_target = Z_target
         self.num_warmup = num_warmup
         self.subsample_plate = subsample_plate
+        self.max_rs_steps = max_rs_steps
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -2887,13 +2889,14 @@ class AutoSemiRVRS(AutoGuide):
 
         rs_key, resample_key = random.split(numpyro.prng_key())
         keys = random.split(rs_key, self.S)
-        zs, log_weight, log_Z, first_log_a, guide_lp = rs_local(
+        zs, log_weight, log_Z, first_log_a, guide_lp, is_accepted = rs_local(
             accept_log_prob_fn,
             local_guide_sampler,
             keys,
             resample_key,
             local_guide_params,
             subsample_idx,
+            max_rs_steps=self.max_rs_steps,
         )
         assert T.shape == (N,)
         assert zs.shape == (self.S, M, self._local_latent_dim)
@@ -2926,21 +2929,25 @@ class AutoSemiRVRS(AutoGuide):
         ratio = (self.lambd + jnp.square(az)) / (self.lambd + az)
         ratio_bar = stop_gradient(ratio)
         surrogate = (
-            self.S / max(self.S - 1, 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum()
-            + (ratio_bar * Az).sum()
+            self.S / max(self.S - 1, 1) * (A_bar * (ratio_bar * log_a_eps_z + ratio)).sum(0)
+            + (ratio_bar * Az).sum(0)
         )
 
         if self.include_log_Z:
             elbo_correction = stop_gradient(
-                surrogate + guide_lp.sum() + log_a_eps_z.sum() - log_Z.sum() * self.S
+                surrogate + guide_lp.sum(0) + log_a_eps_z.sum(0) - log_Z * self.S
             )
         else:
             elbo_correction = stop_gradient(
-                surrogate + guide_lp.sum() + log_a_eps_z.sum()
+                surrogate + guide_lp.sum(0) + log_a_eps_z.sum(0)
             )
         # Scale the factor by subsample factor N / M
-        factor = (-surrogate + elbo_correction) * N / M + global_lp * self.S
+        mask = is_accepted.sum(0) == self.S
+        assert mask.shape == (M,)
+        factor = ((-surrogate + elbo_correction) * mask).sum(0) * N / mask.sum(0) + global_lp * self.S
         numpyro.factor("surrogate_factor", factor)
+        if self.max_rs_steps is not None:
+            numpyro.deterministic("mask", jnp.broadcast_to(mask, (self.S, M)))
 
         if self.adaptation_scheme == "Z_target":
             # minimize (Z - Z_target) ** 2
@@ -3051,7 +3058,7 @@ def get_systematic_resampling_indices(weights, rng_key, num_samples):
 
 
 def rs_local(
-    accept_log_prob_fn, guide_sampler, keys, resample_key, params, subsample_idx
+    accept_log_prob_fn, guide_sampler, keys, resample_key, params, subsample_idx, max_rs_steps=None
 ):
     def sample_and_accept_fn(subsample_idx, key, params):
         z = guide_sampler(subsample_idx, key, params)
@@ -3063,12 +3070,12 @@ def rs_local(
         jax.eval_shape(guide_sampler, subsample_idx, random.split(keys[0], M), params),
     )
     return _rs_local_custom_impl(
-        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
     )[1:]
 
 
 def _rs_local_impl(
-    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
 ):
     # sample_and_accept_fn(idx, key, param) -> z, (accept_lp, lw, guide_lp)
     assert keys.ndim == 2
@@ -3080,11 +3087,16 @@ def _rs_local_impl(
     neg_inf = jnp.full((S, M), -jnp.inf)
     keys = jax.vmap(lambda k: random.split(k, M))(keys)
     buffer = (keys, zs_init, neg_inf, neg_inf, jnp.full((S, M), False))
-    init_val = (resample_key, keys, neg_inf, neg_inf, jnp.full(M, 0), buffer)
+    init_val = (0, resample_key, keys, neg_inf, neg_inf, jnp.full(M, 0), buffer)
 
     def cond_fn(val):
+        step = val[0]
         is_accepted = val[-1][-1]
-        return (is_accepted.sum(0) < S).any()
+        keep_running = is_accepted.sum(0) < S
+        if max_rs_steps is not None:
+            return (keep_running.any() & (step < max_rs_steps)) | keep_running.all()
+        else:
+            return keep_running.any()
 
     def body_fn(key, resample_idx):
         key_next, key_uniform, key_q = jax.vmap(
@@ -3099,6 +3111,7 @@ def _rs_local_impl(
 
     def batch_body_fn(val):
         (
+            step,
             resample_key,
             keys,
             batch_log_a_sum,
@@ -3161,6 +3174,7 @@ def _rs_local_impl(
             (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer),
         )
         return (
+            step + 1,
             resample_key,
             keys_next,
             batch_log_a_sum,
@@ -3169,28 +3183,29 @@ def _rs_local_impl(
             batch_buffer,
         )
 
-    _, _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
+    _, _, _, log_a_sum, first_log_a, num_samples, buffer = jax.lax.while_loop(
         cond_fn, batch_body_fn, init_val
     )
-    key_q, z, log_w, guide_lp, _ = buffer
+    key_q, z, log_w, guide_lp, is_accepted = buffer
+    assert is_accepted.shape == (S, M)
     log_Z = logsumexp(log_a_sum, axis=0) - jnp.log(num_samples * S)
-    return key_q, z, log_w, log_Z, first_log_a, guide_lp
+    return key_q, z, log_w, log_Z, first_log_a, guide_lp, is_accepted
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0,))
 def _rs_local_custom_impl(
-    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
 ):
     return _rs_local_impl(
-        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
     )
 
 
 def _rs_local_fwd(
-    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
 ):
     out = _rs_local_custom_impl(
-        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
     )
     key_q = out[0]
     return out, (subsample_idx, key_q, params)
@@ -3210,7 +3225,7 @@ def _rs_local_bwd(sample_and_accept_fn, res, g):
 
     batch_params_grad = jax.vmap(sample_grad)(key_q, z_grads, lw_grads)
     params_grad = jax.tree_util.tree_map(lambda x: x.sum(0), batch_params_grad)
-    return (None, None, None, None, params_grad)
+    return (None, None, None, None, params_grad, None)
 
 
 _rs_local_custom_impl.defvjp(_rs_local_fwd, _rs_local_bwd)

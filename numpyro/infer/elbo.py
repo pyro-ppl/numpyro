@@ -159,7 +159,8 @@ class Trace_ELBO(ELBO):
                 latents = {
                     name: site["value"]
                     for name, site in guide_trace.items()
-                    if site["type"] == "sample" and site["value"].size > 0
+                    if (site["type"] == "sample" and site["value"].size > 0)
+                    or (site["type"] == "deterministic")
                 }
                 model_log_density = vmap(get_model_density)(seeds, latents)
                 assert model_log_density.ndim == 1

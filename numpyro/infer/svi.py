@@ -8,6 +8,7 @@ import warnings
 import numpy as np
 import tqdm
 
+import jax
 from jax import jit, lax, random
 from jax.example_libraries import optimizers
 import jax.numpy as jnp
