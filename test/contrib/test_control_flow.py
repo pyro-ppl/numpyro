@@ -239,3 +239,5 @@ def test_scan_plate_mask():
     with numpyro.handlers.seed(rng_seed=0):
         model_density, model_trace = log_density(model, (None, 10), {}, {})
         assert model_density
+        assert model_trace["x"]["fn"].batch_shape == (10,)
+        assert model_trace["x"]["fn"].event_shape == (3,)
