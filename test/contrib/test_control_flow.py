@@ -12,7 +12,7 @@ from numpyro.contrib.control_flow import cond, scan
 import numpyro.distributions as dist
 from numpyro.handlers import mask, seed, substitute, trace
 from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO
-from numpyro.infer.util import potential_energy
+from numpyro.infer.util import potential_energy, log_density
 
 
 def test_scan():
@@ -237,4 +237,5 @@ def test_scan_plate_mask():
         return (x, y)
 
     with numpyro.handlers.seed(rng_seed=0):
-        x, y = model()
+        model_density, model_trace = log_density(model, (None, 10), {}, {})
+        assert model_density

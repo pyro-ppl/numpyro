@@ -564,14 +564,20 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
     return new_self
 
 
-promote_batch_shape.register(Independent, _promote_batch_shape_expanded)
-
-
 @promote_batch_shape.register
 def _promote_batch_shape_masked(d: MaskedDistribution):
     new_self = copy.copy(d)
     new_base_dist = promote_batch_shape(d.base_dist)
     new_self._batch_shape = new_base_dist.batch_shape
+    new_self.base_dist = new_base_dist
+    return new_self
+
+
+@promote_batch_shape.register
+def _promote_batch_shape_independent(d: Independent):
+    new_self = copy.copy(d)
+    new_base_dist = promote_batch_shape(d.base_dist)
+    new_self._batch_shape = new_base_dist.batch_shape[: d.event_dim]
     new_self.base_dist = new_base_dist
     return new_self
 
