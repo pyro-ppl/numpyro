@@ -2888,15 +2888,15 @@ class AutoSemiRVRS(AutoGuide):
             return jnp.log(self.epsilon + (1 - self.epsilon) * a), lw, guide_lp
 
         rs_key, resample_key = random.split(numpyro.prng_key())
-        keys = random.split(rs_key, self.S)
         zs, log_weight, log_Z, first_log_a, guide_lp, is_accepted = rs_local(
             accept_log_prob_fn,
             local_guide_sampler,
-            keys,
+            rs_key,
             resample_key,
             local_guide_params,
             subsample_idx,
             max_rs_steps=self.max_rs_steps,
+            rs_particles=self.S,
         )
         assert T.shape == (N,)
         assert zs.shape == (self.S, M, self._local_latent_dim)
@@ -2944,7 +2944,8 @@ class AutoSemiRVRS(AutoGuide):
         # Scale the factor by subsample factor N / M
         mask = is_accepted.sum(0) == self.S
         assert mask.shape == (M,)
-        factor = ((-surrogate + elbo_correction) * mask).sum(0) * N / mask.sum(0) + global_lp * self.S
+        mask_sum = jnp.maximum(mask.sum(0), 1.)
+        factor = ((-surrogate + elbo_correction) * mask).sum(0) * N / mask_sum + global_lp * self.S
         numpyro.factor("surrogate_factor", factor)
         if self.max_rs_steps is not None:
             numpyro.deterministic("mask", jnp.broadcast_to(mask, (self.S, M)))
@@ -3058,7 +3059,7 @@ def get_systematic_resampling_indices(weights, rng_key, num_samples):
 
 
 def rs_local(
-    accept_log_prob_fn, guide_sampler, keys, resample_key, params, subsample_idx, max_rs_steps=None
+    accept_log_prob_fn, guide_sampler, rs_key, resample_key, params, subsample_idx, max_rs_steps, rs_particles
 ):
     def sample_and_accept_fn(subsample_idx, key, params):
         z = guide_sampler(subsample_idx, key, params)
@@ -3067,19 +3068,54 @@ def rs_local(
     M = subsample_idx.shape[0]
     z_init = tree_map(
         lambda x: jnp.zeros(x.shape, dtype=x.dtype),
-        jax.eval_shape(guide_sampler, subsample_idx, random.split(keys[0], M), params),
+        jax.eval_shape(guide_sampler, subsample_idx, random.split(rs_key, M), params),
     )
     return _rs_local_custom_impl(
-        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
+        sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles
     )[1:]
 
 
+def _subsample_indexing(xs, idxs):
+    return jax.vmap(lambda x, idx: x[idx], in_axes=1, out_axes=1)(xs, idxs)
+
+
 def _rs_local_impl(
-    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
+    sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles
 ):
+    if max_rs_steps is None:
+        return _rs_local_impl_orig(sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles)
+    else:
+        return _rs_local_impl_max(sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles)
+
+
+def _rs_local_impl_max(sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles):
+    del z_init
     # sample_and_accept_fn(idx, key, param) -> z, (accept_lp, lw, guide_lp)
-    assert keys.ndim == 2
-    S = keys.shape[0]
+    S = rs_particles
+    M = subsample_idx.shape[0]
+    batch_key_q = jax.random.split(rs_key, max_rs_steps * M).reshape((max_rs_steps, M, 2))
+    batch_z, (batch_accept_log_prob, batch_log_weight, batch_guide_lp) = jax.vmap(sample_and_accept_fn, in_axes=(None, 0, None))(
+        subsample_idx, batch_key_q, params
+    )
+    log_u = -random.exponential(resample_key, shape=(M,))
+    batch_is_accepted = log_u < batch_accept_log_prob
+    maybe_accept_indices = jnp.argsort(batch_is_accepted, axis=0)[-S:]
+    key_q, z, log_weight, guide_lp, is_accepted = jax.tree_util.tree_map(
+        lambda x: _subsample_indexing(x, maybe_accept_indices),
+        (batch_key_q, batch_z, batch_log_weight, batch_guide_lp, batch_is_accepted)
+    )
+    log_Z = logsumexp(batch_accept_log_prob, axis=0) - jnp.log(max_rs_steps)
+    first_log_a = batch_accept_log_prob[:S]
+    return key_q, z, log_weight, log_Z, first_log_a, guide_lp, is_accepted
+
+
+def _rs_local_impl_orig(
+    sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles
+):
+    del max_rs_steps
+    # sample_and_accept_fn(idx, key, param) -> z, (accept_lp, lw, guide_lp)
+    keys = random.split(rs_key, rs_particles)
+    S = rs_particles
     M = subsample_idx.shape[0]
     assert z_init.ndim == 2
     assert z_init.shape[0] == M
@@ -3093,10 +3129,7 @@ def _rs_local_impl(
         step = val[0]
         is_accepted = val[-1][-1]
         keep_running = is_accepted.sum(0) < S
-        if max_rs_steps is not None:
-            return (keep_running.any() & (step < max_rs_steps)) | keep_running.all()
-        else:
-            return keep_running.any()
+        return keep_running.any()
 
     def body_fn(key, resample_idx):
         key_next, key_uniform, key_q = jax.vmap(
@@ -3119,60 +3152,73 @@ def _rs_local_impl(
             batch_num_samples,
             batch_buffer,
         ) = val
-        resample_key, resample_subkey = random.split(resample_key)
+        # resample_key, resample_subkey = random.split(resample_key)
         # distribute batch-size resource to subsample items
-        is_accepted = batch_buffer[-1]
-        weights = S - is_accepted.sum(0)
-        weights = jnp.where(weights < 0, 0, weights)
-        weights = weights / weights.sum(-1, keepdims=True)
-        resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
-        # resample_idxs = jnp.arange(M)
+        # is_accepted = batch_buffer[-1]
+        # weights = S - is_accepted.sum(0)
+        # weights = jnp.where(weights < 0, 0, weights)
+        # weights = weights / weights.sum(-1, keepdims=True)
+        # Use categorical is faster than systematic
+        # resample_idxs = jax.random.categorical(resample_subkey, jnp.log(weights), shape=(M,))
+        # resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
+        resample_idxs = jnp.arange(M)
         assert resample_idxs.shape == (M,)
 
         keys_next, batch_accept_log_prob, batch_candidate = jax.vmap(
             body_fn, in_axes=(0, None)
         )(keys, resample_idxs)
 
-        def update_idx(i, val):
-            batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
-            idx = resample_idxs[i]
-            accept_log_prob = batch_accept_log_prob[:, i]
-            candidate = tree_map(lambda x: x[:, i], batch_candidate)
-            buffer = tree_map(lambda x: x[:, idx], batch_buffer)
-            log_a_sum = batch_log_a_sum[:, idx]
-            first_log_a = batch_first_log_a[:, idx]
-            num_samples = batch_num_samples[idx]
-
-            buffer_extend = tree_map(
-                lambda a, b: jnp.concatenate([a, b]), candidate, buffer
-            )
-            is_accepted = buffer_extend[-1]
-            maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
-            new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
-            log_a_sum = logsumexp(
-                jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0
-            )
-            first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
-
-            batch_buffer = tree_map(
-                lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer
-            )
-            batch_log_a_sum = batch_log_a_sum.at[:, idx].set(log_a_sum)
-            batch_first_log_a = batch_first_log_a.at[:, idx].set(first_log_a)
-            batch_num_samples = batch_num_samples.at[idx].set(num_samples + 1)
-            return batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
-
-        (
-            batch_log_a_sum,
-            batch_first_log_a,
-            batch_num_samples,
-            batch_buffer,
-        ) = lax.fori_loop(
-            0,
-            M,
-            update_idx,
-            (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer),
+        buffer_extend = tree_map(
+            lambda a, b: jnp.concatenate([a, b]), batch_candidate, batch_buffer
         )
+        is_accepted = buffer_extend[-1]
+        maybe_accept_indices = jnp.argsort(is_accepted, axis=0)[-S:]
+        batch_buffer = tree_map(lambda x: _subsample_indexing(x,maybe_accept_indices), buffer_extend)
+
+        batch_log_a_sum = logsumexp(jnp.stack([batch_log_a_sum, batch_accept_log_prob], axis=0), axis=0)
+        batch_first_log_a = jnp.where(batch_num_samples == 0, batch_accept_log_prob, batch_first_log_a)
+        batch_num_samples = batch_num_samples + 1
+
+        # def update_idx(i, val):
+        #     batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
+        #     idx = resample_idxs[i]
+        #     accept_log_prob = batch_accept_log_prob[:, i]
+        #     candidate = tree_map(lambda x: x[:, i], batch_candidate)
+        #     buffer = tree_map(lambda x: x[:, idx], batch_buffer)
+        #     log_a_sum = batch_log_a_sum[:, idx]
+        #     first_log_a = batch_first_log_a[:, idx]
+        #     num_samples = batch_num_samples[idx]
+
+        #     buffer_extend = tree_map(
+        #         lambda a, b: jnp.concatenate([a, b]), candidate, buffer
+        #     )
+        #     is_accepted = buffer_extend[-1]
+        #     maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
+        #     new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
+        #     log_a_sum = logsumexp(
+        #         jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0
+        #     )
+        #     first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
+
+        #     batch_buffer = tree_map(
+        #         lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer
+        #     )
+        #     batch_log_a_sum = batch_log_a_sum.at[:, idx].set(log_a_sum)
+        #     batch_first_log_a = batch_first_log_a.at[:, idx].set(first_log_a)
+        #     batch_num_samples = batch_num_samples.at[idx].set(num_samples + 1)
+        #     return batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
+
+        # (
+        #     batch_log_a_sum,
+        #     batch_first_log_a,
+        #     batch_num_samples,
+        #     batch_buffer,
+        # ) = lax.fori_loop(
+        #     0,
+        #     M,
+        #     update_idx,
+        #     (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer),
+        # )
         return (
             step + 1,
             resample_key,
@@ -3192,26 +3238,26 @@ def _rs_local_impl(
     return key_q, z, log_w, log_Z, first_log_a, guide_lp, is_accepted
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0,))
+@partial(jax.custom_vjp, nondiff_argnums=(0, 6, 7))
 def _rs_local_custom_impl(
-    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
+    sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles
 ):
     return _rs_local_impl(
-        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
+        sample_and_accept_fn, z_init, subsample_idx, rs_key, resample_key, params, max_rs_steps, rs_particles
     )
 
 
 def _rs_local_fwd(
-    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
+    sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps, rs_particles
 ):
     out = _rs_local_custom_impl(
-        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps
+        sample_and_accept_fn, z_init, subsample_idx, keys, resample_key, params, max_rs_steps, rs_particles
     )
     key_q = out[0]
     return out, (subsample_idx, key_q, params)
 
 
-def _rs_local_bwd(sample_and_accept_fn, res, g):
+def _rs_local_bwd(sample_and_accept_fn, max_rs_steps, rs_particles, res, g):
     subsample_idx, key_q, params = res
     _, z_grads, lw_grads, *_ = g
 
@@ -3225,7 +3271,7 @@ def _rs_local_bwd(sample_and_accept_fn, res, g):
 
     batch_params_grad = jax.vmap(sample_grad)(key_q, z_grads, lw_grads)
     params_grad = jax.tree_util.tree_map(lambda x: x.sum(0), batch_params_grad)
-    return (None, None, None, None, params_grad, None)
+    return (None, None, None, None, params_grad)
 
 
 _rs_local_custom_impl.defvjp(_rs_local_fwd, _rs_local_bwd)
