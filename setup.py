@@ -61,7 +61,8 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            "funsor>=0.4.1",
+            "funsor @ git+https://github.com/pyro-ppl/funsor.git",
+            # "funsor>=0.4.1",
             "graphviz",
             "jaxns>=2.0.1",
             "matplotlib",
