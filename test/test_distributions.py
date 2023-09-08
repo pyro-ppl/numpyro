@@ -2849,6 +2849,55 @@ def test_kl_expanded_normal(batch_shape, event_shape):
     assert_allclose(actual, expected)
 
 
+@pytest.mark.parametrize("batch_shape", [(), (1,), (2, 3)], ids=str)
+def test_kl_multivariate_normal_consistency_with_independent_normals(batch_shape):
+    event_shape = (5, )
+    shape = batch_shape + event_shape
+
+    def make_dists():
+        mus = np.random.normal(size=shape)
+        scales = np.exp(np.random.normal(size=shape))
+        scales = np.ones(shape)
+
+        def diagonalize(v, ignore_axes: int):
+            if ignore_axes == 0:
+                return jnp.diag(v)
+            return vmap(diagonalize, in_axes=(0, None))(v, ignore_axes - 1)
+        scale_tril = diagonalize(scales, len(batch_shape))
+        return (
+            dist.Normal(mus, scales).to_event(len(event_shape)),
+            dist.MultivariateNormal(mus, scale_tril=scale_tril)
+        )
+
+    p_uni, p_mvn = make_dists()
+    q_uni, q_mvn = make_dists()
+
+    actual = kl_divergence(
+        p_mvn, q_mvn
+    )
+    expected = kl_divergence(
+        p_uni, q_uni
+    )
+    assert_allclose(actual, expected, atol=1e-6)
+
+
+def test_kl_multivariate_normal_nondiagonal_covariance():
+    p_mvn = dist.MultivariateNormal(np.zeros(2), covariance_matrix=np.eye(2))
+    q_mvn = dist.MultivariateNormal(
+        np.ones(2),
+        covariance_matrix=np.array([
+            [2, .8],
+            [.8, .5]
+        ])
+    )
+
+    actual = kl_divergence(
+        p_mvn, q_mvn
+    )
+    expected = 3.21138
+    assert_allclose(actual, expected, atol=2e-5)
+
+
 @pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
 @pytest.mark.parametrize(
     "p_dist, q_dist",
