@@ -2914,8 +2914,8 @@ class AutoSemiRVRS(AutoGuide):
             assert first_log_a.shape == (self.include_log_Z, M)
             log_Z = logsumexp(first_log_a, axis=0) - jnp.log(self.include_log_Z)
             assert log_Z.shape == (M,)
-
-        numpyro.deterministic("first_log_a", first_log_a)
+        else:
+            numpyro.deterministic("first_log_a", first_log_a)
 
         # compute surrogate elbo
         log_weight_T = log_weight + T[subsample_idx]
