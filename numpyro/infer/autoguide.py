@@ -2576,6 +2576,7 @@ class AutoSemiRVRS(AutoGuide):
         T_lr_drop=None,
         subsample_plate=None,
         max_rs_steps=None,
+        relocate_resource_when_accepted=False,
     ):
         if S < 1:
             raise ValueError("S must satisfy S >= 1 (got S = {})".format(S))
@@ -2604,6 +2605,7 @@ class AutoSemiRVRS(AutoGuide):
         self.num_warmup = num_warmup
         self.subsample_plate = subsample_plate
         self.max_rs_steps = max_rs_steps
+        self.relocate_resource_when_accepted = relocate_resource_when_accepted
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -2892,7 +2894,7 @@ class AutoSemiRVRS(AutoGuide):
             accept_log_prob_fn,
             local_guide_sampler,
             rs_key,
-            resample_key,
+            resample_key if (self.relocate_resource_when_accepted or self.max_rs_steps) else None,
             local_guide_params,
             subsample_idx,
             max_rs_steps=self.max_rs_steps,
@@ -3097,7 +3099,8 @@ def _rs_local_impl_max(sample_and_accept_fn, z_init, subsample_idx, rs_key, resa
     batch_z, (batch_accept_log_prob, batch_log_weight, batch_guide_lp) = jax.vmap(sample_and_accept_fn, in_axes=(None, 0, None))(
         subsample_idx, batch_key_q, params
     )
-    log_u = -random.exponential(resample_key, shape=(M,))
+    assert batch_accept_log_prob.shape == (max_rs_steps, M)
+    log_u = -random.exponential(resample_key, shape=(max_rs_steps, M))
     batch_is_accepted = log_u < batch_accept_log_prob
     maybe_accept_indices = jnp.argsort(batch_is_accepted, axis=0)[-S:]
     key_q, z, log_weight, guide_lp, is_accepted = jax.tree_util.tree_map(
@@ -3126,7 +3129,6 @@ def _rs_local_impl_orig(
     init_val = (0, resample_key, keys, neg_inf, neg_inf, jnp.full(M, 0), buffer)
 
     def cond_fn(val):
-        step = val[0]
         is_accepted = val[-1][-1]
         keep_running = is_accepted.sum(0) < S
         return keep_running.any()
@@ -3152,73 +3154,76 @@ def _rs_local_impl_orig(
             batch_num_samples,
             batch_buffer,
         ) = val
-        # resample_key, resample_subkey = random.split(resample_key)
-        # distribute batch-size resource to subsample items
-        # is_accepted = batch_buffer[-1]
-        # weights = S - is_accepted.sum(0)
-        # weights = jnp.where(weights < 0, 0, weights)
-        # weights = weights / weights.sum(-1, keepdims=True)
-        # Use categorical is faster than systematic
-        # resample_idxs = jax.random.categorical(resample_subkey, jnp.log(weights), shape=(M,))
-        # resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
-        resample_idxs = jnp.arange(M)
+        if resample_key is not None:
+            resample_key, resample_subkey = random.split(resample_key)
+            # distribute batch-size resource to subsample items
+            is_accepted = batch_buffer[-1]
+            weights = S - is_accepted.sum(0)
+            weights = jnp.where(weights < 0, 0, weights)
+            weights = weights / weights.sum(-1, keepdims=True)
+            # Use categorical is faster than systematic
+            resample_idxs = jax.random.categorical(resample_subkey, jnp.log(weights), shape=(M,))
+            resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
+        else:
+            resample_idxs = jnp.arange(M)
         assert resample_idxs.shape == (M,)
 
         keys_next, batch_accept_log_prob, batch_candidate = jax.vmap(
             body_fn, in_axes=(0, None)
         )(keys, resample_idxs)
 
-        buffer_extend = tree_map(
-            lambda a, b: jnp.concatenate([a, b]), batch_candidate, batch_buffer
-        )
-        is_accepted = buffer_extend[-1]
-        maybe_accept_indices = jnp.argsort(is_accepted, axis=0)[-S:]
-        batch_buffer = tree_map(lambda x: _subsample_indexing(x,maybe_accept_indices), buffer_extend)
+        def update_idx(i, val):
+            batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
+            idx = resample_idxs[i]
+            accept_log_prob = batch_accept_log_prob[:, i]
+            candidate = tree_map(lambda x: x[:, i], batch_candidate)
+            buffer = tree_map(lambda x: x[:, idx], batch_buffer)
+            log_a_sum = batch_log_a_sum[:, idx]
+            first_log_a = batch_first_log_a[:, idx]
+            num_samples = batch_num_samples[idx]
 
-        batch_log_a_sum = logsumexp(jnp.stack([batch_log_a_sum, batch_accept_log_prob], axis=0), axis=0)
-        batch_first_log_a = jnp.where(batch_num_samples == 0, batch_accept_log_prob, batch_first_log_a)
-        batch_num_samples = batch_num_samples + 1
+            buffer_extend = tree_map(
+                lambda a, b: jnp.concatenate([a, b]), candidate, buffer
+            )
+            is_accepted = buffer_extend[-1]
+            maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
+            new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
+            log_a_sum = logsumexp(
+                jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0
+            )
+            first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
 
-        # def update_idx(i, val):
-        #     batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer = val
-        #     idx = resample_idxs[i]
-        #     accept_log_prob = batch_accept_log_prob[:, i]
-        #     candidate = tree_map(lambda x: x[:, i], batch_candidate)
-        #     buffer = tree_map(lambda x: x[:, idx], batch_buffer)
-        #     log_a_sum = batch_log_a_sum[:, idx]
-        #     first_log_a = batch_first_log_a[:, idx]
-        #     num_samples = batch_num_samples[idx]
+            batch_buffer = tree_map(
+                lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer
+            )
+            batch_log_a_sum = batch_log_a_sum.at[:, idx].set(log_a_sum)
+            batch_first_log_a = batch_first_log_a.at[:, idx].set(first_log_a)
+            batch_num_samples = batch_num_samples.at[idx].set(num_samples + 1)
+            return batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
 
-        #     buffer_extend = tree_map(
-        #         lambda a, b: jnp.concatenate([a, b]), candidate, buffer
-        #     )
-        #     is_accepted = buffer_extend[-1]
-        #     maybe_accept_indices = jnp.argsort(is_accepted)[-S:]
-        #     new_buffer = tree_map(lambda x: x[maybe_accept_indices], buffer_extend)
-        #     log_a_sum = logsumexp(
-        #         jnp.stack([log_a_sum, accept_log_prob], axis=0), axis=0
-        #     )
-        #     first_log_a = select(num_samples == 0, accept_log_prob, first_log_a)
+        if resample_key is not None:
+            (
+                batch_log_a_sum,
+                batch_first_log_a,
+                batch_num_samples,
+                batch_buffer,
+            ) = lax.fori_loop(
+                0,
+                M,
+                update_idx,
+                (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer),
+            )
+        else:
+            buffer_extend = tree_map(
+                lambda a, b: jnp.concatenate([a, b]), batch_candidate, batch_buffer
+            )
+            is_accepted = buffer_extend[-1]
+            maybe_accept_indices = jnp.argsort(is_accepted, axis=0)[-S:]
+            batch_buffer = tree_map(lambda x: _subsample_indexing(x,maybe_accept_indices), buffer_extend)
 
-        #     batch_buffer = tree_map(
-        #         lambda x, y: x.at[:, idx].set(y), batch_buffer, new_buffer
-        #     )
-        #     batch_log_a_sum = batch_log_a_sum.at[:, idx].set(log_a_sum)
-        #     batch_first_log_a = batch_first_log_a.at[:, idx].set(first_log_a)
-        #     batch_num_samples = batch_num_samples.at[idx].set(num_samples + 1)
-        #     return batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer
-
-        # (
-        #     batch_log_a_sum,
-        #     batch_first_log_a,
-        #     batch_num_samples,
-        #     batch_buffer,
-        # ) = lax.fori_loop(
-        #     0,
-        #     M,
-        #     update_idx,
-        #     (batch_log_a_sum, batch_first_log_a, batch_num_samples, batch_buffer),
-        # )
+            batch_log_a_sum = logsumexp(jnp.stack([batch_log_a_sum, batch_accept_log_prob], axis=0), axis=0)
+            batch_first_log_a = jnp.where(batch_num_samples == 0, batch_accept_log_prob, batch_first_log_a)
+            batch_num_samples = batch_num_samples + 1
         return (
             step + 1,
             resample_key,
