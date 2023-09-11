@@ -3162,7 +3162,7 @@ def _rs_local_impl_orig(
             weights = jnp.where(weights < 0, 0, weights)
             weights = weights / weights.sum(-1, keepdims=True)
             # Use categorical is faster than systematic
-            resample_idxs = jax.random.categorical(resample_subkey, jnp.log(weights), shape=(M,))
+            # resample_idxs = jax.random.categorical(resample_subkey, jnp.log(weights), shape=(M,))
             resample_idxs = get_systematic_resampling_indices(weights, resample_subkey, M)
         else:
             resample_idxs = jnp.arange(M)
