@@ -273,7 +273,7 @@ def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
             expected_shape = (num_particles, *np.shape(inner_param["value"]))
             assert init_value.shape == expected_shape
             if "auto_loc" in name or name == "b":
-                assert np.alltrue(init_value != np.zeros(expected_shape))
+                assert np.all(init_value != np.zeros(expected_shape))
                 assert np.unique(init_value).shape == init_value.reshape(-1).shape
             elif "scale" in name:
                 assert_allclose(init_value[init_value != 0.0], 0.1, rtol=1e-6)
@@ -311,7 +311,7 @@ def test_init_custom_guide(num_particles):
     expected_shape = (num_particles, latent_dim)
 
     assert expected_shape == init_value.shape
-    assert np.alltrue(init_value != np.zeros(expected_shape))
+    assert np.all(init_value != np.zeros(expected_shape))
     assert np.unique(init_value).shape == init_value.reshape(-1).shape
 
 

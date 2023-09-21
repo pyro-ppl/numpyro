@@ -38,7 +38,7 @@ matrices = chain(pd_matrices, nd_matices)
 @pytest.mark.parametrize("m", matrices)
 def test_posdef(m):
     pd_m = posdef(m)
-    assert jnp.alltrue(jnp.linalg.eigvals(pd_m) > 0)
+    assert jnp.all(jnp.linalg.eigvals(pd_m) > 0)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (2,), (3, 1)])

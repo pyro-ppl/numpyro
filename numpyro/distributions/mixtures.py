@@ -7,7 +7,8 @@ import jax.numpy as jnp
 
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
-from numpyro.distributions.util import is_prng_key, validate_sample
+from numpyro.distributions.util import validate_sample
+from numpyro.util import is_prng_key
 
 
 def Mixture(mixing_distribution, component_distributions, *, validate_args=None):

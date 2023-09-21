@@ -7,7 +7,7 @@ import jax.core as core
 from jax.experimental.pjit import pjit_p
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 from jax.interpreters.pxla import xla_pmap_p
-import jax.linear_util as lu
+import jax.extend.linear_util as lu
 import jax.numpy as jnp
 
 

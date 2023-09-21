@@ -16,14 +16,13 @@ from jax.scipy.special import erf, i0e, i1e, logsumexp
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
-    is_prng_key,
     lazy_property,
     promote_shapes,
     safe_normalize,
     validate_sample,
     von_mises_centered,
 )
-from numpyro.util import while_loop
+from numpyro.util import is_prng_key, while_loop
 
 
 def _numel(shape):

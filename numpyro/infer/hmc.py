@@ -20,7 +20,7 @@ from numpyro.infer.hmc_util import (
 )
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
-from numpyro.util import cond, fori_loop, identity
+from numpyro.util import cond, fori_loop, identity, is_prng_key
 
 HMCState = namedtuple(
     "HMCState",
@@ -703,7 +703,7 @@ class HMC(MCMCKernel):
         self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
     ):
         # non-vectorized
-        if rng_key.ndim == 1:
+        if is_prng_key(rng_key):
             rng_key, rng_key_init_model = random.split(rng_key)
         # vectorized
         else:
@@ -749,7 +749,7 @@ class HMC(MCMCKernel):
             model_kwargs=model_kwargs,
             rng_key=rng_key,
         )
-        if rng_key.ndim == 1:
+        if is_prng_key(rng_key):
             init_state = hmc_init_fn(init_params, rng_key)
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
