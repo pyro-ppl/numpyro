@@ -917,7 +917,7 @@ def test_structured_mass():
     cov = np.zeros((5, 5))
     cov[:2, :2] = w_cov
     cov[2:4, 2:4] = xy_cov
-    cov[4, 4] = z_var
+    cov[4, 4] = z_var[0]
 
     kernel = NUTS(model, dense_mass=[("w",), ("x", "y")])
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1)
