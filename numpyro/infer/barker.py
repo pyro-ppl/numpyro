@@ -14,7 +14,7 @@ from numpyro.infer.hmc_util import warmup_adapter
 from numpyro.infer.initialization import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
-from numpyro.util import identity
+from numpyro.util import identity, is_prng_key
 
 BarkerMHState = namedtuple(
     "BarkerMHState",
@@ -170,7 +170,7 @@ class BarkerMH(MCMCKernel):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         self._num_warmup = num_warmup
         # TODO (low-priority): support chain_method="vectorized", i.e. rng_key is a batch of keys
-        assert rng_key.shape == (2,), (
+        assert is_prng_key(rng_key), (
             "BarkerMH only supports chain_method='parallel' or chain_method='sequential'."
             " Please put in a feature request if you think it would be useful to be able "
             "to use BarkerMH in vectorized mode."

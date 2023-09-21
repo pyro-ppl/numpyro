@@ -4,6 +4,7 @@
 from collections import namedtuple
 from functools import partial, update_wrapper
 import math
+import warnings
 
 import numpy as np
 
@@ -612,11 +613,11 @@ def safe_normalize(x, *, p=2):
     return x
 
 
-# src: https://github.com/google/jax/blob/5a41779fbe12ba7213cd3aa1169d3b0ffb02a094/jax/_src/random.py#L95
 def is_prng_key(key):
-    if isinstance(key, jax.random.PRNGKeyArray):
-        return key.shape == ()
+    warnings.warn("Please use numpyro.util.is_prng_key.", DeprecationWarning)
     try:
+        if jax.dtypes.issubdtype(key.dtype, jax.dtypes.prng_key):
+            return key.shape == ()
         return key.shape == (2,) and key.dtype == np.uint32
     except AttributeError:
         return False

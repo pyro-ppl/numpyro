@@ -8,10 +8,10 @@ from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     clamp_probs,
-    is_prng_key,
     lazy_property,
     validate_sample,
 )
+from numpyro.util import is_prng_key
 
 
 class GaussianCopula(Distribution):

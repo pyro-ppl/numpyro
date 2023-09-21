@@ -93,7 +93,7 @@ from numpyro.primitives import (
     apply_stack,
     plate,
 )
-from numpyro.util import find_stack_level, not_jax_tracer
+from numpyro.util import find_stack_level, is_prng_key, not_jax_tracer
 
 __all__ = [
     "block",
@@ -705,15 +705,11 @@ class seed(Messenger):
     """
 
     def __init__(self, fn=None, rng_seed=None, hide_types=None):
-        if isinstance(rng_seed, int) or (
+        if not is_prng_key(rng_seed) and (isinstance(rng_seed, int) or (
             isinstance(rng_seed, (np.ndarray, jnp.ndarray)) and not jnp.shape(rng_seed)
-        ):
+        )):
             rng_seed = random.PRNGKey(rng_seed)
-        if not (
-            isinstance(rng_seed, (np.ndarray, jnp.ndarray))
-            and rng_seed.dtype == jnp.uint32
-            and rng_seed.shape == (2,)
-        ):
+        if not is_prng_key(rng_seed):
             raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
         self.rng_key = rng_seed
         self.hide_types = [] if hide_types is None else hide_types

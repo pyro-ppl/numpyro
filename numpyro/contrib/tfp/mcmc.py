@@ -14,7 +14,7 @@ import tensorflow_probability.substrates.jax as tfp
 from numpyro.infer import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
-from numpyro.util import identity
+from numpyro.util import identity, is_prng_key
 
 TFPKernelState = namedtuple("TFPKernelState", ["z", "kernel_results", "rng_key"])
 
@@ -174,7 +174,7 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
     ):
         # non-vectorized
-        if rng_key.ndim == 1:
+        if is_prng_key(rng_key):
             rng_key, rng_key_init_model = random.split(rng_key)
         # vectorized
         else:
@@ -190,7 +190,7 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
                 " `target_log_prob_fn`."
             )
 
-        if rng_key.ndim == 1:
+        if is_prng_key(rng_key):
             init_state = self._init_fn(init_params, rng_key)
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some

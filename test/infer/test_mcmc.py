@@ -22,7 +22,7 @@ from numpyro.infer.hmc import hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.util import initialize_model
-from numpyro.util import fori_collect
+from numpyro.util import fori_collect, is_prng_key
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH])
@@ -406,8 +406,8 @@ def test_mcmc_progbar():
     tree_all(
         tree_map(
             partial(assert_allclose, atol=1e-4, rtol=1e-4),
-            mcmc1.post_warmup_state,
-            mcmc.post_warmup_state,
+            tree_map(lambda x: random.key_data(x) if is_prng_key(x) else x, mcmc1.post_warmup_state),
+            tree_map(lambda x: random.key_data(x) if is_prng_key(x) else x, mcmc.post_warmup_state),
         )
     )
 
