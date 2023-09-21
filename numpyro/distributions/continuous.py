@@ -64,7 +64,6 @@ from numpyro.distributions.util import (
     betaincinv,
     cholesky_of_inverse,
     gammaincinv,
-    is_prng_key,
     lazy_property,
     matrix_to_tril_vec,
     promote_shapes,
@@ -72,6 +71,7 @@ from numpyro.distributions.util import (
     validate_sample,
     vec_to_tril_matrix,
 )
+from numpyro.util import is_prng_key
 
 
 class AsymmetricLaplace(Distribution):

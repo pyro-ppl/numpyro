@@ -41,13 +41,12 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     clamp_probs,
-    is_prng_key,
     lazy_property,
     multinomial,
     promote_shapes,
     validate_sample,
 )
-from numpyro.util import not_jax_tracer
+from numpyro.util import is_prng_key, not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):

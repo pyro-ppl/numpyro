@@ -14,7 +14,8 @@ from numpyro.distributions.discrete import (
     ZeroInflatedDistribution,
 )
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample
+from numpyro.distributions.util import promote_shapes, validate_sample
+from numpyro.util import is_prng_key
 
 
 def _log_beta_1(alpha, value):

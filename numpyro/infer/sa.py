@@ -12,7 +12,7 @@ import numpyro.distributions as dist
 from numpyro.distributions.util import cholesky_update
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import init_to_uniform, initialize_model
-from numpyro.util import identity
+from numpyro.util import identity, is_prng_key
 
 
 def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
@@ -331,7 +331,7 @@ class SA(MCMCKernel):
         self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
     ):
         # non-vectorized
-        if rng_key.ndim == 1:
+        if is_prng_key(rng_key):
             rng_key, rng_key_init_model = random.split(rng_key)
         # vectorized
         else:
@@ -358,7 +358,7 @@ class SA(MCMCKernel):
             model_args=model_args,
             model_kwargs=model_kwargs,
         )
-        if rng_key.ndim == 1:
+        if is_prng_key(rng_key):
             init_state = sa_init_fn(init_params, rng_key)
         else:
             init_state = vmap(sa_init_fn)(init_params, rng_key)

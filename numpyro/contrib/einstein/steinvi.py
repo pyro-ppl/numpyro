@@ -10,7 +10,6 @@ from itertools import chain
 import operator
 
 from jax import grad, jacfwd, numpy as jnp, random, vmap
-from jax.random import KeyArray
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -370,10 +369,10 @@ class SteinVI:
         )
         return jnp.linalg.norm(particle_grads), res_grads
 
-    def init(self, rng_key: KeyArray, *args, **kwargs):
+    def init(self, rng_key, *args, **kwargs):
         """Register random variable transformations, constraints and determine initialize positions of the particles.
 
-        :param KeyArray rng_key: Random number generator seed.
+        :param rng_key: Random number generator seed.
         :param args: Arguments to the model / guide.
         :param kwargs: Keyword arguments to the model / guide.
         :return: initial :data:`SteinVIState`

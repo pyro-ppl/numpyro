@@ -14,7 +14,13 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import print_summary
-from numpyro.util import cached_by, find_stack_level, fori_collect, identity
+from numpyro.util import (
+    cached_by,
+    find_stack_level,
+    fori_collect,
+    identity,
+    is_prng_key,
+)
 
 __all__ = [
     "MCMCKernel",
@@ -418,7 +424,7 @@ class MCMC(object):
         sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = (
             lambda x: self.sampler.get_diagnostics_str(x[0])
-            if rng_key.ndim == 1
+            if is_prng_key(rng_key)
             else ""
         )  # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
@@ -595,7 +601,7 @@ class MCMC(object):
         self._args = args
         self._kwargs = kwargs
         init_state = self._get_cached_init_state(rng_key, args, kwargs)
-        if self.num_chains > 1 and rng_key.ndim == 1:
+        if self.num_chains > 1 and is_prng_key(rng_key):
             rng_key = random.split(rng_key, self.num_chains)
 
         if self._warmup_state is not None:

@@ -25,6 +25,7 @@ from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import (
     _validate_model,
     find_stack_level,
+    is_prng_key,
     not_jax_tracer,
     soft_vmap,
     while_loop,
@@ -435,7 +436,7 @@ def find_valid_initial_params(
         return (init_params, pe, z_grad), is_valid
 
     # Handle possible vectorization
-    if rng_key.ndim == 1:
+    if is_prng_key(rng_key):
         (init_params, pe, z_grad), is_valid = _find_valid_params(
             rng_key, exit_early=True
         )
@@ -644,7 +645,7 @@ def initialize_model(
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
     substituted_model = substitute(
-        seed(model, rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]),
+        seed(model, rng_key if is_prng_key(rng_key) else rng_key[0]),
         substitute_fn=init_strategy,
     )
     (
@@ -816,9 +817,10 @@ def _predictive(
         return {name: value for name, value in pred_samples.items() if name in sites}
 
     num_samples = int(np.prod(batch_shape))
+    key_shape = rng_key.shape
     if num_samples > 1:
         rng_key = random.split(rng_key, num_samples)
-    rng_key = rng_key.reshape((*batch_shape, 2))
+    rng_key = rng_key.reshape(batch_shape + key_shape)
     chunk_size = num_samples if parallel else 1
     return soft_vmap(
         single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size
