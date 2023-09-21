@@ -406,8 +406,14 @@ def test_mcmc_progbar():
     tree_all(
         tree_map(
             partial(assert_allclose, atol=1e-4, rtol=1e-4),
-            tree_map(lambda x: random.key_data(x) if is_prng_key(x) else x, mcmc1.post_warmup_state),
-            tree_map(lambda x: random.key_data(x) if is_prng_key(x) else x, mcmc.post_warmup_state),
+            tree_map(
+                lambda x: random.key_data(x) if is_prng_key(x) else x,
+                mcmc1.post_warmup_state,
+            ),
+            tree_map(
+                lambda x: random.key_data(x) if is_prng_key(x) else x,
+                mcmc.post_warmup_state,
+            ),
         )
     )
 

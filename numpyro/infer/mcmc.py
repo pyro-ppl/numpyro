@@ -14,7 +14,13 @@ import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import print_summary
-from numpyro.util import cached_by, find_stack_level, fori_collect, identity, is_prng_key
+from numpyro.util import (
+    cached_by,
+    find_stack_level,
+    fori_collect,
+    identity,
+    is_prng_key,
+)
 
 __all__ = [
     "MCMCKernel",

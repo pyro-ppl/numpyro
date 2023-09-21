@@ -705,9 +705,13 @@ class seed(Messenger):
     """
 
     def __init__(self, fn=None, rng_seed=None, hide_types=None):
-        if not is_prng_key(rng_seed) and (isinstance(rng_seed, int) or (
-            isinstance(rng_seed, (np.ndarray, jnp.ndarray)) and not jnp.shape(rng_seed)
-        )):
+        if not is_prng_key(rng_seed) and (
+            isinstance(rng_seed, int)
+            or (
+                isinstance(rng_seed, (np.ndarray, jnp.ndarray))
+                and not jnp.shape(rng_seed)
+            )
+        ):
             rng_seed = random.PRNGKey(rng_seed)
         if not is_prng_key(rng_seed):
             raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
