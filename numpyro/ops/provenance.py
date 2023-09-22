@@ -5,6 +5,7 @@ import jax
 from jax.api_util import flatten_fun, shaped_abstractify
 import jax.core as core
 from jax.experimental.pjit import pjit_p
+
 try:
     import jax.extend.linear_util as lu
 except ImportError:

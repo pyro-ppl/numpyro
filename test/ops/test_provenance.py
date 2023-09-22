@@ -8,9 +8,10 @@ import pytest
 import jax
 from jax.api_util import flatten_fun_nokwargs
 import jax.core as core
+
 try:
     import jax.extend.linear_util as lu
-except:
+except ImportError:
     import jax.linear_util as lu
 import jax.numpy as jnp
 
