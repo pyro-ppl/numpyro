@@ -77,6 +77,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
+from functools import partial
 import warnings
 
 import numpy as np
@@ -224,17 +225,83 @@ class replay(Messenger):
             msg["infer"] = guide_msg["infer"].copy()
 
 
+def _block_fn(expose, expose_types, hide, hide_types, hide_all, msg):
+    if msg.get("type") == "sample" and msg.get("is_observed"):
+        msg_type = "observe"
+    else:
+        msg_type = msg.get("type")
+
+    is_not_exposed = (msg.get("name") not in expose) and (msg_type not in expose_types)
+
+    if (
+        (msg.get("name") in hide)
+        or (msg_type in hide_types)
+        or (is_not_exposed and hide_all)
+    ):
+        return True
+    else:
+        return False
+
+
+def _make_default_hide_fn(hide_all, expose_all, hide, expose, hide_types, expose_types):
+    assert (hide_all is False and expose_all is False) or (
+        hide_all != expose_all
+    ), "cannot hide and expose a site"
+
+    if hide is None:
+        hide = []
+    else:
+        hide_all = False
+
+    if expose is None:
+        expose = []
+    else:
+        hide_all = True
+
+    assert set(hide).isdisjoint(set(expose)), "cannot hide and expose a site"
+
+    if hide_types is None:
+        hide_types = []
+    else:
+        hide_all = False
+
+    if expose_types is None:
+        expose_types = []
+    else:
+        hide_all = True
+
+    assert set(hide_types).isdisjoint(
+        set(expose_types)
+    ), "cannot hide and expose a site type"
+
+    return partial(_block_fn, expose, expose_types, hide, hide_types, hide_all)
+
+
 class block(Messenger):
     """
     Given a callable `fn`, return another callable that selectively hides
-    primitive sites  where `hide_fn` returns True from other effect handlers
-    on the stack.
+    primitive sites.
+
+    A site is hidden if at least one of the following holds:
+
+        0. ``hide_fn(msg) is True`` or ``(not expose_fn(msg)) is True``
+        1. ``msg["name"] in hide``
+        2. ``msg["type"] in hide_types``
+        3. ``msg["name"] not in expose and msg["type"] not in expose_types``
+        4. ``hide``, ``hide_types``, and ``expose_types`` are all ``None``
 
     :param callable fn: Python callable with NumPyro primitives.
     :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
     :param list hide: list of site names to hide.
     :param list expose_types: list of site types to expose, e.g. `['param']`.
+    :param callable expose_fn: function which when given a dictionary containing
+        site-level metadata returns whether it should be exposed.
+    :param bool hide_all: whether to hide all sites.
+    :param bool expose_all: whether to expose all sites.
+    :param list expose: list of site names to hide.
+    :param list hide_types: list of site types to hide, e.g. `['param']`.
+    :returns: Python callable with NumPyro primitives.
 
     **Example:**
 
@@ -259,15 +326,28 @@ class block(Messenger):
        >>> assert 'b' in trace_block_a
     """
 
-    def __init__(self, fn=None, hide_fn=None, hide=None, expose_types=None):
+    def __init__(
+        self,
+        fn=None,
+        hide_fn=None,
+        hide=None,
+        expose_types=None,
+        expose_fn=None,
+        hide_all=True,
+        expose_all=False,
+        expose=None,
+        hide_types=None,
+    ):
+        if not (hide_fn is None or expose_fn is None):
+            raise ValueError("Only specify one of hide_fn or expose_fn")
         if hide_fn is not None:
             self.hide_fn = hide_fn
-        elif hide is not None:
-            self.hide_fn = lambda msg: msg.get("name") in hide
-        elif expose_types is not None:
-            self.hide_fn = lambda msg: msg.get("type") not in expose_types
+        elif expose_fn is not None:
+            self.hide_fn = lambda msg: not expose_fn(msg.get("name"))
         else:
-            self.hide_fn = lambda msg: True
+            self.hide_fn = _make_default_hide_fn(
+                hide_all, expose_all, hide, expose, hide_types, expose_types
+            )
         super(block, self).__init__(fn)
 
     def process_message(self, msg):

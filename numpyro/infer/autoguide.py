@@ -213,6 +213,76 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
 
+class AutoGuideList(AutoGuide):
+    """
+    Container class to combine multiple automatic guides.
+
+    Example usage::
+
+        rng_key_init = random.PRNGKey(0)
+        guide = AutoGuideList(my_model)
+        seeded_model = numpyro.handlers.seed(model, rng_seed=1)
+        guide.append(AutoNormal(numpyro.handlers.block(seeded_model, hide=["coefs"])))
+        guide.append(AutoDelta(numpyro.handlers.block(seeded_model, expose=["coefs"])))
+        svi = SVI(model, guide, optim, Trace_ELBO())
+        svi_state = svi.init(rng_key_init, data, labels)
+        params = svi.get_params(svi_state)
+
+    :param callable model: a NumPyro model
+    """
+
+    def __init__(
+        self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None
+    ):
+        self._guides = []
+        super().__init__(
+            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+        )
+
+    def append(self, part):
+        """
+        Add an automatic or custom guide for part of the model. The guide should
+        have been created by blocking the model to restrict to a subset of
+        sample sites. No two parts should operate on any one sample site.
+
+        :param part: a partial guide to add
+        :type part: AutoGuide
+        """
+        self._guides.append(part)
+
+    def __call__(self, *args, **kwargs):
+        if self.prototype_trace is None:
+            # run model to inspect the model structure
+            self._setup_prototype(*args, **kwargs)
+
+        # create all plates
+        self._create_plates(*args, **kwargs)
+
+        # run slave guides
+        result = {}
+        for part in self._guides:
+            result.update(part(*args, **kwargs))
+        return result
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        result = {}
+        for part in self._guides:
+            result.update(part.sample_posterior(rng_key, params, sample_shape))
+        return result
+
+    def median(self, *args, **kwargs):
+        result = {}
+        for part in self._guides:
+            result.update(part.median(*args, **kwargs))
+        return result
+
+    def quantiles(self, quantiles, *args, **kwargs):
+        result = {}
+        for part in self._guides:
+            result.update(part.quantiles(quantiles, *args, **kwargs))
+        return result
+
+
 class AutoNormal(AutoGuide):
     """
     This implementation of :class:`AutoGuide` uses Normal distributions
