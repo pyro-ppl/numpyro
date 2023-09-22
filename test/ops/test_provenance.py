@@ -8,7 +8,11 @@ import pytest
 import jax
 from jax.api_util import flatten_fun_nokwargs
 import jax.core as core
-import jax.extend.linear_util as lu
+
+try:
+    import jax.extend.linear_util as lu
+except ImportError:
+    import jax.linear_util as lu
 import jax.numpy as jnp
 
 from numpyro.ops.provenance import eval_provenance
