@@ -1387,7 +1387,7 @@ def test_mixture_log_prob():
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params",
     # TODO: add more complete pattern for Discrete.cdf
-    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0]))],
+    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0])), T(dist.BernoulliProbs, 0.2)],
 )
 @pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
@@ -1411,8 +1411,15 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
                 atol=1e-5,
                 rtol=rtol,
             )
-        assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
-        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
+        if jax_dist is dist.BernoulliProbs:
+            assert pytest.approx(d.icdf(quantiles).mean(), abs=0.1) == d.probs
+            prop_of_ones = (d.cdf(d.icdf(quantiles)) == 1).mean()
+            prop_of_zeros = (d.cdf(d.icdf(quantiles)) == (1 - d.probs)).mean()
+            assert pytest.approx(prop_of_ones, abs=0.1) == d.probs
+            assert pytest.approx(prop_of_zeros, abs=0.1) == (1 - d.probs)
+        else:
+            assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
+            assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
         pass
 
