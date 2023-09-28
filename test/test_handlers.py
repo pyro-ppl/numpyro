@@ -574,12 +574,46 @@ def test_counterfactual_query(intervene, observe, flip):
                     )
 
 
-def test_block():
+def test_block_hide_fn():
     with handlers.trace() as trace:
-        with handlers.block(hide=["x"]):
+        with handlers.block(
+            hide_fn=lambda msg: msg.get("name") == "mu" or msg.get("type") == "sample"
+        ):
             with handlers.seed(rng_seed=0):
-                numpyro.sample("x", dist.Normal())
-    assert "x" not in trace
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" not in trace and "mu" not in trace and "sigma" in trace
+
+
+def test_block_hide():
+    with handlers.trace() as trace:
+        with handlers.block(hide=["x", "sigma"]):
+            with handlers.seed(rng_seed=0):
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" not in trace and "mu" in trace and "sigma" not in trace
+
+
+def test_block_expose_types():
+    with handlers.trace() as trace:
+        with handlers.block(expose_types=["param"]):
+            with handlers.seed(rng_seed=0):
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" not in trace and "mu" in trace and "sigma" in trace
+
+
+def test_block_expose():
+    with handlers.trace() as trace:
+        with handlers.block(expose=["x", "sigma"]):
+            with handlers.seed(rng_seed=0):
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" in trace and "mu" not in trace and "sigma" in trace
 
 
 def test_scope():
