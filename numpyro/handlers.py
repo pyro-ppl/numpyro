@@ -280,27 +280,17 @@ def _make_default_hide_fn(hide_all, expose_all, hide, expose, hide_types, expose
 class block(Messenger):
     """
     Given a callable `fn`, return another callable that selectively hides
-    primitive sites.
-
-    A site is hidden if at least one of the following holds:
-
-        0. ``hide_fn(msg) is True`` or ``(not expose_fn(msg)) is True``
-        1. ``msg["name"] in hide``
-        2. ``msg["type"] in hide_types``
-        3. ``msg["name"] not in expose and msg["type"] not in expose_types``
-        4. ``hide``, ``hide_types``, and ``expose_types`` are all ``None``
+    primitive sites from other effect handlers on the stack. In the absence
+    of parameters, all primitive sites are blocked. `hide_fn` takes precedence
+    over `hide`, which has higher priority than `expose_types` followed by `expose`.
+    Only the parameter with the precedence is considered.
 
     :param callable fn: Python callable with NumPyro primitives.
     :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
     :param list hide: list of site names to hide.
     :param list expose_types: list of site types to expose, e.g. `['param']`.
-    :param callable expose_fn: function which when given a dictionary containing
-        site-level metadata returns whether it should be exposed.
-    :param bool hide_all: whether to hide all sites.
-    :param bool expose_all: whether to expose all sites.
-    :param list expose: list of site names to hide.
-    :param list hide_types: list of site types to hide, e.g. `['param']`.
+    :param list expose: list of site names to expose.
     :returns: Python callable with NumPyro primitives.
 
     **Example:**
@@ -332,22 +322,18 @@ class block(Messenger):
         hide_fn=None,
         hide=None,
         expose_types=None,
-        expose_fn=None,
-        hide_all=True,
-        expose_all=False,
         expose=None,
-        hide_types=None,
     ):
-        if not (hide_fn is None or expose_fn is None):
-            raise ValueError("Only specify one of hide_fn or expose_fn")
         if hide_fn is not None:
             self.hide_fn = hide_fn
-        elif expose_fn is not None:
-            self.hide_fn = lambda msg: not expose_fn(msg.get("name"))
+        elif hide is not None:
+            self.hide_fn = lambda msg: msg.get("name") in hide
+        elif expose_types is not None:
+            self.hide_fn = lambda msg: msg.get("type") not in expose_types
+        elif expose is not None:
+            self.hide_fn = lambda msg: msg.get("name") not in expose
         else:
-            self.hide_fn = _make_default_hide_fn(
-                hide_all, expose_all, hide, expose, hide_types, expose_types
-            )
+            self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
     def process_message(self, msg):
