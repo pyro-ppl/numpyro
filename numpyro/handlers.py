@@ -225,58 +225,6 @@ class replay(Messenger):
             msg["infer"] = guide_msg["infer"].copy()
 
 
-def _block_fn(expose, expose_types, hide, hide_types, hide_all, msg):
-    if msg.get("type") == "sample" and msg.get("is_observed"):
-        msg_type = "observe"
-    else:
-        msg_type = msg.get("type")
-
-    is_not_exposed = (msg.get("name") not in expose) and (msg_type not in expose_types)
-
-    if (
-        (msg.get("name") in hide)
-        or (msg_type in hide_types)
-        or (is_not_exposed and hide_all)
-    ):
-        return True
-    else:
-        return False
-
-
-def _make_default_hide_fn(hide_all, expose_all, hide, expose, hide_types, expose_types):
-    assert (hide_all is False and expose_all is False) or (
-        hide_all != expose_all
-    ), "cannot hide and expose a site"
-
-    if hide is None:
-        hide = []
-    else:
-        hide_all = False
-
-    if expose is None:
-        expose = []
-    else:
-        hide_all = True
-
-    assert set(hide).isdisjoint(set(expose)), "cannot hide and expose a site"
-
-    if hide_types is None:
-        hide_types = []
-    else:
-        hide_all = False
-
-    if expose_types is None:
-        expose_types = []
-    else:
-        hide_all = True
-
-    assert set(hide_types).isdisjoint(
-        set(expose_types)
-    ), "cannot hide and expose a site type"
-
-    return partial(_block_fn, expose, expose_types, hide, hide_types, hide_all)
-
-
 class block(Messenger):
     """
     Given a callable `fn`, return another callable that selectively hides
