@@ -221,9 +221,16 @@ class AutoGuideList(AutoGuide):
 
         rng_key_init = random.PRNGKey(0)
         guide = AutoGuideList(my_model)
-        seeded_model = numpyro.handlers.seed(model, rng_seed=1)
-        guide.append(AutoNormal(numpyro.handlers.block(seeded_model, hide=["coefs"])))
-        guide.append(AutoDelta(numpyro.handlers.block(seeded_model, expose=["coefs"])))
+        guide.append(
+            AutoNormal(
+                numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=0), hide=["coefs"])
+            )
+        )
+        guide.append(
+            AutoDelta(
+                numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=1), expose=["coefs"])
+            )
+        )
         svi = SVI(model, guide, optim, Trace_ELBO())
         svi_state = svi.init(rng_key_init, data, labels)
         params = svi.get_params(svi_state)
@@ -264,22 +271,42 @@ class AutoGuideList(AutoGuide):
             result.update(part(*args, **kwargs))
         return result
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def __getitem__(self, key):
+        return self._guides[key]
+
+    def __len__(self):
+        return len(self._guides)
+
+    def __iter__(self):
+        yield from self._guides
+
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         result = {}
         for part in self._guides:
-            result.update(part.sample_posterior(rng_key, params, sample_shape))
+            if isinstance(part, numpyro.infer.autoguide.AutoDelta) or isinstance(
+                part, numpyro.infer.autoguide.AutoSemiDAIS
+            ):
+                result.update(
+                    part.sample_posterior(
+                        rng_key, params, *args, sample_shape=sample_shape, **kwargs
+                    )
+                )
+            else:
+                result.update(
+                    part.sample_posterior(rng_key, params, sample_shape=sample_shape)
+                )
         return result
 
-    def median(self, *args, **kwargs):
+    def median(self, params):
         result = {}
         for part in self._guides:
-            result.update(part.median(*args, **kwargs))
+            result.update(part.median(params))
         return result
 
-    def quantiles(self, quantiles, *args, **kwargs):
+    def quantiles(self, params, quantiles):
         result = {}
         for part in self._guides:
-            result.update(part.quantiles(quantiles, *args, **kwargs))
+            result.update(part.quantiles(params, quantiles))
         return result
 
 
