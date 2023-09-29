@@ -77,7 +77,6 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
-from functools import partial
 import warnings
 
 import numpy as np
