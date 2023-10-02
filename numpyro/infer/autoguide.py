@@ -255,6 +255,14 @@ class AutoGuideList(AutoGuide):
         :param part: a partial guide to add
         :type part: AutoGuide
         """
+        if (
+            isinstance(part, numpyro.infer.autoguide.AutoDAIS)
+            or isinstance(part, numpyro.infer.autoguide.AutoSemiDAIS)
+            or isinstance(part, numpyro.infer.autoguide.AutoSurrogateLikelihoodDAIS)
+        ):
+            raise ValueError(
+                "AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported."
+            )
         self._guides.append(part)
 
     def __call__(self, *args, **kwargs):
@@ -283,9 +291,9 @@ class AutoGuideList(AutoGuide):
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         result = {}
         for part in self._guides:
-            if isinstance(part, numpyro.infer.autoguide.AutoDelta) or isinstance(
-                part, numpyro.infer.autoguide.AutoSemiDAIS
-            ):
+            # TODO: remove this when sample_posterior() signatures are consistent
+            # we know part is not AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
+            if isinstance(part, numpyro.infer.autoguide.AutoDelta):
                 result.update(
                     part.sample_posterior(
                         rng_key, params, *args, sample_shape=sample_shape, **kwargs

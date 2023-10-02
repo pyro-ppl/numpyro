@@ -1022,6 +1022,9 @@ def test_autodelta_sample_posterior_with_sample_shape(shape, sample_shape):
     "auto_classes",
     [
         (AutoNormal, AutoDiagonalNormal),
+        (AutoNormal, AutoDAIS),
+        (AutoNormal, AutoSemiDAIS),
+        (AutoNormal, AutoSurrogateLikelihoodDAIS),
         (AutoNormal, AutoIAFNormal),
         (AutoNormal, AutoBNAFNormal),
         (AutoNormal, AutoMultivariateNormal),
@@ -1056,6 +1059,50 @@ def test_autoguidelist(auto_classes, Elbo):
             )
         )
     )
+    # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
+    if auto_classes[1] == AutoDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(
+                auto_classes[1](
+                    numpyro.handlers.block(
+                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
+                    )
+                )
+            )
+        return
+    if auto_classes[1] == AutoSemiDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(
+                auto_classes[1](
+                    numpyro.handlers.block(
+                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
+                    ),
+                    local_model=None,
+                    global_guide=None,
+                )
+            )
+        return
+    if auto_classes[1] == AutoSurrogateLikelihoodDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(
+                auto_classes[1](
+                    numpyro.handlers.block(
+                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
+                    ),
+                    surrogate_model=None,
+                )
+            )
+        return
+
     guide.append(
         auto_classes[1](
             numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=1), hide=["a"])
@@ -1089,7 +1136,7 @@ def test_autoguidelist(auto_classes, Elbo):
 
     # median and quantiles from guide
     if any(
-        auto_class in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]
+        auto_class in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]
         for auto_class in auto_classes
     ):
         with pytest.raises(NotImplementedError):
@@ -1101,9 +1148,9 @@ def test_autoguidelist(auto_classes, Elbo):
 
     # median and quantiles from partial guides
     for auto_class, part in zip(auto_classes, guide):
-        if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal):
+        if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
             part.median(params=params)
-        if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+        if auto_class not in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
             part.quantiles(params=params, quantiles=[0.2, 0.5, 0.8])
 
 
@@ -1112,6 +1159,8 @@ def test_autoguidelist(auto_classes, Elbo):
     [
         AutoDiagonalNormal,
         AutoDAIS,
+        AutoSemiDAIS,
+        AutoSurrogateLikelihoodDAIS,
         AutoIAFNormal,
         AutoBNAFNormal,
         AutoMultivariateNormal,
@@ -1131,6 +1180,30 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
         numpyro.deterministic("x2", x**2)
 
     guide = AutoGuideList(model)
+
+    # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
+    if auto_class == AutoDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(auto_class(model))
+        return
+    if auto_class == AutoSemiDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(auto_class(model, local_model=None, global_guide=None))
+        return
+    if auto_class == AutoSurrogateLikelihoodDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(auto_class(model, surrogate_model=None))
+        return
+
     guide.append(auto_class(model))
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     if auto_class in (AutoIAFNormal, AutoBNAFNormal) and max(shape, default=0) <= 1:
