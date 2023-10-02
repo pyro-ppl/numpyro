@@ -52,6 +52,7 @@ from numpyro.util import find_stack_level, not_jax_tracer
 __all__ = [
     "AutoContinuous",
     "AutoGuide",
+    "AutoGuideList",
     "AutoDAIS",
     "AutoDiagonalNormal",
     "AutoLaplaceApproximation",
