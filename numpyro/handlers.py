@@ -227,14 +227,18 @@ class replay(Messenger):
 class block(Messenger):
     """
     Given a callable `fn`, return another callable that selectively hides
-    primitive sites  where `hide_fn` returns True from other effect handlers
-    on the stack.
+    primitive sites from other effect handlers on the stack. In the absence
+    of parameters, all primitive sites are blocked. `hide_fn` takes precedence
+    over `hide`, which has higher priority than `expose_types` followed by `expose`.
+    Only the parameter with the precedence is considered.
 
     :param callable fn: Python callable with NumPyro primitives.
     :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
     :param list hide: list of site names to hide.
     :param list expose_types: list of site types to expose, e.g. `['param']`.
+    :param list expose: list of site names to expose.
+    :returns: Python callable with NumPyro primitives.
 
     **Example:**
 
@@ -259,13 +263,22 @@ class block(Messenger):
        >>> assert 'b' in trace_block_a
     """
 
-    def __init__(self, fn=None, hide_fn=None, hide=None, expose_types=None):
+    def __init__(
+        self,
+        fn=None,
+        hide_fn=None,
+        hide=None,
+        expose_types=None,
+        expose=None,
+    ):
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
             self.hide_fn = lambda msg: msg.get("name") in hide
         elif expose_types is not None:
             self.hide_fn = lambda msg: msg.get("type") not in expose_types
+        elif expose is not None:
+            self.hide_fn = lambda msg: msg.get("name") not in expose
         else:
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)

@@ -27,6 +27,7 @@ from numpyro.infer.autoguide import (
     AutoDAIS,
     AutoDelta,
     AutoDiagonalNormal,
+    AutoGuideList,
     AutoIAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
@@ -62,6 +63,7 @@ init_strategy = init_to_median(num_samples=2)
         AutoLowRankMultivariateNormal,
         AutoNormal,
         AutoDelta,
+        AutoGuideList,
     ],
 )
 def test_beta_bernoulli(auto_class):
@@ -76,6 +78,9 @@ def test_beta_bernoulli(auto_class):
     adam = optim.Adam(0.01)
     if auto_class == AutoDAIS:
         guide = auto_class(model, init_loc_fn=init_strategy, base_dist="cholesky")
+    elif auto_class == AutoGuideList:
+        guide = AutoGuideList(model)
+        guide.append(AutoNormal(handlers.block(model, hide=[])))
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
@@ -96,9 +101,14 @@ def test_beta_bernoulli(auto_class):
     posterior_mean = jnp.mean(posterior_samples["beta"], 0)
     assert_allclose(posterior_mean, true_coefs, atol=0.05)
 
-    if auto_class not in [AutoDAIS, AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
-        quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
-        assert quantiles["beta"].shape == (3, 2)
+    # assume AutoGuideList does not have AutoDAIS, AutoDelta, AutoIAFNormal, or AutoBNAFNormal
+    if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal):
+        median = guide.median(params)
+        assert median["beta"].shape == (2,)
+        # test .quantile method
+        if auto_class is not AutoDelta:
+            quantiles = guide.quantiles(params, [0.2, 0.5, 0.8])
+            assert quantiles["beta"].shape == (3, 2)
 
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
@@ -123,6 +133,7 @@ def test_beta_bernoulli(auto_class):
         AutoLowRankMultivariateNormal,
         AutoNormal,
         AutoDelta,
+        AutoGuideList,
     ],
 )
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
@@ -142,12 +153,19 @@ def test_logistic_regression(auto_class, Elbo):
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
-    guide = auto_class(model, init_loc_fn=init_strategy)
+    if auto_class == AutoGuideList:
+        guide = AutoGuideList(model)
+        guide.append(AutoNormal(handlers.block(model, hide=[])))
+    else:
+        guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
     # smoke test if analytic KL is used
-    if auto_class is AutoNormal and Elbo is TraceMeanField_ELBO:
+    # assume that AutoGuideList has AutoNormal
+    if (
+        auto_class is AutoNormal or auto_class is AutoGuideList
+    ) and Elbo is TraceMeanField_ELBO:
         _, mean_field_loss = svi.update(svi_state, data, labels)
         svi.loss = Trace_ELBO()
         _, elbo_loss = svi.update(svi_state, data, labels)
@@ -160,13 +178,14 @@ def test_logistic_regression(auto_class, Elbo):
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
+    # assume that AutoGuideList does not have AutoDAIS, AutoIAFNormal, or AutoBNAFNormal
     if auto_class not in (AutoDAIS, AutoIAFNormal, AutoBNAFNormal):
         median = guide.median(params)
         assert_allclose(median["coefs"], true_coefs, rtol=0.1)
         # test .quantile method
         if auto_class is not AutoDelta:
-            median = guide.quantiles(params, [0.2, 0.5])
-            assert_allclose(median["coefs"][1], true_coefs, rtol=0.1)
+            quantiles = guide.quantiles(params, [0.2, 0.5])
+            assert_allclose(quantiles["coefs"][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
         random.PRNGKey(1), params, sample_shape=(1000,)
@@ -997,3 +1016,213 @@ def test_autodelta_sample_posterior_with_sample_shape(shape, sample_shape):
     )
     assert guide_samples["x"].shape == sample_shape + shape
     assert guide_samples["x2"].shape == sample_shape + shape
+
+
+@pytest.mark.parametrize(
+    "auto_classes",
+    [
+        (AutoNormal, AutoDiagonalNormal),
+        (AutoNormal, AutoDAIS),
+        (AutoNormal, AutoSemiDAIS),
+        (AutoNormal, AutoSurrogateLikelihoodDAIS),
+        (AutoNormal, AutoIAFNormal),
+        (AutoNormal, AutoBNAFNormal),
+        (AutoNormal, AutoMultivariateNormal),
+        (AutoNormal, AutoLaplaceApproximation),
+        (AutoNormal, AutoLowRankMultivariateNormal),
+        (AutoNormal, AutoNormal),
+        (AutoNormal, AutoDelta),
+    ],
+)
+@pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
+def test_autoguidelist(auto_classes, Elbo):
+    sigma = 0.05
+
+    def model(x, y=None):
+        a = numpyro.sample("a", dist.Normal(0, 1))
+        b = numpyro.sample("b", dist.Normal(jnp.ones((2, 1)), 1))
+        mu = a + x @ b
+        with numpyro.plate("N", len(x), dim=-2):
+            numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+
+    N = 500
+    a = 1
+    b = jnp.asarray([[-0.5], [-1]])
+    x = random.normal(random.PRNGKey(0), (N, 2))
+    y = a + x @ b + sigma * random.normal(random.PRNGKey(1), (N, 1))
+
+    guide = AutoGuideList(model)
+    guide.append(
+        auto_classes[0](
+            numpyro.handlers.block(
+                numpyro.handlers.seed(model, rng_seed=0), expose=["a"]
+            )
+        )
+    )
+    # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
+    if auto_classes[1] == AutoDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(
+                auto_classes[1](
+                    numpyro.handlers.block(
+                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
+                    )
+                )
+            )
+        return
+    if auto_classes[1] == AutoSemiDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(
+                auto_classes[1](
+                    numpyro.handlers.block(
+                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
+                    ),
+                    local_model=None,
+                    global_guide=None,
+                )
+            )
+        return
+    if auto_classes[1] == AutoSurrogateLikelihoodDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(
+                auto_classes[1](
+                    numpyro.handlers.block(
+                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
+                    ),
+                    surrogate_model=None,
+                )
+            )
+        return
+
+    guide.append(
+        auto_classes[1](
+            numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=1), hide=["a"])
+        )
+    )
+
+    optimiser = numpyro.optim.Adam(step_size=0.1)
+    svi = SVI(model, guide, optimiser, Elbo())
+
+    svi_result = svi.run(random.PRNGKey(0), num_steps=500, x=x, y=y)
+    params = svi_result.params
+    posterior_samples = guide.sample_posterior(
+        random.PRNGKey(0), params, x=x, sample_shape=(1_000,)
+    )
+
+    assert posterior_samples["a"].shape == (1_000,)
+    assert posterior_samples["b"].shape == (1_000, 2, 1)
+
+    assert_allclose(jnp.mean(posterior_samples["a"], 0), a, atol=0.05)
+    assert_allclose(jnp.mean(posterior_samples["b"], 0), b, atol=0.05)
+
+    # Predictive can be instantiated from posterior samples...
+    predictive = Predictive(model, posterior_samples=posterior_samples)
+    predictive_samples = predictive(random.PRNGKey(1), x)
+    assert predictive_samples["y"].shape == (1_000, N, 1)
+
+    # ... or from the guide + params
+    predictive = Predictive(model, guide=guide, params=params, num_samples=1_000)
+    predictive_samples = predictive(random.PRNGKey(1), x)
+    assert predictive_samples["y"].shape == (1_000, N, 1)
+
+    # median and quantiles from guide
+    if any(
+        auto_class in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]
+        for auto_class in auto_classes
+    ):
+        with pytest.raises(NotImplementedError):
+            quantiles = guide.quantiles(params=params, quantiles=[0.2, 0.5, 0.8])
+    else:
+        quantiles = guide.quantiles(params=params, quantiles=[0.2, 0.5, 0.8])
+        assert quantiles["a"].shape == (3,)
+        assert quantiles["b"].shape == (3, 2, 1)
+
+    # median and quantiles from partial guides
+    for auto_class, part in zip(auto_classes, guide):
+        if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
+            part.median(params=params)
+        if auto_class not in [AutoDelta, AutoIAFNormal, AutoBNAFNormal]:
+            part.quantiles(params=params, quantiles=[0.2, 0.5, 0.8])
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDiagonalNormal,
+        AutoDAIS,
+        AutoSemiDAIS,
+        AutoSurrogateLikelihoodDAIS,
+        AutoIAFNormal,
+        AutoBNAFNormal,
+        AutoMultivariateNormal,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoNormal,
+        AutoDelta,
+    ],
+)
+@pytest.mark.parametrize("shape", [(), (1,), (2, 3)])
+@pytest.mark.parametrize("sample_shape", [(), (1,), (2, 3)])
+def test_autoguidelist_sample_posterior_with_sample_shape(
+    auto_class, shape, sample_shape
+):
+    def model():
+        x = numpyro.sample("x", dist.Normal().expand(shape))
+        numpyro.deterministic("x2", x**2)
+
+    guide = AutoGuideList(model)
+
+    # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
+    if auto_class == AutoDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(auto_class(model))
+        return
+    if auto_class == AutoSemiDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(auto_class(model, local_model=None, global_guide=None))
+        return
+    if auto_class == AutoSurrogateLikelihoodDAIS:
+        with pytest.raises(
+            ValueError,
+            match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
+        ):
+            guide.append(auto_class(model, surrogate_model=None))
+        return
+
+    guide.append(auto_class(model))
+    svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
+    if auto_class in (AutoIAFNormal, AutoBNAFNormal) and max(shape, default=0) <= 1:
+        with pytest.raises(
+            ValueError,
+            match="latent dim = 1. Consider using AutoDiagonalNormal instead",
+        ):
+            svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+            guide_samples = guide.sample_posterior(
+                rng_key=random.PRNGKey(1),
+                params=svi_result.params,
+                sample_shape=sample_shape,
+            )
+    else:
+        svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+        guide_samples = guide.sample_posterior(
+            rng_key=random.PRNGKey(1),
+            params=svi_result.params,
+            sample_shape=sample_shape,
+        )
+        assert guide_samples["x"].shape == sample_shape + shape
+        assert guide_samples["x2"].shape == sample_shape + shape
