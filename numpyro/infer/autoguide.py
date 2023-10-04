@@ -129,7 +129,7 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *, sample_shape=()):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
@@ -444,7 +444,7 @@ class AutoNormal(AutoGuide):
         else:
             return self._postprocess_fn(latent_samples)
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *, sample_shape=()):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
         with handlers.seed(rng_seed=rng_key):
@@ -776,7 +776,7 @@ class AutoContinuous(AutoGuide):
         transform = self.get_transform(params)
         return dist.TransformedDistribution(base_dist, transform)
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *, sample_shape=()):
         latent_sample = handlers.substitute(
             handlers.seed(self._sample_latent, rng_key), params
         )(sample_shape=sample_shape)
@@ -965,7 +965,7 @@ class AutoDAIS(AutoContinuous):
 
         return z
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *, sample_shape=()):
         def _single_sample(_rng_key):
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
@@ -1916,7 +1916,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         transform = self.get_transform(params)
         return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *, sample_shape=()):
         latent_sample = self.get_posterior(params).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
