@@ -12,7 +12,6 @@ try:
         Model,
         NestedSamplerResults,
         Prior,
-        PriorModelGen,
         TerminationCondition,
         plot_cornerplot,
         plot_diagnostics,
@@ -243,7 +242,7 @@ class NestedSampler:
         loglik_fn = local_dict["loglik_fn"]
 
         # use NestedSampler with identity prior chain
-        def prior_model() -> PriorModelGen:
+        def prior_model():
             params = []
             for name in param_names:
                 shape = prototype_trace[name]["fn"].shape()
