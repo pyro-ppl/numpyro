@@ -2849,12 +2849,24 @@ def test_kl_expanded_normal(batch_shape, event_shape):
     assert_allclose(actual, expected)
 
 
-@pytest.mark.parametrize("batch_shape", [(), (1,), (2, 3)], ids=str)
-def test_kl_multivariate_normal_consistency_with_independent_normals(batch_shape):
-    event_shape = (5, )
-    shape = batch_shape + event_shape
+@pytest.mark.parametrize(
+    "batch_shape_p, batch_shape_q",
+    [
+        ((), ()),
+        ((1,), (1,)),
+        ((2, 3), (2, 3)),
+        ((5, 2, 3), (2, 3)),
+        ((2, 3), (5, 2, 3)),
+    ],
+    ids=str,
+)
+def test_kl_multivariate_normal_consistency_with_independent_normals(
+    batch_shape_p, batch_shape_q
+):
+    event_shape = (5,)
 
-    def make_dists():
+    def make_dists(batch_shape):
+        shape = batch_shape + event_shape
         mus = np.random.normal(size=shape)
         scales = np.exp(np.random.normal(size=shape))
         scales = np.ones(shape)
@@ -2863,37 +2875,28 @@ def test_kl_multivariate_normal_consistency_with_independent_normals(batch_shape
             if ignore_axes == 0:
                 return jnp.diag(v)
             return vmap(diagonalize, in_axes=(0, None))(v, ignore_axes - 1)
+
         scale_tril = diagonalize(scales, len(batch_shape))
         return (
             dist.Normal(mus, scales).to_event(len(event_shape)),
-            dist.MultivariateNormal(mus, scale_tril=scale_tril)
+            dist.MultivariateNormal(mus, scale_tril=scale_tril),
         )
 
-    p_uni, p_mvn = make_dists()
-    q_uni, q_mvn = make_dists()
+    p_uni, p_mvn = make_dists(batch_shape_p)
+    q_uni, q_mvn = make_dists(batch_shape_q)
 
-    actual = kl_divergence(
-        p_mvn, q_mvn
-    )
-    expected = kl_divergence(
-        p_uni, q_uni
-    )
+    actual = kl_divergence(p_mvn, q_mvn)
+    expected = kl_divergence(p_uni, q_uni)
     assert_allclose(actual, expected, atol=1e-6)
 
 
 def test_kl_multivariate_normal_nondiagonal_covariance():
     p_mvn = dist.MultivariateNormal(np.zeros(2), covariance_matrix=np.eye(2))
     q_mvn = dist.MultivariateNormal(
-        np.ones(2),
-        covariance_matrix=np.array([
-            [2, .8],
-            [.8, .5]
-        ])
+        np.ones(2), covariance_matrix=np.array([[2, 0.8], [0.8, 0.5]])
     )
 
-    actual = kl_divergence(
-        p_mvn, q_mvn
-    )
+    actual = kl_divergence(p_mvn, q_mvn)
     expected = 3.21138
     assert_allclose(actual, expected, atol=2e-5)
 

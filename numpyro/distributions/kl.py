@@ -27,19 +27,20 @@
 
 from multipledispatch import dispatch
 
-from jax import lax, vmap
+from jax import lax
 import jax.numpy as jnp
 from jax.scipy.special import betaln, digamma, gammaln
-from jax.scipy.linalg import solve_triangular
 
 from numpyro.distributions.continuous import (
     Beta,
     Dirichlet,
     Gamma,
     Kumaraswamy,
-    Normal,
     MultivariateNormal,
+    Normal,
     Weibull,
+    _batch_solve_triangular,
+    _batch_trace_from_cholesky,
 )
 from numpyro.distributions.discrete import CategoricalProbs
 from numpyro.distributions.distribution import (
@@ -142,58 +143,45 @@ def kl_divergence(p: MultivariateNormal, q: MultivariateNormal):
 
     if p.event_shape != q.event_shape:
         raise ValueError(
-            "Distributions must be have the same event shape, but are"
+            "Distributions must have the same event shape, but are"
             f" {p.event_shape} and {q.event_shape} for p and q, respectively."
         )
 
-    if p.batch_shape != q.batch_shape:
+    min_batch_ndim = min(len(p.batch_shape), len(q.batch_shape))
+    if p.batch_shape[-min_batch_ndim:] != q.batch_shape[-min_batch_ndim:]:
         raise ValueError(
-            "Distributions must be have the same batch shape, but are"
-            f" {p.batch_shape} and {q.batch_shape} for p and q, respectively."
+            "Distributions must have the same batch shape in common batch dimensions, "
+            f"but are {p.batch_shape} and {q.batch_shape} for p and q,"
+            "respectively."
         )
+    result_batch_shape = (
+        p.batch_shape if len(p.batch_shape) >= len(q.batch_shape) else q.batch_shape
+    )
 
     assert len(p.event_shape) == 1, "event_shape must be one-dimensional"
     D = p.event_shape[0]
 
     assert p.mean.shape == p.batch_shape + p.event_shape
-    assert q.mean.shape == p.mean.shape
+    assert q.mean.shape == q.batch_shape + q.event_shape
 
-    def _single_mvn_kl(p_mean, p_scale_tril, q_mean, q_scale_tril):
-        assert jnp.ndim(p_mean) == 1
-        assert jnp.ndim(q_mean) == 1
-        assert jnp.ndim(p_scale_tril) == 2
-        assert jnp.ndim(q_scale_tril) == 2
+    p_half_log_det = jnp.log(jnp.diagonal(p.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+    assert p_half_log_det.shape == p.batch_shape
 
-        p_half_log_det = jnp.log(
-            jnp.diagonal(p_scale_tril)
-        ).sum(-1)
-        q_half_log_det = jnp.log(
-            jnp.diagonal(q_scale_tril)
-        ).sum(-1)
-        log_det_ratio = 2 * (p_half_log_det - q_half_log_det)
+    q_half_log_det = jnp.log(jnp.diagonal(q.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+    assert q_half_log_det.shape == q.batch_shape
 
-        Lq_inv = solve_triangular(q_scale_tril, jnp.eye(D), lower=True)
+    log_det_ratio = 2 * (p_half_log_det - q_half_log_det)
+    assert log_det_ratio.shape == result_batch_shape
 
-        tr = jnp.sum(jnp.diagonal(
-            Lq_inv.T @ (Lq_inv @ p_scale_tril) @ p_scale_tril.T
-        ))
+    Lq_inv = _batch_solve_triangular(q.scale_tril, jnp.eye(D))
 
-        z = jnp.matmul(Lq_inv, (p_mean - q_mean))
-        t1 = jnp.dot(z, z)
+    tr = _batch_trace_from_cholesky(Lq_inv @ p.scale_tril)
+    assert tr.shape == result_batch_shape
 
-        return .5 * (tr + t1 - D - log_det_ratio)
+    t1 = jnp.square(Lq_inv @ (p.loc - q.loc)[..., jnp.newaxis]).sum((-2, -1))
+    assert t1.shape == result_batch_shape
 
-    p_mean_flat = jnp.reshape(p.mean, (-1, D))
-    p_scale_tril_flat = jnp.reshape(p.scale_tril, (-1, D, D))
-
-    q_mean_flat = jnp.reshape(q.mean, (-1, D))
-    q_scale_tril_flat = jnp.reshape(q.scale_tril, (-1, D, D))
-
-    kl_flat = vmap(_single_mvn_kl)(p_mean_flat, p_scale_tril_flat, q_mean_flat, q_scale_tril_flat)
-    assert jnp.ndim(kl_flat) == 1
-
-    kl = jnp.reshape(kl_flat, p.batch_shape)
-    return kl
+    return 0.5 * (tr + t1 - D - log_det_ratio)
 
 
 @dispatch(Beta, Beta)
