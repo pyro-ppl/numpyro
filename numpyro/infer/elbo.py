@@ -45,10 +45,6 @@ class ELBO:
     Subclasses that are capable of inferring discrete latent variables should override to `True`.
     """
     can_infer_discrete = False
-    """
-    Whether to make an assumption that the guide proposes multiple samples.
-    """
-    multi_sample_guide = False
 
     def __init__(self, num_particles=1, vectorize_particles=True):
         self.num_particles = num_particles
@@ -128,6 +124,8 @@ class Trace_ELBO(ELBO):
     :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
         num_particles-many particles in parallel. If False use `jax.lax.map`.
         Defaults to True.
+    :param multi_sample_guide: Whether to make an assumption that the guide proposes
+        multiple samples.
     """
 
     def __init__(

@@ -190,7 +190,7 @@ class SVI(object):
         }
         if init_params is not None:
             init_guide_params.update(init_params)
-        if self.loss.multi_sample_guide:
+        if getattr(self.loss, "multi_sample_guide", False):
             latents = {
                 name: site["value"][0]
                 for name, site in guide_trace.items()
