@@ -4,6 +4,7 @@
 import jax
 from jax.api_util import flatten_fun, shaped_abstractify
 import jax.core as core
+import jax.util as util
 from jax.experimental.pjit import pjit_p
 
 try:
@@ -40,7 +41,7 @@ def eval_provenance(fn, **kwargs):
     args, in_tree = jax.tree_util.tree_flatten(((), kwargs))
     wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn), in_tree)
     # Abstract eval to get output pytree
-    avals = core.safe_map(shaped_abstractify, args)
+    avals = util.safe_map(shaped_abstractify, args)
     # XXX: we split out the process of abstract evaluation and provenance tracking
     # for simplicity. In principle, they can be merged so that we only need to walk
     # through the equations once.
@@ -81,14 +82,14 @@ def track_deps_jaxpr(jaxpr, provenance_inputs):
             return
         env[v] = read(v) | p
 
-    core.safe_map(write, jaxpr.invars, provenance_inputs)
+    util.safe_map(write, jaxpr.invars, provenance_inputs)
     for eqn in jaxpr.eqns:
-        provenance_inputs = core.safe_map(read, eqn.invars)
+        provenance_inputs = util.safe_map(read, eqn.invars)
         rule = track_deps_rules.get(eqn.primitive, _default_track_deps_rules)
         provenance_outputs = rule(eqn, provenance_inputs)
-        core.safe_map(write, eqn.outvars, provenance_outputs)
+        util.safe_map(write, eqn.outvars, provenance_outputs)
 
-    return core.safe_map(read, jaxpr.outvars)
+    return util.safe_map(read, jaxpr.outvars)
 
 
 track_deps_rules = {}
