@@ -741,16 +741,19 @@ def test_tracegraph_gaussian_chain(num_latents, num_steps, step_size, atol, diff
 
 
 def test_multi_sample_guide():
+    actual_loc = 3.0
+    actual_scale = 2.0
+
     def model():
-        numpyro.sample("x", dist.Normal(2, 3))
+        numpyro.sample("x", dist.Normal(actual_loc, actual_scale))
 
     def guide():
         loc = numpyro.param("loc", 0.0)
         scale = numpyro.param("scale", 1.0, constraint=constraints.positive)
         numpyro.sample("x", dist.Normal(loc, scale).expand([10]))
 
-    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), multi_sample_guide=True)
-    svi_results = svi.run(random.PRNGKey(0), 1000)
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(multi_sample_guide=True))
+    svi_results = svi.run(random.PRNGKey(0), 2000)
     params = svi_results.params
-    assert_allclose(params["loc"], 2.0, rtol=0.1)
-    assert_allclose(params["scale"], 3.0, rtol=0.1)
+    assert_allclose(params["loc"], actual_loc, rtol=0.1)
+    assert_allclose(params["scale"], actual_scale, rtol=0.1)

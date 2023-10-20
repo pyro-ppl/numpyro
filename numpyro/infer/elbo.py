@@ -45,6 +45,7 @@ class ELBO:
     Subclasses that are capable of inferring  discrete latent variables should override to `True`
     """
     can_infer_discrete = False
+    multi_sample_guide = False
 
     def __init__(self, num_particles=1, vectorize_particles=True):
         self.num_particles = num_particles
@@ -57,7 +58,6 @@ class ELBO:
         model,
         guide,
         *args,
-        multi_sample_guide=False,
         **kwargs,
     ):
         """
@@ -127,6 +127,14 @@ class Trace_ELBO(ELBO):
         Defaults to True.
     """
 
+    def __init__(
+        self, num_particles=1, vectorize_particles=True, multi_sample_guide=False
+    ):
+        self.multi_sample_guide = multi_sample_guide
+        super().__init__(
+            num_particles=num_particles, vectorize_particles=vectorize_particles
+        )
+
     def loss_with_mutable_state(
         self,
         rng_key,
@@ -134,7 +142,6 @@ class Trace_ELBO(ELBO):
         model,
         guide,
         *args,
-        multi_sample_guide=False,
         **kwargs,
     ):
         def single_particle_elbo(rng_key):
@@ -150,7 +157,7 @@ class Trace_ELBO(ELBO):
                 if site["type"] == "mutable"
             }
             params.update(mutable_params)
-            if multi_sample_guide:
+            if self.multi_sample_guide:
                 plates = {
                     name: site["value"]
                     for name, site in guide_trace.items()
