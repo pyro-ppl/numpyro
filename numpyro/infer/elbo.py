@@ -214,7 +214,7 @@ class Trace_ELBO(ELBO):
                     return elbo_particle, mutable_params
                 else:
                     warnings.warn(
-                        "mutable parameters is currently ignored when num_particles > 1."
+                        "mutable state is currently ignored when num_particles > 1."
                     )
                     return elbo_particle, None
             else:
@@ -347,9 +347,10 @@ class TraceMeanField_ELBO(ELBO):
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
                 else:
-                    raise ValueError(
-                        "Currently, we only support mutable states with num_particles=1."
+                    warnings.warn(
+                        "mutable state is currently ignored when num_particles > 1."
                     )
+                    return elbo_particle, None
             else:
                 return elbo_particle, None
 

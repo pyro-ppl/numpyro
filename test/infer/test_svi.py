@@ -463,7 +463,7 @@ def test_mutable_state(stable_update, num_particles, elbo):
 
     svi = SVI(model, guide, optim.Adam(0.1), elbo(num_particles=num_particles))
     if num_particles > 1:
-        with pytest.raises(ValueError, match="mutable state"):
+        with pytest.warns(UserWarning, match="mutable state"):
             svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
         return
     svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
