@@ -794,9 +794,9 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "mutable", "plate", "deterministic")) or msg.get(
-            "_control_flow_done", False
-        ):
+        if (
+            msg["type"] not in ("sample", "param", "mutable", "plate", "deterministic")
+        ) or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
                     msg["kwargs"]["substitute_stack"].append(("substitute", self.data))
