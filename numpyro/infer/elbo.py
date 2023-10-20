@@ -42,9 +42,12 @@ class ELBO:
     """
     Determines whether the ELBO objective can support inference of discrete latent variables.
 
-    Subclasses that are capable of inferring  discrete latent variables should override to `True`
+    Subclasses that are capable of inferring discrete latent variables should override to `True`.
     """
     can_infer_discrete = False
+    """
+    Whether to make an assumption that the guide proposes multiple samples.
+    """
     multi_sample_guide = False
 
     def __init__(self, num_particles=1, vectorize_particles=True):
