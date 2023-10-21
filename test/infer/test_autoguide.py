@@ -564,6 +564,7 @@ def test_autoguide_deterministic(auto_class):
         random.PRNGKey(0), params, sample_shape=(1000,)
     )
 
+    posterior_samples.pop("z")
     predictive = Predictive(model, posterior_samples, params=params)
     predictive_samples = predictive(random.PRNGKey(0), y_test)
 

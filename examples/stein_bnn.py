@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+import jax
 from jax import random
 import jax.numpy as jnp
 
@@ -195,9 +196,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    from jax.config import config
-
-    config.update("jax_debug_nans", True)
+    jax.config.update("jax_debug_nans", True)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--subsample-size", type=int, default=100)
