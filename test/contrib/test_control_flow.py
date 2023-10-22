@@ -213,7 +213,7 @@ def test_scan_promote():
 
 
 def test_scan_plate_mask():
-    def model(y=None, T=10):
+    def model(y=None, T=12):
         def transition(carry, y_curr):
             x_prev, t = carry
             with numpyro.plate("N", 10, dim=-1):
@@ -237,7 +237,7 @@ def test_scan_plate_mask():
         return (x, y)
 
     with numpyro.handlers.seed(rng_seed=0):
-        model_density, model_trace = log_density(model, (None, 10), {}, {})
+        model_density, model_trace = log_density(model, (None, 12), {}, {})
         assert model_density
-        assert model_trace["x"]["fn"].batch_shape == (10,)
+        assert model_trace["x"]["fn"].batch_shape == (12, 10)
         assert model_trace["x"]["fn"].event_shape == (3,)

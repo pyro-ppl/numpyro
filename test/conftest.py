@@ -3,7 +3,7 @@
 
 import os
 
-from jax.config import config
+from jax import config
 
 from numpyro.util import set_rng_seed
 

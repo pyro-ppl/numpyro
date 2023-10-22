@@ -14,6 +14,8 @@ def _subs_wrapper(subs_map, site):
     if isinstance(subs_map, dict) and site["name"] in subs_map:
         return subs_map[site["name"]]
     elif callable(subs_map):
+        if site["type"] == "deterministic":
+            return subs_map(site)
         rng_key = site["kwargs"].get("rng_key")
         subs_map = (
             handlers.seed(subs_map, rng_seed=rng_key)
