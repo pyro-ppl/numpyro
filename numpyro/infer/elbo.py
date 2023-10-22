@@ -167,7 +167,10 @@ class Trace_ELBO(ELBO):
 
                 def get_model_density(key, latent):
                     with seed(rng_seed=key), substitute(data={**latent, **plates}):
-                        model_log_density, _ = log_density(model, args, kwargs, params)
+                        model_log_density, model_trace = log_density(
+                            model, args, kwargs, params
+                        )
+                    _validate_model(model_trace, plate_warning="loose")
                     return model_log_density
 
                 num_guide_samples = None
