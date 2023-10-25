@@ -2852,42 +2852,52 @@ def test_kl_expanded_normal(batch_shape, event_shape):
 @pytest.mark.parametrize(
     "batch_shape_p, batch_shape_q",
     [
-        ((), ()),
         ((1,), (1,)),
         ((2, 3), (2, 3)),
-        ((5, 2, 3), (2, 3)),
-        ((2, 3), (5, 2, 3)),
+        ((5, 1, 3), (2, 3)),
+        ((1, 3), (5, 2, 3)),
     ],
     ids=str,
 )
+@pytest.mark.parametrize("single_scale_p", [False, True], ids=str)
+@pytest.mark.parametrize("single_loc_p", [False, True], ids=str)
+@pytest.mark.parametrize("single_scale_q", [False, True], ids=str)
+@pytest.mark.parametrize("single_loc_q", [False, True], ids=str)
 def test_kl_multivariate_normal_consistency_with_independent_normals(
-    batch_shape_p, batch_shape_q
+    batch_shape_p,
+    batch_shape_q,
+    single_scale_p,
+    single_loc_p,
+    single_scale_q,
+    single_loc_q,
 ):
     event_shape = (5,)
 
-    def make_dists(batch_shape):
-        shape = batch_shape + event_shape
-        mus = np.random.normal(size=shape)
-        scales = np.exp(np.random.normal(size=shape))
-        scales = np.ones(shape)
+    def make_dists(loc_batch_shape, scales_batch_shape):
+        mus = np.random.normal(size=loc_batch_shape + event_shape)
+        scales = np.exp(np.random.normal(size=scales_batch_shape + event_shape) * 0.1)
 
         def diagonalize(v, ignore_axes: int):
             if ignore_axes == 0:
                 return jnp.diag(v)
             return vmap(diagonalize, in_axes=(0, None))(v, ignore_axes - 1)
 
-        scale_tril = diagonalize(scales, len(batch_shape))
+        scale_tril = diagonalize(scales, len(scales_batch_shape))
         return (
             dist.Normal(mus, scales).to_event(len(event_shape)),
             dist.MultivariateNormal(mus, scale_tril=scale_tril),
         )
 
-    p_uni, p_mvn = make_dists(batch_shape_p)
-    q_uni, q_mvn = make_dists(batch_shape_q)
+    p_uni, p_mvn = make_dists(
+        () if single_loc_p else batch_shape_p, () if single_scale_p else batch_shape_p
+    )
+    q_uni, q_mvn = make_dists(
+        () if single_loc_q else batch_shape_q, () if single_scale_q else batch_shape_q
+    )
 
     actual = kl_divergence(p_mvn, q_mvn)
     expected = kl_divergence(p_uni, q_uni)
-    assert_allclose(actual, expected, atol=1e-6)
+    assert_allclose(actual, expected, atol=1e-5)
 
 
 def test_kl_multivariate_normal_nondiagonal_covariance():

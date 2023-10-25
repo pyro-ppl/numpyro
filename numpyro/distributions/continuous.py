@@ -1368,9 +1368,7 @@ class MatrixNormal(Distribution):
         diff_col_solve = _batch_solve_triangular(
             A=self.scale_tril_column, B=jnp.swapaxes(diff_row_solve, -2, -1)
         )
-        batched_trace_term = _batch_trace_from_cholesky(
-            diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
-        )
+        batched_trace_term = _batch_trace_from_cholesky(diff_col_solve)
 
         log_prob = -0.5 * batched_trace_term - log_det_term
 
