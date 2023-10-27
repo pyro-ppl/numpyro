@@ -32,6 +32,7 @@ NumPyro documentation
    examples/funnel
    examples/stochastic_volatility
    examples/prodlda
+   tutorials/variationally_inferred_parameterization
    tutorials/model_rendering
    tutorials/bad_posterior_geometry
    tutorials/truncated_distributions
