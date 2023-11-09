@@ -797,7 +797,7 @@ class Kumaraswamy(Distribution):
         return jnp.clip(jnp.exp(log_sample), a_min=finfo.tiny, a_max=1 - finfo.eps)
 
     @validate_sample
-    def log_prob(self, value, intermediates=None):
+    def log_prob(self, value):
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
         return (
             xlogy(self.concentration1 - 1, value)
