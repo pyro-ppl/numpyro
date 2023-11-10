@@ -765,7 +765,7 @@ class Gumbel(Distribution):
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
-class Kumaraswamy(TransformedDistribution):
+class Kumaraswamy(Distribution):
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -786,13 +786,7 @@ class Kumaraswamy(TransformedDistribution):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0)
         )
-        base_dist = Uniform(0, 1).expand(batch_shape)
-        transforms = [
-            PowerTransform(1 / concentration0),
-            AffineTransform(1, -1),
-            PowerTransform(1 / concentration1),
-        ]
-        super().__init__(base_dist, transforms, validate_args=validate_args)
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
