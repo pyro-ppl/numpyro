@@ -136,7 +136,7 @@ class HMCGibbs(MCMCKernel):
         gibbs_sites = {}
 
         for name, site in self._prototype_trace.items():
-            if init_params and name in init_params:
+            if init_params and (name in init_params) and (name in self._gibbs_sites):
                 gibbs_sites[name] = init_params.pop(name)
 
             elif name in self._gibbs_sites:
