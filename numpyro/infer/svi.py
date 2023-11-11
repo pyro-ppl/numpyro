@@ -7,6 +7,7 @@ import warnings
 
 import tqdm
 
+import jax
 from jax import jit, lax, random
 from jax.example_libraries import optimizers
 import jax.numpy as jnp
@@ -189,9 +190,25 @@ class SVI(object):
         }
         if init_params is not None:
             init_guide_params.update(init_params)
-        model_trace = trace(
-            substitute(replay(model_init, guide_trace), init_guide_params)
-        ).get_trace(*args, **kwargs, **self.static_kwargs)
+        if getattr(self.loss, "multi_sample_guide", False):
+            latents = {
+                name: site["value"][0]
+                for name, site in guide_trace.items()
+                if site["type"] == "sample" and site["value"].size > 0
+            }
+            latents.update(init_guide_params)
+            with trace() as model_trace, substitute(data=latents):
+                model_init(*args, **kwargs, **self.static_kwargs)
+            for site in model_trace.values():
+                if site["type"] == "mutable":
+                    raise ValueError(
+                        "mutable state in model is not supported for "
+                        "multi-sample guide."
+                    )
+        else:
+            model_trace = trace(
+                substitute(replay(model_init, guide_trace), init_guide_params)
+            ).get_trace(*args, **kwargs, **self.static_kwargs)
 
         params = {}
         inv_transforms = {}
@@ -363,7 +380,7 @@ class SVI(object):
                 batch = max(num_steps // 20, 1)
                 for i in t:
                     svi_state, loss = jit(body_fn)(svi_state, None)
-                    losses.append(loss)
+                    losses.append(jax.device_get(loss))
                     if i % batch == 0:
                         if stable_update:
                             valid_losses = [x for x in losses[i - batch :] if x == x]

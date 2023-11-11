@@ -463,7 +463,7 @@ def test_mutable_state(stable_update, num_particles, elbo):
 
     svi = SVI(model, guide, optim.Adam(0.1), elbo(num_particles=num_particles))
     if num_particles > 1:
-        with pytest.raises(ValueError, match="mutable state"):
+        with pytest.warns(UserWarning, match="mutable state"):
             svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
         return
     svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
@@ -738,3 +738,22 @@ def test_tracegraph_gaussian_chain(num_latents, num_steps, step_size, atol, diff
 
     for i in range(3):
         assert_allclose(max_errors[i], 0, atol=atol)
+
+
+def test_multi_sample_guide():
+    actual_loc = 3.0
+    actual_scale = 2.0
+
+    def model():
+        numpyro.sample("x", dist.Normal(actual_loc, actual_scale))
+
+    def guide():
+        loc = numpyro.param("loc", 0.0)
+        scale = numpyro.param("scale", 1.0, constraint=constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale).expand([10]))
+
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(multi_sample_guide=True))
+    svi_results = svi.run(random.PRNGKey(0), 2000)
+    params = svi_results.params
+    assert_allclose(params["loc"], actual_loc, rtol=0.1)
+    assert_allclose(params["scale"], actual_scale, rtol=0.1)

@@ -36,8 +36,11 @@ from numpyro.distributions.continuous import (
     Dirichlet,
     Gamma,
     Kumaraswamy,
+    MultivariateNormal,
     Normal,
     Weibull,
+    _batch_solve_triangular,
+    _batch_trace_from_cholesky,
 )
 from numpyro.distributions.discrete import CategoricalProbs
 from numpyro.distributions.distribution import (
@@ -132,6 +135,52 @@ def kl_divergence(p, q):
     var_ratio = jnp.square(p.scale / q.scale)
     t1 = jnp.square((p.loc - q.loc) / q.scale)
     return 0.5 * (var_ratio + t1 - 1 - jnp.log(var_ratio))
+
+
+@dispatch(MultivariateNormal, MultivariateNormal)
+def kl_divergence(p: MultivariateNormal, q: MultivariateNormal):
+    # cf https://statproofbook.github.io/P/mvn-kl.html
+
+    def _shapes_are_broadcastable(first_shape, second_shape):
+        try:
+            jnp.broadcast_shapes(first_shape, second_shape)
+            return True
+        except ValueError:
+            return False
+
+    if p.event_shape != q.event_shape:
+        raise ValueError(
+            "Distributions must have the same event shape, but are"
+            f" {p.event_shape} and {q.event_shape} for p and q, respectively."
+        )
+
+    try:
+        result_batch_shape = jnp.broadcast_shapes(p.batch_shape, q.batch_shape)
+    except ValueError as ve:
+        raise ValueError(
+            "Distributions must have broadcastble batch shapes, "
+            f"but have {p.batch_shape} and {q.batch_shape} for p and q,"
+            "respectively."
+        ) from ve
+
+    assert len(p.event_shape) == 1, "event_shape must be one-dimensional"
+    D = p.event_shape[0]
+
+    p_half_log_det = jnp.log(jnp.diagonal(p.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+    q_half_log_det = jnp.log(jnp.diagonal(q.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+
+    log_det_ratio = 2 * (p_half_log_det - q_half_log_det)
+    assert _shapes_are_broadcastable(log_det_ratio.shape, result_batch_shape)
+
+    Lq_inv = _batch_solve_triangular(q.scale_tril, jnp.eye(D))
+
+    tr = _batch_trace_from_cholesky(Lq_inv @ p.scale_tril)
+    assert _shapes_are_broadcastable(tr.shape, result_batch_shape)
+
+    t1 = jnp.square(Lq_inv @ (p.loc - q.loc)[..., jnp.newaxis]).sum((-2, -1))
+    assert _shapes_are_broadcastable(t1.shape, result_batch_shape)
+
+    return 0.5 * (tr + t1 - D - log_det_ratio)
 
 
 @dispatch(Beta, Beta)

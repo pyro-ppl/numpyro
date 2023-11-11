@@ -42,7 +42,7 @@ class ELBO:
     """
     Determines whether the ELBO objective can support inference of discrete latent variables.
 
-    Subclasses that are capable of inferring  discrete latent variables should override to `True`
+    Subclasses that are capable of inferring discrete latent variables should override to `True`.
     """
     can_infer_discrete = False
 
@@ -50,7 +50,15 @@ class ELBO:
         self.num_particles = num_particles
         self.vectorize_particles = vectorize_particles
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+    def loss(
+        self,
+        rng_key,
+        param_map,
+        model,
+        guide,
+        *args,
+        **kwargs,
+    ):
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
@@ -116,15 +124,30 @@ class Trace_ELBO(ELBO):
     :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
         num_particles-many particles in parallel. If False use `jax.lax.map`.
         Defaults to True.
+    :param multi_sample_guide: Whether to make an assumption that the guide proposes
+        multiple samples.
     """
 
+    def __init__(
+        self, num_particles=1, vectorize_particles=True, multi_sample_guide=False
+    ):
+        self.multi_sample_guide = multi_sample_guide
+        super().__init__(
+            num_particles=num_particles, vectorize_particles=vectorize_particles
+        )
+
     def loss_with_mutable_state(
-        self, rng_key, param_map, model, guide, *args, **kwargs
+        self,
+        rng_key,
+        param_map,
+        model,
+        guide,
+        *args,
+        **kwargs,
     ):
         def single_particle_elbo(rng_key):
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
-            seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             guide_log_density, guide_trace = log_density(
                 seeded_guide, args, kwargs, param_map
@@ -135,19 +158,57 @@ class Trace_ELBO(ELBO):
                 if site["type"] == "mutable"
             }
             params.update(mutable_params)
-            seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, model_trace = log_density(
-                seeded_model, args, kwargs, params
-            )
-            check_model_guide_match(model_trace, guide_trace)
-            _validate_model(model_trace, plate_warning="loose")
-            mutable_params.update(
-                {
+            if self.multi_sample_guide:
+                plates = {
                     name: site["value"]
-                    for name, site in model_trace.items()
-                    if site["type"] == "mutable"
+                    for name, site in guide_trace.items()
+                    if site["type"] == "plate"
                 }
-            )
+
+                def get_model_density(key, latent):
+                    with seed(rng_seed=key), substitute(data={**latent, **plates}):
+                        model_log_density, model_trace = log_density(
+                            model, args, kwargs, params
+                        )
+                    _validate_model(model_trace, plate_warning="loose")
+                    return model_log_density
+
+                num_guide_samples = None
+                for name, site in guide_trace.items():
+                    if site["type"] == "sample":
+                        num_guide_samples = site["value"].shape[0]
+                        break
+                if num_guide_samples is None:
+                    raise ValueError("guide is missing `sample` sites.")
+                seeds = random.split(model_seed, num_guide_samples)
+                latents = {
+                    name: site["value"]
+                    for name, site in guide_trace.items()
+                    if (site["type"] == "sample" and site["value"].size > 0)
+                    or (site["type"] == "deterministic")
+                }
+                model_log_density = vmap(get_model_density)(seeds, latents)
+                assert model_log_density.ndim == 1
+                model_log_density = model_log_density.sum(0)
+                # log p(z) - log q(z)
+                elbo_particle = (model_log_density - guide_log_density) / seeds.shape[0]
+            else:
+                seeded_model = seed(model, model_seed)
+                replay_model = replay(seeded_model, guide_trace)
+                model_log_density, model_trace = log_density(
+                    replay_model, args, kwargs, params
+                )
+                check_model_guide_match(model_trace, guide_trace)
+                _validate_model(model_trace, plate_warning="loose")
+                mutable_params.update(
+                    {
+                        name: site["value"]
+                        for name, site in model_trace.items()
+                        if site["type"] == "mutable"
+                    }
+                )
+                # log p(z) - log q(z)
+                elbo_particle = model_log_density - guide_log_density
 
             # log p(z) - log q(z)
             elbo_particle = model_log_density - guide_log_density
@@ -155,9 +216,10 @@ class Trace_ELBO(ELBO):
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
                 else:
-                    raise ValueError(
-                        "Currently, we only support mutable states with num_particles=1."
+                    warnings.warn(
+                        "mutable state is currently ignored when num_particles > 1."
                     )
+                    return elbo_particle, None
             else:
                 return elbo_particle, None
 
@@ -288,9 +350,10 @@ class TraceMeanField_ELBO(ELBO):
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
                 else:
-                    raise ValueError(
-                        "Currently, we only support mutable states with num_particles=1."
+                    warnings.warn(
+                        "mutable state is currently ignored when num_particles > 1."
                     )
+                    return elbo_particle, None
             else:
                 return elbo_particle, None
 
