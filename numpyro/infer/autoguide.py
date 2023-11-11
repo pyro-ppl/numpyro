@@ -1252,7 +1252,8 @@ class AutoSemiDAIS(AutoGuide):
         distribution for each (unconstrained transformed) local latent variable. Defaults to 0.1.
     :param str subsample_plate: Optional name of the subsample plate site. This is required
         when the model does not have subsample plate (like in VAE settings).
-    :param bool use_global_dais_params: Whether to use global parameters for DAIS dynamics.
+    :param bool use_global_dais_params: Whether to use global parameters for DAIS dynamics. Note
+        that those parameters do not include the base distribution's parameters.
     """
 
     def __init__(
@@ -1571,32 +1572,17 @@ class AutoSemiDAIS(AutoGuide):
                     base_z_dist_log_prob(z_0) / subsample_size,
                 )
             else:
-                if self.use_global_dais_params:
-                    z_0_loc_init = jnp.zeros(D)
-                    z_0_loc = numpyro.param(
-                        "{}_z_0_loc".format(self.prefix),
-                        z_0_loc_init,
-                    )
-                    z_0_loc = jnp.broadcast_to(z_0_loc, idx.shape + (D,))
-                    z_0_scale_init = jnp.ones(D) * self.init_scale
-                    z_0_scale = numpyro.param(
-                        "{}_z_0_scale".format(self.prefix),
-                        z_0_scale_init,
-                        constraint=constraints.positive,
-                    )
-                    z_0_scale = jnp.broadcast_to(z_0_scale, idx.shape + (D,))
-                else:
-                    z_0_loc_init = jnp.zeros((N, D))
-                    z_0_loc = numpyro.param(
-                        "{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1
-                    )
-                    z_0_scale_init = jnp.ones((N, D)) * self.init_scale
-                    z_0_scale = numpyro.param(
-                        "{}_z_0_scale".format(self.prefix),
-                        z_0_scale_init,
-                        constraint=constraints.positive,
-                        event_dim=1,
-                    )
+                z_0_loc_init = jnp.zeros((N, D))
+                z_0_loc = numpyro.param(
+                    "{}_z_0_loc".format(self.prefix), z_0_loc_init, event_dim=1
+                )
+                z_0_scale_init = jnp.ones((N, D)) * self.init_scale
+                z_0_scale = numpyro.param(
+                    "{}_z_0_scale".format(self.prefix),
+                    z_0_scale_init,
+                    constraint=constraints.positive,
+                    event_dim=1,
+                )
                 base_z_dist = dist.Normal(z_0_loc, z_0_scale).to_event(1)
                 assert base_z_dist.shape() == (subsample_size, D)
                 z_0 = numpyro.sample(
