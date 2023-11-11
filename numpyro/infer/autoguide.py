@@ -1251,9 +1251,13 @@ class AutoSemiDAIS(AutoGuide):
     :param float init_scale: Initial scale for the standard deviation of the variational
         distribution for each (unconstrained transformed) local latent variable. Defaults to 0.1.
     :param str subsample_plate: Optional name of the subsample plate site. This is required
-        when the model does not have subsample plate (like in VAE settings).
-    :param bool use_global_dais_params: Whether to use global parameters for DAIS dynamics. Note
-        that those parameters do not include the base distribution's parameters.
+        when the model has a subsample plate without `subsample_size` specified or
+        the model has a subsample plate with `subsample_size` equal to the plate size.
+    :param bool use_global_dais_params: Whether parameters controlling DAIS dynamic
+        (HMC step size, HMC mass matrix, etc.) should be global (i.e. common to all
+        data points in the subsample plate) or local (i.e. each data point in the
+        subsample plate has individual parameters). Note that we do not use global
+        parameters for the base distribution.
     """
 
     def __init__(
@@ -1313,6 +1317,13 @@ class AutoSemiDAIS(AutoGuide):
             subsample_plates[self.subsample_plate] = self.prototype_trace[
                 self.subsample_plate
             ]
+        elif not subsample_plates:
+            # Consider all plates as subsample plates.
+            subsample_plates = {
+                name: site
+                for name, site in self.prototype_trace.items()
+                if site["type"] == "plate"
+            }
         num_plates = len(subsample_plates)
         assert (
             num_plates == 1
