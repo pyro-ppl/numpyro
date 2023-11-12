@@ -1227,3 +1227,27 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
         )
         assert guide_samples["x"].shape == sample_shape + shape
         assert guide_samples["x2"].shape == sample_shape + shape
+
+
+@pytest.mark.parametrize("use_global_dais_params", [True, False])
+def test_dais_vae(use_global_dais_params):
+    def model():
+        with numpyro.plate("N", 10):
+            numpyro.sample("x", dist.Normal(jnp.arange(-5, 5), 2))
+
+    guide = AutoSemiDAIS(
+        model, model, subsample_plate="N", use_global_dais_params=use_global_dais_params
+    )
+    svi = SVI(model, guide, optax.adam(0.02), Trace_ELBO())
+    svi_results = svi.run(random.PRNGKey(0), 3000)
+    samples = guide.sample_posterior(
+        random.PRNGKey(1), svi_results.params, sample_shape=(1000,)
+    )
+    if use_global_dais_params:
+        assert_allclose(
+            samples["x"].mean(), jnp.arange(-5, 5).mean(), atol=0.1, rtol=0.1
+        )
+    else:
+        assert_allclose(
+            samples["x"].mean(axis=0), jnp.arange(-5, 5), atol=0.2, rtol=0.1
+        )

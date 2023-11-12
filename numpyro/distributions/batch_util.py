@@ -261,17 +261,8 @@ def _vmap_over_kumaraswamy(dist: Kumaraswamy, concentration0=None, concentration
     dist_axes = _default_vmap_over(
         dist, concentration0=concentration0, concentration1=concentration1
     )
-    if isinstance(dist.base_dist, Uniform):
-        dist_axes.base_dist = vmap_over(dist.base_dist, low=None, high=None)
-    else:
-        assert isinstance(dist.base_dist, ExpandedDistribution)
-        dist_axes.base_dist = vmap_over(dist.base_dist, base_dist=None)
-
-    dist_axes.transforms = [
-        vmap_over(dist.transforms[0], exponent=concentration0),
-        vmap_over(dist.transforms[1], loc=None, scale=None),
-        vmap_over(dist.transforms[2], exponent=concentration1),
-    ]
+    dist_axes.concentration0 = concentration0
+    dist_axes.concentration1 = concentration1
     return dist_axes
 
 
