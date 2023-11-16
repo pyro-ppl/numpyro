@@ -315,7 +315,7 @@ texinfo_documents = [
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
-    "numpy": ("http://docs.scipy.org/doc/numpy/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
     "jax": ("https://jax.readthedocs.io/en/latest/", None),
-    "pyro": ("http://docs.pyro.ai/en/stable/", None),
+    "pyro": ("https://docs.pyro.ai/en/stable/", None),
 }
