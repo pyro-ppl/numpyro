@@ -882,7 +882,7 @@ class LKJ(TransformedDistribution):
             concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
             corr_mat = numpyro.sample("corr_mat", dist.LKJ(d, concentration))
             sigma = jnp.sqrt(theta)
-            # we can also use a faster formula `cov_mat = jnp.outer(theta, theta) * corr_mat`
+            # we can also use a faster formula `cov_mat = jnp.outer(sigma, sigma) * corr_mat`
             cov_mat = jnp.matmul(jnp.matmul(jnp.diag(sigma), corr_mat), jnp.diag(sigma))
 
             # Vector of expectations
