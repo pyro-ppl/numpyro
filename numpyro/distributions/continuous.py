@@ -790,18 +790,22 @@ class Kumaraswamy(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        minval = jnp.finfo(jnp.result_type(float)).tiny
-        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
-        log_sample = jnp.log1p(-(u ** (1 / self.concentration0))) / self.concentration1
-        finfo = jnp.finfo(u)
+        finfo = jnp.finfo(jnp.result_type(float))
+        u = random.uniform(
+            key, shape=sample_shape + self.batch_shape, minval=finfo.tiny
+        )
+        u_con0 = jnp.clip(u ** (1 / self.concentration0), a_max=1 - finfo.eps)
+        log_sample = jnp.log1p(-u_con0) / self.concentration1
         return jnp.clip(jnp.exp(log_sample), a_min=finfo.tiny, a_max=1 - finfo.eps)
 
     @validate_sample
     def log_prob(self, value):
+        finfo = jnp.finfo(jnp.result_type(float))
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
+        value_con1 = jnp.clip(value**self.concentration1, a_max=1 - finfo.eps)
         return (
             xlogy(self.concentration1 - 1, value)
-            + xlog1py(self.concentration0 - 1, -(value**self.concentration1))
+            + xlog1py(self.concentration0 - 1, -value_con1)
             + normalize_term
         )
 
