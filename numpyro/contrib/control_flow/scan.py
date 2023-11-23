@@ -55,7 +55,7 @@ def _subs_wrapper(subs_map, i, length, site):
             # where we apply init_strategy to each element in the scanned series
             return value
         elif value_ndim == fn_ndim + 1:
-            # this branch happens when xwe substitute a series of values
+            # this branch happens when we substitute a series of values
             shape = jnp.shape(value)
             if shape[0] == length:
                 return value[i]
@@ -316,7 +316,7 @@ def scan_wrapper(
 
             if replay_trace is not None:
                 seeded_fn_trace = handlers.trace(seeded_fn).get_trace(carry, x)
-                replay_trace_i = _replay_wrapper(replay_trace, seeded_fn_trace, i, length)
+                replay_trace_i = _replay_wrapper(replay_trace, seeded_fn_trace, i-1, length)
                 seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
 
             with handlers.trace() as trace:
