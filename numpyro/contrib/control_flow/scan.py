@@ -15,6 +15,22 @@ from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
 
+def _replay_wrapper(replay_trace, seeded_fn_trace, i, length):
+    def get_ith_value(site):
+        if site["name"] not in seeded_fn_trace.keys():
+            return site
+        shape = jnp.shape(site["value"])
+        if shape[0] == length:
+            site["value"] = site["value"][i]
+        elif shape[0] != length:
+            raise RuntimeError(
+                f"Replay value for site {site['name']} "
+                "requires length equal to scan length."
+                f" Expected length == {length}, but got {shape[0]}."
+            )
+        return site
+    return {k: get_ith_value(v.copy()) for k, v in replay_trace.items()}
+
 def _subs_wrapper(subs_map, i, length, site):
     if site["type"] != "sample":
         return
@@ -39,7 +55,7 @@ def _subs_wrapper(subs_map, i, length, site):
             # where we apply init_strategy to each element in the scanned series
             return value
         elif value_ndim == fn_ndim + 1:
-            # this branch happens when we substitute a series of values
+            # this branch happens when xwe substitute a series of values
             shape = jnp.shape(value)
             if shape[0] == length:
                 return value[i]
@@ -259,6 +275,7 @@ def scan_wrapper(
     reverse,
     rng_key=None,
     substitute_stack=[],
+    replay_trace=None,
     enum=False,
     history=1,
     first_available_dim=None,
@@ -289,7 +306,6 @@ def scan_wrapper(
             fn = handlers.infer_config(
                 f, config_fn=lambda msg: {"_scan_current_index": i}
             )
-
             seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
@@ -297,6 +313,11 @@ def scan_wrapper(
                     seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
                 elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
+
+            if replay_trace is not None:
+                seeded_fn_trace = handlers.trace(seeded_fn).get_trace(carry, x)
+                replay_trace_i = _replay_wrapper(replay_trace, seeded_fn_trace, i, length)
+                seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
