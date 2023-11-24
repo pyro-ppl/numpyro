@@ -158,10 +158,10 @@ class Distribution(metaclass=DistributionMeta):
         return all_pytree_data_fields
 
     @classmethod
-    def gather_pytree_aux_fields(cls):
+    def gather_pytree_aux_fields(cls) -> tuple:
         bases = inspect.getmro(cls)
 
-        all_pytree_aux_fields = ()
+        all_pytree_aux_fields = ("_validate_args",)
         for base in bases:
             if issubclass(base, Distribution):
                 all_pytree_aux_fields += base.__dict__.get("pytree_aux_fields", ())
@@ -203,11 +203,15 @@ class Distribution(metaclass=DistributionMeta):
         for k, v in pytree_aux_fields_dict.items():
             setattr(d, k, v)
 
+        # disable args validation during `tree_unflatten` it is called by jax with
+        # placeholder attributes that would make validation fail
+        d._validate_args = False
         Distribution.__init__(
             d,
             pytree_aux_fields_dict["_batch_shape"],
             pytree_aux_fields_dict["_event_shape"],
         )
+        d._validate_args = pytree_aux_fields_dict["_validate_args"]
         return d
 
     @staticmethod
