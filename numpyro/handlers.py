@@ -224,7 +224,10 @@ class replay(Messenger):
             msg["infer"] = guide_msg["infer"].copy()
 
         if msg["type"] == "control_flow":
-            print('''msg.get("_control_flow_done", False)''', msg.get("_control_flow_done", False))
+            print(
+                """msg.get("_control_flow_done", False)""",
+                msg.get("_control_flow_done", False),
+            )
             msg["kwargs"]["replay_trace"] = self.trace
 
 
