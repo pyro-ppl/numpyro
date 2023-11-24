@@ -19,7 +19,7 @@ def _replay_wrapper(replay_trace, trace, i, length):
     def get_ith_value(site):
         if site["name"] not in trace:
             return site
-        
+
         site_len = jnp.shape(site["value"])[0]
 
         if site_len != length:
@@ -28,7 +28,6 @@ def _replay_wrapper(replay_trace, trace, i, length):
                 "requires length equal to scan length."
                 f" Expected length {length}, but got {site_len}."
             )
-        
 
         site["value"] = site["value"][i]
         return site
@@ -321,9 +320,7 @@ def scan_wrapper(
 
             if replay_trace is not None:
                 trace = handlers.trace(seeded_fn).get_trace(carry, x)
-                replay_trace_i = _replay_wrapper(
-                    replay_trace, trace, i - 1, length
-                )
+                replay_trace_i = _replay_wrapper(replay_trace, trace, i - 1, length)
                 seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
 
             with handlers.trace() as trace:
