@@ -3092,6 +3092,21 @@ def test_vmap_dist(jax_dist, sp_dist, params):
         assert samples_batched_dist.shape == (1, *samples_dist.shape)
 
 
+def test_vmap_validate_args():
+    # Test for #1684: vmapping distributions whould work when `validate_args=True`
+    v_dist = jax.vmap(
+        lambda loc, scale: dist.Normal(loc=loc, scale=scale, validate_args=True),
+        in_axes=(0, 0),
+    )(jnp.zeros((2,)), jnp.zeros((2,)))
+
+    # non-regression test
+    v_dist = jax.vmap(
+        lambda loc, scale: dist.Normal(loc=loc, scale=scale, validate_args=False),
+        in_axes=(0, 0),
+    )(jnp.zeros((2,)), jnp.zeros((2,)))
+    assert not v_dist._validate_args
+
+
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.PRNGKey(0)
