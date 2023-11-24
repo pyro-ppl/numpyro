@@ -279,7 +279,6 @@ def scan_wrapper(
     reverse,
     rng_key=None,
     substitute_stack=[],
-    replay_trace=None,
     enum=False,
     history=1,
     first_available_dim=None,
@@ -318,10 +317,10 @@ def scan_wrapper(
                 elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
-            if replay_trace is not None:
-                trace = handlers.trace(seeded_fn).get_trace(carry, x)
-                replay_trace_i = _replay_wrapper(replay_trace, trace, i - 1, length)
-                seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
+                elif subs_type == "replay":
+                    trace = handlers.trace(seeded_fn).get_trace(carry, x)
+                    replay_trace_i = _replay_wrapper(subs_map, trace, i - 1, length)
+                    seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
