@@ -86,6 +86,7 @@ setup(
         "tpu": f"jax[tpu]{_jax_version_constraints}",
         "cuda": f"jax[cuda]{_jax_version_constraints}",
     },
+    python_requires=">=3.9",
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords="probabilistic machine learning bayesian statistics",
