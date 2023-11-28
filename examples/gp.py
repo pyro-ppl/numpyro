@@ -194,7 +194,7 @@ if __name__ == "__main__":
         type=str,
         choices=["median", "feasible", "value", "uniform", "sample"],
     )
-    parser.add_argument("--no_cholesky", dest="use_cholesky", action="store_false")
+    parser.add_argument("--no-cholesky", dest="use_cholesky", action="store_false")
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
