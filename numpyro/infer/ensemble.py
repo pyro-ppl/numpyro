@@ -163,24 +163,29 @@ class EnsembleSampler(MCMCKernel, ABC):
         rng_key, _ = random.split(rng_key)
         z_flat, unravel_fn = batch_ravel_pytree(z)
 
-        split_ind = self._num_chains // 2
-        active_start_idx = [0, split_ind]
-        active_stop_idx = [split_ind, self._num_chains]
-        inactive_start_idx = [split_ind, 0]
-        inactive_stop_idx = [self._num_chains, split_ind]
-
         if self._randomize_split:
             z_flat = random.permutation(rng_key, z_flat, axis=0)
 
-        # TODO: is there a way to do this without having to compile twice?
-        # indexing depends on the iteration which makes scan/foriloop tricky
-        for split in range(2):
-            active = z_flat[active_start_idx[split] : active_stop_idx[split]]
-            inactive = z_flat[inactive_start_idx[split] : inactive_stop_idx[split]]
+        split_ind = self._num_chains // 2
 
+        def body_fn(i, z_flat_inner_state):
+            z_flat, inner_state = z_flat_inner_state
+            
+            active, inactive = jax.lax.cond(i == 0, 
+                                            lambda x: (x[:split_ind], x[split_ind:]),
+                                            lambda x: (x[split_ind:], x[split_ind:]),
+                                            z_flat)
+        
             z_updates, inner_state = self.update_active_chains(active, inactive, inner_state)
+        
+            z_flat = jax.lax.cond(i == 0, 
+                                  lambda x: x.at[:split_ind].set(z_updates),
+                                  lambda x: x.at[split_ind:].set(z_updates),
+                                  z_flat)
+            return (z_flat, inner_state)
+                
+        z_flat, inner_state = jax.lax.fori_loop(0, 2, body_fn, (z_flat, inner_state))
 
-            z_flat = z_flat.at[active_start_idx[split] : active_stop_idx[split]].set(z_updates)
 
         return EnsembleSamplerState(unravel_fn(z_flat), inner_state, rng_key)
 
