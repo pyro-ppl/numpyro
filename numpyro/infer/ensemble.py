@@ -532,6 +532,14 @@ class ESS(EnsembleSampler):
         When this Move is used the walkers move along directions defined by random vectors sampled from the Gaussian
         approximation of the walkers of the complementary ensemble.
         """
+
+        # In high dimensional regimes with sufficiently small n_active_chains, 
+        # it is more efficient to sample without computing the Cholesky
+        # decomposition of the covariance matrix:
+        
+        # eps = dist.Normal(0, 1).sample(rng_key, (n_active_chains, n_params))
+        # return 2.0 * mu * (eps @ (inactive - jnp.mean(inactive, axis=0)) / jnp.sqrt(n_active_chains))
+
         def gaussian_move(rng_key, inactive, mu):
             n_active_chains, n_params = inactive.shape
             cov = jnp.cov(inactive, rowvar=False)
