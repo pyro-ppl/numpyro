@@ -537,7 +537,7 @@ class ESS(EnsembleSampler):
         # it is more efficient to sample without computing the Cholesky
         # decomposition of the covariance matrix:
         
-        # eps = dist.Normal(0, 1).sample(rng_key, (n_active_chains, n_params))
+        # eps = dist.Normal(0, 1).sample(rng_key, (n_active_chains, n_active_chains))
         # return 2.0 * mu * (eps @ (inactive - jnp.mean(inactive, axis=0)) / jnp.sqrt(n_active_chains))
 
         def gaussian_move(rng_key, inactive, mu):
