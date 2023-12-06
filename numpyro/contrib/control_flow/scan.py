@@ -17,7 +17,8 @@ from numpyro.util import not_jax_tracer
 
 def _replay_wrapper(replay_trace, trace, i, length):
     def get_ith_value(site):
-        site_len = jnp.shape(site["value"])[0]
+        value_shape = jnp.shape(site["value"])
+        site_len = value_shape[0] if value_shape else 0
         
         if site["name"] not in trace or site_len != length or site["type"] not in ("sample", "deterministic"):
             return site
@@ -309,7 +310,6 @@ def scan_wrapper(
                     seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
                 elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
-
                 elif subs_type == "replay":
                     trace = handlers.trace(seeded_fn).get_trace(carry, x)
                     replay_trace_i = _replay_wrapper(subs_map, trace, i, length)
