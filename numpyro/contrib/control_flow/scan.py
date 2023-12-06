@@ -19,8 +19,11 @@ def _replay_wrapper(replay_trace, trace, i, length):
     def get_ith_value(site):
         value_shape = jnp.shape(site["value"])
         site_len = value_shape[0] if value_shape else 0
-        
-        if site["name"] not in trace or site_len != length or site["type"] not in ("sample", "deterministic"):
+        if (
+            site["name"] not in trace
+            or site_len != length
+            or site["type"] not in ("sample", "deterministic")
+        ):
             return site
 
         site["value"] = site["value"][i]
