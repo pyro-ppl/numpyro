@@ -537,7 +537,7 @@ class MCMC(object):
         **kwargs,
     ):
         """
-        Run the MCMC warmup adaptation phase. After this call, `self.warmup_state` will be set
+        Run the MCMC warmup adaptation phase. After this call, `self.post_warmup_state` will be set
         and the :meth:`run` method will skip the warmup adaptation phase. To run `warmup` again
         for the new data, it is required to run :meth:`warmup` again.
 
