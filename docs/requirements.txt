@@ -4,7 +4,7 @@ funsor
 ipython<=8.6.0  # strict the version for https://github.com/ipython/ipython/issues/13845
 jax
 jaxlib
-jaxns>=2.0.1
+jaxns==2.2.6
 Jinja2<3.1
 matplotlib
 multipledispatch
