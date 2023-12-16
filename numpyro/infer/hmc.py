@@ -632,7 +632,11 @@ class HMC(MCMCKernel):
                 raise ValueError(
                     "At least one of `num_steps` or `trajectory_length` must be specified."
                 )
-            if adapt_step_size & (num_steps is not None) & (trajectory_length is not None):
+            if (
+                adapt_step_size
+                & (num_steps is not None)
+                & (trajectory_length is not None)
+            ):
                 warnings.warn(
                     "If both `num_steps` and `trajectory_length` are specified step size can't be adapted",
                     stacklevel=find_stack_level(),
