@@ -627,15 +627,16 @@ class HMC(MCMCKernel):
     ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
-        if (num_steps is None) & (trajectory_length is None):
-            raise ValueError(
-                "At least one of `num_steps` or `trajectory_length` must be specified."
-            )
-        if adapt_step_size & (num_steps is not None) & (trajectory_length is not None):
-            warnings.warn(
-                "If both `num_steps` and `trajectory_length` are specified step size can't be adapted",
-                stacklevel=find_stack_level(),
-            )
+        if type(self) is HMC:
+            if (num_steps is None) & (trajectory_length is None):
+                raise ValueError(
+                    "At least one of `num_steps` or `trajectory_length` must be specified."
+                )
+            if adapt_step_size & (num_steps is not None) & (trajectory_length is not None):
+                warnings.warn(
+                    "If both `num_steps` and `trajectory_length` are specified step size can't be adapted",
+                    stacklevel=find_stack_level(),
+                )
         self._model = model
         self._potential_fn = potential_fn
         self._kinetic_fn = (
