@@ -5,6 +5,7 @@ from collections import OrderedDict, namedtuple
 from functools import partial
 import math
 import os
+import warnings
 
 from jax import device_put, lax, random, vmap
 from jax.flatten_util import ravel_pytree
@@ -19,7 +20,12 @@ from numpyro.infer.hmc_util import (
     warmup_adapter,
 )
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
+from numpyro.infer.util import (
+    ParamInfo,
+    find_stack_level,
+    init_to_uniform,
+    initialize_model,
+)
 from numpyro.util import cond, fori_loop, identity, is_prng_key
 
 HMCState = namedtuple(
@@ -54,6 +60,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **trajectory_length** - The amount of time to run HMC dynamics in each sampling step.
    This field is not used in NUTS.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
+   In HMC sampler, `trajectory_length` should be None for step_size to be adapted.
    In NUTS sampler, the tree depth of a trajectory can be computed from this field
    with `tree_depth = np.log2(num_steps).astype(int) + 1`.
  - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
@@ -362,8 +369,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             num_steps = 1
         else:
             num_steps = _get_num_steps(step_size, trajectory_length)
-        # makes sure trajectory length is constant, rather than step_size * num_steps
-        step_size = trajectory_length / num_steps
+
+        if trajectory_length is not None:
+            # makes sure trajectory length is constant, rather than step_size * num_steps
+            step_size = trajectory_length / num_steps
         vv_state_new = fori_loop(
             0,
             num_steps,
@@ -618,6 +627,20 @@ class HMC(MCMCKernel):
     ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
+        if type(self) is HMC:
+            if (num_steps is None) & (trajectory_length is None):
+                raise ValueError(
+                    "At least one of `num_steps` or `trajectory_length` must be specified."
+                )
+            if (
+                adapt_step_size
+                & (num_steps is not None)
+                & (trajectory_length is not None)
+            ):
+                warnings.warn(
+                    "If both `num_steps` and `trajectory_length` are specified step size can't be adapted",
+                    stacklevel=find_stack_level(),
+                )
         self._model = model
         self._potential_fn = potential_fn
         self._kinetic_fn = (
