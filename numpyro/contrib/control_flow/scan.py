@@ -26,10 +26,11 @@ def _replay_wrapper(replay_trace, trace, i, length):
         ):
             return site
 
+        site = site.copy()
         site["value"] = site["value"][i]
         return site
 
-    return {k: get_ith_value(v.copy()) for k, v in replay_trace.items()}
+    return {k: get_ith_value(v) for k, v in replay_trace.items()}
 
 
 def _subs_wrapper(subs_map, i, length, site):
