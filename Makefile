@@ -1,17 +1,14 @@
 all: test
 
 lint: FORCE
-	flake8
-	black --check .
-	isort --check .
+	ruff .
 	python scripts/update_headers.py --check
 
 license: FORCE
 	python scripts/update_headers.py
 
 format: license FORCE
-	black .
-	isort .
+	ruff . --fix
 
 install: FORCE
 	pip install -e .[dev,doc,test,examples]

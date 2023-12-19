@@ -45,7 +45,7 @@ version = ""
 
 if "READTHEDOCS" not in os.environ:
     # if developing locally, use numpyro.__version__ as version
-    from numpyro import __version__  # noqaE402
+    from numpyro import __version__  # noqa: E402
 
     version = __version__
 
