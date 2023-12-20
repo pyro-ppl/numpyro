@@ -242,6 +242,10 @@ class Distribution(metaclass=DistributionMeta):
                             )
                         )
         super(Distribution, self).__init__()
+        
+    @property
+    def name(self):
+        return type(self).__name__
 
     @property
     def batch_shape(self):
@@ -339,14 +343,27 @@ class Distribution(metaclass=DistributionMeta):
         """
         Mean of the distribution.
         """
-        raise NotImplementedError
+        raise NotImplementedError(f"mean is not implemented for {self.name}")
 
     @property
     def variance(self):
         """
         Variance of the distribution.
         """
-        raise NotImplementedError
+        raise NotImplementedError(f"variance is not implemented for {self.name}")
+    
+    @property
+    def mode(self):
+        """
+        Mode of the distribution.
+        """
+        raise NotImplementedError(f"mode is not implemented for {self.name}")
+    
+    def entropy(self):
+        """
+        Entropy of the distribution.
+        """
+        raise NotImplementedError(f"entropy is not implemented for {self.name}")
 
     def _validate_sample(self, value):
         mask = self.support(value)

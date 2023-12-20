@@ -3169,3 +3169,53 @@ def test_sample_truncated_normal_in_tail():
 def test_jax_custom_prng():
     samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
     assert ~jnp.isinf(samples).any()
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        (jnp.array([0.0, 1.0]), [0.6931472, 0.58220315]),
+        (jnp.array([100.0, -100.0]), [0.0, 0.0]),
+        (jnp.array([0.5]), 0.66284734),
+    ],
+)
+def test_entropy_bernoulli(logits, expected):
+    d = dist.BernoulliLogits(logits)
+    assert_allclose(d.entropy(), expected, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        (jnp.array([1.0, 2.0, 3.0]), 0.83239555),
+        (jnp.array([-1.0, 0.0, 100.0]), 0.0),
+        (jnp.array([[-100, 100, 100], [-1.0, 0.0, 100.0]]), [0.6931472, 0.0]),
+    ],
+)
+def test_entropy_categorical(logits, expected):
+    d = dist.CategoricalLogits(logits)
+    assert_allclose(d.entropy(), expected, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "low, high, expected",
+    [
+        (0.0, 1.0, 0.6931472),
+    ],
+)
+def test_entropy_discreteuniform(low, high, expected):
+    d = dist.DiscreteUniform(low, high)
+    assert_allclose(d.entropy(), expected, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        (jnp.array([1.0, 2.0]), [0.7963837, 0.41477644]),
+        (jnp.array([100.0]), 0.0),
+        (jnp.array([7.5]), 0.00470137),
+    ],
+)
+def test_entropy_geometric(logits, expected):
+    d = dist.GeometricLogits(logits)
+    assert_allclose(d.entropy(), expected, rtol=1e-05)
