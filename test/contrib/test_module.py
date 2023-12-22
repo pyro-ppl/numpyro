@@ -4,13 +4,13 @@
 from copy import deepcopy
 
 import numpy as np
-from numpy.testing import assert_allclose
 import pytest
-
 from jax import random
 from jax.tree_util import tree_all, tree_map
+from numpy.testing import assert_allclose
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
@@ -20,12 +20,9 @@ from numpyro.contrib.module import (
     random_flax_module,
     random_haiku_module,
 )
-import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:jax.tree_.+ is deprecated:FutureWarning"
-)
+pytestmark = pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning")
 
 
 def haiku_model_by_shape(x, y):
@@ -119,16 +116,12 @@ def test_haiku_module():
         100,
         100,
     )
-    assert haiku_tr["nn$params"]["value"]["test_haiku_module/w_linear"]["b"].shape == (
-        100,
-    )
+    assert haiku_tr["nn$params"]["value"]["test_haiku_module/w_linear"]["b"].shape == (100,)
     assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["w"].shape == (
         100,
         100,
     )
-    assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["b"].shape == (
-        100,
-    )
+    assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["b"].shape == (100,)
 
 
 def test_update_params():
@@ -137,9 +130,7 @@ def test_update_params():
     new_params = deepcopy(params)
     with handlers.seed(rng_seed=0):
         _update_params(params, new_params, prior)
-    assert params == {
-        "a": {"b": {"c": {"d": ParamShape(())}, "e": 2}, "f": ParamShape((4,))}
-    }
+    assert params == {"a": {"b": {"c": {"d": ParamShape(())}, "e": 2}, "f": ParamShape((4,))}}
 
     tree_all(
         tree_map(
@@ -194,7 +185,7 @@ def test_random_module_mcmc(backend, init, callable_prior):
         kwargs = {}
 
     if callable_prior:
-        prior = (
+        prior = (  # noqa: E731
             lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
         )
     else:
@@ -206,9 +197,7 @@ def test_random_module_mcmc(backend, init, callable_prior):
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model=model)
-    mcmc = MCMC(
-        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
-    )
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
@@ -232,9 +221,7 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
         if dropout:
             x = hk.dropout(hk.next_rng_key(), 0.5, x)
         if batchnorm:
-            x = hk.BatchNorm(create_offset=True, create_scale=True, decay_rate=0.001)(
-                x, is_training=True
-            )
+            x = hk.BatchNorm(create_offset=True, create_scale=True, decay_rate=0.001)(x, is_training=True)
         return x
 
     def model():
