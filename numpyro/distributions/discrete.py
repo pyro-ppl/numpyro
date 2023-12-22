@@ -984,7 +984,7 @@ class GeometricProbs(Distribution):
     @property
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
-    
+
     @property
     def mode(self):
         return jnp.zeros_like(self.probs)
@@ -1044,7 +1044,7 @@ class GeometricLogits(Distribution):
 
     @property
     def mode(self):
-        return jnp.zeros(self.logits)
+        return jnp.zeros_like(self.logits)
 
     def entropy(self):
         """Calculates the entropy of the Geometric distribution with probability p.
