@@ -28,12 +28,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install jaxlib
         pip install jax
-        pip install black
         pip install .[doc,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
-    - name: Lint with flake8
+    - name: Lint with ruff
       run: |
         make lint
     - name: Build documentation
