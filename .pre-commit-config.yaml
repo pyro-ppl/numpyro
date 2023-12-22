@@ -4,6 +4,7 @@ repos:
       - id: ruff
         name: ruff
         entry: ruff
+        args: ["--fix", "--show-source"]
         files: "numpyro/.*|tests/.*"
         language: system
 
