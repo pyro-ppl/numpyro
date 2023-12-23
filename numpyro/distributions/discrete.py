@@ -827,10 +827,13 @@ class Poisson(Distribution):
 
     @property
     def mode(self):
-        """Calculates the mode of the Poisson distribution. When the rate is an integer the mode is the rate minus one and the rate.
-        When the rate is not an integer the mode is the floor of the rate.
+        """Calculates the mode of the Poisson distribution. 
+        - When the rate is an integer the Poisson distribution has two modes: the rate-1 and the rate.
+        - When the rate is not an integer the mode is the floor(rate).
+        
+        We always return the floor(rate) as the mode.
         """
-        return jnp.floor(self.rate)
+        return jnp.floor(self.rate).astype(jnp.float32)
 
     def cdf(self, value):
         k = jnp.floor(value) + 1

@@ -3317,3 +3317,16 @@ def test_mode_geometric(probs, expected):
     d = dist.GeometricProbs(probs)
     assert d.mode.shape == expected.shape
     assert_allclose(d.mode, expected, rtol=1e-06, atol=1e-05)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([1.0, 0.1]), jnp.array([1.0, 0.0])),
+        (jnp.array([23.2, 54.5]), jnp.array([23.0, 54.0])),
+    ],
+)
+def test_mode_poisson(probs, expected):
+    d = dist.Poisson(probs)
+    assert d.mode.shape == expected.shape
+    assert_allclose(d.mode, expected, rtol=1e-06, atol=1e-05)
