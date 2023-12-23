@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: ruff
+        args: ["--fix", "--show-source"]
+        files: "numpyro/.*|tests/.*"
+        language: system
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: debug-statements
+      - id: check-yaml
+      - id: check-added-large-files

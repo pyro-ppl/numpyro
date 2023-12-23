@@ -62,3 +62,24 @@ line-ending = "auto"
 [tool.ruff.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
 "numpyro/distributions/kl.py" = ["F811"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "-v",
+    "--color=yes",
+]
+filterwarnings = [
+    "error",
+    "ignore:numpy.ufunc size changed,:RuntimeWarning",
+    "ignore:Using a non-tuple sequence:FutureWarning",
+    "ignore:jax.tree_structure is deprecated:FutureWarning",
+    "ignore:numpy.linalg support is experimental:UserWarning",
+    "ignore:scipy.linalg support is experimental:UserWarning",
+    "once:No GPU:UserWarning",
+    "once::DeprecationWarning",
+]
+doctest_optionflags = [
+    "ELLIPSIS",
+    "NORMALIZE_WHITESPACE",
+    "IGNORE_EXCEPTION_DETAIL",
+]
