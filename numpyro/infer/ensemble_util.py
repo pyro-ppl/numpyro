@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import warnings
 
 import numpy as np
@@ -51,9 +54,8 @@ def batch_ravel_pytree(pytree):
 def unravel_pytree(treedef, unravel_list, flat):
     return tree_unflatten(treedef, unravel_list(flat))
 
-@vmap
 def vmapped_ravel(a):
-    return jnp.ravel(a)
+    return vmap(jnp.ravel)(a)
 
 def _ravel_list(lst):
     if not lst: return jnp.array([], jnp.float32), lambda _: []
@@ -76,8 +78,8 @@ def _ravel_list(lst):
     
     # When there is more than one distinct input dtype, we perform type
     # conversions and produce a dtype-specific unravel function.
-    ravel = lambda e: jnp.ravel(lax.convert_element_type(e, to_dtype))
-    raveled = jnp.concatenate([vmapped_ravel(e) for e in lst])
+    convert_vmapped_ravel = lambda e: vmapped_ravel(lax.convert_element_type(e, to_dtype)) 
+    raveled = jnp.concatenate([convert_vmapped_ravel(e) for e in lst])
     unrav = HashablePartial(_unravel_list, indices, shapes, from_dtypes, to_dtype)
     return raveled, unrav
     
