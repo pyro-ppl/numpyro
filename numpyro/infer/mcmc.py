@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 
-from jax import jit, lax, local_device_count, pmap, random, vmap
+from jax import jit, lax, local_device_count, pmap, random, vmap, device_get
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
@@ -720,6 +720,13 @@ class MCMC(object):
             print(
                 "Number of divergences: {}".format(jnp.sum(extra_fields["diverging"]))
             )
+
+    def transfer_states_to_host(self):
+        """
+        Reduce the memory footprint of collected samples by transfering them to the host device. 
+        """
+        self._states = device_get(self._states)
+        self._states_flat = device_get(self._states_flat) 
 
     def __getstate__(self):
         state = self.__dict__.copy()
