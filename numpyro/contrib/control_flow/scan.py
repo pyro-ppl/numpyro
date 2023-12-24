@@ -15,6 +15,24 @@ from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
 
+def _replay_wrapper(replay_trace, trace, i, length):
+    def get_ith_value(site):
+        value_shape = jnp.shape(site["value"])
+        site_len = value_shape[0] if value_shape else 0
+        if (
+            site["name"] not in trace
+            or site_len != length
+            or site["type"] not in ("sample", "deterministic")
+        ):
+            return site
+
+        site = site.copy()
+        site["value"] = site["value"][i]
+        return site
+
+    return {k: get_ith_value(v) for k, v in replay_trace.items()}
+
+
 def _subs_wrapper(subs_map, i, length, site):
     if site["type"] != "sample":
         return
@@ -264,10 +282,10 @@ def scan_wrapper(
     first_available_dim=None,
 ):
     if length is None:
-        length = tree_flatten(xs)[0][0].shape[0]
+        length = jnp.shape(tree_flatten(xs)[0][0])[0]
 
     if enum and history > 0:
-        return scan_enum(
+        return scan_enum(  # TODO: replay for enum
             f,
             init,
             xs,
@@ -289,7 +307,6 @@ def scan_wrapper(
             fn = handlers.infer_config(
                 f, config_fn=lambda msg: {"_scan_current_index": i}
             )
-
             seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
@@ -297,6 +314,10 @@ def scan_wrapper(
                     seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
                 elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
+                elif subs_type == "replay":
+                    trace = handlers.trace(seeded_fn).get_trace(carry, x)
+                    replay_trace_i = _replay_wrapper(subs_map, trace, i, length)
+                    seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)

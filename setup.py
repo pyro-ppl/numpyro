@@ -50,10 +50,8 @@ setup(
         ],
         "test": [
             "importlib-metadata<5.0",
-            "black[jupyter]>=21.8b0",
-            "flake8",
             "importlib-metadata<5.0",
-            "isort>=5.0",
+            "ruff>=0.1.8",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
             "scipy>=1.9",
@@ -63,7 +61,7 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns>=2.0.1",
+            "jaxns==2.2.6",
             "matplotlib",
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency

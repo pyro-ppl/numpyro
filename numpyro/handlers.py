@@ -222,6 +222,8 @@ class replay(Messenger):
                 raise RuntimeError(f"Site {name} must be sampled in trace.")
             msg["value"] = guide_msg["value"]
             msg["infer"] = guide_msg["infer"].copy()
+        if msg["type"] == "control_flow":
+            msg["kwargs"]["substitute_stack"].append(("replay", self.trace))
 
 
 class block(Messenger):
