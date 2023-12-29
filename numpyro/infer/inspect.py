@@ -385,7 +385,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     samples = {
         name: site["value"]
         for name, site in trace.items()
-        if (site["type"] == "sample" and not site["is_observed"])
+        if site["type"] == "sample"
         or site["type"] == "deterministic"
     }
 
