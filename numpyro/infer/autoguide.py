@@ -37,7 +37,6 @@ from numpyro.distributions.util import (
     periodic_repeat,
     sum_rightmost,
 )
-from numpyro.infer import Predictive
 from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.initialization import init_to_median, init_to_uniform
 from numpyro.infer.util import (
@@ -550,38 +549,51 @@ class AutoDelta(AutoGuide):
                 site_loc = numpyro.param(
                     "{}_{}_loc".format(name, self.prefix),
                     init_loc,
-                    constraint=site["fn"].support,
                     event_dim=event_dim,
                 )
 
                 site_fn = dist.Delta(site_loc).to_event(event_dim)
-                result[name] = numpyro.sample(name, site_fn)
-
+                if site["fn"].support is constraints.real or (
+                    isinstance(site["fn"].support, constraints.independent)
+                    and site["fn"].support.base_constraint is constraints.real
+                ):
+                    result[name] = numpyro.sample(name, site_fn)
+                else:
+                    with helpful_support_errors(site):
+                        transform = biject_to(site["fn"].support)
+                    guide_dist = dist.TransformedDistribution(site_fn, transform)
+                    result[name] = numpyro.sample(name, guide_dist)
+                
         return result
+
+    def _constrain(self, latent_samples):
+        name = list(latent_samples)[0]
+        sample_shape = jnp.shape(latent_samples[name])[
+            : jnp.ndim(latent_samples[name]) - jnp.ndim(self._init_locs[name])
+        ]
+        if sample_shape:
+            flatten_samples = tree_map(
+                lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[len(sample_shape) :]),
+                latent_samples,
+            )
+            contrained_samples = lax.map(self._postprocess_fn, flatten_samples)
+            return tree_map(
+                lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                contrained_samples,
+            )
+        else:
+            return self._postprocess_fn(latent_samples)
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         latent_samples = {
             k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
         }
-        deterministic_vars = [
-            k for k, v in self.prototype_trace.items() if v["type"] == "deterministic"
-        ]
-        if not deterministic_vars:
-            return latent_samples
-        else:
-            predictive = Predictive(
-                model=self.model,
-                posterior_samples=latent_samples,
-                return_sites=deterministic_vars,
-                batch_ndims=len(sample_shape),
-            )
-            deterministic_samples = predictive(rng_key, *args, **kwargs)
-            return {**latent_samples, **deterministic_samples}
+        return self._constrain(latent_samples)
 
     def median(self, params):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
-        return locs
+        return self._constrain(locs)
 
 
 def _unravel_dict(x_flat, shape_dict):
