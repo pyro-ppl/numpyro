@@ -4,13 +4,13 @@
 from copy import deepcopy
 
 import numpy as np
+from numpy.testing import assert_allclose
 import pytest
+
 from jax import random
 from jax.tree_util import tree_all, tree_map
-from numpy.testing import assert_allclose
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
@@ -20,6 +20,7 @@ from numpyro.contrib.module import (
     random_flax_module,
     random_haiku_module,
 )
+import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 pytestmark = pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning")
