@@ -36,7 +36,8 @@ indent-width = 4
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
-select = ["E4", "E7", "E9", "F"]
+# We also add isort.
+select = ["E4", "E7", "E9", "F", "I"]
 ignore = ["E203"]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
@@ -63,11 +64,26 @@ line-ending = "auto"
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
 "numpyro/distributions/kl.py" = ["F811"]
 
-[tool.pytest.ini_options]
-addopts = [
-    "-v",
-    "--color=yes",
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["funsor", "numpyro", "test"]
+known-third-party = ["opt_einsum"]
+force-sort-within-sections = true
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "known-jax",
+    "first-party",
+    "local-folder",
 ]
+
+[tool.ruff.lint.isort.sections]
+known-jax = ["flax", "haiku", "jax", "optax", "tensorflow_probability"]
+
+
+[tool.pytest.ini_options]
+addopts = ["-v", "--color=yes"]
 filterwarnings = [
     "error",
     "ignore:numpy.ufunc size changed,:RuntimeWarning",

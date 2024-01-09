@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 
-from jax import jit, lax, local_device_count, pmap, random, vmap, device_get
+from jax import device_get, jit, lax, local_device_count, pmap, random, vmap
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
