@@ -67,15 +67,19 @@ line-ending = "auto"
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = ["funsor", "numpyro", "test"]
-known-third-party = [
-    "opt_einsum",
-    "flax",
-    "haiku",
-    "jax",
-    "optax",
-    "tensorflow_probability",
-]
+known-third-party = ["opt_einsum"]
 force-sort-within-sections = true
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "known-jax",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+known-jax = ["flax", "haiku", "jax", "optax", "tensorflow_probability"]
 
 
 [tool.pytest.ini_options]
