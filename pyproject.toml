@@ -31,13 +31,13 @@ exclude = [
 ]
 
 # Same as Black.
-line-length = 88
+line-length = 120
 indent-width = 4
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
 # We also add isort.
-select = ["E4", "E7", "E9", "F", "I"]
+select = ["E", "F", "I", "W"]
 ignore = ["E203"]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
