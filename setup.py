@@ -49,6 +49,7 @@ setup(
             "sphinxcontrib-htmlhelp<2.0.5",
             "sphinxcontrib-serializinghtml<1.1.10",
             "sphinxcontrib-qthelp<1.0.7",
+            "sphinxcontrib-serializinghtml<1.1.10",
             "sphinx<5",
             "sphinx_rtd_theme",
             "sphinx-gallery",
