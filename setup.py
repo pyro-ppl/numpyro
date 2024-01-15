@@ -45,7 +45,7 @@ setup(
             "nbsphinx>=0.8.5",
             "readthedocs-sphinx-search==0.1.0",
             "sphinxcontrib-applehelp<1.0.8",
-            "sphinxcontrib-devhelp<1.0.6"
+            "sphinxcontrib-devhelp<1.0.6",
             "sphinx<5",
             "sphinx_rtd_theme",
             "sphinx-gallery",
