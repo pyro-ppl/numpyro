@@ -723,10 +723,10 @@ class MCMC(object):
 
     def transfer_states_to_host(self):
         """
-        Reduce the memory footprint of collected samples by transfering them to the host device. 
+        Reduce the memory footprint of collected samples by transfering them to the host device.
         """
         self._states = device_get(self._states)
-        self._states_flat = device_get(self._states_flat) 
+        self._states_flat = device_get(self._states_flat)
 
     def __getstate__(self):
         state = self.__dict__.copy()
