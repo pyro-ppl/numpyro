@@ -31,7 +31,7 @@ exclude = [
 ]
 
 # Same as Black.
-line-length = 120
+line-length = 88 
 indent-width = 4
 
 [tool.ruff.lint]
@@ -44,6 +44,9 @@ unfixable = []
 
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 120
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
