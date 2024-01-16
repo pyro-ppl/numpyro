@@ -1,21 +1,22 @@
 dm-haiku
 flax
 funsor
-ipython<=8.6.0  # strict the version for https://github.com/ipython/ipython/issues/13845
+ipython
 jax
 jaxlib
 jaxns==2.2.6
-Jinja2<3.1
+Jinja2
 matplotlib
 multipledispatch
-nbsphinx==0.8.9
+nbsphinx>=0.8.9
 numpy
 optax
 pillow
 pylab-sdk
 pyyaml
+readthedocs-sphinx-search>=0.3.2
 sphinx>=5
-sphinx-gallery==0.10.1  # tutorial page is not rendered correctly with newer versions
-sphinx_rtd_theme==1.0.0
+sphinx-gallery
+sphinx_rtd_theme
 tensorflow_probability
 tqdm
