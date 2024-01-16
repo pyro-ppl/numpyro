@@ -44,7 +44,7 @@ setup(
             "ipython",  # sphinx needs this to render codes
             "nbsphinx>=0.8.5",
             "readthedocs-sphinx-search",
-            "sphinx",
+            "sphinx>=5",
             "sphinx_rtd_theme",
             "sphinx-gallery",
         ],
