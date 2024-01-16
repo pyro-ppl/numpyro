@@ -42,8 +42,8 @@ setup(
     extras_require={
         "doc": [
             "ipython",  # sphinx needs this to render codes
-            "nbsphinx>=0.8.5",
-            "readthedocs-sphinx-search",
+            "nbsphinx>=0.8.9",
+            "readthedocs-sphinx-search>=0.3.2",
             "sphinx>=5",
             "sphinx_rtd_theme",
             "sphinx-gallery",

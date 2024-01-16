@@ -8,13 +8,13 @@ jaxns==2.2.6
 Jinja2
 matplotlib
 multipledispatch
-nbsphinx
+nbsphinx>=0.8.9
 numpy
 optax
 pillow
 pylab-sdk
 pyyaml
-readthedocs-sphinx-search
+readthedocs-sphinx-search>=0.3.2
 sphinx>=5
 sphinx-gallery
 sphinx_rtd_theme
