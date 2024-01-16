@@ -14,8 +14,7 @@ optax
 pillow
 pylab-sdk
 pyyaml
-readthedocs-sphinx-search==0.1.2
-sphinx<5
+sphinx>=5
 sphinx-gallery==0.10.1  # tutorial page is not rendered correctly with newer versions
 sphinx_rtd_theme==1.0.0
 tensorflow_probability
