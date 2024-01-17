@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
+import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.autoguide import AutoNormal
@@ -17,21 +18,50 @@ DCCResult = namedtuple("DCCResult", ["samples", "slp_weights"])
 
 class DCC:
     """
-    Implements the Divide, Conquer, and Combine (DCC) algorithm from [1].
+    Implements the Divide, Conquer, and Combine (DCC) algorithm for models with
+    stochastic support from [1].
+
+    .. note:: This implementation assumes that all stochastic branching is done based on the
+       outcomes of discrete sampling sites that are annotated with `infer={"branching": True}`.
+       For example,
+
+       .. code-block:: python
+
+            def model():
+                model1 = numpyro.sample("model1", dist.Bernoulli(0.5), infer={"branching": True})
+                if model1 == 0:
+                    mean = numpyro.sample("a1", dist.Normal(0.0, 1.0))
+                else:
+                    mean = numpyro.sample("a2", dist.Normal(1.0, 1.0))
+                numpyro.sample("obs", dist.Normal(mean, 1.0), obs=0.2)
+
+
 
     **References:**
+
     1. *Divide, Conquer, and Combine: a New Inference Strategy for Probabilistic Programs with Stochastic Support*,
        Yuan Zhou, Hongseok Yang, Yee Whye Teh, Tom Rainforth
+
+    :param model: Python callable containing Pyro primitives :mod:`~numpyro.primitives`.
+    :param dict mcmc_kwargs: Dictionary of arguments passed to :data:`~numpyro.infer.MCMC`.
+    :param numpyro.infer.mcmc.MCMCKernel kernel_cls: MCMC kernel class that is used for
+        local inference. Defaults to :class:`~numpyro.infer.NUTS`.
+    :param int num_slp_samples: Number of samples to draw from the prior to discover the
+        straight-line programs (SLPs).
+    :param int max_slps: Maximum number of SLPs to discover. DCC will not run inference
+        on more than `max_slps`.
     """
 
     def __init__(
         self,
         model,
         mcmc_kwargs,
+        kernel_cls=NUTS,
         num_slp_samples=1000,
         max_slps=124,
     ):
         self.model = model
+        self.kernel_cls = kernel_cls
         self.mcmc_kwargs = mcmc_kwargs
 
         self.num_slp_samples = num_slp_samples
@@ -63,10 +93,17 @@ class DCC:
         branching_trace = OrderedDict()
         for site in tr.values():
             if site["type"] == "sample" and site["infer"].get("branching", False):
-                # TODO: Assert that this is a discrete sampling site and univariate distribution.
+                if (
+                    not isinstance(site["fn"], dist.Distribution)
+                    or not site["fn"].support.is_discrete
+                ):
+                    raise RuntimeError(
+                        "Branching is only supported for discrete sampling sites."
+                    )
                 # It is essential that we convert the value to a Python int. If it remains
                 # a JAX Array, then during JIT compilation it will be treated as an AbstractArray
-                # and we are not able to branch based on this value.
+                # which means branching will raise in an error.
+                # Reference: (https://jax.readthedocs.io/en/latest/notebooks/Common_Gotchas_in_JAX.html#python-control-flow-jit)
                 branching_trace[site["name"]] = int(site["value"])
         return branching_trace
 
@@ -75,7 +112,7 @@ class DCC:
         Run MCMC on the model conditioned on the given branching trace.
         """
         slp_model = condition(self.model, data=branching_trace)
-        kernel = NUTS(slp_model)
+        kernel = self.kernel_cls(slp_model)
         mcmc = MCMC(kernel, **self.mcmc_kwargs)
         mcmc.run(rng_key, *args, **kwargs)
 
@@ -115,6 +152,13 @@ class DCC:
         return DCCResult(samples, slp_weights)
 
     def run(self, rng_key, *args, **kwargs):
+        """
+        Run DCC and collect samples for all SLPs.
+
+        :param jax.random.PRNGKey rng_key: Random number generator key.
+        :param args: Arguments to the model.
+        :param kwargs: Keyword arguments to the model.
+        """
         rng_key, subkey = random.split(rng_key)
         branching_traces = self._find_slps(subkey, *args, **kwargs)
 
