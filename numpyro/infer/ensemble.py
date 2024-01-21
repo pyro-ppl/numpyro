@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 from collections import namedtuple
+import warnings
 
 import jax
 from jax import random, vmap
@@ -86,7 +87,7 @@ class EnsembleSampler(MCMCKernel, ABC):
 
         # --- other hyperparams go here
         self._num_chains = None  # must be an even number >= 2
-        self._randomize_split = randomize_split  # whether or not to permute the chain order at each iteration
+        self._randomize_split = randomize_split
         # ---
 
         self._init_strategy = init_strategy
@@ -127,8 +128,12 @@ class EnsembleSampler(MCMCKernel, ABC):
             if init_params is None:
                 init_params = new_init_params
 
-        _, unravel_fn = batch_ravel_pytree(init_params)
+        flat_params, unravel_fn = batch_ravel_pytree(init_params)       
         self._batch_log_density = lambda z: -vmap(self._potential_fn)(unravel_fn(z))
+
+        if self._num_chains < 2 * flat_params.shape[1]:
+            warnings.warn("Setting n_chains to at least 2*n_params is strongly recommended.\n"
+                          f"n_chains: {self._num_chains}, n_params: {flat_params.shape[1]}") 
 
         return init_params
 
@@ -138,12 +143,16 @@ class EnsembleSampler(MCMCKernel, ABC):
         assert not is_prng_key(
             rng_key
         ), "EnsembleSampler only supports chain_method='vectorized' or chain_method='parallel'."
+
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
 
         if self._potential_fn and init_params is None:
             raise ValueError(
                 "Valid value of `init_params` must be provided with `potential_fn`."
             )
+        
+        # TODO: if init_params is specified, check that the batch dimension of each array
+        # matches n_chains 
 
         self._num_chains = rng_key.shape[0]
         rng_key, rng_key_inner_state, rng_key_init_model = random.split(rng_key[0], 3)
