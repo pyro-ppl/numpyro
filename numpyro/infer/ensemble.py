@@ -71,7 +71,7 @@ class EnsembleSampler(MCMCKernel, ABC):
         See :ref:`init_strategy` section for available functions.
     """
     
-    def __init__(self, model=None, potential_fn=None, randomize_split=False, init_strategy=init_to_uniform):
+    def __init__(self, model=None, potential_fn=None, *, randomize_split, init_strategy):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
 
@@ -210,6 +210,7 @@ class AIES(EnsembleSampler):
         If model is provided, `potential_fn` will be inferred using the model.
     :param potential_fn: XXX currently unsupported.
     :param bool randomize_split: whether or not to permute the chain order at each iteration.
+        Defaults to False.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
         If left empty, defaults to `AIES.DEMove()`. 
     :param callable init_strategy: a per-site initialization function.
@@ -243,7 +244,10 @@ class AIES(EnsembleSampler):
             self._moves = list(moves.keys())
             self._weights = jnp.array([weight for weight in moves.values()]) / len(moves)
 
-        super().__init__(model, potential_fn, randomize_split, init_strategy)
+        super().__init__(model, 
+                         potential_fn,
+                         randomize_split=randomize_split,
+                         init_strategy=init_strategy)
 
     # XXX: this doesn't show because state_method='vectorized' shuts off diagnostics_str
     def get_diagnostics_str(self, state):
