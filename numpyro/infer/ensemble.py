@@ -146,15 +146,17 @@ class EnsembleSampler(MCMCKernel, ABC):
 
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
 
+        self._num_chains = rng_key.shape[0]
+
         if self._potential_fn and init_params is None:
             raise ValueError(
                 "Valid value of `init_params` must be provided with `potential_fn`."
             )
+        if init_params:
+            assert all([param.shape[0] == self._num_chains 
+                        for param in jax.tree_leaves(init_params)]), ("The batch dimension of each " 
+                                                                     "param must match n_chains")            
         
-        # TODO: if init_params is specified, check that the batch dimension of each array
-        # matches n_chains 
-
-        self._num_chains = rng_key.shape[0]
         rng_key, rng_key_inner_state, rng_key_init_model = random.split(rng_key[0], 3)
         rng_key_init_model = random.split(rng_key_init_model, self._num_chains)
 
@@ -256,9 +258,12 @@ class AIES(EnsembleSampler):
             self._moves = [AIES.DEMove()]
             self._weights = jnp.array([1.0])
         else:
-            # TODO: check that moves are valid
             self._moves = list(moves.keys())
             self._weights = jnp.array([weight for weight in moves.values()]) / len(moves)
+
+            assert all([hasattr(move, '__call__') for move in self._moves]), (
+                "Each move must be a callable (one of AIES.DEMove(), or AIES.StretchMove()).")
+            assert jnp.all(self._weights >= 0), "Each specified move must have probability >= 0"
 
         super().__init__(model, 
                          potential_fn,
@@ -328,7 +333,8 @@ class AIES(EnsembleSampler):
                 pairs_key, gamma_key = random.split(rng_key)
                 n_active_chains, n_params = inactive.shape
 
-                # TODO: if we pass in n_params to parent scope we don't need to recompute this each time
+                # XXX: if we pass in n_params to parent scope we don't need to 
+                # recompute this each time
                 g = 2.38 / jnp.sqrt(2.0 * n_params) if not g0 else g0
 
                 selected_pairs = random.choice(pairs_key, PAIRS, shape=(n_active_chains,))
