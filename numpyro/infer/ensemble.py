@@ -229,7 +229,8 @@ class AIES(EnsembleSampler):
     :param bool randomize_split: whether or not to permute the chain order at each iteration.
         Defaults to False.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
-        If left empty, defaults to `AIES.DEMove()`. 
+        Valid keys are `AIES.DEMove()` and `AIES.StretchMove()`. Both tend to work well in practice.
+        If the sum of probabilites exceeds 1, the probabilities will be normalized. Defaults to `{AIES.DEMove(): 1.0}`. 
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
         
@@ -246,8 +247,8 @@ class AIES(EnsembleSampler):
             x = numpyro.sample("x", dist.Normal().expand([10]))
             numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
         
-        kernel = AIES(model, moves={AIES.DEMove() : .5, 
-                                    AIES.StretchMove() : .5})
+        kernel = AIES(model, moves={AIES.DEMove() : 0.5, 
+                                    AIES.StretchMove() : 0.5})
         mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
         mcmc.run(jax.random.PRNGKey(0))
         mcmc.print_summary()
@@ -391,7 +392,7 @@ class AIES(EnsembleSampler):
 class ESS(EnsembleSampler):
     """
     Ensemble Slice Sampling: a gradient free method. Suitable for low to moderate dimensional models.
-    Generally, `num_chains` should be at least twice the dimensionality of the model.
+    Generally, `num_chains` should be at least twice the dimensionality of the model. Increasing 
     
     .. note:: This kernel must be used with `num_chains` > 1 and `chain_method="vectorized`
         or `chain_method="parallel` in :class:`MCMC`. The number of chains must be divisible by 2.
@@ -409,14 +410,23 @@ class ESS(EnsembleSampler):
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that `init_params` argument to
         :meth:`init` has the same type.
-    :param bool randomize_split: whether or not to permute the chain order at each iteration. 
-        Strongly recommended to set to True.
+    :param bool randomize_split: whether or not to permute the chain order at each iteration.
+        Defaults to True. 
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
-        If left empty, defaults to `ESS.DifferentialMove()`.
-    :param int max_steps: number of maximum stepping-out steps per sample.
-    :param int max_iter: number of maximum expansions/contractions per sample.
-    :param float init_mu: initial scale factor.
-    :param bool tune_mu: whether or not to tune the intial scale factor.
+        If the sum of probabilites exceeds 1, the probabilities will be normalized. Valid keys include:
+        - `ESS.DifferentialMove()` -> default proposal, works well along a wide range 
+            of target distributions
+        - `ESS.GaussianMove()` -> for approximately normally distributed targets
+        - `ESS.KDEMove()` -> for multimodal posteriors - requires large `num_chains`, and
+            they must be well initialized 
+        - `ESS.RandomMove()` -> no chain interaction, useful for debugging 
+        
+        Defaults to `{ESS.DifferentialMove(): 1.0}`. 
+        
+    :param int max_steps: number of maximum stepping-out steps per sample. Defaults to 10,000.
+    :param int max_iter: number of maximum expansions/contractions per sample. Defaults to 10,000.
+    :param float init_mu: initial scale factor. Defaults to 1.0.
+    :param bool tune_mu: whether or not to tune the initial scale factor. Defaults to True.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
         
@@ -434,7 +444,7 @@ class ESS(EnsembleSampler):
             numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
         
         kernel = AIES(model, moves={ESS.DifferentialMove() : .8, 
-                                    ESS.KDEMove() : .2})
+                                    ESS.RandomMove() : .2})
         mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
         mcmc.run(jax.random.PRNGKey(0))
         mcmc.print_summary()
@@ -457,6 +467,13 @@ class ESS(EnsembleSampler):
         else:
             self._moves = list(moves.keys())
             self._weights = jnp.array([weight for weight in moves.values()]) / len(moves)
+           
+            assert all([hasattr(move, '__call__') for move in self._moves]), (
+                "Each move must be a callable (one of `ESS.DifferentialMove()`, "
+                "`ESS.GaussianMove()`, `ESS.KDEMove()`, `ESS.RandomMove()`)")
+            
+            assert jnp.all(self._weights >= 0), "Each specified move must have probability >= 0"
+            assert init_mu > 0, "Scale factor should be strictly positive"
         
         self._max_steps = max_steps  # max number of stepping out steps
         self._max_iter = max_iter  # max number of expansions/contractions
