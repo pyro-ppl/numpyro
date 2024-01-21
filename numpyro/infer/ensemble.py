@@ -65,7 +65,10 @@ class EnsembleSampler(MCMCKernel, ABC):
     
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
-    :param potential_fn: XXX currently unsupported.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        :meth:`init` has the same type.
     :param bool randomize_split: whether or not to permute the chain order at each iteration.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
@@ -121,11 +124,11 @@ class EnsembleSampler(MCMCKernel, ABC):
             new_init_params = new_params_info[0]
             self._potential_fn = potential_fn_gen(*model_args, **model_kwargs)
 
-            _, unravel_fn = batch_ravel_pytree(new_init_params)
-            self._batch_log_density = lambda z: -vmap(self._potential_fn)(unravel_fn(z))
-
             if init_params is None:
                 init_params = new_init_params
+
+        _, unravel_fn = batch_ravel_pytree(init_params)
+        self._batch_log_density = lambda z: -vmap(self._potential_fn)(unravel_fn(z))
 
         return init_params
 
@@ -137,6 +140,11 @@ class EnsembleSampler(MCMCKernel, ABC):
         ), "EnsembleSampler only supports chain_method='vectorized' or chain_method='parallel'."
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
 
+        if self._potential_fn and init_params is None:
+            raise ValueError(
+                "Valid value of `init_params` must be provided with `potential_fn`."
+            )
+
         self._num_chains = rng_key.shape[0]
         rng_key, rng_key_inner_state, rng_key_init_model = random.split(rng_key[0], 3)
         rng_key_init_model = random.split(rng_key_init_model, self._num_chains)
@@ -144,11 +152,6 @@ class EnsembleSampler(MCMCKernel, ABC):
         init_params = self._init_state(
             rng_key_init_model, model_args, model_kwargs, init_params
         )
-
-        if self._potential_fn and init_params is None:
-            raise ValueError(
-                "Valid value of `init_params` must be provided with" " `potential_fn`."
-            )
 
         self._num_warmup = num_warmup
 
@@ -208,7 +211,10 @@ class AIES(EnsembleSampler):
     
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
-    :param potential_fn: XXX currently unsupported.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        :meth:`init` has the same type.
     :param bool randomize_split: whether or not to permute the chain order at each iteration.
         Defaults to False.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
@@ -241,6 +247,7 @@ class AIES(EnsembleSampler):
             self._moves = [AIES.DEMove()]
             self._weights = jnp.array([1.0])
         else:
+            # TODO: check that moves are valid
             self._moves = list(moves.keys())
             self._weights = jnp.array([weight for weight in moves.values()]) / len(moves)
 
@@ -383,7 +390,10 @@ class ESS(EnsembleSampler):
         
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
-    :param potential_fn: XXX currently unsupported.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        :meth:`init` has the same type.
     :param bool randomize_split: whether or not to permute the chain order at each iteration. 
         Strongly recommended to set to True.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
