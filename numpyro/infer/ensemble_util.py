@@ -56,9 +56,16 @@ def unravel_pytree(treedef, unravel_list, flat):
 def vmapped_ravel(a):
     return vmap(jnp.ravel)(a)
 
+# When there is more than one distinct input dtype, we perform type
+# conversions and produce a dtype-specific unravel function.
+def convert_vmapped_ravel(e, to_dtype):
+    return vmapped_ravel(lax.convert_element_type(e, to_dtype))
+
 def _ravel_list(lst):
-    if not lst: return jnp.array([], jnp.float32), lambda _: []
-    from_dtypes = tuple(dtypes.dtype(l) for l in lst)
+    if not lst:
+        return jnp.array([], jnp.float32)
+    lambda _: []
+    from_dtypes = tuple(dtypes.dtype(item) for item in lst)
     to_dtype = dtypes.result_type(*from_dtypes)
 
     # here 1 is n_leading_batch_dimensions
@@ -75,9 +82,6 @@ def _ravel_list(lst):
         raveled = jnp.concatenate([vmapped_ravel(e) for e in lst], axis=1)
         return raveled, HashablePartial(_unravel_list_single_dtype, indices, shapes)
 
-    # When there is more than one distinct input dtype, we perform type
-    # conversions and produce a dtype-specific unravel function.
-    convert_vmapped_ravel = lambda e: vmapped_ravel(lax.convert_element_type(e, to_dtype))
     raveled = jnp.concatenate([convert_vmapped_ravel(e) for e in lst])
     unrav = HashablePartial(_unravel_list, indices, shapes, from_dtypes, to_dtype)
     return raveled, unrav
