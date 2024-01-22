@@ -155,8 +155,8 @@ class EnsembleSampler(MCMCKernel, ABC):
             )
         if init_params is not None:
             assert all([param.shape[0] == self._num_chains
-                        for param in jax.tree_leaves(init_params)]), ("The batch dimension of each "
-                                                                     "param must match n_chains")
+                        for param in jax.tree_util.tree_leaves(init_params)]), (
+                            "The batch dimension of each param must match n_chains")
 
         rng_key, rng_key_inner_state, rng_key_init_model = random.split(rng_key[0], 3)
         rng_key_init_model = random.split(rng_key_init_model, self._num_chains)

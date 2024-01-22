@@ -109,7 +109,10 @@ def test_logistic_regression_x64(kernel_cls):
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     if kernel_cls in [AIES, ESS]:
-        num_chains = 10
+        if kernel_cls is AIES:
+            num_chains = 16
+        else:
+            num_chains = 10
         samples_each_chain = 8000
         num_warmup, num_samples = (10_000, samples_each_chain * num_chains)
         kernel = kernel_cls(model)
