@@ -17,7 +17,7 @@ from jax.tree_util import tree_all, tree_map
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import HMC, MCMC, NUTS, SA, BarkerMH, AIES, ESS
+from numpyro.infer import AIES, ESS, HMC, MCMC, NUTS, SA, BarkerMH
 from numpyro.infer.hmc import hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
@@ -54,7 +54,7 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         mcmc = MCMC(
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
         )
-    
+
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()
     hmc_states = mcmc.get_samples()
@@ -97,7 +97,7 @@ def test_correlated_mvn(regularize):
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH, AIES, ESS])
 def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
-    
+
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
@@ -107,22 +107,22 @@ def test_logistic_regression_x64(kernel_cls):
         coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
         logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
-    
+
     if kernel_cls in [AIES, ESS]:
         num_chains = 10
         samples_each_chain = 8000
         num_warmup, num_samples = (10_000, samples_each_chain * num_chains)
         kernel = kernel_cls(model)
-    
+
         mcmc = MCMC(
-            kernel, num_warmup=num_warmup, num_samples=samples_each_chain, 
+            kernel, num_warmup=num_warmup, num_samples=samples_each_chain,
             progress_bar=False, num_chains=num_chains, chain_method='vectorized'
         )
     else:
         if kernel_cls is SA:
             num_warmup, num_samples = (100000, 100000)
             kernel = SA(model=model, adapt_state_size=9)
-        
+
         elif kernel_cls is BarkerMH:
             num_warmup, num_samples = (2000, 12000)
             kernel = BarkerMH(model=model)
@@ -131,11 +131,11 @@ def test_logistic_regression_x64(kernel_cls):
             kernel = kernel_cls(
                 model=model, trajectory_length=8, find_heuristic_step_size=True
             )
-            
+
         mcmc = MCMC(
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
         )
-        
+
     mcmc.run(random.PRNGKey(2), labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
@@ -223,13 +223,13 @@ def test_beta_bernoulli_x64(kernel_cls):
 
     true_probs = jnp.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000,))
-    
+
     if kernel_cls in [AIES, ESS]:
         num_chains = 10
         kernel = kernel_cls(model=model)
 
         mcmc = MCMC(
-            kernel, num_warmup=num_warmup, num_samples=num_samples, 
+            kernel, num_warmup=num_warmup, num_samples=num_samples,
             progress_bar=False, num_chains=num_chains, chain_method='vectorized'
         )
     else:
