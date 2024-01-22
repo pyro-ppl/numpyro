@@ -152,7 +152,7 @@ class EnsembleSampler(MCMCKernel, ABC):
             raise ValueError(
                 "Valid value of `init_params` must be provided with `potential_fn`."
             )
-        if init_params:
+        if init_params is not None:
             assert all([param.shape[0] == self._num_chains 
                         for param in jax.tree_leaves(init_params)]), ("The batch dimension of each " 
                                                                      "param must match n_chains")            
@@ -480,7 +480,10 @@ class ESS(EnsembleSampler):
         self._init_mu = init_mu
         self._tune_mu = tune_mu
 
-        super().__init__(model, potential_fn, randomize_split, init_strategy)
+        super().__init__(model, 
+                         potential_fn,
+                         randomize_split=randomize_split, 
+                         init_strategy=init_strategy)
 
     def init_inner_state(self, rng_key):
         self.batch_log_density = lambda x: self._batch_log_density(x)[:, jnp.newaxis]
