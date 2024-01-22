@@ -142,7 +142,8 @@ class EnsembleSampler(MCMCKernel, ABC):
     ):
         assert not is_prng_key(
             rng_key
-        ), "EnsembleSampler only supports chain_method='vectorized' or chain_method='parallel'."
+        ), ("EnsembleSampler only supports chain_method='vectorized' or chain_method='parallel'."
+           " (num_chains must be greater than 1)")
 
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
 
