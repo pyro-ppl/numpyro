@@ -142,9 +142,10 @@ class MCMCKernel(ABC):
     @property
     def is_ensemble_kernel(self):
         """
-        Denotes whether the kernel is an ensemble kernel. If True, `get_diagnostics_str()`
-        will be displayed during the MCMC run (when :meth:`MCMC.run()
-        <numpyro.infer.MCMC.run>` is called) if `chain_method`='vectorized'
+        Denotes whether the kernel is an ensemble kernel. If True,
+        diagnostics_str will be displayed during the MCMC run
+        (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is called)
+        if `chain_method` = "vectorized".
         """
         return False
 
