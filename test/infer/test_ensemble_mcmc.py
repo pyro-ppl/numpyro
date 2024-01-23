@@ -10,6 +10,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import AIES, ESS, MCMC
 
+numpyro.set_host_device_count(2)
 # ---
 # reused for all smoke-tests
 N, dim = 3000, 3
@@ -28,8 +29,10 @@ def model(labels):
 @pytest.mark.parametrize("kernel_cls, n_chain, method",
                          [(AIES, 10, "sequential"),
                           (AIES, 1, "vectorized"),
+                          (AIES, 2, "parallel"),
                           (ESS, 10, "sequential"),
-                          (ESS, 1, "vectorized")])
+                          (ESS, 1, "vectorized"),
+                          (ESS, 2, "parallel")])
 def test_chain_smoke(kernel_cls, n_chain, method):
     kernel = kernel_cls(model)
 

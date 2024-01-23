@@ -101,6 +101,10 @@ class EnsembleSampler(MCMCKernel, ABC):
     def sample_field(self):
         return "z"
 
+    @property
+    def is_ensemble_kernel(self):
+        return True
+
     @abstractmethod
     def init_inner_state(self, rng_key):
         """return inner_state"""
@@ -142,8 +146,8 @@ class EnsembleSampler(MCMCKernel, ABC):
     ):
         assert not is_prng_key(
             rng_key
-        ), ("EnsembleSampler only supports chain_method='vectorized' or chain_method='parallel'."
-           " (num_chains must be greater than 1)")
+        ), ("EnsembleSampler only supports chain_method='vectorized' with num_chains > 1.\n"
+            "If you want to run chains in parallel, please raise a github issue.")
 
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
 
@@ -272,7 +276,6 @@ class AIES(EnsembleSampler):
                          randomize_split=randomize_split,
                          init_strategy=init_strategy)
 
-    # XXX: this doesn't show because state_method='vectorized' shuts off diagnostics_str
     def get_diagnostics_str(self, state):
         return "acc. prob={:.2f}".format(state.inner_state.mean_accept_prob)
 
