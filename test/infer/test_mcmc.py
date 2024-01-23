@@ -43,13 +43,16 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False,
             num_chains=num_chains, chain_method='vectorized'
         )
+    elif kernel_cls in [SA, BarkerMH]:
+        kernel = kernel_cls(potential_fn=potential_fn, dense_mass=dense_mass)
+        init_params = jnp.array(0.0)
+        mcmc = MCMC(
+            kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+        )
     else:
-        if kernel_cls in [SA, BarkerMH]:
-            kernel = kernel_cls(potential_fn=potential_fn, dense_mass=dense_mass)
-        else:
-            kernel = kernel_cls(
-                potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass
-            )
+        kernel = kernel_cls(
+            potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass
+        )
         init_params = jnp.array(0.0)
         mcmc = MCMC(
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
@@ -96,6 +99,9 @@ def test_correlated_mvn(regularize):
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH, AIES, ESS])
 def test_logistic_regression_x64(kernel_cls):
+    if kernel_cls in [AIES, ESS] and "CI" in os.environ:
+        pytest.skip("reduce time for CI.")
+
     N, dim = 3000, 3
 
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -121,20 +127,23 @@ def test_logistic_regression_x64(kernel_cls):
             kernel, num_warmup=num_warmup, num_samples=samples_each_chain,
             progress_bar=False, num_chains=num_chains, chain_method='vectorized'
         )
+    elif kernel_cls is SA:
+        num_warmup, num_samples = (100000, 100000)
+        kernel = SA(model=model, adapt_state_size=9)
+        mcmc = MCMC(
+            kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+        )
+    elif kernel_cls is BarkerMH:
+        num_warmup, num_samples = (2000, 12000)
+        kernel = BarkerMH(model=model)
+        mcmc = MCMC(
+            kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+        )
     else:
-        if kernel_cls is SA:
-            num_warmup, num_samples = (100000, 100000)
-            kernel = SA(model=model, adapt_state_size=9)
-
-        elif kernel_cls is BarkerMH:
-            num_warmup, num_samples = (2000, 12000)
-            kernel = BarkerMH(model=model)
-        else:
-            num_warmup, num_samples = (1000, 8000)
-            kernel = kernel_cls(
-                model=model, trajectory_length=8, find_heuristic_step_size=True
-            )
-
+        num_warmup, num_samples = (1000, 8000)
+        kernel = kernel_cls(
+            model=model, trajectory_length=8, find_heuristic_step_size=True
+        )
         mcmc = MCMC(
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
         )
@@ -215,6 +224,8 @@ def test_improper_normal(max_tree_depth):
 def test_beta_bernoulli_x64(kernel_cls):
     if kernel_cls is SA and "CI" in os.environ and "JAX_ENABLE_X64" in os.environ:
         pytest.skip("The test is flaky on CI x64.")
+    if kernel_cls is ESS and "CI" in os.environ:
+        pytest.skip("reduce time for CI.")
     num_warmup, num_samples = (100000, 100000) if kernel_cls is SA else (500, 20000)
 
     def model(data):
@@ -230,18 +241,22 @@ def test_beta_bernoulli_x64(kernel_cls):
     if kernel_cls in [AIES, ESS]:
         num_chains = 10
         kernel = kernel_cls(model=model)
-
         mcmc = MCMC(
             kernel, num_warmup=num_warmup, num_samples=num_samples,
             progress_bar=False, num_chains=num_chains, chain_method='vectorized'
         )
+    elif kernel_cls is SA:
+        kernel = SA(model=model)
+        mcmc = MCMC(
+            kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+        )
+    elif kernel_cls is BarkerMH:
+        kernel = BarkerMH(model=model)
+        mcmc = MCMC(
+            kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+        )
     else:
-        if kernel_cls is SA:
-            kernel = SA(model=model)
-        elif kernel_cls is BarkerMH:
-            kernel = BarkerMH(model=model)
-        else:
-            kernel = kernel_cls(model=model, trajectory_length=0.1)
+        kernel = kernel_cls(model=model, trajectory_length=0.1)
         mcmc = MCMC(
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
         )
