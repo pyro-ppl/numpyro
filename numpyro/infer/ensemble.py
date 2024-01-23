@@ -62,7 +62,8 @@ This consists of the following fields:
 
 class EnsembleSampler(MCMCKernel, ABC):
     """
-    Abstract class for ensemble samplers.
+    Abstract class for ensemble samplers. Each MCMC sample is divided into two sub-iterations
+    in which half of the ensemble is updated.
 
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
@@ -214,11 +215,12 @@ class EnsembleSampler(MCMCKernel, ABC):
 
 class AIES(EnsembleSampler):
     """
-    Affine-Invariant Ensemble Sampling: a gradient free method. Suitable for low to moderate dimensional models.
+    Affine-Invariant Ensemble Sampling: a gradient free method that informs Metropolis-Hastings
+    proposals by sharing information between chains. Suitable for low to moderate dimensional models.
     Generally, `num_chains` should be at least twice the dimensionality of the model.
 
     .. note:: This kernel must be used with `num_chains` > 1 and `chain_method="vectorized`
-        or `chain_method="parallel` in :class:`MCMC`. The number of chains must be divisible by 2.
+        in :class:`MCMC`. The number of chains must be divisible by 2.
 
     **References:**
 
@@ -241,22 +243,21 @@ class AIES(EnsembleSampler):
 
     **Example**
 
-    .. code-block:: python
-        import jax
-        import jax.numpy as jnp
-        import numpyro
-        import numpyro.distributions as dist
-        from numpyro.infer import MCMC, AIES
+    .. doctest::
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, AIES
 
-        def model():
-            x = numpyro.sample("x", dist.Normal().expand([10]))
-            numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
-
-        kernel = AIES(model, moves={AIES.DEMove() : 0.5,
-                                    AIES.StretchMove() : 0.5})
-        mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
-        mcmc.run(jax.random.PRNGKey(0))
-        mcmc.print_summary()
+        >>> def model():
+        ...    x = numpyro.sample("x", dist.Normal().expand([10]))
+        ...    numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
+        >>>
+        >>> kernel = AIES(model, moves={AIES.DEMove() : 0.5,
+        ...                            AIES.StretchMove() : 0.5})
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
+        >>> mcmc.run(jax.random.PRNGKey(0))
     """
 
     def __init__(self, model=None, potential_fn=None, randomize_split=False, moves=None, init_strategy=init_to_uniform):
@@ -318,18 +319,20 @@ class AIES(EnsembleSampler):
 
     @staticmethod
     def DEMove(sigma=1.0e-5, g0=None):
-        """A proposal using differential evolution.
+        """
+        A proposal using differential evolution.
 
         This `Differential evolution proposal
         <http://www.stat.columbia.edu/~gelman/stuff_for_blog/cajo.pdf>`_ is
         implemented following `Nelson et al. (2013)
         <https://doi.org/10.1088/0067-0049/210/1/11>`_.
-        Args:
-            sigma (float): The standard deviation of the Gaussian used to stretch
-                the proposal vector.
-            gamma0 (Optional[float]): The mean stretch factor for the proposal
-                vector. By default, it is `2.38 / sqrt(2*ndim)`
-                as recommended by the two references.
+
+        :param sigma: (optional)
+            The standard deviation of the Gaussian used to stretch the proposal vector.
+            Defaults to `1.0.e-5`.
+        :param g0 (optional):
+            The mean stretch factor for the proposal vector. By default,
+            it is `2.38 / sqrt(2*ndim)` as recommended by the two references.
         """
         def make_de_move(n_chains):
             PAIRS = get_nondiagonal_indices(n_chains // 2)
@@ -395,11 +398,12 @@ class AIES(EnsembleSampler):
 
 class ESS(EnsembleSampler):
     """
-    Ensemble Slice Sampling: a gradient free method. Suitable for low to moderate dimensional models.
-    Generally, `num_chains` should be at least twice the dimensionality of the model. Increasing
+    Ensemble Slice Sampling: a gradient free method that finds better slice sampling directions
+    by sharing information between chains. Suitable for low to moderate dimensional models.
+    Generally, `num_chains` should be at least twice the dimensionality of the model.
 
     .. note:: This kernel must be used with `num_chains` > 1 and `chain_method="vectorized`
-        or `chain_method="parallel` in :class:`MCMC`. The number of chains must be divisible by 2.
+        in :class:`MCMC`. The number of chains must be divisible by 2.
 
     **References:**
 
@@ -418,13 +422,10 @@ class ESS(EnsembleSampler):
         Defaults to True.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
         If the sum of probabilites exceeds 1, the probabilities will be normalized. Valid keys include:
-        - `ESS.DifferentialMove()` -> default proposal, works well along a wide range
-            of target distributions
-        - `ESS.GaussianMove()` -> for approximately normally distributed targets
-        - `ESS.KDEMove()` -> for multimodal posteriors - requires large `num_chains`, and
-            they must be well initialized
-        - `ESS.RandomMove()` -> no chain interaction, useful for debugging
-
+        `ESS.DifferentialMove()` -> default proposal, works well along a wide range of target distributions,
+        `ESS.GaussianMove()` -> for approximately normally distributed targets,
+        `ESS.KDEMove()` -> for multimodal posteriors - requires large `num_chains`, and they must be well initialized
+        `ESS.RandomMove()` -> no chain interaction, useful for debugging.
         Defaults to `{ESS.DifferentialMove(): 1.0}`.
 
     :param int max_steps: number of maximum stepping-out steps per sample. Defaults to 10,000.
@@ -436,22 +437,21 @@ class ESS(EnsembleSampler):
 
     **Example**
 
-    .. code-block:: python
-        import jax
-        import jax.numpy as jnp
-        import numpyro
-        import numpyro.distributions as dist
-        from numpyro.infer import MCMC, AIES
+    .. doctest::
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, ESS
 
-        def model():
-            x = numpyro.sample("x", dist.Normal().expand([10]))
-            numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
-
-        kernel = AIES(model, moves={ESS.DifferentialMove() : .8,
-                                    ESS.RandomMove() : .2})
-        mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
-        mcmc.run(jax.random.PRNGKey(0))
-        mcmc.print_summary()
+        >>> def model():
+        ...    x = numpyro.sample("x", dist.Normal().expand([10]))
+        ...    numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
+        >>>
+        >>> kernel = ESS(model, moves={ESS.DifferentialMove() : 0.8,
+        ...                            ESS.RandomMove() : 0.2})
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
+        >>> mcmc.run(jax.random.PRNGKey(0))
     """
     def __init__(
         self,
