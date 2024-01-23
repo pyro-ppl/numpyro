@@ -4,10 +4,10 @@
 import jax
 import jax.numpy as jnp
 
-from numpyro.infer.ensemble_util import _get_nondiagonal_pairs, batch_ravel_pytree
+from numpyro.infer.ensemble_util import batch_ravel_pytree, get_nondiagonal_indices
 
 
-def test_nondiagonal_pairs():
+def test_nondiagonal_indices():
     truth = jnp.array(
         [[1, 0],
         [2, 0],
@@ -16,7 +16,7 @@ def test_nondiagonal_pairs():
         [0, 2],
         [1, 2]], dtype=jnp.int32)
 
-    assert jnp.all(_get_nondiagonal_pairs(3) == truth)
+    assert jnp.all(get_nondiagonal_indices(3) == truth)
 
 def test_batch_ravel_pytree():
     arr1 = jnp.arange(10).reshape((5, 2))

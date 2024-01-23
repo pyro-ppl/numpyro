@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from jax.scipy.stats import gaussian_kde
 
 import numpyro.distributions as dist
-from numpyro.infer.ensemble_util import _get_nondiagonal_pairs, batch_ravel_pytree
+from numpyro.infer.ensemble_util import batch_ravel_pytree, get_nondiagonal_indices
 from numpyro.infer.initialization import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
@@ -329,7 +329,7 @@ class AIES(EnsembleSampler):
                 as recommended by the two references.
         """
         def make_de_move(n_chains):
-            PAIRS = _get_nondiagonal_pairs(n_chains // 2)
+            PAIRS = get_nondiagonal_indices(n_chains // 2)
 
             def de_move(rng_key, active, inactive):
                 pairs_key, gamma_key = random.split(rng_key)
@@ -615,7 +615,7 @@ class ESS(EnsembleSampler):
         of target distributions.
         """
         def make_differential_move(n_chains):
-            PAIRS = _get_nondiagonal_pairs(n_chains // 2)
+            PAIRS = get_nondiagonal_indices(n_chains // 2)
 
             def differential_move(rng_key, inactive, mu):
                 n_active_chains, n_params = inactive.shape
