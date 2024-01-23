@@ -244,6 +244,7 @@ class AIES(EnsembleSampler):
     **Example**
 
     .. doctest::
+
         >>> import jax
         >>> import jax.numpy as jnp
         >>> import numpyro
@@ -438,6 +439,7 @@ class ESS(EnsembleSampler):
     **Example**
 
     .. doctest::
+
         >>> import jax
         >>> import jax.numpy as jnp
         >>> import numpyro
