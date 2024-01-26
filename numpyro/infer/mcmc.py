@@ -139,6 +139,16 @@ class MCMCKernel(ABC):
         """
         return (self.sample_field,)
 
+    @property
+    def is_ensemble_kernel(self):
+        """
+        Denotes whether the kernel is an ensemble kernel. If True,
+        diagnostics_str will be displayed during the MCMC run
+        (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is called)
+        if `chain_method` = "vectorized".
+        """
+        return False
+
     def get_diagnostics_str(self, state):
         """
         Given the current `state`, returns the diagnostics string to
@@ -424,7 +434,7 @@ class MCMC(object):
         sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = (  # noqa: E731
             lambda x: self.sampler.get_diagnostics_str(x[0])
-            if is_prng_key(rng_key)
+            if is_prng_key(rng_key) or self.sampler.is_ensemble_kernel
             else ""
         )
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
