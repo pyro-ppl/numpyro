@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 try:
     from jaxns import (
-        ExactNestedSampler as OrigNestedSampler,
+        DefaultNestedSampler,
         Model,
         Prior,
         TerminationCondition,
@@ -257,7 +257,6 @@ class NestedSampler:
 
         default_constructor_kwargs = dict(
             num_live_points=model.U_ndims * 25,
-            num_parallel_samplers=1,
             max_samples=1e4,
         )
         default_termination_kwargs = dict(live_evidence_frac=1e-4)
@@ -276,7 +275,7 @@ class NestedSampler:
             )
         )
 
-        exact_ns = OrigNestedSampler(
+        exact_ns = DefaultNestedSampler(
             model=model,
             **self.constructor_kwargs,
         )
@@ -285,7 +284,7 @@ class NestedSampler:
             rng_sampling,
             term_cond=TerminationCondition(**self.termination_kwargs),
         )
-        results = exact_ns.to_results(state, termination_reason)
+        results = exact_ns.to_results(termination_reason, state)
 
         # transform base samples back to original domains
         # Here we only transform the first valid num_samples samples
