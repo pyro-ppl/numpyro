@@ -10,7 +10,6 @@ try:
     from jaxns import (
         ExactNestedSampler as OrigNestedSampler,
         Model,
-        NestedSamplerResults,
         Prior,
         TerminationCondition,
         plot_cornerplot,
@@ -18,6 +17,7 @@ try:
         resample,
         summary,
     )
+    from jaxns.internals.types import NestedSamplerResults
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
