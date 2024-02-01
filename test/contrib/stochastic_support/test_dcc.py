@@ -63,6 +63,34 @@ def test_different_address_path():
     dcc.run(subkey)
 
 
+@pytest.mark.parametrize("proposal_scale", [0.1, 1.0, 10.0])
+def test_proposal_scale(proposal_scale):
+    def model(y):
+        z = numpyro.sample("z", dist.Normal(0.0, 1.0))
+        model1 = numpyro.sample(
+            "model1", dist.Bernoulli(0.5), infer={"branching": True}
+        )
+        sigma = 1.0 if model1 == 0 else 2.0
+        with numpyro.plate("data", y.shape[0]):
+            numpyro.sample("obs", dist.Normal(z, sigma), obs=y)
+
+    rng_key = random.PRNGKey(0)
+
+    rng_key, subkey = random.split(rng_key)
+    y_train = dist.Normal(0, 1).sample(subkey, (200,))
+
+    mcmc_kwargs = dict(
+        num_warmup=50,
+        num_samples=50,
+        num_chains=2,
+        progress_bar=False,
+    )
+
+    dcc = DCC(model, mcmc_kwargs=mcmc_kwargs, proposal_scale=proposal_scale)
+    rng_key, subkey = random.split(rng_key)
+    dcc.run(subkey, y_train)
+
+
 @pytest.mark.parametrize(
     "chain_method",
     ["sequential", "parallel", "vectorized"],

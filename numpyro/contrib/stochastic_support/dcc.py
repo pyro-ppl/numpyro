@@ -50,6 +50,8 @@ class DCC:
         straight-line programs (SLPs).
     :param int max_slps: Maximum number of SLPs to discover. DCC will not run inference
         on more than `max_slps`.
+    :param float proposal_scale: Scale parameter for the proposal distribution for
+        estimating the normalization constant of an SLP.
     """
 
     def __init__(
@@ -59,6 +61,7 @@ class DCC:
         kernel_cls=NUTS,
         num_slp_samples=1000,
         max_slps=124,
+        proposal_scale=1.0,
     ):
         self.model = model
         self.kernel_cls = kernel_cls
@@ -66,6 +69,7 @@ class DCC:
 
         self.num_slp_samples = num_slp_samples
         self.max_slps = max_slps
+        self.proposal_scale = proposal_scale
 
     def _find_slps(self, rng_key, *args, **kwargs):
         """
@@ -122,7 +126,12 @@ class DCC:
         """
         Weight each SLP proportional to its estimated normalization constant.
         The normalization constants are estimated using importance sampling with
-        the proposal centered on the MCMC samples.
+        the proposal centred on the MCMC samples. This is a special case of the
+        layered adaptive importance sampling algorithm from [1].
+
+        **References:**
+        1. *Layered adaptive importance sampling*,
+            Luca Martino, Victor Elvira, David Luengo, and Jukka Corander.
         """
 
         def log_weight(rng_key, i, slp_model, slp_samples):
@@ -130,7 +139,7 @@ class DCC:
             guide = AutoNormal(
                 slp_model,
                 init_loc_fn=init_to_value(values=trace),
-                init_scale=1.0,
+                init_scale=self.proposal_scale,
             )
             rng_key, subkey = random.split(rng_key)
             guide_trace = seed(guide, subkey)(*args, **kwargs)
