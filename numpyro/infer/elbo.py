@@ -174,7 +174,7 @@ class Trace_ELBO(ELBO):
                     return model_log_density
 
                 num_guide_samples = None
-                for name, site in guide_trace.items():
+                for site in guide_trace.values():
                     if site["type"] == "sample":
                         num_guide_samples = site["value"].shape[0]
                         break
@@ -210,8 +210,6 @@ class Trace_ELBO(ELBO):
                 # log p(z) - log q(z)
                 elbo_particle = model_log_density - guide_log_density
 
-            # log p(z) - log q(z)
-            elbo_particle = model_log_density - guide_log_density
             if mutable_params:
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
