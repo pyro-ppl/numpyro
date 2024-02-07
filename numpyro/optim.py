@@ -11,12 +11,14 @@ from collections import namedtuple
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from jax import lax, value_and_grad
+from jax import lax
 from jax.example_libraries import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
 from jax.tree_util import register_pytree_node, tree_map
+
+from numpyro.infer.hmc_util import _value_and_grad
 
 __all__ = [
     "Adam",
@@ -61,7 +63,9 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
+    def eval_and_update(
+            self, fn: Callable[[Any], tuple], state: _IterOptState, forward_mode_differentiation: bool = False
+    ):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -74,13 +78,18 @@ class _NumPyroOptim(object):
             is a scalar loss function to be differentiated and the second item
             is an auxiliary output.
         :param state: current optimizer state.
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        (out, aux), grads = _value_and_grad(
+            fn, has_aux=True, forward_mode_differentiation=forward_mode_differentiation
+        )(params)
         return (out, aux), self.update(grads, state)
 
-    def eval_and_stable_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
+    def eval_and_stable_update(
+            self, fn: Callable[[Any], tuple], state: _IterOptState, forward_mode_differentiation: bool = False
+        ):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -88,10 +97,13 @@ class _NumPyroOptim(object):
 
         :param fn: objective function.
         :param state: current optimizer state.
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        (out, aux), grads = _value_and_grad(
+            fn, has_aux=True, forward_mode_differentiation=forward_mode_differentiation
+        )(params)
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
             lambda _: (out, self.update(grads, state)),
