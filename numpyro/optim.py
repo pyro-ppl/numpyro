@@ -11,14 +11,12 @@ from collections import namedtuple
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from jax import lax
+from jax import jacfwd, lax, value_and_grad
 from jax.example_libraries import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
 from jax.tree_util import register_pytree_node, tree_map
-
-from numpyro.infer.hmc_util import _value_and_grad
 
 __all__ = [
     "Adam",
@@ -36,6 +34,11 @@ _Params = TypeVar("_Params")
 _OptState = TypeVar("_OptState")
 _IterOptState = tuple[int, _OptState]
 
+def _value_and_grad(f, x, forward_mode_differentiation=False):
+    if forward_mode_differentiation:
+        return f(x), jacfwd(f, has_aux=True)(x)
+    else:
+        return value_and_grad(f, has_aux=True)(x)
 
 class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
@@ -83,7 +86,7 @@ class _NumPyroOptim(object):
         """
         params = self.get_params(state)
         (out, aux), grads = _value_and_grad(
-            fn, x=params, has_aux=True, forward_mode_differentiation=forward_mode_differentiation
+            fn, x=params, forward_mode_differentiation=forward_mode_differentiation
         )
         return (out, aux), self.update(grads, state)
 
