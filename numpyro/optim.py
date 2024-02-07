@@ -278,7 +278,9 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
+    def eval_and_update(
+            self, fn: Callable[[Any], tuple], state: _IterOptState, forward_mode_differentiation=False
+        ):
         i, (flat_params, unravel_fn) = state
 
         def loss_fn(x):
