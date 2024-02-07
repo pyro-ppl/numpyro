@@ -265,7 +265,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             `d2` is the max tree depth during post warmup phase.
         :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
             step size at the beginning of each adaptation window. Defaults to False.
-        ::param bool forward_mode_differentiation: flag indicating whether to use forward mode differentiation.
+        :param bool forward_mode_differentiation: flag indicating whether to use forward mode differentiation.
         :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
             matrix for numerical stability during warmup phase. Defaults to True. This flag
             does not take effect if ``adapt_mass_matrix == False``.
