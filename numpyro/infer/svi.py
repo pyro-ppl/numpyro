@@ -256,16 +256,16 @@ class SVI(object):
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
         return params
 
-    def update(self, svi_state, forward_mode_differentiation=False, *args, **kwargs):
+    def update(self, svi_state, *args, forward_mode_differentiation=False, **kwargs):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
 
         :param svi_state: current state of SVI.
-        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
-            Defaults to False.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
+            Defaults to False.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
@@ -287,16 +287,16 @@ class SVI(object):
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
-    def stable_update(self, svi_state, forward_mode_differentiation=False, *args, **kwargs):
+    def stable_update(self, svi_state, *args, forward_mode_differentiation=False, **kwargs):
         """
         Similar to :meth:`update` but returns the current state if the
         the loss or the new state contains invalid values.
 
         :param svi_state: current state of SVI.
-        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
-            Defaults to False.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
+            Defaults to False.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
