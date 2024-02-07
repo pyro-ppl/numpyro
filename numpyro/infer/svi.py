@@ -283,7 +283,7 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state, forward_mode_differentiation
+            loss_fn, svi_state.optim_state, forward_mode_differentiation=forward_mode_differentiation
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
@@ -314,7 +314,7 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
-            loss_fn, svi_state.optim_state, forward_mode_differentiation
+            loss_fn, svi_state.optim_state, forward_mode_differentiation=forward_mode_differentiation
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
