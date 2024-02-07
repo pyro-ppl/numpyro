@@ -372,9 +372,13 @@ class SVI(object):
 
         def body_fn(svi_state, _):
             if stable_update:
-                svi_state, loss = self.stable_update(svi_state, forward_mode_differentiation, *args, **kwargs)
+                svi_state, loss = self.stable_update(
+                    svi_state, *args, forward_mode_differentiation=forward_mode_differentiation, **kwargs
+                )
             else:
-                svi_state, loss = self.update(svi_state, forward_mode_differentiation, *args, **kwargs)
+                svi_state, loss = self.update(
+                    svi_state, *args, forward_mode_differentiation=forward_mode_differentiation, **kwargs
+                )
             return svi_state, loss
 
         if init_state is None:
