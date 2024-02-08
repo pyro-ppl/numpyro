@@ -105,7 +105,7 @@ class _NumPyroOptim(object):
         """
         params = self.get_params(state)
         (out, aux), grads = _value_and_grad(
-            fn, x=params, has_aux=True, forward_mode_differentiation=forward_mode_differentiation
+            fn, x=params, forward_mode_differentiation=forward_mode_differentiation
         )
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
