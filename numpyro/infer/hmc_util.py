@@ -241,9 +241,13 @@ def welford_covariance(diagonal=True):
 
 def _value_and_grad(f, x, forward_mode_differentiation=False):
     if forward_mode_differentiation:
-        return f(x), jacfwd(f)(x)
+        def _wrapper(x):
+            out = f(x)
+            return out, out
+        grads, out = jacfwd(_wrapper, has_aux=True)(x)
+        return out, grads
     else:
-        return value_and_grad(f)(x)
+        return value_and_grad(f, has_aux=False)(x)
 
 
 def _kinetic_grad(kinetic_fn, inverse_mass_matrix, r):
