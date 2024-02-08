@@ -347,8 +347,13 @@ class SVI(object):
             ``True``.
         :param bool stable_update: whether to use :meth:`stable_update` to update
             the state. Defaults to False.
-        :param bool forward_mode_differentiation: flag indicating whether to use forward mode differentiation.
-            Defaults to False.
+        :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+            or reverse-mode differentiation. By default, we use reverse mode but the forward
+            mode can be useful in some cases to improve the performance. In addition, some
+            control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+            only supports forward-mode differentiation. See
+            `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+            for more information.
         :param SVIState init_state: if not None, begin SVI from the
             final state of previous SVI run. Usage::
 
