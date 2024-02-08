@@ -36,7 +36,11 @@ _IterOptState = tuple[int, _OptState]
 
 def _value_and_grad(f, x, forward_mode_differentiation=False):
     if forward_mode_differentiation:
-        return f(x), jacfwd(f, has_aux=True)(x)
+        def _wrapper(h, x):
+            out, aux = h(x)
+            return out, (out, aux)
+        grads, (out, aux) = _wrapper(jacfwd(f, has_aux=True), x)
+        return (out, aux), grads
     else:
         return value_and_grad(f, has_aux=True)(x)
 
