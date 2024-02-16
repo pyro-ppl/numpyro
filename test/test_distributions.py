@@ -1744,7 +1744,7 @@ def test_mean_var(jax_dist, sp_dist, params):
                 sp_var = jnp.diag(d_sp.cov())
             except TypeError:  # mvn does not have .cov() method
                 sp_var = jnp.diag(d_sp.cov)
-            except AttributeError:
+            except (AttributeError, ValueError):
                 sp_var = d_sp.var()
         else:
             sp_var = d_sp.var()

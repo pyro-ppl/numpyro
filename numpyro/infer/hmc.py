@@ -265,6 +265,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             `d2` is the max tree depth during post warmup phase.
         :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
             step size at the beginning of each adaptation window. Defaults to False.
+        :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+            or reverse-mode differentiation. By default, we use reverse mode but the forward
+            mode can be useful in some cases to improve the performance. In addition, some
+            control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+            only supports forward-mode differentiation. See
+            `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+            for more information.
         :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
             matrix for numerical stability during warmup phase. Defaults to True. This flag
             does not take effect if ``adapt_mass_matrix == False``.

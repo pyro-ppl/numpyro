@@ -11,7 +11,7 @@ from collections import namedtuple
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from jax import lax, value_and_grad
+from jax import jacfwd, lax, value_and_grad
 from jax.example_libraries import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -34,6 +34,15 @@ _Params = TypeVar("_Params")
 _OptState = TypeVar("_OptState")
 _IterOptState = tuple[int, _OptState]
 
+def _value_and_grad(f, x, forward_mode_differentiation=False):
+    if forward_mode_differentiation:
+        def _wrapper(x):
+            out, aux = f(x)
+            return out, (out, aux)
+        grads, (out, aux) = jacfwd(_wrapper, has_aux=True)(x)
+        return (out, aux), grads
+    else:
+        return value_and_grad(f, has_aux=True)(x)
 
 class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
@@ -61,7 +70,9 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
+    def eval_and_update(
+            self, fn: Callable[[Any], tuple], state: _IterOptState, forward_mode_differentiation: bool = False
+    ):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -74,13 +85,18 @@ class _NumPyroOptim(object):
             is a scalar loss function to be differentiated and the second item
             is an auxiliary output.
         :param state: current optimizer state.
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        (out, aux), grads = _value_and_grad(
+            fn, x=params, forward_mode_differentiation=forward_mode_differentiation
+        )
         return (out, aux), self.update(grads, state)
 
-    def eval_and_stable_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
+    def eval_and_stable_update(
+            self, fn: Callable[[Any], tuple], state: _IterOptState, forward_mode_differentiation: bool = False
+        ):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -88,10 +104,13 @@ class _NumPyroOptim(object):
 
         :param fn: objective function.
         :param state: current optimizer state.
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        (out, aux), grads = value_and_grad(fn, has_aux=True)(params)
+        (out, aux), grads = _value_and_grad(
+            fn, x=params, forward_mode_differentiation=forward_mode_differentiation
+        )
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
             lambda _: (out, self.update(grads, state)),
@@ -266,7 +285,9 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(self, fn: Callable[[Any], tuple], state: _IterOptState):
+    def eval_and_update(
+            self, fn: Callable[[Any], tuple], state: _IterOptState, forward_mode_differentiation=False
+        ):
         i, (flat_params, unravel_fn) = state
 
         def loss_fn(x):
