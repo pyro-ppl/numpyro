@@ -1,14 +1,18 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import math
 
-import jax
-import jax.numpy as jnp
-import pytest
-from jax import random
 from numpy.testing import assert_allclose
+import pytest
+
+import jax
+from jax import random
+import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.contrib.stochastic_support.dcc import DCC
+import numpyro.distributions as dist
 from numpyro.infer import HMC, NUTS, SA, BarkerMH
 
 

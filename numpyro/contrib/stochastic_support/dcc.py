@@ -4,8 +4,8 @@
 from collections import OrderedDict, namedtuple
 
 import jax
-import jax.numpy as jnp
 from jax import random
+import jax.numpy as jnp
 
 import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
