@@ -88,7 +88,7 @@ class LeftTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            return NotImplementedError("mean only available for Normal and Cauchy")
+            raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
     def var(self):
@@ -102,7 +102,7 @@ class LeftTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            return NotImplementedError("var only available for Normal and Cauchy")
+            raise NotImplementedError("var only available for Normal and Cauchy")
 
 
 class RightTruncatedDistribution(Distribution):
@@ -152,7 +152,7 @@ class RightTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            return NotImplementedError("mean only available for Normal and Cauchy")
+            raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
     def var(self):
@@ -166,7 +166,7 @@ class RightTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            return NotImplementedError("var only available for Normal and Cauchy")
+            raise NotImplementedError("var only available for Normal and Cauchy")
 
 
 class TwoSidedTruncatedDistribution(Distribution):
@@ -269,7 +269,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            return NotImplementedError("mean only available for Normal and Cauchy")
+            raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
     def var(self):
@@ -285,7 +285,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            return NotImplementedError("var only available for Normal and Cauchy")
+            raise NotImplementedError("var only available for Normal and Cauchy")
 
 
 def TruncatedDistribution(base_dist, low=None, high=None, *, validate_args=None):

@@ -75,7 +75,7 @@ class Transform(object):
         return inv
 
     def __call__(self, x):
-        return NotImplementedError
+        raise NotImplementedError
 
     def _inverse(self, y):
         raise NotImplementedError

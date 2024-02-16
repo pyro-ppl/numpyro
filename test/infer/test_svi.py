@@ -8,7 +8,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 import jax
-from jax import jit, random, value_and_grad
+from jax import jit, lax, random, value_and_grad
 from jax.example_libraries import optimizers
 import jax.numpy as jnp
 from jax.tree_util import tree_all, tree_map
@@ -757,3 +757,20 @@ def test_multi_sample_guide():
     params = svi_results.params
     assert_allclose(params["loc"], actual_loc, rtol=0.1)
     assert_allclose(params["scale"], actual_scale, rtol=0.1)
+
+
+def test_forward_mode_differentiation():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
+        numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
+
+    def guide():
+        loc = numpyro.param("loc", 0.)
+        scale = numpyro.param("scale", 1., constraint=dist.constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale))
+
+    # this fails in reverse mode
+    optimizer = numpyro.optim.Adam(step_size=0.01)
+    svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+    svi.run(random.PRNGKey(0), 1000, forward_mode_differentiation=True)

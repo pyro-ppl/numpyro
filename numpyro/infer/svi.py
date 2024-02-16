@@ -256,7 +256,7 @@ class SVI(object):
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
         return params
 
-    def update(self, svi_state, *args, **kwargs):
+    def update(self, svi_state, *args, forward_mode_differentiation=False, **kwargs):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
@@ -264,6 +264,8 @@ class SVI(object):
         :param svi_state: current state of SVI.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
+            Defaults to False.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
@@ -281,11 +283,11 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state
+            loss_fn, svi_state.optim_state, forward_mode_differentiation=forward_mode_differentiation
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
-    def stable_update(self, svi_state, *args, **kwargs):
+    def stable_update(self, svi_state, *args, forward_mode_differentiation=False, **kwargs):
         """
         Similar to :meth:`update` but returns the current state if the
         the loss or the new state contains invalid values.
@@ -293,6 +295,8 @@ class SVI(object):
         :param svi_state: current state of SVI.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
+        :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
+            Defaults to False.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
@@ -310,7 +314,7 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
-            loss_fn, svi_state.optim_state
+            loss_fn, svi_state.optim_state, forward_mode_differentiation=forward_mode_differentiation
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
@@ -321,6 +325,7 @@ class SVI(object):
         *args,
         progress_bar=True,
         stable_update=False,
+        forward_mode_differentiation=False,
         init_state=None,
         init_params=None,
         **kwargs,
@@ -342,6 +347,13 @@ class SVI(object):
             ``True``.
         :param bool stable_update: whether to use :meth:`stable_update` to update
             the state. Defaults to False.
+        :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+            or reverse-mode differentiation. By default, we use reverse mode but the forward
+            mode can be useful in some cases to improve the performance. In addition, some
+            control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+            only supports forward-mode differentiation. See
+            `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+            for more information.
         :param SVIState init_state: if not None, begin SVI from the
             final state of previous SVI run. Usage::
 
@@ -365,9 +377,13 @@ class SVI(object):
 
         def body_fn(svi_state, _):
             if stable_update:
-                svi_state, loss = self.stable_update(svi_state, *args, **kwargs)
+                svi_state, loss = self.stable_update(
+                    svi_state, *args, forward_mode_differentiation=forward_mode_differentiation, **kwargs
+                )
             else:
-                svi_state, loss = self.update(svi_state, *args, **kwargs)
+                svi_state, loss = self.update(
+                    svi_state, *args, forward_mode_differentiation=forward_mode_differentiation, **kwargs
+                )
             return svi_state, loss
 
         if init_state is None:
