@@ -5,6 +5,7 @@
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
 from functools import partial
+import math
 import warnings
 
 import numpy as np
@@ -29,6 +30,7 @@ from numpyro.distributions.transforms import (
     IndependentTransform,
     LowerCholeskyAffine,
     PermuteTransform,
+    ReshapeTransform,
     UnpackTransform,
     biject_to,
 )
@@ -50,6 +52,7 @@ from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
+    "AutoBatchedMultivariateNormal",
     "AutoContinuous",
     "AutoGuide",
     "AutoGuideList",
@@ -1806,6 +1809,85 @@ class AutoMultivariateNormal(AutoContinuous):
             transform.loc, jnp.linalg.norm(transform.scale_tril, axis=-1)
         ).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
+
+
+class AutoBatchedMultivariateNormal(AutoMultivariateNormal):
+    """
+    This implementation of :class:`AutoContinuous` uses a batched MultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBatchedMultivariateNormal(model, batch_ndim=1, ...)
+        svi = SVI(model, guide, ...)
+    """
+
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+        batch_ndim=1,
+    ):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        self.batch_ndim = batch_ndim
+        self._batch_shape = None
+        self._event_shape = None
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+
+        # Extract the batch shape.
+        batch_shape = None
+        for site in self.prototype_trace.values():
+            if site["type"] == "sample" and not site["is_observed"]:
+                shape = site["value"].shape
+                if site["value"].ndim < self.batch_ndim:
+                    raise ValueError(
+                        f"Expected {self.batch_ndim} batch dimensions, but site "
+                        f"`{site['name']}` only has shape {shape}."
+                    )
+                shape = shape[:self.batch_ndim]
+                if batch_shape is None:
+                    batch_shape = shape
+                elif shape != batch_shape:
+                    raise ValueError("Encountered inconsistent batch shapes.")
+        self._batch_shape = batch_shape
+
+        # Save the event shape of the non-batched part. This will always be a vector.
+        batch_size = math.prod(self._batch_shape)
+        if self.latent_dim % batch_size:
+            raise RuntimeError(
+                f"Incompatible batch shape {batch_shape} (size {batch_size}) and "
+                f"latent dims {self.latent_dim}."
+            )
+        self._event_shape = (self.latent_dim // batch_size,)
+
+    def _get_posterior(self):
+        init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
+        loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
+        init_scale = (
+            jnp.ones(self._batch_shape + (1, 1))
+            * jnp.identity(init_latent.shape[-1])
+            * self._init_scale
+        )
+        scale_tril = numpyro.param(
+            "{}_scale_tril".format(self.prefix),
+            init_scale,
+            constraint=self.scale_tril_constraint,
+        )
+        return dist.TransformedDistribution(
+            dist.MultivariateNormal(loc, scale_tril=scale_tril),
+            ReshapeTransform((self.latent_dim,), init_latent.shape),
+        )
 
 
 class AutoLowRankMultivariateNormal(AutoContinuous):
