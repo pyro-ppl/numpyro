@@ -23,6 +23,7 @@ from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
+    AutoBatchedLowRankMultivariateNormal,
     AutoBatchedMultivariateNormal,
     AutoBNAFNormal,
     AutoDAIS,
@@ -1254,7 +1255,14 @@ def test_dais_vae(use_global_dais_params):
         )
 
 
-def test_auto_batched() -> None:
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoBatchedMultivariateNormal,
+        AutoBatchedLowRankMultivariateNormal,
+    ],
+)
+def test_auto_batched(auto_class) -> None:
     # Model for batched multivariate normal.
     off_diag = jnp.asarray([-0.2, 0, 0.5])
     covs = off_diag[:, None, None] + jnp.eye(4)
@@ -1264,7 +1272,7 @@ def test_auto_batched() -> None:
             numpyro.sample("x", dist.MultivariateNormal(0, covs))
 
     # Run inference.
-    guide = AutoBatchedMultivariateNormal(model)
+    guide = auto_class(model)
     svi = SVI(model, guide, optax.adam(0.001), Trace_ELBO())
     result = svi.run(random.PRNGKey(0), 10000)
     samples = guide.sample_posterior(
@@ -1279,7 +1287,14 @@ def test_auto_batched() -> None:
     assert corrcoef > 0.99
 
 
-def test_auto_batched_shapes() -> None:
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoBatchedMultivariateNormal,
+        AutoBatchedLowRankMultivariateNormal,
+    ],
+)
+def test_auto_batched_shapes(auto_class) -> None:
     def model(n, m):
         distribution = dist.Normal().expand([7]).to_event(1)
         with numpyro.plate("n", n):
@@ -1289,10 +1304,10 @@ def test_auto_batched_shapes() -> None:
         return x, y
 
     with numpyro.handlers.seed(rng_seed=0):
-        AutoBatchedMultivariateNormal(model)(3, 3)
+        auto_class(model)(3, 3)
 
         with pytest.raises(ValueError, match="inconsistent batch shapes"):
-            AutoBatchedMultivariateNormal(model)(3, 4)
+            auto_class(model)(3, 4)
 
         with pytest.raises(ValueError, match="Expected 3 batch dimensions"):
-            AutoBatchedMultivariateNormal(model, batch_ndim=3)(3, 3)
+            auto_class(model, batch_ndim=3)(3, 3)

@@ -52,6 +52,7 @@ from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
+    "AutoBatchedLowRankMultivariateNormal",
     "AutoBatchedMultivariateNormal",
     "AutoContinuous",
     "AutoGuide",
@@ -1987,6 +1988,56 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         quantiles = jnp.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
+
+
+class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a batched
+    AutoLowRankMultivariateNormal distribution to construct a guide over the entire
+    latent space. The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBatchedLowRankMultivariateNormal(model, batch_ndim=1, ...)
+        svi = SVI(model, guide, ...)
+    """
+
+    scale_constraint = constraints.softplus_positive
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+        rank=None,
+        batch_ndim=1,
+    ):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        self.rank = rank
+        super().__init__(
+            model, prefix=prefix, init_loc_fn=init_loc_fn, batch_ndim=batch_ndim,
+        )
+
+    def _get_batched_posterior(self):
+        rank = int(round(self._event_shape[0]**0.5)) if self.rank is None else self.rank
+        init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
+        loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
+        cov_factor = numpyro.param(
+            "{}_cov_factor".format(self.prefix),
+            jnp.zeros(self._batch_shape + self._event_shape + (rank,))
+        )
+        scale = numpyro.param(
+            "{}_scale".format(self.prefix),
+            jnp.full(self._batch_shape + self._event_shape, self._init_scale),
+            constraint=self.scale_constraint,
+        )
+        cov_diag = scale * scale
+        cov_factor = cov_factor * scale[..., None]
+        return dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
 
 
 class AutoLaplaceApproximation(AutoContinuous):
