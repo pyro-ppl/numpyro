@@ -1811,36 +1811,20 @@ class AutoMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(latent, params)
 
 
-class AutoBatchedMultivariateNormal(AutoMultivariateNormal):
+class AutoBatchedMixin:
     """
-    This implementation of :class:`AutoContinuous` uses a batched MultivariateNormal
-    distribution to construct a guide over the entire latent space.
-    The guide does not depend on the model's ``*args, **kwargs``.
-
-    Usage::
-
-        guide = AutoBatchedMultivariateNormal(model, batch_ndim=1, ...)
-        svi = SVI(model, guide, ...)
+    Mixin to infer the batch and event shapes of batched auto guides.
     """
 
-    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
+    # Available from AutoContinuous.
+    latent_dim: int
 
-    def __init__(
-        self,
-        model,
-        *,
-        prefix="auto",
-        init_loc_fn=init_to_uniform,
-        init_scale=0.1,
-        batch_ndim=1,
-    ):
-        if init_scale <= 0:
-            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
-        self._init_scale = init_scale
-        self.batch_ndim = batch_ndim
+    def __init__(self, *args, **kwargs):
         self._batch_shape = None
         self._event_shape = None
-        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+        # Pop the number of batch dimensions and pass the rest to the other constructor.
+        self.batch_ndim = kwargs.pop("batch_ndim")
+        super().__init__(*args, **kwargs)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -1871,7 +1855,47 @@ class AutoBatchedMultivariateNormal(AutoMultivariateNormal):
             )
         self._event_shape = (self.latent_dim // batch_size,)
 
+    def _get_batched_posterior(self):
+        raise NotImplementedError
+
     def _get_posterior(self):
+        return dist.TransformedDistribution(
+            self._get_batched_posterior(),
+            ReshapeTransform((self.latent_dim,), self._batch_shape + self._event_shape),
+        )
+
+
+class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a batched MultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBatchedMultivariateNormal(model, batch_ndim=1, ...)
+        svi = SVI(model, guide, ...)
+    """
+
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+        batch_ndim=1,
+    ):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        super().__init__(
+            model, prefix=prefix, init_loc_fn=init_loc_fn, batch_ndim=batch_ndim,
+        )
+
+    def _get_batched_posterior(self):
         init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
         loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
         init_scale = (
@@ -1884,10 +1908,7 @@ class AutoBatchedMultivariateNormal(AutoMultivariateNormal):
             init_scale,
             constraint=self.scale_tril_constraint,
         )
-        return dist.TransformedDistribution(
-            dist.MultivariateNormal(loc, scale_tril=scale_tril),
-            ReshapeTransform((self.latent_dim,), init_latent.shape),
-        )
+        return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
 
 class AutoLowRankMultivariateNormal(AutoContinuous):
