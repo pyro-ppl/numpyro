@@ -29,13 +29,13 @@ from numpyro.distributions.transforms import (
     OrderedTransform,
     PermuteTransform,
     PowerTransform,
+    ReshapeTransform,
     ScaledUnitLowerCholeskyTransform,
     SigmoidTransform,
     SimplexToOrderedTransform,
     SoftplusLowerCholeskyTransform,
     SoftplusTransform,
     StickBreakingTransform,
-    ReshapeTransform,
     UnpackTransform,
 )
 
