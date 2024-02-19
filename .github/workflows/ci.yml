@@ -102,7 +102,7 @@ jobs:
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
         pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
-        pytest -vs --durations=20 test/contrib
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs --durations=20 test/contrib
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
