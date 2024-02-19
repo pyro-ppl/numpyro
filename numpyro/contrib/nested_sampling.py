@@ -8,9 +8,8 @@ import jax.numpy as jnp
 
 try:
     from jaxns import (
-        ExactNestedSampler as OrigNestedSampler,
+        DefaultNestedSampler,
         Model,
-        NestedSamplerResults,
         Prior,
         TerminationCondition,
         plot_cornerplot,
@@ -18,6 +17,8 @@ try:
         resample,
         summary,
     )
+    from jaxns.utils import NestedSamplerResults
+
 except ImportError as e:
     raise ImportError(
         "To use this module, please install `jaxns` package. It can be"
@@ -257,10 +258,10 @@ class NestedSampler:
 
         default_constructor_kwargs = dict(
             num_live_points=model.U_ndims * 25,
-            num_parallel_samplers=1,
+            num_parallel_workers=1,
             max_samples=1e4,
         )
-        default_termination_kwargs = dict(live_evidence_frac=1e-4)
+        default_termination_kwargs = dict(dlogZ=1e-4)
         # Fill-in missing values with defaults. This allows user to inspect what was actually used by inspecting
         # these dictionaries
         list(
@@ -276,16 +277,17 @@ class NestedSampler:
             )
         )
 
-        exact_ns = OrigNestedSampler(
+        default_ns = DefaultNestedSampler(
             model=model,
             **self.constructor_kwargs,
         )
 
-        termination_reason, state = exact_ns(
-            rng_sampling,
-            term_cond=TerminationCondition(**self.termination_kwargs),
+        termination_reason, state = default_ns(
+            rng_sampling, term_cond=TerminationCondition(**self.termination_kwargs)
         )
-        results = exact_ns.to_results(state, termination_reason)
+        results = default_ns.to_results(
+            termination_reason=termination_reason, state=state
+        )
 
         # transform base samples back to original domains
         # Here we only transform the first valid num_samples samples
