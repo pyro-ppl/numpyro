@@ -1835,7 +1835,7 @@ class AutoBatchedMixin:
         for site in self.prototype_trace.values():
             if site["type"] == "sample" and not site["is_observed"]:
                 shape = site["value"].shape
-                if site["value"].ndim < self.batch_ndim:
+                if site["value"].ndim < self.batch_ndim + site["fn"].event_dim:
                     raise ValueError(
                         f"Expected {self.batch_ndim} batch dimensions, but site "
                         f"`{site['name']}` only has shape {shape}."

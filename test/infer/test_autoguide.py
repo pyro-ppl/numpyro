@@ -1309,5 +1309,5 @@ def test_auto_batched_shapes(auto_class) -> None:
         with pytest.raises(ValueError, match="inconsistent batch shapes"):
             auto_class(model)(3, 4)
 
-        with pytest.raises(ValueError, match="Expected 3 batch dimensions"):
-            auto_class(model, batch_ndim=3)(3, 3)
+        with pytest.raises(ValueError, match="Expected 2 batch dimensions"):
+            auto_class(model, batch_ndim=2)(3, 3)
