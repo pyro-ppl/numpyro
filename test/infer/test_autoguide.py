@@ -7,7 +7,7 @@ from numpy.random import RandomState
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jacobian, jit, lax, random
+from jax import jacobian, jit, lax, random, vmap
 from jax.example_libraries.stax import Dense
 import jax.numpy as jnp
 from jax.tree_util import tree_all, tree_map
@@ -23,6 +23,8 @@ from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
+    AutoBatchedLowRankMultivariateNormal,
+    AutoBatchedMultivariateNormal,
     AutoBNAFNormal,
     AutoDAIS,
     AutoDelta,
@@ -1251,3 +1253,61 @@ def test_dais_vae(use_global_dais_params):
         assert_allclose(
             samples["x"].mean(axis=0), jnp.arange(-5, 5), atol=0.2, rtol=0.1
         )
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoBatchedMultivariateNormal,
+        AutoBatchedLowRankMultivariateNormal,
+    ],
+)
+def test_auto_batched(auto_class) -> None:
+    # Model for batched multivariate normal.
+    off_diag = jnp.asarray([-0.2, 0, 0.5])
+    covs = off_diag[:, None, None] + jnp.eye(4)
+
+    def model():
+        with numpyro.plate("N", off_diag.shape[0]):
+            numpyro.sample("x", dist.MultivariateNormal(0, covs))
+
+    # Run inference.
+    guide = auto_class(model)
+    svi = SVI(model, guide, optax.adam(0.001), Trace_ELBO())
+    result = svi.run(random.PRNGKey(0), 10000)
+    samples = guide.sample_posterior(
+        random.PRNGKey(1), result.params, sample_shape=(1000,)
+    )
+
+    # Verify off-diagonal entries are correlated.
+    empirical_covs = vmap(jnp.cov)(jnp.moveaxis(samples["x"], 0, 2))
+    i, j = jnp.triu_indices(3, 1)
+    empirical_off_diag = empirical_covs[:, i, j].mean(axis=1)
+    corrcoef = jnp.corrcoef(off_diag, empirical_off_diag)[0, 1]
+    assert corrcoef > 0.99
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoBatchedMultivariateNormal,
+        AutoBatchedLowRankMultivariateNormal,
+    ],
+)
+def test_auto_batched_shapes(auto_class) -> None:
+    def model(n, m):
+        distribution = dist.Normal().expand([7]).to_event(1)
+        with numpyro.plate("n", n):
+            x = numpyro.sample("x", distribution)
+        with numpyro.plate("m", m):
+            y = numpyro.sample("y", distribution)
+        return x, y
+
+    with numpyro.handlers.seed(rng_seed=0):
+        auto_class(model)(3, 3)
+
+        with pytest.raises(ValueError, match="inconsistent batch shapes"):
+            auto_class(model)(3, 4)
+
+        with pytest.raises(ValueError, match="Expected 2 batch dimensions"):
+            auto_class(model, batch_ndim=2)(3, 3)

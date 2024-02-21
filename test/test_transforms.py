@@ -6,7 +6,7 @@ from functools import partial
 
 import pytest
 
-from jax import jit, tree_map, vmap
+from jax import jit, random, tree_map, vmap
 import jax.numpy as jnp
 
 from numpyro.distributions.flows import (
@@ -29,6 +29,7 @@ from numpyro.distributions.transforms import (
     OrderedTransform,
     PermuteTransform,
     PowerTransform,
+    ReshapeTransform,
     ScaledUnitLowerCholeskyTransform,
     SigmoidTransform,
     SimplexToOrderedTransform,
@@ -116,6 +117,11 @@ TRANSFORMS = {
         (),
         dict(),
     ),
+    "reshape": T(
+        ReshapeTransform,
+        (),
+        {"forward_shape": (3, 4), "inverse_shape": (4, 3)}
+    ),
 }
 
 
@@ -197,3 +203,30 @@ def test_parametrized_transform_eq(cls, transform_args, transform_kwargs):
         return t1 == t2
 
     assert check_transforms(transform, transform2)
+
+
+@pytest.mark.parametrize(
+    "forward_shape, inverse_shape, batch_shape",
+    [
+        ((3, 4), (4, 3), ()),
+        ((7,), (7, 1), ()),
+        ((3, 5), (15,), ()),
+        ((2, 4), (2, 2, 2), (17,))
+    ]
+)
+def test_reshape_transform(forward_shape, inverse_shape, batch_shape):
+    x = random.normal(random.key(29), batch_shape + inverse_shape)
+    transform = ReshapeTransform(forward_shape, inverse_shape)
+    y = transform(x)
+    assert y.shape == batch_shape + forward_shape
+    x2 = transform.inv(y)
+    assert x2.shape == batch_shape + inverse_shape
+    assert jnp.allclose(x, x2).all()
+
+
+def test_reshape_transform_invalid():
+    with pytest.raises(ValueError, match="are not compatible"):
+        ReshapeTransform((3,), (4,))
+
+    with pytest.raises(TypeError, match="cannot reshape array"):
+        ReshapeTransform((2, 3), (6,))(jnp.arange(2))
