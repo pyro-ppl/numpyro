@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import defaultdict, namedtuple
 import warnings
 
@@ -169,7 +172,9 @@ def taylor_proxy(reference_params, degree=2, approx=False):
             case 1:
                 TPState = TaylorOneProxyState
             case _:
-                raise ValueError("Taylor proxy only defined for first and second degree.")
+                raise ValueError(
+                    "Taylor proxy only defined for first and second degree."
+                )
 
         # those stats are dict keyed by subsample names
         ref_sum_log_lik = log_likelihood_sum(ref_params_flat)
@@ -249,8 +254,16 @@ def taylor_proxy(reference_params, degree=2, approx=False):
                 )
                 high_order_terms = 0.0
                 if degree == 2:
-                    if approx:  # compute zHz.T \approx z(J.TJ)z = (z J.T)(J z.T) = \sum (J z.T)**2
-                        high_order_terms = 0.5 * (jnp.dot(ref_subsample_log_lik_grads[name], params_diff) ** 2).sum()
+                    if (
+                        approx
+                    ):  # compute zHz.T \approx z(J.TJ)z = (z J.T)(J z.T) = \sum (J z.T)**2
+                        high_order_terms = (
+                            0.5
+                            * (
+                                jnp.dot(ref_subsample_log_lik_grads[name], params_diff)
+                                ** 2
+                            ).sum()
+                        )
                     else:
                         high_order_terms = 0.5 * jnp.dot(
                             jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
@@ -266,7 +279,12 @@ def taylor_proxy(reference_params, degree=2, approx=False):
                 high_order_terms = 0.0
                 if degree == 2:
                     if approx:
-                        high_order_terms = 0.5 * (jnp.dot(ref_sum_log_lik_grads[name], params_diff) ** 2).sum()
+                        high_order_terms = (
+                            0.5
+                            * (
+                                jnp.dot(ref_sum_log_lik_grads[name], params_diff) ** 2
+                            ).sum()
+                        )
                     else:
                         high_order_terms = 0.5 * jnp.dot(
                             jnp.dot(ref_sum_log_lik_hessians[name], params_diff),
