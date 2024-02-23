@@ -249,8 +249,8 @@ def taylor_proxy(reference_params, degree=2, approx=False):
                 )
                 high_order_terms = 0.0
                 if degree == 2:
-                    if approx:  # compute z.THz \approx z.T(JJ.T)z = (z.T J)(J.T z) = \sum (z.T J)**2
-                        high_order_terms = 0.5 * (jnp.dot(params_diff, ref_subsample_log_lik_grads[name].T) ** 2).sum()
+                    if approx:  # compute zHz.T \approx z(J.TJ)z = (z J.T)(J z.T) = \sum (J z.T)**2
+                        high_order_terms = 0.5 * (jnp.dot(ref_subsample_log_lik_grads[name], params_diff) ** 2).sum()
                     else:
                         high_order_terms = 0.5 * jnp.dot(
                             jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
