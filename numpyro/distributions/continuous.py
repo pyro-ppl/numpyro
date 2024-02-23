@@ -1860,7 +1860,7 @@ def _batch_capacitance_tril(W, D):
     Wt_Dinv = jnp.swapaxes(W, -1, -2) / jnp.expand_dims(D, -2)
     K = jnp.matmul(Wt_Dinv, W)
     # could be inefficient
-    return jnp.linalg.cholesky(jnp.add(K, jnp.identity(K.shape[-1])))
+    return jnp.linalg.cholesky(jnp.subtract(K, -jnp.identity(K.shape[-1])))
 
 
 def _batch_lowrank_logdet(W, D, capacitance_tril):
