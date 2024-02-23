@@ -15,11 +15,8 @@ TaylorTwoProxyState = namedtuple(
 )
 
 TaylorOneProxyState = namedtuple(
-    "ApproxTaylorProxyState",
-    "ref_subsample_log_liks,"
-    "ref_subsample_log_lik_grads, "
-    )
-
+    "TaylorOneProxyState", "ref_subsample_log_liks," "ref_subsample_log_lik_grads,"
+)
 
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
@@ -51,9 +48,11 @@ def perturbed_method(subsample_plate_sizes, proxy_fn):
 
     return estimator
 
+
 def _sum_all_except_at_dim(x, dim):
     x = x.reshape((-1,) + x.shape[dim:]).sum(0)
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
+
 
 def _update_block(rng_key, num_blocks, subsample_idx, plate_size):
     size, subsample_size = plate_size
@@ -92,11 +91,13 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, plate_sizes):
     return u_new, pads, new_idxs, starts
 
 
-def taylor_proxy(reference_params):
+def taylor_proxy(reference_params, degree=2, approx=False):
     """Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
     parameter. Suggest for subsampling in [1].
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
+    :param degree: number of terms in the Taylor expansion
+    :param approx: approximate hessian from jacobian.
 
     **References:**
 
@@ -131,9 +132,12 @@ def taylor_proxy(reference_params):
                     name: biject_to(prototype_trace[name]["fn"].support)(value)
                     for name, value in params.items()
                 }
-                with block(), trace() as tr, substitute(
-                    data=subsample_indices
-                ), substitute(data=params):
+                with (
+                    block(),
+                    trace() as tr,
+                    substitute(data=subsample_indices),
+                    substitute(data=params),
+                ):
                     model(*model_args, **model_kwargs)
 
             log_lik = {}
@@ -156,24 +160,37 @@ def taylor_proxy(reference_params):
                 for k, v in log_likelihood(params_flat, subsample_indices).items()
             }
 
+        match degree:
+            case 2:
+                if approx:
+                    TPState = TaylorOneProxyState
+                else:
+                    TPState = TaylorTwoProxyState
+            case 1:
+                TPState = TaylorOneProxyState
+            case _:
+                raise ValueError("Taylor proxy only defined for first and second degree.")
+
         # those stats are dict keyed by subsample names
-        ref_log_likelihoods_sum = log_likelihood_sum(ref_params_flat)
-        ref_log_likelihood_grads_sum = jacobian(log_likelihood_sum)(ref_params_flat)
-        ref_log_likelihood_hessians_sum = hessian(log_likelihood_sum)(ref_params_flat)
+        ref_log_lik_sum = log_likelihood_sum(ref_params_flat)
+        ref_log_lik_grads_sum = jacobian(log_likelihood_sum)(ref_params_flat)
+
+        if degree == 2 and not approx:
+            ref_log_lik_hessians_sum = hessian(log_likelihood_sum)(ref_params_flat)
 
         def gibbs_init(rng_key, gibbs_sites):
-            ref_subsample_log_liks = log_likelihood(ref_params_flat, gibbs_sites)
-            ref_subsample_log_lik_grads = jacfwd(log_likelihood)(
-                ref_params_flat, gibbs_sites
-            )
-            ref_subsample_log_lik_hessians = jacfwd(jacfwd(log_likelihood))(
-                ref_params_flat, gibbs_sites
-            )
-            return TaylorTwoProxyState(
-                ref_subsample_log_liks,
-                ref_subsample_log_lik_grads,
-                ref_subsample_log_lik_hessians,
-            )
+
+            ref_subsamples_taylor = [
+                log_likelihood(ref_params_flat, gibbs_sites),
+                jacfwd(log_likelihood)(ref_params_flat, gibbs_sites),
+            ]
+
+            if degree == 2 and not approx:
+                ref_subsamples_taylor.append(
+                    hessian(log_likelihood)(ref_params_flat, gibbs_sites)
+                )
+
+            return TPState(*ref_subsamples_taylor)
 
         def gibbs_update(rng_key, gibbs_sites, gibbs_state):
             u_new, pads, new_idxs, starts = _block_update_proxy(
@@ -181,25 +198,22 @@ def taylor_proxy(reference_params):
             )
 
             new_states = defaultdict(dict)
-            ref_subsample_log_liks = log_likelihood(ref_params_flat, new_idxs)
-            ref_subsample_log_lik_grads = jacfwd(log_likelihood)(
-                ref_params_flat, new_idxs
-            )
-            ref_subsample_log_lik_hessians = jacfwd(jacfwd(log_likelihood))(
-                ref_params_flat, new_idxs
-            )
+            new_ref_subsample_taylor = [
+                log_likelihood(ref_params_flat, new_idxs),
+                jacfwd(log_likelihood)(ref_params_flat, new_idxs),
+            ]
+
+            if degree == 2 and not approx:
+                new_ref_subsample_taylor.append(
+                    hessian(log_likelihood)(ref_params_flat, new_idxs)
+                )
+
+            last_ref_subsample_taylor = list(gibbs_state._asdict().values())
+
             for stat, new_block_values, last_values in zip(
-                ["log_liks", "grads", "hessians"],
-                [
-                    ref_subsample_log_liks,
-                    ref_subsample_log_lik_grads,
-                    ref_subsample_log_lik_hessians,
-                ],
-                [
-                    gibbs_state.ref_subsample_log_liks,
-                    gibbs_state.ref_subsample_log_lik_grads,
-                    gibbs_state.ref_subsample_log_lik_hessians,
-                ],
+                TPState._fields,
+                new_ref_subsample_taylor,
+                last_ref_subsample_taylor,
             ):
                 for name, subsample_idx in gibbs_sites.items():
                     size, subsample_size = subsample_plate_sizes[name]
@@ -212,9 +226,8 @@ def taylor_proxy(reference_params):
                         new_value, new_block_values[name], start, 0
                     )
                     new_states[stat][name] = new_value[:subsample_size]
-            gibbs_state = TaylorTwoProxyState(
-                new_states["log_liks"], new_states["grads"], new_states["hessians"]
-            )
+
+            gibbs_state = TPState(**new_states)
             return u_new, gibbs_state
 
         def proxy_fn(params, subsample_lik_sites, gibbs_state):
@@ -223,30 +236,51 @@ def taylor_proxy(reference_params):
 
             ref_subsample_log_liks = gibbs_state.ref_subsample_log_liks
             ref_subsample_log_lik_grads = gibbs_state.ref_subsample_log_lik_grads
-            ref_subsample_log_lik_hessians = gibbs_state.ref_subsample_log_lik_hessians
+            if degree == 2 and not approx:
+                ref_subsample_log_lik_hessians = (
+                    gibbs_state.ref_subsample_log_lik_hessians
+                )
 
             proxy_sum = defaultdict(float)
             proxy_subsample = defaultdict(float)
             for name in subsample_lik_sites:
-                proxy_subsample[name] = (
-                    ref_subsample_log_liks[name]
-                    + jnp.dot(ref_subsample_log_lik_grads[name], params_diff)
-                    + 0.5
-                    * jnp.dot(
-                        jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
-                        params_diff,
-                    )
+                proxy_subsample[name] = ref_subsample_log_liks[name] + jnp.dot(
+                    ref_subsample_log_lik_grads[name], params_diff
+                )
+                high_order_terms = 0.0
+                if degree == 2:
+                    if approx:  # TODO: fixme
+                        high_order_terms = 0.5 * jnp.dot(
+                            jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
+                            params_diff,
+                        )
+                    else:
+                        high_order_terms = 0.5 * jnp.dot(
+                            jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
+                            params_diff,
+                        )
+
+                proxy_subsample[name] = proxy_subsample[name] + high_order_terms
+
+                proxy_sum[name] = ref_log_lik_sum[name] + jnp.dot(
+                    ref_log_lik_grads_sum[name], params_diff
                 )
 
-                proxy_sum[name] = (
-                    ref_log_likelihoods_sum[name]
-                    + jnp.dot(ref_log_likelihood_grads_sum[name], params_diff)
-                    + 0.5
-                    * jnp.dot(
-                        jnp.dot(ref_log_likelihood_hessians_sum[name], params_diff),
-                        params_diff,
-                    )
-                )
+                high_order_terms = 0.0
+                if degree == 2:
+                    if approx:  # TODO: fixme
+                        high_order_terms = 0.5 * jnp.dot(
+                            jnp.dot(ref_log_lik_hessians_sum[name], params_diff),
+                            params_diff,
+                        )
+                    else:
+
+                        high_order_terms = 0.5 * jnp.dot(
+                            jnp.dot(ref_log_lik_hessians_sum[name], params_diff),
+                            params_diff,
+                        )
+                proxy_sum[name] = proxy_sum[name] + high_order_terms
+
             return proxy_sum, proxy_subsample
 
         return proxy_fn, gibbs_init, gibbs_update
