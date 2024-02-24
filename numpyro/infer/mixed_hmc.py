@@ -307,4 +307,6 @@ class MixedHMC(DiscreteHMCGibbs):
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_wa_update"] = None
+        state["_prototype_trace"] = None
+        state["_support_sizes_flat"] = None
         return state
