@@ -186,6 +186,11 @@ class HMCGibbs(MCMCKernel):
 
         return HMCGibbsState(z, hmc_state, rng_key)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_prototype_trace"] = None
+        return state
+
 
 def _discrete_gibbs_proposal_body_fn(
     z_init_flat, unravel_fn, pe_init, potential_fn, idx, i, val
