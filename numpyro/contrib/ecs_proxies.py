@@ -94,7 +94,7 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, plate_sizes):
     return u_new, pads, new_idxs, starts
 
 
-def taylor_proxy(reference_params, degree=2, approx=False):
+def taylor_proxy(reference_params, degree, approx):
     """Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
     parameter. Suggest for subsampling in [1].
 
@@ -187,7 +187,7 @@ def taylor_proxy(reference_params, degree=2, approx=False):
 
             ref_subsamples_taylor = [
                 log_likelihood(ref_params_flat, gibbs_sites),
-                jacfwd(log_likelihood)(ref_params_flat, gibbs_sites),
+                jacobian(log_likelihood)(ref_params_flat, gibbs_sites),
             ]
 
             if degree == 2 and not approx:
@@ -205,7 +205,7 @@ def taylor_proxy(reference_params, degree=2, approx=False):
             new_states = defaultdict(dict)
             new_ref_subsample_taylor = [
                 log_likelihood(ref_params_flat, new_idxs),
-                jacfwd(log_likelihood)(ref_params_flat, new_idxs),
+                jacobian(log_likelihood)(ref_params_flat, new_idxs),
             ]
 
             if degree == 2 and not approx:
