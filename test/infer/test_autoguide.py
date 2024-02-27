@@ -1311,3 +1311,27 @@ def test_auto_batched_shapes(auto_class) -> None:
 
         with pytest.raises(ValueError, match="Expected 2 batch dimensions"):
             auto_class(model, batch_ndim=2)(3, 3)
+
+
+@pytest.mark.parametrize(
+    "auto_class", [AutoBatchedMultivariateNormal, AutoBatchedLowRankMultivariateNormal]
+)
+def test_auto_batched_median(auto_class) -> None:
+    def model():
+        distribution = dist.Normal().expand([7]).to_event(1)
+        with numpyro.plate("n", 3):
+            x = numpyro.sample("x", distribution)
+        with numpyro.plate("m", 3):
+            y = numpyro.sample("y", distribution)
+        return x, y
+
+    guide = auto_class(model)
+    with numpyro.handlers.seed(rng_seed=0):
+        trace = numpyro.handlers.trace(guide).get_trace()
+    params = {
+        key: value["value"] for key, value in trace.items() if value["type"] == "param"
+    }
+    median = guide.median(params)
+    assert jnp.allclose(
+        jnp.stack(list(median.values())).ravel(), params["auto_loc"].ravel()
+    )
