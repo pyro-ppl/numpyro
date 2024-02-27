@@ -4,7 +4,7 @@
 from collections import defaultdict, namedtuple
 import warnings
 
-from jax import hessian, jacfwd, jacobian, lax, numpy as jnp, random
+from jax import hessian, jacobian, lax, numpy as jnp, random
 from jax.flatten_util import ravel_pytree
 
 from numpyro.distributions.transforms import biject_to
@@ -254,15 +254,10 @@ def taylor_proxy(reference_params, degree, approx):
                 )
                 high_order_terms = 0.0
                 if degree == 2:
-                    if (
-                        approx
-                    ):  # compute zHz.T \approx z(J.TJ)z = (z J.T)(J z.T) = \sum (J z.T)**2
+                    if approx:
                         high_order_terms = (
                             0.5
-                            * (
-                                jnp.dot(ref_subsample_log_lik_grads[name], params_diff)
-                                ** 2
-                            ).sum()
+                            * jnp.dot(ref_subsample_log_lik_grads[name], params_diff) ** 2
                         )
                     else:
                         high_order_terms = 0.5 * jnp.dot(
@@ -279,11 +274,12 @@ def taylor_proxy(reference_params, degree, approx):
                 high_order_terms = 0.0
                 if degree == 2:
                     if approx:
+                        # compute zHz.T by empirical fisher
+                        # \approx z(1 / n \sum^n_i J_i.TJ_i)z
+                        # = 1 / n \sum_i^n (z J_i.T)(J_i z.T)
+                        # = ((J z.T)**2).mean()
                         high_order_terms = (
-                            0.5
-                            * (
-                                jnp.dot(ref_sum_log_lik_grads[name], params_diff) ** 2
-                            ).sum()
+                            0.5 * (jnp.dot(ref_subsample_log_lik_grads[name], params_diff) ** 2).mean()
                         )
                     else:
                         high_order_terms = 0.5 * jnp.dot(
