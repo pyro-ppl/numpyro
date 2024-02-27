@@ -103,7 +103,7 @@ def taylor_proxy(reference_params, degree):
 
     **References:**
 
-    [1] On Markov chain Monte Carlo Methods For Tall Data 
+    [1] On Markov chain Monte Carlo Methods For Tall Data
         Bardenet., R., Doucet, A., Holmes, C. (2017)
     """
 
