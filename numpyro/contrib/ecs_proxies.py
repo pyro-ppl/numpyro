@@ -94,13 +94,12 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, plate_sizes):
     return u_new, pads, new_idxs, starts
 
 
-def taylor_proxy(reference_params, degree, approx):
+def taylor_proxy(reference_params, degree):
     """Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
     parameter. Suggest for subsampling in [1].
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
     :param degree: number of terms in the Taylor expansion
-    :param approx: approximate hessian from jacobian.
 
     **References:**
 
@@ -165,10 +164,7 @@ def taylor_proxy(reference_params, degree, approx):
 
         match degree:
             case 2:
-                if approx:
-                    TPState = TaylorOneProxyState
-                else:
-                    TPState = TaylorTwoProxyState
+                TPState = TaylorTwoProxyState
             case 1:
                 TPState = TaylorOneProxyState
             case _:
@@ -180,7 +176,7 @@ def taylor_proxy(reference_params, degree, approx):
         ref_sum_log_lik = log_likelihood_sum(ref_params_flat)
         ref_sum_log_lik_grads = jacobian(log_likelihood_sum)(ref_params_flat)
 
-        if degree == 2 and not approx:
+        if degree == 2:
             ref_sum_log_lik_hessians = hessian(log_likelihood_sum)(ref_params_flat)
 
         def gibbs_init(rng_key, gibbs_sites):
@@ -190,7 +186,7 @@ def taylor_proxy(reference_params, degree, approx):
                 jacobian(log_likelihood)(ref_params_flat, gibbs_sites),
             ]
 
-            if degree == 2 and not approx:
+            if degree == 2:
                 ref_subsamples_taylor.append(
                     hessian(log_likelihood)(ref_params_flat, gibbs_sites)
                 )
@@ -208,7 +204,7 @@ def taylor_proxy(reference_params, degree, approx):
                 jacobian(log_likelihood)(ref_params_flat, new_idxs),
             ]
 
-            if degree == 2 and not approx:
+            if degree == 2:
                 new_ref_subsample_taylor.append(
                     hessian(log_likelihood)(ref_params_flat, new_idxs)
                 )
@@ -241,7 +237,7 @@ def taylor_proxy(reference_params, degree, approx):
 
             ref_subsample_log_liks = gibbs_state.ref_subsample_log_liks
             ref_subsample_log_lik_grads = gibbs_state.ref_subsample_log_lik_grads
-            if degree == 2 and not approx:
+            if degree == 2:
                 ref_subsample_log_lik_hessians = (
                     gibbs_state.ref_subsample_log_lik_hessians
                 )
@@ -254,16 +250,10 @@ def taylor_proxy(reference_params, degree, approx):
                 )
                 high_order_terms = 0.0
                 if degree == 2:
-                    if approx:
-                        high_order_terms = (
-                            0.5
-                            * jnp.dot(ref_subsample_log_lik_grads[name], params_diff) ** 2
-                        )
-                    else:
-                        high_order_terms = 0.5 * jnp.dot(
-                            jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
-                            params_diff,
-                        )
+                    high_order_terms = 0.5 * jnp.dot(
+                        jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
+                        params_diff,
+                    )
 
                 proxy_subsample[name] = proxy_subsample[name] + high_order_terms
 
@@ -273,19 +263,10 @@ def taylor_proxy(reference_params, degree, approx):
 
                 high_order_terms = 0.0
                 if degree == 2:
-                    if approx:
-                        # compute zHz.T by empirical fisher
-                        # \approx z(1 / n \sum^n_i J_i.TJ_i)z
-                        # = 1 / n \sum_i^n (z J_i.T)(J_i z.T)
-                        # = ((J z.T)**2).mean()
-                        high_order_terms = (
-                            0.5 * (jnp.dot(ref_subsample_log_lik_grads[name], params_diff) ** 2).mean()
-                        )
-                    else:
-                        high_order_terms = 0.5 * jnp.dot(
-                            jnp.dot(ref_sum_log_lik_hessians[name], params_diff),
-                            params_diff,
-                        )
+                    high_order_terms = 0.5 * jnp.dot(
+                        jnp.dot(ref_sum_log_lik_hessians[name], params_diff),
+                        params_diff,
+                    )
                 proxy_sum[name] = proxy_sum[name] + high_order_terms
 
             return proxy_sum, proxy_subsample
