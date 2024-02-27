@@ -162,15 +162,14 @@ def taylor_proxy(reference_params, degree):
                 for k, v in log_likelihood(params_flat, subsample_indices).items()
             }
 
-        match degree:
-            case 2:
-                TPState = TaylorTwoProxyState
-            case 1:
-                TPState = TaylorOneProxyState
-            case _:
-                raise ValueError(
-                    "Taylor proxy only defined for first and second degree."
-                )
+        if degree == 2:
+            TPState = TaylorTwoProxyState
+        elif 1:
+            TPState = TaylorOneProxyState
+        else:
+            raise ValueError(
+                "Taylor proxy only defined for first and second degree."
+            )
 
         # those stats are dict keyed by subsample names
         ref_sum_log_lik = log_likelihood_sum(ref_params_flat)
