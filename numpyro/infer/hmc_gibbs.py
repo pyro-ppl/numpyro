@@ -679,12 +679,12 @@ class HMCECS(HMCGibbs):
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
     @staticmethod
-    def taylor_proxy(reference_params, degree=2, approx=False):
+    def taylor_proxy(reference_params, degree=2):
         """
         This is just a convenient static method which calls
         :func:`~numpyro.contrib.ecs_proxies.taylor_proxy`.
         """
-        return taylor_proxy(reference_params, degree, approx)
+        return taylor_proxy(reference_params, degree)
 
 
 
