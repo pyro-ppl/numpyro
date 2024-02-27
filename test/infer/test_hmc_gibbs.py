@@ -321,7 +321,8 @@ def test_enum_subsample_error():
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 @pytest.mark.parametrize("num_block", [1, 2, 50])
 @pytest.mark.parametrize("subsample_size", [50, 150])
-def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
+@pytest.mark.parametrize("degree", [1, 2])
+def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 200, 200
     data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
@@ -339,7 +340,7 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     ref_params = {
         "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
     }
-    proxy_fn = HMCECS.taylor_proxy(ref_params)
+    proxy_fn = HMCECS.taylor_proxy(ref_params, degree=degree)
 
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
