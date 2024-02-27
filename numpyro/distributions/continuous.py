@@ -25,6 +25,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from typing import Optional
+
 import numpy as np
 
 from jax import lax, vmap
@@ -2444,3 +2446,111 @@ class AsymmetricLaplaceQuantile(Distribution):
 
     def icdf(self, value):
         return self._ald.icdf(value)
+
+
+class ZeroSumNormal(Distribution):
+    arg_constraints = {"scale": constraints.positive}
+    support = constraints.real
+    reparametrized_params = ["scale"]
+    pytree_aux_fields = ("n_zerosum_axes","support_shape",)
+
+    def __init__(self, scale=1.0, n_zerosum_axes=None, support_shape=(1,), *, validate_args=None):
+        if not all(tuple(i == 1 for i in jnp.shape( scale ))):
+            raise ValueError("scale must have length one across the zero-sum axes")
+
+        self.n_zerosum_axes = self.check_zerosum_axes(n_zerosum_axes)
+        # batch_shape = lax.broadcast_shapes(jnp.shape(scale))
+        if jnp.ndim(scale) == 0:
+            (scale,) = promote_shapes(scale, shape=(1,))
+        # temporary append a new axis to scale
+        scale = scale[..., jnp.newaxis]
+        cov_placeholder = jnp.eye(len(support_shape))
+        scale, cov_placeholder = promote_shapes(scale, cov_placeholder)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(scale)[:-2], jnp.shape(cov_placeholder)[:-2]
+        )
+        self.scale = scale[..., 0]
+        super(ZeroSumNormal, self).__init__(
+            batch_shape=batch_shape,
+            event_shape=support_shape,
+            validate_args=validate_args
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        zerosum_rv_ = random.normal(
+            key, shape=sample_shape + self.batch_shape + self.event_shape
+        ) * self.scale
+
+        if not zerosum_rv_.shape:
+            return jnp.zeros(zerosum_rv_.shape)
+
+        for axis in range(self.n_zerosum_axes):
+            zerosum_rv_ -= zerosum_rv_.mean(axis=-axis - 1, keepdims=True)
+        return zerosum_rv_
+
+    @validate_sample
+    def log_prob(self, value):
+        shape = jnp.array(value.shape)
+        _deg_free_support_shape = shape.at[-self.n_zerosum_axes:].set( shape[-self.n_zerosum_axes:] - 1 )
+        _full_size = jnp.prod(shape).astype(float)
+        _degrees_of_freedom = jnp.prod(_deg_free_support_shape).astype(float)
+
+        if not value.shape or self.batch_shape:
+            value = jnp.expand_dims(value, -1)
+
+        log_pdf = jnp.sum(
+            -0.5 * jnp.pow(value / self.scale, 2)
+            - (jnp.log(jnp.sqrt(2.0 * jnp.pi)) + jnp.log(self.scale)) * _degrees_of_freedom / _full_size,
+            axis=tuple(np.arange(-self.n_zerosum_axes, 0)),
+        )
+        return log_pdf
+
+    # def cdf(self, value):
+    #     scaled = (value - 0) / self.scale
+    #     return ndtr(scaled)
+
+    # def log_cdf(self, value):
+    #     return jax_norm.logcdf(value, loc=0, scale=self.scale)
+
+    # def icdf(self, q):
+    #     return 0 + self.scale * ndtri(q)
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(0, self.batch_shape)
+
+    @property
+    def variance(self):
+        theoretical_var = self.scale.astype(float)**2
+        for axis in range(1,self.n_zerosum_axes+1):
+            theoretical_var *= (1 - 1 / self.event_shape[-axis])
+
+        return theoretical_var
+
+    def check_zerosum_axes(self, n_zerosum_axes: Optional[int]) -> int:
+        if n_zerosum_axes is None:
+            n_zerosum_axes = 1
+
+        is_integer = isinstance(n_zerosum_axes, int)
+        is_jax_int_array = isinstance(n_zerosum_axes, jnp.ndarray) and jnp.issubdtype(n_zerosum_axes.dtype, jnp.integer)
+        if not (is_integer or is_jax_int_array):
+            raise TypeError("n_zerosum_axes has to be an integer")
+        if not n_zerosum_axes > 0:
+            raise ValueError("n_zerosum_axes has to be > 0")
+        return n_zerosum_axes
+
+    @staticmethod
+    def infer_shapes(scale=1.0, n_zerosum_axes=None, support_shape=(1,)):
+        '''Numpyro assumes that the event and batch shape can be entirely
+        determined by the shapes of the distribution inputs. This distribution
+        doesn't follow those conventions, so the `infer_shapes` method cant be implemented.
+        '''
+        raise NotImplementedError()
+
+    def _validate_sample(self, value):
+        mask = super(ZeroSumNormal, self)._validate_sample(value)
+        batch_dim = jnp.ndim(value) - len(self.event_shape)
+        if batch_dim < jnp.ndim(mask):
+            mask = jnp.all(jnp.reshape(mask, jnp.shape(mask)[:batch_dim] + (-1,)), -1)
+        return mask

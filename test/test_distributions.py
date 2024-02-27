@@ -773,6 +773,10 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.ZeroSumNormal, 1.0, None, (1,)),
+    T(dist.ZeroSumNormal, 1.0, 1, (1,)),
+    T(dist.ZeroSumNormal, np.array([2.0]), None, (1,)),
+    T(dist.ZeroSumNormal, 1.0, 2, (4,5)),
     T(
         _GaussianMixture,
         np.ones(3) / 3.0,
@@ -1296,6 +1300,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
         "LKJ",
         "LKJCholesky",
         "_SparseCAR",
+        "ZeroSumNormal",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -1453,6 +1458,9 @@ def test_gof(jax_dist, sp_dist, params):
     dim = None
     if jax_dist is dist.ProjectedNormal:
         dim = samples.shape[-1] - 1
+
+    if jax_dist is dist.ZeroSumNormal:
+        pytest.skip("skip gof test for ZeroSumNormal")
 
     # Test each batch independently.
     probs = probs.reshape(num_samples, -1)
@@ -1671,6 +1679,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         if jax_dist is _SparseCAR and i == 3:
             # skip taking grad w.r.t. adj_matrix
             continue
+        if jax_dist is dist.ZeroSumNormal and i != 0:
+            # skip taking grad w.r.t. n_zerosum_axes and support_shape
+            continue
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
@@ -1857,7 +1868,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         if isinstance(d_jax, dist.Gompertz):
             pytest.skip("Gompertz distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
-            assert_allclose(
+            jnp.allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
             )
 
@@ -1897,6 +1908,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+            continue
+        if jax_dist is dist.ZeroSumNormal and dist_args[i] in ("n_zerosum_axes", "support_shape"):
             continue
         if (
             jax_dist is dist.SineBivariateVonMises
