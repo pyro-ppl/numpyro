@@ -749,11 +749,3 @@ def find_stack_level() -> int:
         else:
             break
     return n
-
-
-def add_diag(matrix: jnp.ndarray, diag: jnp.ndarray) -> jnp.ndarray:
-    """
-    Add `diag` to the trailing diagonal of `matrix`.
-    """
-    idx = jnp.arange(matrix.shape[-1])
-    return matrix.at[..., idx, idx].add(diag)

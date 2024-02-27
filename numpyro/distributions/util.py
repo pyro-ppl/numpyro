@@ -13,8 +13,6 @@ from jax import jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 
-from numpyro.util import add_diag
-
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
     "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
@@ -682,3 +680,11 @@ def validate_sample(log_prob_fn):
         return log_prob
 
     return wrapper
+
+
+def add_diag(matrix: jnp.ndarray, diag: jnp.ndarray) -> jnp.ndarray:
+    """
+    Add `diag` to the trailing diagonal of `matrix`.
+    """
+    idx = jnp.arange(matrix.shape[-1])
+    return matrix.at[..., idx, idx].add(diag)

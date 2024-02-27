@@ -17,12 +17,13 @@ from jax.tree_util import register_pytree_node, tree_flatten, tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
+    add_diag,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.util import add_diag, find_stack_level, not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
     "biject_to",

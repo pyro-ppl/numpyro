@@ -60,6 +60,7 @@ from numpyro.distributions.transforms import (
     SigmoidTransform,
 )
 from numpyro.distributions.util import (
+    add_diag,
     betainc,
     betaincinv,
     cholesky_of_inverse,
@@ -71,7 +72,7 @@ from numpyro.distributions.util import (
     validate_sample,
     vec_to_tril_matrix,
 )
-from numpyro.util import add_diag, is_prng_key
+from numpyro.util import is_prng_key
 
 
 class AsymmetricLaplace(Distribution):
