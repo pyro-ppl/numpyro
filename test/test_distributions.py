@@ -3169,3 +3169,164 @@ def test_sample_truncated_normal_in_tail():
 def test_jax_custom_prng():
     samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
     assert ~jnp.isinf(samples).any()
+
+
+# DISCRETE DISTRIBUTIONS ENTROPY AND MODE TESTS
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        (jnp.array([0.0, 1.0]), jnp.array([0.6931472, 0.58220315])),
+        (jnp.array([100.0, -100.0]), jnp.array([0.0, 0.0])),
+        (jnp.array([0.5]), jnp.array([0.66284734])),
+    ],
+)
+def test_entropy_bernoulli_logits(logits, expected):
+    d = dist.BernoulliLogits(logits)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([0.0, 1.0]), jnp.array([0.0, 0.0])),
+        (jnp.array([0.5, 0.9]), jnp.array([0.6931472, 0.32508302])),
+    ],
+)
+def test_entropy_bernoulli_probs(probs, expected):
+    d = dist.BernoulliProbs(probs)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([0.0, 1.0]), jnp.array([0, 1])),
+        (jnp.array([0.3, 0.9, 0.4]), jnp.array([0, 1, 0])),
+    ],
+)
+def test_mode_bernoulli(probs, expected):
+    d = dist.BernoulliProbs(probs)
+    assert d.mode.shape == expected.shape
+    assert_allclose(d.mode, expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        (jnp.array([1.0, 2.0, 3.0]), jnp.array(0.83239555)),
+        (jnp.array([-1.0, 0.0, 100.0]), jnp.array(0.0)),
+        (
+            jnp.array([[-100, 100, 100], [-1.0, 0.0, 100.0]]),
+            jnp.array([0.6931472, 0.0]),
+        ),
+    ],
+)
+def test_entropy_categorical_logits(logits, expected):
+    d = dist.CategoricalLogits(logits)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([[0.5, 0.5], [0.1, 0.9]]), jnp.array([0.693147, 0.32508302])),
+    ],
+)
+def test_entropy_categorical_probs(probs, expected):
+    d = dist.CategoricalProbs(probs)
+    assert jnp.all(d.probs.sum(axis=1) == 1.0)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([0.0, 1.0]), jnp.array(1)),
+        (jnp.array([0.3, 0.9, 0.4]), jnp.array(1)),
+        (jnp.array([[0.1, 0.1, 0.8], [0.01, 0.51, 0.48]]), jnp.array([2, 1])),
+    ],
+)
+def test_mode_categorical(probs, expected):
+    d = dist.CategoricalProbs(probs)
+    assert d.mode.shape == expected.shape
+    assert_allclose(d.mode, expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([0.0, 1.0]), jnp.array([0, 1])),
+        (jnp.array([0.3, 0.9, 0.4]), jnp.array([0, 1, 0])),
+    ],
+)
+def test_mode_bernoulli_probs(probs, expected):
+    d = dist.BernoulliProbs(probs)
+    assert d.mode.shape == expected.shape
+    assert_allclose(d.mode, expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "low, high, expected",
+    [(0.0, 1.0, jnp.array(0.6931472)), (5.0, 5.0, jnp.array(0.0))],
+)
+def test_entropy_discreteuniform(low, high, expected):
+    d = dist.DiscreteUniform(low, high)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        (jnp.array([1.0, 2.0]), jnp.array([0.7963837, 0.41477644])),
+        (jnp.array([100.0]), jnp.array([0.0])),
+        (jnp.array([7.5]), jnp.array([0.00470137])),
+    ],
+)
+def test_entropy_geometric_logits(logits, expected):
+    d = dist.GeometricLogits(logits)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, atol=1e-06, rtol=1e-06)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([1.0, 0.1]), jnp.array([0.0, 3.2508295])),
+        (jnp.array([0.8, 0.5]), jnp.array([0.625503, 1.386294])),
+    ],
+)
+def test_entropy_geometric_probs(probs, expected):
+    d = dist.GeometricProbs(probs)
+    assert d.entropy().shape == expected.shape
+    assert_allclose(d.entropy(), expected, rtol=1e-06, atol=1e-05)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([1.0, 0.1]), jnp.array([0, 0])),
+        (jnp.array([0.8, 0.5]), jnp.array([0, 0])),
+    ],
+)
+def test_mode_geometric(probs, expected):
+    d = dist.GeometricProbs(probs)
+    assert d.mode.shape == expected.shape
+    assert_allclose(d.mode, expected, rtol=1e-06, atol=1e-05)
+
+
+@pytest.mark.parametrize(
+    "probs, expected",
+    [
+        (jnp.array([1.0, 0.1]), jnp.array([1.0, 0.0])),
+        (jnp.array([23.2, 54.5]), jnp.array([23.0, 54.0])),
+    ],
+)
+def test_mode_poisson(probs, expected):
+    d = dist.Poisson(probs)
+    assert d.mode.shape == expected.shape
+    assert_allclose(d.mode, expected, rtol=1e-06, atol=1e-05)

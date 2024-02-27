@@ -45,6 +45,7 @@ from numpyro.distributions.util import (
     multinomial,
     promote_shapes,
     validate_sample,
+    mul_exp,
 )
 from numpyro.util import is_prng_key, not_jax_tracer
 
@@ -102,6 +103,31 @@ class BernoulliProbs(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
+    @property
+    def mode(self):
+        """Calculates the mode of the Bernoulli distribution. When the probability is 0.5 the mode is undefined.
+        When the probability is more than 0.5 the mode is 1 if the probability is less than 0.5 is 0.
+        """
+        return jnp.where(self.probs > 0.5, 1, 0).astype(jnp.int32)
+
+    def entropy(self):
+        """Calculates the entropy of the Bernoulli distribution with probability p.
+        H(p,q)=-qlog(q)-plog(p) where q=1-p.
+        With extra care for p=0 and p=1.
+
+        Returns:
+            entropy: The entropy of the Bernoulli distribution.
+        """
+        probs0 = 1.0 - self.probs
+        probs1 = self.probs
+        log_probs0 = jnp.log1p(-1.0 * probs1)
+        log_probs1 = jnp.log(probs1)
+
+        # Could make this into a function if we need it elsewhere.
+        qlogq = jnp.where(probs0 == 0.0, 0.0, probs0 * log_probs0)
+        plogp = jnp.where(probs1 == 0.0, 0.0, probs1 * log_probs1)
+        return -qlogq - plogp
+
     def enumerate_support(self, expand=True):
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
@@ -142,6 +168,31 @@ class BernoulliLogits(Distribution):
     @property
     def variance(self):
         return self.probs * (1 - self.probs)
+
+    @property
+    def mode(self):
+        """Calculates the mode of the Bernoulli distribution. When the probability is 0.5 the mode is undefined.
+        When the probability is more than 0.5 the mode is 1 if the probability is less than 0.5 is 0.
+        """
+        return jnp.where(self.probs > 0.5, 1, 0).astype(jnp.int32)
+
+    def entropy(self):
+        """Calculates the entropy of the Bernoulli distribution with probability p.
+        H(p,q)=-qlog(q)-plog(p) where q=1-p.
+        With extra care for p=0 and p=1.
+
+        Returns:
+            entropy: The entropy of the Bernoulli distribution.
+        """
+        q = _to_probs_bernoulli(-1.0 * self.logits)
+        p = self.probs
+        logq = -jax.nn.softplus(self.logits)
+        logp = -jax.nn.softplus(-1.0 * self.logits)
+
+        # Could make this into a function if we need it elsewhere.
+        qlogq = jnp.where(q == 0.0, 0.0, q * logq)
+        plogp = jnp.where(p == 0.0, 0.0, p * logp)
+        return -qlogq - plogp
 
     def enumerate_support(self, expand=True):
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
@@ -205,6 +256,21 @@ class BinomialProbs(Distribution):
     def variance(self):
         return jnp.broadcast_to(
             self.total_count * self.probs * (1 - self.probs), self.batch_shape
+        )
+
+    @property
+    def mode(self):
+        """Calculates the mode of the Binomial distribution.
+        Note that when `(1 + total_count) * probs` is an integer, there are
+        actually two modes. Namely, `(1 + total_count) * probs` and
+        `(1 + total_count) * probs - 1` are both modes. Here we return only the
+        larger of the two modes.
+
+        Returns:
+            mode: The mode of the distribution.
+        """
+        return jnp.minimum(
+            self.total_count, jnp.floor((1.0 + self.total_count) * self.probs)
         )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
@@ -278,6 +344,21 @@ class BinomialLogits(Distribution):
             self.total_count * self.probs * (1 - self.probs), self.batch_shape
         )
 
+    @property
+    def mode(self):
+        """Calculates the mode of the Binomial distribution.
+        Note that when `(1 + total_count) * probs` is an integer, there are
+        actually two modes. Namely, `(1 + total_count) * probs` and
+        `(1 + total_count) * probs - 1` are both modes. Here we return only the
+        larger of the two modes.
+
+        Returns:
+            mode: The mode of the distribution.
+        """
+        return jnp.minimum(
+            self.total_count, jnp.floor((1.0 + self.total_count) * self.probs)
+        )
+
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
@@ -328,6 +409,14 @@ class CategoricalProbs(Distribution):
     @property
     def variance(self):
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
+
+    @property
+    def mode(self):
+        return jnp.argmax(self.logits, axis=-1).astype(jnp.int32)
+
+    def entropy(self):
+        log_probs = jax.nn.log_softmax(self.logits)
+        return -jnp.sum(mul_exp(log_probs, log_probs), axis=-1)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
@@ -385,6 +474,14 @@ class CategoricalLogits(Distribution):
     def support(self):
         return constraints.integer_interval(0, jnp.shape(self.logits)[-1] - 1)
 
+    @property
+    def mode(self):
+        return jnp.argmax(self.logits, axis=-1).astype(jnp.int32)
+
+    def entropy(self):
+        log_probs = jax.nn.log_softmax(self.logits)
+        return -jnp.sum(mul_exp(log_probs, log_probs), axis=-1)
+
     def enumerate_support(self, expand=True):
         values = jnp.arange(self.logits.shape[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
@@ -441,6 +538,9 @@ class DiscreteUniform(Distribution):
     @property
     def variance(self):
         return ((self.high - self.low + 1) ** 2 - 1) / 12.0
+
+    def entropy(self):
+        return jnp.log(self.high - self.low + 1)
 
     def enumerate_support(self, expand=True):
         if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
@@ -725,6 +825,16 @@ class Poisson(Distribution):
     def variance(self):
         return self.rate
 
+    @property
+    def mode(self):
+        """Calculates the mode of the Poisson distribution. 
+        - When the rate is an integer the Poisson distribution has two modes: the rate-1 and the rate.
+        - When the rate is not an integer the mode is the floor(rate).
+        
+        We always return the floor(rate) as the mode.
+        """
+        return jnp.floor(self.rate).astype(jnp.float32)
+
     def cdf(self, value):
         k = jnp.floor(value) + 1
         return gammaincc(k, self.rate)
@@ -878,6 +988,28 @@ class GeometricProbs(Distribution):
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
 
+    @property
+    def mode(self):
+        return jnp.zeros_like(self.probs)
+
+    def entropy(self):
+        """Calculates the entropy of the Geometric distribution with probability p.
+        H(p,q)=[-qlog(q)-plog(p)]*1/p where q=1-p.
+        With extra care for p=0 and p=1.
+
+        Returns:
+            entropy: The entropy of the Geometric distribution.
+        """
+        q = _to_probs_bernoulli(-1.0 * self.logits)
+        p = self.probs
+        logq = -jax.nn.softplus(self.logits)
+        logp = -jax.nn.softplus(-1.0 * self.logits)
+
+        # Could make this into a function if we need it elsewhere.
+        qlogq = jnp.where(q == 0.0, 0.0, q * logq)
+        plogp = jnp.where(p == 0.0, 0.0, p * logp)
+        return (-qlogq - plogp) * 1.0 / p
+
 
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -912,6 +1044,28 @@ class GeometricLogits(Distribution):
     @property
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
+
+    @property
+    def mode(self):
+        return jnp.zeros_like(self.logits)
+
+    def entropy(self):
+        """Calculates the entropy of the Geometric distribution with probability p.
+        H(p,q)=[-qlog(q)-plog(p)]*1/p where q=1-p.
+        With extra care for p=0 and p=1.
+
+        Returns:
+            entropy: The entropy of the Geometric distribution.
+        """
+        q = _to_probs_bernoulli(-1.0 * self.logits)
+        p = self.probs
+        logq = -jax.nn.softplus(self.logits)
+        logp = -jax.nn.softplus(-1.0 * self.logits)
+
+        # Could make this into a function if we need it elsewhere.
+        qlogq = jnp.where(q == 0.0, 0.0, q * logq)
+        plogp = jnp.where(p == 0.0, 0.0, p * logp)
+        return (-qlogq - plogp) * 1.0 / p
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):

@@ -613,6 +613,24 @@ def safe_normalize(x, *, p=2):
     return x
 
 
+def mul_exp(x, logp):
+    """Returns `x * exp(logp)` with zero output if `exp(logp)==0`.
+
+    Args:
+        x: An array.
+        logp: An array.
+
+    Returns:
+        `x * exp(logp)` with zero output and zero gradient if `exp(logp)==0`,
+        even if `x` is NaN or infinite.
+    """
+    p = jnp.exp(logp)
+    # If p==0, the gradient with respect to logp is zero,
+    # so we can replace the possibly non-finite `x` with zero.
+    x = jnp.where(p == 0, 0.0, x)
+    return x * p
+
+
 def is_prng_key(key):
     warnings.warn("Please use numpyro.util.is_prng_key.", DeprecationWarning)
     try:
