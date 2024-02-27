@@ -1862,8 +1862,11 @@ class AutoBatchedMixin:
     def _get_posterior(self):
         return dist.TransformedDistribution(
             self._get_batched_posterior(),
-            ReshapeTransform((self.latent_dim,), self._batch_shape + self._event_shape),
+            self._get_reshape_transform(),
         )
+
+    def _get_reshape_transform(self) -> ReshapeTransform:
+        return ReshapeTransform((self.latent_dim,), self._batch_shape + self._event_shape)
 
 
 class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
@@ -1910,6 +1913,10 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
             constraint=self.scale_tril_constraint,
         )
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
+
+    def median(self, params):
+        loc = self._get_reshape_transform()(params["{}_loc".format(self.prefix)])
+        return self._unpack_and_constrain(loc, params)
 
 
 class AutoLowRankMultivariateNormal(AutoContinuous):
@@ -2038,6 +2045,10 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         cov_diag = scale * scale
         cov_factor = cov_factor * scale[..., None]
         return dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
+
+    def median(self, params):
+        loc = self._get_reshape_transform()(params["{}_loc".format(self.prefix)])
+        return self._unpack_and_constrain(loc, params)
 
 
 class AutoLaplaceApproximation(AutoContinuous):
