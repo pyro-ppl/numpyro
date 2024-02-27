@@ -13,6 +13,8 @@ from jax import jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 
+from numpyro.util import add_diag
+
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
     "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
@@ -400,7 +402,7 @@ def signed_stick_breaking_tril(t):
     z1m_cumprod_sqrt_shifted = jnp.pad(
         z1m_cumprod_sqrt[..., :-1], pad_width, mode="constant", constant_values=1.0
     )
-    y = (r + jnp.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
+    y = add_diag(r, 1) * z1m_cumprod_sqrt_shifted
     return y
 
 

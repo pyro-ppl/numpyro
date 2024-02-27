@@ -71,7 +71,7 @@ from numpyro.distributions.util import (
     validate_sample,
     vec_to_tril_matrix,
 )
-from numpyro.util import is_prng_key
+from numpyro.util import add_diag, is_prng_key
 
 
 class AsymmetricLaplace(Distribution):
@@ -1081,10 +1081,7 @@ class LKJCholesky(Distribution):
         # correct the diagonal
         # NB: beta_sample = sum(w ** 2) because norm 2 of u is 1.
         diag = jnp.ones(cholesky.shape[:-1]).at[..., 1:].set(jnp.sqrt(1 - beta_sample))
-        cholesky = cholesky + jnp.expand_dims(diag, axis=-1) * jnp.identity(
-            self.dimension
-        )
-        return cholesky
+        return add_diag(cholesky, diag)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -1860,7 +1857,7 @@ def _batch_capacitance_tril(W, D):
     Wt_Dinv = jnp.swapaxes(W, -1, -2) / jnp.expand_dims(D, -2)
     K = jnp.matmul(Wt_Dinv, W)
     # could be inefficient
-    return jnp.linalg.cholesky(jnp.subtract(K, -jnp.identity(K.shape[-1])))
+    return jnp.linalg.cholesky(add_diag(K, 1))
 
 
 def _batch_lowrank_logdet(W, D, capacitance_tril):
@@ -1957,17 +1954,15 @@ class LowRankMultivariateNormal(Distribution):
         cov_diag_sqrt_unsqueeze = jnp.expand_dims(jnp.sqrt(self.cov_diag), axis=-1)
         Dinvsqrt_W = self.cov_factor / cov_diag_sqrt_unsqueeze
         K = jnp.matmul(Dinvsqrt_W, jnp.swapaxes(Dinvsqrt_W, -1, -2))
-        K = jnp.add(K, jnp.identity(K.shape[-1]))
+        K = add_diag(K, 1)
         scale_tril = cov_diag_sqrt_unsqueeze * jnp.linalg.cholesky(K)
         return scale_tril
 
     @lazy_property
     def covariance_matrix(self):
-        # TODO: find a better solution to create a diagonal matrix
-        new_diag = self.cov_diag[..., jnp.newaxis] * jnp.identity(self.loc.shape[-1])
-        covariance_matrix = new_diag + jnp.matmul(
+        covariance_matrix = add_diag(jnp.matmul(
             self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2)
-        )
+        ), self.cov_diag)
         return covariance_matrix
 
     @lazy_property
@@ -1979,12 +1974,8 @@ class LowRankMultivariateNormal(Distribution):
             self.cov_diag, axis=-2
         )
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        # TODO: find a better solution to create a diagonal matrix
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
-        diag_embed = inverse_cov_diag[..., jnp.newaxis] * jnp.identity(
-            self.loc.shape[-1]
-        )
-        return diag_embed - jnp.matmul(jnp.swapaxes(A, -1, -2), A)
+        return add_diag(- jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
