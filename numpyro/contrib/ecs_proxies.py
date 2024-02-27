@@ -96,15 +96,15 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, plate_sizes):
 
 def taylor_proxy(reference_params, degree):
     """Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
-    parameter. Suggest for subsampling in [1].
+    parameter. Suggested for subsampling in [1].
 
     :param dict reference_params: Model parameterization at MLE or MAP-estimate.
-    :param degree: number of terms in the Taylor expansion
+    :param degree: number of terms in the Taylor expansion, either one or two.
 
     **References:**
 
-    [1] Towards scaling up Markov chain Monte Carlo: an adaptive subsampling approach
-        Bardenet., R., Doucet, A., Holmes, C. (2014)
+    [1] On Markov chain Monte Carlo Methods For Tall Data 
+        Bardenet., R., Doucet, A., Holmes, C. (2017)
     """
 
     def construct_proxy_fn(
