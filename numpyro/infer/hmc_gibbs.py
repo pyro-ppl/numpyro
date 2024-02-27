@@ -677,7 +677,7 @@ class HMCECS(HMCGibbs):
     def taylor_proxy(reference_params, degree=2, approx=False):
         """
         This is just a convenient static method which calls
-        :func:`~numpyro.infer.hmc_gibbs.taylor_proxy`.
+        :func:`~numpyro.contrib.ecs_proxies.taylor_proxy`.
         """
         return taylor_proxy(reference_params, degree, approx)
 
