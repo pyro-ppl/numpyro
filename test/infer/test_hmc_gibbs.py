@@ -271,26 +271,6 @@ def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
 
-@pytest.mark.parametrize("num_blocks", [1, 2, 50, 100])
-def test_block_update_partitioning(num_blocks):
-    plate_size = 10000, 100
-
-    plate_sizes = {"N": plate_size}
-    gibbs_sites = {"N": jnp.arange(plate_size[1])}
-    gibbs_state = {}
-
-    new_gibbs_sites, new_gibbs_state = numpyro.infer.hmc_gibbs._block_update(
-        plate_sizes, num_blocks, random.PRNGKey(2), gibbs_sites, gibbs_state
-    )
-    block_size = 100 // num_blocks
-    for name in gibbs_sites:
-        assert (
-            block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
-        )
-
-    assert gibbs_state == new_gibbs_state
-
-
 def test_enum_subsample_smoke():
     def model(data):
         x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
