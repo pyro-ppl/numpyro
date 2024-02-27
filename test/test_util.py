@@ -12,7 +12,7 @@ from jax.tree_util import tree_all, tree_flatten, tree_map
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
+from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap, add_diag
 
 
 def test_fori_collect_thinning():
@@ -268,3 +268,17 @@ def test_missing_plate_in_model():
         numpyro.sample("x", dist.Normal(0, 1))
 
     _run_svi_check_warnings(model, guide, "Missing a plate statement")
+
+
+@pytest.mark.parametrize("matrix_shape, diag_shape", [
+    ((5, 5), ()),
+    ((7, 7), (7,)),
+    ((10, 3, 3), (10, 3)),
+    ((7, 5, 9, 9), (5, 1)),
+])
+def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
+    matrix = random.normal(random.key(0), matrix_shape)
+    diag = random.normal(random.key(1), diag_shape)
+    expected = matrix + diag[..., None] * jnp.eye(matrix.shape[-1])
+    actual = add_diag(matrix, diag)
+    np.testing.assert_allclose(actual, expected)
