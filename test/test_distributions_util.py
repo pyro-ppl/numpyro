@@ -13,6 +13,7 @@ import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 
 from numpyro.distributions.util import (
+    add_diag,
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
@@ -164,3 +165,20 @@ def test_safe_normalize(dim):
     data = jnp.zeros((10, dim))
     x = safe_normalize(data)
     assert_allclose((x * x).sum(-1), jnp.ones(x.shape[:-1]), rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "matrix_shape, diag_shape",
+    [
+        ((5, 5), ()),
+        ((7, 7), (7,)),
+        ((10, 3, 3), (10, 3)),
+        ((7, 5, 9, 9), (5, 1)),
+    ],
+)
+def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
+    matrix = random.normal(random.key(0), matrix_shape)
+    diag = random.normal(random.key(1), diag_shape)
+    expected = matrix + diag[..., None] * jnp.eye(matrix.shape[-1])
+    actual = add_diag(matrix, diag)
+    np.testing.assert_allclose(actual, expected)

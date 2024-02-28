@@ -17,6 +17,7 @@ from jax.tree_util import register_pytree_node, tree_flatten, tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
+    add_diag,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -753,7 +754,7 @@ class LowerCholeskyTransform(ParameterFreeTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = jnp.exp(x[..., -n:])
-        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+        return add_diag(z, diag)
 
     def _inverse(self, y):
         z = matrix_to_tril_vec(y, diagonal=-1)
@@ -792,7 +793,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = softplus(x[..., -n:])
-        return (z + jnp.identity(n)) * diag[..., None]
+        return add_diag(z, 1) * diag[..., None]
 
     def _inverse(self, y):
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
