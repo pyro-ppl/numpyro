@@ -116,7 +116,11 @@ def taylor_proxy(reference_params, degree):
         num_blocks=1,
     ):
         ref_params = {
-            name: biject_to(prototype_trace[name]["fn"].support).inv(value)
+            name: (
+                biject_to(prototype_trace[name]["fn"].support).inv(value)
+                if prototype_trace[name]["type"] == "sample"
+                else value
+            )
             for name, value in reference_params.items()
         }
 
@@ -131,7 +135,11 @@ def taylor_proxy(reference_params, degree):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 params = {
-                    name: biject_to(prototype_trace[name]["fn"].support)(value)
+                    name: (
+                        biject_to(prototype_trace[name]["fn"].support)(value)
+                        if prototype_trace[name]["type"] == "sample"
+                        else value
+                    )
                     for name, value in params.items()
                 }
                 with (
@@ -167,9 +175,7 @@ def taylor_proxy(reference_params, degree):
         elif 1:
             TPState = TaylorOneProxyState
         else:
-            raise ValueError(
-                "Taylor proxy only defined for first and second degree."
-            )
+            raise ValueError("Taylor proxy only defined for first and second degree.")
 
         # those stats are dict keyed by subsample names
         ref_sum_log_lik = log_likelihood_sum(ref_params_flat)
