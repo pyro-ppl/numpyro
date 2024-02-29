@@ -2447,12 +2447,25 @@ class AsymmetricLaplaceQuantile(Distribution):
 
 
 class ZeroSumNormal(Distribution):
+    """
+    Zero Sum Normal distribution adapted from PyMC as described in [1]. This is a Normal distribution where one or
+    more axes are constrained to sum to zero (the last axis by default).
+
+    :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
+        enforced.
+    :param int n_zerosum_axes: The number of axes to enforce a zerosum constraint.
+    :param tuple support_shape: The event shape of the distribution.
+
+    **References**
+
+    [1] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    """
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["scale"]
     pytree_aux_fields = ("n_zerosum_axes","support_shape",)
 
-    def __init__(self, scale=1.0, n_zerosum_axes=None, support_shape=(1,), *, validate_args=None):
+    def __init__(self, scale=1.0, n_zerosum_axes=None, support_shape=None, *, validate_args=None):
         if not all(tuple(i == 1 for i in jnp.shape( scale ))):
             raise ValueError("scale must have length one across the zero-sum axes")
 
