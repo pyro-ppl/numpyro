@@ -2474,14 +2474,9 @@ class ZeroSumNormal(Distribution):
         if jnp.ndim(scale) == 0:
             (scale,) = promote_shapes(scale, shape=(1,))
 
-        # temporary append a new axis to scale
-        scale = scale[..., jnp.newaxis]
-        cov_placeholder = jnp.eye(len(scale))
-        scale, cov_placeholder = promote_shapes(scale, cov_placeholder)
-        batch_shape = lax.broadcast_shapes(
-            jnp.shape(scale)[:-2], jnp.shape(cov_placeholder)[:-2]
-        )
-        self.scale = scale[..., 0]
+        batch_shape = jnp.shape(scale)[:-1]
+        self.scale = scale
+
         super(ZeroSumNormal, self).__init__(
             batch_shape=batch_shape,
             event_shape=support_shape,
