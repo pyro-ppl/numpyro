@@ -380,6 +380,13 @@ Weibull
     :show-inheritance:
     :member-order: bysource
 
+ZeroSumNormal
+^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.ZeroSumNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Discrete Distributions
 ----------------------
