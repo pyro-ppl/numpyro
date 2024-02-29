@@ -2448,7 +2448,7 @@ class AsymmetricLaplaceQuantile(Distribution):
 
 class ZeroSumNormal(Distribution):
     """
-    Zero Sum Normal distribution adapted from PyMC as described in [1]. This is a Normal distribution where one or
+    Zero Sum Normal distribution adapted from PyMC [1] as described in [2]. This is a Normal distribution where one or
     more axes are constrained to sum to zero (the last axis by default).
 
     :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
@@ -2457,8 +2457,8 @@ class ZeroSumNormal(Distribution):
     :param tuple support_shape: The event shape of the distribution.
 
     **References**
-
-    [1] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
+    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
     """
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real
