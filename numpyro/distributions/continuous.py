@@ -2457,12 +2457,13 @@ class ZeroSumNormal(Distribution):
             raise ValueError("scale must have length one across the zero-sum axes")
 
         self.n_zerosum_axes = self.check_zerosum_axes(n_zerosum_axes)
+        support_shape = self.check_support_shape(support_shape, self.n_zerosum_axes)
         if jnp.ndim(scale) == 0:
             (scale,) = promote_shapes(scale, shape=(1,))
 
         # temporary append a new axis to scale
         scale = scale[..., jnp.newaxis]
-        cov_placeholder = jnp.eye(len(support_shape))
+        cov_placeholder = jnp.eye(len(scale))
         scale, cov_placeholder = promote_shapes(scale, cov_placeholder)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(scale)[:-2], jnp.shape(cov_placeholder)[:-2]
@@ -2470,7 +2471,7 @@ class ZeroSumNormal(Distribution):
         self.scale = scale[..., 0]
         super(ZeroSumNormal, self).__init__(
             batch_shape=batch_shape,
-            event_shape=self.check_support_shape(support_shape, self.n_zerosum_axes),
+            event_shape=support_shape,
             validate_args=validate_args
         )
 
@@ -2529,6 +2530,8 @@ class ZeroSumNormal(Distribution):
         return n_zerosum_axes
 
     def check_support_shape(self, support_shape, n_zerosum_axes):
+        if support_shape is None:
+            return ()
         assert n_zerosum_axes <= len(support_shape), "support_shape has to be as long as n_zerosum_axes"
         assert all(shape > 0 for shape in support_shape), "support_shape must be a valid shape"
         assert len(support_shape) > 0, "support_shape must be a valid shape"
