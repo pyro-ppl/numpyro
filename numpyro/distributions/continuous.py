@@ -2504,16 +2504,6 @@ class ZeroSumNormal(Distribution):
         )
         return log_pdf
 
-    # def cdf(self, value):
-    #     scaled = (value - 0) / self.scale
-    #     return ndtr(scaled)
-
-    # def log_cdf(self, value):
-    #     return jax_norm.logcdf(value, loc=0, scale=self.scale)
-
-    # def icdf(self, q):
-    #     return 0 + self.scale * ndtri(q)
-
     @property
     def mean(self):
         return jnp.broadcast_to(0, self.batch_shape)
