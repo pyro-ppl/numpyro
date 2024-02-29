@@ -25,8 +25,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from typing import Optional
-
 import numpy as np
 
 from jax import lax, vmap
@@ -2459,9 +2457,9 @@ class ZeroSumNormal(Distribution):
             raise ValueError("scale must have length one across the zero-sum axes")
 
         self.n_zerosum_axes = self.check_zerosum_axes(n_zerosum_axes)
-        # batch_shape = lax.broadcast_shapes(jnp.shape(scale))
         if jnp.ndim(scale) == 0:
             (scale,) = promote_shapes(scale, shape=(1,))
+
         # temporary append a new axis to scale
         scale = scale[..., jnp.newaxis]
         cov_placeholder = jnp.eye(len(support_shape))
@@ -2472,7 +2470,7 @@ class ZeroSumNormal(Distribution):
         self.scale = scale[..., 0]
         super(ZeroSumNormal, self).__init__(
             batch_shape=batch_shape,
-            event_shape=support_shape,
+            event_shape=self.check_support_shape(support_shape, self.n_zerosum_axes),
             validate_args=validate_args
         )
 
@@ -2528,7 +2526,7 @@ class ZeroSumNormal(Distribution):
 
         return theoretical_var
 
-    def check_zerosum_axes(self, n_zerosum_axes: Optional[int]) -> int:
+    def check_zerosum_axes(self, n_zerosum_axes):
         if n_zerosum_axes is None:
             n_zerosum_axes = 1
 
@@ -2539,6 +2537,12 @@ class ZeroSumNormal(Distribution):
         if not n_zerosum_axes > 0:
             raise ValueError("n_zerosum_axes has to be > 0")
         return n_zerosum_axes
+
+    def check_support_shape(self, support_shape, n_zerosum_axes):
+        assert n_zerosum_axes <= len(support_shape), "support_shape has to be as long as n_zerosum_axes"
+        assert all(shape > 0 for shape in support_shape), "support_shape must be a valid shape"
+        assert len(support_shape) > 0, "support_shape must be a valid shape"
+        return support_shape
 
     @staticmethod
     def infer_shapes(scale=1.0, n_zerosum_axes=None, support_shape=(1,)):
