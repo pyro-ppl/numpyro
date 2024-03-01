@@ -1,8 +1,8 @@
 name: Upload Python Package
 
 on:
-  pull_request:
-    branches: [ master ]
+  release:
+    type: [ published ]
 
 jobs:
   deploy:
@@ -19,9 +19,8 @@ jobs:
           pip install build
       - name: Build package
         run: python -m build
-      - name: Publish package to TestPyPI
+      - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
-          repository-url: https://test.pypi.org/legacy/
 
