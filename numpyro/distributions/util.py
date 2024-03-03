@@ -400,7 +400,7 @@ def signed_stick_breaking_tril(t):
     z1m_cumprod_sqrt_shifted = jnp.pad(
         z1m_cumprod_sqrt[..., :-1], pad_width, mode="constant", constant_values=1.0
     )
-    y = (r + jnp.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
+    y = add_diag(r, 1) * z1m_cumprod_sqrt_shifted
     return y
 
 
@@ -680,3 +680,11 @@ def validate_sample(log_prob_fn):
         return log_prob
 
     return wrapper
+
+
+def add_diag(matrix: jnp.ndarray, diag: jnp.ndarray) -> jnp.ndarray:
+    """
+    Add `diag` to the trailing diagonal of `matrix`.
+    """
+    idx = jnp.arange(matrix.shape[-1])
+    return matrix.at[..., idx, idx].add(diag)
