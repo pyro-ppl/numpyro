@@ -58,7 +58,7 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            "funsor>=0.4.1",
+            "funsor>=0.4.6",
             "graphviz",
             "jaxns==2.4.8",
             "matplotlib",
