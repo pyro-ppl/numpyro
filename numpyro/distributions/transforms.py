@@ -1149,16 +1149,18 @@ class ZeroSumTransform(ParameterFreeTransform):
     """
     # domain = constraints.real_vector
     # codomain = constraints.simplex
+    def __init__(self, zerosum_axes):
+        self.zerosum_axes = zerosum_axes
 
-    def __call__(self, value, zerosum_axes):
-        for axis in zerosum_axes:
-            value = self.extend_axis_rev(value, axis=axis)
-        return value
+    def __call__(self, x):
+        for axis in self.zerosum_axes:
+            x = self.extend_axis_rev(x, axis=axis)
+        return x
 
-    def _inverse(self, value, zerosum_axes):
-        for axis in zerosum_axes:
-            value = self.extend_axis(value, axis=axis)
-        return value
+    def _inverse(self, y):
+        for axis in self.zerosum_axes:
+            y = self.extend_axis(y, axis=axis)
+        return y
 
     def extend_axis_rev(self, array, axis):
         normalized_axis = normalize_axis_tuple(axis, array.ndim)[0]
@@ -1183,16 +1185,6 @@ class ZeroSumTransform(ParameterFreeTransform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.array(0.0)
-
-    def forward_shape(self, shape):
-        if len(shape) < 1:
-            raise ValueError("Too few dimensions on input")
-        return shape[:-1] + (shape[-1] + 1,)
-
-    def inverse_shape(self, shape):
-        if len(shape) < 1:
-            raise ValueError("Too few dimensions on input")
-        return shape[:-1] + (shape[-1] - 1,)
 
 
 def _get_target_shape(shape, forward_shape, inverse_shape):
