@@ -1147,8 +1147,6 @@ class UnpackTransform(Transform):
 class ZeroSumTransform(ParameterFreeTransform):
     """A transform that constrains an array to sum to zero
     """
-    # domain = constraints.real_vector
-    # codomain = constraints.simplex
     def __init__(self, zerosum_axes):
         self.zerosum_axes = zerosum_axes
 
