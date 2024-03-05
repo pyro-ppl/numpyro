@@ -60,3 +60,12 @@ Circular Distributions
     :show-inheritance:
     :member-order: bysource
     :special-members: __call__
+
+Explicit Reparameterization
+---------------------------
+.. autoclass:: numpyro.infer.reparam.ExplicitReparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    :special-members: __call__

@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 import math
+from typing import Iterable
 
 import numpy as np
 
@@ -346,3 +347,48 @@ class CircularReparam(Reparam):
         # Simulate a pyro.deterministic() site.
         numpyro.factor(f"{name}_factor", fn.log_prob(value))
         return None, value
+
+
+class ExplicitReparam(Reparam):
+    """
+    Explicit reparametrizer of a latent variable :code:`x` to a transformed space
+    :code:`y = transform(x)` with more amenable geometry. This reparametrizer is similar
+    to :class:`.TransformReparam` but allows reparametrizations to be decoupled from the
+    model declaration.
+
+    :param transform: Bijective transform to the reparameterized space.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> from jax import numpy as jnp
+        >>> import numpyro
+        >>> from numpyro import handlers, distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS
+        >>> from numpyro.infer.reparam import ExplicitReparam
+        >>>
+        >>> def model():
+        ...    numpyro.sample("x", dist.Gamma(4, 4))
+        >>>
+        >>> # Sample in unconstrained space using a soft-plus instead of exp transform.
+        >>> reparam = ExplicitReparam(dist.transforms.SoftplusTransform().inv)
+        >>> reparametrized = handlers.reparam(model, {"x": reparam})
+        >>> kernel = NUTS(model=reparametrized)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=1)
+        >>> mcmc.run(random.PRNGKey(2))  # doctest: +SKIP
+        sample: 100%|██████████| 2000/2000 [00:00<00:00, 2306.47it/s, 3 steps of size 9.65e-01. acc. prob=0.93]
+    """
+    def __init__(self, transform):
+        if isinstance(transform, Iterable) and all(
+            isinstance(t, dist.transforms.Transform) for t in transform
+        ):
+            transform = dist.transforms.ComposeTransform(transform)
+        self.transform = transform
+
+    def __call__(self, name, fn, obs):
+        assert obs is None, "ExplicitReparam does not support observe statements"
+        transformed = dist.TransformedDistribution(fn, self.transform)
+        x = numpyro.sample(f"{name}_base", transformed)
+        return None, self.transform.inv(x)
