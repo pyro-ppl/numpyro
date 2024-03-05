@@ -6,6 +6,7 @@ import warnings
 import weakref
 
 import numpy as np
+from numpy.core.numeric import normalize_axis_tuple
 
 from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
@@ -48,6 +49,7 @@ __all__ = [
     "StickBreakingTransform",
     "Transform",
     "UnpackTransform",
+    "ZeroSumTransform",
 ]
 
 
@@ -1140,6 +1142,57 @@ class UnpackTransform(Transform):
 
     def __eq__(self, other):
         return isinstance(other, UnpackTransform) and self.unpack_fn is other.unpack_fn
+
+
+class ZeroSumTransform(ParameterFreeTransform):
+    """A transform that constrains an array to sum to zero
+    """
+    # domain = constraints.real_vector
+    # codomain = constraints.simplex
+
+    def __call__(self, value, zerosum_axes):
+        for axis in zerosum_axes:
+            value = self.extend_axis_rev(value, axis=axis)
+        return value
+
+    def _inverse(self, value, zerosum_axes):
+        for axis in zerosum_axes:
+            value = self.extend_axis(value, axis=axis)
+        return value
+
+    def extend_axis_rev(self, array, axis):
+        normalized_axis = normalize_axis_tuple(axis, array.ndim)[0]
+
+        n = array.shape[normalized_axis]
+        last = jnp.take(array, [-1], axis=normalized_axis)
+
+        sum_vals = -last * jnp.sqrt(n)
+        norm = sum_vals / (jnp.sqrt(n) + n)
+        slice_before = (slice(None, None),) * normalized_axis
+        return array[(*slice_before, slice(None, -1))] + norm
+
+    def extend_axis(self, array, axis):
+        n = (array.shape[axis] + 1)
+
+        sum_vals = array.sum(axis, keepdims=True)
+        norm = sum_vals / (jnp.sqrt(n) + n)
+        fill_val = norm - sum_vals / jnp.sqrt(n)
+
+        out = jnp.concatenate([array, fill_val], axis=axis)
+        return out - norm
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return jnp.array(0.0)
+
+    def forward_shape(self, shape):
+        if len(shape) < 1:
+            raise ValueError("Too few dimensions on input")
+        return shape[:-1] + (shape[-1] + 1,)
+
+    def inverse_shape(self, shape):
+        if len(shape) < 1:
+            raise ValueError("Too few dimensions on input")
+        return shape[:-1] + (shape[-1] - 1,)
 
 
 def _get_target_shape(shape, forward_shape, inverse_shape):
