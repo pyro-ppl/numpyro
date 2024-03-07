@@ -1145,7 +1145,12 @@ class UnpackTransform(Transform):
 
 
 class ZeroSumTransform(ParameterFreeTransform):
-    """A transform that constrains an array to sum to zero
+    """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
+
+    **References**
+    [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
+    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
     """
     def __init__(self, zerosum_axes):
         self.zerosum_axes = zerosum_axes
@@ -1164,7 +1169,7 @@ class ZeroSumTransform(ParameterFreeTransform):
         normalized_axis = normalize_axis_tuple(axis, array.ndim)[0]
 
         n = array.shape[normalized_axis]
-        last = jnp.take(array, [-1], axis=normalized_axis)
+        last = jnp.take(array, jnp.array([-1]), axis=normalized_axis)
 
         sum_vals = -last * jnp.sqrt(n)
         norm = sum_vals / (jnp.sqrt(n) + n)
