@@ -1144,7 +1144,7 @@ class UnpackTransform(Transform):
         return isinstance(other, UnpackTransform) and self.unpack_fn is other.unpack_fn
 
 
-class ZeroSumTransform(ParameterFreeTransform):
+class ZeroSumTransform(Transform):
     """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
 
     **References**
@@ -1188,6 +1188,9 @@ class ZeroSumTransform(ParameterFreeTransform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.array(0.0)
+
+    def tree_flatten(self):
+        return (self.zerosum_axes,), (("zerosum_axes",), dict())
 
 
 def _get_target_shape(shape, forward_shape, inverse_shape):
