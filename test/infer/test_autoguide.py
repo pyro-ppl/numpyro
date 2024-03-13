@@ -157,7 +157,7 @@ def test_logistic_regression(auto_class, Elbo):
     rng_key_init = random.PRNGKey(1)
     if auto_class == AutoGuideList:
         guide = AutoGuideList(model)
-        guide.append(AutoNormal(handlers.block(model, hide=[])))
+        guide.append(AutoNormal(handlers.block(model, hide=["logits"])))
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Elbo())
@@ -1183,6 +1183,7 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
         numpyro.deterministic("x2", x**2)
 
     guide = AutoGuideList(model)
+    blocked_model = handlers.block(handlers.seed(model, 7), hide=["x2"])
 
     # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
     if auto_class == AutoDAIS:
@@ -1190,24 +1191,24 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(auto_class(model))
+            guide.append(auto_class(blocked_model))
         return
     if auto_class == AutoSemiDAIS:
         with pytest.raises(
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(auto_class(model, local_model=None, global_guide=None))
+            guide.append(auto_class(blocked_model, local_model=None, global_guide=None))
         return
     if auto_class == AutoSurrogateLikelihoodDAIS:
         with pytest.raises(
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(auto_class(model, surrogate_model=None))
+            guide.append(auto_class(blocked_model, surrogate_model=None))
         return
 
-    guide.append(auto_class(model))
+    guide.append(auto_class(blocked_model))
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     if auto_class in (AutoIAFNormal, AutoBNAFNormal) and max(shape, default=0) <= 1:
         with pytest.raises(
@@ -1228,7 +1229,9 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
             sample_shape=sample_shape,
         )
         assert guide_samples["x"].shape == sample_shape + shape
-        assert guide_samples["x2"].shape == sample_shape + shape
+        # Substitute and trace to get the deterministic sites.
+        trace = handlers.trace(handlers.substitute(model, guide_samples)).get_trace()
+        assert trace["x2"]["value"].shape == sample_shape + shape
 
 
 @pytest.mark.parametrize("use_global_dais_params", [True, False])

@@ -274,14 +274,32 @@ class AutoGuideList(AutoGuide):
         if self.prototype_trace is None:
             # run model to inspect the model structure
             self._setup_prototype(*args, **kwargs)
+            check_deterministic_sites = True
+        else:
+            check_deterministic_sites = False
 
         # create all plates
         self._create_plates(*args, **kwargs)
 
-        # run slave guides
+        # run sub-guides
         result = {}
         for part in self._guides:
             result.update(part(*args, **kwargs))
+
+        # Check deterministic sites after calling sub-guides because they are not
+        # initialized prior to the first call. We do not check guides that do not have
+        # a prototype_trace attribute, e.g., custom guides.
+        if check_deterministic_sites:
+            for i, part in enumerate(self._guides):
+                prototype_trace = getattr(part, "prototype_trace", None)
+                if prototype_trace:
+                    for key, value in prototype_trace.items():
+                        if value["type"] == "deterministic":
+                            raise ValueError(
+                                f"deterministic site '{key}' in sub-guide at position "
+                                f"{i} should not be exposed"
+                            )
+
         return result
 
     def __getitem__(self, key):
