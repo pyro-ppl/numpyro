@@ -1157,6 +1157,18 @@ def test_autoguidelist(auto_classes, Elbo):
             part.quantiles(params=params, quantiles=[0.2, 0.5, 0.8])
 
 
+def test_autoguidelist_deterministic():
+    def model():
+        x = numpyro.sample("x", dist.Normal())
+        numpyro.deterministic("x2", x**2)
+
+    guide = AutoGuideList(model)
+    guide.append(AutoDiagonalNormal(model))
+    seeded_guide = handlers.seed(guide, 8)
+    with pytest.raises(ValueError, match="should not be exposed"):
+        seeded_guide()
+
+
 @pytest.mark.parametrize(
     "auto_class",
     [
