@@ -16,7 +16,6 @@ normal prior on the regression coefficients. We report the 95% highest posterior
 density interval for the effect of making a call.
 """
 
-
 import argparse
 import os
 

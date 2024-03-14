@@ -30,6 +30,7 @@ generate a better representation of the encoded latent vector.
 .. image:: ../_static/img/examples/prodlda.png
     :align: center
 """
+
 import argparse
 
 import matplotlib.pyplot as plt
