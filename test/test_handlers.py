@@ -778,7 +778,8 @@ def test_collapse_beta_binomial_plate():
 
 
 def test_prng_key():
-    assert numpyro.prng_key() is None
+    with pytest.warns(Warning, match="outside of `seed`"):
+        assert numpyro.prng_key() is None
 
     with handlers.seed(rng_seed=0):
         rng_key = numpyro.prng_key()
