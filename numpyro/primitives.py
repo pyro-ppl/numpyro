@@ -623,7 +623,7 @@ def prng_key():
     """
     if not _PYRO_STACK:
         warnings.warn(
-            "Cannot generate JAX PRNG key outside of `seed handler.`",
+            "Cannot generate JAX PRNG key outside of `seed` handler.",
             stacklevel=find_stack_level(),
         )
         return
