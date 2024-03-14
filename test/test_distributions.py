@@ -3061,7 +3061,8 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 vmap_over(d, **{param_names[idx]: 1}),
             )
             for idx in vmappable_param_idxs
-            if isinstance(params[idx], jnp.ndarray) and jnp.array(params[idx]).ndim > 0
+            if isinstance(params[idx], jnp.ndarray)
+            and jnp.array(params[idx]).ndim > 0
             # skip this distribution because _GeneralMixture.__init__ turns
             # 1d inputs into 0d attributes, thus breaks the expectations of
             # the vmapping test case where in_axes=1, only done for rank>=1 tensors.

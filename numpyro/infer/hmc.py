@@ -287,7 +287,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             trajectory_length = lax.convert_element_type(
                 trajectory_length, jnp.result_type(float)
             )
-        nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad, fixed_num_steps
+        nonlocal \
+            wa_update, \
+            max_treedepth, \
+            vv_update, \
+            wa_steps, \
+            forward_mode_ad, \
+            fixed_num_steps
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
         max_treedepth = (

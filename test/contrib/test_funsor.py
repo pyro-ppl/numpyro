@@ -485,8 +485,9 @@ def test_scan_history(history, T):
         x_curr = 0
         for t in markov(range(T), history=history):
             probs = p[x_prev, x_curr, z]
-            x_prev, x_curr = x_curr, numpyro.sample(
-                "x_{}".format(t), dist.Bernoulli(probs)
+            x_prev, x_curr = (
+                x_curr,
+                numpyro.sample("x_{}".format(t), dist.Bernoulli(probs)),
             )
             numpyro.sample("y_{}".format(t), dist.Bernoulli(q[x_curr]), obs=0)
         return x_prev, x_curr

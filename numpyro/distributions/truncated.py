@@ -263,9 +263,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
-            return (
-                self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
-            )
+            return self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:

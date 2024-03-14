@@ -74,7 +74,7 @@ class MixedHMC(DiscreteHMCGibbs):
         *,
         num_discrete_updates=None,
         random_walk=False,
-        modified=False
+        modified=False,
     ):
         super().__init__(inner_kernel, random_walk=random_walk, modified=modified)
         if inner_kernel._algo == "NUTS":

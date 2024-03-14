@@ -18,8 +18,9 @@ def get_nondiagonal_indices(n):
     rows, cols = np.tril_indices(n, -1)  # -1 to exclude diagonal
 
     # Combine rows-cols and cols-rows pairs
-    pairs = np.column_stack([np.concatenate([rows, cols]),
-                             np.concatenate([cols, rows])])
+    pairs = np.column_stack(
+        [np.concatenate([rows, cols]), np.concatenate([cols, rows])]
+    )
 
     return jnp.asarray(pairs)
 
@@ -43,5 +44,3 @@ def batch_ravel_pytree(pytree):
     unravel_fn = jax.vmap(ravel_pytree(tree_map(lambda z: z[0], pytree))[1])
 
     return flat, unravel_fn
-
-

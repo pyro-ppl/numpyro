@@ -679,6 +679,7 @@ class Poisson(Distribution):
     :param bool is_sparse: Whether to assume value is mostly zero when computing
         :meth:`log_prob`, which can speed up computation when data is sparse.
     """
+
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
     pytree_aux_fields = ("is_sparse",)

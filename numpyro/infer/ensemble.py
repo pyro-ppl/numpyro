@@ -41,13 +41,9 @@ A :func:`~collections.namedtuple` consisting of the following fields.
  - **rng_key** - random number generator seed used for generating proposals, etc.
 """
 
-ESSState = namedtuple("ESSState", ["i",
-                                   "n_expansions",
-                                   "n_contractions",
-                                   "mu",
-                                   "rng_key"
-                                   ]
-                      )
+ESSState = namedtuple(
+    "ESSState", ["i", "n_expansions", "n_contractions", "mu", "rng_key"]
+)
 """
 A :func:`~collections.namedtuple` used as an inner state for Ensemble Sampler.
 This consists of the following fields:
@@ -76,7 +72,9 @@ class EnsembleSampler(MCMCKernel, ABC):
         See :ref:`init_strategy` section for available functions.
     """
 
-    def __init__(self, model=None, potential_fn=None, *, randomize_split, init_strategy):
+    def __init__(
+        self, model=None, potential_fn=None, *, randomize_split, init_strategy
+    ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
 
@@ -118,7 +116,12 @@ class EnsembleSampler(MCMCKernel, ABC):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            new_params_info, potential_fn_gen, self._postprocess_fn, _ = initialize_model(
+            (
+                new_params_info,
+                potential_fn_gen,
+                self._postprocess_fn,
+                _,
+            ) = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
@@ -137,18 +140,20 @@ class EnsembleSampler(MCMCKernel, ABC):
         self._batch_log_density = lambda z: -vmap(self._potential_fn)(unravel_fn(z))
 
         if self._num_chains < 2 * flat_params.shape[1]:
-            warnings.warn("Setting n_chains to at least 2*n_params is strongly recommended.\n"
-                          f"n_chains: {self._num_chains}, n_params: {flat_params.shape[1]}")
+            warnings.warn(
+                "Setting n_chains to at least 2*n_params is strongly recommended.\n"
+                f"n_chains: {self._num_chains}, n_params: {flat_params.shape[1]}"
+            )
 
         return init_params
 
     def init(
         self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
     ):
-        assert not is_prng_key(
-            rng_key
-        ), ("EnsembleSampler only supports chain_method='vectorized' with num_chains > 1.\n"
-            "If you want to run chains in parallel, please raise a github issue.")
+        assert not is_prng_key(rng_key), (
+            "EnsembleSampler only supports chain_method='vectorized' with num_chains > 1.\n"
+            "If you want to run chains in parallel, please raise a github issue."
+        )
 
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
 
@@ -159,9 +164,12 @@ class EnsembleSampler(MCMCKernel, ABC):
                 "Valid value of `init_params` must be provided with `potential_fn`."
             )
         if init_params is not None:
-            assert all([param.shape[0] == self._num_chains
-                        for param in jax.tree_util.tree_leaves(init_params)]), (
-                            "The batch dimension of each param must match n_chains")
+            assert all(
+                [
+                    param.shape[0] == self._num_chains
+                    for param in jax.tree_util.tree_leaves(init_params)
+                ]
+            ), "The batch dimension of each param must match n_chains"
 
         rng_key, rng_key_inner_state, rng_key_init_model = random.split(rng_key[0], 3)
         rng_key_init_model = random.split(rng_key_init_model, self._num_chains)
@@ -194,21 +202,26 @@ class EnsembleSampler(MCMCKernel, ABC):
         def body_fn(i, z_flat_inner_state):
             z_flat, inner_state = z_flat_inner_state
 
-            active, inactive = jax.lax.cond(i == 0,
-                                            lambda x: (x[:split_ind], x[split_ind:]),
-                                            lambda x: (x[split_ind:], x[split_ind:]),
-                                            z_flat)
+            active, inactive = jax.lax.cond(
+                i == 0,
+                lambda x: (x[:split_ind], x[split_ind:]),
+                lambda x: (x[split_ind:], x[split_ind:]),
+                z_flat,
+            )
 
-            z_updates, inner_state = self.update_active_chains(active, inactive, inner_state)
+            z_updates, inner_state = self.update_active_chains(
+                active, inactive, inner_state
+            )
 
-            z_flat = jax.lax.cond(i == 0,
-                                  lambda x: x.at[:split_ind].set(z_updates),
-                                  lambda x: x.at[split_ind:].set(z_updates),
-                                  z_flat)
+            z_flat = jax.lax.cond(
+                i == 0,
+                lambda x: x.at[:split_ind].set(z_updates),
+                lambda x: x.at[split_ind:].set(z_updates),
+                z_flat,
+            )
             return (z_flat, inner_state)
 
         z_flat, inner_state = jax.lax.fori_loop(0, 2, body_fn, (z_flat, inner_state))
-
 
         return EnsembleSamplerState(unravel_fn(z_flat), inner_state, rng_key)
 
@@ -261,30 +274,46 @@ class AIES(EnsembleSampler):
         >>> mcmc.run(jax.random.PRNGKey(0))
     """
 
-    def __init__(self, model=None, potential_fn=None, randomize_split=False, moves=None, init_strategy=init_to_uniform):
+    def __init__(
+        self,
+        model=None,
+        potential_fn=None,
+        randomize_split=False,
+        moves=None,
+        init_strategy=init_to_uniform,
+    ):
         if not moves:
             self._moves = [AIES.DEMove()]
             self._weights = jnp.array([1.0])
         else:
             self._moves = list(moves.keys())
-            self._weights = jnp.array([weight for weight in moves.values()]) / len(moves)
+            self._weights = jnp.array([weight for weight in moves.values()]) / len(
+                moves
+            )
 
-            assert all([hasattr(move, '__call__') for move in self._moves]), (
-                "Each move must be a callable (one of AIES.DEMove(), or AIES.StretchMove()).")
-            assert jnp.all(self._weights >= 0), "Each specified move must have probability >= 0"
+            assert all(
+                [hasattr(move, "__call__") for move in self._moves]
+            ), "Each move must be a callable (one of AIES.DEMove(), or AIES.StretchMove())."
+            assert jnp.all(
+                self._weights >= 0
+            ), "Each specified move must have probability >= 0"
 
-        super().__init__(model,
-                         potential_fn,
-                         randomize_split=randomize_split,
-                         init_strategy=init_strategy)
+        super().__init__(
+            model,
+            potential_fn,
+            randomize_split=randomize_split,
+            init_strategy=init_strategy,
+        )
 
     def get_diagnostics_str(self, state):
         return "acc. prob={:.2f}".format(state.inner_state.mean_accept_prob)
 
     def init_inner_state(self, rng_key):
         # XXX hack -- we don't know num_chains until we init the inner state
-        self._moves = [move(self._num_chains) if move.__name__ == 'make_de_move'
-                       else move for move in self._moves]
+        self._moves = [
+            move(self._num_chains) if move.__name__ == "make_de_move" else move
+            for move in self._moves
+        ]
 
         return AIESState(jnp.array(0.0), jnp.array(0.0), jnp.array(0.0), rng_key)
 
@@ -335,6 +364,7 @@ class AIES(EnsembleSampler):
             The mean stretch factor for the proposal vector. By default,
             it is `2.38 / sqrt(2*ndim)` as recommended by the two references.
         """
+
         def make_de_move(n_chains):
             PAIRS = get_nondiagonal_indices(n_chains // 2)
 
@@ -346,7 +376,9 @@ class AIES(EnsembleSampler):
                 # recompute this each time
                 g = 2.38 / jnp.sqrt(2.0 * n_params) if not g0 else g0
 
-                selected_pairs = random.choice(pairs_key, PAIRS, shape=(n_active_chains,))
+                selected_pairs = random.choice(
+                    pairs_key, PAIRS, shape=(n_active_chains,)
+                )
 
                 # Compute diff vectors
                 diffs = jnp.diff(inactive[selected_pairs], axis=1).squeeze(axis=1)
@@ -378,6 +410,7 @@ class AIES(EnsembleSampler):
         :param a: (optional)
             The stretch scale parameter. (default: ``2.0``)
         """
+
         def stretch_move(rng_key, active, inactive):
             n_active_chains, n_params = active.shape
             unif_key, idx_key = random.split(rng_key)
@@ -390,7 +423,9 @@ class AIES(EnsembleSampler):
                 idx_key, shape=(n_active_chains,), minval=0, maxval=n_active_chains
             )
 
-            proposal = inactive[r_idxs] - (inactive[r_idxs] - active) * zz[:, jnp.newaxis]
+            proposal = (
+                inactive[r_idxs] - (inactive[r_idxs] - active) * zz[:, jnp.newaxis]
+            )
 
             return proposal, factors
 
@@ -455,6 +490,7 @@ class ESS(EnsembleSampler):
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
         >>> mcmc.run(jax.random.PRNGKey(0))
     """
+
     def __init__(
         self,
         model=None,
@@ -472,13 +508,18 @@ class ESS(EnsembleSampler):
             self._weights = jnp.array([1.0])
         else:
             self._moves = list(moves.keys())
-            self._weights = jnp.array([weight for weight in moves.values()]) / len(moves)
+            self._weights = jnp.array([weight for weight in moves.values()]) / len(
+                moves
+            )
 
-            assert all([hasattr(move, '__call__') for move in self._moves]), (
+            assert all([hasattr(move, "__call__") for move in self._moves]), (
                 "Each move must be a callable (one of `ESS.DifferentialMove()`, "
-                "`ESS.GaussianMove()`, `ESS.KDEMove()`, `ESS.RandomMove()`)")
+                "`ESS.GaussianMove()`, `ESS.KDEMove()`, `ESS.RandomMove()`)"
+            )
 
-            assert jnp.all(self._weights >= 0), "Each specified move must have probability >= 0"
+            assert jnp.all(
+                self._weights >= 0
+            ), "Each specified move must have probability >= 0"
             assert init_mu > 0, "Scale factor should be strictly positive"
 
         self._max_steps = max_steps  # max number of stepping out steps
@@ -486,28 +527,38 @@ class ESS(EnsembleSampler):
         self._init_mu = init_mu
         self._tune_mu = tune_mu
 
-        super().__init__(model,
-                         potential_fn,
-                         randomize_split=randomize_split,
-                         init_strategy=init_strategy)
+        super().__init__(
+            model,
+            potential_fn,
+            randomize_split=randomize_split,
+            init_strategy=init_strategy,
+        )
 
     def init_inner_state(self, rng_key):
         self.batch_log_density = lambda x: self._batch_log_density(x)[:, jnp.newaxis]
 
         # XXX hack -- we don't know num_chains until we init the inner state
-        self._moves = [move(self._num_chains) if move.__name__ == 'make_differential_move'
-                       else move for move in self._moves]
+        self._moves = [
+            move(self._num_chains)
+            if move.__name__ == "make_differential_move"
+            else move
+            for move in self._moves
+        ]
 
-        return ESSState(jnp.array(0.0), jnp.array(0), jnp.array(0), self._init_mu, rng_key)
+        return ESSState(
+            jnp.array(0.0), jnp.array(0), jnp.array(0), self._init_mu, rng_key
+        )
 
     def update_active_chains(self, active, inactive, inner_state):
         i, n_expansions, n_contractions, mu, rng_key = inner_state
-        (rng_key,
-         move_key,
-         dir_key,
-         height_key,
-         step_out_key,
-         shrink_key) = random.split(rng_key, 6)
+        (
+            rng_key,
+            move_key,
+            dir_key,
+            height_key,
+            step_out_key,
+            shrink_key,
+        ) = random.split(rng_key, 6)
 
         n_active_chains, n_params = active.shape
 
@@ -533,19 +584,19 @@ class ESS(EnsembleSampler):
             safe_n_expansions = jnp.max(jnp.array([1, n_expansions]))
 
             # only update tuning scale if a full iteration has passed
-            mu, n_expansions, n_contractions = jax.lax.cond(jnp.all(itr % 1 == 0),
-                                                            lambda n_exp, n_con: (2.0 * n_exp / (n_exp + n_con),
-                                                                                  jnp.array(0),
-                                                                                  jnp.array(0)
-                                                                                  ),
-                                                            lambda _, __: (mu,
-                                                                           n_expansions,
-                                                                           n_contractions
-                                                                           ),
-                                                            safe_n_expansions, n_contractions)
+            mu, n_expansions, n_contractions = jax.lax.cond(
+                jnp.all(itr % 1 == 0),
+                lambda n_exp, n_con: (
+                    2.0 * n_exp / (n_exp + n_con),
+                    jnp.array(0),
+                    jnp.array(0),
+                ),
+                lambda _, __: (mu, n_expansions, n_contractions),
+                safe_n_expansions,
+                n_contractions,
+            )
 
         return proposal, ESSState(itr, n_expansions, n_contractions, mu, rng_key)
-
 
     @staticmethod
     def RandomMove():
@@ -555,6 +606,7 @@ class ESS(EnsembleSampler):
         walkers and this Move corresponds to the vanilla Slice Sampling method. This Move should be used for
         debugging purposes only.
         """
+
         def random_move(rng_key, inactive, mu):
             directions = dist.Normal(loc=0, scale=1).sample(
                 rng_key, sample_shape=inactive.shape
@@ -562,6 +614,7 @@ class ESS(EnsembleSampler):
             directions /= jnp.linalg.norm(directions, axis=0)
 
             return 2.0 * mu * directions
+
         return random_move
 
     @staticmethod
@@ -572,6 +625,7 @@ class ESS(EnsembleSampler):
         a Gaussian Kernel Density Estimation methods. The walkers then move along random direction vectos
         sampled from this distribution.
         """
+
         def kde_move(rng_key, inactive, mu):
             n_active_chains, n_params = inactive.shape
 
@@ -581,6 +635,7 @@ class ESS(EnsembleSampler):
             directions = vectors[:n_active_chains] - vectors[n_active_chains:]
 
             return 2.0 * mu * directions
+
         return kde_move
 
     @staticmethod
@@ -609,6 +664,7 @@ class ESS(EnsembleSampler):
                     rng_key, sample_shape=(n_active_chains,)
                 )
             )
+
         return gaussian_move
 
     @staticmethod
@@ -619,6 +675,7 @@ class ESS(EnsembleSampler):
         replacement) from the complementary ensemble. This is the default choice and performs well along a wide range
         of target distributions.
         """
+
         def make_differential_move(n_chains):
             PAIRS = get_nondiagonal_indices(n_chains // 2)
 
@@ -631,10 +688,10 @@ class ESS(EnsembleSampler):
                 )  # get the pairwise difference of each vector
 
                 return 2.0 * mu * diffs
+
             return differential_move
 
         return make_differential_move
-
 
     def _step_out(self, rng_key, log_slice_height, active, directions):
         init_L_key, init_J_key = random.split(rng_key)
