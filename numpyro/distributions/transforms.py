@@ -41,6 +41,7 @@ __all__ = [
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
+    "RealFastFourierTransform",
     "ReshapeTransform",
     "SigmoidTransform",
     "SimplexToOrderedTransform",
@@ -1205,6 +1206,81 @@ class ReshapeTransform(Transform):
             and self._forward_shape == other._forward_shape
             and self._inverse_shape == other._inverse_shape
         )
+
+
+def _normalize_rfft_shape(input_shape, shape):
+    if shape is None:
+        return input_shape
+    return input_shape[:len(input_shape) - len(shape)] + shape
+
+
+class RealFastFourierTransform(Transform):
+    """
+    N-dimensional discrete fast Fourier transform for real input.
+
+    :param shape: Length of each transformed axis to use from the input, defaults to the
+        input size.
+    :param ndims: Number of trailing dimensions to transform.
+    """
+
+    domain = constraints.dependent
+    codomain = constraints.dependent
+
+    def __init__(
+        self,
+        shape=None,
+        ndims=1,
+    ) -> None:
+        if isinstance(shape, int):
+            shape = (shape,)
+        if shape is not None and len(shape) != ndims:
+            raise ValueError(
+                f"length of shape ({shape}) does not match number of dimensions to "
+                f"transform ({ndims})"
+            )
+        self.shape = shape
+        self.ndims = ndims
+        self.norm = None
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        axes = tuple(range(-self.ndims, 0))
+        return jnp.fft.rfftn(x, self.shape, axes, self.norm)
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        axes = tuple(range(-self.ndims, 0))
+        return jnp.fft.irfftn(y, self.shape, axes, self.norm)
+
+    def forward_shape(self, shape: tuple) -> tuple:
+        # Dimensions remain unchanged except the last transformed dimension.
+        shape = _normalize_rfft_shape(shape, self.shape)
+        return shape[:-1] + (shape[-1] // 2 + 1,)
+
+    def inverse_shape(self, shape: tuple) -> tuple:
+        if self.shape:
+            return _normalize_rfft_shape(shape, self.shape)
+        size = 2 * (shape[-1] - 1)
+        return shape[:-1] + (size,)
+
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
+    ) -> jnp.ndarray:
+        return 0.0
+
+    def tree_flatten(self):
+        return (self.shape, self.ndims, self.norm), (("shape", "ndims", "norm"), {})
+
+    @property
+    def domain(self) -> constraints.Constraint:  # noqa: F811
+        return constraints._IndependentConstraint(constraints._Real(), self.ndims)
+
+    @property
+    def codomain(self) -> constraints.Constraint:  # noqa: F811
+        return constraints._IndependentConstraint(constraints._Complex(), self.ndims)
+
+    def __eq__(self, other):
+        if not isinstance(other, RealFastFourierTransform):
+            return False
+        return self.ndims == other.ndims
 
 
 ##########################################################

@@ -29,6 +29,7 @@ from numpyro.distributions.transforms import (
     OrderedTransform,
     PermuteTransform,
     PowerTransform,
+    RealFastFourierTransform,
     ReshapeTransform,
     ScaledUnitLowerCholeskyTransform,
     SigmoidTransform,
@@ -82,6 +83,11 @@ TRANSFORMS = {
         PowerTransform,
         (_a(2.0),),
         dict(),
+    ),
+    "rfft": T(
+        RealFastFourierTransform,
+        (),
+        dict(ndims=3),
     ),
     "simplex_to_ordered": T(
         SimplexToOrderedTransform,
@@ -228,3 +234,21 @@ def test_reshape_transform_invalid():
 
     with pytest.raises(TypeError, match="cannot reshape array"):
         ReshapeTransform((2, 3), (6,))(jnp.arange(2))
+
+
+@pytest.mark.parametrize("input_shape, shape, ndims", [
+    ((10,), None, 1),
+    ((11,), 11, 1),
+    ((10, 18), None, 2),
+    ((10, 19), (7, 8), 2),
+])
+def test_real_fast_fourier_transform(input_shape, shape, ndims):
+    x1 = random.normal(random.key(17), input_shape)
+    transform = RealFastFourierTransform(shape, ndims)
+    y = transform(x1)
+    assert transform.codomain(y).all()
+    assert y.shape == transform.forward_shape(x1.shape)
+    x2 = transform.inv(y)
+    assert transform.domain(x2).all()
+    if x1.shape == x2.shape:
+        assert jnp.allclose(x2, x1, atol=1e-6)
