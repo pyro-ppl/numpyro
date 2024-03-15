@@ -1191,7 +1191,7 @@ class ReshapeTransform(Transform):
         return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return 0.0
+        return jnp.zeros_like(x, shape=x.shape[:x.ndim - len(self._inverse_shape)])
 
     def tree_flatten(self):
         aux_data = {
@@ -1261,7 +1261,7 @@ class RealFastFourierTransform(Transform):
     def log_abs_det_jacobian(
         self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
     ) -> jnp.ndarray:
-        return 0.0
+        return jnp.ones_like(x, shape=x.shape[:-self.ndims])
 
     def tree_flatten(self):
         return (self.shape, self.ndims, self.norm), (("shape", "ndims", "norm"), {})
