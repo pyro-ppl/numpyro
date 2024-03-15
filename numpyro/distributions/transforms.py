@@ -1274,15 +1274,11 @@ class RealFastFourierTransform(Transform):
 
     @property
     def domain(self) -> constraints.Constraint:
-        return constraints._IndependentConstraint(
-            constraints._Real(), self.transform_ndims
-        )
+        return constraints.independent(constraints.real, self.transform_ndims)
 
     @property
     def codomain(self) -> constraints.Constraint:
-        return constraints._IndependentConstraint(
-            constraints._Complex(), self.transform_ndims
-        )
+        return constraints.independent(constraints.complex, self.transform_ndims)
 
     def __eq__(self, other):
         return (
