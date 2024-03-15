@@ -1260,7 +1260,10 @@ class RealFastFourierTransform(Transform):
     def log_abs_det_jacobian(
         self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
     ) -> jnp.ndarray:
-        return jnp.ones_like(x, shape=x.shape[: -self.transform_ndims])
+        shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        return jnp.ones_like(x, shape=shape)
 
     def tree_flatten(self):
         aux_data = {
