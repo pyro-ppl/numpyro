@@ -1191,7 +1191,7 @@ class ReshapeTransform(Transform):
         return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.zeros_like(x, shape=x.shape[:x.ndim - len(self._inverse_shape)])
+        return jnp.zeros_like(x, shape=x.shape[: x.ndim - len(self._inverse_shape)])
 
     def tree_flatten(self):
         aux_data = {
@@ -1211,73 +1211,82 @@ class ReshapeTransform(Transform):
 def _normalize_rfft_shape(input_shape, shape):
     if shape is None:
         return input_shape
-    return input_shape[:len(input_shape) - len(shape)] + shape
+    return input_shape[: len(input_shape) - len(shape)] + shape
 
 
 class RealFastFourierTransform(Transform):
     """
     N-dimensional discrete fast Fourier transform for real input.
 
-    :param shape: Length of each transformed axis to use from the input, defaults to the
-        input size.
-    :param ndims: Number of trailing dimensions to transform.
+    :param transform_shape: Length of each transformed axis to use from the input,
+        defaults to the input size.
+    :param transform_ndims: Number of trailing dimensions to transform.
     """
 
     def __init__(
         self,
-        shape=None,
-        ndims=1,
+        transform_shape=None,
+        transform_ndims=1,
     ) -> None:
-        if isinstance(shape, int):
-            shape = (shape,)
-        if shape is not None and len(shape) != ndims:
+        if isinstance(transform_shape, int):
+            transform_shape = (transform_shape,)
+        if transform_shape is not None and len(transform_shape) != transform_ndims:
             raise ValueError(
-                f"length of shape ({shape}) does not match number of dimensions to "
-                f"transform ({ndims})"
+                f"Length of transform shape ({transform_shape}) does not match number "
+                f"of dimensions to transform ({transform_ndims})."
             )
-        self.shape = shape
-        self.ndims = ndims
-        self.norm = None
+        self.transform_shape = transform_shape
+        self.transform_ndims = transform_ndims
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        axes = tuple(range(-self.ndims, 0))
-        return jnp.fft.rfftn(x, self.shape, axes, self.norm)
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.rfftn(x, self.transform_shape, axes)
 
     def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
-        axes = tuple(range(-self.ndims, 0))
-        return jnp.fft.irfftn(y, self.shape, axes, self.norm)
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.irfftn(y, self.transform_shape, axes)
 
     def forward_shape(self, shape: tuple) -> tuple:
         # Dimensions remain unchanged except the last transformed dimension.
-        shape = _normalize_rfft_shape(shape, self.shape)
+        shape = _normalize_rfft_shape(shape, self.transform_shape)
         return shape[:-1] + (shape[-1] // 2 + 1,)
 
     def inverse_shape(self, shape: tuple) -> tuple:
-        if self.shape:
-            return _normalize_rfft_shape(shape, self.shape)
+        if self.transform_shape:
+            return _normalize_rfft_shape(shape, self.transform_shape)
         size = 2 * (shape[-1] - 1)
         return shape[:-1] + (size,)
 
     def log_abs_det_jacobian(
         self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
     ) -> jnp.ndarray:
-        return jnp.ones_like(x, shape=x.shape[:-self.ndims])
+        return jnp.ones_like(x, shape=x.shape[: -self.transform_ndims])
 
     def tree_flatten(self):
-        return (self.shape, self.ndims, self.norm), (("shape", "ndims", "norm"), {})
+        aux_data = {
+            "transform_shape": self.transform_shape,
+            "transform_ndims": self.transform_ndims,
+        }
+        return (), ((), aux_data)
 
     @property
     def domain(self) -> constraints.Constraint:
-        return constraints._IndependentConstraint(constraints._Real(), self.ndims)
+        return constraints._IndependentConstraint(
+            constraints._Real(), self.transform_ndims
+        )
 
     @property
     def codomain(self) -> constraints.Constraint:
-        return constraints._IndependentConstraint(constraints._Complex(), self.ndims)
+        return constraints._IndependentConstraint(
+            constraints._Complex(), self.transform_ndims
+        )
 
     def __eq__(self, other):
-        if not isinstance(other, RealFastFourierTransform):
-            return False
-        return self.ndims == other.ndims
+        return (
+            isinstance(other, RealFastFourierTransform)
+            and self.transform_ndims == other.transform_ndims
+            and self.transform_shape == other.transform_shape
+        )
 
 
 ##########################################################
