@@ -642,7 +642,7 @@ class _Complex(_SingletonConstraint):
 class _Real(_SingletonConstraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
-        return (x == x) & (x != float("inf")) & (x != float("-inf")) & np.isreal(x)
+        return (x == x) & (x != float("inf")) & (x != float("-inf"))
 
     def feasible_like(self, prototype):
         return jax.numpy.zeros_like(prototype)
