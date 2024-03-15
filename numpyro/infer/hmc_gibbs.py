@@ -687,8 +687,6 @@ class HMCECS(HMCGibbs):
         return taylor_proxy(reference_params, degree)
 
 
-
-
 class estimate_likelihood(numpyro.primitives.Messenger):
     def __init__(self, fn=None, method=None):
         # estimate_likelihood: accept likelihood tuple (fn, value, subsample_name, subsample_dim)

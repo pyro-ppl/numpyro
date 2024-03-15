@@ -217,13 +217,11 @@ class SteinVI:
 
     def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
         # 0. Separate model and guide parameters, since only guide parameters are updated using Stein
-        non_mixture_uparams = (
-            {  # Includes any marked guide parameters and all model parameters
-                p: v
-                for p, v in unconstr_params.items()
-                if p not in self.guide_sites or self.non_mixture_params_fn(p)
-            }
-        )
+        non_mixture_uparams = {  # Includes any marked guide parameters and all model parameters
+            p: v
+            for p, v in unconstr_params.items()
+            if p not in self.guide_sites or self.non_mixture_params_fn(p)
+        }
         stein_uparams = {
             p: v for p, v in unconstr_params.items() if p not in non_mixture_uparams
         }

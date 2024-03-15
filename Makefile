@@ -1,14 +1,15 @@
 all: test
 
 lint: FORCE
-	ruff .
+	ruff check .
+	ruff format . --check
 	python scripts/update_headers.py --check
 
 license: FORCE
 	python scripts/update_headers.py
 
 format: license FORCE
-	ruff . --fix
+	ruff format .
 
 install: FORCE
 	pip install -e .[dev,doc,test,examples]

@@ -303,8 +303,13 @@ def model_6(sequences, lengths, args, include_prior=False):
         with numpyro.plate("sequences", num_sequences, dim=-2):
             with mask(mask=(t < lengths)[..., None]):
                 probs_x_t = Vindex(probs_x)[x_prev, x_curr]
-                x_prev, x_curr = x_curr, numpyro.sample(
-                    "x", dist.Categorical(probs_x_t), infer={"enumerate": "parallel"}
+                x_prev, x_curr = (
+                    x_curr,
+                    numpyro.sample(
+                        "x",
+                        dist.Categorical(probs_x_t),
+                        infer={"enumerate": "parallel"},
+                    ),
                 )
                 with numpyro.plate("tones", data_dim, dim=-1):
                     probs_y_t = probs_y[x_curr.squeeze(-1)]

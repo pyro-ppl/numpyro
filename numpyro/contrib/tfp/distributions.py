@@ -314,9 +314,7 @@ for _name, _Dist in tfd.__dict__.items():
     _PyroDist.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
     with :class:`~numpyro.contrib.tfp.distributions.TFPDistribution`.
-    """.format(
-        _Dist.__module__, _Dist.__name__, _Dist.__name__
-    )
+    """.format(_Dist.__module__, _Dist.__name__, _Dist.__name__)
 
     __all__.append(_name)
 
@@ -328,9 +326,7 @@ __doc__ = "\n\n".join(
     {0}
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.distributions.{0}
-    """.format(
-            _name
-        )
+    """.format(_name)
         for _name in __all__[:_len_all]
     ]
 )

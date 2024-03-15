@@ -400,6 +400,7 @@ class CholeskyTransform(ParameterFreeTransform):
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     positive definite matrix.
     """
+
     domain = constraints.positive_definite
     codomain = constraints.lower_cholesky
 
@@ -444,6 +445,7 @@ class CorrCholeskyTransform(ParameterFreeTransform):
             c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
             d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
+
     domain = constraints.real_vector
     codomain = constraints.corr_cholesky
 
@@ -493,6 +495,7 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     correlation matrix.
     """
+
     domain = constraints.corr_matrix
     codomain = constraints.corr_cholesky
 
@@ -624,6 +627,7 @@ class L1BallTransform(ParameterFreeTransform):
     r"""
     Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
     """
+
     domain = constraints.real_vector
     codomain = constraints.l1_ball
 
@@ -687,6 +691,7 @@ class LowerCholeskyAffine(Transform):
        >>> affine(base)
        Array([0.3, 1.5], dtype=float32)
     """
+
     domain = constraints.real_vector
     codomain = constraints.real_vector
 
@@ -786,6 +791,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     and :math:`scale\_diag` is a diagonal matrix with all positive
     entries that is parameterized with a softplus transform.
     """
+
     domain = constraints.real_vector
     codomain = constraints.scaled_unit_lower_cholesky
 
@@ -995,6 +1001,7 @@ class SoftplusTransform(ParameterFreeTransform):
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
     """
+
     domain = constraints.real
     codomain = constraints.softplus_positive
 
@@ -1198,7 +1205,6 @@ class ReshapeTransform(Transform):
             and self._forward_shape == other._forward_shape
             and self._inverse_shape == other._inverse_shape
         )
-
 
 
 ##########################################################

@@ -118,9 +118,7 @@ TRANSFORMS = {
         dict(),
     ),
     "reshape": T(
-        ReshapeTransform,
-        (),
-        {"forward_shape": (3, 4), "inverse_shape": (4, 3)}
+        ReshapeTransform, (), {"forward_shape": (3, 4), "inverse_shape": (4, 3)}
     ),
 }
 
@@ -211,8 +209,8 @@ def test_parametrized_transform_eq(cls, transform_args, transform_kwargs):
         ((3, 4), (4, 3), ()),
         ((7,), (7, 1), ()),
         ((3, 5), (15,), ()),
-        ((2, 4), (2, 2, 2), (17,))
-    ]
+        ((2, 4), (2, 2, 2), (17,)),
+    ],
 )
 def test_reshape_transform(forward_shape, inverse_shape, batch_shape):
     x = random.normal(random.key(29), batch_shape + inverse_shape)

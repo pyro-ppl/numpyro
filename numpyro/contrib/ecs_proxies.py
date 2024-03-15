@@ -185,7 +185,6 @@ def taylor_proxy(reference_params, degree):
             ref_sum_log_lik_hessians = hessian(log_likelihood_sum)(ref_params_flat)
 
         def gibbs_init(rng_key, gibbs_sites):
-
             ref_subsamples_taylor = [
                 log_likelihood(ref_params_flat, gibbs_sites),
                 jacobian(log_likelihood)(ref_params_flat, gibbs_sites),
