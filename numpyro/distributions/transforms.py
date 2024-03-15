@@ -1263,7 +1263,7 @@ class RealFastFourierTransform(Transform):
         shape = jnp.broadcast_shapes(
             x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
         )
-        return jnp.ones_like(x, shape=shape)
+        return jnp.zeros_like(x, shape=shape)
 
     def tree_flatten(self):
         aux_data = {
