@@ -1334,6 +1334,11 @@ def _transform_to_positive_ordered_vector(constraint):
     return ComposeTransform([OrderedTransform(), ExpTransform()])
 
 
+@biject_to.register(constraints.complex)
+def _transform_to_complex(constraint):
+    return IdentityTransform()
+
+
 @biject_to.register(constraints.real)
 def _transform_to_real(constraint):
     return IdentityTransform()
