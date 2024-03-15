@@ -1223,9 +1223,6 @@ class RealFastFourierTransform(Transform):
     :param ndims: Number of trailing dimensions to transform.
     """
 
-    domain = constraints.dependent
-    codomain = constraints.dependent
-
     def __init__(
         self,
         shape=None,
@@ -1270,11 +1267,11 @@ class RealFastFourierTransform(Transform):
         return (self.shape, self.ndims, self.norm), (("shape", "ndims", "norm"), {})
 
     @property
-    def domain(self) -> constraints.Constraint:  # noqa: F811
+    def domain(self) -> constraints.Constraint:
         return constraints._IndependentConstraint(constraints._Real(), self.ndims)
 
     @property
-    def codomain(self) -> constraints.Constraint:  # noqa: F811
+    def codomain(self) -> constraints.Constraint:
         return constraints._IndependentConstraint(constraints._Complex(), self.ndims)
 
     def __eq__(self, other):
