@@ -29,6 +29,7 @@
 __all__ = [
     "boolean",
     "circular",
+    "complex",
     "corr_cholesky",
     "corr_matrix",
     "dependent",
@@ -629,6 +630,15 @@ class _PositiveOrderedVector(_SingletonConstraint):
         )
 
 
+class _Complex(_SingletonConstraint):
+    def __call__(self, x):
+        # XXX: consider to relax this condition to [-inf, inf] interval
+        return (x == x) & (x != float("inf")) & (x != float("-inf"))
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
+
 class _Real(_SingletonConstraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
@@ -692,6 +702,7 @@ class _Sphere(_SingletonConstraint):
 
 boolean = _Boolean()
 circular = _Circular()
+complex = _Complex()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()

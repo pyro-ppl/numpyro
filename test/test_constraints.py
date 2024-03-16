@@ -13,6 +13,7 @@ from numpyro.distributions import constraints
 SINGLETON_CONSTRAINTS = {
     "boolean": constraints.boolean,
     "circular": constraints.circular,
+    "complex": constraints.complex,
     "corr_cholesky": constraints.corr_cholesky,
     "corr_matrix": constraints.corr_matrix,
     "l1_ball": constraints.l1_ball,

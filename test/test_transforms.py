@@ -29,6 +29,7 @@ from numpyro.distributions.transforms import (
     OrderedTransform,
     PermuteTransform,
     PowerTransform,
+    RealFastFourierTransform,
     ReshapeTransform,
     ScaledUnitLowerCholeskyTransform,
     SigmoidTransform,
@@ -37,6 +38,7 @@ from numpyro.distributions.transforms import (
     SoftplusTransform,
     StickBreakingTransform,
     UnpackTransform,
+    biject_to,
 )
 
 
@@ -82,6 +84,11 @@ TRANSFORMS = {
         PowerTransform,
         (_a(2.0),),
         dict(),
+    ),
+    "rfft": T(
+        RealFastFourierTransform,
+        (),
+        dict(transform_shape=(3, 4, 5), transform_ndims=3),
     ),
     "simplex_to_ordered": T(
         SimplexToOrderedTransform,
@@ -228,3 +235,81 @@ def test_reshape_transform_invalid():
 
     with pytest.raises(TypeError, match="cannot reshape array"):
         ReshapeTransform((2, 3), (6,))(jnp.arange(2))
+
+
+@pytest.mark.parametrize(
+    "input_shape, shape, ndims",
+    [
+        ((10,), None, 1),
+        ((11,), 11, 1),
+        ((10, 18), None, 2),
+        ((10, 19), (7, 8), 2),
+    ],
+)
+def test_real_fast_fourier_transform(input_shape, shape, ndims):
+    x1 = random.normal(random.key(17), input_shape)
+    transform = RealFastFourierTransform(shape, ndims)
+    y = transform(x1)
+    assert transform.codomain(y).all()
+    assert y.shape == transform.forward_shape(x1.shape)
+    x2 = transform.inv(y)
+    assert transform.domain(x2).all()
+    if x1.shape == x2.shape:
+        assert jnp.allclose(x2, x1, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "transform, shape",
+    [
+        (AffineTransform(3, 2.5), ()),
+        (CholeskyTransform(), (10,)),
+        (ComposeTransform([SoftplusTransform(), SigmoidTransform()]), ()),
+        (CorrCholeskyTransform(), (15,)),
+        (CorrMatrixCholeskyTransform(), (15,)),
+        (ExpTransform(), ()),
+        (IdentityTransform(), ()),
+        (IndependentTransform(ExpTransform(), 2), (3, 4)),
+        (L1BallTransform(), (9,)),
+        (LowerCholeskyAffine(jnp.ones(3), jnp.eye(3)), (3,)),
+        (LowerCholeskyTransform(), (10,)),
+        (OrderedTransform(), (5,)),
+        (PermuteTransform(jnp.roll(jnp.arange(7), 2)), (7,)),
+        (PowerTransform(2.5), ()),
+        (RealFastFourierTransform(7), (7,)),
+        (RealFastFourierTransform((8, 9), 2), (8, 9)),
+        (ReshapeTransform((5, 2), (10,)), (10,)),
+        (ReshapeTransform((15,), (3, 5)), (3, 5)),
+        (ScaledUnitLowerCholeskyTransform(), (6,)),
+        (SigmoidTransform(), ()),
+        (SimplexToOrderedTransform(), (5,)),
+        (SoftplusLowerCholeskyTransform(), (10,)),
+        (SoftplusTransform(), ()),
+        (StickBreakingTransform(), (11,)),
+    ],
+)
+def test_bijective_transforms(transform, shape):
+    if isinstance(transform, type):
+        pytest.skip()
+    # Get a sample from the support of the distribution.
+    batch_shape = (13,)
+    unconstrained = random.normal(random.key(17), batch_shape + shape)
+    x1 = biject_to(transform.domain)(unconstrained)
+
+    # Transform forward and backward, checking shapes, values, and Jacobian shape.
+    y = transform(x1)
+    assert y.shape == transform.forward_shape(x1.shape)
+
+    x2 = transform.inv(y)
+    assert x2.shape == transform.inverse_shape(y.shape)
+    # Some transforms are a bit less stable; we give them larger tolerances.
+    atol = 1e-6
+    less_stable_transforms = (
+        CorrCholeskyTransform,
+        L1BallTransform,
+        StickBreakingTransform,
+    )
+    if isinstance(transform, less_stable_transforms):
+        atol = 1e-2
+    assert jnp.allclose(x1, x2, atol=atol)
+
+    assert transform.log_abs_det_jacobian(x1, y).shape == batch_shape

@@ -41,6 +41,7 @@ __all__ = [
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
+    "RealFastFourierTransform",
     "ReshapeTransform",
     "SigmoidTransform",
     "SimplexToOrderedTransform",
@@ -1190,7 +1191,7 @@ class ReshapeTransform(Transform):
         return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return 0.0
+        return jnp.zeros_like(x, shape=x.shape[: x.ndim - len(self._inverse_shape)])
 
     def tree_flatten(self):
         aux_data = {
@@ -1204,6 +1205,86 @@ class ReshapeTransform(Transform):
             isinstance(other, ReshapeTransform)
             and self._forward_shape == other._forward_shape
             and self._inverse_shape == other._inverse_shape
+        )
+
+
+def _normalize_rfft_shape(input_shape, shape):
+    if shape is None:
+        return input_shape
+    return input_shape[: len(input_shape) - len(shape)] + shape
+
+
+class RealFastFourierTransform(Transform):
+    """
+    N-dimensional discrete fast Fourier transform for real input.
+
+    :param transform_shape: Length of each transformed axis to use from the input,
+        defaults to the input size.
+    :param transform_ndims: Number of trailing dimensions to transform.
+    """
+
+    def __init__(
+        self,
+        transform_shape=None,
+        transform_ndims=1,
+    ) -> None:
+        if isinstance(transform_shape, int):
+            transform_shape = (transform_shape,)
+        if transform_shape is not None and len(transform_shape) != transform_ndims:
+            raise ValueError(
+                f"Length of transform shape ({transform_shape}) does not match number "
+                f"of dimensions to transform ({transform_ndims})."
+            )
+        self.transform_shape = transform_shape
+        self.transform_ndims = transform_ndims
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.rfftn(x, self.transform_shape, axes)
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.irfftn(y, self.transform_shape, axes)
+
+    def forward_shape(self, shape: tuple) -> tuple:
+        # Dimensions remain unchanged except the last transformed dimension.
+        shape = _normalize_rfft_shape(shape, self.transform_shape)
+        return shape[:-1] + (shape[-1] // 2 + 1,)
+
+    def inverse_shape(self, shape: tuple) -> tuple:
+        if self.transform_shape:
+            return _normalize_rfft_shape(shape, self.transform_shape)
+        size = 2 * (shape[-1] - 1)
+        return shape[:-1] + (size,)
+
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
+    ) -> jnp.ndarray:
+        shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        return jnp.zeros_like(x, shape=shape)
+
+    def tree_flatten(self):
+        aux_data = {
+            "transform_shape": self.transform_shape,
+            "transform_ndims": self.transform_ndims,
+        }
+        return (), ((), aux_data)
+
+    @property
+    def domain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
+
+    @property
+    def codomain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.complex, self.transform_ndims)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, RealFastFourierTransform)
+            and self.transform_ndims == other.transform_ndims
+            and self.transform_shape == other.transform_shape
         )
 
 
@@ -1332,6 +1413,11 @@ def _transform_to_positive_definite(constraint):
 @biject_to.register(constraints.positive_ordered_vector)
 def _transform_to_positive_ordered_vector(constraint):
     return ComposeTransform([OrderedTransform(), ExpTransform()])
+
+
+@biject_to.register(constraints.complex)
+def _transform_to_complex(constraint):
+    return IdentityTransform()
 
 
 @biject_to.register(constraints.real)
