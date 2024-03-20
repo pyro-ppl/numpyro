@@ -312,4 +312,20 @@ def test_bijective_transforms(transform, shape):
         atol = 1e-2
     assert jnp.allclose(x1, x2, atol=atol)
 
-    assert transform.log_abs_det_jacobian(x1, y).shape == batch_shape
+    log_abs_det_jacobian = transform.log_abs_det_jacobian(x1, y)
+    assert log_abs_det_jacobian.shape == batch_shape
+
+    # Also check the Jacobian numerically for transforms with the same input and output
+    # size, unless they are explicitly excluded. E.g., the upper triangular of the
+    # CholeskyTransform is zero, giving rise to a singular Jacobian.
+    skip_jacobian_check = (CholeskyTransform,)
+    size_x = int(x1.size / math.prod(batch_shape))
+    size_y = int(y.size / math.prod(batch_shape))
+    if size_x == size_y and not isinstance(transform, skip_jacobian_check):
+        jac = (
+            vmap(jacfwd(transform))(x1)
+            .reshape((-1,) + x1.shape[len(batch_shape) :])
+            .reshape(batch_shape + (size_y, size_x))
+        )
+        slogdet = jnp.linalg.slogdet(jac)
+        assert jnp.allclose(log_abs_det_jacobian, slogdet.logabsdet, atol=atol)
