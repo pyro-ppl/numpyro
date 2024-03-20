@@ -957,6 +957,15 @@ RealFastFourierTransform
     :show-inheritance:
     :member-order: bysource
 
+RecursiveLinearTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.RecursiveLinearTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ScaledUnitLowerCholeskyTransform
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.ScaledUnitLowerCholeskyTransform

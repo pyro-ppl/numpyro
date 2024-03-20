@@ -1288,6 +1288,98 @@ class RealFastFourierTransform(Transform):
         )
 
 
+class RecursiveLinearTransform(Transform):
+    """
+    Apply a linear transformation recursively such that
+    :math:`y_t = A y_{t - 1} + x_t` for :math:`t > 0`, where :math:`x_t` and :math:`y_t`
+    are vectors and :math:`A` is a transition matrix. The series is initialized by
+    :math:`y_0 = 0`.
+
+    :param transition_matrix: Transition matrix :math:`A` for successive states.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> from jax import numpy as jnp
+        >>> import numpyro
+        >>> from numpyro import distributions as dist
+        >>>
+        >>> def cauchy_random_walk():
+        ...     return numpyro.sample(
+        ...         "x",
+        ...         dist.TransformedDistribution(
+        ...             dist.Cauchy(0, 1).expand([10, 1]).to_event(1),
+        ...             dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
+        ...         ),
+        ...     )
+        >>>
+        >>> numpyro.handlers.seed(cauchy_random_walk, 0)().shape
+        (10, 1)
+        >>>
+        >>> def rocket_trajectory():
+        ...     scale = numpyro.sample(
+        ...         "scale",
+        ...         dist.HalfCauchy(1).expand([2]).to_event(1),
+        ...     )
+        ...     transition_matrix = jnp.array([[1, 1], [0, 1]])
+        ...     return numpyro.sample(
+        ...         "x",
+        ...         dist.TransformedDistribution(
+        ...             dist.Normal(0, scale).expand([10, 2]).to_event(1),
+        ...             dist.transforms.RecursiveLinearTransform(transition_matrix),
+        ...         ),
+        ...     )
+        >>>
+        >>> numpyro.handlers.seed(rocket_trajectory, 0)().shape
+        (10, 2)
+    """
+
+    domain = constraints.real_matrix
+    codomain = constraints.real_matrix
+
+    def __init__(self, transition_matrix: jnp.ndarray) -> None:
+        self.transition_matrix = transition_matrix
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        # Move the time axis to the first position so we can scan over it.
+        x = jnp.moveaxis(x, -2, 0)
+
+        def f(y, x):
+            y = (self.transition_matrix * y[..., None, :]).sum(axis=-1) + x
+            return y, y
+
+        _, y = lax.scan(f, jnp.zeros_like(x, shape=x.shape[1:]), x)
+        return jnp.moveaxis(y, 0, -2)
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        # Move the time axis to the first position so we can scan over it.
+        y = jnp.moveaxis(y, -2, 0)
+
+        def f(y_t, y_tm1):
+            x = y_t - (self.transition_matrix * y_tm1[..., None, :]).sum(axis=-1)
+            return y_tm1, x
+
+        _, x = lax.scan(f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(0), reverse=True)
+        return jnp.moveaxis(x, 0, -2)
+
+    def log_abs_det_jacobian(self, x: jnp.ndarray, y: jnp.ndarray, intermediates=None):
+        slogdet = jnp.linalg.slogdet(self.transition_matrix)
+        return jnp.broadcast_to(slogdet.logabsdet, x.shape[:-2]) * x.shape[-2]
+
+    def tree_flatten(self):
+        return (self.transition_matrix,), (
+            ("transition_matrix",),
+            {},
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, RecursiveLinearTransform):
+            return False
+        return jnp.array_equal(self.transition_matrix, other.transition_matrix)
+
+
 ##########################################################
 # CONSTRAINT_REGISTRY
 ##########################################################

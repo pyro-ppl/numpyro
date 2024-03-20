@@ -3222,3 +3222,15 @@ def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
     assert x.shape == (sample_size, batch_size, event_size)
     log_prob = _assert_not_jax_issue_19885(capfd, distribution.log_prob, x)
     assert log_prob.shape == (sample_size, batch_size)
+
+
+def test_gaussian_random_walk_linear_recursive_equivalence():
+    dist1 = dist.GaussianRandomWalk(3.7, 15)
+    dist2 = dist.TransformedDistribution(
+        dist.Normal(0, 3.7).expand([15, 1]).to_event(2),
+        dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
+    )
+    x1 = dist1.sample(random.PRNGKey(7))
+    x2 = dist2.sample(random.PRNGKey(7))
+    assert jnp.allclose(x1, x2.squeeze())
+    assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))

@@ -3,10 +3,11 @@
 
 from collections import namedtuple
 from functools import partial
+import math
 
 import pytest
 
-from jax import jit, random, tree_map, vmap
+from jax import jacfwd, jit, random, tree_map, vmap
 import jax.numpy as jnp
 
 from numpyro.distributions.flows import (
@@ -30,6 +31,7 @@ from numpyro.distributions.transforms import (
     PermuteTransform,
     PowerTransform,
     RealFastFourierTransform,
+    RecursiveLinearTransform,
     ReshapeTransform,
     ScaledUnitLowerCholeskyTransform,
     SigmoidTransform,
@@ -89,6 +91,11 @@ TRANSFORMS = {
         RealFastFourierTransform,
         (),
         dict(transform_shape=(3, 4, 5), transform_ndims=3),
+    ),
+    "recursive_linear": T(
+        RecursiveLinearTransform,
+        (jnp.eye(5),),
+        dict(),
     ),
     "simplex_to_ordered": T(
         SimplexToOrderedTransform,
@@ -277,6 +284,7 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
         (PowerTransform(2.5), ()),
         (RealFastFourierTransform(7), (7,)),
         (RealFastFourierTransform((8, 9), 2), (8, 9)),
+        (RecursiveLinearTransform(jnp.eye(4)), (10, 4)),
         (ReshapeTransform((5, 2), (10,)), (10,)),
         (ReshapeTransform((15,), (3, 5)), (3, 5)),
         (ScaledUnitLowerCholeskyTransform(), (6,)),
