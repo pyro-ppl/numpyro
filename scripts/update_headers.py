@@ -7,7 +7,7 @@ import os
 import sys
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-blacklist = ["/build/", "/dist/", "/pyro_api.egg"]
+blacklist = ["/build/", "/dist/", "/pyro_api.egg", "/venv/"]
 file_types = [("*.py", "# {}"), ("*.cpp", "// {}")]
 
 parser = argparse.ArgumentParser()
