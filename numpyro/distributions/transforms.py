@@ -1347,26 +1347,25 @@ class RecursiveLinearTransform(Transform):
         x = jnp.moveaxis(x, -2, 0)
 
         def f(y, x):
-            y = (self.transition_matrix * y[..., None, :]).sum(axis=-1) + x
+            y = y @ self.transition_matrix.T + x
             return y, y
 
         _, y = lax.scan(f, jnp.zeros_like(x, shape=x.shape[1:]), x)
         return jnp.moveaxis(y, 0, -2)
 
     def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
-        # Move the time axis to the first position so we can scan over it.
+        # Move the time axis to the first position so we can scan over it in reverse.
         y = jnp.moveaxis(y, -2, 0)
 
-        def f(y_t, y_tm1):
-            x = y_t - (self.transition_matrix * y_tm1[..., None, :]).sum(axis=-1)
-            return y_tm1, x
+        def f(y, prev):
+            x = y - prev @ self.transition_matrix.T
+            return prev, x
 
         _, x = lax.scan(f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(0), reverse=True)
         return jnp.moveaxis(x, 0, -2)
 
     def log_abs_det_jacobian(self, x: jnp.ndarray, y: jnp.ndarray, intermediates=None):
-        slogdet = jnp.linalg.slogdet(self.transition_matrix)
-        return jnp.broadcast_to(slogdet.logabsdet, x.shape[:-2]) * x.shape[-2]
+        return jnp.zeros_like(x, shape=x.shape[:-2])
 
     def tree_flatten(self):
         return (self.transition_matrix,), (
