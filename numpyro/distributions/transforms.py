@@ -1348,7 +1348,7 @@ class RecursiveLinearTransform(Transform):
         x = jnp.moveaxis(x, -2, 0)
 
         def f(y, x):
-            y = y @ self.transition_matrix.T + x
+            y = jnp.einsum("...ij,...j->...i", self.transition_matrix, y) + x
             return y, y
 
         _, y = lax.scan(f, jnp.zeros_like(x, shape=x.shape[1:]), x)
@@ -1359,7 +1359,7 @@ class RecursiveLinearTransform(Transform):
         y = jnp.moveaxis(y, -2, 0)
 
         def f(y, prev):
-            x = y - prev @ self.transition_matrix.T
+            x = y - jnp.einsum("...ij,...j->...i", self.transition_matrix, prev)
             return prev, x
 
         _, x = lax.scan(f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(0), reverse=True)

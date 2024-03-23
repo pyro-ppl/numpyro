@@ -340,3 +340,14 @@ def test_bijective_transforms(transform, shape):
         )
         slogdet = jnp.linalg.slogdet(jac)
         assert jnp.allclose(log_abs_det_jacobian, slogdet.logabsdet, atol=atol)
+
+
+def test_batched_recursive_linear_transform():
+    batch_shape = (4, 17)
+    x = random.normal(random.key(8), batch_shape + (10, 3))
+    # Get a batch of matrices with eigenvalues that don't blow up the sequence.
+    A = CorrCholeskyTransform()(random.normal(random.key(7), batch_shape + (3,)))
+    transform = RecursiveLinearTransform(A)
+    y = transform(x)
+    assert y.shape == x.shape
+    assert jnp.allclose(x, transform.inv(y), atol=1e-6)
