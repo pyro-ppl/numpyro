@@ -380,6 +380,7 @@ class ExplicitReparam(Reparam):
         >>> mcmc.run(random.PRNGKey(2))  # doctest: +SKIP
         sample: 100%|██████████| 2000/2000 [00:00<00:00, 2306.47it/s, 3 steps of size 9.65e-01. acc. prob=0.93]
     """
+
     def __init__(self, transform):
         if isinstance(transform, Iterable) and all(
             isinstance(t, dist.transforms.Transform) for t in transform
