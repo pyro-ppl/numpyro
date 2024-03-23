@@ -1292,10 +1292,11 @@ class RecursiveLinearTransform(Transform):
     """
     Apply a linear transformation recursively such that
     :math:`y_t = A y_{t - 1} + x_t` for :math:`t > 0`, where :math:`x_t` and :math:`y_t`
-    are vectors and :math:`A` is a transition matrix. The series is initialized by
-    :math:`y_0 = 0`.
+    are vectors and :math:`A` is a square transition matrix. The series is initialized
+    by :math:`y_0 = 0`.
 
-    :param transition_matrix: Transition matrix :math:`A` for successive states.
+    :param transition_matrix: Squared transition matrix :math:`A` for successive states
+        or a batch of transition matrices.
 
     **Example:**
 
