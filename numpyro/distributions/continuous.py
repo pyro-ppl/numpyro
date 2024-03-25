@@ -58,6 +58,7 @@ from numpyro.distributions.transforms import (
     ExpTransform,
     PowerTransform,
     SigmoidTransform,
+    ZeroSumTransform,
 )
 from numpyro.distributions.util import (
     betainc,
@@ -2446,124 +2447,19 @@ class AsymmetricLaplaceQuantile(Distribution):
         return self._ald.icdf(value)
 
 
-class ZeroSumNormal(Distribution):
-    r"""
-    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
-    more axes are constrained to sum to zero (the last axis by default).
-
-    :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
-        enforced.
-    :param int n_zerosum_axes: The number of axes to enforce a zerosum constraint.
-    :param tuple support_shape: The event shape of the distribution.
-
-    .. math::
-        \begin{align*}
-        ZSN(\sigma) = N(0, \sigma^2 (I - \tfrac{1}{n}J)) \\
-        \text{where} \ ~ J_{ij} = 1 \ ~ \text{and} \\
-        n = \text{number of zero-sum axes}
-        \end{align*}
-
-    **References**
-    [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
-    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
-    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
-    """
+class ZeroSumNormal(TransformedDistribution):
     arg_constraints = {"scale": constraints.positive}
-    support = constraints.real # FIXME
     reparametrized_params = ["scale"]
-    pytree_aux_fields = ("n_zerosum_axes","support_shape",)
 
-    def __init__(self, scale=1.0, n_zerosum_axes=None, support_shape=None, *, validate_args=None):
-        if not all(tuple(i == 1 for i in jnp.shape( scale ))):
-            raise ValueError("scale must have length one across the zero-sum axes")
-
-        self.n_zerosum_axes = self.check_zerosum_axes(n_zerosum_axes)
-        support_shape = self.check_support_shape(support_shape, self.n_zerosum_axes)
-        if jnp.ndim(scale) == 0:
-            (scale,) = promote_shapes(scale, shape=(1,))
-
-        batch_shape = jnp.shape(scale)[:-1]
-        self.scale = scale
-
-        super(ZeroSumNormal, self).__init__(
-            batch_shape=batch_shape,
-            event_shape=support_shape,
-            validate_args=validate_args
+    def __init__(self, scale, event_shape):
+        event_ndim = len(event_shape)
+        transformed_shape = tuple(size - 1 for size in event_shape)
+        zero_sum_axes = tuple(-(i + 1) for i in range(event_ndim))
+        super().__init__(
+            Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
+            ZeroSumTransform(zero_sum_axes).inv,
         )
 
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        zerosum_rv_ = random.normal(
-            key, shape=sample_shape + self.batch_shape + self.event_shape
-        ) * self.scale
-
-        if not zerosum_rv_.shape:
-            return jnp.zeros(zerosum_rv_.shape)
-
-        for axis in range(self.n_zerosum_axes):
-            zerosum_rv_ -= zerosum_rv_.mean(axis=-axis - 1, keepdims=True)
-        return zerosum_rv_
-
-    @validate_sample
-    def log_prob(self, value):
-        shape = jnp.array(value.shape)
-        _deg_free_support_shape = shape.at[-self.n_zerosum_axes:].set( shape[-self.n_zerosum_axes:] - 1 )
-        _full_size = jnp.prod(shape).astype(float)
-        _degrees_of_freedom = jnp.prod(_deg_free_support_shape).astype(float)
-
-        if not value.shape or self.batch_shape:
-            value = jnp.expand_dims(value, -1)
-
-        log_pdf = jnp.sum(
-            -0.5 * jnp.pow(value / self.scale, 2)
-            - (jnp.log(jnp.sqrt(2.0 * jnp.pi)) + jnp.log(self.scale)) * _degrees_of_freedom / _full_size,
-            axis=tuple(np.arange(-self.n_zerosum_axes, 0)),
-        )
-        return log_pdf
-
-    @property
-    def mean(self):
-        return jnp.broadcast_to(0, self.batch_shape)
-
-    @property
-    def variance(self):
-        theoretical_var = self.scale.astype(float)**2
-        for axis in range(1,self.n_zerosum_axes+1):
-            theoretical_var *= (1 - 1 / self.event_shape[-axis])
-
-        return theoretical_var
-
-    def check_zerosum_axes(self, n_zerosum_axes):
-        if n_zerosum_axes is None:
-            n_zerosum_axes = 1
-
-        is_integer = isinstance(n_zerosum_axes, int)
-        is_jax_int_array = isinstance(n_zerosum_axes, jnp.ndarray) and jnp.issubdtype(n_zerosum_axes.dtype, jnp.integer)
-        if not (is_integer or is_jax_int_array):
-            raise TypeError("n_zerosum_axes has to be an integer")
-        if not n_zerosum_axes > 0:
-            raise ValueError("n_zerosum_axes has to be > 0")
-        return n_zerosum_axes
-
-    def check_support_shape(self, support_shape, n_zerosum_axes):
-        if support_shape is None:
-            return ()
-        assert n_zerosum_axes <= len(support_shape), "support_shape has to be as long as n_zerosum_axes"
-        assert all(shape > 0 for shape in support_shape), "support_shape must be a valid shape"
-        assert len(support_shape) > 0, "support_shape must be a valid shape"
-        return support_shape
-
-    @staticmethod
-    def infer_shapes(scale=1.0, n_zerosum_axes=None, support_shape=(1,)):
-        '''Numpyro assumes that the event and batch shape can be entirely
-        determined by the shapes of the distribution inputs. This distribution
-        doesn't follow those conventions, so the `infer_shapes` method cant be implemented.
-        '''
-        raise NotImplementedError()
-
-    def _validate_sample(self, value):
-        mask = super(ZeroSumNormal, self)._validate_sample(value)
-        batch_dim = jnp.ndim(value) - len(self.event_shape)
-        if batch_dim < jnp.ndim(mask):
-            mask = jnp.all(jnp.reshape(mask, jnp.shape(mask)[:batch_dim] + (-1,)), -1)
-        return mask
+    @constraints.dependent_property(is_discrete=False)
+    def support(self):
+        return constraints.zero_sum(len(self.event_shape))

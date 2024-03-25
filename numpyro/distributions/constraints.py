@@ -54,6 +54,7 @@ __all__ = [
     "softplus_lower_cholesky",
     "softplus_positive",
     "unit_interval",
+    "zero_sum",
     "Constraint",
 ]
 
@@ -509,7 +510,6 @@ class _UnitInterval(_SingletonConstraint, _Interval):
     def __init__(self):
         super().__init__(0.0, 1.0)
 
-
 class _OpenInterval(_Interval):
     def __call__(self, x):
         return (x > self.lower_bound) & (x < self.upper_bound)
@@ -537,6 +537,28 @@ class _LowerCholesky(_SingletonConstraint):
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
+
+
+class _ZeroSum(Constraint):
+    def __init__(self, event_dim = 1):
+        self.event_dim = event_dim
+        super().__init__()
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        zerosum_true = []
+        for dim in range(-self.event_dim, 0):
+            zerosum_true.append(jnp.allclose(x.sum(-1), 0, rtol=0.05, atol=1e-2))
+        return all(zerosum_true)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(0, prototype.shape)
+
+    def tree_flatten(self):
+        return (self.event_dim), (
+            ("event_dim"),
+            dict(),
         )
 
 
@@ -720,3 +742,4 @@ softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _UnitInterval()
 open_interval = _OpenInterval
+zero_sum = _ZeroSum
