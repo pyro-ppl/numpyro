@@ -3,10 +3,11 @@
 
 from collections import namedtuple
 from functools import partial
+import math
 
 import pytest
 
-from jax import jit, random, tree_map, vmap
+from jax import jacfwd, jit, random, tree_map, vmap
 import jax.numpy as jnp
 
 from numpyro.distributions.flows import (
@@ -30,6 +31,7 @@ from numpyro.distributions.transforms import (
     PermuteTransform,
     PowerTransform,
     RealFastFourierTransform,
+    RecursiveLinearTransform,
     ReshapeTransform,
     ScaledUnitLowerCholeskyTransform,
     SigmoidTransform,
@@ -89,6 +91,11 @@ TRANSFORMS = {
         RealFastFourierTransform,
         (),
         dict(transform_shape=(3, 4, 5), transform_ndims=3),
+    ),
+    "recursive_linear": T(
+        RecursiveLinearTransform,
+        (jnp.eye(5),),
+        dict(),
     ),
     "simplex_to_ordered": T(
         SimplexToOrderedTransform,
@@ -277,6 +284,10 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
         (PowerTransform(2.5), ()),
         (RealFastFourierTransform(7), (7,)),
         (RealFastFourierTransform((8, 9), 2), (8, 9)),
+        (
+            RecursiveLinearTransform(random.normal(random.key(17), (4, 4))),
+            (7, 4),
+        ),
         (ReshapeTransform((5, 2), (10,)), (10,)),
         (ReshapeTransform((15,), (3, 5)), (3, 5)),
         (ScaledUnitLowerCholeskyTransform(), (6,)),
@@ -312,4 +323,31 @@ def test_bijective_transforms(transform, shape):
         atol = 1e-2
     assert jnp.allclose(x1, x2, atol=atol)
 
-    assert transform.log_abs_det_jacobian(x1, y).shape == batch_shape
+    log_abs_det_jacobian = transform.log_abs_det_jacobian(x1, y)
+    assert log_abs_det_jacobian.shape == batch_shape
+
+    # Also check the Jacobian numerically for transforms with the same input and output
+    # size, unless they are explicitly excluded. E.g., the upper triangular of the
+    # CholeskyTransform is zero, giving rise to a singular Jacobian.
+    skip_jacobian_check = (CholeskyTransform,)
+    size_x = int(x1.size / math.prod(batch_shape))
+    size_y = int(y.size / math.prod(batch_shape))
+    if size_x == size_y and not isinstance(transform, skip_jacobian_check):
+        jac = (
+            vmap(jacfwd(transform))(x1)
+            .reshape((-1,) + x1.shape[len(batch_shape) :])
+            .reshape(batch_shape + (size_y, size_x))
+        )
+        slogdet = jnp.linalg.slogdet(jac)
+        assert jnp.allclose(log_abs_det_jacobian, slogdet.logabsdet, atol=atol)
+
+
+def test_batched_recursive_linear_transform():
+    batch_shape = (4, 17)
+    x = random.normal(random.key(8), batch_shape + (10, 3))
+    # Get a batch of matrices with eigenvalues that don't blow up the sequence.
+    A = CorrCholeskyTransform()(random.normal(random.key(7), batch_shape + (3,)))
+    transform = RecursiveLinearTransform(A)
+    y = transform(x)
+    assert y.shape == x.shape
+    assert jnp.allclose(x, transform.inv(y), atol=1e-6)

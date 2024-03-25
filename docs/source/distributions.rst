@@ -151,7 +151,7 @@ EulerMaruyama
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-    
+
 Exponential
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Exponential
@@ -943,6 +943,24 @@ PermuteTransform
 PowerTransform
 ^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.PowerTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RealFastFourierTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.RealFastFourierTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RecursiveLinearTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.RecursiveLinearTransform
     :members:
     :undoc-members:
     :show-inheritance:
