@@ -1407,4 +1407,4 @@ def _transform_to_simplex(constraint):
 
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
-    return ZeroSumTransform(jnp.array([-1])).inv
+    return ZeroSumTransform(tuple([-1])).inv
