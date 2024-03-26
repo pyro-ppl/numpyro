@@ -2446,6 +2446,18 @@ class ZeroSumNormal(TransformedDistribution):
     Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
     more axes are constrained to sum to zero (the last axis by default).
 
+    Sample code for using ZeroSumNormal in the context of a single axis to zero-contrain::
+
+        def model(category_ind, y): # X is an indexed categorical variable with 20 categories
+            N = len(category_ind)
+            alpha = numpyro.sample("alpha", dist.Normal(0, 2.5))
+            beta = numpyro.sample("beta", dist.ZeroSumNormal(1, event_shape=(20,)))
+            sigma =  numpyro.sample("sigma", dist.Exponential(1))
+            with numpyro.plate("observations", N):
+                mu = alpha + beta[category_ind]
+                obs = numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
+        return obs
+
     :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
         enforced.
     :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
