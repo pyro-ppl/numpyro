@@ -1391,24 +1391,26 @@ class ZeroSumTransform(Transform):
     [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
     """
 
-    def __init__(self, zerosum_axes):
-        self.zerosum_axes = zerosum_axes
+    def __init__(self, transform_ndims=1):
+        self.transform_ndims = transform_ndims
 
     @property
-    def domain(self):
-        return constraints.independent(constraints.real, len(self.zerosum_axes))
+    def domain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
 
     @property
-    def codomain(self):
-        return constraints.zero_sum(len(self.zerosum_axes))
+    def codomain(self) -> constraints.Constraint:
+        return constraints.zero_sum(self.transform_ndims)
 
     def __call__(self, x):
-        for axis in self.zerosum_axes:
+        zero_sum_axes = tuple(range(-self.transform_ndims, 0))
+        for axis in zero_sum_axes:
             x = self.extend_axis_rev(x, axis=axis)
         return x
 
     def _inverse(self, y):
-        for axis in self.zerosum_axes:
+        zero_sum_axes = tuple(range(-self.transform_ndims, 0))
+        for axis in zero_sum_axes:
             y = self.extend_axis(y, axis=axis)
         return y
 
@@ -1434,16 +1436,32 @@ class ZeroSumTransform(Transform):
         return out - norm
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.array(0.0)
+        shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        return jnp.zeros_like(x, shape=shape)
 
     def forward_shape(self, shape):
-        return tuple(s - 1 for s in shape)
+        return shape[: -self.transform_ndims] + tuple(
+            s - 1 for s in shape[-self.transform_ndims :]
+        )
 
     def inverse_shape(self, shape):
-        return tuple(s + 1 for s in shape)
+        return shape[: -self.transform_ndims] + tuple(
+            s + 1 for s in shape[-self.transform_ndims :]
+        )
 
     def tree_flatten(self):
-        return (self.zerosum_axes,), (("zerosum_axes",), dict())
+        aux_data = {
+            "transform_ndims": self.transform_ndims,
+        }
+        return (), ((), aux_data)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ZeroSumTransform)
+            and self.transform_ndims == other.transform_ndims
+        )
 
 
 ##########################################################
@@ -1600,5 +1618,4 @@ def _transform_to_simplex(constraint):
 
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
-    zero_sum_axes = tuple(range(-constraint.event_dim, 0))
-    return ZeroSumTransform(zero_sum_axes).inv
+    return ZeroSumTransform(constraint.event_dim).inv

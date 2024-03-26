@@ -2483,11 +2483,10 @@ class ZeroSumNormal(TransformedDistribution):
         if jnp.ndim(scale) == 0:
             (scale,) = promote_shapes(scale, shape=(1,))
         transformed_shape = tuple(size - 1 for size in event_shape)
-        zero_sum_axes = tuple(range(-event_ndim, 0))
         self.scale = scale
         super().__init__(
             Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
-            ZeroSumTransform(zero_sum_axes).inv,
+            ZeroSumTransform(event_ndim).inv,
             validate_args=validate_args,
         )
 
