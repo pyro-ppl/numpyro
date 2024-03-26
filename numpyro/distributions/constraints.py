@@ -716,7 +716,6 @@ class _ZeroSum(Constraint):
         )
 
 
-
 # TODO: Make types consistent
 # See https://github.com/pytorch/pytorch/issues/50616
 
