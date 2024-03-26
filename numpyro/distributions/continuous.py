@@ -2448,7 +2448,7 @@ class ZeroSumNormal(TransformedDistribution):
 
     Sample code for using ZeroSumNormal in the context of a single axis to zero-contrain::
 
-        def model(category_ind, y): # X is an indexed categorical variable with 20 categories
+        def model(category_ind, y): # category_ind is an indexed categorical variable with 20 categories
             N = len(category_ind)
             alpha = numpyro.sample("alpha", dist.Normal(0, 2.5))
             beta = numpyro.sample("beta", dist.ZeroSumNormal(1, event_shape=(20,)))
