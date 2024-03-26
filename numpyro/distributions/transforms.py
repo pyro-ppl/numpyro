@@ -1390,6 +1390,7 @@ class ZeroSumTransform(Transform):
     [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
     [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
     """
+
     def __init__(self, zerosum_axes):
         self.zerosum_axes = zerosum_axes
 
@@ -1423,7 +1424,7 @@ class ZeroSumTransform(Transform):
         return array[(*slice_before, slice(None, -1))] + norm
 
     def extend_axis(self, array, axis):
-        n = (array.shape[axis] + 1)
+        n = array.shape[axis] + 1
 
         sum_vals = array.sum(axis, keepdims=True)
         norm = sum_vals / (jnp.sqrt(n) + n)
@@ -1596,7 +1597,8 @@ def _transform_to_softplus_lower_cholesky(constraint):
 def _transform_to_simplex(constraint):
     return StickBreakingTransform()
 
+
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
-    zero_sum_axes = tuple(i for i in range(-constraint.event_dim,0))
+    zero_sum_axes = tuple(i for i in range(-constraint.event_dim, 0))
     return ZeroSumTransform(zero_sum_axes).inv

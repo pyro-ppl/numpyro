@@ -699,7 +699,7 @@ class _Sphere(_SingletonConstraint):
 
 
 class _ZeroSum(Constraint):
-    def __init__(self, event_dim = 1):
+    def __init__(self, event_dim=1):
         self.event_dim = event_dim
         super().__init__()
 
@@ -711,10 +711,7 @@ class _ZeroSum(Constraint):
         return all(zerosum_true)
 
     def __eq__(self, other):
-        return (
-            type(self) is type(other)
-            and self.event_dim == other.event_dim
-        )
+        return type(self) is type(other) and self.event_dim == other.event_dim
 
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(0, prototype.shape)

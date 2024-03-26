@@ -776,7 +776,7 @@ CONTINUOUS = [
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
     T(dist.ZeroSumNormal, 1.0, (1,)),
     T(dist.ZeroSumNormal, np.array([2.0]), (1,)),
-    T(dist.ZeroSumNormal, 1.0, (4,5)),
+    T(dist.ZeroSumNormal, 1.0, (4, 5)),
     T(
         _GaussianMixture,
         np.ones(3) / 3.0,
@@ -1023,7 +1023,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.uniform(key, size, float, *sorted(bounds))
     elif isinstance(constraint, constraints.zero_sum):
         x = random.normal(key, size)
-        zero_sum_axes = tuple(i for i in range(-constraint.event_dim,0))
+        zero_sum_axes = tuple(i for i in range(-constraint.event_dim, 0))
         for axis in zero_sum_axes:
             x -= x.mean(axis)
         return x
