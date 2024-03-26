@@ -2451,15 +2451,33 @@ class ZeroSumNormal(TransformedDistribution):
     arg_constraints = {"scale": constraints.positive}
     reparametrized_params = ["scale"]
 
-    def __init__(self, scale, event_shape):
+    def __init__(self, scale, event_shape,  *, validate_args=None):
         event_ndim = len(event_shape)
+        if jnp.ndim(scale) == 0:
+            (scale,) = promote_shapes(scale, shape=(1,))
         transformed_shape = tuple(size - 1 for size in event_shape)
         zero_sum_axes = tuple(i for i in range(-event_ndim,0))
+        self.scale = scale
         super().__init__(
             Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
             ZeroSumTransform(zero_sum_axes).inv,
+            validate_args=validate_args
         )
 
     @constraints.dependent_property(is_discrete=False)
     def support(self):
         return constraints.zero_sum(len(self.event_shape))
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(0, self.batch_shape)
+
+    @property
+    def variance(self):
+        event_ndim = len(self.event_shape)
+        zero_sum_axes = tuple(i for i in range(-event_ndim,0))
+        theoretical_var = self.scale.astype(float)**2
+        for axis in zero_sum_axes:
+            theoretical_var *= (1 - 1 / self.event_shape[axis])
+
+        return theoretical_var

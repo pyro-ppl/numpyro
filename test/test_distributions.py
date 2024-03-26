@@ -6,7 +6,6 @@ from functools import partial
 import inspect
 from itertools import product
 import math
-import os
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -773,10 +772,9 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
-    T(dist.ZeroSumNormal, 1.0, None, (1,)),
-    T(dist.ZeroSumNormal, 1.0, 1, (1,)),
-    T(dist.ZeroSumNormal, np.array([2.0]), None, (1,)),
-    T(dist.ZeroSumNormal, 1.0, 2, (4,5)),
+    T(dist.ZeroSumNormal, 1.0, (1,)),
+    T(dist.ZeroSumNormal, np.array([2.0]), (1,)),
+    T(dist.ZeroSumNormal, 1.0, (4,5)),
     T(
         _GaussianMixture,
         np.ones(3) / 3.0,
@@ -1021,6 +1019,12 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         sign = random.bernoulli(key1)
         bounds = [0, (-1) ** sign * 0.5]
         return random.uniform(key, size, float, *sorted(bounds))
+    elif isinstance(constraint, constraints.zero_sum):
+        x = random.normal(key, size)
+        zero_sum_axes = tuple(i for i in range(-constraint.event_dim,0))
+        for axis in zero_sum_axes:
+            x -= x.mean(axis)
+        return x
 
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
@@ -1088,6 +1092,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         sign = random.bernoulli(key1)
         bounds = [(-1) ** sign * 1.1, (-1) ** sign * 2]
         return random.uniform(key, size, float, *sorted(bounds))
+    elif isinstance(constraint, constraints.zero_sum):
+        x = random.normal(key, size)
+        return x
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -1680,7 +1687,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             # skip taking grad w.r.t. adj_matrix
             continue
         if jax_dist is dist.ZeroSumNormal and i != 0:
-            # skip taking grad w.r.t. n_zerosum_axes and support_shape
+            # skip taking grad w.r.t. event_shape
             continue
         if isinstance(
             params[i], dist.Distribution
@@ -1909,7 +1916,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue
-        if jax_dist is dist.ZeroSumNormal and dist_args[i] in ("n_zerosum_axes", "support_shape"):
+        if jax_dist is dist.ZeroSumNormal and dist_args[i] == "event_shape":
             continue
         if (
             jax_dist is dist.SineBivariateVonMises

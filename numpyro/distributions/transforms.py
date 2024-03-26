@@ -1144,6 +1144,63 @@ class UnpackTransform(Transform):
         return isinstance(other, UnpackTransform) and self.unpack_fn is other.unpack_fn
 
 
+def _get_target_shape(shape, forward_shape, inverse_shape):
+    batch_ndims = len(shape) - len(inverse_shape)
+    return shape[:batch_ndims] + forward_shape
+
+
+class ReshapeTransform(Transform):
+    """
+    Reshape a sample, leaving batch dimensions unchanged.
+
+    :param forward_shape: Shape to transform the sample to.
+    :param inverse_shape: Shape of the sample for the inverse transform.
+    """
+
+    domain = constraints.real
+    codomain = constraints.real
+
+    def __init__(self, forward_shape, inverse_shape) -> None:
+        forward_size = math.prod(forward_shape)
+        inverse_size = math.prod(inverse_shape)
+        if forward_size != inverse_size:
+            raise ValueError(
+                f"forward shape {forward_shape} (size {forward_size}) and inverse "
+                f"shape {inverse_shape} (size {inverse_size}) are not compatible"
+            )
+        self._forward_shape = forward_shape
+        self._inverse_shape = inverse_shape
+
+    def forward_shape(self, shape):
+        return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
+
+    def inverse_shape(self, shape):
+        return _get_target_shape(shape, self._inverse_shape, self._forward_shape)
+
+    def __call__(self, x):
+        return jnp.reshape(x, self.forward_shape(jnp.shape(x)))
+
+    def _inverse(self, y):
+        return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return 0.0
+
+    def tree_flatten(self):
+        aux_data = {
+            "_forward_shape": self._forward_shape,
+            "_inverse_shape": self._inverse_shape,
+        }
+        return (), ((), aux_data)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ReshapeTransform)
+            and self._forward_shape == other._forward_shape
+            and self._inverse_shape == other._inverse_shape
+        )
+
+
 class ZeroSumTransform(Transform):
     """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
 
@@ -1205,64 +1262,6 @@ class ZeroSumTransform(Transform):
 
     def tree_flatten(self):
         return (self.zerosum_axes,), (("zerosum_axes",), dict())
-
-
-def _get_target_shape(shape, forward_shape, inverse_shape):
-    batch_ndims = len(shape) - len(inverse_shape)
-    return shape[:batch_ndims] + forward_shape
-
-
-class ReshapeTransform(Transform):
-    """
-    Reshape a sample, leaving batch dimensions unchanged.
-
-    :param forward_shape: Shape to transform the sample to.
-    :param inverse_shape: Shape of the sample for the inverse transform.
-    """
-
-    domain = constraints.real
-    codomain = constraints.real
-
-    def __init__(self, forward_shape, inverse_shape) -> None:
-        forward_size = math.prod(forward_shape)
-        inverse_size = math.prod(inverse_shape)
-        if forward_size != inverse_size:
-            raise ValueError(
-                f"forward shape {forward_shape} (size {forward_size}) and inverse "
-                f"shape {inverse_shape} (size {inverse_size}) are not compatible"
-            )
-        self._forward_shape = forward_shape
-        self._inverse_shape = inverse_shape
-
-    def forward_shape(self, shape):
-        return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
-
-    def inverse_shape(self, shape):
-        return _get_target_shape(shape, self._inverse_shape, self._forward_shape)
-
-    def __call__(self, x):
-        return jnp.reshape(x, self.forward_shape(jnp.shape(x)))
-
-    def _inverse(self, y):
-        return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return 0.0
-
-    def tree_flatten(self):
-        aux_data = {
-            "_forward_shape": self._forward_shape,
-            "_inverse_shape": self._inverse_shape,
-        }
-        return (), ((), aux_data)
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, ReshapeTransform)
-            and self._forward_shape == other._forward_shape
-            and self._inverse_shape == other._inverse_shape
-        )
-
 
 
 ##########################################################
