@@ -2446,18 +2446,6 @@ class ZeroSumNormal(TransformedDistribution):
     Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
     more axes are constrained to sum to zero (the last axis by default).
 
-    Sample code for using ZeroSumNormal in the context of a single axis to zero-contrain::
-
-        def model(category_ind, y): # category_ind is an indexed categorical variable with 20 categories
-            N = len(category_ind)
-            alpha = numpyro.sample("alpha", dist.Normal(0, 2.5))
-            beta = numpyro.sample("beta", dist.ZeroSumNormal(1, event_shape=(20,)))
-            sigma =  numpyro.sample("sigma", dist.Exponential(1))
-            with numpyro.plate("observations", N):
-                mu = alpha + beta[category_ind]
-                obs = numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
-            return obs
-
     .. math::
         \begin{align*}
         ZSN(\sigma) = N(0, \sigma^2 (I - \tfrac{1}{n}J)) \\
@@ -2468,6 +2456,46 @@ class ZeroSumNormal(TransformedDistribution):
     :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
         enforced.
     :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpy.testing import assert_allclose
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS
+
+        >>> N = 1000
+        >>> n_categories = 20
+        >>> rng_key = random.PRNGKey(0)
+        >>> key1, key2, key3 = random.split(rng_key, 3)
+        >>> category_ind = random.choice(key1, jnp.arange(n_categories), shape=(N,))
+        >>> beta = random.normal(key2, shape=(n_categories,))
+        >>> beta -= beta.mean(-1)
+        >>> y = 5 + beta[category_ind] + random.normal(key3, shape=(N,))
+
+        >>> def model(category_ind, y): # category_ind is an indexed categorical variable with 20 categories
+        ...     N = len(category_ind)
+        ...     alpha = numpyro.sample("alpha", dist.Normal(0, 2.5))
+        ...     beta = numpyro.sample("beta", dist.ZeroSumNormal(1, event_shape=(n_categories,)))
+        ...     sigma =  numpyro.sample("sigma", dist.Exponential(1))
+        ...     with numpyro.plate("observations", N):
+        ...         mu = alpha + beta[category_ind]
+        ...         obs = numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
+        ...     return obs
+
+        >>> nuts_kernel = NUTS(model=model, target_accept_prob=0.9)
+        >>> mcmc = MCMC(
+        >>>     sampler=nuts_kernel,
+        >>>     num_samples=1_000, num_warmup=1_000, num_chains=4
+        >>> )
+        >>> mcmc.run(random.PRNGKey(0), category_ind=category_ind, y=y)
+        >>> posterior_samples = mcmc.get_samples()
+        >>> # Confirm everything along last axis sums to zero
+        >>> assert_allclose(posterior_samples['beta'].sum(-1), 0, atol=1e-3)
 
     **References**
     [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
