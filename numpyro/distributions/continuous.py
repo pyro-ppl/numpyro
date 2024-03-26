@@ -2454,7 +2454,7 @@ class ZeroSumNormal(TransformedDistribution):
     def __init__(self, scale, event_shape):
         event_ndim = len(event_shape)
         transformed_shape = tuple(size - 1 for size in event_shape)
-        zero_sum_axes = tuple(-(i + 1) for i in range(event_ndim))
+        zero_sum_axes = tuple(i for i in range(-event_ndim,0))
         super().__init__(
             Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
             ZeroSumTransform(zero_sum_axes).inv,

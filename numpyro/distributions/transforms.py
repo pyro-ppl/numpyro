@@ -1197,6 +1197,12 @@ class ZeroSumTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.array(0.0)
 
+    def forward_shape(self, shape):
+        return tuple(s - 1 for s in shape)
+
+    def inverse_shape(self, shape):
+        return tuple(s + 1 for s in shape)
+
     def tree_flatten(self):
         return (self.zerosum_axes,), (("zerosum_axes",), dict())
 
@@ -1407,4 +1413,5 @@ def _transform_to_simplex(constraint):
 
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
-    return ZeroSumTransform(tuple([-1])).inv
+    zero_sum_axes = tuple(i for i in range(-constraint.event_dim,0))
+    return ZeroSumTransform(zero_sum_axes).inv
