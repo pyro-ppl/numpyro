@@ -2456,11 +2456,7 @@ class ZeroSumNormal(TransformedDistribution):
             with numpyro.plate("observations", N):
                 mu = alpha + beta[category_ind]
                 obs = numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
-        return obs
-
-    :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
-        enforced.
-    :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
+            return obs
 
     .. math::
         \begin{align*}
@@ -2468,6 +2464,10 @@ class ZeroSumNormal(TransformedDistribution):
         \text{where} \ ~ J_{ij} = 1 \ ~ \text{and} \\
         n = \text{number of zero-sum axes}
         \end{align*}
+
+    :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
+        enforced.
+    :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
 
     **References**
     [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
@@ -2483,7 +2483,7 @@ class ZeroSumNormal(TransformedDistribution):
         if jnp.ndim(scale) == 0:
             (scale,) = promote_shapes(scale, shape=(1,))
         transformed_shape = tuple(size - 1 for size in event_shape)
-        zero_sum_axes = tuple(i for i in range(-event_ndim, 0))
+        zero_sum_axes = tuple(range(-event_ndim, 0))
         self.scale = scale
         super().__init__(
             Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
@@ -2502,7 +2502,7 @@ class ZeroSumNormal(TransformedDistribution):
     @property
     def variance(self):
         event_ndim = len(self.event_shape)
-        zero_sum_axes = tuple(i for i in range(-event_ndim, 0))
+        zero_sum_axes = tuple(range(-event_ndim, 0))
         theoretical_var = self.scale.astype(float) ** 2
         for axis in zero_sum_axes:
             theoretical_var *= 1 - 1 / self.event_shape[axis]

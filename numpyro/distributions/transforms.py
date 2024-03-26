@@ -1600,5 +1600,5 @@ def _transform_to_simplex(constraint):
 
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
-    zero_sum_axes = tuple(i for i in range(-constraint.event_dim, 0))
+    zero_sum_axes = tuple(range(-constraint.event_dim, 0))
     return ZeroSumTransform(zero_sum_axes).inv
