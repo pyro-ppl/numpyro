@@ -18,6 +18,7 @@ from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoIAFNormal
 from numpyro.infer.reparam import (
     CircularReparam,
+    ExplicitReparam,
     LocScaleReparam,
     NeuTraReparam,
     ProjectedNormalReparam,
@@ -399,3 +400,16 @@ def test_loc_scale_reparam_raise_for_log_normal():
     reparam_model = handlers.reparam(model, config={"x": LocScaleReparam(0)})
     with pytest.raises(ValueError, match="LocScaleReparam.*"):
         handlers.seed(reparam_model, rng_seed=0)()
+
+
+def test_explicit_reparam():
+    def model():
+        numpyro.sample("x", dist.Gamma(4, 4))
+
+    reparam = ExplicitReparam(dist.transforms.SoftplusTransform().inv)
+    reparametrized = handlers.reparam(model, {"x": reparam})
+    kernel = NUTS(model=reparametrized)
+    mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=1)
+    mcmc.run(random.PRNGKey(2))
+    samples = mcmc.get_samples()
+    assert abs(samples["x"].mean() - 1) < 0.1

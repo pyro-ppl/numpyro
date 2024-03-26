@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from abc import ABC, abstractmethod
 from collections import OrderedDict, namedtuple
 
 import jax
@@ -16,13 +17,15 @@ from numpyro.infer.util import init_to_value, log_density
 DCCResult = namedtuple("DCCResult", ["samples", "slp_weights"])
 
 
-class DCC:
+class StochasticSupportInference(ABC):
     """
-    Implements the Divide, Conquer, and Combine (DCC) algorithm for models with
-    stochastic support from [1].
+    Base class for running inference in programs with stochastic support. Each subclass
+    decomposes the input model into so called straight-line programs (SLPs) which are
+    the different control-flow paths in the model. Inference is then run in each SLP
+    separately and the results are combined to produce an overall posterior.
 
     .. note:: This implementation assumes that all stochastic branching is done based on the
-       outcomes of discrete sampling sites that are annotated with `infer={"branching": True}`.
+       outcomes of discrete sampling sites that are annotated with ``infer={"branching": True}``.
        For example,
 
        .. code-block:: python
@@ -35,41 +38,18 @@ class DCC:
                     mean = numpyro.sample("a2", dist.Normal(1.0, 1.0))
                 numpyro.sample("obs", dist.Normal(mean, 1.0), obs=0.2)
 
-
-
-    **References:**
-
-    1. *Divide, Conquer, and Combine: a New Inference Strategy for Probabilistic Programs with Stochastic Support*,
-       Yuan Zhou, Hongseok Yang, Yee Whye Teh, Tom Rainforth
-
     :param model: Python callable containing Pyro primitives :mod:`~numpyro.primitives`.
-    :param dict mcmc_kwargs: Dictionary of arguments passed to :data:`~numpyro.infer.MCMC`.
-    :param numpyro.infer.mcmc.MCMCKernel kernel_cls: MCMC kernel class that is used for
         local inference. Defaults to :class:`~numpyro.infer.NUTS`.
     :param int num_slp_samples: Number of samples to draw from the prior to discover the
         straight-line programs (SLPs).
     :param int max_slps: Maximum number of SLPs to discover. DCC will not run inference
         on more than `max_slps`.
-    :param float proposal_scale: Scale parameter for the proposal distribution for
-        estimating the normalization constant of an SLP.
     """
 
-    def __init__(
-        self,
-        model,
-        mcmc_kwargs,
-        kernel_cls=NUTS,
-        num_slp_samples=1000,
-        max_slps=124,
-        proposal_scale=1.0,
-    ):
+    def __init__(self, model, num_slp_samples, max_slps):
         self.model = model
-        self.kernel_cls = kernel_cls
-        self.mcmc_kwargs = mcmc_kwargs
-
         self.num_slp_samples = num_slp_samples
         self.max_slps = max_slps
-        self.proposal_scale = proposal_scale
 
     def _find_slps(self, rng_key, *args, **kwargs):
         """
@@ -111,7 +91,95 @@ class DCC:
                 branching_trace[site["name"]] = int(site["value"])
         return branching_trace
 
-    def _run_mcmc(self, rng_key, branching_trace, *args, **kwargs):
+    @abstractmethod
+    def _run_inference(self, rng_key, branching_trace, *args, **kwargs):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _combine_inferences(
+        self, rng_key, inferences, branching_traces, *args, **kwargs
+    ):
+        raise NotImplementedError
+
+    def run(self, rng_key, *args, **kwargs):
+        """
+        Run inference on each SLP separately and combine the results.
+
+        :param jax.random.PRNGKey rng_key: Random number generator key.
+        :param args: Arguments to the model.
+        :param kwargs: Keyword arguments to the model.
+        """
+        rng_key, subkey = random.split(rng_key)
+        branching_traces = self._find_slps(subkey, *args, **kwargs)
+
+        inferences = dict()
+        for key, bt in branching_traces.items():
+            rng_key, subkey = random.split(rng_key)
+            inferences[key] = self._run_inference(subkey, bt, *args, **kwargs)
+
+        rng_key, subkey = random.split(rng_key)
+        return self._combine_inferences(
+            subkey, inferences, branching_traces, *args, **kwargs
+        )
+
+
+class DCC(StochasticSupportInference):
+    """
+    Implements the Divide, Conquer, and Combine (DCC) algorithm for models with
+    stochastic support from [1].
+
+    **References:**
+
+    1. *Divide, Conquer, and Combine: a New Inference Strategy for Probabilistic Programs with Stochastic Support*,
+       Yuan Zhou, Hongseok Yang, Yee Whye Teh, Tom Rainforth
+
+    **Example:**
+
+    .. code-block:: python
+
+        def model():
+            model1 = numpyro.sample("model1", dist.Bernoulli(0.5), infer={"branching": True})
+            if model1 == 0:
+                mean = numpyro.sample("a1", dist.Normal(0.0, 1.0))
+            else:
+                mean = numpyro.sample("a2", dist.Normal(1.0, 1.0))
+            numpyro.sample("obs", dist.Normal(mean, 1.0), obs=0.2)
+
+        mcmc_kwargs = dict(
+            num_warmup=500, num_samples=1000
+        )
+        dcc = DCC(model, mcmc_kwargs=mcmc_kwargs)
+        dcc_result = dcc.run(random.PRNGKey(0))
+
+    :param model: Python callable containing Pyro primitives :mod:`~numpyro.primitives`.
+    :param dict mcmc_kwargs: Dictionary of arguments passed to :data:`~numpyro.infer.MCMC`.
+    :param numpyro.infer.mcmc.MCMCKernel kernel_cls: MCMC kernel class that is used for
+        local inference. Defaults to :class:`~numpyro.infer.NUTS`.
+    :param int num_slp_samples: Number of samples to draw from the prior to discover the
+        straight-line programs (SLPs).
+    :param int max_slps: Maximum number of SLPs to discover. DCC will not run inference
+        on more than `max_slps`.
+    :param float proposal_scale: Scale parameter for the proposal distribution for
+        estimating the normalization constant of an SLP.
+    """
+
+    def __init__(
+        self,
+        model,
+        mcmc_kwargs,
+        kernel_cls=NUTS,
+        num_slp_samples=1000,
+        max_slps=124,
+        proposal_scale=1.0,
+    ):
+        self.kernel_cls = kernel_cls
+        self.mcmc_kwargs = mcmc_kwargs
+
+        self.proposal_scale = proposal_scale
+
+        super().__init__(model, num_slp_samples, max_slps)
+
+    def _run_inference(self, rng_key, branching_trace, *args, **kwargs):
         """
         Run MCMC on the model conditioned on the given branching trace.
         """
@@ -122,7 +190,7 @@ class DCC:
 
         return mcmc.get_samples()
 
-    def _combine_samples(self, rng_key, samples, branching_traces, *args, **kwargs):
+    def _combine_inferences(self, rng_key, samples, branching_traces, *args, **kwargs):
         """
         Weight each SLP proportional to its estimated normalization constant.
         The normalization constants are estimated using importance sampling with
@@ -159,22 +227,3 @@ class DCC:
         normalizer = jax.scipy.special.logsumexp(jnp.array(list(log_Zs.values())))
         slp_weights = {k: jnp.exp(v - normalizer) for k, v in log_Zs.items()}
         return DCCResult(samples, slp_weights)
-
-    def run(self, rng_key, *args, **kwargs):
-        """
-        Run DCC and collect samples for all SLPs.
-
-        :param jax.random.PRNGKey rng_key: Random number generator key.
-        :param args: Arguments to the model.
-        :param kwargs: Keyword arguments to the model.
-        """
-        rng_key, subkey = random.split(rng_key)
-        branching_traces = self._find_slps(subkey, *args, **kwargs)
-
-        samples = dict()
-        for key, bt in branching_traces.items():
-            rng_key, subkey = random.split(rng_key)
-            samples[key] = self._run_mcmc(subkey, bt, *args, **kwargs)
-
-        rng_key, subkey = random.split(rng_key)
-        return self._combine_samples(subkey, samples, branching_traces, *args, **kwargs)

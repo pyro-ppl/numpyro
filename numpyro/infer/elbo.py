@@ -261,16 +261,18 @@ def _check_mean_field_requirement(model_trace, guide_trace):
     ]
     assert set(model_sites) == set(guide_sites)
     if model_sites != guide_sites:
-        warnings.warn(
-            "Failed to verify mean field restriction on the guide. "
-            "To eliminate this warning, ensure model and guide sites "
-            "occur in the same order.\n"
-            + "Model sites:\n  "
-            + "\n  ".join(model_sites)
-            + "Guide sites:\n  "
-            + "\n  ".join(guide_sites),
-            stacklevel=find_stack_level(),
-        ),
+        (
+            warnings.warn(
+                "Failed to verify mean field restriction on the guide. "
+                "To eliminate this warning, ensure model and guide sites "
+                "occur in the same order.\n"
+                + "Model sites:\n  "
+                + "\n  ".join(model_sites)
+                + "Guide sites:\n  "
+                + "\n  ".join(guide_sites),
+                stacklevel=find_stack_level(),
+            ),
+        )
 
 
 class TraceMeanField_ELBO(ELBO):

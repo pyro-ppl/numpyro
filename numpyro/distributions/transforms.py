@@ -18,6 +18,7 @@ from jax.tree_util import register_pytree_node, tree_flatten, tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
+    add_diag,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -41,6 +42,7 @@ __all__ = [
     "LowerCholeskyAffine",
     "PermuteTransform",
     "PowerTransform",
+    "RealFastFourierTransform",
     "ReshapeTransform",
     "SigmoidTransform",
     "SimplexToOrderedTransform",
@@ -401,6 +403,7 @@ class CholeskyTransform(ParameterFreeTransform):
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     positive definite matrix.
     """
+
     domain = constraints.positive_definite
     codomain = constraints.lower_cholesky
 
@@ -445,6 +448,7 @@ class CorrCholeskyTransform(ParameterFreeTransform):
             c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
             d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
+
     domain = constraints.real_vector
     codomain = constraints.corr_cholesky
 
@@ -494,6 +498,7 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     correlation matrix.
     """
+
     domain = constraints.corr_matrix
     codomain = constraints.corr_cholesky
 
@@ -625,6 +630,7 @@ class L1BallTransform(ParameterFreeTransform):
     r"""
     Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
     """
+
     domain = constraints.real_vector
     codomain = constraints.l1_ball
 
@@ -688,6 +694,7 @@ class LowerCholeskyAffine(Transform):
        >>> affine(base)
        Array([0.3, 1.5], dtype=float32)
     """
+
     domain = constraints.real_vector
     codomain = constraints.real_vector
 
@@ -755,7 +762,7 @@ class LowerCholeskyTransform(ParameterFreeTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = jnp.exp(x[..., -n:])
-        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+        return add_diag(z, diag)
 
     def _inverse(self, y):
         z = matrix_to_tril_vec(y, diagonal=-1)
@@ -787,6 +794,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     and :math:`scale\_diag` is a diagonal matrix with all positive
     entries that is parameterized with a softplus transform.
     """
+
     domain = constraints.real_vector
     codomain = constraints.scaled_unit_lower_cholesky
 
@@ -794,7 +802,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = softplus(x[..., -n:])
-        return (z + jnp.identity(n)) * diag[..., None]
+        return add_diag(z, 1) * diag[..., None]
 
     def _inverse(self, y):
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
@@ -996,6 +1004,7 @@ class SoftplusTransform(ParameterFreeTransform):
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
     """
+
     domain = constraints.real
     codomain = constraints.softplus_positive
 
@@ -1184,7 +1193,7 @@ class ReshapeTransform(Transform):
         return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return 0.0
+        return jnp.zeros_like(x, shape=x.shape[: x.ndim - len(self._inverse_shape)])
 
     def tree_flatten(self):
         aux_data = {
@@ -1199,6 +1208,178 @@ class ReshapeTransform(Transform):
             and self._forward_shape == other._forward_shape
             and self._inverse_shape == other._inverse_shape
         )
+
+
+def _normalize_rfft_shape(input_shape, shape):
+    if shape is None:
+        return input_shape
+    return input_shape[: len(input_shape) - len(shape)] + shape
+
+
+class RealFastFourierTransform(Transform):
+    """
+    N-dimensional discrete fast Fourier transform for real input.
+
+    :param transform_shape: Length of each transformed axis to use from the input,
+        defaults to the input size.
+    :param transform_ndims: Number of trailing dimensions to transform.
+    """
+
+    def __init__(
+        self,
+        transform_shape=None,
+        transform_ndims=1,
+    ) -> None:
+        if isinstance(transform_shape, int):
+            transform_shape = (transform_shape,)
+        if transform_shape is not None and len(transform_shape) != transform_ndims:
+            raise ValueError(
+                f"Length of transform shape ({transform_shape}) does not match number "
+                f"of dimensions to transform ({transform_ndims})."
+            )
+        self.transform_shape = transform_shape
+        self.transform_ndims = transform_ndims
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.rfftn(x, self.transform_shape, axes)
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.irfftn(y, self.transform_shape, axes)
+
+    def forward_shape(self, shape: tuple) -> tuple:
+        # Dimensions remain unchanged except the last transformed dimension.
+        shape = _normalize_rfft_shape(shape, self.transform_shape)
+        return shape[:-1] + (shape[-1] // 2 + 1,)
+
+    def inverse_shape(self, shape: tuple) -> tuple:
+        if self.transform_shape:
+            return _normalize_rfft_shape(shape, self.transform_shape)
+        size = 2 * (shape[-1] - 1)
+        return shape[:-1] + (size,)
+
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
+    ) -> jnp.ndarray:
+        shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        return jnp.zeros_like(x, shape=shape)
+
+    def tree_flatten(self):
+        aux_data = {
+            "transform_shape": self.transform_shape,
+            "transform_ndims": self.transform_ndims,
+        }
+        return (), ((), aux_data)
+
+    @property
+    def domain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
+
+    @property
+    def codomain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.complex, self.transform_ndims)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, RealFastFourierTransform)
+            and self.transform_ndims == other.transform_ndims
+            and self.transform_shape == other.transform_shape
+        )
+
+
+class RecursiveLinearTransform(Transform):
+    """
+    Apply a linear transformation recursively such that
+    :math:`y_t = A y_{t - 1} + x_t` for :math:`t > 0`, where :math:`x_t` and :math:`y_t`
+    are vectors and :math:`A` is a square transition matrix. The series is initialized
+    by :math:`y_0 = 0`.
+
+    :param transition_matrix: Squared transition matrix :math:`A` for successive states
+        or a batch of transition matrices.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> from jax import numpy as jnp
+        >>> import numpyro
+        >>> from numpyro import distributions as dist
+        >>>
+        >>> def cauchy_random_walk():
+        ...     return numpyro.sample(
+        ...         "x",
+        ...         dist.TransformedDistribution(
+        ...             dist.Cauchy(0, 1).expand([10, 1]).to_event(1),
+        ...             dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
+        ...         ),
+        ...     )
+        >>>
+        >>> numpyro.handlers.seed(cauchy_random_walk, 0)().shape
+        (10, 1)
+        >>>
+        >>> def rocket_trajectory():
+        ...     scale = numpyro.sample(
+        ...         "scale",
+        ...         dist.HalfCauchy(1).expand([2]).to_event(1),
+        ...     )
+        ...     transition_matrix = jnp.array([[1, 1], [0, 1]])
+        ...     return numpyro.sample(
+        ...         "x",
+        ...         dist.TransformedDistribution(
+        ...             dist.Normal(0, scale).expand([10, 2]).to_event(1),
+        ...             dist.transforms.RecursiveLinearTransform(transition_matrix),
+        ...         ),
+        ...     )
+        >>>
+        >>> numpyro.handlers.seed(rocket_trajectory, 0)().shape
+        (10, 2)
+    """
+
+    domain = constraints.real_matrix
+    codomain = constraints.real_matrix
+
+    def __init__(self, transition_matrix: jnp.ndarray) -> None:
+        self.transition_matrix = transition_matrix
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        # Move the time axis to the first position so we can scan over it.
+        x = jnp.moveaxis(x, -2, 0)
+
+        def f(y, x):
+            y = jnp.einsum("...ij,...j->...i", self.transition_matrix, y) + x
+            return y, y
+
+        _, y = lax.scan(f, jnp.zeros_like(x, shape=x.shape[1:]), x)
+        return jnp.moveaxis(y, 0, -2)
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        # Move the time axis to the first position so we can scan over it in reverse.
+        y = jnp.moveaxis(y, -2, 0)
+
+        def f(y, prev):
+            x = y - jnp.einsum("...ij,...j->...i", self.transition_matrix, prev)
+            return prev, x
+
+        _, x = lax.scan(f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(0), reverse=True)
+        return jnp.moveaxis(x, 0, -2)
+
+    def log_abs_det_jacobian(self, x: jnp.ndarray, y: jnp.ndarray, intermediates=None):
+        return jnp.zeros_like(x, shape=x.shape[:-2])
+
+    def tree_flatten(self):
+        return (self.transition_matrix,), (
+            ("transition_matrix",),
+            {},
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, RecursiveLinearTransform):
+            return False
+        return jnp.array_equal(self.transition_matrix, other.transition_matrix)
 
 
 class ZeroSumTransform(Transform):
@@ -1389,6 +1570,11 @@ def _transform_to_positive_definite(constraint):
 @biject_to.register(constraints.positive_ordered_vector)
 def _transform_to_positive_ordered_vector(constraint):
     return ComposeTransform([OrderedTransform(), ExpTransform()])
+
+
+@biject_to.register(constraints.complex)
+def _transform_to_complex(constraint):
+    return IdentityTransform()
 
 
 @biject_to.register(constraints.real)

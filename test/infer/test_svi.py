@@ -766,8 +766,8 @@ def test_forward_mode_differentiation():
         numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
 
     def guide():
-        loc = numpyro.param("loc", 0.)
-        scale = numpyro.param("scale", 1., constraint=dist.constraints.positive)
+        loc = numpyro.param("loc", 0.0)
+        scale = numpyro.param("scale", 1.0, constraint=dist.constraints.positive)
         numpyro.sample("x", dist.Normal(loc, scale))
 
     # this fails in reverse mode

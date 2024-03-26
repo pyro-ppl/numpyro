@@ -7,6 +7,7 @@ import inspect
 from itertools import product
 import math
 import os
+from typing import Callable
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -3081,7 +3082,8 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 vmap_over(d, **{param_names[idx]: 1}),
             )
             for idx in vmappable_param_idxs
-            if isinstance(params[idx], jnp.ndarray) and jnp.array(params[idx]).ndim > 0
+            if isinstance(params[idx], jnp.ndarray)
+            and jnp.array(params[idx]).ndim > 0
             # skip this distribution because _GeneralMixture.__init__ turns
             # 1d inputs into 0d attributes, thus breaks the expectations of
             # the vmapping test case where in_axes=1, only done for rank>=1 tensors.
@@ -3091,9 +3093,11 @@ def test_vmap_dist(jax_dist, sp_dist, params):
 
     for in_axes, out_axes in in_out_axes_cases:
         batched_params = [
-            jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
-            if isinstance(ax, int)
-            else arg
+            (
+                jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
+                if isinstance(ax, int)
+                else arg
+            )
             for arg, ax in zip(params, in_axes)
         ]
         # Recreate the jax_dist to avoid side effects coming from `d.sample`
@@ -3190,3 +3194,64 @@ def test_sample_truncated_normal_in_tail():
 def test_jax_custom_prng():
     samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
     assert ~jnp.isinf(samples).any()
+
+
+def _assert_not_jax_issue_19885(
+    capfd: pytest.CaptureFixture, func: Callable, *args, **kwargs
+) -> None:
+    # jit-ing identity plus matrix multiplication leads to performance degradation as
+    # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
+    # that the issue does not affect perforance in numpyro.
+    for jit in [True, False]:
+        result = jax.jit(func)(*args, **kwargs)
+        block_until_ready = getattr(result, "block_until_ready", None)
+        if block_until_ready:
+            result = block_until_ready()
+        _, err = capfd.readouterr()
+        assert (
+            "MatMul reference implementation being executed" not in err
+        ), f"jit: {jit}"
+    return result
+
+
+@pytest.mark.xfail
+def test_jax_issue_19885(capfd: pytest.CaptureFixture) -> None:
+    def func_with_warning(y) -> jnp.ndarray:
+        return jnp.identity(y.shape[-1]) + jnp.matmul(y, y)
+
+    _assert_not_jax_issue_19885(capfd, func_with_warning, jnp.ones((20, 100, 100)))
+
+
+def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
+    # Create parameters.
+    batch_size = 100
+    event_size = 200
+    sample_size = 40
+    rank = 40
+    loc, cov_diag = random.normal(random.key(0), (2, batch_size, event_size))
+    cov_diag = jnp.exp(cov_diag)
+    cov_factor = random.normal(random.key(1), (batch_size, event_size, rank))
+
+    distribution = _assert_not_jax_issue_19885(
+        capfd, dist.LowRankMultivariateNormal, loc, cov_factor, cov_diag
+    )
+    x = _assert_not_jax_issue_19885(
+        capfd,
+        lambda x: distribution.sample(random.key(0), x.shape),
+        jnp.empty(sample_size),
+    )
+    assert x.shape == (sample_size, batch_size, event_size)
+    log_prob = _assert_not_jax_issue_19885(capfd, distribution.log_prob, x)
+    assert log_prob.shape == (sample_size, batch_size)
+
+
+def test_gaussian_random_walk_linear_recursive_equivalence():
+    dist1 = dist.GaussianRandomWalk(3.7, 15)
+    dist2 = dist.TransformedDistribution(
+        dist.Normal(0, 3.7).expand([15, 1]).to_event(2),
+        dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
+    )
+    x1 = dist1.sample(random.PRNGKey(7))
+    x2 = dist2.sample(random.PRNGKey(7))
+    assert jnp.allclose(x1, x2.squeeze())
+    assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))

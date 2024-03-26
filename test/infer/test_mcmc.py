@@ -40,8 +40,12 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
 
         init_params = random.normal(random.PRNGKey(1), (num_chains,))
         mcmc = MCMC(
-            kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False,
-            num_chains=num_chains, chain_method='vectorized'
+            kernel,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            progress_bar=False,
+            num_chains=num_chains,
+            chain_method="vectorized",
         )
     elif kernel_cls in [SA, BarkerMH]:
         kernel = kernel_cls(potential_fn=potential_fn, dense_mass=dense_mass)
@@ -124,8 +128,12 @@ def test_logistic_regression_x64(kernel_cls):
         kernel = kernel_cls(model)
 
         mcmc = MCMC(
-            kernel, num_warmup=num_warmup, num_samples=samples_each_chain,
-            progress_bar=False, num_chains=num_chains, chain_method='vectorized'
+            kernel,
+            num_warmup=num_warmup,
+            num_samples=samples_each_chain,
+            progress_bar=False,
+            num_chains=num_chains,
+            chain_method="vectorized",
         )
     elif kernel_cls is SA:
         num_warmup, num_samples = (100000, 100000)
@@ -242,8 +250,12 @@ def test_beta_bernoulli_x64(kernel_cls):
         num_chains = 10
         kernel = kernel_cls(model=model)
         mcmc = MCMC(
-            kernel, num_warmup=num_warmup, num_samples=num_samples,
-            progress_bar=False, num_chains=num_chains, chain_method='vectorized'
+            kernel,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            progress_bar=False,
+            num_chains=num_chains,
+            chain_method="vectorized",
         )
     elif kernel_cls is SA:
         kernel = SA(model=model)

@@ -160,7 +160,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.13.2")
+    assert numpyro.__version__.startswith("0.14.0")
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument(
         "-n", "--num-epochs", default=15, type=int, help="number of training epochs"

@@ -698,6 +698,14 @@ class seed(Messenger):
         users need to use `seed` as a contextmanager to generate samples from
         distributions or as a decorator for their model callable (See below).
 
+    .. note::
+
+       The seed handler has a mutable attribute `rng_key` which keeps changing after
+       each `sample` call. Hence an instance of this class (e.g. `seed(model, rng_seed=0)`)
+       might create tracer-leaks when jitted. A solution is to close the instance in a
+       function, e.g., `seeded_model = lambda *args: seed(model, rng_seed=0)(*args)`.
+       This `seeded_model` can be jitted.
+
     **Example:**
 
     .. doctest::

@@ -274,14 +274,32 @@ class AutoGuideList(AutoGuide):
         if self.prototype_trace is None:
             # run model to inspect the model structure
             self._setup_prototype(*args, **kwargs)
+            check_deterministic_sites = True
+        else:
+            check_deterministic_sites = False
 
         # create all plates
         self._create_plates(*args, **kwargs)
 
-        # run slave guides
+        # run sub-guides
         result = {}
         for part in self._guides:
             result.update(part(*args, **kwargs))
+
+        # Check deterministic sites after calling sub-guides because they are not
+        # initialized prior to the first call. We do not check guides that do not have
+        # a prototype_trace attribute, e.g., custom guides.
+        if check_deterministic_sites:
+            for i, part in enumerate(self._guides):
+                prototype_trace = getattr(part, "prototype_trace", None)
+                if prototype_trace:
+                    for key, value in prototype_trace.items():
+                        if value["type"] == "deterministic":
+                            raise ValueError(
+                                f"deterministic site '{key}' in sub-guide at position "
+                                f"{i} should not be exposed"
+                            )
+
         return result
 
     def __getitem__(self, key):
@@ -1840,7 +1858,7 @@ class AutoBatchedMixin:
                         f"Expected {self.batch_ndim} batch dimensions, but site "
                         f"`{site['name']}` only has shape {shape}."
                     )
-                shape = shape[:self.batch_ndim]
+                shape = shape[: self.batch_ndim]
                 if batch_shape is None:
                     batch_shape = shape
                 elif shape != batch_shape:
@@ -1866,7 +1884,9 @@ class AutoBatchedMixin:
         )
 
     def _get_reshape_transform(self) -> ReshapeTransform:
-        return ReshapeTransform((self.latent_dim,), self._batch_shape + self._event_shape)
+        return ReshapeTransform(
+            (self.latent_dim,), self._batch_shape + self._event_shape
+        )
 
 
 class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
@@ -1896,7 +1916,10 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, batch_ndim=batch_ndim,
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            batch_ndim=batch_ndim,
         )
 
     def _get_batched_posterior(self):
@@ -2026,16 +2049,21 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         self._init_scale = init_scale
         self.rank = rank
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, batch_ndim=batch_ndim,
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            batch_ndim=batch_ndim,
         )
 
     def _get_batched_posterior(self):
-        rank = int(round(self._event_shape[0]**0.5)) if self.rank is None else self.rank
+        rank = (
+            int(round(self._event_shape[0] ** 0.5)) if self.rank is None else self.rank
+        )
         init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
         loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
         cov_factor = numpyro.param(
             "{}_cov_factor".format(self.prefix),
-            jnp.zeros(self._batch_shape + self._event_shape + (rank,))
+            jnp.zeros(self._batch_shape + self._event_shape + (rank,)),
         )
         scale = numpyro.param(
             "{}_scale".format(self.prefix),

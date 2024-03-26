@@ -622,6 +622,10 @@ def prng_key():
     :return: a PRNG key of shape (2,) and dtype unit32.
     """
     if not _PYRO_STACK:
+        warnings.warn(
+            "Cannot generate JAX PRNG key outside of `seed` handler.",
+            stacklevel=find_stack_level(),
+        )
         return
 
     initial_msg = {
