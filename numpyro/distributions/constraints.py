@@ -719,10 +719,7 @@ class _ZeroSum(Constraint):
         return jax.numpy.broadcast_to(0, prototype.shape)
 
     def tree_flatten(self):
-        return (self.event_dim), (
-            ("event_dim"),
-            dict(),
-        )
+        return (self.event_dim,), (("event_dim",), dict())
 
 
 # TODO: Make types consistent
