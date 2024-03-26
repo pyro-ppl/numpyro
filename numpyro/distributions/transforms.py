@@ -1385,13 +1385,15 @@ class RecursiveLinearTransform(Transform):
 class ZeroSumTransform(Transform):
     """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
 
+    :param transform_ndims: Number of trailing dimensions to transform.
+
     **References**
     [1] https://github.com/pymc-devs/pymc/blob/244fb97b01ad0f3dadf5c3837b65839e2a59a0e8/pymc/distributions/transforms.py#L266
     [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
     [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
     """
 
-    def __init__(self, transform_ndims=1):
+    def __init__(self, transform_ndims: int = 1) -> None:
         self.transform_ndims = transform_ndims
 
     @property
@@ -1402,19 +1404,19 @@ class ZeroSumTransform(Transform):
     def codomain(self) -> constraints.Constraint:
         return constraints.zero_sum(self.transform_ndims)
 
-    def __call__(self, x):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         zero_sum_axes = tuple(range(-self.transform_ndims, 0))
         for axis in zero_sum_axes:
             x = self.extend_axis_rev(x, axis=axis)
         return x
 
-    def _inverse(self, y):
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
         zero_sum_axes = tuple(range(-self.transform_ndims, 0))
         for axis in zero_sum_axes:
             y = self.extend_axis(y, axis=axis)
         return y
 
-    def extend_axis_rev(self, array, axis):
+    def extend_axis_rev(self, array: jnp.ndarray, axis: int) -> jnp.ndarray:
         normalized_axis = normalize_axis_tuple(axis, array.ndim)[0]
 
         n = array.shape[normalized_axis]
@@ -1425,7 +1427,7 @@ class ZeroSumTransform(Transform):
         slice_before = (slice(None, None),) * normalized_axis
         return array[(*slice_before, slice(None, -1))] + norm
 
-    def extend_axis(self, array, axis):
+    def extend_axis(self, array: jnp.ndarray, axis: int) -> jnp.ndarray:
         n = array.shape[axis] + 1
 
         sum_vals = array.sum(axis, keepdims=True)
@@ -1435,18 +1437,20 @@ class ZeroSumTransform(Transform):
         out = jnp.concatenate([array, fill_val], axis=axis)
         return out - norm
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
+    ) -> jnp.ndarray:
         shape = jnp.broadcast_shapes(
             x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
         )
         return jnp.zeros_like(x, shape=shape)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple) -> tuple:
         return shape[: -self.transform_ndims] + tuple(
             s - 1 for s in shape[-self.transform_ndims :]
         )
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple) -> tuple:
         return shape[: -self.transform_ndims] + tuple(
             s + 1 for s in shape[-self.transform_ndims :]
         )
