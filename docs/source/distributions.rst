@@ -1021,6 +1021,15 @@ StickBreakingTransform
     :show-inheritance:
     :member-order: bysource
 
+ZeroSumTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.ZeroSumTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Flows
 -----
