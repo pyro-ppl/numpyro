@@ -827,6 +827,9 @@ unit_interval
 ^^^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.unit_interval
 
+zero_sum
+^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.zero_sum
 
 Transforms
 ----------
