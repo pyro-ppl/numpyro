@@ -298,7 +298,7 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
         (SoftplusLowerCholeskyTransform(), (10,)),
         (SoftplusTransform(), ()),
         (StickBreakingTransform(), (11,)),
-        (ZeroSumTransform(1).inv, (5,)),
+        (ZeroSumTransform(1), (5,)),
     ],
 )
 def test_bijective_transforms(transform, shape):

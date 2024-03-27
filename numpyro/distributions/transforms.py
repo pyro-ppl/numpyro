@@ -1407,13 +1407,13 @@ class ZeroSumTransform(Transform):
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         zero_sum_axes = tuple(range(-self.transform_ndims, 0))
         for axis in zero_sum_axes:
-            x = self.extend_axis_rev(x, axis=axis)
+            x = self.extend_axis(x, axis=axis)
         return x
 
     def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
         zero_sum_axes = tuple(range(-self.transform_ndims, 0))
         for axis in zero_sum_axes:
-            y = self.extend_axis(y, axis=axis)
+            y = self.extend_axis_rev(y, axis=axis)
         return y
 
     def extend_axis_rev(self, array: jnp.ndarray, axis: int) -> jnp.ndarray:
@@ -1447,12 +1447,12 @@ class ZeroSumTransform(Transform):
 
     def forward_shape(self, shape: tuple) -> tuple:
         return shape[: -self.transform_ndims] + tuple(
-            s - 1 for s in shape[-self.transform_ndims :]
+            s + 1 for s in shape[-self.transform_ndims :]
         )
 
     def inverse_shape(self, shape: tuple) -> tuple:
         return shape[: -self.transform_ndims] + tuple(
-            s + 1 for s in shape[-self.transform_ndims :]
+            s - 1 for s in shape[-self.transform_ndims :]
         )
 
     def tree_flatten(self):

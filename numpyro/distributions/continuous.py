@@ -2514,7 +2514,7 @@ class ZeroSumNormal(TransformedDistribution):
         self.scale = scale
         super().__init__(
             Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
-            ZeroSumTransform(event_ndim).inv,
+            ZeroSumTransform(event_ndim),
             validate_args=validate_args,
         )
 
