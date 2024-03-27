@@ -2524,7 +2524,7 @@ class ZeroSumNormal(TransformedDistribution):
 
     @property
     def mean(self):
-        return jnp.broadcast_to(0, self.batch_shape)
+        return jnp.broadcast_to(0, self.batch_shape + self.event_shape)
 
     @property
     def variance(self):
@@ -2534,4 +2534,4 @@ class ZeroSumNormal(TransformedDistribution):
         for axis in zero_sum_axes:
             theoretical_var *= 1 - 1 / self.event_shape[axis]
 
-        return theoretical_var
+        return jnp.broadcast_to(theoretical_var, self.batch_shape + self.event_shape)
