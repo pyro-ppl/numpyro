@@ -381,7 +381,7 @@ Weibull
     :member-order: bysource
 
 ZeroSumNormal
-^^^^^^^
+^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.ZeroSumNormal
     :members:
     :undoc-members:
@@ -828,7 +828,7 @@ unit_interval
 .. autodata:: numpyro.distributions.constraints.unit_interval
 
 zero_sum
-^^^^^^^^^^^^^
+^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.zero_sum
 
 Transforms
@@ -1025,7 +1025,7 @@ StickBreakingTransform
     :member-order: bysource
 
 ZeroSumTransform
-^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^
 
 .. autoclass:: numpyro.distributions.transforms.ZeroSumTransform
     :members:
