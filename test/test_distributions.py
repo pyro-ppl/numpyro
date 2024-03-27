@@ -1455,7 +1455,9 @@ def test_gof(jax_dist, sp_dist, params):
         d = jax_dist(*params)
         if d.event_dim > 1:
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
-
+    if jax_dist is dist.ZeroSumNormal:
+        pytest.skip("skip gof test for ZeroSumNormal")
+    
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
         num_samples = 20000
@@ -1467,9 +1469,6 @@ def test_gof(jax_dist, sp_dist, params):
     dim = None
     if jax_dist is dist.ProjectedNormal:
         dim = samples.shape[-1] - 1
-
-    if jax_dist is dist.ZeroSumNormal:
-        pytest.skip("skip gof test for ZeroSumNormal")
 
     # Test each batch independently.
     probs = probs.reshape(num_samples, -1)
