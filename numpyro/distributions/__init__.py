@@ -47,6 +47,7 @@ from numpyro.distributions.continuous import (
     StudentT,
     Uniform,
     Weibull,
+    ZeroSumNormal,
 )
 from numpyro.distributions.copula import GaussianCopula, GaussianCopulaBeta
 from numpyro.distributions.directional import (
@@ -196,4 +197,5 @@ __all__ = [
     "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
     "ZeroInflatedNegativeBinomial2",
+    "ZeroSumNormal",
 ]

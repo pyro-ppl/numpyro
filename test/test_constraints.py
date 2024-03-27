@@ -62,6 +62,7 @@ PARAMETRIZED_CONSTRAINTS = {
         dict(),
     ),
     "open_interval": T(constraints.open_interval, (_a(-1.0), _a(1.0)), dict()),
+    "zero_sum": T(constraints.zero_sum, (), dict(event_dim=1)),
 }
 
 # TODO: BijectorConstraint
