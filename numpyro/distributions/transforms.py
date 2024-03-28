@@ -1622,4 +1622,4 @@ def _transform_to_simplex(constraint):
 
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
-    return ZeroSumTransform(constraint.event_dim).inv
+    return ZeroSumTransform(constraint.event_dim)
