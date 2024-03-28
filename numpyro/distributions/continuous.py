@@ -2508,8 +2508,6 @@ class ZeroSumNormal(TransformedDistribution):
 
     def __init__(self, scale, event_shape, *, validate_args=None):
         event_ndim = len(event_shape)
-        if jnp.ndim(scale) == 0:
-            (scale,) = promote_shapes(scale, shape=(1,))
         transformed_shape = tuple(size - 1 for size in event_shape)
         self.scale = scale
         super().__init__(
