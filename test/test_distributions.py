@@ -774,8 +774,8 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
-    T(dist.ZeroSumNormal, 1.0, (1,)),
-    T(dist.ZeroSumNormal, np.array([2.0]), (1,)),
+    T(dist.ZeroSumNormal, 1.0, (5,)),
+    T(dist.ZeroSumNormal, np.array([2.0]), (5,)),
     T(dist.ZeroSumNormal, 1.0, (4, 5)),
     T(
         _GaussianMixture,
