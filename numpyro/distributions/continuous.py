@@ -2524,13 +2524,13 @@ class ZeroSumNormal(TransformedDistribution):
 
     @property
     def mean(self):
-        return jnp.broadcast_to(0, self.batch_shape + self.event_shape)
+        return jnp.zeros(self.batch_shape + self.event_shape)
 
     @property
     def variance(self):
         event_ndim = len(self.event_shape)
         zero_sum_axes = tuple(range(-event_ndim, 0))
-        theoretical_var = self.scale.astype(float) ** 2
+        theoretical_var = jnp.square(self.scale)
         for axis in zero_sum_axes:
             theoretical_var *= 1 - 1 / self.event_shape[axis]
 

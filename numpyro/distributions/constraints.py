@@ -705,11 +705,10 @@ class _ZeroSum(Constraint):
 
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tol = jnp.finfo(x.dtype).eps * x.shape[-1] * 10
         zerosum_true = True
         for dim in range(-self.event_dim, 0):
-            zerosum_true = zerosum_true & jnp.allclose(
-                x.sum(dim), 0, rtol=0.05, atol=1e-2
-            )
+            zerosum_true = zerosum_true & jnp.allclose(x.sum(dim), 0, atol=tol)
         return zerosum_true
 
     def __eq__(self, other):
