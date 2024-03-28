@@ -715,7 +715,7 @@ class _ZeroSum(Constraint):
         return type(self) is type(other) and self.event_dim == other.event_dim
 
     def feasible_like(self, prototype):
-        return jax.numpy.zeros_like(0, prototype.shape)
+        return jax.numpy.zeros_like(prototype)
 
     def tree_flatten(self):
         return (self.event_dim,), (("event_dim",), dict())
