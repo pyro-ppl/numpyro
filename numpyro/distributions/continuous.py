@@ -2489,9 +2489,9 @@ class ZeroSumNormal(TransformedDistribution):
 
         >>> nuts_kernel = NUTS(model=model, target_accept_prob=0.9)
         >>> mcmc = MCMC(
-        >>>     sampler=nuts_kernel,
-        >>>     num_samples=1_000, num_warmup=1_000, num_chains=4
-        >>> )
+        ...     sampler=nuts_kernel,
+        ...     num_samples=1_000, num_warmup=1_000, num_chains=4
+        ... )
         >>> mcmc.run(random.PRNGKey(0), category_ind=category_ind, y=y)
         >>> posterior_samples = mcmc.get_samples()
         >>> # Confirm everything along last axis sums to zero
