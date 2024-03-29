@@ -10,6 +10,7 @@ import pytest
 from jax import jacfwd, jit, random, tree_map, vmap
 import jax.numpy as jnp
 
+from numpyro.distributions import constraints
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,
     InverseAutoregressiveTransform,
@@ -351,3 +352,41 @@ def test_batched_recursive_linear_transform():
     y = transform(x)
     assert y.shape == x.shape
     assert jnp.allclose(x, transform.inv(y), atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "constraint, shape",
+    [
+        (constraints.circular, (3,)),
+        (constraints.complex, (3,)),
+        (constraints.corr_cholesky, (10, 10)),
+        (constraints.corr_matrix, (21,)),
+        (constraints.greater_than(3), ()),
+        (constraints.interval(8, 13), (17,)),
+        (constraints.l1_ball, (4,)),
+        (constraints.less_than(-1), ()),
+        (constraints.lower_cholesky, (21,)),
+        (constraints.open_interval(3, 4), ()),
+        (constraints.ordered_vector, (5,)),
+        (constraints.positive_definite, (6,)),
+        (constraints.positive_ordered_vector, (7,)),
+        (constraints.positive, (7,)),
+        (constraints.real_matrix, (17,)),
+        (constraints.real_vector, (18,)),
+        (constraints.real, (3,)),
+        (constraints.scaled_unit_lower_cholesky, (21,)),
+        (constraints.simplex, (3,)),
+        (constraints.softplus_lower_cholesky, (21,)),
+        (constraints.softplus_positive, (2,)),
+        (constraints.unit_interval, (4,)),
+    ],
+    ids=str,
+)
+def test_biject_to(constraint, shape):
+    batch_shape = (13, 19)
+    unconstrained = random.normal(random.key(93), batch_shape + shape)
+    constrained = biject_to(constraint)(unconstrained)
+    passed = constraint.check(constrained)
+    expected_shape = constrained.shape[: constrained.ndim - constraint.event_dim]
+    assert passed.shape == expected_shape
+    assert jnp.all(passed)
