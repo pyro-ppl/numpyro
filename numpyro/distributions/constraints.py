@@ -55,6 +55,7 @@ __all__ = [
     "softplus_lower_cholesky",
     "softplus_positive",
     "unit_interval",
+    "zero_sum",
     "Constraint",
 ]
 
@@ -697,6 +698,29 @@ class _Sphere(_SingletonConstraint):
         return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
 
 
+class _ZeroSum(Constraint):
+    def __init__(self, event_dim=1):
+        self.event_dim = event_dim
+        super().__init__()
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tol = jnp.finfo(x.dtype).eps * x.shape[-1] * 10
+        zerosum_true = True
+        for dim in range(-self.event_dim, 0):
+            zerosum_true = zerosum_true & jnp.allclose(x.sum(dim), 0, atol=tol)
+        return zerosum_true
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.event_dim == other.event_dim
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
+    def tree_flatten(self):
+        return (self.event_dim,), (("event_dim",), dict())
+
+
 # TODO: Make types consistent
 # See https://github.com/pytorch/pytorch/issues/50616
 
@@ -731,3 +755,4 @@ softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _UnitInterval()
 open_interval = _OpenInterval
+zero_sum = _ZeroSum

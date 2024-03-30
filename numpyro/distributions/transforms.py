@@ -6,6 +6,7 @@ import warnings
 import weakref
 
 import numpy as np
+from numpy.core.numeric import normalize_axis_tuple
 
 from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
@@ -50,6 +51,7 @@ __all__ = [
     "StickBreakingTransform",
     "Transform",
     "UnpackTransform",
+    "ZeroSumTransform",
 ]
 
 
@@ -1380,6 +1382,92 @@ class RecursiveLinearTransform(Transform):
         return jnp.array_equal(self.transition_matrix, other.transition_matrix)
 
 
+class ZeroSumTransform(Transform):
+    """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
+
+    :param transform_ndims: Number of trailing dimensions to transform.
+
+    **References**
+    [1] https://github.com/pymc-devs/pymc/blob/244fb97b01ad0f3dadf5c3837b65839e2a59a0e8/pymc/distributions/transforms.py#L266
+    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
+    """
+
+    def __init__(self, transform_ndims: int = 1) -> None:
+        self.transform_ndims = transform_ndims
+
+    @property
+    def domain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
+
+    @property
+    def codomain(self) -> constraints.Constraint:
+        return constraints.zero_sum(self.transform_ndims)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        zero_sum_axes = tuple(range(-self.transform_ndims, 0))
+        for axis in zero_sum_axes:
+            x = self.extend_axis(x, axis=axis)
+        return x
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        zero_sum_axes = tuple(range(-self.transform_ndims, 0))
+        for axis in zero_sum_axes:
+            y = self.extend_axis_rev(y, axis=axis)
+        return y
+
+    def extend_axis_rev(self, array: jnp.ndarray, axis: int) -> jnp.ndarray:
+        normalized_axis = normalize_axis_tuple(axis, array.ndim)[0]
+
+        n = array.shape[normalized_axis]
+        last = jnp.take(array, jnp.array([-1]), axis=normalized_axis)
+
+        sum_vals = -last * jnp.sqrt(n)
+        norm = sum_vals / (jnp.sqrt(n) + n)
+        slice_before = (slice(None, None),) * normalized_axis
+        return array[(*slice_before, slice(None, -1))] + norm
+
+    def extend_axis(self, array: jnp.ndarray, axis: int) -> jnp.ndarray:
+        n = array.shape[axis] + 1
+
+        sum_vals = array.sum(axis, keepdims=True)
+        norm = sum_vals / (jnp.sqrt(n) + n)
+        fill_val = norm - sum_vals / jnp.sqrt(n)
+
+        out = jnp.concatenate([array, fill_val], axis=axis)
+        return out - norm
+
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
+    ) -> jnp.ndarray:
+        shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        return jnp.zeros_like(x, shape=shape)
+
+    def forward_shape(self, shape: tuple) -> tuple:
+        return shape[: -self.transform_ndims] + tuple(
+            s + 1 for s in shape[-self.transform_ndims :]
+        )
+
+    def inverse_shape(self, shape: tuple) -> tuple:
+        return shape[: -self.transform_ndims] + tuple(
+            s - 1 for s in shape[-self.transform_ndims :]
+        )
+
+    def tree_flatten(self):
+        aux_data = {
+            "transform_ndims": self.transform_ndims,
+        }
+        return (), ((), aux_data)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ZeroSumTransform)
+            and self.transform_ndims == other.transform_ndims
+        )
+
+
 ##########################################################
 # CONSTRAINT_REGISTRY
 ##########################################################
@@ -1530,3 +1618,8 @@ def _transform_to_softplus_lower_cholesky(constraint):
 @biject_to.register(constraints.simplex)
 def _transform_to_simplex(constraint):
     return StickBreakingTransform()
+
+
+@biject_to.register(constraints.zero_sum)
+def _transform_to_zero_sum(constraint):
+    return ZeroSumTransform(constraint.event_dim)

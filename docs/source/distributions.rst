@@ -380,6 +380,13 @@ Weibull
     :show-inheritance:
     :member-order: bysource
 
+ZeroSumNormal
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.ZeroSumNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Discrete Distributions
 ----------------------
@@ -820,6 +827,9 @@ unit_interval
 ^^^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.unit_interval
 
+zero_sum
+^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.zero_sum
 
 Transforms
 ----------
@@ -1009,6 +1019,15 @@ SoftplusTransform
 StickBreakingTransform
 ^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.StickBreakingTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroSumTransform
+^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.ZeroSumTransform
     :members:
     :undoc-members:
     :show-inheritance:

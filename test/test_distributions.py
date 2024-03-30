@@ -774,6 +774,9 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.ZeroSumNormal, 1.0, (5,)),
+    T(dist.ZeroSumNormal, np.array([2.0]), (5,)),
+    T(dist.ZeroSumNormal, 1.0, (4, 5)),
     T(
         _GaussianMixture,
         np.ones(3) / 3.0,
@@ -1018,6 +1021,12 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         sign = random.bernoulli(key1)
         bounds = [0, (-1) ** sign * 0.5]
         return random.uniform(key, size, float, *sorted(bounds))
+    elif isinstance(constraint, constraints.zero_sum):
+        x = random.normal(key, size)
+        zero_sum_axes = tuple(i for i in range(-constraint.event_dim, 0))
+        for axis in zero_sum_axes:
+            x -= x.mean(axis)
+        return x
 
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
@@ -1085,6 +1094,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         sign = random.bernoulli(key1)
         bounds = [(-1) ** sign * 1.1, (-1) ** sign * 2]
         return random.uniform(key, size, float, *sorted(bounds))
+    elif isinstance(constraint, constraints.zero_sum):
+        x = random.normal(key, size)
+        return x
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -1297,6 +1309,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
         "LKJ",
         "LKJCholesky",
         "_SparseCAR",
+        "ZeroSumNormal",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -1442,6 +1455,8 @@ def test_gof(jax_dist, sp_dist, params):
         d = jax_dist(*params)
         if d.event_dim > 1:
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
+    if jax_dist is dist.ZeroSumNormal:
+        pytest.skip("skip gof test for ZeroSumNormal")
 
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
@@ -1672,6 +1687,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         if jax_dist is _SparseCAR and i == 3:
             # skip taking grad w.r.t. adj_matrix
             continue
+        if jax_dist is dist.ZeroSumNormal and i != 0:
+            # skip taking grad w.r.t. event_shape
+            continue
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
@@ -1858,7 +1876,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         if isinstance(d_jax, dist.Gompertz):
             pytest.skip("Gompertz distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
-            assert_allclose(
+            assert jnp.allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
             )
 
@@ -1898,6 +1916,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+            continue
+        if jax_dist is dist.ZeroSumNormal and dist_args[i] == "event_shape":
             continue
         if (
             jax_dist is dist.SineBivariateVonMises
