@@ -169,9 +169,9 @@ class _CorrMatrix(_SingletonConstraint):
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
-        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
         # check for the smallest eigenvalue is positive
-        positive = jnp.linalg.eigh(x)[0][..., 0] > 0
+        positive = jnp.linalg.eigvalsh(x)[..., 0] > 0
         # check for diagonal equal to 1
         unit_variance = jnp.all(
             jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1
