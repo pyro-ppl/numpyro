@@ -150,16 +150,19 @@ class EnsembleSampler(MCMCKernel, ABC):
     def init(
         self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
     ):
-        assert not is_prng_key(
-            rng_key
-        ), ("EnsembleSampler only supports chain_method='vectorized' with num_chains > 1.\n"
-            "If you want to run chains in parallel, please raise a github issue.")
+        assert not is_prng_key(rng_key), (
+            "EnsembleSampler only supports chain_method='vectorized' with num_chains > 1.\n"
+            "If you want to run chains in parallel, please raise a github issue."
+        )
         assert rng_key.shape[0] % 2 == 0, "Number of chains must be even."
         self._num_chains = rng_key.shape[0]
         if init_params is not None:
-            assert all([param.shape[0] == self._num_chains
-                        for param in jax.tree_util.tree_leaves(init_params)]), (
-                        "The batch dimension of each param must match n_chains")
+            assert all(
+                [
+                    param.shape[0] == self._num_chains
+                    for param in jax.tree_util.tree_leaves(init_params)
+                ]
+            ), "The batch dimension of each param must match n_chains"
 
         rng_key, rng_key_inner_state, rng_key_init_model = random.split(rng_key[0], 3)
         rng_key_init_model = random.split(rng_key_init_model, self._num_chains)
