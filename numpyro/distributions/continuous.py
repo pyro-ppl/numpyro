@@ -58,8 +58,10 @@ from numpyro.distributions.transforms import (
     ExpTransform,
     PowerTransform,
     SigmoidTransform,
+    ZeroSumTransform,
 )
 from numpyro.distributions.util import (
+    add_diag,
     betainc,
     betaincinv,
     cholesky_of_inverse,
@@ -283,9 +285,7 @@ class Dirichlet(Distribution):
     @property
     def variance(self):
         con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
-        return (
-            self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
-        )
+        return self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
 
     @staticmethod
     def infer_shapes(concentration):
@@ -908,6 +908,7 @@ class LKJ(TransformedDistribution):
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
+
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
@@ -984,6 +985,7 @@ class LKJCholesky(Distribution):
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
+
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_cholesky
@@ -1081,10 +1083,7 @@ class LKJCholesky(Distribution):
         # correct the diagonal
         # NB: beta_sample = sum(w ** 2) because norm 2 of u is 1.
         diag = jnp.ones(cholesky.shape[:-1]).at[..., 1:].set(jnp.sqrt(1 - beta_sample))
-        cholesky = cholesky + jnp.expand_dims(diag, axis=-1) * jnp.identity(
-            self.dimension
-        )
-        return cholesky
+        return add_diag(cholesky, diag)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -1860,7 +1859,7 @@ def _batch_capacitance_tril(W, D):
     Wt_Dinv = jnp.swapaxes(W, -1, -2) / jnp.expand_dims(D, -2)
     K = jnp.matmul(Wt_Dinv, W)
     # could be inefficient
-    return jnp.linalg.cholesky(jnp.add(K, jnp.identity(K.shape[-1])))
+    return jnp.linalg.cholesky(add_diag(K, 1))
 
 
 def _batch_lowrank_logdet(W, D, capacitance_tril):
@@ -1957,16 +1956,15 @@ class LowRankMultivariateNormal(Distribution):
         cov_diag_sqrt_unsqueeze = jnp.expand_dims(jnp.sqrt(self.cov_diag), axis=-1)
         Dinvsqrt_W = self.cov_factor / cov_diag_sqrt_unsqueeze
         K = jnp.matmul(Dinvsqrt_W, jnp.swapaxes(Dinvsqrt_W, -1, -2))
-        K = jnp.add(K, jnp.identity(K.shape[-1]))
+        K = add_diag(K, 1)
         scale_tril = cov_diag_sqrt_unsqueeze * jnp.linalg.cholesky(K)
         return scale_tril
 
     @lazy_property
     def covariance_matrix(self):
-        # TODO: find a better solution to create a diagonal matrix
-        new_diag = self.cov_diag[..., jnp.newaxis] * jnp.identity(self.loc.shape[-1])
-        covariance_matrix = new_diag + jnp.matmul(
-            self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2)
+        covariance_matrix = add_diag(
+            jnp.matmul(self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2)),
+            self.cov_diag,
         )
         return covariance_matrix
 
@@ -1979,12 +1977,8 @@ class LowRankMultivariateNormal(Distribution):
             self.cov_diag, axis=-2
         )
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        # TODO: find a better solution to create a diagonal matrix
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
-        diag_embed = inverse_cov_diag[..., jnp.newaxis] * jnp.identity(
-            self.loc.shape[-1]
-        )
-        return diag_embed - jnp.matmul(jnp.swapaxes(A, -1, -2), A)
+        return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -2076,8 +2070,9 @@ class Pareto(TransformedDistribution):
     def __init__(self, scale, alpha, *, validate_args=None):
         self.scale, self.alpha = promote_shapes(scale, alpha)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
-        scale, alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(
-            alpha, batch_shape
+        scale, alpha = (
+            jnp.broadcast_to(scale, batch_shape),
+            jnp.broadcast_to(alpha, batch_shape),
         )
         base_dist = Exponential(alpha)
         transforms = [ExpTransform(), AffineTransform(loc=0, scale=scale)]
@@ -2444,3 +2439,97 @@ class AsymmetricLaplaceQuantile(Distribution):
 
     def icdf(self, value):
         return self._ald.icdf(value)
+
+
+class ZeroSumNormal(TransformedDistribution):
+    r"""
+    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
+    more axes are constrained to sum to zero (the last axis by default).
+
+    .. math::
+        \begin{align*}
+        ZSN(\sigma) = N(0, \sigma^2 (I - \tfrac{1}{n}J)) \\
+        \text{where} \ ~ J_{ij} = 1 \ ~ \text{and} \\
+        n = \text{number of zero-sum axes}
+        \end{align*}
+
+    :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
+        enforced.
+    :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpy.testing import assert_allclose
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS
+
+        >>> N = 1000
+        >>> n_categories = 20
+        >>> rng_key = random.PRNGKey(0)
+        >>> key1, key2, key3 = random.split(rng_key, 3)
+        >>> category_ind = random.choice(key1, jnp.arange(n_categories), shape=(N,))
+        >>> beta = random.normal(key2, shape=(n_categories,))
+        >>> beta -= beta.mean(-1)
+        >>> y = 5 + beta[category_ind] + random.normal(key3, shape=(N,))
+
+        >>> def model(category_ind, y): # category_ind is an indexed categorical variable with 20 categories
+        ...     N = len(category_ind)
+        ...     alpha = numpyro.sample("alpha", dist.Normal(0, 2.5))
+        ...     beta = numpyro.sample("beta", dist.ZeroSumNormal(1, event_shape=(n_categories,)))
+        ...     sigma =  numpyro.sample("sigma", dist.Exponential(1))
+        ...     with numpyro.plate("observations", N):
+        ...         mu = alpha + beta[category_ind]
+        ...         obs = numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
+        ...     return obs
+
+        >>> nuts_kernel = NUTS(model=model, target_accept_prob=0.9)
+        >>> mcmc = MCMC(
+        ...     sampler=nuts_kernel,
+        ...     num_samples=1_000, num_warmup=1_000, num_chains=4
+        ... )
+        >>> mcmc.run(random.PRNGKey(0), category_ind=category_ind, y=y)
+        >>> posterior_samples = mcmc.get_samples()
+        >>> # Confirm everything along last axis sums to zero
+        >>> assert_allclose(posterior_samples['beta'].sum(-1), 0, atol=1e-3)
+
+    **References**
+    [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
+    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
+    """
+
+    arg_constraints = {"scale": constraints.positive}
+    reparametrized_params = ["scale"]
+
+    def __init__(self, scale, event_shape, *, validate_args=None):
+        event_ndim = len(event_shape)
+        transformed_shape = tuple(size - 1 for size in event_shape)
+        self.scale = scale
+        super().__init__(
+            Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
+            ZeroSumTransform(event_ndim),
+            validate_args=validate_args,
+        )
+
+    @constraints.dependent_property(is_discrete=False)
+    def support(self):
+        return constraints.zero_sum(len(self.event_shape))
+
+    @property
+    def mean(self):
+        return jnp.zeros(self.batch_shape + self.event_shape)
+
+    @property
+    def variance(self):
+        event_ndim = len(self.event_shape)
+        zero_sum_axes = tuple(range(-event_ndim, 0))
+        theoretical_var = jnp.square(self.scale)
+        for axis in zero_sum_axes:
+            theoretical_var *= 1 - 1 / self.event_shape[axis]
+
+        return jnp.broadcast_to(theoretical_var, self.batch_shape + self.event_shape)

@@ -33,6 +33,7 @@ exclude = [
 # Same as Black.
 line-length = 88
 indent-width = 4
+extend-include = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
@@ -61,7 +62,7 @@ skip-magic-trailing-comma = false
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
 
-[tool.ruff.extend-per-file-ignores]
+[tool.ruff.lint.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
 "numpyro/distributions/kl.py" = ["F811"]
 

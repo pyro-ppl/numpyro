@@ -283,11 +283,15 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state, forward_mode_differentiation=forward_mode_differentiation
+            loss_fn,
+            svi_state.optim_state,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
-    def stable_update(self, svi_state, *args, forward_mode_differentiation=False, **kwargs):
+    def stable_update(
+        self, svi_state, *args, forward_mode_differentiation=False, **kwargs
+    ):
         """
         Similar to :meth:`update` but returns the current state if the
         the loss or the new state contains invalid values.
@@ -314,7 +318,9 @@ class SVI(object):
             mutable_state=svi_state.mutable_state,
         )
         (loss_val, mutable_state), optim_state = self.optim.eval_and_stable_update(
-            loss_fn, svi_state.optim_state, forward_mode_differentiation=forward_mode_differentiation
+            loss_fn,
+            svi_state.optim_state,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
         return SVIState(optim_state, mutable_state, rng_key), loss_val
 
@@ -378,11 +384,17 @@ class SVI(object):
         def body_fn(svi_state, _):
             if stable_update:
                 svi_state, loss = self.stable_update(
-                    svi_state, *args, forward_mode_differentiation=forward_mode_differentiation, **kwargs
+                    svi_state,
+                    *args,
+                    forward_mode_differentiation=forward_mode_differentiation,
+                    **kwargs,
                 )
             else:
                 svi_state, loss = self.update(
-                    svi_state, *args, forward_mode_differentiation=forward_mode_differentiation, **kwargs
+                    svi_state,
+                    *args,
+                    forward_mode_differentiation=forward_mode_differentiation,
+                    **kwargs,
                 )
             return svi_state, loss
 

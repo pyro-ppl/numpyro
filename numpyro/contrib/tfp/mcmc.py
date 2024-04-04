@@ -236,9 +236,7 @@ for _name, _Kernel in tfp.mcmc.__dict__.items():
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/{}>`_
     with :class:`~numpyro.contrib.tfp.mcmc.TFPKernel`. The first argument `target_log_prob_fn`
     in TFP kernel construction is replaced by either `model` or `potential_fn`.
-    """.format(
-        _Kernel.__module__, _Kernel.__name__, _Kernel.__name__
-    )
+    """.format(_Kernel.__module__, _Kernel.__name__, _Kernel.__name__)
 
     __all__.append(_name)
 
@@ -250,9 +248,7 @@ __doc__ = "\n\n".join(
     {0}
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.mcmc.{0}
-    """.format(
-            _name
-        )
+    """.format(_name)
         for _name in __all__[:1] + sorted(__all__[1:])
     ]
 )

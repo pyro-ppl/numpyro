@@ -35,3 +35,6 @@ numpyro/examples/.data
 # docs
 docs/build
 docs/.DS_Store
+docs/source/examples
+docs/source/tutorials
+docs/source/getting_started.rst

@@ -24,7 +24,9 @@ from numpyro.infer.elbo import (
 
 
 def _brute_force_compute_downstream_costs(
-    model_trace, guide_trace, non_reparam_nodes  #
+    model_trace,
+    guide_trace,
+    non_reparam_nodes,  #
 ):
     model_successors = _identify_dense_edges(model_trace)
     guide_successors = _identify_dense_edges(guide_trace)

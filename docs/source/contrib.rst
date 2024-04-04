@@ -74,3 +74,23 @@ SteinVI Kernels
 .. autoclass:: numpyro.contrib.einstein.stein_kernels.ProbabilityProductKernel
 
 
+Stochastic Support
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: numpyro.contrib.stochastic_support.dcc.StochasticSupportInference
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.contrib.stochastic_support.dcc.DCC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.contrib.stochastic_support.sdvi.SDVI
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

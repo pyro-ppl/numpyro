@@ -254,7 +254,7 @@ def random_flax_module(
     input_shape=None,
     apply_rng=None,
     mutable=None,
-    **kwargs
+    **kwargs,
 ):
     """
     A primitive to place a prior over the parameters of the Flax module `nn_module`.
@@ -372,7 +372,7 @@ def random_flax_module(
         input_shape=input_shape,
         apply_rng=apply_rng,
         mutable=mutable,
-        **kwargs
+        **kwargs,
     )
     params = nn.args[0]
     new_params = deepcopy(params)

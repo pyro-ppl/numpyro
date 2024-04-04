@@ -271,26 +271,6 @@ def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
 
-@pytest.mark.parametrize("num_blocks", [1, 2, 50, 100])
-def test_block_update_partitioning(num_blocks):
-    plate_size = 10000, 100
-
-    plate_sizes = {"N": plate_size}
-    gibbs_sites = {"N": jnp.arange(plate_size[1])}
-    gibbs_state = {}
-
-    new_gibbs_sites, new_gibbs_state = numpyro.infer.hmc_gibbs._block_update(
-        plate_sizes, num_blocks, random.PRNGKey(2), gibbs_sites, gibbs_state
-    )
-    block_size = 100 // num_blocks
-    for name in gibbs_sites:
-        assert (
-            block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
-        )
-
-    assert gibbs_state == new_gibbs_state
-
-
 def test_enum_subsample_smoke():
     def model(data):
         x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
@@ -321,7 +301,8 @@ def test_enum_subsample_error():
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 @pytest.mark.parametrize("num_block", [1, 2, 50])
 @pytest.mark.parametrize("subsample_size", [50, 150])
-def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
+@pytest.mark.parametrize("degree", [1, 2])
+def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 200, 200
     data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
@@ -339,7 +320,7 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     ref_params = {
         "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
     }
-    proxy_fn = HMCECS.taylor_proxy(ref_params)
+    proxy_fn = HMCECS.taylor_proxy(ref_params, degree=degree)
 
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)

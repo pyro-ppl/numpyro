@@ -126,7 +126,7 @@ class SVI(svi.SVI):
         loss_and_grads=None,
         num_samples=10,
         num_steps=0,
-        **kwargs
+        **kwargs,
     ):
         super(SVI, self).__init__(model=model, guide=guide, optim=optim, loss=loss)
         self.svi_state = None

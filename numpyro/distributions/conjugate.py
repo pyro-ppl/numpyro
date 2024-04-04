@@ -36,6 +36,7 @@ class BetaBinomial(Distribution):
         Beta distribution.
     :param numpy.ndarray total_count: number of Bernoulli trials.
     """
+
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -107,6 +108,7 @@ class DirichletMultinomial(Distribution):
         Dirichlet distribution.
     :param numpy.ndarray total_count: number of Categorical trials.
     """
+
     arg_constraints = {
         "concentration": constraints.independent(constraints.positive, 1),
         "total_count": constraints.nonnegative_integer,
@@ -182,6 +184,7 @@ class GammaPoisson(Distribution):
     :param numpy.ndarray concentration: shape parameter (alpha) of the Gamma distribution.
     :param numpy.ndarray rate: rate parameter (beta) for the Gamma distribution.
     """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "rate": constraints.positive,

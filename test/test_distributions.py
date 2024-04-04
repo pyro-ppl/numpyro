@@ -7,6 +7,7 @@ import inspect
 from itertools import product
 import math
 import os
+from typing import Callable
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -773,6 +774,9 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.ZeroSumNormal, 1.0, (5,)),
+    T(dist.ZeroSumNormal, np.array([2.0]), (5,)),
+    T(dist.ZeroSumNormal, 1.0, (4, 5)),
     T(
         _GaussianMixture,
         np.ones(3) / 3.0,
@@ -1017,6 +1021,12 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         sign = random.bernoulli(key1)
         bounds = [0, (-1) ** sign * 0.5]
         return random.uniform(key, size, float, *sorted(bounds))
+    elif isinstance(constraint, constraints.zero_sum):
+        x = random.normal(key, size)
+        zero_sum_axes = tuple(i for i in range(-constraint.event_dim, 0))
+        for axis in zero_sum_axes:
+            x -= x.mean(axis)
+        return x
 
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
@@ -1084,6 +1094,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         sign = random.bernoulli(key1)
         bounds = [(-1) ** sign * 1.1, (-1) ** sign * 2]
         return random.uniform(key, size, float, *sorted(bounds))
+    elif isinstance(constraint, constraints.zero_sum):
+        x = random.normal(key, size)
+        return x
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -1296,6 +1309,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
         "LKJ",
         "LKJCholesky",
         "_SparseCAR",
+        "ZeroSumNormal",
     ):
         pytest.xfail(reason="non-jittable params")
 
@@ -1441,6 +1455,8 @@ def test_gof(jax_dist, sp_dist, params):
         d = jax_dist(*params)
         if d.event_dim > 1:
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
+    if jax_dist is dist.ZeroSumNormal:
+        pytest.skip("skip gof test for ZeroSumNormal")
 
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
@@ -1671,6 +1687,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         if jax_dist is _SparseCAR and i == 3:
             # skip taking grad w.r.t. adj_matrix
             continue
+        if jax_dist is dist.ZeroSumNormal and i != 0:
+            # skip taking grad w.r.t. event_shape
+            continue
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
@@ -1857,7 +1876,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         if isinstance(d_jax, dist.Gompertz):
             pytest.skip("Gompertz distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
-            assert_allclose(
+            assert jnp.allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
             )
 
@@ -1897,6 +1916,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+            continue
+        if jax_dist is dist.ZeroSumNormal and dist_args[i] == "event_shape":
             continue
         if (
             jax_dist is dist.SineBivariateVonMises
@@ -3060,7 +3081,8 @@ def test_vmap_dist(jax_dist, sp_dist, params):
                 vmap_over(d, **{param_names[idx]: 1}),
             )
             for idx in vmappable_param_idxs
-            if isinstance(params[idx], jnp.ndarray) and jnp.array(params[idx]).ndim > 0
+            if isinstance(params[idx], jnp.ndarray)
+            and jnp.array(params[idx]).ndim > 0
             # skip this distribution because _GeneralMixture.__init__ turns
             # 1d inputs into 0d attributes, thus breaks the expectations of
             # the vmapping test case where in_axes=1, only done for rank>=1 tensors.
@@ -3070,9 +3092,11 @@ def test_vmap_dist(jax_dist, sp_dist, params):
 
     for in_axes, out_axes in in_out_axes_cases:
         batched_params = [
-            jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
-            if isinstance(ax, int)
-            else arg
+            (
+                jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
+                if isinstance(ax, int)
+                else arg
+            )
             for arg, ax in zip(params, in_axes)
         ]
         # Recreate the jax_dist to avoid side effects coming from `d.sample`
@@ -3169,3 +3193,64 @@ def test_sample_truncated_normal_in_tail():
 def test_jax_custom_prng():
     samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
     assert ~jnp.isinf(samples).any()
+
+
+def _assert_not_jax_issue_19885(
+    capfd: pytest.CaptureFixture, func: Callable, *args, **kwargs
+) -> None:
+    # jit-ing identity plus matrix multiplication leads to performance degradation as
+    # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
+    # that the issue does not affect perforance in numpyro.
+    for jit in [True, False]:
+        result = jax.jit(func)(*args, **kwargs)
+        block_until_ready = getattr(result, "block_until_ready", None)
+        if block_until_ready:
+            result = block_until_ready()
+        _, err = capfd.readouterr()
+        assert (
+            "MatMul reference implementation being executed" not in err
+        ), f"jit: {jit}"
+    return result
+
+
+@pytest.mark.xfail
+def test_jax_issue_19885(capfd: pytest.CaptureFixture) -> None:
+    def func_with_warning(y) -> jnp.ndarray:
+        return jnp.identity(y.shape[-1]) + jnp.matmul(y, y)
+
+    _assert_not_jax_issue_19885(capfd, func_with_warning, jnp.ones((20, 100, 100)))
+
+
+def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
+    # Create parameters.
+    batch_size = 100
+    event_size = 200
+    sample_size = 40
+    rank = 40
+    loc, cov_diag = random.normal(random.key(0), (2, batch_size, event_size))
+    cov_diag = jnp.exp(cov_diag)
+    cov_factor = random.normal(random.key(1), (batch_size, event_size, rank))
+
+    distribution = _assert_not_jax_issue_19885(
+        capfd, dist.LowRankMultivariateNormal, loc, cov_factor, cov_diag
+    )
+    x = _assert_not_jax_issue_19885(
+        capfd,
+        lambda x: distribution.sample(random.key(0), x.shape),
+        jnp.empty(sample_size),
+    )
+    assert x.shape == (sample_size, batch_size, event_size)
+    log_prob = _assert_not_jax_issue_19885(capfd, distribution.log_prob, x)
+    assert log_prob.shape == (sample_size, batch_size)
+
+
+def test_gaussian_random_walk_linear_recursive_equivalence():
+    dist1 = dist.GaussianRandomWalk(3.7, 15)
+    dist2 = dist.TransformedDistribution(
+        dist.Normal(0, 3.7).expand([15, 1]).to_event(2),
+        dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
+    )
+    x1 = dist1.sample(random.PRNGKey(7))
+    x2 = dist2.sample(random.PRNGKey(7))
+    assert jnp.allclose(x1, x2.squeeze())
+    assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))

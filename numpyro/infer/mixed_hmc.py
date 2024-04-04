@@ -74,7 +74,7 @@ class MixedHMC(DiscreteHMCGibbs):
         *,
         num_discrete_updates=None,
         random_walk=False,
-        modified=False
+        modified=False,
     ):
         super().__init__(inner_kernel, random_walk=random_walk, modified=modified)
         if inner_kernel._algo == "NUTS":
@@ -307,4 +307,6 @@ class MixedHMC(DiscreteHMCGibbs):
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_wa_update"] = None
+        state["_prototype_trace"] = None
+        state["_support_sizes_flat"] = None
         return state
