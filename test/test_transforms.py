@@ -7,8 +7,9 @@ import math
 
 import pytest
 
-from jax import jacfwd, jit, random, tree_map, vmap
+from jax import jacfwd, jit, random, vmap
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,

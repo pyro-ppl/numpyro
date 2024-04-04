@@ -5,8 +5,8 @@ from collections.abc import Callable, Sequence
 from functools import partial
 from typing import Optional
 
-from jax import numpy as jnp, random, tree_map, vmap
-from jax.tree_util import tree_flatten
+from jax import numpy as jnp, random, vmap
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.handlers import substitute
 from numpyro.infer import Predictive

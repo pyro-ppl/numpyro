@@ -5,8 +5,9 @@ from collections import namedtuple
 
 import pytest
 
-from jax import jit, tree_map, vmap
+from jax import jit, vmap
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 
