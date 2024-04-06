@@ -5,8 +5,8 @@ import copy
 from functools import singledispatch
 from typing import Union
 
-from jax import tree_map
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.conjugate import (
