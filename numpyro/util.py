@@ -45,7 +45,7 @@ def enable_x64(use_x64=True):
     """
     if not use_x64:
         use_x64 = os.getenv("JAX_ENABLE_X64", 0)
-    jax.config.update("jax_enable_x64", use_x64)
+    jax.config.update("jax_enable_x64", bool(use_x64))
 
 
 def set_platform(platform=None):
