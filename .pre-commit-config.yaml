@@ -14,3 +14,4 @@ repos:
       - id: debug-statements
       - id: check-yaml
       - id: check-added-large-files
+        exclude: notebooks/*
