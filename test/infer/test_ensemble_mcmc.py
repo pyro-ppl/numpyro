@@ -79,3 +79,20 @@ def test_out_shape_smoke(kernel_cls):
 def test_invalid_moves(kernel_cls):
     with pytest.raises(AssertionError, match="Each move"):
         kernel_cls(model, moves={"invalid": 1.0})
+
+
+@pytest.mark.parametrize("kernel_cls", [AIES, ESS])
+def test_multirun(kernel_cls):
+    n_chains = 10
+    kernel = kernel_cls(model)
+
+    mcmc = MCMC(
+        kernel,
+        num_warmup=10,
+        num_samples=10,
+        progress_bar=False,
+        num_chains=n_chains,
+        chain_method="vectorized",
+    )
+    mcmc.run(random.PRNGKey(2), labels)
+    mcmc.run(random.PRNGKey(3), labels)
