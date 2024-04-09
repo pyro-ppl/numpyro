@@ -583,7 +583,7 @@ class ExpandedDistribution(Distribution):
                 )
         return (
             tuple(reversed(reversed_shape)),
-            OrderedDict(expanded_sizes),
+            OrderedDict(reversed(expanded_sizes)),
             OrderedDict(interstitial_sizes),
         )
 
@@ -601,6 +601,8 @@ class ExpandedDistribution(Distribution):
         batch_shape = expanded_sizes + interstitial_sizes
         # shape = sample_shape + expanded_sizes + interstitial_sizes + base_dist.shape()
         samples, intermediates = sample_fn(key, sample_shape=sample_shape + batch_shape)
+        if not interstitial_sizes:
+            return samples, intermediates
 
         interstitial_dims = tuple(self._interstitial_sizes.keys())
         event_dim = len(self.event_shape)
