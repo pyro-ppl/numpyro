@@ -1110,7 +1110,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
-    if not (jax_dist is dist.Delta):
+    if jax_dist is not dist.Delta:
         assert isinstance(samples, jnp.ndarray)
     assert jnp.shape(samples) == expected_shape
     if (
