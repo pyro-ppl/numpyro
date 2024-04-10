@@ -1110,8 +1110,6 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
-    if jax_dist is dist.Delta:
-        samples = jnp.asarray(samples)
     assert isinstance(samples, jnp.ndarray)
     assert jnp.shape(samples) == expected_shape
     if (
@@ -2622,7 +2620,7 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     rng_key = random.PRNGKey(0)
     samples = expanded_dist.sample(rng_key, sample_shape)
     assert expanded_dist.batch_shape == new_batch_shape
-    assert jnp.shape(samples) == sample_shape + new_batch_shape + jax_dist.event_shape
+    assert samples.shape == sample_shape + new_batch_shape + jax_dist.event_shape
     assert expanded_dist.log_prob(samples).shape == sample_shape + new_batch_shape
     # test expand of expand
     assert (
