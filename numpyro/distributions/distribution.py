@@ -198,10 +198,12 @@ class Distribution(metaclass=DistributionMeta):
         d = cls.__new__(cls)
 
         for k, v in pytree_data_fields_dict.items():
-            setattr(d, k, v)
+            if v is not None or not isinstance(getattr(cls, k, None), lazy_property):
+                setattr(d, k, v)
 
         for k, v in pytree_aux_fields_dict.items():
-            setattr(d, k, v)
+            if v is not None or not isinstance(getattr(cls, k, None), lazy_property):
+                setattr(d, k, v)
 
         # disable args validation during `tree_unflatten` it is called by jax with
         # placeholder attributes that would make validation fail
