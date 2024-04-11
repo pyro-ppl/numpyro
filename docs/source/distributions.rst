@@ -380,6 +380,14 @@ Weibull
     :show-inheritance:
     :member-order: bysource
 
+Wishart
+^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Wishart
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ZeroSumNormal
 ^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.ZeroSumNormal

@@ -2615,3 +2615,133 @@ class ZeroSumNormal(TransformedDistribution):
             theoretical_var *= 1 - 1 / self.event_shape[axis]
 
         return jnp.broadcast_to(theoretical_var, self.batch_shape + self.event_shape)
+
+
+class Wishart(Distribution):
+    """
+    Wishart distribution for covariance matrices.
+
+    :param concentration: Positive concentration parameter analogous to the
+        concentration of a :class:`Gamma` distribution. The concentration must be larger
+        than the dimensionality of the scale matrix.
+    :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
+        distribution.
+    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+        distribution.
+    :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.positive_definite
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration=None,
+        scale_matrix=None,
+        rate_matrix=None,
+        scale_tril=None,
+        validate_args=None,
+    ):
+        # Determine the shapes.
+        batch_shape = None
+        event_shape = None
+        for x in [scale_matrix, rate_matrix, scale_tril]:
+            if x is not None:
+                batch_shape = jnp.broadcast_shapes(
+                    jnp.shape(concentration), jnp.shape(x)[:-2]
+                )
+                event_shape = jnp.shape(x)[-2:]
+                break
+        if event_shape is None:
+            raise ValueError(
+                "One of `scale_matrix`, `rate_matrix`, or `scale_tril` must be "
+                "specified."
+            )
+
+        # Coerce to scale_tril parameter.
+        if scale_matrix is not None:
+            self.scale_matrix = jnp.broadcast_to(
+                scale_matrix, batch_shape + event_shape
+            )
+            self.scale_tril = jnp.linalg.cholesky(scale_matrix)
+        elif rate_matrix is not None:
+            self.rate_matrix = jnp.broadcast_to(rate_matrix, batch_shape + event_shape)
+            self.scale_tril = cholesky_of_inverse(rate_matrix)
+        elif scale_tril is not None:
+            self.scale_tril = scale_tril
+
+        self.concentration = jnp.broadcast_to(concentration, batch_shape)
+        self.scale_tril = jnp.broadcast_to(self.scale_tril, batch_shape + event_shape)
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @validate_sample
+    def log_prob(self, value):
+        p = value.shape[-1]
+        rate_matrix, value = jnp.broadcast_arrays(self.rate_matrix, value)
+        trace = jnp.trace(lax.batch_matmul(rate_matrix, value), axis1=-1, axis2=-2)
+        return (
+            (self.concentration - p - 1) / 2 * jnp.linalg.slogdet(value).logabsdet
+            - trace / 2
+            - self.concentration * p / 2 * jnp.log(2)
+            - multigammaln(self.concentration / 2, p)
+            + self.concentration * jnp.linalg.slogdet(rate_matrix).logabsdet / 2
+        )
+
+    @lazy_property
+    def mean(self):
+        return self.concentration[..., None, None] * jnp.linalg.inv(self.rate_matrix)
+
+    @lazy_property
+    def variance(self):
+        diag = jnp.diagonal(self.scale_matrix, axis1=-1, axis2=-2)
+        return self.concentration[..., None, None] * (
+            self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
+        )
+
+    @lazy_property
+    def scale_matrix(self):
+        return jnp.matmul(self.scale_tril, self.scale_tril.mT)
+
+    @lazy_property
+    def rate_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        # Sample using the Bartlett decomposition
+        # (https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition).
+        rng_diag, rng_offdiag = random.split(key)
+        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
+        p = self.event_shape[-1]
+        i = jnp.arange(p)
+        latent = latent.at[..., i, i].set(
+            jnp.sqrt(
+                random.chisquare(
+                    rng_diag, self.concentration[..., None] - i, latent.shape[:-1]
+                )
+            )
+        )
+        i, j = jnp.tril_indices(p, -1)
+        assert i.size == p * (p - 1) // 2
+        latent = latent.at[..., i, j].set(
+            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
+        )
+        factor = lax.batch_matmul(*jnp.broadcast_arrays(self.scale_tril, latent))
+        return lax.batch_matmul(factor, factor.mT)

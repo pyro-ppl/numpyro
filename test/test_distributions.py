@@ -131,6 +131,13 @@ def _truncnorm_to_scipy(loc, scale, low, high):
     return osp.truncnorm(a, b, loc=loc, scale=scale)
 
 
+def _wishart_to_scipy(conc, scale, rate, tril):
+    jax_dist = dist.Wishart(conc, scale, rate, tril)
+    if not np.isscalar(jax_dist.concentration):
+        pytest.skip("scipy Wishart only supports a single scalar concentration")
+    return osp.wishart(jax_dist.concentration, jax_dist.scale_matrix)
+
+
 def _TruncatedNormal(loc, scale, low, high):
     return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
 
@@ -444,6 +451,7 @@ _DIST_MAP = {
         c=conc,
         scale=scale,
     ),
+    dist.Wishart: _wishart_to_scipy,
     _TruncatedNormal: _truncnorm_to_scipy,
 }
 
@@ -775,6 +783,42 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.Wishart, 3, 2 * np.eye(2) + 0.1, None, None),
+    T(
+        dist.Wishart,
+        3.0,
+        None,
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
+        None,
+    ),
+    T(
+        dist.Wishart,
+        np.array([4.0, 5.0]),
+        None,
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        None,
+    ),
+    T(
+        dist.Wishart,
+        np.array([3.0]),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.Wishart,
+        np.arange(3, 9, dtype=np.float32).reshape((3, 2)),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
+    ),
+    T(
+        dist.Wishart,
+        9.0,
+        None,
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+        None,
+    ),
     T(dist.ZeroSumNormal, 1.0, (5,)),
     T(dist.ZeroSumNormal, np.array([2.0]), (5,)),
     T(dist.ZeroSumNormal, 1.0, (4, 5)),
@@ -1120,7 +1164,13 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
         and not isinstance(jax_dist, dist.MultivariateStudentT)
     ):
         sp_dist = sp_dist(*params)
-        sp_samples = sp_dist.rvs(size=prepend_shape + jax_dist.batch_shape)
+        size = prepend_shape + jax_dist.batch_shape
+        # The scipy implementation of the Wishart distribution cannot handle an empty
+        # tuple as the sample size so we replace it by `1` which generates a single
+        # sample without any sample shape.
+        if isinstance(jax_dist, dist.Wishart):
+            size = size or 1
+        sp_samples = sp_dist.rvs(size=size)
         assert jnp.shape(sp_samples) == expected_shape
     elif (
         sp_dist
@@ -1481,7 +1531,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
 def test_gof(jax_dist, sp_dist, params):
     if "Improper" in jax_dist.__name__:
         pytest.skip("distribution has improper .log_prob()")
-    if "LKJ" in jax_dist.__name__:
+    if "LKJ" in jax_dist.__name__ or "Wishart" in jax_dist.__name__:
         pytest.xfail("incorrect submanifold scaling")
     if jax_dist is dist.EulerMaruyama:
         d = jax_dist(*params)
