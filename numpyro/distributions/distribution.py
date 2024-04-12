@@ -1140,6 +1140,8 @@ class Delta(Distribution):
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(self, key, sample_shape=()):
+        if not sample_shape:
+            return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
         return jnp.broadcast_to(self.v, shape)
 
