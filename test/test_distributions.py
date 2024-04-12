@@ -2769,6 +2769,17 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     # Test that parameters do not change after flattening.
     expected_dist = f(0)
     actual_dist = jax.jit(f)(0)
+    for name in expected_dist.arg_constraints:
+        expected_arg = getattr(expected_dist, name)
+        actual_arg = getattr(actual_dist, name)
+        assert actual_arg is not None, f"arg {name} is None"
+        if np.issubdtype(np.asarray(expected_arg).dtype, np.number):
+            assert_allclose(actual_arg, expected_arg)
+        else:
+            assert (
+                actual_arg.shape == expected_arg.shape
+                and actual_arg.dtype == expected_arg.dtype
+            )
     expected_sample = expected_dist.sample(random.PRNGKey(0))
     actual_sample = actual_dist.sample(random.PRNGKey(0))
     expected_log_prob = expected_dist.log_prob(expected_sample)
