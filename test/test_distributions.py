@@ -1235,8 +1235,15 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_infer_shapes(jax_dist, sp_dist, params):
-    shapes = tuple(getattr(p, "shape", ()) for p in params)
-    shapes = tuple(x() if callable(x) else x for x in shapes)
+    shapes = []
+    for param in params:
+        if param is None:
+            shapes.append(None)
+            continue
+        shape = getattr(param, "shape", ())
+        if callable(shape):
+            shape = shape()
+        shapes.append(shape)
     jax_dist = jax_dist(*params)
     try:
         expected_batch_shape, expected_event_shape = type(jax_dist).infer_shapes(

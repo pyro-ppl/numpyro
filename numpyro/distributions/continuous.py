@@ -64,6 +64,7 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import (
     add_diag,
+    assert_one_of,
     betainc,
     betaincinv,
     cholesky_of_inverse,
@@ -1490,6 +1491,11 @@ class MultivariateNormal(Distribution):
         scale_tril=None,
         validate_args=None,
     ):
+        assert_one_of(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
+        )
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
@@ -1502,11 +1508,6 @@ class MultivariateNormal(Distribution):
             self.scale_tril = cholesky_of_inverse(self.precision_matrix)
         elif scale_tril is not None:
             loc, self.scale_tril = promote_shapes(loc, scale_tril)
-        else:
-            raise ValueError(
-                "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
-                " must be specified."
-            )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
         )
@@ -1563,12 +1564,17 @@ class MultivariateNormal(Distribution):
     def infer_shapes(
         loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
     ):
+        assert_one_of(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
+        )
         batch_shape, event_shape = loc[:-1], loc[-1:]
         for matrix in [covariance_matrix, precision_matrix, scale_tril]:
             if matrix is not None:
                 batch_shape = lax.broadcast_shapes(batch_shape, matrix[:-2])
                 event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
-        return batch_shape, event_shape
+                return batch_shape, event_shape
 
     def entropy(self):
         (n,) = self.event_shape
@@ -2729,6 +2735,11 @@ class WishartCholesky(Distribution):
         *,
         validate_args=None,
     ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
         concentration = jnp.asarray(concentration)[..., None, None]
         if scale_matrix is not None:
             concentration, self.scale_matrix = promote_shapes(

@@ -623,6 +623,17 @@ def is_prng_key(key):
         return False
 
 
+def assert_one_of(**kwargs):
+    """
+    Assert that exactly one of the keyword arguments is not None.
+    """
+    specified = [key for key, value in kwargs.items() if value is not None]
+    if len(specified) != 1:
+        raise ValueError(
+            f"Exactly one of {list(kwargs)} must be specified; got {specified}."
+        )
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
