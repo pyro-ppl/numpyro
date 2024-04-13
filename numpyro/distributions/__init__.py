@@ -48,6 +48,7 @@ from numpyro.distributions.continuous import (
     Uniform,
     Weibull,
     Wishart,
+    WishartCholesky,
     ZeroSumNormal,
 )
 from numpyro.distributions.copula import GaussianCopula, GaussianCopulaBeta
@@ -196,6 +197,7 @@ __all__ = [
     "VonMises",
     "Weibull",
     "Wishart",
+    "WishartCholesky",
     "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
     "ZeroInflatedNegativeBinomial2",

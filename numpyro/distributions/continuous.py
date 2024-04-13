@@ -55,6 +55,7 @@ from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
     AffineTransform,
+    CholeskyTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
     PowerTransform,
@@ -2617,7 +2618,7 @@ class ZeroSumNormal(TransformedDistribution):
         return jnp.broadcast_to(theoretical_var, self.batch_shape + self.event_shape)
 
 
-class Wishart(Distribution):
+class Wishart(TransformedDistribution):
     """
     Wishart distribution for covariance matrices.
 
@@ -2650,6 +2651,82 @@ class Wishart(Distribution):
         scale_matrix=None,
         rate_matrix=None,
         scale_tril=None,
+        *,
+        validate_args=None,
+    ):
+        base_dist = WishartCholesky(
+            concentration,
+            scale_matrix,
+            rate_matrix,
+            scale_tril,
+            validate_args=validate_args,
+        )
+        super().__init__(
+            base_dist, CholeskyTransform().inv, validate_args=validate_args
+        )
+
+    @lazy_property
+    def concentration(self):
+        return self.base_dist.concentration
+
+    @lazy_property
+    def scale_matrix(self):
+        return self.base_dist.scale_matrix
+
+    @lazy_property
+    def rate_matrix(self):
+        return self.base_dist.rate_matrix
+
+    @lazy_property
+    def scale_tril(self):
+        return self.base_dist.scale_tril
+
+    @lazy_property
+    def mean(self):
+        return self.concentration[..., None, None] * self.scale_matrix
+
+    @lazy_property
+    def variance(self):
+        diag = jnp.diagonal(self.scale_matrix, axis1=-1, axis2=-2)
+        return self.concentration[..., None, None] * (
+            self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
+        )
+
+
+class WishartCholesky(Distribution):
+    """
+    Cholesky factor of a Wishart distribution for covariance matrices.
+
+    :param concentration: Positive concentration parameter analogous to the
+        concentration of a :class:`Gamma` distribution. The concentration must be larger
+        than the dimensionality of the scale matrix.
+    :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
+        distribution.
+    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+        distribution.
+    :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.lower_cholesky
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration=None,
+        scale_matrix=None,
+        rate_matrix=None,
+        scale_tril=None,
+        *,
         validate_args=None,
     ):
         # Determine the shapes.
@@ -2690,26 +2767,29 @@ class Wishart(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        # The log density of the Wishart distribution includes a term
+        # t = trace(rate_matrix @ cov). Here, value = cholesky(cov) such that
+        # t = trace(value.T @ rate_matrix @ value) by the cyclical property of the
+        # trace. The rate matrix is the inverse scale matrix with Cholesky decomposition
+        # scale_tril. Thus,
+        # t = trace(value.T @ inv(scale_tril).T @ inv(scale_tril) @ value), and we can
+        # rewrite as t = trace(x.T @ x) for x = inv(scale_tril) @ value which we can
+        # obtain easily by solving a triangular system. x is again triangular such that
+        # trace(x @ x.T) is equal to the sum of squares of elements.
+        x = solve_triangular(*jnp.broadcast_arrays(self.scale_tril, value), lower=True)
+        trace = jnp.square(x).sum(axis=(-1, -2))
         p = value.shape[-1]
-        rate_matrix, value = jnp.broadcast_arrays(self.rate_matrix, value)
-        trace = jnp.trace(lax.batch_matmul(rate_matrix, value), axis1=-1, axis2=-2)
         return (
-            (self.concentration - p - 1) / 2 * jnp.linalg.slogdet(value).logabsdet
+            (self.concentration - p - 1) * jnp.linalg.slogdet(value).logabsdet
             - trace / 2
-            - self.concentration * p / 2 * jnp.log(2)
+            + p * (1 - self.concentration / 2) * jnp.log(2)
             - multigammaln(self.concentration / 2, p)
-            + self.concentration * jnp.linalg.slogdet(rate_matrix).logabsdet / 2
-        )
-
-    @lazy_property
-    def mean(self):
-        return self.concentration[..., None, None] * jnp.linalg.inv(self.rate_matrix)
-
-    @lazy_property
-    def variance(self):
-        diag = jnp.diagonal(self.scale_matrix, axis1=-1, axis2=-2)
-        return self.concentration[..., None, None] * (
-            self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
+            - self.concentration * jnp.linalg.slogdet(self.scale_tril).logabsdet
+            # Part of the Jacobian of the Cholesky transformation.
+            + jnp.sum(
+                jnp.arange(p, 0, -1) * jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1)),
+                axis=-1,
+            )
         )
 
     @lazy_property
@@ -2743,5 +2823,27 @@ class Wishart(Distribution):
         latent = latent.at[..., i, j].set(
             random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
         )
-        factor = lax.batch_matmul(*jnp.broadcast_arrays(self.scale_tril, latent))
-        return lax.batch_matmul(factor, factor.mT)
+        return jnp.matmul(*jnp.broadcast_arrays(self.scale_tril, latent))
+
+    @lazy_property
+    def mean(self):
+        # The mean follows from the Bartlett decomposition sampling. All off-diagonal
+        # elements of the latent variable have zero expectation. The diagonal are the
+        # expected square roots of chi^2 variables which can be expressed in terms of
+        # gamma functions (see
+        # https://en.wikipedia.org/wiki/Chi-squared_distribution#Noncentral_moments).
+        k = self.concentration[..., None] - jnp.arange(self.scale_tril.shape[-1])
+        sqrtchi2 = jnp.sqrt(2) * jnp.exp(gammaln((k + 1) / 2) - gammaln(k / 2))
+        return self.scale_tril * sqrtchi2[..., None, :]
+
+    @lazy_property
+    def variance(self):
+        # We have the same as for the mean except now the lower off-diagonals are one
+        # due to the standard normal noise, and the diagonals are equal to the dof of
+        # the chi^2 variables.
+        i = jnp.arange(self.scale_tril.shape[-1])
+        k = self.concentration[..., None] - i
+        latent = jnp.tril(
+            jnp.ones_like(k, shape=k.shape + (k.shape[-1],)).at[..., i, i].set(k)
+        )
+        return jnp.square(self.scale_tril) @ latent - jnp.square(self.mean)

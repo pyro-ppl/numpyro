@@ -388,6 +388,14 @@ Wishart
     :show-inheritance:
     :member-order: bysource
 
+WishartCholesky
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.WishartCholesky
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ZeroSumNormal
 ^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.ZeroSumNormal

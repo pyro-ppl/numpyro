@@ -133,9 +133,10 @@ def _truncnorm_to_scipy(loc, scale, low, high):
 
 def _wishart_to_scipy(conc, scale, rate, tril):
     jax_dist = dist.Wishart(conc, scale, rate, tril)
-    if not np.isscalar(jax_dist.concentration):
+    if not jnp.isscalar(jax_dist.concentration):
         pytest.skip("scipy Wishart only supports a single scalar concentration")
-    return osp.wishart(jax_dist.concentration, jax_dist.scale_matrix)
+    # Cast to float explicitly because np.isscalar returns False on scalar jax arrays.
+    return osp.wishart(float(jax_dist.concentration), jax_dist.scale_matrix)
 
 
 def _TruncatedNormal(loc, scale, low, high):
@@ -814,6 +815,42 @@ CONTINUOUS = [
     ),
     T(
         dist.Wishart,
+        9.0,
+        None,
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+        None,
+    ),
+    T(dist.WishartCholesky, 3, 2 * np.eye(2) + 0.1, None, None),
+    T(
+        dist.WishartCholesky,
+        3.0,
+        None,
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
+        None,
+    ),
+    T(
+        dist.WishartCholesky,
+        np.array([4.0, 5.0]),
+        None,
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        None,
+    ),
+    T(
+        dist.WishartCholesky,
+        np.array([3.0]),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.WishartCholesky,
+        np.arange(3, 9, dtype=np.float32).reshape((3, 2)),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
+    ),
+    T(
+        dist.WishartCholesky,
         9.0,
         None,
         np.broadcast_to(np.identity(3), (2, 3, 3)),
