@@ -2698,6 +2698,14 @@ class Wishart(TransformedDistribution):
             self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
         )
 
+    @staticmethod
+    def infer_shapes(
+        concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        return WishartCholesky.infer_shapes(
+            concentration, scale_matrix, rate_matrix, scale_tril
+        )
+
 
 class WishartCholesky(Distribution):
     """
@@ -2846,3 +2854,18 @@ class WishartCholesky(Distribution):
             jnp.ones_like(k, shape=k.shape + (k.shape[-1],)).at[..., i, i].set(k)
         )
         return jnp.square(self.scale_tril) @ latent - jnp.square(self.mean)
+
+    @staticmethod
+    def infer_shapes(
+        concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        for matrix in [scale_matrix, rate_matrix, scale_tril]:
+            if matrix is not None:
+                batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
+                event_shape = matrix[-2:]
+                return batch_shape, event_shape
