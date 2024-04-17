@@ -320,3 +320,8 @@ intersphinx_mapping = {
     "jax": ("https://jax.readthedocs.io/en/latest/", None),
     "pyro": ("https://docs.pyro.ai/en/stable/", None),
 }
+
+
+# -- Suppress warnings in Sphinx 7.3.5
+
+suppress_warnings = ["config.cache"]
