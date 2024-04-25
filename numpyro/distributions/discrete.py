@@ -108,6 +108,11 @@ class BernoulliProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self):
+        return -self.probs * jnp.log(self.probs) - (1 - self.probs) * jnp.log1p(
+            -self.probs
+        )
+
 
 class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -148,6 +153,10 @@ class BernoulliLogits(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
+
+    def entropy(self):
+        nexp = jnp.exp(-self.logits)
+        return ((1 + nexp) * jnp.log1p(nexp) + nexp * self.logits) / (1 + nexp)
 
 
 def Bernoulli(probs=None, logits=None, *, validate_args=None):
@@ -341,6 +350,9 @@ class CategoricalProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self):
+        return -(self.probs * jnp.log(self.probs)).sum(axis=-1)
+
 
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
@@ -392,6 +404,10 @@ class CategoricalLogits(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
+
+    def entropy(self):
+        probs = softmax(self.logits, axis=-1)
+        return -(probs * self.logits).sum(axis=-1) + logsumexp(self.logits, axis=-1)
 
 
 def Categorical(probs=None, logits=None, *, validate_args=None):
@@ -462,6 +478,9 @@ class DiscreteUniform(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self):
+        return jnp.log(self.high - self.low + 1)
+
 
 class OrderedLogistic(CategoricalProbs):
     """
@@ -497,6 +516,9 @@ class OrderedLogistic(CategoricalProbs):
         batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
         event_shape = ()
         return batch_shape, event_shape
+
+    def entropy(self):
+        raise NotImplementedError
 
 
 class MultinomialProbs(Distribution):
@@ -879,6 +901,11 @@ class GeometricProbs(Distribution):
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
 
+    def entropy(self):
+        return -(1 - self.probs) * jnp.log1p(-self.probs) / self.probs - jnp.log(
+            self.probs
+        )
+
 
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
@@ -913,6 +940,10 @@ class GeometricLogits(Distribution):
     @property
     def variance(self):
         return (1.0 / self.probs - 1.0) / self.probs
+
+    def entropy(self):
+        nexp = jnp.exp(-self.logits)
+        return nexp * self.logits + jnp.log1p(nexp) * (1 + nexp)
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):

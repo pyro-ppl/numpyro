@@ -391,6 +391,12 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
+    def entropy(self):
+        """
+        Returns the entropy of the distribution.
+        """
+        raise NotImplementedError
+
     def expand(self, batch_shape):
         """
         Returns a new :class:`ExpandedDistribution` instance with batch
