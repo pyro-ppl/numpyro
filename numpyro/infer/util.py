@@ -20,7 +20,14 @@ import numpyro
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import condition, replay, seed, substitute, trace
+from numpyro.handlers import (
+    condition,
+    predictive_substitute,
+    replay,
+    seed,
+    substitute,
+    trace,
+)
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import (
     _validate_model,
@@ -973,7 +980,7 @@ class Predictive(object):
         if self.guide is not None:
             rng_key, guide_rng_key = random.split(rng_key)
             # use return_sites='' as a special signal to return all sites
-            guide = substitute(self.guide, params)
+            guide = predictive_substitute(self.guide, params)
             posterior_samples = _predictive(
                 guide_rng_key,
                 guide,
@@ -984,7 +991,7 @@ class Predictive(object):
                 model_args=args,
                 model_kwargs=kwargs,
             )
-        model = substitute(self.model, self.params)
+        model = predictive_substitute(self.model, self.params)
         return _predictive(
             rng_key,
             model,
