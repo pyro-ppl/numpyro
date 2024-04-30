@@ -202,9 +202,7 @@ class Beta(Distribution):
     def entropy(self):
         total = self.concentration0 + self.concentration1
         return (
-            gammaln(self.concentration0)
-            + gammaln(self.concentration1)
-            - gammaln(total)
+            betaln(self.concentration0, self.concentration1)
             - (self.concentration0 - 1) * digamma(self.concentration0)
             - (self.concentration1 - 1) * digamma(self.concentration1)
             + (total - 2) * digamma(total)
