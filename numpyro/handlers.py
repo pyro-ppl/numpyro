@@ -825,37 +825,6 @@ class substitute(Messenger):
             msg["value"] = value
 
 
-class predictive_substitute(substitute):
-    """A subclass of substitute specifically for use within Numpyro's `Predictive`.
-    This subclass does the same thing as `substitute`, but it ignores deterministic sites,
-    which allows for Predictive to perform new samples on deterministic sites.
-
-    .. note:: This handler is mainly used for internal algorithms.
-        Please see `substitute` for more details.
-    """
-
-    def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "mutable", "plate")) or msg.get(
-            "_control_flow_done", False
-        ):
-            if msg["type"] == "control_flow":
-                if self.data is not None:
-                    msg["kwargs"]["substitute_stack"].append(("substitute", self.data))
-                if self.substitute_fn is not None:
-                    msg["kwargs"]["substitute_stack"].append(
-                        ("substitute", self.substitute_fn)
-                    )
-            return
-
-        if self.data is not None:
-            value = self.data.get(msg["name"])
-        else:
-            value = self.substitute_fn(msg)
-
-        if value is not None:
-            msg["value"] = value
-
-
 class do(Messenger):
     """
     Given a stochastic function with some sample statements and a dictionary

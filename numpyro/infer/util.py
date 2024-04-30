@@ -22,7 +22,6 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import (
     condition,
-    predictive_substitute,
     replay,
     seed,
     substitute,
@@ -802,8 +801,17 @@ def _predictive(
                 **model_kwargs,
             )
         else:
+
+            def _samples_wo_deterministic(msg):
+                return (
+                    samples.get(msg["name"]) if msg["type"] != "deterministic" else None
+                )
+
             model_trace = trace(
-                seed(predictive_substitute(masked_model, samples), rng_key)
+                seed(
+                    substitute(masked_model, substitute_fn=_samples_wo_deterministic),
+                    rng_key,
+                )
             ).get_trace(*model_args, **model_kwargs)
             pred_samples = {name: site["value"] for name, site in model_trace.items()}
 
