@@ -408,6 +408,7 @@ _DIST_MAP = {
     dist.Cauchy: lambda loc, scale: osp.cauchy(loc=loc, scale=scale),
     dist.Chi2: lambda df: osp.chi2(df),
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
+    dist.DiscreteUniform: lambda low, high: osp.randint(low, high + 1),
     dist.Exponential: lambda rate: osp.expon(scale=jnp.reciprocal(rate)),
     dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1.0 / rate),
     dist.GeometricProbs: lambda probs: osp.geom(p=probs, loc=-1),
@@ -1388,6 +1389,36 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
         else:
             raise e
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_entropy(jax_dist, sp_dist, params):
+    jax_dist = jax_dist(*params)
+
+    if _is_batched_multivariate(jax_dist):
+        pytest.skip("batching not allowed in multivariate distns.")
+    if sp_dist is None:
+        pytest.skip(reason="no corresponding scipy distribution")
+    try:
+        actual = jax_dist.entropy()
+    except NotImplementedError:
+        pytest.skip(reason="distribution does not implement `entropy`")
+
+    sp_dist = sp_dist(*params)
+    expected = sp_dist.entropy()
+    assert_allclose(actual, expected, atol=1e-5)
+
+
+def test_entropy_categorical():
+    # There is no scipy mapping for categorical distributions, but the multinomial with
+    # one trial has the same entropy--which we check here.
+    logits = jax.random.normal(jax.random.key(9), (7,))
+    probs = _to_probs_multinom(logits)
+    sp_dist = osp.multinomial(1, probs)
+    for jax_dist in [dist.CategoricalLogits(logits), dist.CategoricalProbs(probs)]:
+        assert_allclose(jax_dist.entropy(), sp_dist.entropy())
 
 
 def test_mixture_log_prob():

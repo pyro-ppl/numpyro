@@ -36,6 +36,7 @@ import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import (
     betaln,
+    digamma,
     expi,
     expit,
     gammainc,
@@ -198,6 +199,15 @@ class Beta(Distribution):
     def icdf(self, q):
         return betaincinv(self.concentration1, self.concentration0, q)
 
+    def entropy(self):
+        total = self.concentration0 + self.concentration1
+        return (
+            betaln(self.concentration0, self.concentration1)
+            - (self.concentration0 - 1) * digamma(self.concentration0)
+            - (self.concentration1 - 1) * digamma(self.concentration1)
+            + (total - 2) * digamma(total)
+        )
+
 
 class Cauchy(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -238,6 +248,9 @@ class Cauchy(Distribution):
 
     def icdf(self, q):
         return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
+
+    def entropy(self):
+        return jnp.broadcast_to(jnp.log(4 * np.pi * self.scale), self.batch_shape)
 
 
 class Dirichlet(Distribution):
@@ -292,6 +305,16 @@ class Dirichlet(Distribution):
         batch_shape = concentration[:-1]
         event_shape = concentration[-1:]
         return batch_shape, event_shape
+
+    def entropy(self):
+        (n,) = self.event_shape
+        total = self.concentration.sum(axis=-1)
+        return (
+            gammaln(self.concentration).sum(axis=-1)
+            - gammaln(total)
+            + (total - n) * digamma(total)
+            - ((self.concentration - 1) * digamma(self.concentration)).sum(axis=-1)
+        )
 
 
 class EulerMaruyama(Distribution):
@@ -458,6 +481,9 @@ class Exponential(Distribution):
     def icdf(self, q):
         return -jnp.log1p(-q) / self.rate
 
+    def entropy(self):
+        return 1 - jnp.log(self.rate)
+
 
 class Gamma(Distribution):
     arg_constraints = {
@@ -503,6 +529,14 @@ class Gamma(Distribution):
 
     def icdf(self, q):
         return gammaincinv(self.concentration, q) / self.rate
+
+    def entropy(self):
+        return (
+            self.concentration
+            - jnp.log(self.rate)
+            + gammaln(self.concentration)
+            + (1 - self.concentration) * digamma(self.concentration)
+        )
 
 
 class Chi2(Gamma):
@@ -861,6 +895,9 @@ class Laplace(Distribution):
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
 
+    def entropy(self):
+        return jnp.log(2 * self.scale) + 1
+
 
 class LKJ(TransformedDistribution):
     r"""
@@ -1161,6 +1198,9 @@ class LogNormal(TransformedDistribution):
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
 
+    def entropy(self):
+        return (1 + jnp.log(2 * jnp.pi)) / 2 + self.loc + jnp.log(self.scale)
+
 
 class Logistic(Distribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -1201,6 +1241,9 @@ class Logistic(Distribution):
     def icdf(self, q):
         return self.loc + self.scale * logit(q)
 
+    def entropy(self):
+        return jnp.broadcast_to(jnp.log(self.scale) + 2, self.batch_shape)
+
 
 class LogUniform(TransformedDistribution):
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
@@ -1232,6 +1275,11 @@ class LogUniform(TransformedDistribution):
 
     def cdf(self, x):
         return self.base_dist.cdf(jnp.log(x))
+
+    def entropy(self):
+        log_low = jnp.log(self.low)
+        log_high = jnp.log(self.high)
+        return (log_low + log_high) / 2 + jnp.log(log_high - log_low)
 
 
 def _batch_solve_triangular(A, B):
@@ -1520,6 +1568,13 @@ class MultivariateNormal(Distribution):
                 batch_shape = lax.broadcast_shapes(batch_shape, matrix[:-2])
                 event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
         return batch_shape, event_shape
+
+    def entropy(self):
+        (n,) = self.event_shape
+        half_log_det = jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(
+            -1
+        )
+        return n * (jnp.log(2 * np.pi) + 1) / 2 + half_log_det
 
 
 def _is_sparse(A):
@@ -2062,6 +2117,11 @@ class Normal(Distribution):
     def variance(self):
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
 
+    def entropy(self):
+        return jnp.broadcast_to(
+            (jnp.log(2 * np.pi * self.scale**2) + 1) / 2, self.batch_shape
+        )
+
 
 class Pareto(TransformedDistribution):
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
@@ -2102,6 +2162,9 @@ class Pareto(TransformedDistribution):
 
     def icdf(self, q):
         return self.scale / jnp.power(1 - q, 1 / self.alpha)
+
+    def entropy(self):
+        return jnp.log(self.scale / self.alpha) + 1 + 1 / self.alpha
 
 
 class RelaxedBernoulliLogits(TransformedDistribution):
@@ -2257,6 +2320,15 @@ class StudentT(Distribution):
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
         return scaled * self.scale + self.loc
 
+    def entropy(self):
+        return jnp.broadcast_to(
+            (self.df + 1) / 2 * (digamma((self.df + 1) / 2) - digamma(self.df / 2))
+            + jnp.log(self.df) / 2
+            + betaln(self.df / 2, 0.5)
+            + jnp.log(self.scale),
+            self.batch_shape,
+        )
+
 
 class Uniform(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
@@ -2303,6 +2375,9 @@ class Uniform(Distribution):
         event_shape = ()
         return batch_shape, event_shape
 
+    def entropy(self):
+        return jnp.log(self.high - self.low)
+
 
 class Weibull(Distribution):
     arg_constraints = {
@@ -2346,6 +2421,13 @@ class Weibull(Distribution):
         return self.scale**2 * (
             jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
+        )
+
+    def entropy(self):
+        return (
+            jnp.euler_gamma * (1 - 1 / self.concentration)
+            + jnp.log(self.scale / self.concentration)
+            + 1
         )
 
 
