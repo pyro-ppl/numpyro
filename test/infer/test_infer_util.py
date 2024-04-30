@@ -52,19 +52,19 @@ def beta_bernoulli():
 
     return model, data, true_probs
 
+
 def linear_regression():
     N = 800
     X = dist.Normal(0, 1).sample(random.PRNGKey(0), (N,))
-    y = 1.5 + X*0.7
-
+    y = 1.5 + X * 0.7
 
     def model(X, y=None):
         alpha = numpyro.sample("alpha", dist.Normal(0.0, 5))
         beta = numpyro.sample("beta", dist.Normal(0.0, 1.0))
         sigma = numpyro.sample("sigma", dist.Exponential(1.0))
         with numpyro.plate("plate", len(X)):
-            mu = numpyro.deterministic("mu", alpha + X*beta)
-            numpyro.sample("obs", dist.Normal(sigma, sigma), obs=y)
+            mu = numpyro.deterministic("mu", alpha + X * beta)
+            numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
 
     return model, X, y
 
@@ -89,6 +89,7 @@ def test_predictive(parallel):
     obs = predictive_samples["obs"].reshape((-1,) + true_probs.shape).astype(np.float32)
     assert_allclose(obs.mean(0), true_probs, rtol=0.1)
 
+
 @pytest.mark.parametrize("parallel", [True, False])
 def test_predictive_with_deterministic(parallel):
     """Tests that the default behavior when predicting from models with
@@ -110,6 +111,7 @@ def test_predictive_with_deterministic(parallel):
     # check shapes
     assert predictive_samples["mu"].shape == (100,) + X[:n_preds].shape
     assert predictive_samples["obs"].shape == (100,) + X[:n_preds].shape
+
 
 def test_predictive_with_guide():
     data = jnp.array([1] * 8 + [0] * 2)

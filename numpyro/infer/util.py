@@ -781,7 +781,7 @@ def _predictive(
             posterior_samples,
         )
         prototype_trace = trace(
-            seed(predictive_substitute(masked_model, prototype_sample), subkey)
+            seed(substitute(masked_model, prototype_sample), subkey)
         ).get_trace(*model_args, **model_kwargs)
         first_available_dim = -_guess_max_plate_nesting(prototype_trace) - 1
 
@@ -980,7 +980,7 @@ class Predictive(object):
         if self.guide is not None:
             rng_key, guide_rng_key = random.split(rng_key)
             # use return_sites='' as a special signal to return all sites
-            guide = predictive_substitute(self.guide, params)
+            guide = substitute(self.guide, params)
             posterior_samples = _predictive(
                 guide_rng_key,
                 guide,
@@ -991,7 +991,7 @@ class Predictive(object):
                 model_args=args,
                 model_kwargs=kwargs,
             )
-        model = predictive_substitute(self.model, self.params)
+        model = substitute(self.model, self.params)
         return _predictive(
             rng_key,
             model,
