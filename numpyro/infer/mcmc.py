@@ -192,13 +192,14 @@ def _collect_fn(collect_fields, remove_sites):
     @cached_by(_collect_fn, collect_fields, remove_sites)
     def collect(x):
         if collect_fields:
-            fields = list(attrgetter(*collect_fields)(x[0]))
+            fields = attrgetter(*collect_fields)(x[0])
+            fields = [fields] if len(collect_fields) == 1 else list(fields)
             # fields[0] is guaranteed to be `sample_field`
             sample_sites = fields[0].copy()
             for site in remove_sites:
                 del sample_sites[site]
             fields[0] = sample_sites
-            return fields
+            return fields[0] if len(collect_fields) == 1 else fields
         else:
             return x[0]
 

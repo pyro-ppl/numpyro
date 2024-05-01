@@ -1188,14 +1188,15 @@ def test_none_trajectory_length(num_steps):
         assert all(step == num_steps for step in num_steps_list)
 
 
+@pytest.mark.parametrize("kernel_cls", [NUTS, BarkerMH])
 @pytest.mark.parametrize("remove_sites", [("~z.a", "~z.b"), ("~z.a", "~z.a")])
-def test_remove_sites(remove_sites):
+def test_remove_sites(kernel_cls, remove_sites):
     def model():
         numpyro.sample("a", dist.Normal())
         numpyro.sample("b", dist.Normal())
 
-    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
-    mcmc.run(random.PRNGKey(0))
+    mcmc = MCMC(kernel_cls(model), num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(0), extra_fields=remove_sites)
     samps = mcmc.get_samples()
 
-    assert all(site not in samps for site in remove_sites)
+    assert all([site[3:] not in samps for site in remove_sites])
