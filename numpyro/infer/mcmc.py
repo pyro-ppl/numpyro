@@ -193,13 +193,18 @@ def _collect_fn(collect_fields, remove_sites):
     def collect(x):
         if collect_fields:
             fields = attrgetter(*collect_fields)(x[0])
-            fields = [fields] if len(collect_fields) == 1 else list(fields)
-            # fields[0] is guaranteed to be `sample_field`
-            sample_sites = fields[0].copy()
-            for site in remove_sites:
-                del sample_sites[site]
-            fields[0] = sample_sites
-            return fields[0] if len(collect_fields) == 1 else fields
+
+            if remove_sites != ():
+                fields = [fields] if len(collect_fields) == 1 else list(fields)
+                assert isinstance(fields[0], dict)
+
+                sample_sites = fields[0].copy()
+                for site in remove_sites:
+                    sample_sites.pop(site)
+                fields[0] = sample_sites
+                fields = fields[0] if len(collect_fields) == 1 else fields
+
+            return fields
         else:
             return x[0]
 
@@ -563,7 +568,8 @@ class MCMC(object):
             These are typically the arguments needed by the `model`.
         :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.mcmc.MCMCKernel.default_fields`)
             from the state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to collect during
-            the MCMC run.
+            the MCMC run. Exclude sample sites from collection with "~`sampler.sample_field`.`sample_site`".
+            e.g. "~z.a" will prevent site "a" from being collected if you're using the NUTS sampler.
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
@@ -598,7 +604,9 @@ class MCMC(object):
         :param extra_fields: Extra fields (aside from `"z"`, `"diverging"`) from the
             state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to be collected
             during the MCMC run. Note that subfields can be accessed using dots, e.g.
-            `"adapt_state.step_size"` can be used to collect step sizes at each step.
+            `"adapt_state.step_size"` can be used to collect step sizes at each step. Exclude sample sites from
+            collection with "~`sampler.sample_field`.`sample_site`". e.g. "~z.a" will prevent site "a" from
+            being collected if you're using the NUTS sampler.
         :type extra_fields: tuple or list of str
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn` provided to the kernel. If the kernel is
@@ -634,24 +642,23 @@ class MCMC(object):
                 )
         assert isinstance(extra_fields, (tuple, list))
 
-        collect_fields = {}  # we use a dictionary to ensure `sample_field` always comes first
-        remove_sites = {}
-        for field_name in (
-            (self._sample_field,) + tuple(self._default_fields) + tuple(extra_fields)
-        ):
+        field_names = set(tuple(self._default_fields) + tuple(extra_fields))
+        field_names.discard(self._sample_field)
+        remove_sites = []
+        collect_fields = [self._sample_field]
+
+        for field_name in field_names:
             if field_name.startswith(f"~{self._sample_field}."):
-                remove_sites[(field_name[len(self._sample_field) + 2 :])] = None
+                remove_sites.append(field_name[len(self._sample_field) + 2 :])
             else:
-                collect_fields[field_name] = None
-        collect_fields = tuple(collect_fields.keys())
-        remove_sites = tuple(remove_sites.keys())
+                collect_fields.append(field_name)
 
         partial_map_fn = partial(
             self._single_chain_mcmc,
             args=args,
             kwargs=kwargs,
-            collect_fields=collect_fields,
-            remove_sites=remove_sites,
+            collect_fields=tuple(collect_fields),
+            remove_sites=tuple(remove_sites),
         )
         map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
