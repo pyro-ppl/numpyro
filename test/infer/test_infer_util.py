@@ -53,6 +53,22 @@ def beta_bernoulli():
     return model, data, true_probs
 
 
+def linear_regression():
+    N = 800
+    X = dist.Normal(0, 1).sample(random.PRNGKey(0), (N,))
+    y = 1.5 + X * 0.7
+
+    def model(X, y=None):
+        alpha = numpyro.sample("alpha", dist.Normal(0.0, 5))
+        beta = numpyro.sample("beta", dist.Normal(0.0, 1.0))
+        sigma = numpyro.sample("sigma", dist.Exponential(1.0))
+        with numpyro.plate("plate", len(X)):
+            mu = numpyro.deterministic("mu", alpha + X * beta)
+            numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
+
+    return model, X, y
+
+
 @pytest.mark.parametrize("parallel", [True, False])
 def test_predictive(parallel):
     model, data, true_probs = beta_bernoulli()
@@ -72,6 +88,29 @@ def test_predictive(parallel):
     # check sample mean
     obs = predictive_samples["obs"].reshape((-1,) + true_probs.shape).astype(np.float32)
     assert_allclose(obs.mean(0), true_probs, rtol=0.1)
+
+
+@pytest.mark.parametrize("parallel", [True, False])
+def test_predictive_with_deterministic(parallel):
+    """Tests that the default behavior when predicting from models with
+    deterministic sites doesn't lead to static deterministic sites in the predictive.
+    """
+    n_preds = 400
+    model, X, y = linear_regression()
+    mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
+    mcmc.run(random.PRNGKey(0), X=X, y=y)
+    samples = mcmc.get_samples()
+    predictive = Predictive(model, samples, parallel=parallel)
+    # change the input (X) shape to make sure the deterministic shape changes
+    predictive_samples = predictive(random.PRNGKey(1), X=X[:n_preds])
+    assert predictive_samples.keys() == {"mu", "obs"}
+
+    predictive.return_sites = ["beta", "mu", "obs"]
+    # change the input (X) shape to make sure the deterministic shape changes
+    predictive_samples = predictive(random.PRNGKey(1), X=X[:n_preds])
+    # check shapes
+    assert predictive_samples["mu"].shape == (100,) + X[:n_preds].shape
+    assert predictive_samples["obs"].shape == (100,) + X[:n_preds].shape
 
 
 def test_predictive_with_guide():

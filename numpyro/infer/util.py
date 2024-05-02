@@ -761,6 +761,7 @@ def _predictive(
     return_sites=None,
     infer_discrete=False,
     parallel=True,
+    exclude_deterministic: bool = True,
     model_args=(),
     model_kwargs={},
 ):
@@ -774,7 +775,7 @@ def _predictive(
             posterior_samples,
         )
         prototype_trace = trace(
-            seed(substitute(masked_model, prototype_sample), subkey)
+            seed(condition(masked_model, prototype_sample), subkey)
         ).get_trace(*model_args, **model_kwargs)
         first_available_dim = -_guess_max_plate_nesting(prototype_trace) - 1
 
@@ -795,9 +796,20 @@ def _predictive(
                 **model_kwargs,
             )
         else:
-            model_trace = trace(
-                seed(substitute(masked_model, samples), rng_key)
-            ).get_trace(*model_args, **model_kwargs)
+
+            def _samples_wo_deterministic(msg):
+                return (
+                    samples.get(msg["name"]) if msg["type"] != "deterministic" else None
+                )
+
+            substituted_model = (
+                substitute(masked_model, substitute_fn=_samples_wo_deterministic)
+                if exclude_deterministic
+                else substitute(masked_model, samples)
+            )
+            model_trace = trace(seed(substituted_model, rng_key)).get_trace(
+                *model_args, **model_kwargs
+            )
             pred_samples = {name: site["value"] for name, site in model_trace.items()}
 
         if return_sites is not None:
@@ -870,6 +882,7 @@ class Predictive(object):
 
         + set `batch_ndims=1` to get predictions from a one dimensional batch of the guide and parameters
           with shapes `(num_samples x batch_size x ...)`
+    :param exclude_deterministic: indicates whether to ignore deterministic sites from the posterior samples.
 
     :return: dict of samples from the predictive distribution.
 
@@ -907,6 +920,7 @@ class Predictive(object):
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,
+        exclude_deterministic: bool = True,
     ):
         if posterior_samples is None and num_samples is None:
             raise ValueError(
@@ -967,6 +981,7 @@ class Predictive(object):
         self.parallel = parallel
         self.batch_ndims = batch_ndims
         self._batch_shape = batch_shape
+        self.exclude_deterministic = exclude_deterministic
 
     def _call_with_params(self, rng_key, params, args, kwargs):
         posterior_samples = self.posterior_samples
@@ -983,6 +998,7 @@ class Predictive(object):
                 parallel=self.parallel,
                 model_args=args,
                 model_kwargs=kwargs,
+                exclude_deterministic=self.exclude_deterministic,
             )
         model = substitute(self.model, self.params)
         return _predictive(
@@ -995,6 +1011,7 @@ class Predictive(object):
             parallel=self.parallel,
             model_args=args,
             model_kwargs=kwargs,
+            exclude_deterministic=self.exclude_deterministic,
         )
 
     def __call__(self, rng_key, *args, **kwargs):
