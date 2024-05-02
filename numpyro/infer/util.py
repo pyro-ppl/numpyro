@@ -775,7 +775,7 @@ def _predictive(
             posterior_samples,
         )
         prototype_trace = trace(
-            seed(substitute(masked_model, prototype_sample), subkey)
+            seed(condition(masked_model, prototype_sample), subkey)
         ).get_trace(*model_args, **model_kwargs)
         first_available_dim = -_guess_max_plate_nesting(prototype_trace) - 1
 
