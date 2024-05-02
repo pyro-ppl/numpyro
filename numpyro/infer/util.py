@@ -882,9 +882,7 @@ class Predictive(object):
 
         + set `batch_ndims=1` to get predictions from a one dimensional batch of the guide and parameters
           with shapes `(num_samples x batch_size x ...)`
-    :param exclude_deterministic: indicates whether deterministic sites should get sampled
-        regardless of whether they're in the params input or not. If true, deterministic params that
-        are inputted get ignored
+    :param exclude_deterministic: indicates whether to ignore deterministic sites from the posterior samples.
 
     :return: dict of samples from the predictive distribution.
 
