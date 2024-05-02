@@ -761,7 +761,7 @@ def _predictive(
     return_sites=None,
     infer_discrete=False,
     parallel=True,
-    exclude_deterministic_params: bool = True,
+    exclude_deterministic: bool = True,
     model_args=(),
     model_kwargs={},
 ):
@@ -804,7 +804,7 @@ def _predictive(
 
             substituted_model = (
                 substitute(masked_model, substitute_fn=_samples_wo_deterministic)
-                if exclude_deterministic_params
+                if exclude_deterministic
                 else substitute(masked_model, samples)
             )
             model_trace = trace(seed(substituted_model, rng_key)).get_trace(
@@ -882,7 +882,7 @@ class Predictive(object):
 
         + set `batch_ndims=1` to get predictions from a one dimensional batch of the guide and parameters
           with shapes `(num_samples x batch_size x ...)`
-    :param exclude_deterministic_params: indicates whether deterministic sites should get sampled
+    :param exclude_deterministic: indicates whether deterministic sites should get sampled
         regardless of whether they're in the params input or not. If true, deterministic params that
         are inputted get ignored
 
@@ -922,7 +922,7 @@ class Predictive(object):
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,
-        exclude_deterministic_params: bool = True,
+        exclude_deterministic: bool = True,
     ):
         if posterior_samples is None and num_samples is None:
             raise ValueError(
@@ -983,7 +983,7 @@ class Predictive(object):
         self.parallel = parallel
         self.batch_ndims = batch_ndims
         self._batch_shape = batch_shape
-        self.exclude_deterministic_params = exclude_deterministic_params
+        self.exclude_deterministic = exclude_deterministic
 
     def _call_with_params(self, rng_key, params, args, kwargs):
         posterior_samples = self.posterior_samples
@@ -1000,7 +1000,7 @@ class Predictive(object):
                 parallel=self.parallel,
                 model_args=args,
                 model_kwargs=kwargs,
-                exclude_deterministic_params=self.exclude_deterministic_params,
+                exclude_deterministic=self.exclude_deterministic,
             )
         model = substitute(self.model, self.params)
         return _predictive(
@@ -1013,7 +1013,7 @@ class Predictive(object):
             parallel=self.parallel,
             model_args=args,
             model_kwargs=kwargs,
-            exclude_deterministic_params=self.exclude_deterministic_params,
+            exclude_deterministic=self.exclude_deterministic,
         )
 
     def __call__(self, rng_key, *args, **kwargs):
