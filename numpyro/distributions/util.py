@@ -12,6 +12,7 @@ import jax
 from jax import jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
+from jax.scipy.special import digamma
 
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
@@ -632,6 +633,13 @@ def assert_one_of(**kwargs):
         raise ValueError(
             f"Exactly one of {list(kwargs)} must be specified; got {specified}."
         )
+
+
+def multidigamma(a: jnp.ndarray, d: jnp.ndarray) -> jnp.ndarray:
+    """
+    Derivative of the log of multivariate gamma.
+    """
+    return digamma(a[..., None] - 0.5 * jnp.arange(d)).sum(axis=-1)
 
 
 # The is sourced from: torch.distributions.util.py

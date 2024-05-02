@@ -71,6 +71,7 @@ from numpyro.distributions.util import (
     gammaincinv,
     lazy_property,
     matrix_to_tril_vec,
+    multidigamma,
     promote_shapes,
     signed_stick_breaking_tril,
     validate_sample,
@@ -2704,6 +2705,16 @@ class Wishart(TransformedDistribution):
     ):
         return WishartCholesky.infer_shapes(
             concentration, scale_matrix, rate_matrix, scale_tril
+        )
+
+    def entropy(self):
+        p = self.event_shape[-1]
+        return (
+            (p + 1) * jnp.linalg.slogdet(self.scale_tril).logabsdet
+            + p * (p + 1) / 2 * jnp.log(2)
+            + multigammaln(self.concentration / 2, p)
+            - (self.concentration - p - 1) / 2 * multidigamma(self.concentration / 2, p)
+            + self.concentration * p / 2
         )
 
 
