@@ -642,23 +642,24 @@ class MCMC(object):
                 )
         assert isinstance(extra_fields, (tuple, list))
 
-        field_names = set(tuple(self._default_fields) + tuple(extra_fields))
-        field_names.discard(self._sample_field)
-        remove_sites = []
-        collect_fields = [self._sample_field]
-
-        for field_name in field_names:
+        collect_fields = {}
+        remove_sites = {}
+        for field_name in (
+            (self._sample_field,) + tuple(self._default_fields) + tuple(extra_fields)
+        ):
             if field_name.startswith(f"~{self._sample_field}."):
-                remove_sites.append(field_name[len(self._sample_field) + 2 :])
+                remove_sites[(field_name[len(self._sample_field) + 2 :])] = None
             else:
-                collect_fields.append(field_name)
+                collect_fields[field_name] = None
+        collect_fields = tuple(collect_fields.keys())
+        remove_sites = tuple(remove_sites.keys())
 
         partial_map_fn = partial(
             self._single_chain_mcmc,
             args=args,
             kwargs=kwargs,
-            collect_fields=tuple(collect_fields),
-            remove_sites=tuple(remove_sites),
+            collect_fields=collect_fields,
+            remove_sites=remove_sites,
         )
         map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
