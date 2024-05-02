@@ -7,7 +7,6 @@ import jax.numpy as jnp
 
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
-from numpyro.distributions.util import validate_sample
 from numpyro.util import is_prng_key
 
 
@@ -145,7 +144,7 @@ class _MixtureBase(Distribution):
     def sample(self, key, sample_shape=()):
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
-    @validate_sample
+    # @validate_sample
     def log_prob(self, value, intermediates=None):
         del intermediates
         sum_log_probs = self.component_log_probs(value)
@@ -308,7 +307,7 @@ class MixtureGeneral(_MixtureBase):
         for d in component_distributions:
             if not isinstance(d, Distribution):
                 raise ValueError(
-                    "All elements of 'component_distributions' must be instaces of "
+                    "All elements of 'component_distributions' must be instances of "
                     "numpyro.distributions.Distribution subclasses"
                 )
         if len(component_distributions) != self.mixture_size:
@@ -320,11 +319,9 @@ class MixtureGeneral(_MixtureBase):
         # TODO: It would be good to check that the support of all the component
         # distributions match, but for now we just check the type, since __eq__
         # isn't consistently implemented for all support types.
-        support_type = type(component_distributions[0].support)
-        if any(
-            type(d.support) is not support_type for d in component_distributions[1:]
-        ):
-            raise ValueError("All component distributions must have the same support.")
+        # support_type = type(component_distributions[0].support)
+        # if any(type(d.support) is not support_type for d in component_distributions[1:]):
+        #     raise ValueError("All component distributions must have the same support.")
 
         self._mixing_distribution = mixing_distribution
         self._component_distributions = component_distributions
@@ -389,9 +386,21 @@ class MixtureGeneral(_MixtureBase):
         return jnp.stack(samples, axis=self.mixture_dim)
 
     def component_log_probs(self, value):
-        component_log_probs = jnp.stack(
-            [d.log_prob(value) for d in self.component_distributions], axis=-1
-        )
+        if self._validate_args:
+            mask = jnp.stack(
+                [d.support(value) for d in self.component_distributions], axis=-1
+            )
+            component_log_probs = jnp.where(
+                mask,
+                jnp.stack(
+                    [d.log_prob(value) for d in self.component_distributions], axis=-1
+                ),
+                -jnp.inf,
+            )
+        else:
+            component_log_probs = jnp.stack(
+                [d.log_prob(value) for d in self.component_distributions], axis=-1
+            )
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
