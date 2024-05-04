@@ -1512,11 +1512,13 @@ def _transform_to_corr_matrix(constraint):
 
 
 @biject_to.register(type(constraints.positive))
+@biject_to.register(type(constraints.nonnegative))
 def _transform_to_positive(constraint):
     return ExpTransform()
 
 
 @biject_to.register(constraints.greater_than)
+@biject_to.register(constraints.greater_than_eq)
 def _transform_to_greater_than(constraint):
     return ComposeTransform(
         [
@@ -1586,6 +1588,7 @@ def _transform_to_ordered_vector(constraint):
 
 
 @biject_to.register(constraints.positive_definite)
+@biject_to.register(constraints.positive_semidefinite)
 def _transform_to_positive_definite(constraint):
     return ComposeTransform([LowerCholeskyTransform(), CholeskyTransform().inv])
 

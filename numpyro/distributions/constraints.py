@@ -34,6 +34,7 @@ __all__ = [
     "corr_matrix",
     "dependent",
     "greater_than",
+    "greater_than_eq",
     "integer_interval",
     "integer_greater_than",
     "interval",
@@ -42,9 +43,11 @@ __all__ = [
     "less_than",
     "lower_cholesky",
     "multinomial",
+    "nonnegative",
     "nonnegative_integer",
     "positive",
     "positive_definite",
+    "positive_semidefinite",
     "positive_integer",
     "real",
     "real_vector",
@@ -291,7 +294,22 @@ class _GreaterThan(Constraint):
         return jnp.array_equal(self.lower_bound, other.lower_bound)
 
 
+class _GreaterThanEq(_GreaterThan):
+    def __call__(self, x):
+        return x >= self.lower_bound
+
+    def __eq__(self, other):
+        if not isinstance(other, _GreaterThanEq):
+            return False
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
+
+
 class _Positive(_SingletonConstraint, _GreaterThan):
+    def __init__(self):
+        super().__init__(0.0)
+
+
+class _Nonnegative(_SingletonConstraint, _GreaterThanEq):
     def __init__(self):
         super().__init__(0.0)
 
@@ -614,6 +632,23 @@ class _PositiveDefinite(_SingletonConstraint):
         )
 
 
+class _PositiveSemiDefinite(_SingletonConstraint):
+    event_dim = 2
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        # check for symmetric
+        symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
+        # check for the smallest eigenvalue is nonnegative
+        nonnegative = jnp.linalg.eigh(x)[0][..., 0] >= 0
+        return symmetric & nonnegative
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
+
+
 class _PositiveOrderedVector(_SingletonConstraint):
     """
     Constrains to a positive real-valued tensor where the elements are monotonically
@@ -731,6 +766,7 @@ corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
+greater_than_eq = _GreaterThanEq
 less_than = _LessThan
 independent = _IndependentConstraint
 integer_interval = _IntegerInterval
@@ -740,10 +776,12 @@ l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
 scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
+nonnegative = _Nonnegative()
 nonnegative_integer = _IntegerNonnegative()
 ordered_vector = _OrderedVector()
 positive = _Positive()
 positive_definite = _PositiveDefinite()
+positive_semidefinite = _PositiveSemiDefinite()
 positive_integer = _IntegerPositive()
 positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
