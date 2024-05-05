@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 This module contains functions for computing eigenvalues and eigenfunctions of the laplace operator.
 """
