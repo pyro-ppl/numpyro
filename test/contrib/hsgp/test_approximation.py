@@ -8,9 +8,9 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro.contrib.hsgp.approximation import (
-    hsgp_approximation_matern,
-    hsgp_approximation_periodic_non_centered,
-    hsgp_approximation_squared_exponential,
+    hsgp_matern,
+    hsgp_periodic_non_centered,
+    hsgp_squared_exponential,
 )
 import numpyro.distributions as dist
 from numpyro.handlers import scope, seed, trace
@@ -48,9 +48,7 @@ def test_approximation_squared_exponential(x, alpha, length, ell, m, non_centere
     def model(x, alpha, length, ell, m, non_centered):
         numpyro.deterministic(
             "f",
-            hsgp_approximation_squared_exponential(
-                x, alpha, length, ell, m, non_centered
-            ),
+            hsgp_squared_exponential(x, alpha, length, ell, m, non_centered),
         )
 
     rng_key = random.PRNGKey(0)
@@ -74,7 +72,7 @@ def test_approximation_squared_exponential(x, alpha, length, ell, m, non_centere
 def test_approximation_matern(x, nu, alpha, length, ell, m, non_centered):
     def model(x, nu, alpha, length, ell, m, non_centered):
         numpyro.deterministic(
-            "f", hsgp_approximation_matern(x, nu, alpha, length, ell, m, non_centered)
+            "f", hsgp_matern(x, nu, alpha, length, ell, m, non_centered)
         )
 
     rng_key = random.PRNGKey(0)
@@ -102,7 +100,7 @@ def test_squared_exponential_gp_one_dim_model(
     def latent_gp(x, alpha, length, ell, m, non_centered):
         return numpyro.deterministic(
             "f",
-            hsgp_approximation_squared_exponential(
+            hsgp_squared_exponential(
                 x=x, alpha=alpha, length=length, ell=ell, m=m, non_centered=non_centered
             ),
         )
@@ -141,7 +139,7 @@ def test_matern_gp_one_dim_model(synthetic_one_dim_data, nu, ell, m, non_centere
     def latent_gp(x, nu, alpha, length, ell, m, non_centered):
         return numpyro.deterministic(
             "f",
-            hsgp_approximation_matern(
+            hsgp_matern(
                 x=x,
                 nu=nu,
                 alpha=alpha,
@@ -191,7 +189,7 @@ def test_periodic_gp_one_dim_model(synthetic_one_dim_data, w0, m):
     def latent_gp(x, alpha, length, w0, m):
         return numpyro.deterministic(
             "f",
-            hsgp_approximation_periodic_non_centered(
+            hsgp_periodic_non_centered(
                 x=x,
                 alpha=alpha,
                 length=length,

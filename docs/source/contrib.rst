@@ -251,7 +251,8 @@ approximate Bayesian Gaussian processes for probabilistic programming. Stat Comp
 5. `Gelman, Vehtari, Simpson, et al., Bayesian workflow book - Birthdays <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`_.
 
 .. note::
-    The code of this module is based on the code of the example `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_.
+    The code of this module is based on the code of the example
+    `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_ by `Omar Sosa Rodríguez <https://github.com/omarfsosa>`_.
 
 sqrt_eigenvalues
 ----------------
@@ -285,14 +286,14 @@ diag_spectral_density_periodic
 ------------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_periodic
 
-hsgp_approximation_squared_exponential
---------------------------------------
-.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_approximation_squared_exponential
+hsgp_squared_exponential
+------------------------
+.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_squared_exponential
 
-hsgp_approximation_matern
--------------------------
-.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_approximation_matern
+hsgp_matern
+-----------
+.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_matern
 
-hsgp_approximation_periodic_non_centered
------------------------------------------
-.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_approximation_periodic_non_centered
+hsgp_periodic_non_centered
+--------------------------
+.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_periodic_non_centered

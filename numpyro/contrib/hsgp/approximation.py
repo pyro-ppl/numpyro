@@ -58,7 +58,7 @@ def linear_approximation(
     return _centered_approximation(phi, spd, m)
 
 
-def hsgp_approximation_squared_exponential(
+def hsgp_squared_exponential(
     x: ArrayImpl,
     alpha: float,
     length: float,
@@ -99,7 +99,7 @@ def hsgp_approximation_squared_exponential(
     return linear_approximation(phi=phi, spd=spd, m=m, non_centered=non_centered)
 
 
-def hsgp_approximation_matern(
+def hsgp_matern(
     x: ArrayImpl,
     nu: float,
     alpha: float,
@@ -140,7 +140,7 @@ def hsgp_approximation_matern(
     return linear_approximation(phi=phi, spd=spd, m=m, non_centered=non_centered)
 
 
-def hsgp_approximation_periodic_non_centered(
+def hsgp_periodic_non_centered(
     x: ArrayImpl, alpha: float, length: float, w0: float, m: int
 ) -> ArrayImpl:
     """
