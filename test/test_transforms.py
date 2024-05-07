@@ -362,6 +362,7 @@ def test_batched_recursive_linear_transform():
         (constraints.corr_cholesky, (10, 10)),
         (constraints.corr_matrix, (21,)),
         (constraints.greater_than(3), ()),
+        (constraints.greater_than_eq(3), ()),
         (constraints.interval(8, 13), (17,)),
         (constraints.l1_ball, (4,)),
         (constraints.less_than(-1), ()),
@@ -369,6 +370,7 @@ def test_batched_recursive_linear_transform():
         (constraints.open_interval(3, 4), ()),
         (constraints.ordered_vector, (5,)),
         (constraints.positive_definite, (6,)),
+        (constraints.positive_semidefinite, (6,)),
         (constraints.positive_ordered_vector, (7,)),
         (constraints.positive, (7,)),
         (constraints.real_matrix, (17,)),
@@ -379,6 +381,7 @@ def test_batched_recursive_linear_transform():
         (constraints.softplus_lower_cholesky, (21,)),
         (constraints.softplus_positive, (2,)),
         (constraints.unit_interval, (4,)),
+        (constraints.nonnegative, (7,)),
     ],
     ids=str,
 )
