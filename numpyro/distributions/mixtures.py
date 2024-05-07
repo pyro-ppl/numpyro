@@ -293,7 +293,12 @@ class MixtureGeneral(_MixtureBase):
     pytree_aux_fields = ("_mixture_size",)
 
     def __init__(
-        self, mixing_distribution, component_distributions, *, validate_args=None
+        self,
+        mixing_distribution,
+        component_distributions,
+        *,
+        support=None,
+        validate_args=None,
     ):
         _check_mixing_distribution(mixing_distribution)
 
@@ -319,9 +324,15 @@ class MixtureGeneral(_MixtureBase):
         # TODO: It would be good to check that the support of all the component
         # distributions match, but for now we just check the type, since __eq__
         # isn't consistently implemented for all support types.
-        # support_type = type(component_distributions[0].support)
-        # if any(type(d.support) is not support_type for d in component_distributions[1:]):
-        #     raise ValueError("All component distributions must have the same support.")
+        self._support = support
+        if support is None:
+            support_type = type(component_distributions[0].support)
+            if any(
+                type(d.support) is not support_type for d in component_distributions[1:]
+            ):
+                raise ValueError(
+                    "All component distributions must have the same support."
+                )
 
         self._mixing_distribution = mixing_distribution
         self._component_distributions = component_distributions
@@ -387,16 +398,14 @@ class MixtureGeneral(_MixtureBase):
 
     def component_log_probs(self, value):
         if self._validate_args:
-            mask = jnp.stack(
-                [d.support(value) for d in self.component_distributions], axis=-1
-            )
-            component_log_probs = jnp.where(
-                mask,
-                jnp.stack(
-                    [d.log_prob(value) for d in self.component_distributions], axis=-1
-                ),
-                -jnp.inf,
-            )
+            component_log_probs = []
+            for d in self.component_distributions:
+                log_prob = d.log_prob(value)
+                if (self._support is not None) and d._validate_args:
+                    mask = d.support(value)
+                    log_prob = jnp.where(mask, log_prob, -jnp.inf)
+                component_log_probs.append(log_prob)
+            component_log_probs = jnp.stack(component_log_probs, axis=-1)
         else:
             component_log_probs = jnp.stack(
                 [d.log_prob(value) for d in self.component_distributions], axis=-1

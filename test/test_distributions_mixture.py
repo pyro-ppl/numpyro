@@ -11,12 +11,19 @@ import numpyro.distributions as dist
 rng_key = jax.random.PRNGKey(42)
 
 
-def get_normal(batch_shape):
+def get_normal(batch_shape, validate_args=None):
     """Get parameterized Normal with given batch shape."""
     loc = jnp.zeros(batch_shape)
     scale = jnp.ones(batch_shape)
-    normal = dist.Normal(loc=loc, scale=scale)
+    normal = dist.Normal(loc=loc, scale=scale, validate_args=validate_args)
     return normal
+
+
+def get_half_normal(batch_shape, validate_args=None):
+    """Get parameterized HalfNormal with given batch shape."""
+    scale = jnp.ones(batch_shape)
+    half_normal = dist.HalfNormal(scale=scale, validate_args=validate_args)
+    return half_normal
 
 
 def get_mvn(batch_shape):
@@ -76,6 +83,46 @@ def test_mixture_broadcast_batch_shape(
             jax_dist_getter(component_batch_shape) for _ in range(nb_mixtures)
         ]
     _test_mixture(mixing_distribution, component_distribution)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (1,), (7,), (2, 5)])
+@pytest.mark.parametrize("validate_args_for_normal", [False, True])
+@pytest.mark.parametrize("validate_args_for_half_normal", [False, True])
+@pytest.mark.filterwarnings(
+    "ignore:Out-of-support values provided to log prob method."
+    " The value argument should be within the support.:UserWarning"
+)
+def test_mixture_with_different_support(
+    batch_shape, validate_args_for_normal, validate_args_for_half_normal
+):
+    mixing_probabilities = jnp.ones(2) / 2
+    mixing_distribution = dist.Categorical(probs=mixing_probabilities)
+    component_distribution = [
+        get_normal(batch_shape, validate_args_for_normal),
+        get_half_normal(batch_shape, validate_args_for_half_normal),
+    ]
+    mixture = dist.MixtureGeneral(
+        mixing_distribution=mixing_distribution,
+        component_distributions=component_distribution,
+        support=True,
+        validate_args=True,
+    )
+    assert mixture.batch_shape == batch_shape
+    sample_shape = (11,)
+    xx = component_distribution[0].sample(rng_key, sample_shape)
+    log_prob_0 = component_distribution[0].log_prob(xx)
+    log_prob_1 = component_distribution[1].log_prob(xx)
+    expected_log_prob = jax.scipy.special.logsumexp(
+        jnp.stack(
+            [
+                log_prob_0 + jnp.log(mixing_probabilities[0]),
+                log_prob_1 + jnp.log(mixing_probabilities[1]),
+            ],
+            axis=-1,
+        ),
+        axis=-1,
+    )
+    assert jnp.allclose(mixture.log_prob(xx), expected_log_prob, atol=1e-5)
 
 
 def _test_mixture(mixing_distribution, component_distribution):
