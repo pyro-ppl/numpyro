@@ -69,6 +69,7 @@ NumPyro documentation
    examples/hmm
    examples/hsgp
    examples/ode
+   tutorials/lotka_volterra_multiple
    examples/neutra
    examples/thompson_sampling
    tutorials/bayesian_hierarchical_stacking
