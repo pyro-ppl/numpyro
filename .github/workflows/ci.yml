@@ -28,12 +28,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install jaxlib
         pip install jax
-        pip install black
         pip install .[doc,test]
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
-    - name: Lint with flake8
+    - name: Lint with ruff
       run: |
         make lint
     - name: Build documentation
@@ -103,7 +102,7 @@ jobs:
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
         pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
-        pytest -vs --durations=20 test/contrib
+        pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
@@ -111,6 +110,7 @@ jobs:
       run: |
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/infer/test_mcmc.py -k "chain or pmap or vmap"
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/contrib/test_tfp.py -k "chain"
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/contrib/stochastic_support/test_dcc.py
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/infer/test_hmc_gibbs.py -k "chain"
     - name: Test custom prng
       run: |

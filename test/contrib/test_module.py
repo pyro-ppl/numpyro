@@ -194,7 +194,7 @@ def test_random_module_mcmc(backend, init, callable_prior):
         kwargs = {}
 
     if callable_prior:
-        prior = (
+        prior = (  # noqa: E731
             lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
         )
     else:

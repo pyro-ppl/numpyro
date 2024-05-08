@@ -198,10 +198,12 @@ class Distribution(metaclass=DistributionMeta):
         d = cls.__new__(cls)
 
         for k, v in pytree_data_fields_dict.items():
-            setattr(d, k, v)
+            if v is not None or not isinstance(getattr(cls, k, None), lazy_property):
+                setattr(d, k, v)
 
         for k, v in pytree_aux_fields_dict.items():
-            setattr(d, k, v)
+            if v is not None or not isinstance(getattr(cls, k, None), lazy_property):
+                setattr(d, k, v)
 
         # disable args validation during `tree_unflatten` it is called by jax with
         # placeholder attributes that would make validation fail
@@ -386,6 +388,12 @@ class Distribution(metaclass=DistributionMeta):
         """
         Returns an array with shape `len(support) x batch_shape`
         containing all values in the support.
+        """
+        raise NotImplementedError
+
+    def entropy(self):
+        """
+        Returns the entropy of the distribution.
         """
         raise NotImplementedError
 
@@ -583,7 +591,7 @@ class ExpandedDistribution(Distribution):
                 )
         return (
             tuple(reversed(reversed_shape)),
-            OrderedDict(expanded_sizes),
+            OrderedDict(reversed(expanded_sizes)),
             OrderedDict(interstitial_sizes),
         )
 
@@ -601,6 +609,8 @@ class ExpandedDistribution(Distribution):
         batch_shape = expanded_sizes + interstitial_sizes
         # shape = sample_shape + expanded_sizes + interstitial_sizes + base_dist.shape()
         samples, intermediates = sample_fn(key, sample_shape=sample_shape + batch_shape)
+        if not interstitial_sizes:
+            return samples, intermediates
 
         interstitial_dims = tuple(self._interstitial_sizes.keys())
         event_dim = len(self.event_shape)
@@ -1138,6 +1148,8 @@ class Delta(Distribution):
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(self, key, sample_shape=()):
+        if not sample_shape:
+            return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
         return jnp.broadcast_to(self.v, shape)
 

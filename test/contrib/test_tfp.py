@@ -280,7 +280,8 @@ def test_sample_unwrapped_mixture_same_family():
             tfd.MixtureSameFamily(
                 mixture_distribution=tfd.Categorical(probs=[0.3, 0.7]),
                 components_distribution=tfd.Normal(
-                    loc=[-1.0, 1], scale=[0.1, 0.5]  # One for each component.
+                    loc=[-1.0, 1],
+                    scale=[0.1, 0.5],  # One for each component.
                 ),
             ),
         )

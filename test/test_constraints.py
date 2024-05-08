@@ -5,23 +5,27 @@ from collections import namedtuple
 
 import pytest
 
-from jax import jit, tree_map, vmap
+from jax import jit, vmap
 import jax.numpy as jnp
+from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 
 SINGLETON_CONSTRAINTS = {
     "boolean": constraints.boolean,
     "circular": constraints.circular,
+    "complex": constraints.complex,
     "corr_cholesky": constraints.corr_cholesky,
     "corr_matrix": constraints.corr_matrix,
     "l1_ball": constraints.l1_ball,
     "lower_cholesky": constraints.lower_cholesky,
     "scaled_unit_lower_cholesky": constraints.scaled_unit_lower_cholesky,
+    "nonnegative": constraints.nonnegative,
     "nonnegative_integer": constraints.nonnegative_integer,
     "ordered_vector": constraints.ordered_vector,
     "positive": constraints.positive,
     "positive_definite": constraints.positive_definite,
+    "positive_semidefinite": constraints.positive_semidefinite,
     "positive_integer": constraints.positive_integer,
     "positive_ordered_vector": constraints.positive_ordered_vector,
     "real": constraints.real,
@@ -46,6 +50,7 @@ PARAMETRIZED_CONSTRAINTS = {
         type(constraints.dependent), (), dict(is_discrete=True, event_dim=2)
     ),
     "greater_than": T(constraints.greater_than, (_a(0.0),), dict()),
+    "greater_than_eq": T(constraints.greater_than_eq, (_a(0.0),), dict()),
     "less_than": T(constraints.less_than, (_a(-1.0),), dict()),
     "independent": T(
         constraints.independent,
@@ -61,6 +66,7 @@ PARAMETRIZED_CONSTRAINTS = {
         dict(),
     ),
     "open_interval": T(constraints.open_interval, (_a(-1.0), _a(1.0)), dict()),
+    "zero_sum": T(constraints.zero_sum, (), dict(event_dim=1)),
 }
 
 # TODO: BijectorConstraint

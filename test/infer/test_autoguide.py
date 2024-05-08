@@ -7,7 +7,7 @@ from numpy.random import RandomState
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jacobian, jit, lax, random
+from jax import jacobian, jit, lax, random, vmap
 from jax.example_libraries.stax import Dense
 import jax.numpy as jnp
 from jax.tree_util import tree_all, tree_map
@@ -23,6 +23,8 @@ from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
+    AutoBatchedLowRankMultivariateNormal,
+    AutoBatchedMultivariateNormal,
     AutoBNAFNormal,
     AutoDAIS,
     AutoDelta,
@@ -155,7 +157,7 @@ def test_logistic_regression(auto_class, Elbo):
     rng_key_init = random.PRNGKey(1)
     if auto_class == AutoGuideList:
         guide = AutoGuideList(model)
-        guide.append(AutoNormal(handlers.block(model, hide=[])))
+        guide.append(AutoNormal(handlers.block(model, hide=["logits"])))
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Elbo())
@@ -1155,6 +1157,18 @@ def test_autoguidelist(auto_classes, Elbo):
             part.quantiles(params=params, quantiles=[0.2, 0.5, 0.8])
 
 
+def test_autoguidelist_deterministic():
+    def model():
+        x = numpyro.sample("x", dist.Normal())
+        numpyro.deterministic("x2", x**2)
+
+    guide = AutoGuideList(model)
+    guide.append(AutoDiagonalNormal(model))
+    seeded_guide = handlers.seed(guide, 8)
+    with pytest.raises(ValueError, match="should not be exposed"):
+        seeded_guide()
+
+
 @pytest.mark.parametrize(
     "auto_class",
     [
@@ -1181,6 +1195,7 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
         numpyro.deterministic("x2", x**2)
 
     guide = AutoGuideList(model)
+    blocked_model = handlers.block(handlers.seed(model, 7), hide=["x2"])
 
     # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
     if auto_class == AutoDAIS:
@@ -1188,24 +1203,24 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(auto_class(model))
+            guide.append(auto_class(blocked_model))
         return
     if auto_class == AutoSemiDAIS:
         with pytest.raises(
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(auto_class(model, local_model=None, global_guide=None))
+            guide.append(auto_class(blocked_model, local_model=None, global_guide=None))
         return
     if auto_class == AutoSurrogateLikelihoodDAIS:
         with pytest.raises(
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(auto_class(model, surrogate_model=None))
+            guide.append(auto_class(blocked_model, surrogate_model=None))
         return
 
-    guide.append(auto_class(model))
+    guide.append(auto_class(blocked_model))
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
     if auto_class in (AutoIAFNormal, AutoBNAFNormal) and max(shape, default=0) <= 1:
         with pytest.raises(
@@ -1226,7 +1241,9 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
             sample_shape=sample_shape,
         )
         assert guide_samples["x"].shape == sample_shape + shape
-        assert guide_samples["x2"].shape == sample_shape + shape
+        # Substitute and trace to get the deterministic sites.
+        trace = handlers.trace(handlers.substitute(model, guide_samples)).get_trace()
+        assert trace["x2"]["value"].shape == sample_shape + shape
 
 
 @pytest.mark.parametrize("use_global_dais_params", [True, False])
@@ -1251,3 +1268,85 @@ def test_dais_vae(use_global_dais_params):
         assert_allclose(
             samples["x"].mean(axis=0), jnp.arange(-5, 5), atol=0.2, rtol=0.1
         )
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoBatchedMultivariateNormal,
+        AutoBatchedLowRankMultivariateNormal,
+    ],
+)
+def test_auto_batched(auto_class) -> None:
+    # Model for batched multivariate normal.
+    off_diag = jnp.asarray([-0.2, 0, 0.5])
+    covs = off_diag[:, None, None] + jnp.eye(4)
+
+    def model():
+        with numpyro.plate("N", off_diag.shape[0]):
+            numpyro.sample("x", dist.MultivariateNormal(0, covs))
+
+    # Run inference.
+    guide = auto_class(model)
+    svi = SVI(model, guide, optax.adam(0.001), Trace_ELBO())
+    result = svi.run(random.PRNGKey(0), 10000)
+    samples = guide.sample_posterior(
+        random.PRNGKey(1), result.params, sample_shape=(1000,)
+    )
+
+    # Verify off-diagonal entries are correlated.
+    empirical_covs = vmap(jnp.cov)(jnp.moveaxis(samples["x"], 0, 2))
+    i, j = jnp.triu_indices(3, 1)
+    empirical_off_diag = empirical_covs[:, i, j].mean(axis=1)
+    corrcoef = jnp.corrcoef(off_diag, empirical_off_diag)[0, 1]
+    assert corrcoef > 0.99
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoBatchedMultivariateNormal,
+        AutoBatchedLowRankMultivariateNormal,
+    ],
+)
+def test_auto_batched_shapes(auto_class) -> None:
+    def model(n, m):
+        distribution = dist.Normal().expand([7]).to_event(1)
+        with numpyro.plate("n", n):
+            x = numpyro.sample("x", distribution)
+        with numpyro.plate("m", m):
+            y = numpyro.sample("y", distribution)
+        return x, y
+
+    with numpyro.handlers.seed(rng_seed=0):
+        auto_class(model)(3, 3)
+
+        with pytest.raises(ValueError, match="inconsistent batch shapes"):
+            auto_class(model)(3, 4)
+
+        with pytest.raises(ValueError, match="Expected 2 batch dimensions"):
+            auto_class(model, batch_ndim=2)(3, 3)
+
+
+@pytest.mark.parametrize(
+    "auto_class", [AutoBatchedMultivariateNormal, AutoBatchedLowRankMultivariateNormal]
+)
+def test_auto_batched_median(auto_class) -> None:
+    def model():
+        distribution = dist.Normal().expand([7]).to_event(1)
+        with numpyro.plate("n", 3):
+            x = numpyro.sample("x", distribution)
+        with numpyro.plate("m", 3):
+            y = numpyro.sample("y", distribution)
+        return x, y
+
+    guide = auto_class(model)
+    with numpyro.handlers.seed(rng_seed=0):
+        trace = numpyro.handlers.trace(guide).get_trace()
+    params = {
+        key: value["value"] for key, value in trace.items() if value["type"] == "param"
+    }
+    median = guide.median(params)
+    assert jnp.allclose(
+        jnp.stack(list(median.values())).ravel(), params["auto_loc"].ravel()
+    )

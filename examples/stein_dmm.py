@@ -18,6 +18,7 @@ The model DMM based on reference [1][2] and the Pyro DMM example: https://pyro.a
 .. image:: ../_static/img/examples/stein_dmm.png
     :align: center
 """
+
 import argparse
 
 import numpy as np

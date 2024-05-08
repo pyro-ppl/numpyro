@@ -29,10 +29,12 @@
 __all__ = [
     "boolean",
     "circular",
+    "complex",
     "corr_cholesky",
     "corr_matrix",
     "dependent",
     "greater_than",
+    "greater_than_eq",
     "integer_interval",
     "integer_greater_than",
     "interval",
@@ -41,9 +43,11 @@ __all__ = [
     "less_than",
     "lower_cholesky",
     "multinomial",
+    "nonnegative",
     "nonnegative_integer",
     "positive",
     "positive_definite",
+    "positive_semidefinite",
     "positive_integer",
     "real",
     "real_vector",
@@ -54,6 +58,7 @@ __all__ = [
     "softplus_lower_cholesky",
     "softplus_positive",
     "unit_interval",
+    "zero_sum",
     "Constraint",
 ]
 
@@ -167,9 +172,9 @@ class _CorrMatrix(_SingletonConstraint):
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
-        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
         # check for the smallest eigenvalue is positive
-        positive = jnp.linalg.eigh(x)[0][..., 0] > 0
+        positive = jnp.linalg.eigvalsh(x)[..., 0] > 0
         # check for diagonal equal to 1
         unit_variance = jnp.all(
             jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1
@@ -289,7 +294,22 @@ class _GreaterThan(Constraint):
         return jnp.array_equal(self.lower_bound, other.lower_bound)
 
 
+class _GreaterThanEq(_GreaterThan):
+    def __call__(self, x):
+        return x >= self.lower_bound
+
+    def __eq__(self, other):
+        if not isinstance(other, _GreaterThanEq):
+            return False
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
+
+
 class _Positive(_SingletonConstraint, _GreaterThan):
+    def __init__(self):
+        super().__init__(0.0)
+
+
+class _Nonnegative(_SingletonConstraint, _GreaterThanEq):
     def __init__(self):
         super().__init__(0.0)
 
@@ -601,10 +621,27 @@ class _PositiveDefinite(_SingletonConstraint):
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
-        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
         # check for the smallest eigenvalue is positive
         positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
+
+
+class _PositiveSemiDefinite(_SingletonConstraint):
+    event_dim = 2
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        # check for symmetric
+        symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
+        # check for the smallest eigenvalue is nonnegative
+        nonnegative = jnp.linalg.eigh(x)[0][..., 0] >= 0
+        return symmetric & nonnegative
 
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(
@@ -627,6 +664,15 @@ class _PositiveOrderedVector(_SingletonConstraint):
         return jax.numpy.broadcast_to(
             jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))), prototype.shape
         )
+
+
+class _Complex(_SingletonConstraint):
+    def __call__(self, x):
+        # XXX: consider to relax this condition to [-inf, inf] interval
+        return (x == x) & (x != float("inf")) & (x != float("-inf"))
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _Real(_SingletonConstraint):
@@ -687,15 +733,40 @@ class _Sphere(_SingletonConstraint):
         return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
 
 
+class _ZeroSum(Constraint):
+    def __init__(self, event_dim=1):
+        self.event_dim = event_dim
+        super().__init__()
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tol = jnp.finfo(x.dtype).eps * x.shape[-1] * 10
+        zerosum_true = True
+        for dim in range(-self.event_dim, 0):
+            zerosum_true = zerosum_true & jnp.allclose(x.sum(dim), 0, atol=tol)
+        return zerosum_true
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.event_dim == other.event_dim
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
+    def tree_flatten(self):
+        return (self.event_dim,), (("event_dim",), dict())
+
+
 # TODO: Make types consistent
 # See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
 circular = _Circular()
+complex = _Complex()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
+greater_than_eq = _GreaterThanEq
 less_than = _LessThan
 independent = _IndependentConstraint
 integer_interval = _IntegerInterval
@@ -705,10 +776,12 @@ l1_ball = _L1Ball()
 lower_cholesky = _LowerCholesky()
 scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
+nonnegative = _Nonnegative()
 nonnegative_integer = _IntegerNonnegative()
 ordered_vector = _OrderedVector()
 positive = _Positive()
 positive_definite = _PositiveDefinite()
+positive_semidefinite = _PositiveSemiDefinite()
 positive_integer = _IntegerPositive()
 positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
@@ -720,3 +793,4 @@ softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _UnitInterval()
 open_interval = _OpenInterval
+zero_sum = _ZeroSum

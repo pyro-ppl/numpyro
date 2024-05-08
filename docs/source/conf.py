@@ -45,7 +45,7 @@ version = ""
 
 if "READTHEDOCS" not in os.environ:
     # if developing locally, use numpyro.__version__ as version
-    from numpyro import __version__  # noqaE402
+    from numpyro import __version__  # noqa: E402
 
     version = __version__
 
@@ -67,6 +67,7 @@ release = version
 # ones.
 extensions = [
     "nbsphinx",
+    "sphinxcontrib.jquery",
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",
     "sphinx.ext.imgconverter",
@@ -319,3 +320,8 @@ intersphinx_mapping = {
     "jax": ("https://jax.readthedocs.io/en/latest/", None),
     "pyro": ("https://docs.pyro.ai/en/stable/", None),
 }
+
+
+# -- Suppress warnings in Sphinx 7.3.5
+
+suppress_warnings = ["config.cache"]

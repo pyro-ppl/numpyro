@@ -36,6 +36,7 @@ NumPyro documentation
    tutorials/model_rendering
    tutorials/bad_posterior_geometry
    tutorials/truncated_distributions
+   tutorials/censoring
 
 .. nbgallery::
    :maxdepth: 1

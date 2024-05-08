@@ -485,8 +485,9 @@ def test_scan_history(history, T):
         x_curr = 0
         for t in markov(range(T), history=history):
             probs = p[x_prev, x_curr, z]
-            x_prev, x_curr = x_curr, numpyro.sample(
-                "x_{}".format(t), dist.Bernoulli(probs)
+            x_prev, x_curr = (
+                x_curr,
+                numpyro.sample("x_{}".format(t), dist.Bernoulli(probs)),
             )
             numpyro.sample("y_{}".format(t), dist.Bernoulli(q[x_curr]), obs=0)
         return x_prev, x_curr
@@ -574,3 +575,18 @@ def test_missing_plate(monkeypatch):
     with pytest.raises(Exception):
         mcmc.run(random.PRNGKey(2), data)
     assert len(_PYRO_STACK) == 0
+
+
+@pytest.mark.parametrize(
+    "i_size, j_size, k_size", [(1, 1, 1), (1, 2, 1), (2, 1, 1), (1, 1, 2)]
+)
+def test_singleton_plate_works(i_size, j_size, k_size):
+    def model():
+        with numpyro.plate("i", i_size, dim=-3):
+            with numpyro.plate("j", j_size, dim=-2):
+                with numpyro.plate("k", k_size, dim=-1):
+                    numpyro.sample("a", dist.Normal())
+
+    model = enum(numpyro.handlers.seed(model, rng_seed=0), first_available_dim=-4)
+
+    log_density(model, (), {}, {})
