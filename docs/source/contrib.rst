@@ -102,11 +102,11 @@ Stochastic Support
 Hilbert Space Gaussian Processes Approximation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This module contains helper functions do use the  Hilbert Space Gaussian Process (HSGP) approximation method
+This module contains helper functions for use in the Hilbert Space Gaussian Process (HSGP) approximation method
 described in [1] and [2].
 
 .. warning::
-    This module is experimental. Currently, it only gaussian processes with one-dimensional inputs.
+    This module is experimental. Currently, it only supports Gaussian processes with one-dimensional inputs.
 
 
 **Why do we need an approximation?** 
@@ -141,7 +141,9 @@ For the one dimensional case the approximation formula, in the non-centered para
     \overbrace{\color{green}{\beta_{j}}}^{\sim \: \text{Normal}(0,1)}
 
 where :math:`\lambda_j` are the eigenvalues of the Laplacian operator, :math:`\phi_{j}(x)` are the eigenfunctions of the
-Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion (see Eq. (8) in [2]).
+Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion (see Eq. (8) in [2]). We expect this
+to be a good approximation for a finite number of :math:`m` terms in the series as long as the inputs values :math:`x`
+are not too close to the boundaries `ell` amd `-ell`.
 
 .. note::
     Even though the periodic kernel is not stationary, one can still adapt and find a similar approximation formula. 
@@ -150,7 +152,7 @@ Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion 
 **Example:**
 
 Here is an example of how to use the HSGP approximation method with NumPyro. We will use the squared exponential kernel.
-Other kernels can be used sim
+Other kernels can be used similarly.
 
     .. code-block:: python
 
@@ -158,7 +160,7 @@ Other kernels can be used sim
         >>> import jax.numpy as jnp
 
         >>> import numpyro
-        >>> from numpyro.contrib.hsgp.approximation import hsgp_approximation_squared_exponential
+        >>> from numpyro.contrib.hsgp.approximation import hsgp_squared_exponential
         >>> import numpyro.distributions as dist
         >>> from numpyro.infer import MCMC, NUTS
 
@@ -184,7 +186,7 @@ Other kernels can be used sim
         ...     length = numpyro.sample("length", dist.InverseGamma(concentration=6, rate=1))
         ...     noise = numpyro.sample("noise", dist.InverseGamma(concentration=12, rate=10))
         ...     # --- Parametrization ---
-        ...     f = hsgp_approximation_squared_exponential(
+        ...     f = hsgp_squared_exponential(
         ...         x=x, alpha=alpha, length=length, ell=ell, m=m, non_centered=non_centered
         ...     )
         ...     # --- Likelihood ---

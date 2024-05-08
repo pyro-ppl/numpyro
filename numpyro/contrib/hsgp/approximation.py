@@ -70,7 +70,7 @@ def hsgp_squared_exponential(
     Hilbert space Gaussian process approximation using the squared exponential kernel.
 
     The main idea of the approach is to combine the associated spectral density of the
-    squared exponential kernel and the spectrum of the Drichlet Laplacian operator to
+    squared exponential kernel and the spectrum of the Dirichlet Laplacian operator to
     obtain a low-rank approximation of the Gram matrix. For more details see [1, 2].
 
     **References:**
@@ -84,8 +84,9 @@ def hsgp_squared_exponential(
     :param ArrayImpl x: input data
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
-    :param float ell: The length of the interval divided by 2
-    :param int m: The number of eigenvalues to compute
+    :param float ell: positive value that parametrizes the length of the one-dimensional box so that the input data
+        lies in the interval [-ell, ell]. We expect the approximation to be valid within this interval
+    :param int m: number of eigenvalues to compute and include in the approximation
     :param bool non_centered: Whether to use a non-centered parameterization. By default, it is set to True
     :return: The low-rank approximation linear model
     :rtype: ArrayImpl
@@ -127,8 +128,9 @@ def hsgp_matern(
     :param float nu: smoothness parameter
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
-    :param float ell: The length of the interval divided by 2
-    :param int m: The number of eigenvalues to compute
+    :param float ell: positive value that parametrizes the length of the one-dimensional box so that the input data
+        lies in the interval [-ell, ell]. We expect the approximation to be valid within this interval.
+    :param int m: number of eigenvalues to compute and include in the approximation
     :param bool non_centered: Whether to use a non-centered parameterization. By default, it is set to True.
     :return: The low-rank approximation linear model
     :rtype: ArrayImpl
@@ -157,7 +159,7 @@ def hsgp_periodic_non_centered(
     :param float alpha: amplitude
     :param float length: length scale
     :param float w0: frequency of the periodic kernel
-    :param int m: number of eigenfunctions in the approximation
+    :param int m: number of eigenvalues to compute and include in the approximation
     :return: The low-rank approximation linear model
     :rtype: ArrayImpl
     """
