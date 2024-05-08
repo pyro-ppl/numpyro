@@ -87,8 +87,8 @@ def hsgp_squared_exponential(
     :param float ell: positive value that parametrizes the length of the one-dimensional box so that the input data
         lies in the interval [-ell, ell]. We expect the approximation to be valid within this interval
     :param int m: number of eigenvalues to compute and include in the approximation
-    :param bool non_centered: Whether to use a non-centered parameterization. By default, it is set to True
-    :return: The low-rank approximation linear model
+    :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True
+    :return: the low-rank approximation linear model
     :rtype: ArrayImpl
     """
     phi = eigenfunctions(x=x, ell=ell, m=m)
@@ -113,7 +113,7 @@ def hsgp_matern(
     Hilbert space Gaussian process approximation using the Matérn kernel.
 
     The main idea of the approach is to combine the associated spectral density of the
-    Matérn kernel kernel and the spectrum of the Drichlet Laplacian operator to obtain
+    Matérn kernel kernel and the spectrum of the Dirichlet Laplacian operator to obtain
     a low-rank approximation of the Gram matrix. For more details see [1, 2].
 
     **References:**
@@ -131,8 +131,8 @@ def hsgp_matern(
     :param float ell: positive value that parametrizes the length of the one-dimensional box so that the input data
         lies in the interval [-ell, ell]. We expect the approximation to be valid within this interval.
     :param int m: number of eigenvalues to compute and include in the approximation
-    :param bool non_centered: Whether to use a non-centered parameterization. By default, it is set to True.
-    :return: The low-rank approximation linear model
+    :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True.
+    :return: the low-rank approximation linear model
     :rtype: ArrayImpl
     """
     phi = eigenfunctions(x=x, ell=ell, m=m)
@@ -160,7 +160,7 @@ def hsgp_periodic_non_centered(
     :param float length: length scale
     :param float w0: frequency of the periodic kernel
     :param int m: number of eigenvalues to compute and include in the approximation
-    :return: The low-rank approximation linear model
+    :return: the low-rank approximation linear model
     :rtype: ArrayImpl
     """
     q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
