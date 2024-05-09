@@ -7,6 +7,7 @@ import jax.numpy as jnp
 
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
+from numpyro.distributions.util import validate_sample
 from numpyro.util import is_prng_key
 
 
@@ -144,7 +145,7 @@ class _MixtureBase(Distribution):
     def sample(self, key, sample_shape=()):
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
-    # @validate_sample
+    @validate_sample
     def log_prob(self, value, intermediates=None):
         del intermediates
         sum_log_probs = self.component_log_probs(value)
@@ -270,6 +271,9 @@ class MixtureGeneral(_MixtureBase):
         ``mixture_size``.
     :param component_distributions: A list of ``mixture_size``
         :class:`~numpyro.distributions.Distribution` objects.
+    :param support: A :class:`~numpyro.distributions.constraints.Constraint`
+        object specifying the support of the mixture distribution. If not
+        provided, the support will be inferred from the component distributions.
 
     **Example**
 
@@ -285,6 +289,20 @@ class MixtureGeneral(_MixtureBase):
        ...     dist.Normal(loc=0.6, scale=1.2),
        ... ]
        >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists)
+       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       ()
+
+    .. doctest::
+
+       >>> import jax
+       >>> import jax.numpy as jnp
+       >>> import numpyro.distributions as dist
+       >>> mixing_dist = dist.Categorical(probs=jnp.ones(2) / 2.)
+       >>> component_dists = [
+       ...     dist.Normal(loc=0.0, scale=1.0),
+       ...     dist.HalfNormal(scale=0.3),
+       ... ]
+       >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists, support=dist.constraints.real)
        >>> mixture.sample(jax.random.PRNGKey(42)).shape
        ()
     """
@@ -333,6 +351,10 @@ class MixtureGeneral(_MixtureBase):
                 raise ValueError(
                     "All component distributions must have the same support."
                 )
+        else:
+            assert isinstance(
+                support, constraints.Constraint
+            ), "support must be a Constraint object"
 
         self._mixing_distribution = mixing_distribution
         self._component_distributions = component_distributions
@@ -365,6 +387,8 @@ class MixtureGeneral(_MixtureBase):
 
     @constraints.dependent_property
     def support(self):
+        if self._support is not None:
+            return self._support
         return self.component_distributions[0].support
 
     @property
@@ -397,19 +421,14 @@ class MixtureGeneral(_MixtureBase):
         return jnp.stack(samples, axis=self.mixture_dim)
 
     def component_log_probs(self, value):
-        if self._validate_args:
-            component_log_probs = []
-            for d in self.component_distributions:
-                log_prob = d.log_prob(value)
-                if (self._support is not None) and d._validate_args:
-                    mask = d.support(value)
-                    log_prob = jnp.where(mask, log_prob, -jnp.inf)
-                component_log_probs.append(log_prob)
-            component_log_probs = jnp.stack(component_log_probs, axis=-1)
-        else:
-            component_log_probs = jnp.stack(
-                [d.log_prob(value) for d in self.component_distributions], axis=-1
-            )
+        component_log_probs = []
+        for d in self.component_distributions:
+            log_prob = d.log_prob(value)
+            if (self._support is not None) and (not d._validate_args):
+                mask = d.support(value)
+                log_prob = jnp.where(mask, log_prob, -jnp.inf)
+            component_log_probs.append(log_prob)
+        component_log_probs = jnp.stack(component_log_probs, axis=-1)
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 

@@ -11,18 +11,18 @@ import numpyro.distributions as dist
 rng_key = jax.random.PRNGKey(42)
 
 
-def get_normal(batch_shape, validate_args=None):
+def get_normal(batch_shape):
     """Get parameterized Normal with given batch shape."""
     loc = jnp.zeros(batch_shape)
     scale = jnp.ones(batch_shape)
-    normal = dist.Normal(loc=loc, scale=scale, validate_args=validate_args)
+    normal = dist.Normal(loc=loc, scale=scale)
     return normal
 
 
-def get_half_normal(batch_shape, validate_args=None):
+def get_half_normal(batch_shape):
     """Get parameterized HalfNormal with given batch shape."""
     scale = jnp.ones(batch_shape)
-    half_normal = dist.HalfNormal(scale=scale, validate_args=validate_args)
+    half_normal = dist.HalfNormal(scale=scale)
     return half_normal
 
 
@@ -86,26 +86,21 @@ def test_mixture_broadcast_batch_shape(
 
 
 @pytest.mark.parametrize("batch_shape", [(), (1,), (7,), (2, 5)])
-@pytest.mark.parametrize("validate_args_for_normal", [False, True])
-@pytest.mark.parametrize("validate_args_for_half_normal", [False, True])
 @pytest.mark.filterwarnings(
     "ignore:Out-of-support values provided to log prob method."
     " The value argument should be within the support.:UserWarning"
 )
-def test_mixture_with_different_support(
-    batch_shape, validate_args_for_normal, validate_args_for_half_normal
-):
+def test_mixture_with_different_support(batch_shape):
     mixing_probabilities = jnp.ones(2) / 2
     mixing_distribution = dist.Categorical(probs=mixing_probabilities)
     component_distribution = [
-        get_normal(batch_shape, validate_args_for_normal),
-        get_half_normal(batch_shape, validate_args_for_half_normal),
+        get_normal(batch_shape),
+        get_half_normal(batch_shape),
     ]
     mixture = dist.MixtureGeneral(
         mixing_distribution=mixing_distribution,
         component_distributions=component_distribution,
-        support=True,
-        validate_args=True,
+        support=dist.constraints.real,
     )
     assert mixture.batch_shape == batch_shape
     sample_shape = (11,)
