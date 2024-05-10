@@ -2710,7 +2710,8 @@ class Wishart(TransformedDistribution):
     def entropy(self):
         p = self.event_shape[-1]
         return (
-            (p + 1) * jnp.linalg.slogdet(self.scale_tril).logabsdet
+            (p + 1)
+            * jnp.log(jnp.diagonal(self.scale_tril, axis1=-1, axis2=-2)).sum(axis=-1)
             + p * (p + 1) / 2 * jnp.log(2)
             + multigammaln(self.concentration / 2, p)
             - (self.concentration - p - 1) / 2 * multidigamma(self.concentration / 2, p)
