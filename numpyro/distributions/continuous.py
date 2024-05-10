@@ -2654,7 +2654,7 @@ class Wishart(TransformedDistribution):
 
     def __init__(
         self,
-        concentration=None,
+        concentration,
         scale_matrix=None,
         rate_matrix=None,
         scale_tril=None,
@@ -2748,7 +2748,7 @@ class WishartCholesky(Distribution):
 
     def __init__(
         self,
-        concentration=None,
+        concentration,
         scale_matrix=None,
         rate_matrix=None,
         scale_tril=None,
