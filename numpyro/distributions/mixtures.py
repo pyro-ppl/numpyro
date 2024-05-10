@@ -307,7 +307,11 @@ class MixtureGeneral(_MixtureBase):
        ()
     """
 
-    pytree_data_fields = ("_mixing_distribution", "_component_distributions")
+    pytree_data_fields = (
+        "_mixing_distribution",
+        "_component_distributions",
+        "_support",
+    )
     pytree_aux_fields = ("_mixture_size",)
 
     def __init__(
