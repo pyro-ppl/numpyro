@@ -104,6 +104,8 @@ def test_mixture_with_different_support(batch_shape):
     )
     assert mixture.batch_shape == batch_shape
     sample_shape = (11,)
+    component_distribution[0]._validate_args = True
+    component_distribution[1]._validate_args = True
     xx = component_distribution[0].sample(rng_key, sample_shape)
     log_prob_0 = component_distribution[0].log_prob(xx)
     log_prob_1 = component_distribution[1].log_prob(xx)
@@ -117,7 +119,8 @@ def test_mixture_with_different_support(batch_shape):
         ),
         axis=-1,
     )
-    assert jnp.allclose(mixture.log_prob(xx), expected_log_prob, atol=1e-5)
+    result = mixture.log_prob(xx)
+    assert jnp.allclose(result, expected_log_prob)
 
 
 def _test_mixture(mixing_distribution, component_distribution):
