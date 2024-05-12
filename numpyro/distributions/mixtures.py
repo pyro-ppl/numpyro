@@ -271,6 +271,9 @@ class MixtureGeneral(_MixtureBase):
         ``mixture_size``.
     :param component_distributions: A list of ``mixture_size``
         :class:`~numpyro.distributions.Distribution` objects.
+    :param support: A :class:`~numpyro.distributions.constraints.Constraint`
+        object specifying the support of the mixture distribution. If not
+        provided, the support will be inferred from the component distributions.
 
     **Example**
 
@@ -288,13 +291,36 @@ class MixtureGeneral(_MixtureBase):
        >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists)
        >>> mixture.sample(jax.random.PRNGKey(42)).shape
        ()
+
+    .. doctest::
+
+       >>> import jax
+       >>> import jax.numpy as jnp
+       >>> import numpyro.distributions as dist
+       >>> mixing_dist = dist.Categorical(probs=jnp.ones(2) / 2.)
+       >>> component_dists = [
+       ...     dist.Normal(loc=0.0, scale=1.0),
+       ...     dist.HalfNormal(scale=0.3),
+       ... ]
+       >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists, support=dist.constraints.real)
+       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       ()
     """
 
-    pytree_data_fields = ("_mixing_distribution", "_component_distributions")
+    pytree_data_fields = (
+        "_mixing_distribution",
+        "_component_distributions",
+        "_support",
+    )
     pytree_aux_fields = ("_mixture_size",)
 
     def __init__(
-        self, mixing_distribution, component_distributions, *, validate_args=None
+        self,
+        mixing_distribution,
+        component_distributions,
+        *,
+        support=None,
+        validate_args=None,
     ):
         _check_mixing_distribution(mixing_distribution)
 
@@ -308,7 +334,7 @@ class MixtureGeneral(_MixtureBase):
         for d in component_distributions:
             if not isinstance(d, Distribution):
                 raise ValueError(
-                    "All elements of 'component_distributions' must be instaces of "
+                    "All elements of 'component_distributions' must be instances of "
                     "numpyro.distributions.Distribution subclasses"
                 )
         if len(component_distributions) != self.mixture_size:
@@ -320,11 +346,19 @@ class MixtureGeneral(_MixtureBase):
         # TODO: It would be good to check that the support of all the component
         # distributions match, but for now we just check the type, since __eq__
         # isn't consistently implemented for all support types.
-        support_type = type(component_distributions[0].support)
-        if any(
-            type(d.support) is not support_type for d in component_distributions[1:]
-        ):
-            raise ValueError("All component distributions must have the same support.")
+        self._support = support
+        if support is None:
+            support_type = type(component_distributions[0].support)
+            if any(
+                type(d.support) is not support_type for d in component_distributions[1:]
+            ):
+                raise ValueError(
+                    "All component distributions must have the same support."
+                )
+        else:
+            assert isinstance(
+                support, constraints.Constraint
+            ), "support must be a Constraint object"
 
         self._mixing_distribution = mixing_distribution
         self._component_distributions = component_distributions
@@ -357,6 +391,8 @@ class MixtureGeneral(_MixtureBase):
 
     @constraints.dependent_property
     def support(self):
+        if self._support is not None:
+            return self._support
         return self.component_distributions[0].support
 
     @property
@@ -389,9 +425,14 @@ class MixtureGeneral(_MixtureBase):
         return jnp.stack(samples, axis=self.mixture_dim)
 
     def component_log_probs(self, value):
-        component_log_probs = jnp.stack(
-            [d.log_prob(value) for d in self.component_distributions], axis=-1
-        )
+        component_log_probs = []
+        for d in self.component_distributions:
+            log_prob = d.log_prob(value)
+            if (self._support is not None) and (not d._validate_args):
+                mask = d.support(value)
+                log_prob = jnp.where(mask, log_prob, -jnp.inf)
+            component_log_probs.append(log_prob)
+        component_log_probs = jnp.stack(component_log_probs, axis=-1)
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
