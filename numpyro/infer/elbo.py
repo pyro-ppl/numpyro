@@ -1016,12 +1016,16 @@ class TraceEnum_ELBO(ELBO):
     is constructed along the lines of reference [1] specialized to the case
     of the ELBO. It supports arbitrary dependency structure for the model
     and guide.
+
     Fine-grained conditional dependency information as recorded in the
     trace is used to reduce the variance of the gradient estimator.
     In particular provenance tracking [2] is used to find the ``cost`` terms
     that depend on each non-reparameterizable sample site.
     Enumerated variables are eliminated using the TVE algorithm for plated
     factor graphs [3].
+
+    .. note:: Currently, the objective does not support AutoContinous guides.
+        We recommend users to use AutoNormal guide as an alternative auto solution.
 
     References
 
