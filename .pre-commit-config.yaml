@@ -3,13 +3,19 @@ repos:
     hooks:
       - id: ruff
         name: ruff
-        entry: ruff
-        args: ["--fix", "--show-source"]
-        files: "numpyro/.*|tests/.*"
+        entry: ruff check
+        args: ["--fix", "--output-format=full"]
+        files: "(.py$)|(.*.ipynb$)"
         language: system
 
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format
+        language: system
+        files: "(.py$)|(.*.ipynb$)"
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v4.6.0
     hooks:
       - id: debug-statements
       - id: check-yaml
