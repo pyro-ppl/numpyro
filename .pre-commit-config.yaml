@@ -5,14 +5,14 @@ repos:
         name: ruff
         entry: ruff check
         args: ["--fix", "--output-format=full"]
-        files: "numpyro/.*|tests/.*|examples/*.py|notebooks/*.ipynb"
+        files: "(.py$)|(.*.ipynb$)"
         language: system
 
       - id: ruff-format
         name: ruff-format
         entry: ruff format
         language: system
-        files: "numpyro/.*|tests/.*|examples/*.py|notebooks/*.ipynb"
+        files: "(.py$)|(.*.ipynb$)"
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
