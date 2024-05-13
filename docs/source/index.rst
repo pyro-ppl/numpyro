@@ -37,6 +37,7 @@ NumPyro documentation
    tutorials/bad_posterior_geometry
    tutorials/truncated_distributions
    tutorials/censoring
+   tutorials/hsgp_example
 
 .. nbgallery::
    :maxdepth: 1
