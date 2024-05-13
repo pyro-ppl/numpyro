@@ -509,8 +509,9 @@ class Distribution(metaclass=DistributionMeta):
         # Assumes distribution is univariate.
         batch_shapes = []
         for name, shape in kwargs.items():
-            event_dim = cls.arg_constraints.get(name, constraints.real).event_dim
-            batch_shapes.append(shape[: len(shape) - event_dim])
+            if shape is not None:
+                event_dim = cls.arg_constraints.get(name, constraints.real).event_dim
+                batch_shapes.append(shape[: len(shape) - event_dim])
         batch_shape = lax.broadcast_shapes(*batch_shapes) if batch_shapes else ()
         event_shape = ()
         return batch_shape, event_shape

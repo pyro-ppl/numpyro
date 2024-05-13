@@ -131,6 +131,14 @@ def _truncnorm_to_scipy(loc, scale, low, high):
     return osp.truncnorm(a, b, loc=loc, scale=scale)
 
 
+def _wishart_to_scipy(conc, scale, rate, tril):
+    jax_dist = dist.Wishart(conc, scale, rate, tril)
+    if not jnp.isscalar(jax_dist.concentration):
+        pytest.skip("scipy Wishart only supports a single scalar concentration")
+    # Cast to float explicitly because np.isscalar returns False on scalar jax arrays.
+    return osp.wishart(float(jax_dist.concentration), jax_dist.scale_matrix)
+
+
 def _TruncatedNormal(loc, scale, low, high):
     return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
 
@@ -444,6 +452,7 @@ _DIST_MAP = {
         c=conc,
         scale=scale,
     ),
+    dist.Wishart: _wishart_to_scipy,
     _TruncatedNormal: _truncnorm_to_scipy,
 }
 
@@ -775,6 +784,78 @@ CONTINUOUS = [
     T(dist.Weibull, 0.2, 1.1),
     T(dist.Weibull, 2.8, np.array([2.0, 2.0])),
     T(dist.Weibull, 1.8, np.array([[1.0, 1.0], [2.0, 2.0]])),
+    T(dist.Wishart, 3, 2 * np.eye(2) + 0.1, None, None),
+    T(
+        dist.Wishart,
+        3.0,
+        None,
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
+        None,
+    ),
+    T(
+        dist.Wishart,
+        np.array([4.0, 5.0]),
+        None,
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        None,
+    ),
+    T(
+        dist.Wishart,
+        np.array([3.0]),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.Wishart,
+        np.arange(3, 9, dtype=np.float32).reshape((3, 2)),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
+    ),
+    T(
+        dist.Wishart,
+        9.0,
+        None,
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+        None,
+    ),
+    T(dist.WishartCholesky, 3, 2 * np.eye(2) + 0.1, None, None),
+    T(
+        dist.WishartCholesky,
+        3.0,
+        None,
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
+        None,
+    ),
+    T(
+        dist.WishartCholesky,
+        np.array([4.0, 5.0]),
+        None,
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        None,
+    ),
+    T(
+        dist.WishartCholesky,
+        np.array([3.0]),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.WishartCholesky,
+        np.arange(3, 9, dtype=np.float32).reshape((3, 2)),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
+    ),
+    T(
+        dist.WishartCholesky,
+        9.0,
+        None,
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+        None,
+    ),
     T(dist.ZeroSumNormal, 1.0, (5,)),
     T(dist.ZeroSumNormal, np.array([2.0]), (5,)),
     T(dist.ZeroSumNormal, 1.0, (4, 5)),
@@ -1120,7 +1201,13 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
         and not isinstance(jax_dist, dist.MultivariateStudentT)
     ):
         sp_dist = sp_dist(*params)
-        sp_samples = sp_dist.rvs(size=prepend_shape + jax_dist.batch_shape)
+        size = prepend_shape + jax_dist.batch_shape
+        # The scipy implementation of the Wishart distribution cannot handle an empty
+        # tuple as the sample size so we replace it by `1` which generates a single
+        # sample without any sample shape.
+        if isinstance(jax_dist, dist.Wishart):
+            size = size or 1
+        sp_samples = sp_dist.rvs(size=size)
         assert jnp.shape(sp_samples) == expected_shape
     elif (
         sp_dist
@@ -1148,8 +1235,15 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_infer_shapes(jax_dist, sp_dist, params):
-    shapes = tuple(getattr(p, "shape", ()) for p in params)
-    shapes = tuple(x() if callable(x) else x for x in shapes)
+    shapes = []
+    for param in params:
+        if param is None:
+            shapes.append(None)
+            continue
+        shape = getattr(param, "shape", ())
+        if callable(shape):
+            shape = shape()
+        shapes.append(shape)
     jax_dist = jax_dist(*params)
     try:
         expected_batch_shape, expected_event_shape = type(jax_dist).infer_shapes(
@@ -1394,21 +1488,43 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_entropy(jax_dist, sp_dist, params):
+def test_entropy_scipy(jax_dist, sp_dist, params):
     jax_dist = jax_dist(*params)
 
+    try:
+        actual = jax_dist.entropy()
+    except NotImplementedError:
+        pytest.skip(reason="distribution does not implement `entropy`")
     if _is_batched_multivariate(jax_dist):
         pytest.skip("batching not allowed in multivariate distns.")
     if sp_dist is None:
         pytest.skip(reason="no corresponding scipy distribution")
+
+    sp_dist = sp_dist(*params)
+    expected = sp_dist.entropy()
+    assert_allclose(actual, expected, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_entropy_samples(jax_dist, sp_dist, params):
+    jax_dist = jax_dist(*params)
+
     try:
         actual = jax_dist.entropy()
     except NotImplementedError:
         pytest.skip(reason="distribution does not implement `entropy`")
 
-    sp_dist = sp_dist(*params)
-    expected = sp_dist.entropy()
-    assert_allclose(actual, expected, atol=1e-5)
+    samples = jax_dist.sample(jax.random.key(8), (1000,))
+    neg_log_probs = -jax_dist.log_prob(samples)
+    mean = neg_log_probs.mean(axis=0)
+    stderr = neg_log_probs.std(axis=0) / jnp.sqrt(neg_log_probs.shape[-1] - 1)
+    z = (actual - mean) / stderr
+
+    # Check the z-score is small or that all values are close. This happens, for
+    # example, for uniform distributions with constant log prob and hence zero stderr.
+    assert (jnp.abs(z) < 5).all() or jnp.allclose(actual, neg_log_probs, atol=1e-5)
 
 
 def test_entropy_categorical():
@@ -1481,7 +1597,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
 def test_gof(jax_dist, sp_dist, params):
     if "Improper" in jax_dist.__name__:
         pytest.skip("distribution has improper .log_prob()")
-    if "LKJ" in jax_dist.__name__:
+    if "LKJ" in jax_dist.__name__ or "Wishart" in jax_dist.__name__:
         pytest.xfail("incorrect submanifold scaling")
     if jax_dist is dist.EulerMaruyama:
         d = jax_dist(*params)

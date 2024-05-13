@@ -12,6 +12,7 @@ import jax
 from jax import jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
+from jax.scipy.special import digamma
 
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
@@ -621,6 +622,31 @@ def is_prng_key(key):
         return key.shape == (2,) and key.dtype == np.uint32
     except AttributeError:
         return False
+
+
+def assert_one_of(**kwargs):
+    """
+    Assert that exactly one of the keyword arguments is not None.
+    """
+    specified = [key for key, value in kwargs.items() if value is not None]
+    if len(specified) != 1:
+        raise ValueError(
+            f"Exactly one of {list(kwargs)} must be specified; got {specified}."
+        )
+
+
+def multidigamma(a: jnp.ndarray, d: jnp.ndarray) -> jnp.ndarray:
+    """
+    Derivative of the log of multivariate gamma.
+    """
+    return digamma(a[..., None] - 0.5 * jnp.arange(d)).sum(axis=-1)
+
+
+def tri_logabsdet(a: jnp.ndarray) -> jnp.ndarray:
+    """
+    Evaluate the `logabsdet` of a triangular positive-definite matrix.
+    """
+    return jnp.log(jnp.diagonal(a, axis1=-1, axis2=-2)).sum(axis=-1)
 
 
 # The is sourced from: torch.distributions.util.py

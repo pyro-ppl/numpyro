@@ -37,6 +37,7 @@ from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlo
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    assert_one_of,
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
@@ -160,12 +161,11 @@ class BernoulliLogits(Distribution):
 
 
 def Bernoulli(probs=None, logits=None, *, validate_args=None):
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BernoulliProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return BernoulliLogits(logits, validate_args=validate_args)
-    else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
 
 
 class BinomialProbs(Distribution):
@@ -293,12 +293,11 @@ class BinomialLogits(Distribution):
 
 
 def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BinomialProbs(probs, total_count, validate_args=validate_args)
     elif logits is not None:
         return BinomialLogits(logits, total_count, validate_args=validate_args)
-    else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
 
 
 class CategoricalProbs(Distribution):
@@ -411,12 +410,11 @@ class CategoricalLogits(Distribution):
 
 
 def Categorical(probs=None, logits=None, *, validate_args=None):
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return CategoricalProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return CategoricalLogits(logits, validate_args=validate_args)
-    else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
 
 
 class DiscreteUniform(Distribution):
@@ -670,6 +668,7 @@ def Multinomial(
     :param int total_count_max: the maximum number of trials,
         i.e. `max(total_count)`
     """
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return MultinomialProbs(
             probs,
@@ -684,8 +683,6 @@ def Multinomial(
             total_count_max=total_count_max,
             validate_args=validate_args,
         )
-    else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
 
 
 class Poisson(Distribution):
@@ -837,10 +834,7 @@ def ZeroInflatedDistribution(
     :param numpy.ndarray gate: probability of extra zeros given via a Bernoulli distribution.
     :param numpy.ndarray gate_logits: logits of extra zeros given via a Bernoulli distribution.
     """
-    if (gate is None) == (gate_logits is None):
-        raise ValueError(
-            "Either `gate` or `gate_logits` must be specified, but not both."
-        )
+    assert_one_of(gate=gate, gate_logits=gate_logits)
     if gate is not None:
         return ZeroInflatedProbs(base_dist, gate, validate_args=validate_args)
     else:
@@ -947,9 +941,8 @@ class GeometricLogits(Distribution):
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return GeometricProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return GeometricLogits(logits, validate_args=validate_args)
-    else:
-        raise ValueError("One of `probs` or `logits` must be specified.")

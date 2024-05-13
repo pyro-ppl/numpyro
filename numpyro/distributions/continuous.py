@@ -55,6 +55,7 @@ from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
     AffineTransform,
+    CholeskyTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
     PowerTransform,
@@ -63,14 +64,17 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import (
     add_diag,
+    assert_one_of,
     betainc,
     betaincinv,
     cholesky_of_inverse,
     gammaincinv,
     lazy_property,
     matrix_to_tril_vec,
+    multidigamma,
     promote_shapes,
     signed_stick_breaking_tril,
+    tri_logabsdet,
     validate_sample,
     vec_to_tril_matrix,
 )
@@ -1397,12 +1401,8 @@ class MatrixNormal(Distribution):
     def log_prob(self, values):
         n, p = self.event_shape
 
-        row_log_det = jnp.log(
-            jnp.diagonal(self.scale_tril_row, axis1=-2, axis2=-1)
-        ).sum(-1)
-        col_log_det = jnp.log(
-            jnp.diagonal(self.scale_tril_column, axis1=-2, axis2=-1)
-        ).sum(-1)
+        row_log_det = tri_logabsdet(self.scale_tril_row)
+        col_log_det = tri_logabsdet(self.scale_tril_column)
         log_det_term = (
             p * row_log_det + n * col_log_det + 0.5 * n * p * jnp.log(2 * jnp.pi)
         )
@@ -1489,6 +1489,11 @@ class MultivariateNormal(Distribution):
         scale_tril=None,
         validate_args=None,
     ):
+        assert_one_of(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
+        )
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
@@ -1501,11 +1506,6 @@ class MultivariateNormal(Distribution):
             self.scale_tril = cholesky_of_inverse(self.precision_matrix)
         elif scale_tril is not None:
             loc, self.scale_tril = promote_shapes(loc, scale_tril)
-        else:
-            raise ValueError(
-                "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
-                " must be specified."
-            )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
         )
@@ -1529,9 +1529,7 @@ class MultivariateNormal(Distribution):
     @validate_sample
     def log_prob(self, value):
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
-        half_log_det = jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(
-            -1
-        )
+        half_log_det = tri_logabsdet(self.scale_tril)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * jnp.log(
             2 * jnp.pi
         )
@@ -1562,18 +1560,21 @@ class MultivariateNormal(Distribution):
     def infer_shapes(
         loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
     ):
+        assert_one_of(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
+        )
         batch_shape, event_shape = loc[:-1], loc[-1:]
         for matrix in [covariance_matrix, precision_matrix, scale_tril]:
             if matrix is not None:
                 batch_shape = lax.broadcast_shapes(batch_shape, matrix[:-2])
                 event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
-        return batch_shape, event_shape
+                return batch_shape, event_shape
 
     def entropy(self):
         (n,) = self.event_shape
-        half_log_det = jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(
-            -1
-        )
+        half_log_det = tri_logabsdet(self.scale_tril)
         return n * (jnp.log(2 * np.pi) + 1) / 2 + half_log_det
 
 
@@ -1849,7 +1850,7 @@ class MultivariateStudentT(Distribution):
     def log_prob(self, value):
         n = self.scale_tril.shape[-1]
         Z = (
-            jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+            tri_logabsdet(self.scale_tril)
             + 0.5 * n * jnp.log(self.df)
             + 0.5 * n * jnp.log(jnp.pi)
             + gammaln(0.5 * self.df)
@@ -1924,9 +1925,7 @@ def _batch_lowrank_logdet(W, D, capacitance_tril):
     where :math:`C` is the capacitance matrix :math:`I + W.T @ inv(D) @ W`, to compute
     the log determinant.
     """
-    return 2 * jnp.sum(
-        jnp.log(jnp.diagonal(capacitance_tril, axis1=-2, axis2=-1)), axis=-1
-    ) + jnp.log(D).sum(-1)
+    return 2 * tri_logabsdet(capacitance_tril) + jnp.log(D).sum(-1)
 
 
 def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
@@ -2615,3 +2614,260 @@ class ZeroSumNormal(TransformedDistribution):
             theoretical_var *= 1 - 1 / self.event_shape[axis]
 
         return jnp.broadcast_to(theoretical_var, self.batch_shape + self.event_shape)
+
+
+class Wishart(TransformedDistribution):
+    """
+    Wishart distribution for covariance matrices.
+
+    :param concentration: Positive concentration parameter analogous to the
+        concentration of a :class:`Gamma` distribution. The concentration must be larger
+        than the dimensionality of the scale matrix.
+    :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
+        distribution.
+    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+        distribution.
+    :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.positive_definite
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration,
+        scale_matrix=None,
+        rate_matrix=None,
+        scale_tril=None,
+        *,
+        validate_args=None,
+    ):
+        base_dist = WishartCholesky(
+            concentration,
+            scale_matrix,
+            rate_matrix,
+            scale_tril,
+            validate_args=validate_args,
+        )
+        super().__init__(
+            base_dist, CholeskyTransform().inv, validate_args=validate_args
+        )
+
+    @lazy_property
+    def concentration(self):
+        return self.base_dist.concentration
+
+    @lazy_property
+    def scale_matrix(self):
+        return self.base_dist.scale_matrix
+
+    @lazy_property
+    def rate_matrix(self):
+        return self.base_dist.rate_matrix
+
+    @lazy_property
+    def scale_tril(self):
+        return self.base_dist.scale_tril
+
+    @lazy_property
+    def mean(self):
+        return self.concentration[..., None, None] * self.scale_matrix
+
+    @lazy_property
+    def variance(self):
+        diag = jnp.diagonal(self.scale_matrix, axis1=-1, axis2=-2)
+        return self.concentration[..., None, None] * (
+            self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
+        )
+
+    @staticmethod
+    def infer_shapes(
+        concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        return WishartCholesky.infer_shapes(
+            concentration, scale_matrix, rate_matrix, scale_tril
+        )
+
+    def entropy(self):
+        p = self.event_shape[-1]
+        return (
+            (p + 1) * tri_logabsdet(self.scale_tril)
+            + p * (p + 1) / 2 * jnp.log(2)
+            + multigammaln(self.concentration / 2, p)
+            - (self.concentration - p - 1) / 2 * multidigamma(self.concentration / 2, p)
+            + self.concentration * p / 2
+        )
+
+
+class WishartCholesky(Distribution):
+    """
+    Cholesky factor of a Wishart distribution for covariance matrices.
+
+    :param concentration: Positive concentration parameter analogous to the
+        concentration of a :class:`Gamma` distribution. The concentration must be larger
+        than the dimensionality of the scale matrix.
+    :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
+        distribution.
+    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+        distribution.
+    :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.lower_cholesky
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration,
+        scale_matrix=None,
+        rate_matrix=None,
+        scale_tril=None,
+        *,
+        validate_args=None,
+    ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        concentration = jnp.asarray(concentration)[..., None, None]
+        if scale_matrix is not None:
+            concentration, self.scale_matrix = promote_shapes(
+                concentration, scale_matrix
+            )
+            self.scale_tril = jnp.linalg.cholesky(self.scale_matrix)
+        elif rate_matrix is not None:
+            concentration, self.rate_matrix = promote_shapes(concentration, rate_matrix)
+            self.scale_tril = cholesky_of_inverse(self.rate_matrix)
+        elif scale_tril is not None:
+            concentration, self.scale_tril = promote_shapes(
+                concentration, jnp.asarray(scale_tril)
+            )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration)[:-2], jnp.shape(self.scale_tril)[:-2]
+        )
+        event_shape = jnp.shape(self.scale_tril)[-2:]
+        self.concentration = concentration[..., 0, 0]
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @validate_sample
+    def log_prob(self, value):
+        # The log density of the Wishart distribution includes a term
+        # t = trace(rate_matrix @ cov). Here, value = cholesky(cov) such that
+        # t = trace(value.T @ rate_matrix @ value) by the cyclical property of the
+        # trace. The rate matrix is the inverse scale matrix with Cholesky decomposition
+        # scale_tril. Thus,
+        # t = trace(value.T @ inv(scale_tril).T @ inv(scale_tril) @ value), and we can
+        # rewrite as t = trace(x.T @ x) for x = inv(scale_tril) @ value which we can
+        # obtain easily by solving a triangular system. x is again triangular such that
+        # trace(x @ x.T) is equal to the sum of squares of elements.
+        x = solve_triangular(*jnp.broadcast_arrays(self.scale_tril, value), lower=True)
+        trace = jnp.square(x).sum(axis=(-1, -2))
+        p = value.shape[-1]
+        return (
+            (self.concentration - p - 1) * tri_logabsdet(value)
+            - trace / 2
+            + p * (1 - self.concentration / 2) * jnp.log(2)
+            - multigammaln(self.concentration / 2, p)
+            - self.concentration * tri_logabsdet(self.scale_tril)
+            # Part of the Jacobian of the Cholesky transformation.
+            + jnp.sum(
+                jnp.arange(p, 0, -1) * jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1)),
+                axis=-1,
+            )
+        )
+
+    @lazy_property
+    def scale_matrix(self):
+        return jnp.matmul(self.scale_tril, self.scale_tril.mT)
+
+    @lazy_property
+    def rate_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        # Sample using the Bartlett decomposition
+        # (https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition).
+        rng_diag, rng_offdiag = random.split(key)
+        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
+        p = self.event_shape[-1]
+        i = jnp.arange(p)
+        latent = latent.at[..., i, i].set(
+            jnp.sqrt(
+                random.chisquare(
+                    rng_diag, self.concentration[..., None] - i, latent.shape[:-1]
+                )
+            )
+        )
+        i, j = jnp.tril_indices(p, -1)
+        assert i.size == p * (p - 1) // 2
+        latent = latent.at[..., i, j].set(
+            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
+        )
+        return jnp.matmul(*jnp.broadcast_arrays(self.scale_tril, latent))
+
+    @lazy_property
+    def mean(self):
+        # The mean follows from the Bartlett decomposition sampling. All off-diagonal
+        # elements of the latent variable have zero expectation. The diagonal are the
+        # expected square roots of chi^2 variables which can be expressed in terms of
+        # gamma functions (see
+        # https://en.wikipedia.org/wiki/Chi-squared_distribution#Noncentral_moments).
+        k = self.concentration[..., None] - jnp.arange(self.scale_tril.shape[-1])
+        sqrtchi2 = jnp.sqrt(2) * jnp.exp(gammaln((k + 1) / 2) - gammaln(k / 2))
+        return self.scale_tril * sqrtchi2[..., None, :]
+
+    @lazy_property
+    def variance(self):
+        # We have the same as for the mean except now the lower off-diagonals are one
+        # due to the standard normal noise, and the diagonals are equal to the dof of
+        # the chi^2 variables.
+        i = jnp.arange(self.scale_tril.shape[-1])
+        k = self.concentration[..., None] - i
+        latent = jnp.tril(
+            jnp.ones_like(k, shape=k.shape + (k.shape[-1],)).at[..., i, i].set(k)
+        )
+        return jnp.square(self.scale_tril) @ latent - jnp.square(self.mean)
+
+    @staticmethod
+    def infer_shapes(
+        concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        for matrix in [scale_matrix, rate_matrix, scale_tril]:
+            if matrix is not None:
+                batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
+                event_shape = matrix[-2:]
+                return batch_shape, event_shape

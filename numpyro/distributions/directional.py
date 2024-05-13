@@ -16,6 +16,7 @@ from jax.scipy.special import erf, i0e, i1e, logsumexp
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    assert_one_of,
     lazy_property,
     promote_shapes,
     safe_normalize,
@@ -349,7 +350,9 @@ class SineBivariateVonMises(Distribution):
         weighted_correlation=None,
         validate_args=None,
     ):
-        assert (correlation is None) != (weighted_correlation is None)
+        assert_one_of(
+            correlation=correlation, weighted_correlation=weighted_correlation
+        )
 
         if weighted_correlation is not None:
             correlation = weighted_correlation * jnp.sqrt(
