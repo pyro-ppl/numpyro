@@ -642,6 +642,13 @@ def multidigamma(a: jnp.ndarray, d: jnp.ndarray) -> jnp.ndarray:
     return digamma(a[..., None] - 0.5 * jnp.arange(d)).sum(axis=-1)
 
 
+def tri_logabsdet(a: jnp.ndarray) -> jnp.ndarray:
+    """
+    Evaluate the `logabsdet` of a triangular positive-definite matrix.
+    """
+    return jnp.log(jnp.diagonal(a, axis1=-1, axis2=-2)).sum(axis=-1)
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
