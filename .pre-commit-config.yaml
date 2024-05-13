@@ -3,10 +3,16 @@ repos:
     hooks:
       - id: ruff
         name: ruff
-        entry: ruff
-        args: ["--fix", "--show-source"]
-        files: "numpyro/.*|tests/.*"
+        entry: ruff check
+        args: ["--fix", "--output-format=full"]
+        files: "numpyro/.*|tests/.*|examples/*.py|notebooks/*.ipynb"
         language: system
+
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format
+        language: system
+        files: "numpyro/.*|tests/.*|examples/*.py|notebooks/*.ipynb"
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
