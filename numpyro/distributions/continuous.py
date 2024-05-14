@@ -703,6 +703,14 @@ class InverseGamma(TransformedDistribution):
     def cdf(self, x):
         return 1 - self.base_dist.cdf(1 / x)
 
+    def entropy(self):
+        return (
+            self.concentration
+            + jnp.log(self.rate)
+            + gammaln(self.concentration)
+            - (1 + self.concentration) * digamma(self.concentration)
+        )
+
 
 class Gompertz(Distribution):
     r"""Gompertz Distribution.
