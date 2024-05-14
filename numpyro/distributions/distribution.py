@@ -686,6 +686,9 @@ class ExpandedDistribution(Distribution):
             self.base_dist.variance, self.batch_shape + self.event_shape
         )
 
+    def entropy(self):
+        return jnp.broadcast_to(self.base_dist.entropy(), self.batch_shape)
+
 
 class ImproperUniform(Distribution):
     """
@@ -850,6 +853,10 @@ class Independent(Distribution):
         return self.base_dist.expand(base_batch_shape).to_event(
             self.reinterpreted_batch_ndims
         )
+
+    def entropy(self):
+        axes = range(-self.reinterpreted_batch_ndims, 0)
+        return self.base_dist.entropy().sum(axes)
 
 
 class MaskedDistribution(Distribution):
@@ -1167,6 +1174,9 @@ class Delta(Distribution):
     @property
     def variance(self):
         return jnp.zeros(self.batch_shape + self.event_shape)
+
+    def entropy(self):
+        return -jnp.broadcast_to(self.log_density, self.batch_shape)
 
 
 class Unit(Distribution):

@@ -1041,6 +1041,15 @@ DISCRETE = [
     ),
 ]
 
+BASE = [
+    T(lambda *args: dist.Normal(*args).to_event(2), np.arange(24).reshape(3, 4, 2)),
+    T(lambda *args: dist.Normal(*args).expand((3, 4, 7)), np.arange(7)),
+    T(
+        lambda *args: dist.Normal(*args).to_event(2).expand((7, 3)),
+        np.arange(24).reshape(3, 4, 2),
+    ),
+]
+
 
 def _is_batched_multivariate(jax_dist):
     return len(jax_dist.event_shape) > 0 and len(jax_dist.batch_shape) > 0
@@ -1494,7 +1503,7 @@ def test_entropy_scipy(jax_dist, sp_dist, params):
     try:
         actual = jax_dist.entropy()
     except NotImplementedError:
-        pytest.skip(reason="distribution does not implement `entropy`")
+        pytest.skip(reason=f"distribution {jax_dist} does not implement `entropy`")
     if _is_batched_multivariate(jax_dist):
         pytest.skip("batching not allowed in multivariate distns.")
     if sp_dist is None:
@@ -1506,7 +1515,7 @@ def test_entropy_scipy(jax_dist, sp_dist, params):
 
 
 @pytest.mark.parametrize(
-    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL + BASE
 )
 def test_entropy_samples(jax_dist, sp_dist, params):
     jax_dist = jax_dist(*params)
@@ -1514,7 +1523,7 @@ def test_entropy_samples(jax_dist, sp_dist, params):
     try:
         actual = jax_dist.entropy()
     except NotImplementedError:
-        pytest.skip(reason="distribution does not implement `entropy`")
+        pytest.skip(reason=f"distribution {jax_dist} does not implement `entropy`")
 
     samples = jax_dist.sample(jax.random.key(8), (1000,))
     neg_log_probs = -jax_dist.log_prob(samples)
