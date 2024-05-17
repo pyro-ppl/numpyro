@@ -69,6 +69,7 @@ NumPyro documentation
    examples/ucbadmit
    examples/hmm
    examples/hsgp
+   tutorials/hsgp_nd_example
    examples/ode
    tutorials/lotka_volterra_multiple
    examples/neutra
