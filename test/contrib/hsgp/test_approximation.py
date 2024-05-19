@@ -1,9 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import reduce
+from operator import mul
+from typing import Literal
+
 import pytest
 
 from jax import random
+from jax._src.array import ArrayImpl
 import jax.numpy as jnp
 
 import numpyro
@@ -16,7 +21,9 @@ import numpyro.distributions as dist
 from numpyro.handlers import scope, seed, trace
 
 
-def generate_synthetic_one_dim_data(rng_key, start, stop, num, scale):
+def generate_synthetic_one_dim_data(
+    rng_key, start, stop, num, scale
+) -> tuple[ArrayImpl, ArrayImpl]:
     x = jnp.linspace(start=start, stop=stop, num=num)
     y = jnp.sin(4 * jnp.pi * x) + jnp.sin(7 * jnp.pi * x)
     y_obs = y + scale * random.normal(rng_key, shape=(num,))
@@ -24,7 +31,7 @@ def generate_synthetic_one_dim_data(rng_key, start, stop, num, scale):
 
 
 @pytest.fixture
-def synthetic_one_dim_data():
+def synthetic_one_dim_data() -> tuple[ArrayImpl, ArrayImpl]:
     kwargs = {
         "rng_key": random.PRNGKey(0),
         "start": -0.2,
@@ -35,16 +42,46 @@ def synthetic_one_dim_data():
     return generate_synthetic_one_dim_data(**kwargs)
 
 
+def generate_synthetic_two_dim_data(
+    rng_key, start, stop, num, scale
+) -> tuple[ArrayImpl, ArrayImpl]:
+    x = random.uniform(rng_key, shape=(num, 2), minval=start, maxval=stop)
+    y = jnp.sin(4 * jnp.pi * x[:, 0]) + jnp.sin(7 * jnp.pi * x[:, 1])
+    y_obs = y + scale * random.normal(rng_key, shape=(num, num))
+    return x, y_obs
+
+
+@pytest.fixture
+def synthetic_two_dim_data() -> tuple[ArrayImpl, ArrayImpl]:
+    kwargs = {
+        "rng_key": random.PRNGKey(0),
+        "start": -0.2,
+        "stop": 1.2,
+        "num": 80,
+        "scale": 0.3,
+    }
+    return generate_synthetic_two_dim_data(**kwargs)
+
+
 @pytest.mark.parametrize(
     argnames="x, alpha, length, ell, m, non_centered",
     argvalues=[
         (jnp.linspace(0, 1, 10), 1.0, 0.2, 12, 10, True),
         (jnp.linspace(0, 1, 10), 1.0, 0.2, 12, 10, False),
         (jnp.linspace(0, 10, 100), 3.0, 0.5, 120, 100, True),
+        (jnp.linspace(jnp.zeros(2), jnp.ones(2), 10), 1.0, 0.2, 12, [3, 3], True),
+        # TODO check batched x
     ],
-    ids=["non_centered", "centered", "non_centered-large-domain"],
+    ids=["non_centered", "centered", "non_centered-large-domain", "non_centered-2d"],
 )
-def test_approximation_squared_exponential(x, alpha, length, ell, m, non_centered):
+def test_approximation_squared_exponential(
+    x: ArrayImpl,
+    alpha: float,
+    length: float,
+    ell: int | float | list[int | float],
+    m: int | list[int],
+    non_centered: bool,
+):
     def model(x, alpha, length, ell, m, non_centered):
         numpyro.deterministic(
             "f",
@@ -55,9 +92,19 @@ def test_approximation_squared_exponential(x, alpha, length, ell, m, non_centere
     approx_trace = trace(seed(model, rng_key)).get_trace(
         x, alpha, length, ell, m, non_centered
     )
-    assert approx_trace["f"]["value"].shape == x.shape
-    assert approx_trace["beta"]["value"].shape == (m,)
-    assert approx_trace["basis"]["value"].shape == (m,)
+
+    if x.ndim == 1:
+        x_ = x[..., None]
+    else:
+        x_ = x
+    if isinstance(m, int):
+        m_ = [m] * x_.shape[-1]
+    else:
+        m_ = m
+
+    assert approx_trace["f"]["value"].shape == x_.shape[:-1]
+    assert approx_trace["beta"]["value"].shape == (reduce(mul, m_),)
+    assert approx_trace["basis"]["value"].shape == (reduce(mul, m_),)
 
 
 @pytest.mark.parametrize(
@@ -66,10 +113,27 @@ def test_approximation_squared_exponential(x, alpha, length, ell, m, non_centere
         (jnp.linspace(0, 1, 10), 3 / 2, 1.0, 0.2, 12, 10, True),
         (jnp.linspace(0, 1, 10), 5 / 2, 1.0, 0.2, 12, 10, False),
         (jnp.linspace(0, 10, 100), 7 / 2, 3.0, 0.5, 120, 100, True),
+        (
+            jnp.linspace(jnp.zeros(2), jnp.ones(2), 10),
+            3 / 2,
+            1.0,
+            0.2,
+            12,
+            [3, 3],
+            True,
+        ),
     ],
-    ids=["non_centered", "centered", "non_centered-large-domain"],
+    ids=["non_centered", "centered", "non_centered-large-domain", "non_centered-2d"],
 )
-def test_approximation_matern(x, nu, alpha, length, ell, m, non_centered):
+def test_approximation_matern(
+    x: ArrayImpl,
+    nu: float,
+    alpha: float,
+    length: float,
+    ell: int | float | list[int | float],
+    m: int | list[int],
+    non_centered: bool,
+):
     def model(x, nu, alpha, length, ell, m, non_centered):
         numpyro.deterministic(
             "f", hsgp_matern(x, nu, alpha, length, ell, m, non_centered)
@@ -79,23 +143,38 @@ def test_approximation_matern(x, nu, alpha, length, ell, m, non_centered):
     approx_trace = trace(seed(model, rng_key)).get_trace(
         x, nu, alpha, length, ell, m, non_centered
     )
-    assert approx_trace["f"]["value"].shape == x.shape
-    assert approx_trace["beta"]["value"].shape == (m,)
-    assert approx_trace["basis"]["value"].shape == (m,)
+
+    if x.ndim == 1:
+        x_ = x[..., None]
+    else:
+        x_ = x
+    if isinstance(m, int):
+        m_ = [m] * x_.shape[-1]
+    else:
+        m_ = m
+
+    assert approx_trace["f"]["value"].shape == x_.shape[:-1]
+    assert approx_trace["beta"]["value"].shape == (reduce(mul, m_),)
+    assert approx_trace["basis"]["value"].shape == (reduce(mul, m_),)
 
 
 @pytest.mark.parametrize(
-    argnames="ell, m, non_centered",
+    argnames="ell, m, non_centered, num_dim",
     argvalues=[
-        (1.2, 1, True),
-        (1.0, 2, True),
-        (2.3, 10, False),
-        (0.8, 100, False),
+        (1.2, 1, True, 1),
+        (1.0, 2, True, 1),
+        (2.3, 10, False, 1),
+        (0.8, 100, False, 1),
     ],
     ids=["m=1-nc", "m=2-nc", "m=10-c", "m=100-c"],
 )
-def test_squared_exponential_gp_one_dim_model(
-    synthetic_one_dim_data, ell, m, non_centered
+def test_squared_exponential_gp_model(
+    synthetic_one_dim_data,
+    synthetic_two_dim_data,
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    non_centered: bool,
+    num_dim: Literal[1, 2],
 ):
     def latent_gp(x, alpha, length, ell, m, non_centered):
         return numpyro.deterministic(
@@ -115,7 +194,7 @@ def test_squared_exponential_gp_one_dim_model(
         with numpyro.plate("data", x.shape[0]):
             numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
-    x, y_obs = synthetic_one_dim_data
+    x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
     model_trace = trace(seed(model, random.PRNGKey(0))).get_trace(
         x, ell, m, non_centered, y_obs
     )
@@ -126,16 +205,26 @@ def test_squared_exponential_gp_one_dim_model(
 
 
 @pytest.mark.parametrize(
-    argnames="nu, ell, m, non_centered",
+    argnames="nu, ell, m, non_centered, num_dim",
     argvalues=[
-        (3 / 2, 1.2, 1, True),
-        (5 / 2, 1.0, 2, True),
-        (4.0, 2.3, 10, False),
-        (7 / 2, 0.8, 100, False),
+        (3 / 2, 1.2, 1, True, 1),
+        (5 / 2, 1.0, 2, True, 1),
+        (4.0, 2.3, 10, False, 1),
+        (7 / 2, 0.8, 100, False, 1),
+        (5 / 2, 1.0, [2, 2], True, 2),
+        (5 / 2, 1.0, 2, True, 2),
     ],
-    ids=["m=1-nc", "m=2-nc", "m=10-c", "m=100-c"],
+    ids=["m=1-nc", "m=2-nc", "m=10-c", "m=100-c", "m=[2,2]-nc", "m=2,dim=2-nc"],
 )
-def test_matern_gp_one_dim_model(synthetic_one_dim_data, nu, ell, m, non_centered):
+def test_matern_gp_model(
+    synthetic_one_dim_data,
+    synthetic_two_dim_data,
+    nu: float,
+    ell: int | float | list[float | int],
+    m: int | list[int],
+    non_centered: bool,
+    num_dim: Literal[1, 2],
+):
     def latent_gp(x, nu, alpha, length, ell, m, non_centered):
         return numpyro.deterministic(
             "f",
@@ -166,14 +255,23 @@ def test_matern_gp_one_dim_model(synthetic_one_dim_data, nu, ell, m, non_centere
         with numpyro.plate("data", x.shape[0]):
             numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
-    x, y_obs = synthetic_one_dim_data
+    x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
     model_trace = trace(seed(model, random.PRNGKey(0))).get_trace(
         x, nu, ell, m, non_centered, y_obs
     )
 
-    assert model_trace["matern::f"]["value"].shape == x.shape
-    assert model_trace["matern::beta"]["value"].shape == (m,)
-    assert model_trace["matern::basis"]["value"].shape == (m,)
+    if x.ndim == 1:
+        x_ = x[..., None]
+    else:
+        x_ = x
+    if isinstance(m, int):
+        m_ = [m] * x_.shape[-1]
+    else:
+        m_ = m
+
+    assert model_trace["matern::f"]["value"].shape == x_.shape[:-1]
+    assert model_trace["matern::beta"]["value"].shape == (reduce(mul, m_),)
+    assert model_trace["matern::basis"]["value"].shape == (reduce(mul, m_),)
 
 
 @pytest.mark.parametrize(

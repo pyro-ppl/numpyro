@@ -6,6 +6,7 @@ from operator import mul
 
 import pytest
 
+from jax._src.array import ArrayImpl
 import jax.numpy as jnp
 
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, sqrt_eigenvalues
@@ -23,7 +24,7 @@ from numpyro.contrib.hsgp.laplacian import eigenfunctions, sqrt_eigenvalues
     ],
     ids=["m=1", "m=2", "m=10", "m=100", "m=10,d=2", "m=[2,2,3],d=3"],
 )
-def test_sqrt_eigenvalues(ell, m, dim):
+def test_sqrt_eigenvalues(ell: float | int, m: int | list[int], dim: int):
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
     diff_sqrt_eigenvalues = jnp.diff(sqrt_eigenvalues_)
     if isinstance(m, int):
@@ -41,11 +42,23 @@ def test_sqrt_eigenvalues(ell, m, dim):
         (jnp.linspace(-1, 1, 10), 1, 21),
         (jnp.linspace(-2, -1, 10), 2, 10),
         (jnp.linspace(0, 100, 500), 120, 100),
+        (jnp.linspace(jnp.zeros(3), jnp.ones(3), 10), 2, [2, 2, 3]),
+        (
+            jnp.linspace(jnp.zeros(3), jnp.ones(3), 100).reshape((10, 10, 3)),
+            2,
+            [2, 2, 3],
+        ),
     ],
-    ids=["x_pos", "x_contains_zero", "x_neg2", "x_pos2-large"],
+    ids=["x_pos", "x_contains_zero", "x_neg2", "x_pos2-large", "x_2d", "x_batch"],
 )
-def test_eigenfunctions(x, m, ell):
+def test_eigenfunctions(x: ArrayImpl, ell: float | int, m: int | list[int]):
     phi = eigenfunctions(x=x, ell=ell, m=m)
-    assert phi.shape == (len(x), m)
+    if isinstance(m, int):
+        m = [m]
+    if x.ndim == 1:
+        x_ = x[..., None]
+    else:
+        x_ = x
+    assert phi.shape == x_.shape[:-1] + (reduce(mul, m),)
     assert phi.max() <= 1.0
     assert phi.min() >= -1.0
