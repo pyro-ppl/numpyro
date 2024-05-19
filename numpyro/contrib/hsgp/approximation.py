@@ -65,6 +65,7 @@ def hsgp_squared_exponential(
     ell: float,
     m: int,
     non_centered: bool = True,
+    dim: int = 1,  # TODO infer from data?
 ) -> ArrayImpl:
     """
     Hilbert space Gaussian process approximation using the squared exponential kernel.
@@ -94,7 +95,7 @@ def hsgp_squared_exponential(
     phi = eigenfunctions(x=x, ell=ell, m=m)
     spd = jnp.sqrt(
         diag_spectral_density_squared_exponential(
-            alpha=alpha, length=length, ell=ell, m=m
+            alpha=alpha, length=length, ell=ell, m=m, dim=dim
         )
     )
     return linear_approximation(phi=phi, spd=spd, m=m, non_centered=non_centered)
@@ -108,6 +109,7 @@ def hsgp_matern(
     ell: float,
     m: int,
     non_centered: bool = True,
+    dim: int = 1,  # TODO infer from data?
 ):
     """
     Hilbert space Gaussian process approximation using the Matérn kernel.
@@ -137,7 +139,9 @@ def hsgp_matern(
     """
     phi = eigenfunctions(x=x, ell=ell, m=m)
     spd = jnp.sqrt(
-        diag_spectral_density_matern(nu=nu, alpha=alpha, length=length, ell=ell, m=m)
+        diag_spectral_density_matern(
+            nu=nu, alpha=alpha, length=length, ell=ell, m=m, dim=dim
+        )
     )
     return linear_approximation(phi=phi, spd=spd, m=m, non_centered=non_centered)
 
@@ -163,6 +167,7 @@ def hsgp_periodic_non_centered(
     :return: the low-rank approximation linear model
     :rtype: ArrayImpl
     """
+    # TODO assert x is 1d?
     q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
     cosines, sines = eigenfunctions_periodic(x=x, w0=w0, m=m)
 

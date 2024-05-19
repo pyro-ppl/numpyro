@@ -91,7 +91,7 @@ def spectral_density_matern(
 
 # TODO: Adapt to dim >= 1.
 def diag_spectral_density_squared_exponential(
-    alpha: float, length: float, ell: float, m: int
+    alpha: float, length: float, ell: float, m: int, dim: int
 ) -> ArrayImpl:
     """
     Evaluates the spectral density of the squared exponential kernel at the first `m`
@@ -101,6 +101,8 @@ def diag_spectral_density_squared_exponential(
     :param float length: length scale of the squared exponential kernel
     :param float ell: The length of the interval divided by 2
     :param int m: The number of eigenvalues to compute
+    :param int dim: The dimension of the space
+
     :return: spectral density vector evaluated at the first `m` square root eigenvalues
     :rtype: ArrayImpl
     """
@@ -110,13 +112,12 @@ def diag_spectral_density_squared_exponential(
             dim=1, w=w, alpha=alpha, length=length
         )
 
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m)
-    return vmap(_spectral_density)(sqrt_eigenvalues_)
+    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x m
+    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
 
 
-# TODO: Adapt to dim >= 1.
 def diag_spectral_density_matern(
-    nu: float, alpha: float, length: float, ell: float, m: int
+    nu: float, alpha: float, length: float, ell: float, m: int, dim: int
 ) -> ArrayImpl:
     """
     Evaluates the spectral density of the Matérn kernel at the first `m`
@@ -127,6 +128,8 @@ def diag_spectral_density_matern(
     :param float length: length scale of the Matérn kernel
     :param float ell: The length of the interval divided by 2
     :param int m: The number of eigenvalues to compute
+    :param int dim: The dimension of the space
+
     :return: spectral density vector evaluated at the first `m` square root eigenvalues
     :rtype: ArrayImpl
     """
@@ -134,8 +137,8 @@ def diag_spectral_density_matern(
     def _spectral_density(w):
         return spectral_density_matern(dim=1, nu=nu, w=w, alpha=alpha, length=length)
 
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m)
-    return vmap(_spectral_density)(sqrt_eigenvalues_)
+    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
+    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
 
 
 def modified_bessel_first_kind(v, z):
