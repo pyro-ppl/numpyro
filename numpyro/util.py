@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+from functools import partial
 import inspect
 from itertools import zip_longest
 import os
@@ -167,13 +168,14 @@ def cached_by(outer_fn, *keys):
 
     def _wrapped(fn):
         fn_cache = outer_fn._cache
-        if keys in fn_cache:
-            fn = fn_cache[keys]
+        hashkeys = (*keys, fn.__name__)
+        if hashkeys in fn_cache:
+            fn = fn_cache[hashkeys]
             # update position
-            del fn_cache[keys]
-            fn_cache[keys] = fn
+            del fn_cache[hashkeys]
+            fn_cache[hashkeys] = fn
         else:
-            fn_cache[keys] = fn
+            fn_cache[hashkeys] = fn
         if len(fn_cache) > max_size:
             fn_cache.popitem(last=False)
         return fn
@@ -346,6 +348,11 @@ def fori_collect(
         collection = jax.jit(update_collection, donate_argnums=0)(collection, val)
         return val, collection, start_idx, thinning
 
+    @cached_by(fori_collect, body_fun, transform)
+    @partial(jax.jit, donate_argnums=2)
+    def _body_fn_wrap(i, val, collection, start_idx, thinning):
+        return _body_fn(i, (val, collection, start_idx, thinning))
+
     def map_fn(x):
         nx = jnp.asarray(x)
         return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype)
@@ -371,15 +378,15 @@ def fori_collect(
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
         vals = (init_val, collection, device_put(start_idx), device_put(thinning))
+        jitted_body_fn_wrap = jit(_body_fn_wrap)
+
         if upper == 0:
             # special case, only compiling
-            jit(_body_fn)(0, vals)
+            jitted_body_fn_wrap(0, *vals)
         else:
-            bfn = jit(_body_fn)
-            # bfn = jit(lambda x,y: _body_fn(x,y))
             with tqdm.trange(upper) as t:
                 for i in t:
-                    vals = bfn(i, vals)
+                    vals = jitted_body_fn_wrap(i, *vals)
 
                     t.set_description(progbar_desc(i), refresh=False)
                     if diagnostics_fn:
