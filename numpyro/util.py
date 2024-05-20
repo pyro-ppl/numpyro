@@ -18,7 +18,6 @@ import jax
 from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import host_callback
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map
 
@@ -314,7 +313,7 @@ def fori_collect(
         (upper - lower) // thinning if collection_size is None else collection_size
     )
     assert collection_size >= (upper - lower) // thinning
-    init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
+    init_val_nonflat = transform(init_val)
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
     # host_callback does not work yet with multi-GPU platforms
@@ -331,22 +330,35 @@ def fori_collect(
         val, collection, start_idx, thinning = vals
         val = body_fun(val)
         idx = (i - start_idx) // thinning
-        collection = cond(
-            idx >= 0,
-            collection,
-            lambda x: x.at[idx].set(ravel_pytree(transform(val))[0]),
-            collection,
-            identity,
-        )
+
+        def update_fn(collect_array, new_val):
+            return cond(
+                idx >= 0,
+                collect_array,
+                lambda x: x.at[idx].set(new_val),
+                collect_array,
+                identity,
+            )
+
+        def update_collection(collection, val):
+            return jax.tree.map(update_fn, collection, transform(val))
+
+        collection = jax.jit(update_collection, donate_argnums=0)(collection, val)
         return val, collection, start_idx, thinning
 
-    collection = jnp.zeros(
-        (collection_size,) + init_val_flat.shape, dtype=init_val_flat.dtype
+    collection = jax.tree.map(
+        lambda x: jnp.zeros((collection_size, *x.shape), dtype=x.dtype),
+        init_val_nonflat,
     )
+
     if not progbar:
-        last_val, collection, _, _ = fori_loop(
-            0, upper, _body_fn, (init_val, collection, start_idx, thinning)
-        )
+
+        def loop_fn(collection):
+            return fori_loop(
+                0, upper, _body_fn, (init_val, collection, start_idx, thinning)
+            )
+
+        last_val, collection, _, _ = jax.jit(loop_fn, donate_argnums=0)(collection)
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
@@ -362,17 +374,19 @@ def fori_collect(
             # special case, only compiling
             jit(_body_fn)(0, vals)
         else:
+            bfn = jit(_body_fn)
+            # bfn = jit(lambda x,y: _body_fn(x,y))
             with tqdm.trange(upper) as t:
                 for i in t:
-                    vals = jit(_body_fn)(i, vals)
+                    vals = bfn(i, vals)
+
                     t.set_description(progbar_desc(i), refresh=False)
                     if diagnostics_fn:
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
         last_val, collection, _, _ = vals
 
-    unravel_collection = vmap(unravel_fn)(collection)
-    return (unravel_collection, last_val) if return_last_val else unravel_collection
+    return (collection, last_val) if return_last_val else collection
 
 
 def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
