@@ -346,10 +346,11 @@ def fori_collect(
         collection = jax.jit(update_collection, donate_argnums=0)(collection, val)
         return val, collection, start_idx, thinning
 
-    collection = jax.tree.map(
-        lambda x: jnp.zeros((collection_size, *x.shape), dtype=x.dtype),
-        init_val_nonflat,
-    )
+    def map_fn(x):
+        nx = jnp.asarray(x)
+        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype)
+
+    collection = jax.tree.map(map_fn, init_val_nonflat)
 
     if not progbar:
 
