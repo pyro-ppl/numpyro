@@ -10,6 +10,7 @@ from itertools import chain
 import operator
 
 from jax import grad, jacfwd, numpy as jnp, random, vmap
+from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 
 from numpyro import handlers
@@ -25,7 +26,7 @@ from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.optim import _NumPyroOptim
-from numpyro.util import fori_collect, ravel_pytree
+from numpyro.util import fori_collect
 
 SteinVIState = namedtuple("SteinVIState", ["optim_state", "rng_key"])
 SteinVIRunResult = namedtuple("SteinRunResult", ["params", "state", "losses"])
