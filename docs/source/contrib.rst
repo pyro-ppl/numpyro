@@ -106,8 +106,7 @@ This module contains helper functions for use in the Hilbert Space Gaussian Proc
 described in [1] and [2].
 
 .. warning::
-    This module is experimental. Currently, it only supports Gaussian processes with one-dimensional inputs.
-
+    This module is experimental.
 
 **Why do we need an approximation?** 
 
@@ -123,30 +122,34 @@ a practical approach using NumPyro and PyMC.
 
 Here we provide the main steps and ingredients of the approximation method:
 
-1. Each stationary kernel :math:`k` has an associated spectral density :math:`S(\omega)`. There are closed formulas for the most common kernels. These formulas depend on the hyperparameters of the kernel (e.g. amplitudes and length scales).
-2. We can approximate the spectral density :math:`S(\omega)` as a polynomial series in :math:`||\omega||`. We call :math:`\omega` the frequency.
-3. We can interpret these polynomial terms as "powers" of the Laplacian operator. The key observation is that the Fourier transform of the Laplacian operator is :math:`||\omega||^2`.
-4. Next, we impose Dirichlet boundary conditions on the Laplacian operator which makes it self-adjoint and with discrete spectrum.
-5. We identify the expansion in (2) with the sum of powers of the Laplacian operator in the eigenbasis of (4).
+    1. Each stationary kernel :math:`k` has an associated spectral density :math:`S(\omega)`. There are closed formulas for the most common kernels. These formulas depend on the hyperparameters of the kernel (e.g. amplitudes and length scales).
 
-For the one dimensional case the approximation formula, in the non-centered parameterization, is:
+    2. We can approximate the spectral density :math:`S(\omega)` as a polynomial series in :math:`||\omega||`. We call :math:`\omega` the frequency.
+
+    3. We can interpret these polynomial terms as "powers" of the Laplacian operator. The key observation is that the Fourier transform of the Laplacian operator is :math:`||\omega||^2`.
+
+    4. Next, we impose Dirichlet boundary conditions on the Laplacian operator which makes it self-adjoint and with discrete spectrum.
+
+    5. We identify the expansion in (2) with the sum of powers of the Laplacian operator in the eigenbasis of (4).
+
+Let :math:`m^\star = \prod_{d=1}^D m_d` be the total number of terms of the approximation, where :math:`m_d` is the number of basis functions used in the approximation for the :math:`d`-th dimension. Then, the approximation formula, in the non-centered parameterization, is:
 
 .. math::
 
-    f(x) \approx \sum_{j = 1}^{m} 
-    \overbrace{\color{red}{\left(S(\sqrt{\lambda_j})\right)^{1/2}}}^{\text{all hyperparameters are here!}} 
+    f(x) \approx \sum_{j = 1}^{m^\star} 
+    \overbrace{\color{red}{\left(S(\sqrt{\boldsymbol{\lambda}_j})\right)^{1/2}}}^{\text{all hyperparameters are here!}} 
     \times
-    \underbrace{\color{blue}{\phi_{j}(x)}}_{\text{easy to compute!}}
+    \underbrace{\color{blue}{\phi_{j}(\boldsymbol{x})}}_{\text{easy to compute!}}
     \times
     \overbrace{\color{green}{\beta_{j}}}^{\sim \: \text{Normal}(0,1)}
 
-where :math:`\lambda_j` are the eigenvalues of the Laplacian operator, :math:`\phi_{j}(x)` are the eigenfunctions of the
+where :math:`\boldsymbol{x}` is a :math:`D` vector of inputs, :math:`\boldsymbol{\lambda}_j^\star` are the eigenvalues of the Laplacian operator, :math:`\phi_{j}(\boldsymbol{x})` are the eigenfunctions of the
 Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion (see Eq. (8) in [2]). We expect this
-to be a good approximation for a finite number of :math:`m` terms in the series as long as the inputs values :math:`x`
-are not too close to the boundaries `ell` amd `-ell`.
+to be a good approximation for a finite number of :math:`m^\star` terms in the series as long as the inputs values :math:`x`
+are not too close to the boundaries :math:`-L_d` and :math:`L_d`.
 
 .. note::
-    Even though the periodic kernel is not stationary, one can still adapt and find a similar approximation formula. 
+    Even though the periodic kernel is not stationary, one can still adapt and find a similar approximation formula. However, these kernels are not supported for multidimensional inputs.
     See Appendix B in [2] for more details.
 
 **Example:**
@@ -240,21 +243,25 @@ Other kernels can be used similarly.
 
 **References:**
 
-1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
-Stat Comput 30, 419-446 (2020).
+    1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+       Stat Comput 30, 419-446 (2020).
 
-2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
-approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
-
-3. `Orduz, J., A Conceptual and Practical Introduction to Hilbert Space GPs Approximation Methods <https://juanitorduz.github.io/hsgp_intro>`_.
-
-4. `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_.
-
-5. `Gelman, Vehtari, Simpson, et al., Bayesian workflow book - Birthdays <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`_.
+    2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+       approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+    
+    3. `Orduz, J., A Conceptual and Practical Introduction to Hilbert Space GPs Approximation Methods <https://juanitorduz.github.io/hsgp_intro>`_.
+    
+    4. `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_.
+    
+    5. `Gelman, Vehtari, Simpson, et al., Bayesian workflow book - Birthdays <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`_.
 
 .. note::
     The code of this module is based on the code of the example
     `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_ by `Omar Sosa Rodríguez <https://github.com/omarfsosa>`_.
+
+eigenindices
+----------------
+.. autofunction:: numpyro.contrib.hsgp.laplacian.eigenindices
 
 sqrt_eigenvalues
 ----------------

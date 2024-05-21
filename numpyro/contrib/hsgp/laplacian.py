@@ -5,28 +5,33 @@
 This module contains functions for computing eigenvalues and eigenfunctions of the laplace operator.
 """
 
+from __future__ import annotations
+
 from jaxlib.xla_extension import ArrayImpl
 
 import jax
 import jax.numpy as jnp
 
 
-def eigen_indices(m: list[int] | int, dim: int) -> ArrayImpl:
-    """Returns the indices of the first `m_star x D` eigenvalues of the laplacian operator.
+def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
+    """Returns the indices of the first :math:`D \\times m^\\star` eigenvalues of the laplacian operator.
 
     .. math::
 
-        m^\\star = prod_{i=1}^D m_i
+        m^\\star = \\prod_{i=1}^D m_i
+
+    For more details see Eq. (10) in [1].
 
     **References:**
-    1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
-       approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param Sequence[int] | int m: The number of desired eigenvalue indices in each dimension.
-    If an integer, the same number of eigenvalues is computed in each dimension.
+        1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+    :param list[int] | int m: The number of desired eigenvalue indices in each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param int dim: The dimension of the space.
 
-    :returns: An array of the indices of the first `m_star x D` eigenvalues.
+    :returns: An array of the indices of the first :math:`D \\times m^\\star` eigenvalues.
     :rtype: ArrayImpl
 
     **Examples:**
@@ -35,20 +40,20 @@ def eigen_indices(m: list[int] | int, dim: int) -> ArrayImpl:
 
             >>> import jax.numpy as jnp
 
-            >>> from numpyro.contrib.hsgp.laplacian import eigen_indices
+            >>> from numpyro.contrib.hsgp.laplacian import eigenindices
 
             >>> m = 10
-            >>> S = eigen_indices(m, 1)
+            >>> S = eigenindices(m, 1)
             >>> assert S.shape == (1, m)
             >>> S
             Array([[ 1,  2,  3,  4,  5,  6,  7,  8,  9, 10]], dtype=int32)
 
             >>> m = 10
-            >>> S = eigen_indices(m, 2)
+            >>> S = eigenindices(m, 2)
             >>> assert S.shape == (2, 100)
 
-            >>> m = [2, 2, 3]  # Ruitort-Mayol et al eq (10)
-            >>> S = eigen_indices(m, 3)
+            >>> m = [2, 2, 3]  # Riutort-Mayol et al eq (10)
+            >>> S = eigenindices(m, 3)
             >>> assert S.shape == (3, 12)
             >>> S
             Array([[1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],
@@ -70,28 +75,28 @@ def eigen_indices(m: list[int] | int, dim: int) -> ArrayImpl:
 
 
 def sqrt_eigenvalues(
-    ell: float | list[float], m: list[int] | int, dim: int
+    ell: int | float | list[int | float], m: list[int] | int, dim: int
 ) -> ArrayImpl:
     """
-    The first `dim x m_star` square root of eigenvalues of the laplacian operator in
-    `[-ell_1, ell_1] x ... x [-ell_D, ell_D]`. See Eq. (56) in [1].
+    The first :math:`m^\\star \\times D` square root of eigenvalues of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`. See Eq. (56) in [1].
 
     **References:**
 
-    1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
-    Stat Comput 30, 419-446 (2020)
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020)
 
-    :param Sequence[float] | float ell: The length of the interval in each dimension divided by 2.
-    If a float, the same length is used in each dimension.
+    :param int | float | list[int | float] ell: The length of the interval in each dimension divided by 2.
+        If a float, the same length is used in each dimension.
     :param list[int] | int m: The number of eigenvalues to compute in each dimension.
-    If an integer, the same number of eigenvalues is computed in each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param int dim: The dimension of the space.
 
-    :returns: An array of the first `m` square root of eigenvalues.
+    :returns: An array of the first :math:`m^\\star \\times D` square root of eigenvalues.
     :rtype: ArrayImpl
     """
     ell_ = _convert_ell(ell, dim)
-    S = eigen_indices(m, dim)
+    S = eigenindices(m, dim)
     return S * jnp.pi / 2 / ell_  # dim x prod(m) array of eigenvalues
 
 
@@ -99,8 +104,12 @@ def eigenfunctions(
     x: ArrayImpl, ell: float | list[float], m: int | list[int]
 ) -> ArrayImpl:
     """
-    The first `m_star` eigenfunctions of the laplacian operator in `[-ell_1, ell_1] x ... x [-ell_D, ell_D]`
+    The first :math:`m^\\star` eigenfunctions of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
     evaluated at values of `x`. See Eq. (56) in [1].
+    If `x` is 1D, the problem is assumed unidimensional.
+    Otherwise, the dimension of the input space is inferred as the size of the last dimension of
+    `x`. Other dimensions are treated as batch dimensions.
 
     **Example:**
 
@@ -125,18 +134,19 @@ def eigenfunctions(
 
 
     **References:**
-    1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
-    Stat Comput 30, 419-446 (2020)
+
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020)
 
     :param ArrayImpl x: The points at which to evaluate the eigenfunctions.
-    If x is 1D the problem is assumed unidimensional.
-    Otherwise, the dimension of the input space is inferred as the last dimension of x.
-    Other dimensions are treated as batch dimensions.
+        If `x` is 1D the problem is assumed unidimensional.
+        Otherwise, the dimension of the input space is inferred as the last dimension of `x`.
+        Other dimensions are treated as batch dimensions.
     :param float | list[float] ell: The length of the interval in each dimension divided by 2.
-    If a float, the same length is used in each dimension.
+        If a float, the same length is used in each dimension.
     :param int | list[int] m: The number of eigenvalues to compute in each dimension.
-    If an integer, the same number of eigenvalues is computed in each dimension.
-    :returns: An array of the first `m_star` eigenfunctions evaluated at `x`.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
     :rtype: ArrayImpl
     """
     if x.ndim == 1:
@@ -151,17 +161,24 @@ def eigenfunctions(
     return jnp.prod(jnp.sqrt(1 / a) * jnp.sin(b * (x_[..., None] + a)), axis=-2)
 
 
-def eigenfunctions_periodic(x, w0, m):
+def eigenfunctions_periodic(x: ArrayImpl, w0: float, m: int):
     """
     Basis functions for the approximation of the periodic kernel.
 
-    :param x: The points at which to evaluate the eigenfunctions.
-    :param w0: The frequency of the periodic kernel.
-    :param m: The number of eigenfunctions to compute.
+    :param ArrayImpl x: The points at which to evaluate the eigenfunctions.
+    :param float w0: The frequency of the periodic kernel.
+    :param int m: The number of eigenfunctions to compute.
 
     .. note::
         If you want to parameterize it with respect to the period use `w0 = 2 * jnp.pi / period`.
+
+    .. warning::
+        Multidimensional inputs are not supported.
     """
+    if x.ndim > 1:
+        raise ValueError(
+            "Multidimensional inputs are not supported by the periodic kernel."
+        )
     m1 = jnp.tile(w0 * x[:, None], m)
     m2 = jnp.diag(jnp.arange(m, dtype=jnp.float32))
     mw0x = m1 @ m2
@@ -182,5 +199,5 @@ def _convert_ell(ell: float | list[float] | ArrayImpl, dim: int) -> ArrayImpl:
     elif isinstance(ell, jax.Array):
         ell_ = ell
     if ell_.shape != (dim, 1):
-        raise ValueError("ell must be a scalar or a list of length dim.")
+        raise ValueError("ell must be a scalar or a list of length `dim`.")
     return ell_

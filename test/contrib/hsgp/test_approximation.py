@@ -70,7 +70,6 @@ def synthetic_two_dim_data() -> tuple[ArrayImpl, ArrayImpl]:
         (jnp.linspace(0, 1, 10), 1.0, 0.2, 12, 10, False),
         (jnp.linspace(0, 10, 100), 3.0, 0.5, 120, 100, True),
         (jnp.linspace(jnp.zeros(2), jnp.ones(2), 10), 1.0, 0.2, 12, [3, 3], True),
-        # TODO check batched x
     ],
     ids=["non_centered", "centered", "non_centered-large-domain", "non_centered-2d"],
 )
@@ -165,8 +164,10 @@ def test_approximation_matern(
         (1.0, 2, True, 1),
         (2.3, 10, False, 1),
         (0.8, 100, False, 1),
+        (1.0, [2, 2], True, 2),
+        (1.0, 2, True, 2),
     ],
-    ids=["m=1-nc", "m=2-nc", "m=10-c", "m=100-c"],
+    ids=["m=1-nc", "m=2-nc", "m=10-c", "m=100-c", "m=[2,2]-nc", "m=2,dim=2-nc"],
 )
 def test_squared_exponential_gp_model(
     synthetic_one_dim_data,
@@ -199,9 +200,18 @@ def test_squared_exponential_gp_model(
         x, ell, m, non_centered, y_obs
     )
 
-    assert model_trace["se::f"]["value"].shape == x.shape
-    assert model_trace["se::beta"]["value"].shape == (m,)
-    assert model_trace["se::basis"]["value"].shape == (m,)
+    if x.ndim == 1:
+        x_ = x[..., None]
+    else:
+        x_ = x
+    if isinstance(m, int):
+        m_ = [m] * x_.shape[-1]
+    else:
+        m_ = m
+
+    assert model_trace["se::f"]["value"].shape == x_.shape[:-1]
+    assert model_trace["se::beta"]["value"].shape == (reduce(mul, m_),)
+    assert model_trace["se::basis"]["value"].shape == (reduce(mul, m_),)
 
 
 @pytest.mark.parametrize(

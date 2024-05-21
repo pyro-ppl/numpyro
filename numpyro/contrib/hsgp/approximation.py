@@ -5,6 +5,8 @@
 This module contains the low-rank approximation functions of the Hilbert space Gaussian process.
 """
 
+from __future__ import annotations
+
 from jaxlib.xla_extension import ArrayImpl
 
 import jax.numpy as jnp
@@ -34,7 +36,7 @@ def _centered_approximation(phi: ArrayImpl, spd: ArrayImpl, m: int) -> ArrayImpl
 
 
 def linear_approximation(
-    phi: ArrayImpl, spd: ArrayImpl, m: int, non_centered: bool = True
+    phi: ArrayImpl, spd: ArrayImpl, m: int | list[int], non_centered: bool = True
 ) -> ArrayImpl:
     """
     Linear approximation formula of the Hilbert space Gaussian process.
@@ -42,13 +44,14 @@ def linear_approximation(
     See Eq. (8) in [1].
 
     **References:**
-    1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
-       approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+        1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayImpl phi: laplacian eigenfunctions
     :param ArrayImpl spd: square root of the diagonal of the spectral density evaluated at square
         root of the first `m` eigenvalues.
-    :param int m: number of eigenfunctions in the approximation
+    :param int | list[int] m: number of eigenfunctions in the approximation
     :param bool non_centered: whether to use a non-centered parameterization
     :return: The low-rank approximation linear model
     :rtype: ArrayImpl
@@ -62,8 +65,8 @@ def hsgp_squared_exponential(
     x: ArrayImpl,
     alpha: float,
     length: float,
-    ell: float,
-    m: int,
+    ell: float | int | list[float | int],
+    m: int | list[int],
     non_centered: bool = True,
 ) -> ArrayImpl:
     """
@@ -75,18 +78,21 @@ def hsgp_squared_exponential(
 
     **References:**
 
-    1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
-    Stat Comput 30, 419-446 (2020).
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020).
 
-    2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
-    approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayImpl x: input data
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
-    :param float ell: positive value that parametrizes the length of the one-dimensional box so that the input data
-        lies in the interval [-ell, ell]. We expect the approximation to be valid within this interval
-    :param int m: number of eigenvalues to compute and include in the approximation
+    :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
+        that the input data lies in the interval :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_E]`.
+        We expect the approximation to be valid within this interval
+    :param int | list[m] m: number of eigenvalues to compute and include in the approximation for each dimension
+        (:math:`\\left\\{1, ..., D\\right\\}`).
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True
     :return: the low-rank approximation linear model
     :rtype: ArrayImpl
@@ -108,8 +114,8 @@ def hsgp_matern(
     nu: float,
     alpha: float,
     length: float,
-    ell: float,
-    m: int,
+    ell: float | int | list[float | int],
+    m: int | list[int],
     non_centered: bool = True,
 ):
     """
@@ -121,19 +127,22 @@ def hsgp_matern(
 
     **References:**
 
-    1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
-    Stat Comput 30, 419-446 (2020).
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020).
 
-    2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
-    approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayImpl x: input data
     :param float nu: smoothness parameter
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
-    :param float ell: positive value that parametrizes the length of the one-dimensional box so that the input data
-        lies in the interval [-ell, ell]. We expect the approximation to be valid within this interval.
-    :param int m: number of eigenvalues to compute and include in the approximation
+    :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
+        that the input data lies in the interval :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
+        We expect the approximation to be valid within this interval
+    :param int | list[m] m: number of eigenvalues to compute and include in the approximation for each dimension
+        (:math:`\\left\\{1, ..., D\\right\\}`).
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True.
     :return: the low-rank approximation linear model
     :rtype: ArrayImpl
@@ -160,8 +169,8 @@ def hsgp_periodic_non_centered(
 
     **References:**
 
-    1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
-    approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+        1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayImpl x: input data
     :param float alpha: amplitude
@@ -171,7 +180,6 @@ def hsgp_periodic_non_centered(
     :return: the low-rank approximation linear model
     :rtype: ArrayImpl
     """
-    # TODO assert x is 1d?
     q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
     cosines, sines = eigenfunctions_periodic(x=x, w0=w0, m=m)
 
