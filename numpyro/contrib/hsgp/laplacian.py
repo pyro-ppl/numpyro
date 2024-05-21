@@ -188,7 +188,7 @@ def eigenfunctions_periodic(x: ArrayImpl, w0: float, m: int):
 
 
 def _convert_ell(ell: float | list[float] | ArrayImpl, dim: int) -> ArrayImpl:
-    if isinstance(ell, float | int):
+    if isinstance(ell, float) | isinstance(ell, int):
         ell = [ell] * dim
     if isinstance(ell, list):
         if len(ell) != dim:
