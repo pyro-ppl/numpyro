@@ -345,10 +345,10 @@ def fori_collect(
         def update_collection(collection, val):
             return jax.tree.map(update_fn, collection, transform(val))
 
-        collection = jax.jit(update_collection, donate_argnums=0)(collection, val)
+        collection = jit(update_collection, donate_argnums=0)(collection, val)
         return val, collection, start_idx, thinning
 
-    @partial(jax.jit, donate_argnums=2)
+    @partial(jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn_wrap(i, val, collection, start_idx, thinning):
         return _body_fn(i, (val, collection, start_idx, thinning))
@@ -360,12 +360,13 @@ def fori_collect(
     collection = jax.tree.map(map_fn, init_val_nonflat)
 
     if not progbar:
+
         def loop_fn(collection):
             return fori_loop(
                 0, upper, _body_fn, (init_val, collection, start_idx, thinning)
             )
 
-        last_val, collection, _, _ = jax.jit(loop_fn, donate_argnums=0)(collection)
+        last_val, collection, _, _ = jit(loop_fn, donate_argnums=0)(collection)
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
@@ -377,7 +378,7 @@ def fori_collect(
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
         vals = (init_val, collection, device_put(start_idx), device_put(thinning))
-        #jitted_body_fn_wrap = jit(_body_fn_wrap)
+        # jitted_body_fn_wrap = jit(_body_fn_wrap)
 
         if upper == 0:
             # special case, only compiling
