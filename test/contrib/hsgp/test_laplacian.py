@@ -57,6 +57,17 @@ def test_eigenindices(m, dim, xfail):
         assert S.shape == (dim, m_star)  # matrix has the right shape
         assert jnp.all(S >= 1)  # indices are greater than or equal to one
         assert jnp.all(S <= m_star)  # maximum possible index value is m_star
+        if m == [2, 2, 3]:  # eq 10 in Riutort-Mayol et al
+            assert (
+                S
+                == jnp.array(
+                    [
+                        [1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],
+                        [1, 1, 1, 2, 2, 2, 1, 1, 1, 2, 2, 2],
+                        [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3],
+                    ]
+                )
+            ).all()
 
 
 @pytest.mark.parametrize(
