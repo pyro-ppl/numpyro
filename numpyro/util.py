@@ -370,9 +370,13 @@ def fori_collect(
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
-        last_val, collection, _, _ = fori_loop(
+
+        def loop_fn(collection):
+            return fori_loop(
             0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
         )
+        last_val, collection, _, _ = jit(loop_fn, donate_argnums=0)(collection)
+
     else:
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
