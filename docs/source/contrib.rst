@@ -143,7 +143,7 @@ Let :math:`m^\star = \prod_{d=1}^D m_d` be the total number of terms of the appr
     \times
     \overbrace{\color{green}{\beta_{j}}}^{\sim \: \text{Normal}(0,1)}
 
-where :math:`\boldsymbol{x}` is a :math:`D` vector of inputs, :math:`\boldsymbol{\lambda}_j^\star` are the eigenvalues of the Laplacian operator, :math:`\phi_{j}(\boldsymbol{x})` are the eigenfunctions of the
+where :math:`\boldsymbol{x}` is a :math:`D` vector of inputs, :math:`\boldsymbol{\lambda}_j` are the eigenvalues of the Laplacian operator, :math:`\phi_{j}(\boldsymbol{x})` are the eigenfunctions of the
 Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion (see Eq. (8) in [2]). We expect this
 to be a good approximation for a finite number of :math:`m^\star` terms in the series as long as the inputs values :math:`x`
 are not too close to the boundaries :math:`-L_d` and :math:`L_d`.

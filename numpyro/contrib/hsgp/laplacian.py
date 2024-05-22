@@ -187,7 +187,21 @@ def eigenfunctions_periodic(x: ArrayImpl, w0: float, m: int):
     return cosines, sines
 
 
-def _convert_ell(ell: float | list[float] | ArrayImpl, dim: int) -> ArrayImpl:
+def _convert_ell(
+    ell: float | int | list[float | int] | ArrayImpl, dim: int
+) -> ArrayImpl:
+    """
+    Process the half-length of the approximation interval and return a `D \\times 1` array.
+
+    If `ell` is a scalar, it is converted to a list of length dim, then transformed into an Array.
+
+    :param float | int | list[float | int] | ArrayImpl ell: The length of the interval in each dimension divided by 2.
+        If a float or int, the same length is used in each dimension.
+    :param int dim: The dimension of the space.
+
+    :returns: A `D \\times 1` array of the half-lengths of the approximation interval.
+    :rtype: ArrayImpl
+    """
     if isinstance(ell, float) | isinstance(ell, int):
         ell = [ell] * dim
     if isinstance(ell, list):

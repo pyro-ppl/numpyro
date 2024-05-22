@@ -11,7 +11,52 @@ import pytest
 from jax._src.array import ArrayImpl
 import jax.numpy as jnp
 
-from numpyro.contrib.hsgp.laplacian import eigenfunctions, sqrt_eigenvalues
+from numpyro.contrib.hsgp.laplacian import (
+    _convert_ell,
+    eigenfunctions,
+    eigenindices,
+    sqrt_eigenvalues,
+)
+
+
+@pytest.mark.parametrize(
+    argnames="m, dim, xfail",
+    argvalues=[
+        (1, 1, False),
+        (2, 1, False),
+        (10, 1, False),
+        (100, 1, False),
+        (10, 2, False),
+        ([2, 2, 3], 3, False),
+        (2, 3, False),
+        ([2, 2, 3], 2, True),
+    ],
+    ids=[
+        "m=1",
+        "m=2",
+        "m=10",
+        "m=100",
+        "m=10,d=2",
+        "m=[2,2,3],d=3",
+        "m=2,d=3",
+        "m=[2,2,3],d=2",
+    ],
+)
+def test_eigenindices(m, dim, xfail):
+    if xfail:
+        with pytest.raises(ValueError):
+            S = eigenindices(m, dim)
+    else:
+        S = eigenindices(m, dim)
+        if isinstance(m, int):
+            m_ = [m] * dim
+        else:
+            m_ = m
+        m_star = reduce(mul, m_)
+        assert str(S.dtype)[0:3] == "int"  # matrix is integer-valued
+        assert S.shape == (dim, m_star)  # matrix has the right shape
+        assert jnp.all(S >= 1)  # indices are greater than or equal to one
+        assert jnp.all(S <= m_star)  # maximum possible index value is m_star
 
 
 @pytest.mark.parametrize(
@@ -64,3 +109,32 @@ def test_eigenfunctions(x: ArrayImpl, ell: float | int, m: int | list[int]):
     assert phi.shape == x_.shape[:-1] + (reduce(mul, m),)
     assert phi.max() <= 1.0
     assert phi.min() >= -1.0
+
+
+@pytest.mark.parametrize(
+    argnames="ell, dim, xfail",
+    argvalues=[
+        (1.0, 1, False),
+        (1, 1, False),
+        (1, 2, False),
+        ([1, 1], 2, False),
+        (jnp.array([1, 1])[..., None], 2, False),
+        (jnp.array([1, 1]), 2, True),
+        ([1, 1], 1, True),
+    ],
+    ids=[
+        "ell-float",
+        "ell-int",
+        "ell-int-multdim",
+        "ell-list",
+        "ell-array",
+        "ell-array-fail",
+        "dim-fail",
+    ],
+)
+def test_convert_ell(ell, dim, xfail):
+    if xfail:
+        with pytest.raises(ValueError):
+            _convert_ell(ell, dim)
+    else:
+        assert (_convert_ell(ell, dim) == jnp.array([1.0] * dim)[..., None]).all()
