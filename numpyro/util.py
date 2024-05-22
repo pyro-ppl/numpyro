@@ -382,7 +382,9 @@ def fori_collect(
 
         if upper == 0:
             # special case, only compiling
-            _body_fn_wrap(0, *vals)
+            val, collection, start_idx, thinning = vals
+            dummy_collection = jax.tree.map(lambda x: x.copy(), collection)
+            _body_fn_wrap(0, val, dummy_collection, start_idx, thinning)
         else:
             with tqdm.trange(upper) as t:
                 for i in t:
