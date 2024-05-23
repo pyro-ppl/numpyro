@@ -346,6 +346,7 @@ def fori_collect(
             return jax.tree.map(update_fn, collection, transform(val))
 
         collection = jit(update_collection, donate_argnums=0)(collection, val)
+
         return val, collection, start_idx, thinning
 
     @partial(jit, donate_argnums=2)
@@ -355,7 +356,7 @@ def fori_collect(
 
     def map_fn(x):
         nx = jnp.asarray(x)
-        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype)
+        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype) * nx[None, ...]
 
     collection = jax.tree.map(map_fn, init_val_nonflat)
 
@@ -373,8 +374,9 @@ def fori_collect(
 
         def loop_fn(collection):
             return fori_loop(
-            0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
-        )
+                0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
+            )
+
         last_val, collection, _, _ = jit(loop_fn, donate_argnums=0)(collection)
 
     else:
