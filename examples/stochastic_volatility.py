@@ -115,7 +115,7 @@ def main(args):
 
     ax.plot(dates, jnp.exp(hmc_states["s"].T), "r", alpha=0.01)
     legend = ax.legend(["returns", "volatility"], loc="upper right")
-    legend.legendHandles[1].set_alpha(0.6)
+    legend.legend_handles[1].set_alpha(0.6)
     ax.set(xlabel="time", ylabel="returns", title="Volatility of S&P500 over time")
 
     plt.savefig("stochastic_volatility_plot.pdf")

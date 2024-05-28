@@ -315,7 +315,7 @@ def fori_collect(
         (upper - lower) // thinning if collection_size is None else collection_size
     )
     assert collection_size >= (upper - lower) // thinning
-    init_val_nonflat = transform(init_val)
+    init_val_transformed = transform(init_val)
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
     # host_callback does not work yet with multi-GPU platforms
@@ -358,7 +358,7 @@ def fori_collect(
         nx = jnp.asarray(x)
         return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype) * nx[None, ...]
 
-    collection = jax.tree.map(map_fn, init_val_nonflat)
+    collection = jax.tree.map(map_fn, init_val_transformed)
 
     if not progbar:
 
