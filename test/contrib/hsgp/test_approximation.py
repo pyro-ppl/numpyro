@@ -7,6 +7,7 @@ from functools import reduce
 from operator import mul
 from typing import Literal
 
+import numpy as np
 import pytest
 from sklearn.gaussian_process.kernels import RBF, ExpSineSquared, Matern
 
@@ -75,11 +76,11 @@ def synthetic_two_dim_data() -> tuple[ArrayImpl, ArrayImpl]:
 @pytest.mark.parametrize(
     argnames="x1, x2, length, ell",
     argvalues=[
-        (jnp.array([[1.0]]), jnp.array([[0.0]]), jnp.array([1.0]), 5.0),
+        (np.array([[1.0]]), np.array([[0.0]]), np.array([1.0]), 5.0),
         (
-            jnp.array([[1.5, 1.25]]),
-            jnp.array([[0.0, 0.0]]),
-            jnp.array([1.0]),
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
+            np.array([1.0]),
             5.0,
         ),
     ],
@@ -111,20 +112,20 @@ def test_kernel_approx_squared_exponential(
 @pytest.mark.parametrize(
     argnames="x1, x2, nu, length, ell",
     argvalues=[
-        (jnp.array([[1.0]]), jnp.array([[0.0]]), 3 / 2, jnp.array([1.0]), 5.0),
-        (jnp.array([[1.0]]), jnp.array([[0.0]]), 5 / 2, jnp.array([1.0]), 5.0),
+        (np.array([[1.0]]), np.array([[0.0]]), 3 / 2, np.array([1.0]), 5.0),
+        (np.array([[1.0]]), np.array([[0.0]]), 5 / 2, np.array([1.0]), 5.0),
         (
-            jnp.array([[1.5, 1.25]]),
-            jnp.array([[0.0, 0.0]]),
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
             3 / 2,
-            jnp.array([1.0]),
+            np.array([1.0]),
             5.0,
         ),
         (
-            jnp.array([[1.5, 1.25]]),
-            jnp.array([[0.0, 0.0]]),
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
             5 / 2,
-            jnp.array([1.0]),
+            np.array([1.0]),
             5.0,
         ),
     ],
@@ -160,8 +161,8 @@ def test_kernel_approx_squared_matern(
 @pytest.mark.parametrize(
     argnames="x1, x2, w0, length",
     argvalues=[
-        (jnp.array([1.0]), jnp.array([0.0]), 1.0, 1.0),
-        (jnp.array([1.0]), jnp.array([0.0]), 1.5, 1.0),
+        (np.array([1.0]), np.array([0.0]), 1.0, 1.0),
+        (np.array([1.0]), np.array([0.0]), 1.5, 1.0),
     ],
     ids=[
         "1d,w0=1.0",
@@ -199,10 +200,10 @@ def test_kernel_approx_periodic(
 @pytest.mark.parametrize(
     argnames="x, alpha, length, ell, m, non_centered",
     argvalues=[
-        (jnp.linspace(0, 1, 10), 1.0, 0.2, 12, 10, True),
-        (jnp.linspace(0, 1, 10), 1.0, 0.2, 12, 10, False),
-        (jnp.linspace(0, 10, 100), 3.0, 0.5, 120, 100, True),
-        (jnp.linspace(jnp.zeros(2), jnp.ones(2), 10), 1.0, 0.2, 12, [3, 3], True),
+        (np.linspace(0, 1, 10), 1.0, 0.2, 12, 10, True),
+        (np.linspace(0, 1, 10), 1.0, 0.2, 12, 10, False),
+        (np.linspace(0, 10, 100), 3.0, 0.5, 120, 100, True),
+        (np.linspace(np.zeros(2), np.ones(2), 10), 1.0, 0.2, 12, [3, 3], True),
     ],
     ids=["non_centered", "centered", "non_centered-large-domain", "non_centered-2d"],
 )
@@ -242,11 +243,11 @@ def test_approximation_squared_exponential(
 @pytest.mark.parametrize(
     argnames="x, nu, alpha, length, ell, m, non_centered",
     argvalues=[
-        (jnp.linspace(0, 1, 10), 3 / 2, 1.0, 0.2, 12, 10, True),
-        (jnp.linspace(0, 1, 10), 5 / 2, 1.0, 0.2, 12, 10, False),
-        (jnp.linspace(0, 10, 100), 7 / 2, 3.0, 0.5, 120, 100, True),
+        (np.linspace(0, 1, 10), 3 / 2, 1.0, 0.2, 12, 10, True),
+        (np.linspace(0, 1, 10), 5 / 2, 1.0, 0.2, 12, 10, False),
+        (np.linspace(0, 10, 100), 7 / 2, 3.0, 0.5, 120, 100, True),
         (
-            jnp.linspace(jnp.zeros(2), jnp.ones(2), 10),
+            np.linspace(np.zeros(2), np.ones(2), 10),
             3 / 2,
             1.0,
             0.2,
@@ -420,9 +421,9 @@ def test_matern_gp_model(
 @pytest.mark.parametrize(
     argnames="w0, m",
     argvalues=[
-        (2 * jnp.pi / 7, 2),
-        (2 * jnp.pi / 10, 3),
-        (2 * jnp.pi / 5, 10),
+        (2 * np.pi / 7, 2),
+        (2 * np.pi / 10, 3),
+        (2 * np.pi / 5, 10),
     ],
     ids=["m=2", "m=3", "m=10"],
 )

@@ -166,6 +166,7 @@ def modified_bessel_first_kind(v, z):
         ) from e
 
     v = jnp.asarray(v, dtype=float)
+    z = jnp.asarray(z, dtype=float)
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
