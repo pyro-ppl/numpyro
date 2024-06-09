@@ -86,7 +86,7 @@ def spectral_density_matern(
         * ((2 * nu) ** nu)
         * special.gamma(nu + dim / 2)
     )
-    c2 = ((2 * nu / (length**2)) + 4 * jnp.pi ** jnp.dot(w, w)) ** (-nu - dim / 2)
+    c2 = (2 * nu / (length**2) + jnp.dot(w, w)) ** (-nu - dim / 2)
     c3 = special.gamma(nu) * length ** (2 * nu)
     return c1 * c2 / c3
 

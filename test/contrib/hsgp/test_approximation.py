@@ -8,6 +8,7 @@ from operator import mul
 from typing import Literal
 
 import pytest
+from sklearn.gaussian_process.kernels import RBF, ExpSineSquared, Matern
 
 from jax import random
 from jax._src.array import ArrayImpl
@@ -18,6 +19,12 @@ from numpyro.contrib.hsgp.approximation import (
     hsgp_matern,
     hsgp_periodic_non_centered,
     hsgp_squared_exponential,
+)
+from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
+from numpyro.contrib.hsgp.spectral_densities import (
+    diag_spectral_density_matern,
+    diag_spectral_density_periodic,
+    diag_spectral_density_squared_exponential,
 )
 import numpyro.distributions as dist
 from numpyro.handlers import scope, seed, trace
@@ -63,6 +70,130 @@ def synthetic_two_dim_data() -> tuple[ArrayImpl, ArrayImpl]:
         "scale": 0.3,
     }
     return generate_synthetic_two_dim_data(**kwargs)
+
+
+@pytest.mark.parametrize(
+    argnames="x1, x2, length, ell",
+    argvalues=[
+        (jnp.array([[1.0]]), jnp.array([[0.0]]), jnp.array([1.0]), 5.0),
+        (
+            jnp.array([[1.5, 1.25]]),
+            jnp.array([[0.0, 0.0]]),
+            jnp.array([1.0]),
+            5.0,
+        ),
+    ],
+    ids=[
+        "1d",
+        "2d,1d-length",
+    ],
+)
+def test_kernel_approx_squared_exponential(
+    x1: ArrayImpl, x2: ArrayImpl, length: ArrayImpl, ell: float
+):
+    """ensure that the approximation of the squared exponential kernel is accurate,
+    matching the exact kernel implementation from sklearn.
+
+    See Riutort-Mayol 2023 equation (13) for the approximation formula.
+    """
+    assert x1.shape == x2.shape
+    m = 100  # large enough to ensure the approximation is accurate
+    dim = x1.shape[-1]
+    spd = diag_spectral_density_squared_exponential(1.0, length, ell, m, dim)
+
+    eig_f1 = eigenfunctions(x1, ell=ell, m=m)
+    eig_f2 = eigenfunctions(x2, ell=ell, m=m)
+    approx = (eig_f1 * eig_f2) @ spd
+    exact = RBF(length)(x1, x2)
+    assert jnp.isclose(approx, exact, rtol=1e-3)
+
+
+@pytest.mark.parametrize(
+    argnames="x1, x2, nu, length, ell",
+    argvalues=[
+        (jnp.array([[1.0]]), jnp.array([[0.0]]), 3 / 2, jnp.array([1.0]), 5.0),
+        (jnp.array([[1.0]]), jnp.array([[0.0]]), 5 / 2, jnp.array([1.0]), 5.0),
+        (
+            jnp.array([[1.5, 1.25]]),
+            jnp.array([[0.0, 0.0]]),
+            3 / 2,
+            jnp.array([1.0]),
+            5.0,
+        ),
+        (
+            jnp.array([[1.5, 1.25]]),
+            jnp.array([[0.0, 0.0]]),
+            5 / 2,
+            jnp.array([1.0]),
+            5.0,
+        ),
+    ],
+    ids=[
+        "1d,nu=3/2",
+        "1d,nu=5/2",
+        "2d,nu=3/2,1d-length",
+        "2d,nu=5/2,1d-length",
+    ],
+)
+def test_kernel_approx_squared_matern(
+    x1: ArrayImpl, x2: ArrayImpl, nu: float, length: ArrayImpl, ell: float
+):
+    """ensure that the approximation of the matern kernel is accurate,
+    matching the exact kernel implementation from sklearn.
+
+    See Riutort-Mayol 2023 equation (13) for the approximation formula.
+    """
+    assert x1.shape == x2.shape
+    m = 100  # large enough to ensure the approximation is accurate
+    dim = x1.shape[-1]
+    spd = diag_spectral_density_matern(
+        nu=nu, alpha=1.0, length=length, ell=ell, m=m, dim=dim
+    )
+
+    eig_f1 = eigenfunctions(x1, ell=ell, m=m)
+    eig_f2 = eigenfunctions(x2, ell=ell, m=m)
+    approx = (eig_f1 * eig_f2) @ spd
+    exact = Matern(length_scale=length, nu=nu)(x1, x2)
+    assert jnp.isclose(approx, exact, rtol=1e-3)
+
+
+@pytest.mark.parametrize(
+    argnames="x1, x2, w0, length",
+    argvalues=[
+        (jnp.array([1.0]), jnp.array([0.0]), 1.0, 1.0),
+        (jnp.array([1.0]), jnp.array([0.0]), 1.5, 1.0),
+    ],
+    ids=[
+        "1d,w0=1.0",
+        "1d,w0=1.5",
+    ],
+)
+def test_kernel_approx_periodic(
+    x1: ArrayImpl,
+    x2: ArrayImpl,
+    w0: float,
+    length: float,
+):
+    """ensure that the approximation of the periodic kernel is accurate,
+    matching the exact kernel implementation from sklearn
+
+    Note that the exact kernel implementation is parameterized with respect to the period,
+    and the periodicity is w0**(-1). We adjust the input values by dividing by 2*pi.
+
+    See Riutort-Mayol 2023 appendix B for the approximation formula.
+    """
+    assert x1.shape == x2.shape
+    m = 100
+    q2 = diag_spectral_density_periodic(alpha=1.0, length=length, m=m)
+    q2_sine = jnp.concatenate([jnp.array([0.0]), q2[1:]])
+
+    cosines_f1, sines_f1 = eigenfunctions_periodic(x1, w0=w0, m=m)
+    cosines_f2, sines_f2 = eigenfunctions_periodic(x2, w0=w0, m=m)
+    approx = (cosines_f1 * cosines_f2) @ q2 + (sines_f1 * sines_f2) @ q2_sine
+    exact = ExpSineSquared(length_scale=length, periodicity=w0 ** (-1))(
+        x1[..., None] / (2 * jnp.pi), x2[..., None] / (2 * jnp.pi)
+    )
+    assert jnp.isclose(approx, exact, rtol=1e-3)
 
 
 @pytest.mark.parametrize(
