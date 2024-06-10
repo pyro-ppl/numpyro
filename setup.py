@@ -53,6 +53,7 @@ setup(
             "ruff>=0.1.8",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
+            "scikit-learn",
             "scipy>=1.9",
         ],
         "dev": [

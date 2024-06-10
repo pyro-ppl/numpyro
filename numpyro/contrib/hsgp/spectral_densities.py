@@ -61,7 +61,7 @@ def spectral_density_matern(
 
         S(\\boldsymbol{\\omega}) = \\alpha
             \\frac{2^{D} \\pi^{D/2} \\Gamma(\\nu + D/2) (2 \\nu)^{\\nu}}{\\Gamma(\\nu) \\ell^{2 \\nu}}
-            \\left(\\frac{2 \\nu}{\\ell^2} + 4 \\pi^2 \\boldsymbol{\\omega}^{T} \\boldsymbol{\\omega}\\right)^{-\\nu - D/2}
+            \\left(\\frac{2 \\nu}{\\ell^2} + \\boldsymbol{\\omega}^{T} \\boldsymbol{\\omega}\\right)^{-\\nu - D/2}
 
 
     **References:**
@@ -86,7 +86,7 @@ def spectral_density_matern(
         * ((2 * nu) ** nu)
         * special.gamma(nu + dim / 2)
     )
-    c2 = ((2 * nu / (length**2)) + 4 * jnp.pi ** jnp.dot(w, w)) ** (-nu - dim / 2)
+    c2 = (2 * nu / (length**2) + jnp.dot(w, w)) ** (-nu - dim / 2)
     c3 = special.gamma(nu) * length ** (2 * nu)
     return c1 * c2 / c3
 
@@ -166,6 +166,7 @@ def modified_bessel_first_kind(v, z):
         ) from e
 
     v = jnp.asarray(v, dtype=float)
+    z = jnp.asarray(z, dtype=float)
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
