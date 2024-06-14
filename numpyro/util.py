@@ -111,6 +111,13 @@ def control_flow_prims_disabled():
         _DISABLE_CONTROL_FLOW_PRIM = stored_flag
 
 
+def cjit(fn, *args, **kwargs):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        return fn
+    else:
+        return jit(fn, *args, **kwargs)
+
+
 def cond(pred, true_operand, true_fun, false_operand, false_fun):
     if _DISABLE_CONTROL_FLOW_PRIM:
         if pred:
@@ -345,11 +352,11 @@ def fori_collect(
         def update_collection(collection, val):
             return jax.tree.map(update_fn, collection, transform(val))
 
-        collection = jit(update_collection, donate_argnums=0)(collection, val)
+        collection = cjit(update_collection, donate_argnums=0)(collection, val)
 
         return val, collection, start_idx, thinning
 
-    @partial(jit, donate_argnums=2)
+    @partial(cjit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn_wrap(i, val, collection, start_idx, thinning):
         return _body_fn(i, (val, collection, start_idx, thinning))
@@ -367,7 +374,8 @@ def fori_collect(
                 0, upper, _body_fn, (init_val, collection, start_idx, thinning)
             )
 
-        last_val, collection, _, _ = jit(loop_fn, donate_argnums=0)(collection)
+        last_val, collection, _, _ = cjit(loop_fn, donate_argnums=0)(collection)
+
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
@@ -377,20 +385,21 @@ def fori_collect(
                 0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
             )
 
-        last_val, collection, _, _ = jit(loop_fn, donate_argnums=0)(collection)
+        last_val, collection, _, _ = cjit(loop_fn, donate_argnums=0)(collection)
 
     else:
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
         vals = (init_val, collection, device_put(start_idx), device_put(thinning))
-        # jitted_body_fn_wrap = jit(_body_fn_wrap)
 
         if upper == 0:
             # special case, only compiling
             val, collection, start_idx, thinning = vals
-            dummy_collection = jax.tree.map(lambda x: x.copy(), collection)
-            _body_fn_wrap(0, val, dummy_collection, start_idx, thinning)
+            _, collection, _, _ = _body_fn_wrap(
+                -1, val, collection, start_idx, thinning
+            )
+            vals = (val, collection, start_idx, thinning)
         else:
             with tqdm.trange(upper) as t:
                 for i in t:
