@@ -64,6 +64,8 @@ def ar2_scan(y):
     with numpyro.handlers.condition(data={"y": y[2:]}):
         _, mu = scan(transition, init, timesteps)
 
+    numpyro.deterministic("mu", mu)
+
 
 def ar2_for_loop(y):
     alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
