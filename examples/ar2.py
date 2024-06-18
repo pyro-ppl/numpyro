@@ -34,11 +34,11 @@ import argparse
 import os
 import time
 
+import matplotlib.pyplot as plt
+
 import jax
 from jax import random
 import jax.numpy as jnp
-
-import matplotlib.pyplot as plt
 
 import numpyro
 from numpyro.contrib.control_flow import scan
