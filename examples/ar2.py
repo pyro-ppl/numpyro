@@ -56,7 +56,7 @@ def ar2_scan(y):
         m_t = const + alpha_1 * y_prev + alpha_2 * y_prev_prev
         y_t = numpyro.sample("y", dist.Normal(m_t, sigma))
         carry = (y_t, y_prev)
-        return carry, y_t
+        return carry, m_t
 
     timesteps = jnp.arange(y.shape[0] - 2)
     init = (y[1], y[0])
