@@ -38,6 +38,8 @@ import jax
 from jax import random
 import jax.numpy as jnp
 
+import matplotlib.pyplot as plt
+
 import numpyro
 from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
@@ -54,13 +56,15 @@ def ar2_scan(y):
         m_t = const + alpha_1 * y_prev + alpha_2 * y_prev_prev
         y_t = numpyro.sample("y", dist.Normal(m_t, sigma))
         carry = (y_t, y_prev)
-        return carry, None
+        return carry, y_t
 
     timesteps = jnp.arange(y.shape[0] - 2)
     init = (y[1], y[0])
 
     with numpyro.handlers.condition(data={"y": y[2:]}):
-        scan(transition, init, timesteps)
+        _, mu = scan(transition, init, timesteps)
+
+    numpyro.deterministic("mu", mu)
 
 
 def ar2_for_loop(y):
@@ -110,7 +114,24 @@ def main(args):
         # faster
         model = ar2_scan
 
-    run_inference(model, args, rng_key, y)
+    samples = run_inference(model, args, rng_key, y)
+
+    # do prediction
+    mean_prediction = samples["mu"].mean(axis=0)
+
+    # make plots
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
+
+    # plot training data
+    ax.plot(t, y, color="blue", label="True values")
+    # plot mean prediction
+    # note that we can't make predictions for the first two points,
+    # because they don't have lagged values to use for prediction.
+    ax.plot(t[2:], mean_prediction, color="orange", label="Mean predictions")
+    ax.set(xlabel="time", ylabel="y", title="AR2 process")
+    ax.legend()
+
+    plt.savefig("ar2.png")
 
 
 if __name__ == "__main__":
