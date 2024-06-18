@@ -64,8 +64,6 @@ def ar2_scan(y):
     with numpyro.handlers.condition(data={"y": y[2:]}):
         _, mu = scan(transition, init, timesteps)
 
-    numpyro.deterministic("mu", mu)
-
 
 def ar2_for_loop(y):
     alpha_1 = numpyro.sample("alpha_1", dist.Normal(0, 1))
@@ -75,12 +73,15 @@ def ar2_for_loop(y):
 
     y_prev = y[1]
     y_prev_prev = y[0]
-
+    mu = []
     for i in range(2, len(y)):
         m_t = const + alpha_1 * y_prev + alpha_2 * y_prev_prev
+        mu.append(m_t)
         y_t = numpyro.sample("y_{}".format(i), dist.Normal(m_t, sigma), obs=y[i])
         y_prev_prev = y_prev
         y_prev = y_t
+
+    numpyro.deterministic("mu", jnp.asarray(mu))
 
 
 def run_inference(model, args, rng_key, y):
