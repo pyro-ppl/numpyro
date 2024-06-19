@@ -35,6 +35,7 @@ def test_dist_pytree():
     assert res.scale == 1
 
 
+@pytest.mark.skip(reason="Waiting for the next  tfp release")
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_transformed_distributions():
     from tensorflow_probability.substrates.jax import (
@@ -113,6 +114,7 @@ def make_kernel_fn(target_log_prob_fn):
     )
 
 
+@pytest.mark.skip(reason="Waiting for the next  tfp release")
 @pytest.mark.parametrize(
     "kernel, kwargs",
     [
@@ -243,6 +245,7 @@ def test_sample_tfp_distributions():
 
 # test that sampling from unwrapped tensorflow_probability distributions works as
 # expected using numpyro.sample primitive
+@pytest.mark.skip(reason="Waiting for the next  tfp release")
 @pytest.mark.parametrize(
     "dist,args",
     [
@@ -270,6 +273,7 @@ def test_sample_unwrapped_tfp_distributions(dist, args):
 
 
 # test mixture distributions
+@pytest.mark.skip(reason="Waiting for the next  tfp release")
 def test_sample_unwrapped_mixture_same_family():
     from tensorflow_probability.substrates.jax import distributions as tfd
 
