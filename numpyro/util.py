@@ -111,7 +111,7 @@ def control_flow_prims_disabled():
         _DISABLE_CONTROL_FLOW_PRIM = stored_flag
 
 
-def cjit(fn, *args, **kwargs):
+def maybe_jit(fn, *args, **kwargs):
     if _DISABLE_CONTROL_FLOW_PRIM:
         return fn
     else:
@@ -352,11 +352,11 @@ def fori_collect(
         def update_collection(collection, val):
             return jax.tree.map(update_fn, collection, transform(val))
 
-        collection = cjit(update_collection, donate_argnums=0)(collection, val)
+        collection = update_collection(collection, val)
 
         return val, collection, start_idx, thinning
 
-    @partial(cjit, donate_argnums=2)
+    @partial(maybe_jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn_wrap(i, val, collection, start_idx, thinning):
         return _body_fn(i, (val, collection, start_idx, thinning))
@@ -374,7 +374,7 @@ def fori_collect(
                 0, upper, _body_fn, (init_val, collection, start_idx, thinning)
             )
 
-        last_val, collection, _, _ = cjit(loop_fn, donate_argnums=0)(collection)
+        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
 
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
@@ -385,7 +385,7 @@ def fori_collect(
                 0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
             )
 
-        last_val, collection, _, _ = cjit(loop_fn, donate_argnums=0)(collection)
+        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
 
     else:
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
