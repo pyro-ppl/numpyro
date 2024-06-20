@@ -1100,7 +1100,7 @@ def test_discrete_site_without_infer_enumerate():
         numpyro.sample("x", dist.Bernoulli(0.5))
 
     mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
-    with pytest.warns(FutureWarning, match="enumerated sites|unhashable type"):
+    with pytest.warns(FutureWarning, match="enumerated sites"):
         mcmc.run(random.PRNGKey(0))
 
 

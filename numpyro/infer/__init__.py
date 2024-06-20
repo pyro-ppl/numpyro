@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
+
 from numpyro.infer.barker import BarkerMH
 from numpyro.infer.elbo import (
     ELBO,
@@ -28,6 +30,11 @@ from numpyro.infer.svi import SVI
 from numpyro.infer.util import Predictive, log_likelihood
 
 from . import autoguide, reparam
+
+warnings.filterwarnings(
+    "ignore", message=".*Attempting to hash a tracer.*", category=FutureWarning
+)
+
 
 __all__ = [
     "AIES",
