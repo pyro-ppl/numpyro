@@ -1,13 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import warnings
-
-warnings.filterwarnings(
-    "ignore", message=".*Attempting to hash a tracer.*", category=FutureWarning
-)
-
-# ruff: noqa: E402
 
 from numpyro.infer.barker import BarkerMH
 from numpyro.infer.elbo import (
