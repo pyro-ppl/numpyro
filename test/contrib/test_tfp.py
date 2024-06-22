@@ -168,6 +168,7 @@ def test_mcmc_kernels(kernel, kwargs):
     assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.05)
 
 
+@pytest.mark.skip(reason="Waiting for the next  tfp release")
 @pytest.mark.parametrize(
     "kernel, kwargs",
     [
