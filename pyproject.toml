@@ -88,6 +88,7 @@ known-jax = ["flax", "haiku", "jax", "optax", "tensorflow_probability"]
 addopts = ["-v", "--color=yes"]
 filterwarnings = [
     "error",
+    "ignore:.*Attempting to hash a tracer:FutureWarning",
     "ignore:numpy.ufunc size changed,:RuntimeWarning",
     "ignore:Using a non-tuple sequence:FutureWarning",
     "ignore:jax.tree_structure is deprecated:FutureWarning",
