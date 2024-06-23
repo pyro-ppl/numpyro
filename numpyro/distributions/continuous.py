@@ -2883,6 +2883,19 @@ class WishartCholesky(Distribution):
 
 class DoublyTruncatedPowerLaw(Distribution):
     r"""Power law distribution with :math:`\alpha` index, and lower and upper bounds.
+    We can define the power law distribution as,
+
+    .. math::
+        f(x; \alpha, a, b) = \frac{x^{\alpha}}{Z(\alpha, a, b)},
+
+    where, :math:`a` and :math:`b` are the lower and upper bounds respectively,
+    and :math:`Z(\alpha, a, b)` is the normalization constant. It is defined as,
+
+    .. math::
+        Z(\alpha, a, b) = \begin{cases}
+            \log(b) - \log(a) & \text{if } \alpha = -1, \\
+            \frac{b^{1 + \alpha} - a^{1 + \alpha}}{1 + \alpha} & \text{otherwise}.
+        \end{cases}
 
     :param alpha: index of the power law distribution
     :param low: lower bound of the distribution
@@ -2915,7 +2928,7 @@ class DoublyTruncatedPowerLaw(Distribution):
     def _log_Z(self):
         return jnp.where(
             self.alpha == -1.0,
-            jnp.log(jnp.log(self.low) - jnp.log(self.high)),
+            jnp.log(jnp.log(self.high) - jnp.log(self.low)),
             jnp.log(
                 jnp.abs(
                     jnp.power(self.low, 1.0 + self.alpha)
@@ -2994,6 +3007,16 @@ class DoublyTruncatedPowerLaw(Distribution):
 
 class LowerTruncatedPowerLaw(Distribution):
     r"""Lower truncated power law distribution with :math:`\alpha` index.
+    We can define the power law distribution as,
+
+    .. math::
+        f(x; \alpha, a) = \frac{x^{\alpha}}{Z(\alpha, a)}, \quad x \geq a, \quad \alpha < -1,
+
+    where, :math:`a` is the lower bound, and :math:`Z(\alpha, a)` is the
+    normalization constant. It is defined as,
+
+    .. math::
+        Z(\alpha, a) = -\frac{a^{1 + \alpha}}{1 + \alpha}.
 
     :param alpha: index of the power law distribution
     :param low: lower bound of the distribution
