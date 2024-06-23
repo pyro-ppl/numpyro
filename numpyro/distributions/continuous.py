@@ -3010,20 +3010,28 @@ class LowerTruncatedPowerLaw(Distribution):
     We can define the power law distribution as,
 
     .. math::
-        f(x; \alpha, a) = \frac{x^{\alpha}}{Z(\alpha, a)}, \quad x \geq a, \quad \alpha < -1,
+        f(x; \alpha, a) = \frac{(\alpha-1)x^{-\alpha}}{a^{1 - \alpha}},
+        \qquad x \geq a, \qquad \alpha > 1,
 
-    where, :math:`a` is the lower bound, and :math:`Z(\alpha, a)` is the
-    normalization constant. It is defined as,
+    where, :math:`a` is the lower bound. The cdf of the distribution is given by,
 
     .. math::
-        Z(\alpha, a) = -\frac{a^{1 + \alpha}}{1 + \alpha}.
+        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1-\alpha}.
+
+    The k-th moment of the distribution is given by,
+
+    .. math::
+        E[X^k] = \begin{cases}
+            \frac{\alpha-1}{\alpha-1-k}a^k & \text{if } k < \alpha-1, \\
+            \infty & \text{otherwise}.
+        \end{cases}
 
     :param alpha: index of the power law distribution
     :param low: lower bound of the distribution
     """
 
     arg_constraints = {
-        "alpha": constraints.less_than(-1.0),
+        "alpha": constraints.greater_than(1.0),
         "low": constraints.greater_than(1.0),
     }
     reparametrized_params = ["alpha", "low"]
@@ -3044,16 +3052,21 @@ class LowerTruncatedPowerLaw(Distribution):
     @validate_sample
     def log_prob(self, value):
         return (
-            self.alpha * jnp.log(value)
-            - (self.alpha + 1.0) * jnp.log(self.low)
-            + jnp.log(-1.0 - self.alpha)
+            -self.alpha * jnp.log(value)
+            + (self.alpha - 1.0) * jnp.log(self.low)
+            + jnp.log(self.alpha - 1.0)
         )
 
     def cdf(self, value):
-        return 1.0 - jnp.power(value / self.low, 1.0 + self.alpha)
+        cdf_val = jnp.where(
+            jnp.less_equal(value, self.low),
+            jnp.zeros_like(value),
+            1.0 - jnp.power(value / self.low, 1.0 - self.alpha),
+        )
+        return cdf_val
 
     def icdf(self, q):
-        return self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 + self.alpha))
+        return self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 - self.alpha))
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -3063,23 +3076,23 @@ class LowerTruncatedPowerLaw(Distribution):
 
     @lazy_property
     def mean(self):
-        if self.alpha + 2.0 >= 0:
+        if 2.0 - self.alpha >= 0:
             return jnp.full_like(self.low, jnp.inf)
         return (
-            (self.alpha + 1.0)
-            * jnp.reciprocal(self.alpha + 2.0)
-            * (self.low - jnp.power(self.low, -self.alpha - 1.0))
+            (1.0 - self.alpha)
+            * jnp.reciprocal(2.0 - self.alpha)
+            * (self.low - jnp.power(self.low, self.alpha - 1.0))
         )
 
     @lazy_property
     def variance(self):
-        if self.alpha + 2.0 >= 0:
+        if 2.0 - self.alpha >= 0:
             return jnp.full_like(self.low, jnp.inf)
-        if self.alpha + 3.0 >= 0:
+        if 3.0 - self.alpha >= 0:
             return jnp.full_like(self.low, jnp.inf)
         return (
             jnp.power(self.low, 2.0)
-            * (self.alpha + 1.0)
+            * (1.0 - self.alpha)
             * jnp.power(self.alpha, -2.0)
-            * jnp.reciprocal(self.alpha + 3.0)
+            * jnp.reciprocal(3.0 - self.alpha)
         )
