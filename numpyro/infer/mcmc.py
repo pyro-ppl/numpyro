@@ -518,6 +518,15 @@ class MCMC(object):
         except TypeError:
             pass
 
+    def _get_states_flat(self):
+        if self._states_flat is None:
+            self._states_flat = tree_map(
+                # need to calculate first dimension manually; see issue #1328
+                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
+                self._states,
+            )
+        return self._states_flat
+
     @property
     def post_warmup_state(self):
         """
@@ -675,14 +684,10 @@ class MCMC(object):
                 states, last_state = partial_map_fn(map_args)
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), states)
-            states_flat = jax.tree.map(
-                # need to calculate first dimension manually; see issue #1328
-                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
-                states,
-            )
+
         self._last_state = last_state
         self._states = states
-        self._states_flat = states_flat
+        self._states_flat = None
         self._set_collection_params()
 
     def get_samples(self, group_by_chain=False):
@@ -708,7 +713,7 @@ class MCMC(object):
         return (
             self._states[self._sample_field]
             if group_by_chain
-            else self._states_flat[self._sample_field]
+            else self._get_states_flat()[self._sample_field]
         )
 
     def get_extra_fields(self, group_by_chain=False):
@@ -720,7 +725,7 @@ class MCMC(object):
         :return: Extra fields keyed by field names which are specified in the
             `extra_fields` keyword of :meth:`run`.
         """
-        states = self._states if group_by_chain else self._states_flat
+        states = self._states if group_by_chain else self._get_states_flat()
         return {k: v for k, v in states.items() if k != self._sample_field}
 
     def print_summary(self, prob=0.9, exclude_deterministic=True):
@@ -758,7 +763,7 @@ class MCMC(object):
         Reduce the memory footprint of collected samples by transfering them to the host device.
         """
         self._states = device_get(self._states)
-        self._states_flat = device_get(self._states_flat)
+        self._states_flat = device_get(self._get_states_flat())
 
     def __getstate__(self):
         state = self.__dict__.copy()

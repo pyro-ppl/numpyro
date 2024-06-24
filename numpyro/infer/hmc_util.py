@@ -941,14 +941,10 @@ def _double_tree(
 def _leaf_idx_to_ckpt_idxs(n):
     # computes the number of non-zero bits except the last bit
     # e.g. 6 -> 2, 7 -> 2, 13 -> 2
-    _, idx_max = while_loop(
-        lambda nc: nc[0] > 0, lambda nc: (nc[0] >> 1, nc[1] + (nc[0] & 1)), (n >> 1, 0)
-    )
+    idx_max = jnp.bitwise_count(n >> 1).astype(jnp.int32)
     # computes the number of contiguous last non-zero bits
     # e.g. 6 -> 0, 7 -> 3, 13 -> 1
-    _, num_subtrees = while_loop(
-        lambda nc: (nc[0] & 1) != 0, lambda nc: (nc[0] >> 1, nc[1] + 1), (n, 0)
-    )
+    num_subtrees = jnp.bitwise_count((~n & (n + 1)) - 1).astype(jnp.int32)
     # TODO: explore the potential of setting idx_min=0 to allow more turning checks
     # It will be useful in case: e.g. assume a tree 0 -> 7 is a circle,
     # subtrees 0 -> 3, 4 -> 7 are half-circles, which two leaves might not

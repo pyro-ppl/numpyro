@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+from functools import partial
 import inspect
 from itertools import zip_longest
 import os
@@ -18,7 +19,6 @@ import jax
 from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import host_callback
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -110,6 +110,13 @@ def control_flow_prims_disabled():
         _DISABLE_CONTROL_FLOW_PRIM = stored_flag
 
 
+def maybe_jit(fn, *args, **kwargs):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        return fn
+    else:
+        return jit(fn, *args, **kwargs)
+
+
 def cond(pred, true_operand, true_fun, false_operand, false_fun):
     if _DISABLE_CONTROL_FLOW_PRIM:
         if pred:
@@ -167,13 +174,14 @@ def cached_by(outer_fn, *keys):
 
     def _wrapped(fn):
         fn_cache = outer_fn._cache
-        if keys in fn_cache:
-            fn = fn_cache[keys]
+        hashkeys = (*keys, fn.__name__)
+        if hashkeys in fn_cache:
+            fn = fn_cache[hashkeys]
             # update position
-            del fn_cache[keys]
-            fn_cache[keys] = fn
+            del fn_cache[hashkeys]
+            fn_cache[hashkeys] = fn
         else:
-            fn_cache[keys] = fn
+            fn_cache[hashkeys] = fn
         if len(fn_cache) > max_size:
             fn_cache.popitem(last=False)
         return fn
@@ -313,7 +321,7 @@ def fori_collect(
         (upper - lower) // thinning if collection_size is None else collection_size
     )
     assert collection_size >= (upper - lower) // thinning
-    init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
+    init_val_transformed = transform(init_val)
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
     # host_callback does not work yet with multi-GPU platforms
@@ -325,53 +333,79 @@ def fori_collect(
         )
         progbar = False
 
+    @partial(maybe_jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
-    def _body_fn(i, vals):
-        val, collection, start_idx, thinning = vals
+    def _body_fn(i, val, collection, start_idx, thinning):
         val = body_fun(val)
         idx = (i - start_idx) // thinning
-        collection = cond(
-            idx >= 0,
-            collection,
-            lambda x: x.at[idx].set(ravel_pytree(transform(val))[0]),
-            collection,
-            identity,
-        )
+
+        def update_fn(collect_array, new_val):
+            return cond(
+                idx >= 0,
+                collect_array,
+                lambda x: x.at[idx].set(new_val),
+                collect_array,
+                identity,
+            )
+
+        def update_collection(collection, val):
+            return jax.tree.map(update_fn, collection, transform(val))
+
+        collection = update_collection(collection, val)
         return val, collection, start_idx, thinning
 
-    collection = jnp.zeros(
-        (collection_size,) + init_val_flat.shape, dtype=init_val_flat.dtype
-    )
+    def map_fn(x):
+        nx = jnp.asarray(x)
+        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype) * nx[None, ...]
+
+    collection = jax.tree.map(map_fn, init_val_transformed)
+
     if not progbar:
-        last_val, collection, _, _ = fori_loop(
-            0, upper, _body_fn, (init_val, collection, start_idx, thinning)
-        )
+
+        def loop_fn(collection):
+            return fori_loop(
+                0,
+                upper,
+                lambda i, vals: _body_fn(i, *vals),
+                (init_val, collection, start_idx, thinning),
+            )
+
+        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
+
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
-        _body_fn_pbar = progress_bar_fori_loop(_body_fn)
-        last_val, collection, _, _ = fori_loop(
-            0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
-        )
+        _body_fn_pbar = progress_bar_fori_loop(lambda i, vals: _body_fn(i, *vals))
+
+        def loop_fn(collection):
+            return fori_loop(
+                0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
+            )
+
+        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
+
     else:
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
         vals = (init_val, collection, device_put(start_idx), device_put(thinning))
+
         if upper == 0:
             # special case, only compiling
-            jit(_body_fn)(0, vals)
+            val, collection, start_idx, thinning = vals
+            _, collection, _, _ = _body_fn(-1, val, collection, start_idx, thinning)
+            vals = (val, collection, start_idx, thinning)
         else:
             with tqdm.trange(upper) as t:
                 for i in t:
-                    vals = jit(_body_fn)(i, vals)
+                    vals = _body_fn(i, *vals)
+
                     t.set_description(progbar_desc(i), refresh=False)
                     if diagnostics_fn:
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
         last_val, collection, _, _ = vals
 
-    unravel_collection = vmap(unravel_fn)(collection)
-    return (unravel_collection, last_val) if return_last_val else unravel_collection
+    return (collection, last_val) if return_last_val else collection
 
 
 def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
