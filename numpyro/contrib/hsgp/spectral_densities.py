@@ -17,7 +17,7 @@ from numpyro.contrib.hsgp.laplacian import sqrt_eigenvalues
 
 
 def align_param(dim, param):
-    return jnp.broadcast_arrays(param, jnp.zeros(dim))[0]
+    return jnp.broadcast_to(param, jnp.broadcast_shapes(jnp.shape(param), (dim,)))
 
 
 def spectral_density_squared_exponential(
