@@ -1529,6 +1529,7 @@ def _transform_to_greater_than(constraint):
 
 
 @biject_to.register(constraints.less_than)
+@biject_to.register(constraints.less_than_eq)
 def _transform_to_less_than(constraint):
     return ComposeTransform(
         [

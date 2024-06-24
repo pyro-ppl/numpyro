@@ -417,7 +417,7 @@ class _LessThan(Constraint):
 
 class _LessThanEq(_LessThan):
     def __call__(self, x):
-        return x >= self.upper_bound
+        return x <= self.upper_bound
 
     def __eq__(self, other):
         if not isinstance(other, _LessThanEq):

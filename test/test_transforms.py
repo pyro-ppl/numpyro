@@ -366,6 +366,7 @@ def test_batched_recursive_linear_transform():
         (constraints.interval(8, 13), (17,)),
         (constraints.l1_ball, (4,)),
         (constraints.less_than(-1), ()),
+        (constraints.less_than_eq(-1), ()),
         (constraints.lower_cholesky, (15,)),
         (constraints.open_interval(3, 4), ()),
         (constraints.ordered_vector, (5,)),
