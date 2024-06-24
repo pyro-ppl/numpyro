@@ -3101,3 +3101,21 @@ class LowerTruncatedPowerLaw(Distribution):
     @lazy_property
     def variance(self):
         return self._kth_moment(2) - lax.square(self.mean)
+
+    def entropy(self):
+        # The simplified expression for the entorpy is,
+        # H(x) = (alpha-1)log(a) - log(a-1)
+        #        + alpha(alpha-1)a^(alpha-1)\int_{a}^{\infty}x^{-alpha}log(x)dx
+        # The integral term can be reshaped into a lower incomplete gamma function.
+        # After simplification, we get the following expression.
+        # H(x) = (alpha-1)log(a) - log(a-1)
+        #        + (alpha/(alpha-1))a^(alpha-1)(1-gamma(2, (alpha-1)log(a)))
+        # I followed the definition of lower incomplete gamma function from wikipedia.
+        # https://en.wikipedia.org/wiki/Incomplete_gamma_function#Definition
+        # In the very same wikipedia article there was a recursive formula,
+        # https://en.wikipedia.org/wiki/Incomplete_gamma_function#Properties
+        # which I used to simplify the expression. It gave me the following expression.
+        # H(x) = log(a) - log(alpha-1) + (alpha/(alpha-1))(a^(alpha-1) + 1)
+        Hx = jnp.log(self.low) - jnp.log(self.alpha - 1)
+        Hx += self.alpha / (self.alpha - 1) * (jnp.power(self.low, self.alpha - 1) + 1)
+        return Hx
