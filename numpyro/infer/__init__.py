@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from numpyro.infer.barker import BarkerMH
 from numpyro.infer.elbo import (
     ELBO,
