@@ -2927,7 +2927,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     def _log_Z(self):
         return jnp.where(
-            self.alpha == -1.0,
+            jnp.equal(self.alpha, -1.0),
             jnp.log(jnp.log(self.high) - jnp.log(self.low)),
             jnp.log(
                 jnp.abs(
@@ -2943,8 +2943,8 @@ class DoublyTruncatedPowerLaw(Distribution):
         return self.alpha * jnp.log(value) - self._logZ
 
     def cdf(self, value):
-        return jnp.where(
-            self.alpha == -1.0,
+        cdf_val = jnp.where(
+            jnp.equal(self.alpha, -1.0),
             (jnp.log(value) - jnp.log(self.low))
             / (jnp.log(self.high) - jnp.log(self.low)),
             (jnp.power(value, 1.0 + self.alpha) - jnp.power(self.low, 1.0 + self.alpha))
@@ -2953,12 +2953,17 @@ class DoublyTruncatedPowerLaw(Distribution):
                 - jnp.power(self.low, 1.0 + self.alpha)
             ),
         )
+        cdf_val = jnp.clip(cdf_val, a_min=0.0, a_max=1.0)
+        return cdf_val
 
     def icdf(self, q):
-        return jnp.where(
-            self.alpha == -1.0,
-            jnp.exp(jnp.log(self.low) + q * (jnp.log(self.high) - jnp.log(self.low))),
-            jnp.power(
+        def icdf_alpha_neg1(q):
+            return jnp.exp(
+                jnp.log(self.low) + q * (jnp.log(self.high) - jnp.log(self.low))
+            )
+
+        def icdf_alpha_neq_neg1(q):
+            return jnp.power(
                 jnp.power(self.low, 1.0 + self.alpha)
                 + q
                 * (
@@ -2966,8 +2971,14 @@ class DoublyTruncatedPowerLaw(Distribution):
                     - jnp.power(self.low, 1.0 + self.alpha)
                 ),
                 jnp.reciprocal(1.0 + self.alpha),
-            ),
+            )
+
+        icdf_val = jnp.where(
+            jnp.equal(self.alpha, -1.0), icdf_alpha_neg1(q), icdf_alpha_neq_neg1(q)
         )
+        nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
+        nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
+        return jnp.where(nan_mask, jnp.nan, icdf_val)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -2979,7 +2990,7 @@ class DoublyTruncatedPowerLaw(Distribution):
     def mean(self):
         Z = jnp.exp(self._logZ)
         return jnp.where(
-            self.alpha == -2.0,
+            jnp.equal(self.alpha, -2.0),
             (jnp.log(self.high) - jnp.log(self.low)) / Z,
             (
                 jnp.power(self.high, 2.0 + self.alpha)
@@ -2993,7 +3004,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         Z = jnp.exp(self._logZ)
         expectation_x = self.mean
         expectation_x_squared = jnp.where(
-            self.alpha == -3.0,
+            jnp.equal(self.alpha, -3.0),
             (jnp.log(self.high) - jnp.log(self.low)) / Z,
             (
                 jnp.power(self.high, 3.0 + self.alpha)
