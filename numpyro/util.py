@@ -334,9 +334,9 @@ def fori_collect(
         )
         progbar = False
 
+    @partial(maybe_jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
-    def _body_fn(i, vals):
-        val, collection, start_idx, thinning = vals
+    def _body_fn(i, val, collection, start_idx, thinning):
         val = body_fun(val)
         idx = (i - start_idx) // thinning
 
@@ -353,13 +353,7 @@ def fori_collect(
             return jax.tree.map(update_fn, collection, transform(val))
 
         collection = update_collection(collection, val)
-
         return val, collection, start_idx, thinning
-
-    @partial(maybe_jit, donate_argnums=2)
-    @cached_by(fori_collect, body_fun, transform)
-    def _body_fn_wrap(i, val, collection, start_idx, thinning):
-        return _body_fn(i, (val, collection, start_idx, thinning))
 
     def map_fn(x):
         nx = jnp.asarray(x)
@@ -371,14 +365,17 @@ def fori_collect(
 
         def loop_fn(collection):
             return fori_loop(
-                0, upper, _body_fn, (init_val, collection, start_idx, thinning)
+                0,
+                upper,
+                lambda i, vals: _body_fn(i, *vals),
+                (init_val, collection, start_idx, thinning),
             )
 
         last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
 
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
-        _body_fn_pbar = progress_bar_fori_loop(_body_fn)
+        _body_fn_pbar = progress_bar_fori_loop(lambda i, vals: _body_fn(i, *vals))
 
         def loop_fn(collection):
             return fori_loop(
@@ -396,14 +393,12 @@ def fori_collect(
         if upper == 0:
             # special case, only compiling
             val, collection, start_idx, thinning = vals
-            _, collection, _, _ = _body_fn_wrap(
-                -1, val, collection, start_idx, thinning
-            )
+            _, collection, _, _ = _body_fn(-1, val, collection, start_idx, thinning)
             vals = (val, collection, start_idx, thinning)
         else:
             with tqdm.trange(upper) as t:
                 for i in t:
-                    vals = _body_fn_wrap(i, *vals)
+                    vals = _body_fn(i, *vals)
 
                     t.set_description(progbar_desc(i), refresh=False)
                     if diagnostics_fn:
