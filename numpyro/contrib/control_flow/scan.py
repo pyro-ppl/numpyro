@@ -226,7 +226,7 @@ def scan_enum(
                 # return early if length = unroll_steps
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
-                wrapped_carry = tree_map(device_put, wrapped_carry)
+                wrapped_carry = jax.tree.map(device_put, wrapped_carry)
                 wrapped_carry, (pytree_trace, ys) = lax.scan(
                     body_fn, wrapped_carry, xs_, length - unroll_steps, reverse
                 )
@@ -326,7 +326,7 @@ def scan_wrapper(
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    wrapped_carry = tree_map(device_put, (0, rng_key, init))
+    wrapped_carry = jax.tree.map(device_put, (0, rng_key, init))
     last_carry, (pytree_trace, ys) = lax.scan(
         body_fn, wrapped_carry, xs, length=length, reverse=reverse
     )

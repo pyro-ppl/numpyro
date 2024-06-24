@@ -520,7 +520,7 @@ class MCMC(object):
 
     def _get_states_flat(self):
         if self._states_flat is None:
-            self._states_flat = tree_map(
+            self._states_flat = jax.tree.map(
                 # need to calculate first dimension manually; see issue #1328
                 lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
                 self._states,

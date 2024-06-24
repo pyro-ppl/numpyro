@@ -11,6 +11,7 @@ import operator
 
 import jax
 from jax import grad, jacfwd, numpy as jnp, random, vmap
+from jax.flatten_util import ravel_pytree
 
 from numpyro import handlers
 from numpyro.contrib.einstein.stein_kernels import SteinKernel
