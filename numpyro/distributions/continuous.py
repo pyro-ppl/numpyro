@@ -2986,34 +2986,31 @@ class DoublyTruncatedPowerLaw(Distribution):
         samples = self.icdf(u)
         return samples
 
+    def _kth_moment(self, k):
+        Z = jnp.exp(self._logZ)
+
+        def index_eq_neg1():
+            return (jnp.log(self.high) - jnp.log(self.low)) / Z
+
+        def index_neq_neg1():
+            power_index = k + self.alpha + 1.0
+            return (
+                jnp.power(self.high, power_index) - jnp.power(self.low, power_index)
+            ) / ((power_index) * Z)
+
+        return jnp.where(
+            jnp.equal(self.alpha + k, -1.0), index_eq_neg1(), index_neq_neg1()
+        )
+
     @lazy_property
     def mean(self):
-        Z = jnp.exp(self._logZ)
-        return jnp.where(
-            jnp.equal(self.alpha, -2.0),
-            (jnp.log(self.high) - jnp.log(self.low)) / Z,
-            (
-                jnp.power(self.high, 2.0 + self.alpha)
-                - jnp.power(self.low, 2.0 + self.alpha)
-            )
-            / ((2.0 + self.alpha) * Z),
-        )
+        return self._kth_moment(1)
 
     @lazy_property
     def variance(self):
-        Z = jnp.exp(self._logZ)
-        expectation_x = self.mean
-        expectation_x_squared = jnp.where(
-            jnp.equal(self.alpha, -3.0),
-            (jnp.log(self.high) - jnp.log(self.low)) / Z,
-            (
-                jnp.power(self.high, 3.0 + self.alpha)
-                - jnp.power(self.low, 3.0 + self.alpha)
-            )
-            / ((3.0 + self.alpha) * Z),
-        )
-
-        return expectation_x_squared - expectation_x**2
+        moment1 = self._kth_moment(1)
+        moment2 = self._kth_moment(2)
+        return moment2 - moment1**2
 
 
 class LowerTruncatedPowerLaw(Distribution):
