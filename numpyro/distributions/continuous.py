@@ -3008,9 +3008,8 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     @lazy_property
     def variance(self):
-        moment1 = self._kth_moment(1)
         moment2 = self._kth_moment(2)
-        return moment2 - moment1**2
+        return moment2 - lax.square(self.mean)
 
 
 class LowerTruncatedPowerLaw(Distribution):
@@ -3018,7 +3017,7 @@ class LowerTruncatedPowerLaw(Distribution):
     We can define the power law distribution as,
 
     .. math::
-        f(x; \alpha, a) = \frac{(\alpha-1)x^{-\alpha}}{a^{1 - \alpha}},
+        f(x; \alpha, a) = (\alpha-1)a^{\alpha - 1}x^{-\alpha},
         \qquad x \geq a, \qquad \alpha > 1,
 
     where, :math:`a` is the lower bound. The cdf of the distribution is given by,
@@ -3082,25 +3081,17 @@ class LowerTruncatedPowerLaw(Distribution):
         samples = self.icdf(u)
         return samples
 
-    @lazy_property
-    def mean(self):
-        if 2.0 - self.alpha >= 0:
-            return jnp.full_like(self.low, jnp.inf)
-        return (
-            (1.0 - self.alpha)
-            * jnp.reciprocal(2.0 - self.alpha)
-            * (self.low - jnp.power(self.low, self.alpha - 1.0))
+    def _kth_moment(self, k):
+        return jnp.where(
+            jnp.less(k, self.alpha - 1),
+            (self.alpha - 1) / (self.alpha - 1 - k) * jnp.power(self.low, k),
+            jnp.inf,
         )
 
     @lazy_property
+    def mean(self):
+        return self._kth_moment(1)
+
+    @lazy_property
     def variance(self):
-        if 2.0 - self.alpha >= 0:
-            return jnp.full_like(self.low, jnp.inf)
-        if 3.0 - self.alpha >= 0:
-            return jnp.full_like(self.low, jnp.inf)
-        return (
-            jnp.power(self.low, 2.0)
-            * (1.0 - self.alpha)
-            * jnp.power(self.alpha, -2.0)
-            * jnp.reciprocal(3.0 - self.alpha)
-        )
+        return self._kth_moment(2) - lax.square(self.mean)
