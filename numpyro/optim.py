@@ -11,12 +11,13 @@ from collections import namedtuple
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+import jax
 from jax import jacfwd, lax, value_and_grad
 from jax.example_libraries import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
-from jax.tree_util import register_pytree_node, tree_map
+from jax.tree_util import register_pytree_node
 
 __all__ = [
     "Adam",
@@ -176,7 +177,7 @@ class ClippedAdam(_NumPyroOptim):
     def update(self, g, state):
         i, opt_state = state
         # clip norm
-        g = tree_map(
+        g = jax.tree.map(
             lambda g_: jnp.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g
         )
         opt_state = self.update_fn(i, g, opt_state)

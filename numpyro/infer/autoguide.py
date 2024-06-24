@@ -14,7 +14,6 @@ import jax
 from jax import grad, hessian, lax, random
 from jax.example_libraries import stax
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers
@@ -454,12 +453,12 @@ class AutoNormal(AutoGuide):
             : jnp.ndim(latent_samples[name]) - jnp.ndim(self._init_locs[name])
         ]
         if sample_shape:
-            flatten_samples = tree_map(
+            flatten_samples = jax.tree.map(
                 lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[len(sample_shape) :]),
                 latent_samples,
             )
             contrained_samples = lax.map(self._postprocess_fn, flatten_samples)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 contrained_samples,
             )
@@ -751,7 +750,7 @@ class AutoContinuous(AutoGuide):
                 latent_sample, (-1, jnp.shape(latent_sample)[-1])
             )
             unpacked_samples = lax.map(unpack_single_latent, latent_sample)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 unpacked_samples,
             )
@@ -997,7 +996,7 @@ class AutoDAIS(AutoContinuous):
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 samples,
             )
@@ -1697,7 +1696,7 @@ class AutoSemiDAIS(AutoGuide):
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 samples,
             )

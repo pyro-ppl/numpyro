@@ -20,7 +20,6 @@ from jax.core import Tracer
 from jax.experimental import host_callback
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
@@ -389,7 +388,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
         Defaults to the size of batch dimensions.
     :returns: output of `fn(xs)`.
     """
-    flatten_xs = tree_flatten(xs)[0]
+    flatten_xs = jax.tree.flatten(xs)[0]
     batch_shape = np.shape(flatten_xs[0])[:batch_ndims]
     for x in flatten_xs[1:]:
         assert np.shape(x)[:batch_ndims] == batch_shape
@@ -397,7 +396,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
     num_chunks = batch_size = int(np.prod(batch_shape))
     prepend_shape = (batch_size,) if batch_size > 1 else ()
-    xs = tree_map(
+    xs = jax.tree.map(
         lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs
     )
     # XXX: probably for the default behavior with chunk_size=None,
@@ -405,12 +404,12 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:
         pad = chunk_size - (batch_size % chunk_size)
-        xs = tree_map(
+        xs = jax.tree.map(
             lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs
         )
         num_chunks = batch_size // chunk_size + int(pad > 0)
         prepend_shape = (-1,) if num_chunks > 1 else ()
-        xs = tree_map(
+        xs = jax.tree.map(
             lambda x: jnp.reshape(x, prepend_shape + (chunk_size,) + jnp.shape(x)[1:]),
             xs,
         )
@@ -418,13 +417,13 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
 
     ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
-    ys = tree_map(
+    ys = jax.tree.map(
         lambda y: jnp.reshape(
             y, (int(np.prod(jnp.shape(y)[:map_ndims])),) + jnp.shape(y)[map_ndims:]
         )[:batch_size],
         ys,
     )
-    return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+    return jax.tree.map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
 
 
 def format_shapes(

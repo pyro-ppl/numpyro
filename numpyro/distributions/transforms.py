@@ -8,13 +8,14 @@ import weakref
 import numpy as np
 from numpy.core.numeric import normalize_axis_tuple
 
+import jax
 from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
-from jax.tree_util import register_pytree_node, tree_flatten, tree_map
+from jax.tree_util import register_pytree_node
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
@@ -1116,7 +1117,7 @@ class UnpackTransform(Transform):
         batch_shape = x.shape[:-1]
         if batch_shape:
             unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
-            return tree_map(
+            return jax.tree.map(
                 lambda z: jnp.reshape(z, batch_shape + z.shape[1:]), unpacked
             )
         else:
@@ -1124,7 +1125,7 @@ class UnpackTransform(Transform):
 
     def _inverse(self, y):
         leading_dims = [
-            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in tree_flatten(y)[0]
+            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in jax.tree.flatten(y)[0]
         ]
         d0 = leading_dims[0]
         not_scalar = d0 > 0 or len(leading_dims) > 1

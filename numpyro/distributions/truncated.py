@@ -1,11 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import jax
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
-from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import (
@@ -38,7 +38,7 @@ class LeftTruncatedDistribution(Distribution):
             base_dist.support is constraints.real
         ), "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
-        self.base_dist = tree_map(
+        self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         (self.low,) = promote_shapes(low, shape=batch_shape)
@@ -117,7 +117,7 @@ class RightTruncatedDistribution(Distribution):
             base_dist.support is constraints.real
         ), "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
-        self.base_dist = tree_map(
+        self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         (self.high,) = promote_shapes(high, shape=batch_shape)
@@ -186,7 +186,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         batch_shape = lax.broadcast_shapes(
             base_dist.batch_shape, jnp.shape(low), jnp.shape(high)
         )
-        self.base_dist = tree_map(
+        self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         (self.low,) = promote_shapes(low, shape=batch_shape)

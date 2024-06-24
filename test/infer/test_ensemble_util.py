@@ -26,6 +26,6 @@ def test_batch_ravel_pytree():
     assert flattened.shape == (5, 2 + 3 + 4)
 
     for unflattened_leaf, original_leaf in zip(
-        jax.tree_util.tree_leaves(unflattened), jax.tree_util.tree_leaves(tree)
+        jax.tree.leaves(unflattened), jax.tree.leaves(tree)
     ):
         assert jnp.all(unflattened_leaf == original_leaf)

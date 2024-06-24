@@ -9,9 +9,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import device_put, disable_jit, grad, jit, random
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.infer.hmc_util import (
@@ -222,7 +222,7 @@ def test_velocity_verlet(jitted, example):
     assert_allclose(energy_initial, energy_final, atol=1e-5)
 
     logger.info("Test time reversibility:")
-    p_reverse = tree_map(lambda x: -x, p_f)
+    p_reverse = jax.tree.map(lambda x: -x, p_f)
     q_i, p_i = get_final_state(model, args.step_size, args.num_steps, q_f, p_reverse)
     for node in args.q_i:
         assert_allclose(q_i[node], args.q_i[node], atol=1e-4)

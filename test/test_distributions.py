@@ -3189,7 +3189,7 @@ def _allclose_or_equal(a1, a2):
 
 
 def _tree_equal(t1, t2):
-    t = jax.tree_util.tree_map(_allclose_or_equal, t1, t2)
+    t = jax.tree.map(_allclose_or_equal, t1, t2)
     return jnp.all(jax.flatten_util.ravel_pytree(t)[0])
 
 
@@ -3216,7 +3216,7 @@ def test_vmap_dist(jax_dist, sp_dist, params):
         # In this case, since csr arrays are not jittable,
         # _SparseCAR has a csr_matrix as part of its pytree
         # definition (not as a pytree leaf). This causes pytree
-        # operations like tree_map to fail, since these functions
+        # operations like jax.tree.map to fail, since these functions
         # compare the pytree def of each of the arguments using ==
         # which is ambiguous for array-like objects.
         return
@@ -3261,7 +3261,7 @@ def test_vmap_dist(jax_dist, sp_dist, params):
     for in_axes, out_axes in in_out_axes_cases:
         batched_params = [
             (
-                jax.tree_map(lambda x: jnp.expand_dims(x, ax), arg)
+                jax.jax.tree.map(lambda x: jnp.expand_dims(x, ax), arg)
                 if isinstance(ax, int)
                 else arg
             )

@@ -5,8 +5,8 @@ import copy
 from functools import singledispatch
 from typing import Union
 
+import jax
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.conjugate import (
@@ -547,7 +547,7 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
         len(new_shapes_elems),
         len(new_shapes_elems) + len(orig_delta_batch_shape),
     )
-    new_base_dist = tree_map(
+    new_base_dist = jax.tree.map(
         lambda x: jnp.expand_dims(x, axis=new_axes_locs), new_self.base_dist
     )
 
