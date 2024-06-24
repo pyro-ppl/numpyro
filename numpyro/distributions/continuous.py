@@ -3073,7 +3073,13 @@ class LowerTruncatedPowerLaw(Distribution):
         return cdf_val
 
     def icdf(self, q):
-        return self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 - self.alpha))
+        nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
+        nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
+        return jnp.where(
+            nan_mask,
+            jnp.nan,
+            self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 - self.alpha)),
+        )
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
