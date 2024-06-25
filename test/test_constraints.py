@@ -52,6 +52,7 @@ PARAMETRIZED_CONSTRAINTS = {
     "greater_than": T(constraints.greater_than, (_a(0.0),), dict()),
     "greater_than_eq": T(constraints.greater_than_eq, (_a(0.0),), dict()),
     "less_than": T(constraints.less_than, (_a(-1.0),), dict()),
+    "less_than_eq": T(constraints.less_than_eq, (_a(-1.0),), dict()),
     "independent": T(
         constraints.independent,
         (constraints.greater_than(jnp.zeros((2,))),),
