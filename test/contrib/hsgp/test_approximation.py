@@ -144,7 +144,7 @@ def test_kernel_approx_squared_exponential(
     def _exact_rbf(length):
         return RBF(length)(x1, x2).squeeze(axis=-1)
 
-    if isinstance(length,  int) | isinstance(length, float):
+    if isinstance(length, int) | isinstance(length, float):
         exact = _exact_rbf(length)
     elif length.ndim == 1:
         exact = _exact_rbf(length)
