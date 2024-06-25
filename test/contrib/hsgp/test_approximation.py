@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from functools import reduce
 from operator import mul
-from typing import Literal
+from typing import Literal, Union
 
 import numpy as np
 import pytest
@@ -74,23 +74,54 @@ def synthetic_two_dim_data() -> tuple[ArrayImpl, ArrayImpl]:
 
 
 @pytest.mark.parametrize(
-    argnames="x1, x2, length, ell",
+    argnames="x1, x2, length, ell, xfail",
     argvalues=[
-        (np.array([[1.0]]), np.array([[0.0]]), np.array([1.0]), 5.0),
+        (np.array([[1.0]]), np.array([[0.0]]), 1.0, 5.0, False),
         (
             np.array([[1.5, 1.25]]),
             np.array([[0.0, 0.0]]),
-            np.array([1.0]),
+            1.0,
             5.0,
+            False,
+        ),
+        (
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
+            np.array([1.0, 0.5]),
+            5.0,
+            False,
+        ),
+        (
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
+            np.array(
+                [[1.0, 0.5], [0.5, 1.0]]
+            ),  # different length scale for each point/dimension
+            5.0,
+            False,
+        ),
+        (
+            np.array([[1.5, 1.25, 1.0]]),
+            np.array([[0.0, 0.0, 0.0]]),
+            np.array([[1.0, 0.5], [0.5, 1.0]]),  # invalid length scale
+            5.0,
+            True,
         ),
     ],
     ids=[
-        "1d",
-        "2d,1d-length",
+        "1d,scalar-length",
+        "2d,scalar-length",
+        "2d,vector-length",
+        "2d,matrix-length",
+        "2d,invalid-length",
     ],
 )
 def test_kernel_approx_squared_exponential(
-    x1: ArrayImpl, x2: ArrayImpl, length: ArrayImpl, ell: float
+    x1: ArrayImpl,
+    x2: ArrayImpl,
+    length: Union[float, ArrayImpl],
+    ell: float,
+    xfail: bool,
 ):
     """ensure that the approximation of the squared exponential kernel is accurate,
     matching the exact kernel implementation from sklearn.
@@ -100,13 +131,26 @@ def test_kernel_approx_squared_exponential(
     assert x1.shape == x2.shape
     m = 100  # large enough to ensure the approximation is accurate
     dim = x1.shape[-1]
+    if xfail:
+        with pytest.raises(ValueError):
+            diag_spectral_density_squared_exponential(1.0, length, ell, m, dim)
+        return
     spd = diag_spectral_density_squared_exponential(1.0, length, ell, m, dim)
 
     eig_f1 = eigenfunctions(x1, ell=ell, m=m)
     eig_f2 = eigenfunctions(x2, ell=ell, m=m)
     approx = (eig_f1 * eig_f2) @ spd
-    exact = RBF(length)(x1, x2)
-    assert jnp.isclose(approx, exact, rtol=1e-3)
+
+    def _exact_rbf(length):
+        return RBF(length)(x1, x2).squeeze(axis=-1)
+
+    if isinstance(length, int) | isinstance(length, float):
+        exact = _exact_rbf(length)
+    elif length.ndim == 1:
+        exact = _exact_rbf(length)
+    else:
+        exact = np.apply_along_axis(_exact_rbf, axis=0, arr=length)
+    assert jnp.isclose(approx, exact, rtol=1e-3).all()
 
 
 @pytest.mark.parametrize(
@@ -118,14 +162,32 @@ def test_kernel_approx_squared_exponential(
             np.array([[1.5, 1.25]]),
             np.array([[0.0, 0.0]]),
             3 / 2,
-            np.array([1.0]),
+            np.array([0.25, 0.5]),
             5.0,
         ),
         (
             np.array([[1.5, 1.25]]),
             np.array([[0.0, 0.0]]),
             5 / 2,
-            np.array([1.0]),
+            np.array([0.25, 0.5]),
+            5.0,
+        ),
+        (
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
+            3 / 2,
+            np.array(
+                [[1.0, 0.5], [0.5, 1.0]]
+            ),  # different length scale for each point/dimension
+            5.0,
+        ),
+        (
+            np.array([[1.5, 1.25]]),
+            np.array([[0.0, 0.0]]),
+            5 / 2,
+            np.array(
+                [[1.0, 0.5], [0.5, 1.0]]
+            ),  # different length scale for each point/dimension
             5.0,
         ),
     ],
@@ -134,6 +196,8 @@ def test_kernel_approx_squared_exponential(
         "1d,nu=5/2",
         "2d,nu=3/2,1d-length",
         "2d,nu=5/2,1d-length",
+        "2d,nu=3/2,2d-length",
+        "2d,nu=5/2,2d-length",
     ],
 )
 def test_kernel_approx_squared_matern(
@@ -154,8 +218,17 @@ def test_kernel_approx_squared_matern(
     eig_f1 = eigenfunctions(x1, ell=ell, m=m)
     eig_f2 = eigenfunctions(x2, ell=ell, m=m)
     approx = (eig_f1 * eig_f2) @ spd
-    exact = Matern(length_scale=length, nu=nu)(x1, x2)
-    assert jnp.isclose(approx, exact, rtol=1e-3)
+
+    def _exact_matern(length):
+        return Matern(length_scale=length, nu=nu)(x1, x2).squeeze(axis=-1)
+
+    if isinstance(length, float) | isinstance(length, int):
+        exact = _exact_matern(length)
+    elif length.ndim == 1:
+        exact = _exact_matern(length)
+    else:
+        exact = np.apply_along_axis(_exact_matern, axis=0, arr=length)
+    assert jnp.isclose(approx, exact, rtol=1e-3).all()
 
 
 @pytest.mark.parametrize(
@@ -211,8 +284,8 @@ def test_approximation_squared_exponential(
     x: ArrayImpl,
     alpha: float,
     length: float,
-    ell: int | float | list[int | float],
-    m: int | list[int],
+    ell: Union[int, float, list[Union[int, float]]],
+    m: Union[int, list[int]],
     non_centered: bool,
 ):
     def model(x, alpha, length, ell, m, non_centered):
@@ -263,8 +336,8 @@ def test_approximation_matern(
     nu: float,
     alpha: float,
     length: float,
-    ell: int | float | list[int | float],
-    m: int | list[int],
+    ell: Union[int, float, list[Union[int, float]]],
+    m: Union[int, list[int]],
     non_centered: bool,
 ):
     def model(x, nu, alpha, length, ell, m, non_centered):
@@ -306,8 +379,8 @@ def test_approximation_matern(
 def test_squared_exponential_gp_model(
     synthetic_one_dim_data,
     synthetic_two_dim_data,
-    ell: float | int | list[float | int],
-    m: int | list[int],
+    ell: Union[float, int, list[Union[float, int]]],
+    m: Union[int, list[int]],
     non_centered: bool,
     num_dim: Literal[1, 2],
 ):
@@ -364,8 +437,8 @@ def test_matern_gp_model(
     synthetic_one_dim_data,
     synthetic_two_dim_data,
     nu: float,
-    ell: int | float | list[float | int],
-    m: int | list[int],
+    ell: Union[int, float, list[Union[float, int]]],
+    m: Union[int, list[int]],
     non_centered: bool,
     num_dim: Literal[1, 2],
 ):

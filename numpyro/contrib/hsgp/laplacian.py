@@ -7,14 +7,13 @@ This module contains functions for computing eigenvalues and eigenfunctions of t
 
 from __future__ import annotations
 
-from typing import Union, get_args
+from typing import get_args
 
 from jaxlib.xla_extension import ArrayImpl
-import numpy as np
 
 import jax.numpy as jnp
 
-ARRAY_TYPE = Union[ArrayImpl, np.ndarray]
+from numpyro.contrib.hsgp.util import ARRAY_TYPE
 
 
 def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:

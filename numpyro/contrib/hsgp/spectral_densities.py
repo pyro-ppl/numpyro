@@ -16,8 +16,12 @@ from jax.scipy import special
 from numpyro.contrib.hsgp.laplacian import sqrt_eigenvalues
 
 
+def align_param(dim, param):
+    return jnp.broadcast_to(param, jnp.broadcast_shapes(jnp.shape(param), (dim,)))
+
+
 def spectral_density_squared_exponential(
-    dim: int, w: ArrayImpl, alpha: float, length: float
+    dim: int, w: ArrayImpl, alpha: float, length: float | ArrayImpl
 ) -> float:
     """
     Spectral density of the squared exponential kernel.
@@ -44,13 +48,14 @@ def spectral_density_squared_exponential(
     :return: spectral density value
     :rtype: float
     """
-    c = alpha * (jnp.sqrt(2 * jnp.pi) * length) ** dim
-    e = jnp.exp(-0.5 * (length**2) * jnp.dot(w, w))
+    length = align_param(dim, length)
+    c = alpha * jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1)
+    e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
     return c * e
 
 
 def spectral_density_matern(
-    dim: int, nu: float, w: ArrayImpl, alpha: float, length: float
+    dim: int, nu: float, w: ArrayImpl, alpha: float, length: float | ArrayImpl
 ) -> float:
     """
     Spectral density of the Matérn kernel.
@@ -79,6 +84,7 @@ def spectral_density_matern(
     :return: spectral density value
     :rtype: float
     """  # noqa: E501
+    length = align_param(dim, length)
     c1 = (
         alpha
         * (2 ** (dim))
@@ -86,15 +92,15 @@ def spectral_density_matern(
         * ((2 * nu) ** nu)
         * special.gamma(nu + dim / 2)
     )
-    c2 = (2 * nu / (length**2) + jnp.dot(w, w)) ** (-nu - dim / 2)
-    c3 = special.gamma(nu) * length ** (2 * nu)
+    s = jnp.sum(length**2 * w**2, axis=-1)
+    c2 = jnp.prod(length, axis=-1) * (2 * nu + s) ** (-nu - dim / 2)
+    c3 = special.gamma(nu)
     return c1 * c2 / c3
 
 
-# TODO support length-D kernel hyperparameters
 def diag_spectral_density_squared_exponential(
     alpha: float,
-    length: float,
+    length: float | list[float],
     ell: float | int | list[float | int],
     m: int | list[int],
     dim: int,
