@@ -348,7 +348,7 @@ class TruncatedPolyaGamma(Distribution):
             key, jnp.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,))
         )
         x = jnp.sum(x / denom, axis=-1)
-        return jnp.clip(x * (0.5 / jnp.pi**2), a_max=self.truncation_point)
+        return jnp.clip(x * (0.5 / jnp.pi**2), None, self.truncation_point)
 
     @validate_sample
     def log_prob(self, value):

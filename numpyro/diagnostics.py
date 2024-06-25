@@ -182,7 +182,7 @@ def effective_sample_size(x):
     Rho_k = np.concatenate(
         [
             Rho_init,
-            np.minimum.accumulate(np.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0),
+            np.minimum.accumulate(np.clip(Rho_k[1:, ...], 0, None), axis=0),
         ],
         axis=0,
     )

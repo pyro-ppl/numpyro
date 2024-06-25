@@ -967,7 +967,7 @@ class AutoDAIS(AutoContinuous):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            eta = jnp.clip(eta, 0.0, self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
@@ -1186,7 +1186,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            eta = jnp.clip(eta, 0.0, self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist_log_prob)(z_half)
@@ -1641,7 +1641,7 @@ class AutoSemiDAIS(AutoGuide):
             def scan_body(carry, eps_beta):
                 eps, beta = eps_beta
                 eta = eta0 + eta_coeff * beta
-                eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+                eta = jnp.clip(eta, 0.0, self.eta_max)
                 assert eps.shape == (subsample_size, D)
                 assert eta.shape == beta.shape == (subsample_size,)
                 z_prev, v_prev, log_factor = carry

@@ -669,7 +669,7 @@ def warmup_adapter(
             )
             # account the the case log_step_size is an extreme number
             finfo = jnp.finfo(jnp.result_type(step_size))
-            step_size = jnp.clip(step_size, a_min=finfo.tiny, a_max=finfo.max)
+            step_size = jnp.clip(step_size, finfo.tiny, finfo.max)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -759,7 +759,7 @@ def _biased_transition_kernel(current_tree, new_tree):
     # If new tree is turning or diverging, we won't move the proposal
     # to the new tree.
     transition_prob = jnp.where(
-        new_tree.turning | new_tree.diverging, 0.0, jnp.clip(transition_prob, a_max=1.0)
+        new_tree.turning | new_tree.diverging, 0.0, jnp.clip(transition_prob, None, 1.0)
     )
     return transition_prob
 
@@ -872,7 +872,7 @@ def _build_basetree(
     tree_weight = -delta_energy
 
     diverging = delta_energy > max_delta_energy
-    accept_prob = jnp.clip(jnp.exp(-delta_energy), a_max=1.0)
+    accept_prob = jnp.clip(jnp.exp(-delta_energy), None, 1.0)
     return TreeInfo(
         z_new,
         r_new,

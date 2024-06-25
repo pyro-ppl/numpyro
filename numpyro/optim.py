@@ -177,9 +177,7 @@ class ClippedAdam(_NumPyroOptim):
     def update(self, g, state):
         i, opt_state = state
         # clip norm
-        g = jax.tree.map(
-            lambda g_: jnp.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g
-        )
+        g = jax.tree.map(lambda g_: jnp.clip(g_, -self.clip_norm, self.clip_norm), g)
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 

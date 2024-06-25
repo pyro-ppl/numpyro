@@ -386,7 +386,7 @@ def cholesky_update(L, x, coef=1):
 def signed_stick_breaking_tril(t):
     # make sure that t in (-1, 1)
     eps = jnp.finfo(t.dtype).eps
-    t = jnp.clip(t, a_min=(-1 + eps), a_max=(1 - eps))
+    t = jnp.clip(t, -1 + eps, 1 - eps)
     # transform t to tril matrix with identity diagonal
     r = vec_to_tril_matrix(t, diagonal=-1)
 
@@ -417,7 +417,7 @@ def logmatmulexp(x, y):
 
 def clamp_probs(probs):
     finfo = jnp.finfo(jnp.result_type(probs, float))
-    return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
+    return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
 
 
 def betainc(a, b, x):
@@ -607,7 +607,7 @@ def safe_normalize(x, *, p=2):
     assert isinstance(p, (float, int))
     assert p >= 0
     norm = jnp.linalg.norm(x, p, axis=-1, keepdims=True)
-    x = x / jnp.clip(norm, a_min=jnp.finfo(x).tiny)
+    x = x / jnp.clip(norm, jnp.finfo(x).tiny)
     # Avoid the singularity.
     mask = jnp.all(x == 0, axis=-1, keepdims=True)
     x = jnp.where(mask, x.shape[-1] ** (-1 / p), x)

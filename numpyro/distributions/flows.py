@@ -10,7 +10,7 @@ from numpyro.util import fori_loop
 
 
 def _clamp_preserve_gradients(x, min, max):
-    return x + lax.stop_gradient(jnp.clip(x, a_min=min, a_max=max) - x)
+    return x + lax.stop_gradient(jnp.clip(x, min, max) - x)
 
 
 # adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
