@@ -222,7 +222,7 @@ def test_kernel_approx_squared_matern(
     def _exact_matern(length):
         return Matern(length_scale=length, nu=nu)(x1, x2).squeeze(axis=-1)
 
-    if isinstance(length, Union[float, int]):
+    if isinstance(length, float) | isinstance(length, int):
         exact = _exact_matern(length)
     elif length.ndim == 1:
         exact = _exact_matern(length)
