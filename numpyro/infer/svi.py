@@ -11,7 +11,6 @@ import jax
 from jax import jit, lax, random
 from jax.example_libraries import optimizers
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
@@ -240,7 +239,7 @@ class SVI(object):
         self.constrain_fn = partial(transform_fn, inv_transforms)
         # we convert weak types like float to float32/float64
         # to avoid recompiling body_fn in svi.run
-        params, mutable_state = tree_map(
+        params, mutable_state = jax.tree.map(
             lambda x: lax.convert_element_type(x, jnp.result_type(x)),
             (params, mutable_state),
         )

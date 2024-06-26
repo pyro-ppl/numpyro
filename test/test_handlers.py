@@ -8,7 +8,6 @@ import pytest
 import jax
 from jax import jit, random, value_and_grad, vmap
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 try:
     import funsor
@@ -441,7 +440,7 @@ def test_subsample_gradient(scale, subsample):
                 svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
             )
         )(params)
-        grads = tree_map(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        grads = jax.tree.map(lambda *vals: vals[0] + vals[1], grads1, grads2)
         loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])

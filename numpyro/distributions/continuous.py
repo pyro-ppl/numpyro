@@ -281,9 +281,7 @@ class Dirichlet(Distribution):
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape
         samples = random.dirichlet(key, self.concentration, shape=shape)
-        return jnp.clip(
-            samples, a_min=jnp.finfo(samples).tiny, a_max=1 - jnp.finfo(samples).eps
-        )
+        return jnp.clip(samples, jnp.finfo(samples).tiny, 1 - jnp.finfo(samples).eps)
 
     @validate_sample
     def log_prob(self, value):
@@ -840,15 +838,15 @@ class Kumaraswamy(Distribution):
         u = random.uniform(
             key, shape=sample_shape + self.batch_shape, minval=finfo.tiny
         )
-        u_con0 = jnp.clip(u ** (1 / self.concentration0), a_max=1 - finfo.eps)
+        u_con0 = jnp.clip(u ** (1 / self.concentration0), None, 1 - finfo.eps)
         log_sample = jnp.log1p(-u_con0) / self.concentration1
-        return jnp.clip(jnp.exp(log_sample), a_min=finfo.tiny, a_max=1 - finfo.eps)
+        return jnp.clip(jnp.exp(log_sample), finfo.tiny, 1 - finfo.eps)
 
     @validate_sample
     def log_prob(self, value):
         finfo = jnp.finfo(jnp.result_type(float))
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
-        value_con1 = jnp.clip(value**self.concentration1, a_max=1 - finfo.eps)
+        value_con1 = jnp.clip(value**self.concentration1, None, 1 - finfo.eps)
         return (
             xlogy(self.concentration1 - 1, value)
             + xlog1py(self.concentration0 - 1, -value_con1)
@@ -2363,7 +2361,7 @@ class Uniform(Distribution):
 
     def cdf(self, value):
         cdf = (value - self.low) / (self.high - self.low)
-        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+        return jnp.clip(cdf, 0.0, 1.0)
 
     def icdf(self, value):
         return self.low + value * (self.high - self.low)

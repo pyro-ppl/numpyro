@@ -3,12 +3,12 @@
 
 from collections import OrderedDict, namedtuple
 
+import jax
 from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
-from jax.tree_util import tree_flatten, tree_map
 
 import numpyro.distributions as dist
 from numpyro.util import cond, identity, while_loop
@@ -295,15 +295,15 @@ def velocity_verlet(potential_fn, kinetic_fn, forward_mode_differentiation=False
         :return: new state for the integrator.
         """
         z, r, _, z_grad = state
-        r = tree_map(
+        r = jax.tree.map(
             lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad
         )  # r(n+1/2)
         r_grad = _kinetic_grad(kinetic_fn, inverse_mass_matrix, r)
-        z = tree_map(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
+        z = jax.tree.map(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = _value_and_grad(
             potential_fn, z, forward_mode_differentiation
         )
-        r = tree_map(
+        r = jax.tree.map(
             lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad
         )  # r(n+1)
         return IntegratorState(z, r, potential_energy, z_grad)
@@ -669,7 +669,7 @@ def warmup_adapter(
             )
             # account the the case log_step_size is an extreme number
             finfo = jnp.finfo(jnp.result_type(step_size))
-            step_size = jnp.clip(step_size, a_min=finfo.tiny, a_max=finfo.max)
+            step_size = jnp.clip(step_size, finfo.tiny, finfo.max)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -759,7 +759,7 @@ def _biased_transition_kernel(current_tree, new_tree):
     # If new tree is turning or diverging, we won't move the proposal
     # to the new tree.
     transition_prob = jnp.where(
-        new_tree.turning | new_tree.diverging, 0.0, jnp.clip(transition_prob, a_max=1.0)
+        new_tree.turning | new_tree.diverging, 0.0, jnp.clip(transition_prob, None, 1.0)
     )
     return transition_prob
 
@@ -790,7 +790,7 @@ def _combine_tree(
             trees[1].z_right_grad,
         ),
     )
-    r_sum = tree_map(jnp.add, current_tree.r_sum, new_tree.r_sum)
+    r_sum = jax.tree.map(jnp.add, current_tree.r_sum, new_tree.r_sum)
 
     if biased_transition:
         transition_prob = _biased_transition_kernel(current_tree, new_tree)
@@ -872,7 +872,7 @@ def _build_basetree(
     tree_weight = -delta_energy
 
     diverging = delta_energy > max_delta_energy
-    accept_prob = jnp.clip(jnp.exp(-delta_energy), a_max=1.0)
+    accept_prob = jnp.clip(jnp.exp(-delta_energy), None, 1.0)
     return TreeInfo(
         z_new,
         r_new,
@@ -1242,7 +1242,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
         a collection of `num_draws` samples with the same data structure as each subposterior.
     """
     # stack subposteriors
-    joined_subposteriors = tree_map(lambda *args: jnp.stack(args), *subposteriors)
+    joined_subposteriors = jax.tree.map(lambda *args: jnp.stack(args), *subposteriors)
     # shape of joined_subposteriors: n_subs x n_samples x sample_shape
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(
         joined_subposteriors
@@ -1252,7 +1252,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
         rng_key = random.PRNGKey(0) if rng_key is None else rng_key
         # randomly gets num_draws from subposteriors
         n_subs = len(subposteriors)
-        n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
+        n_samples = jax.tree.flatten(subposteriors[0])[0][0].shape[0]
         # shape of draw_idxs: n_subs x num_draws x sample_shape
         draw_idxs = random.randint(
             rng_key, shape=(n_subs, num_draws), minval=0, maxval=n_samples
@@ -1279,7 +1279,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
         )
 
     # unravel_fn acts on 1 sample of a subposterior
-    _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
+    _, unravel_fn = ravel_pytree(jax.tree.map(lambda x: x[0], subposteriors[0]))
     return vmap(lambda x: unravel_fn(x))(samples_flat)
 
 
@@ -1297,7 +1297,7 @@ def parametric(subposteriors, diagonal=False):
         `False` (using covariance).
     :return: the estimated mean and variance/covariance parameters of the joined posterior
     """
-    joined_subposteriors = tree_map(lambda *args: jnp.stack(args), *subposteriors)
+    joined_subposteriors = jax.tree.map(lambda *args: jnp.stack(args), *subposteriors)
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(
         joined_subposteriors
     )
@@ -1345,5 +1345,5 @@ def parametric_draws(subposteriors, num_draws, diagonal=False, rng_key=None):
         mean, cov = parametric(subposteriors, diagonal=False)
         samples_flat = dist.MultivariateNormal(mean, cov).sample(rng_key, (num_draws,))
 
-    _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
+    _, unravel_fn = ravel_pytree(jax.tree.map(lambda x: x[0], subposteriors[0]))
     return vmap(lambda x: unravel_fn(x))(samples_flat)

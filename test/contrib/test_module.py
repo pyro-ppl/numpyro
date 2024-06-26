@@ -7,8 +7,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import random
-from jax.tree_util import tree_all, tree_map
 
 import numpyro
 from numpyro import handlers
@@ -141,8 +141,8 @@ def test_update_params():
         "a": {"b": {"c": {"d": ParamShape(())}, "e": 2}, "f": ParamShape((4,))}
     }
 
-    tree_all(
-        tree_map(
+    jax.tree.all(
+        jax.tree.map(
             assert_allclose,
             new_params,
             {

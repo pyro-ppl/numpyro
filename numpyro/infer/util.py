@@ -14,7 +14,6 @@ from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
 
 import numpyro
 from numpyro.distributions import constraints
@@ -770,7 +769,7 @@ def _predictive(
         # inspect the model to get some structure
         rng_key, subkey = random.split(rng_key)
         batch_ndim = len(batch_shape)
-        prototype_sample = tree_map(
+        prototype_sample = jax.tree.map(
             lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[batch_ndim:])[0],
             posterior_samples,
         )
@@ -1027,7 +1026,7 @@ class Predictive(object):
         if self.batch_ndims == 0 or self.params == {} or self.guide is None:
             return self._call_with_params(rng_key, self.params, args, kwargs)
         elif self.batch_ndims == 1:  # batch over parameters
-            batch_size = jnp.shape(tree_flatten(self.params)[0][0])[0]
+            batch_size = jnp.shape(jax.tree.flatten(self.params)[0][0])[0]
             rng_keys = random.split(rng_key, batch_size)
             return jax.vmap(
                 partial(self._call_with_params, args=args, kwargs=kwargs),

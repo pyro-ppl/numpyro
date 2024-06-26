@@ -5,10 +5,10 @@ from abc import ABCMeta
 from collections import namedtuple
 import inspect
 
+import jax
 from jax import random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 import tensorflow_probability.substrates.jax as tfp
 
 from numpyro.infer import init_to_uniform
@@ -44,7 +44,7 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
             flatten_result = vmap(lambda a: -potential_fn(unravel_fn(a)))(
                 jnp.reshape(x, (-1,) + jnp.shape(x)[-1:])
             )
-            return tree_map(
+            return jax.tree.map(
                 lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]), flatten_result
             )
         else:

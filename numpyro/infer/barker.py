@@ -260,7 +260,7 @@ class BarkerMH(MCMCKernel):
                 - softplus(-dx_flat * y_grad_flat_scaled)
             )
         )
-        accept_prob = jnp.clip(jnp.exp(log_accept_ratio), a_max=1.0)
+        accept_prob = jnp.clip(jnp.exp(log_accept_ratio), None, 1.0)
 
         x, x_flat, pe, x_grad = jax.lax.cond(
             random.bernoulli(key_accept, accept_prob),

@@ -9,9 +9,9 @@ import warnings
 
 import numpy as np
 
+import jax
 from jax import device_get, jit, lax, local_device_count, pmap, random, vmap
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import print_summary
 from numpyro.util import (
@@ -164,18 +164,18 @@ def _get_progbar_desc_str(num_warmup, phase, i):
 
 
 def _get_value_from_index(xs, i):
-    return tree_map(lambda x: x[i], xs)
+    return jax.tree.map(lambda x: x[i], xs)
 
 
 def _laxmap(f, xs):
-    n = tree_flatten(xs)[0][0].shape[0]
+    n = jax.tree.flatten(xs)[0][0].shape[0]
 
     ys = []
     for i in range(n):
         x = jit(_get_value_from_index)(xs, i)
         ys.append(f(x))
 
-    return tree_map(lambda *args: jnp.stack(args), *ys)
+    return jax.tree.map(lambda *args: jnp.stack(args), *ys)
 
 
 def _sample_fn_jit_args(state, sampler):
@@ -378,8 +378,8 @@ class MCMC(object):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
-            args = tree_map(lambda x: _hashable(x), self._args)
-            kwargs = tree_map(
+            args = jax.tree.map(lambda x: _hashable(x), self._args)
+            kwargs = jax.tree.map(
                 lambda x: _hashable(x), tuple(sorted(self._kwargs.items()))
             )
         key = args + kwargs
@@ -422,8 +422,8 @@ class MCMC(object):
 
     def _get_cached_init_state(self, rng_key, args, kwargs):
         rng_key = (_hashable(rng_key),)
-        args = tree_map(lambda x: _hashable(x), args)
-        kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
+        args = jax.tree.map(lambda x: _hashable(x), args)
+        kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
         key = rng_key + args + kwargs
         try:
             return self._init_state_cache.get(key, None)
@@ -480,7 +480,7 @@ class MCMC(object):
             states = (states,)
         states = dict(zip(collect_fields, states))
         # Apply constraints if number of samples is non-zero
-        site_values = tree_flatten(states[self._sample_field])[0]
+        site_values = jax.tree.flatten(states[self._sample_field])[0]
         # XXX: lax.map still works if some arrays have 0 size
         # so we only need to filter out the case site_value.shape[0] == 0
         # (which happens when lower_idx==upper_idx)
@@ -509,8 +509,8 @@ class MCMC(object):
             rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs
         )
         rng_key = (_hashable(rng_key),)
-        args = tree_map(lambda x: _hashable(x), args)
-        kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
+        args = jax.tree.map(lambda x: _hashable(x), args)
+        kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
         key = rng_key + args + kwargs
         try:
             self._init_state_cache[key] = self._last_state
@@ -520,7 +520,7 @@ class MCMC(object):
 
     def _get_states_flat(self):
         if self._states_flat is None:
-            self._states_flat = tree_map(
+            self._states_flat = jax.tree.map(
                 # need to calculate first dimension manually; see issue #1328
                 lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
                 self._states,
@@ -629,7 +629,7 @@ class MCMC(object):
             See https://jax.readthedocs.io/en/latest/async_dispatch.html and
             https://jax.readthedocs.io/en/latest/profiling.html for pointers on profiling jax programs.
         """
-        init_params = tree_map(
+        init_params = jax.tree.map(
             lambda x: lax.convert_element_type(x, jnp.result_type(x)), init_params
         )
         self._args = args
@@ -643,7 +643,7 @@ class MCMC(object):
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
         if init_params is not None and self.num_chains > 1:
-            prototype_init_val = tree_flatten(init_params)[0][0]
+            prototype_init_val = jax.tree.flatten(init_params)[0][0]
             if jnp.shape(prototype_init_val)[0] != self.num_chains:
                 raise ValueError(
                     "`init_params` must have the same leading dimension"
@@ -673,7 +673,7 @@ class MCMC(object):
         map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
             states_flat, last_state = partial_map_fn(map_args)
-            states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
+            states = jax.tree.map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
             if self.chain_method == "sequential":
                 states, last_state = _laxmap(partial_map_fn, map_args)
@@ -683,7 +683,7 @@ class MCMC(object):
                 assert self.chain_method == "vectorized"
                 states, last_state = partial_map_fn(map_args)
                 # swap num_samples x num_chains to num_chains x num_samples
-                states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
+                states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), states)
 
         self._last_state = last_state
         self._states = states

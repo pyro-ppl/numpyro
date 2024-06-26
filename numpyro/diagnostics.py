@@ -10,8 +10,8 @@ from itertools import product
 
 import numpy as np
 
+import jax
 from jax import device_get
-from jax.tree_util import tree_flatten, tree_map
 
 __all__ = [
     "autocorrelation",
@@ -182,7 +182,7 @@ def effective_sample_size(x):
     Rho_k = np.concatenate(
         [
             Rho_init,
-            np.minimum.accumulate(np.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0),
+            np.minimum.accumulate(np.clip(Rho_k[1:, ...], 0, None), axis=0),
         ],
         axis=0,
     )
@@ -238,10 +238,10 @@ def summary(samples, prob=0.90, group_by_chain=True):
         chain dimension).
     """
     if not group_by_chain:
-        samples = tree_map(lambda x: x[None, ...], samples)
+        samples = jax.tree.map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
         samples = {
-            "Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])
+            "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
 
     summary_dict = {}
@@ -288,10 +288,10 @@ def print_summary(samples, prob=0.90, group_by_chain=True):
         chain dimension).
     """
     if not group_by_chain:
-        samples = tree_map(lambda x: x[None, ...], samples)
+        samples = jax.tree.map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
         samples = {
-            "Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])
+            "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
     summary_dict = summary(samples, prob, group_by_chain=True)
 

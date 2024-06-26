@@ -7,9 +7,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import random
 import jax.numpy as jnp
-from jax.tree_util import tree_all, tree_map
 
 import numpyro
 from numpyro.contrib.funsor import config_kl
@@ -90,7 +90,9 @@ def test_pickle_hmc(kernel):
     mcmc = MCMC(kernel(normal_model), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 @pytest.mark.parametrize("kernel", [BarkerMH, HMC, NUTS, SA])
@@ -108,7 +110,9 @@ def test_pickle_hmc_enumeration(kernel):
     mcmc = MCMC(kernel(gmm), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0), data, K)
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 @pytest.mark.parametrize("kernel", [DiscreteHMCGibbs, MixedHMC])
@@ -116,14 +120,18 @@ def test_pickle_discrete_hmc(kernel):
     mcmc = MCMC(kernel(HMC(bernoulli_model)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 def test_pickle_hmcecs():
     mcmc = MCMC(HMCECS(NUTS(logistic_regression)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 def poisson_regression(x, N):
@@ -236,4 +244,4 @@ def test_beta_bernoulli():
     svi_result = svi.run(random.PRNGKey(0), 3, data)
     pickled_params = svi_result.params
 
-    tree_all(tree_map(assert_allclose, params, pickled_params))
+    jax.tree.all(jax.tree.map(assert_allclose, params, pickled_params))

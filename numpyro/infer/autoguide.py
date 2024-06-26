@@ -14,7 +14,6 @@ import jax
 from jax import grad, hessian, lax, random
 from jax.example_libraries import stax
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers
@@ -454,12 +453,12 @@ class AutoNormal(AutoGuide):
             : jnp.ndim(latent_samples[name]) - jnp.ndim(self._init_locs[name])
         ]
         if sample_shape:
-            flatten_samples = tree_map(
+            flatten_samples = jax.tree.map(
                 lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[len(sample_shape) :]),
                 latent_samples,
             )
             contrained_samples = lax.map(self._postprocess_fn, flatten_samples)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 contrained_samples,
             )
@@ -751,7 +750,7 @@ class AutoContinuous(AutoGuide):
                 latent_sample, (-1, jnp.shape(latent_sample)[-1])
             )
             unpacked_samples = lax.map(unpack_single_latent, latent_sample)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 unpacked_samples,
             )
@@ -968,7 +967,7 @@ class AutoDAIS(AutoContinuous):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            eta = jnp.clip(eta, 0.0, self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
@@ -997,7 +996,7 @@ class AutoDAIS(AutoContinuous):
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 samples,
             )
@@ -1187,7 +1186,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            eta = jnp.clip(eta, 0.0, self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist_log_prob)(z_half)
@@ -1642,7 +1641,7 @@ class AutoSemiDAIS(AutoGuide):
             def scan_body(carry, eps_beta):
                 eps, beta = eps_beta
                 eta = eta0 + eta_coeff * beta
-                eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+                eta = jnp.clip(eta, 0.0, self.eta_max)
                 assert eps.shape == (subsample_size, D)
                 assert eta.shape == beta.shape == (subsample_size,)
                 z_prev, v_prev, log_factor = carry
@@ -1697,7 +1696,7 @@ class AutoSemiDAIS(AutoGuide):
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 samples,
             )
