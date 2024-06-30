@@ -660,7 +660,7 @@ def initialize_model(
         data={
             k: site["value"]
             for k, site in model_trace.items()
-            if site["type"] in ["param"]
+            if site["type"] in ["param", "mutable"]
         },
     )
     constrained_values = {

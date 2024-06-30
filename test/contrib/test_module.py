@@ -21,7 +21,8 @@ from numpyro.contrib.module import (
     random_haiku_module,
 )
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer.autoguide import AutoDelta
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:jax.tree_.+ is deprecated:FutureWarning"
@@ -242,7 +243,7 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
         nn = haiku_module("nn", transform(fn), apply_rng=dropout, input_shape=(4, 3))
         x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
         if dropout:
-            y = nn(numpyro.prng_key(), x)
+            y = nn(random.PRNGKey(0), x)
         else:
             y = nn(x)
         numpyro.deterministic("y", y)
@@ -255,6 +256,11 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
         assert tr["nn$state"]["type"] == "mutable"
     else:
         assert set(tr.keys()) == {"nn$params", "x", "y"}
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
 
 
 @pytest.mark.parametrize("dropout", [True, False])
@@ -287,7 +293,7 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
         )
         x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
         if dropout:
-            y = net(x, rngs={"dropout": numpyro.prng_key()})
+            y = net(x, rngs={"dropout": random.PRNGKey(0)})
         else:
             y = net(x)
         numpyro.deterministic("y", y)
@@ -300,3 +306,8 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
         assert tr["nn$state"]["type"] == "mutable"
     else:
         assert set(tr.keys()) == {"nn$params", "x", "y"}
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
