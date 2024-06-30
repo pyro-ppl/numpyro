@@ -6,7 +6,6 @@ import numpy as np
 import jax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 
 def get_nondiagonal_indices(n):
@@ -41,6 +40,6 @@ def batch_ravel_pytree(pytree):
       component of the output.
     """
     flat = jax.vmap(lambda x: ravel_pytree(x)[0])(pytree)
-    unravel_fn = jax.vmap(ravel_pytree(tree_map(lambda z: z[0], pytree))[1])
+    unravel_fn = jax.vmap(ravel_pytree(jax.tree.map(lambda z: z[0], pytree))[1])
 
     return flat, unravel_fn

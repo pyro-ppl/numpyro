@@ -22,9 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def assert_equal(a, b, prec=0):
-    return jax.tree_util.tree_map(
-        lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b
-    )
+    return jax.tree.map(lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b)
 
 
 def model_0(data, params):
@@ -107,13 +105,13 @@ params_2 = {
 )
 def test_gradient(model, guide, params, data):
     transform = dist.biject_to(dist.constraints.simplex)
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
 
     # Expected grads based on exact integration
     elbo = infer.TraceEnum_ELBO()
 
     def expected_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         return elbo.loss(
             random.PRNGKey(0), {}, model, config_enumerate(guide), data, params
         )
@@ -124,7 +122,7 @@ def test_gradient(model, guide, params, data):
     elbo = infer.TraceGraph_ELBO(num_particles=10_000)
 
     def actual_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
@@ -336,20 +334,20 @@ def test_analytic_kl_1(model, kl_sites, valid_kl):
         "probs_z3": jnp.array([[[0.4, 0.6], [0.5, 0.5]], [[0.7, 0.3], [0.9, 0.1]]]),
     }
     transform = dist.biject_to(dist.constraints.simplex)
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
 
     elbo = infer.TraceEnum_ELBO()
 
     # Exact integration based on enumeration
     def expected_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
     # Exact integration based on the mix of enumeration and analytic kl
     def actual_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         return elbo.loss(
             random.PRNGKey(0), {}, model, config_kl(guide, kl_sites), params
         )

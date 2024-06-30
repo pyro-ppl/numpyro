@@ -4,9 +4,9 @@
 from collections import OrderedDict
 from functools import partial
 
+import jax
 from jax import device_put, lax, random
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 from numpyro import handlers
 from numpyro.distributions.batch_util import promote_batch_shape
@@ -98,7 +98,7 @@ class _promote_fn_shapes(Messenger):
             fn_batch_ndim = len(fn.batch_shape)
             if fn_batch_ndim < value_batch_ndims:
                 prepend_shapes = (1,) * (value_batch_ndims - fn_batch_ndim)
-                msg["fn"] = tree_map(
+                msg["fn"] = jax.tree.map(
                     lambda x: jnp.reshape(x, prepend_shapes + jnp.shape(x)), fn
                 )
 
@@ -140,11 +140,11 @@ def scan_enum(
     history = min(history, length)
     unroll_steps = min(2 * history - 1, length)
     if reverse:
-        x0 = tree_map(lambda x: x[-unroll_steps:][::-1], xs)
-        xs_ = tree_map(lambda x: x[:-unroll_steps], xs)
+        x0 = jax.tree.map(lambda x: x[-unroll_steps:][::-1], xs)
+        xs_ = jax.tree.map(lambda x: x[:-unroll_steps], xs)
     else:
-        x0 = tree_map(lambda x: x[:unroll_steps], xs)
-        xs_ = tree_map(lambda x: x[unroll_steps:], xs)
+        x0 = jax.tree.map(lambda x: x[:unroll_steps], xs)
+        xs_ = jax.tree.map(lambda x: x[unroll_steps:], xs)
 
     carry_shapes = []
 
@@ -187,10 +187,12 @@ def scan_enum(
 
             # store shape of new_carry at a global variable
             if len(carry_shapes) < (history + 1):
-                carry_shapes.append([jnp.shape(x) for x in tree_flatten(new_carry)[0]])
+                carry_shapes.append(
+                    [jnp.shape(x) for x in jax.tree.flatten(new_carry)[0]]
+                )
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?
-            new_carry = tree_map(
+            new_carry = jax.tree.map(
                 lambda a, b: jnp.reshape(a, jnp.shape(b)), new_carry, carry
             )
         return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
@@ -204,11 +206,11 @@ def scan_enum(
         for i in markov(range(unroll_steps + 1), history=history):
             if i < unroll_steps:
                 wrapped_carry, (_, y0) = body_fn(
-                    wrapped_carry, tree_map(lambda z: z[i], x0)
+                    wrapped_carry, jax.tree.map(lambda z: z[i], x0)
                 )
                 if i > 0:
                     # reshape y1, y2,... to have the same shape as y0
-                    y0 = tree_map(
+                    y0 = jax.tree.map(
                         lambda z0, z: jnp.reshape(z, jnp.shape(z0)), y0s[0], y0
                     )
                 y0s.append(y0)
@@ -216,15 +218,15 @@ def scan_enum(
                 # shape so we don't need to record them here
                 if (i >= history - 1) and (len(carry_shapes) < history + 1):
                     carry_shapes.append(
-                        jnp.shape(x) for x in tree_flatten(wrapped_carry[-1])[0]
+                        jnp.shape(x) for x in jax.tree.flatten(wrapped_carry[-1])[0]
                     )
             else:
                 # this is the last rolling step
-                y0s = tree_map(lambda *z: jnp.stack(z, axis=0), *y0s)
+                y0s = jax.tree.map(lambda *z: jnp.stack(z, axis=0), *y0s)
                 # return early if length = unroll_steps
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
-                wrapped_carry = device_put(wrapped_carry)
+                wrapped_carry = jax.tree.map(device_put, wrapped_carry)
                 wrapped_carry, (pytree_trace, ys) = lax.scan(
                     body_fn, wrapped_carry, xs_, length - unroll_steps, reverse
                 )
@@ -251,20 +253,20 @@ def scan_enum(
         site["infer"]["dim_to_name"][time_dim] = "_time_{}".format(first_var)
 
     # similar to carry, we need to reshape due to shape alternating in markov
-    ys = tree_map(
+    ys = jax.tree.map(
         lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)[1:]), y0s, ys
     )
     # then join with y0s
-    ys = tree_map(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
+    ys = jax.tree.map(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
     # we also need to reshape `carry` to match sequential behavior
     i = (length + 1) % (history + 1)
     t, rng_key, carry = wrapped_carry
     carry_shape = carry_shapes[i]
-    flatten_carry, treedef = tree_flatten(carry)
+    flatten_carry, treedef = jax.tree.flatten(carry)
     flatten_carry = [
         jnp.reshape(x, t1_shape) for x, t1_shape in zip(flatten_carry, carry_shape)
     ]
-    carry = tree_unflatten(treedef, flatten_carry)
+    carry = jax.tree.unflatten(treedef, flatten_carry)
     wrapped_carry = (t, rng_key, carry)
     return wrapped_carry, (pytree_trace, ys)
 
@@ -282,7 +284,7 @@ def scan_wrapper(
     first_available_dim=None,
 ):
     if length is None:
-        length = jnp.shape(tree_flatten(xs)[0][0])[0]
+        length = jnp.shape(jax.tree.flatten(xs)[0][0])[0]
 
     if enum and history > 0:
         return scan_enum(  # TODO: replay for enum
@@ -324,7 +326,7 @@ def scan_wrapper(
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    wrapped_carry = device_put((0, rng_key, init))
+    wrapped_carry = jax.tree.map(device_put, (0, rng_key, init))
     last_carry, (pytree_trace, ys) = lax.scan(
         body_fn, wrapped_carry, xs, length=length, reverse=reverse
     )

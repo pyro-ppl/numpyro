@@ -39,7 +39,7 @@ def eval_provenance(fn, **kwargs):
     :returns: A pytree of :class:`frozenset` indicating the dependency on the inputs.
     """
     # Flatten the function and its arguments
-    args, in_tree = jax.tree_util.tree_flatten(((), kwargs))
+    args, in_tree = jax.tree.flatten(((), kwargs))
     wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn), in_tree)
     # Abstract eval to get output pytree
     avals = util.safe_map(shaped_abstractify, args)
@@ -54,19 +54,17 @@ def eval_provenance(fn, **kwargs):
     aval_kwargs = {}
     for n, v in kwargs.items():
         aval = jax.ShapeDtypeStruct((), jnp.bool_, {"provenance": frozenset({n})})
-        aval_kwargs[n] = jax.tree_util.tree_map(lambda _: aval, v)
-    aval_args, _ = jax.tree_util.tree_flatten(((), aval_kwargs))
-    provenance_inputs = jax.tree_util.tree_map(
-        lambda x: x.named_shape["provenance"], aval_args
-    )
+        aval_kwargs[n] = jax.tree.map(lambda _: aval, v)
+    aval_args, _ = jax.tree.flatten(((), aval_kwargs))
+    provenance_inputs = jax.tree.map(lambda x: x.named_shape["provenance"], aval_args)
 
     provenance_outputs = track_deps_jaxpr(jaxpr, provenance_inputs)
     out_flat = []
     for v, p in zip(avals_out, provenance_outputs):
         val = jax.ShapeDtypeStruct(jnp.shape(v), jnp.result_type(v), {"provenance": p})
         out_flat.append(val)
-    out = jax.tree_util.tree_unflatten(out_tree(), out_flat)
-    return jax.tree_util.tree_map(lambda x: x.named_shape["provenance"], out)
+    out = jax.tree.unflatten(out_tree(), out_flat)
+    return jax.tree.map(lambda x: x.named_shape["provenance"], out)
 
 
 def track_deps_jaxpr(jaxpr, provenance_inputs):

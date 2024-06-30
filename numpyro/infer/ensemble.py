@@ -160,7 +160,7 @@ class EnsembleSampler(MCMCKernel, ABC):
             assert all(
                 [
                     param.shape[0] == self._num_chains
-                    for param in jax.tree_util.tree_leaves(init_params)
+                    for param in jax.tree.leaves(init_params)
                 ]
             ), "The batch dimension of each param must match n_chains"
 

@@ -12,7 +12,6 @@ import jax
 from jax import device_get, jit, lax, pmap, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import logit
-from jax.tree_util import tree_all, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -450,8 +449,8 @@ def test_mcmc_progbar():
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
-        tree_all(
-            tree_map(
+        jax.tree.all(
+            jax.tree.map(
                 partial(assert_allclose, atol=1e-4, rtol=1e-4),
                 mcmc1.get_samples(),
                 mcmc.get_samples(),
@@ -459,21 +458,21 @@ def test_mcmc_progbar():
         )
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
-    tree_all(
-        tree_map(
+    jax.tree.all(
+        jax.tree.map(
             partial(assert_allclose, atol=1e-4, rtol=1e-4),
             mcmc1.get_samples(),
             mcmc.get_samples(),
         )
     )
-    tree_all(
-        tree_map(
+    jax.tree.all(
+        jax.tree.map(
             partial(assert_allclose, atol=1e-4, rtol=1e-4),
-            tree_map(
+            jax.tree.map(
                 lambda x: random.key_data(x) if is_prng_key(x) else x,
                 mcmc1.post_warmup_state,
             ),
-            tree_map(
+            jax.tree.map(
                 lambda x: random.key_data(x) if is_prng_key(x) else x,
                 mcmc.post_warmup_state,
             ),

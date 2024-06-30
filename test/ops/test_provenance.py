@@ -72,19 +72,19 @@ def test_provenance_pytree_in():
 
 def test_provenance_call():
     def identity(x):
-        args, in_tree = jax.tree_util.tree_flatten((x,))
+        args, in_tree = jax.tree.flatten((x,))
         fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(lambda x: x), in_tree)
         out = core.closed_call_p.bind(fn, *args)
-        return jax.tree_util.tree_unflatten(out_tree(), out)
+        return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}
 
 
 def test_provenance_closed_call():
     def identity(x):
-        args, in_tree = jax.tree_util.tree_flatten((x,))
+        args, in_tree = jax.tree.flatten((x,))
         fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(lambda x: x), in_tree)
         out = core.closed_call_p.bind(fn, *args)
-        return jax.tree_util.tree_unflatten(out_tree(), out)
+        return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}

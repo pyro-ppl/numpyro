@@ -6,15 +6,15 @@ import warnings
 import weakref
 
 import numpy as np
-from numpy.core.numeric import normalize_axis_tuple
 
+import jax
 from jax import lax, vmap
 from jax.flatten_util import ravel_pytree
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
-from jax.tree_util import register_pytree_node, tree_flatten, tree_map
+from jax.tree_util import register_pytree_node
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
@@ -57,7 +57,7 @@ __all__ = [
 
 def _clipped_expit(x):
     finfo = jnp.finfo(jnp.result_type(x))
-    return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1.0 - finfo.eps)
+    return jnp.clip(expit(x), finfo.tiny, 1.0 - finfo.eps)
 
 
 class Transform(object):
@@ -650,11 +650,11 @@ class L1BallTransform(ParameterFreeTransform):
         pad_width = [(0, 0)] * (y.ndim - 1) + [(1, 0)]
         remainder = jnp.pad(remainder, pad_width, mode="constant", constant_values=1.0)
         finfo = jnp.finfo(y.dtype)
-        remainder = jnp.clip(remainder, a_min=finfo.tiny)
+        remainder = jnp.clip(remainder, finfo.tiny)
         t = y / remainder
 
         # inverse of tanh
-        t = jnp.clip(t, a_min=-1 + finfo.eps, a_max=1 - finfo.eps)
+        t = jnp.clip(t, -1 + finfo.eps, 1 - finfo.eps)
         return jnp.arctanh(t)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -666,7 +666,7 @@ class L1BallTransform(ParameterFreeTransform):
         # of the diagonal part of the jacobian
         one_minus_remainder = jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
         eps = jnp.finfo(y.dtype).eps
-        one_minus_remainder = jnp.clip(one_minus_remainder, a_max=1 - eps)
+        one_minus_remainder = jnp.clip(one_minus_remainder, None, 1 - eps)
         # log(remainder) = log1p(remainder - 1)
         stick_breaking_logdet = jnp.sum(jnp.log1p(-one_minus_remainder), axis=-1)
 
@@ -1074,9 +1074,7 @@ class StickBreakingTransform(ParameterFreeTransform):
 
     def _inverse(self, y):
         y_crop = y[..., :-1]
-        z1m_cumprod = jnp.clip(
-            1 - jnp.cumsum(y_crop, axis=-1), a_min=jnp.finfo(y.dtype).tiny
-        )
+        z1m_cumprod = jnp.clip(1 - jnp.cumsum(y_crop, axis=-1), jnp.finfo(y.dtype).tiny)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
         x = jnp.log(y_crop / z1m_cumprod)
         return x + jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
@@ -1116,7 +1114,7 @@ class UnpackTransform(Transform):
         batch_shape = x.shape[:-1]
         if batch_shape:
             unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
-            return tree_map(
+            return jax.tree.map(
                 lambda z: jnp.reshape(z, batch_shape + z.shape[1:]), unpacked
             )
         else:
@@ -1124,7 +1122,7 @@ class UnpackTransform(Transform):
 
     def _inverse(self, y):
         leading_dims = [
-            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in tree_flatten(y)[0]
+            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in jax.tree.flatten(y)[0]
         ]
         d0 = leading_dims[0]
         not_scalar = d0 > 0 or len(leading_dims) > 1
@@ -1417,7 +1415,7 @@ class ZeroSumTransform(Transform):
         return y
 
     def extend_axis_rev(self, array: jnp.ndarray, axis: int) -> jnp.ndarray:
-        normalized_axis = normalize_axis_tuple(axis, array.ndim)[0]
+        normalized_axis = axis if axis >= 0 else jnp.ndim(array) + axis
 
         n = array.shape[normalized_axis]
         last = jnp.take(array, jnp.array([-1]), axis=normalized_axis)
@@ -1529,6 +1527,7 @@ def _transform_to_greater_than(constraint):
 
 
 @biject_to.register(constraints.less_than)
+@biject_to.register(constraints.less_than_eq)
 def _transform_to_less_than(constraint):
     return ComposeTransform(
         [

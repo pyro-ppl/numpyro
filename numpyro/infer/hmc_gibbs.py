@@ -657,7 +657,7 @@ class HMCECS(HMCGibbs):
         # given a fixed hmc_sites, pe_new - pe_curr = loglik_new - loglik_curr
         pe = state.hmc_state.potential_energy
         pe_new = potential_fn(z_gibbs_new, gibbs_state_new, state.hmc_state.z)
-        accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
+        accept_prob = jnp.clip(jnp.exp(pe - pe_new), None, 1.0)
         transition = random.bernoulli(rng_key, accept_prob)
         grad_ = jacfwd if self.inner_kernel._forward_mode_differentiation else grad
         z_gibbs, gibbs_state, pe, z_grad = cond(

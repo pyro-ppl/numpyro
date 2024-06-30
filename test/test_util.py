@@ -5,10 +5,10 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_all, tree_flatten, tree_map
 
 import numpyro
 import numpyro.distributions as dist
@@ -44,7 +44,7 @@ def test_fori_collect():
     expected_tree = {"i": np.array([[0.0], [2.0]])}
     actual_tree = fori_collect(1, 3, f, a, transform=lambda a: {"i": a["i"]})
 
-    tree_all(tree_map(assert_allclose, actual_tree, expected_tree))
+    jax.tree.all(jax.tree.map(assert_allclose, actual_tree, expected_tree))
 
 
 @pytest.mark.parametrize("progbar", [False, True])
@@ -64,8 +64,8 @@ def test_fori_collect_return_last(progbar):
     )
     expected_tree = {"i": np.array([3, 4])}
     expected_last_state = {"i": np.array(4)}
-    tree_all(tree_map(assert_allclose, init_state, expected_last_state))
-    tree_all(tree_map(assert_allclose, tree, expected_tree))
+    jax.tree.all(jax.tree.map(assert_allclose, init_state, expected_last_state))
+    jax.tree.all(jax.tree.map(assert_allclose, tree, expected_tree))
 
 
 @pytest.mark.parametrize(
@@ -82,10 +82,10 @@ def test_fori_collect_return_last(progbar):
 def test_ravel_pytree(pytree):
     flat, unravel_fn = ravel_pytree(pytree)
     unravel = unravel_fn(flat)
-    tree_flatten(tree_map(lambda x, y: assert_allclose(x, y), unravel, pytree))
+    jax.tree.flatten(jax.tree.map(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(
-        tree_flatten(
-            tree_map(
+        jax.tree.flatten(
+            jax.tree.map(
                 lambda x, y: jnp.result_type(x) == jnp.result_type(y), unravel, pytree
             )
         )[0]

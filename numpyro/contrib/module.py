@@ -5,9 +5,10 @@ from collections import namedtuple
 from copy import deepcopy
 from functools import partial
 
+import jax
 from jax import random
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
+from jax.tree_util import register_pytree_node
 
 import numpyro
 import numpyro.distributions as dist
@@ -106,8 +107,8 @@ def flax_module(
             assert set(mutable) == set(nn_state)
             numpyro_mutable(name + "$state", nn_state)
         # make sure that nn_params keep the same order after unflatten
-        params_flat, tree_def = tree_flatten(nn_params)
-        nn_params = tree_unflatten(tree_def, params_flat)
+        params_flat, tree_def = jax.tree.flatten(nn_params)
+        nn_params = jax.tree.unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
 
     def apply_with_state(params, *args, **kwargs):
@@ -195,8 +196,8 @@ def haiku_module(name, nn_module, *args, input_shape=None, apply_rng=False, **kw
         nn_params = hk.data_structures.to_mutable_dict(nn_params)
         # we cast it to a mutable one to be able to set priors for parameters
         # make sure that nn_params keep the same order after unflatten
-        params_flat, tree_def = tree_flatten(nn_params)
-        nn_params = tree_unflatten(tree_def, params_flat)
+        params_flat, tree_def = jax.tree.flatten(nn_params)
+        nn_params = jax.tree.unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
 
     def apply_with_state(params, *args, **kwargs):
