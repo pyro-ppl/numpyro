@@ -21,6 +21,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
+from numpyro.primitives import Messenger
 from numpyro.util import (
     _validate_model,
     find_stack_level,
@@ -653,7 +654,6 @@ def initialize_model(
         has_enumerate_support,
         model_trace,
     ) = _get_model_transforms(substituted_model, model_args, model_kwargs)
-
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
     model = substitute(
@@ -665,11 +665,12 @@ def initialize_model(
         },
     )
 
-    def substitute_key(msg):
-        if msg["type"] == "prng_key":
-            return random.PRNGKey(0)
+    class _substitute_default_key(Messenger):
+        def process_message(self, msg):
+            if msg["type"] == "prng_key" and msg["value"] is None:
+                msg["value"] = random.PRNGKey(0)
 
-    model = substitute(model, substitute_fn=substitute_key)
+    model = _substitute_default_key(model)
 
     constrained_values = {
         k: v["value"]
