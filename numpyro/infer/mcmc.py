@@ -277,7 +277,8 @@ class MCMC(object):
         sample values returned from the sampler to constrained values that lie within the support
         of the sample sites. Additionally, this is used to return values at deterministic sites in
         the model.
-    :param str chain_method: One of 'parallel' (default), 'sequential', 'vectorized'. The method
+    :param str chain_method: A callable jax transform like `jax.vmap` or one of
+        'parallel' (default), 'sequential', 'vectorized'. The method
         'parallel' is used to execute the drawing process in parallel on XLA devices (CPUs/GPUs/TPUs),
         If there are not enough devices for 'parallel', we fall back to 'sequential' method to draw
         chains sequentially. 'vectorized' method is an experimental feature which vectorizes the
@@ -340,7 +341,11 @@ class MCMC(object):
             raise ValueError("thinning must be a positive integer")
         self.thinning = thinning
         self.postprocess_fn = postprocess_fn
-        if chain_method not in ["parallel", "vectorized", "sequential"]:
+        if not callable(chain_method) and chain_method not in [
+            "parallel",
+            "vectorized",
+            "sequential",
+        ]:
             raise ValueError(
                 "Only supporting the following methods to draw chains:"
                 ' "sequential", "parallel", or "vectorized"'
@@ -471,7 +476,9 @@ class MCMC(object):
             collection_size=collection_size,
             progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
             diagnostics_fn=diagnostics,
-            num_chains=self.num_chains if self.chain_method == "parallel" else 1,
+            num_chains=self.num_chains
+            if (callable(self.chain_method) or self.chain_method == "parallel")
+            else 1,
         )
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
@@ -679,6 +686,8 @@ class MCMC(object):
                 states, last_state = _laxmap(partial_map_fn, map_args)
             elif self.chain_method == "parallel":
                 states, last_state = pmap(partial_map_fn)(map_args)
+            elif callable(self.chain_method):
+                states, last_state = self.chain_method(partial_map_fn)(map_args)
             else:
                 assert self.chain_method == "vectorized"
                 states, last_state = partial_map_fn(map_args)
