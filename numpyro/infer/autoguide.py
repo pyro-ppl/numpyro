@@ -621,11 +621,15 @@ def _unravel_dict(x_flat, shape_dict):
     return x
 
 
-def _ravel_dict(x, shape_dict=None):
+def _ravel_dict(x):
     """Return the flatten version of `x` and shapes of each item in `x`."""
     assert isinstance(x, dict)
-    if shape_dict is None:
-        shape_dict = {name: jnp.shape(value) for name, value in x.items()}
+    shape_dict = {name: jnp.shape(value) for name, value in x.items()}
+    x_flat = _ravel_dict_with_shape_dict(x, shape_dict)
+    return x_flat, shape_dict
+
+
+def _ravel_dict_with_shape_dict(x, shape_dict):
     assert set(x.keys()) == set(shape_dict.keys())
     x_flat = []
     for name, shape in shape_dict.items():
@@ -633,7 +637,7 @@ def _ravel_dict(x, shape_dict=None):
         assert shape == jnp.shape(value)
         x_flat.append(jnp.reshape(value, -1))
     x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
-    return x_flat, shape_dict
+    return x_flat
 
 
 class AutoContinuous(AutoGuide):
@@ -664,8 +668,9 @@ class AutoContinuous(AutoGuide):
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
-        pack_fn = partial(_ravel_dict, shape_dict=shape_dict)
-        self._unpack_latent = UnpackTransform(unpack_latent, pack_fn)
+        self._unpack_latent = UnpackTransform(
+            unpack_latent, _ravel_dict_with_shape_dict
+        )
         self.latent_dim = jnp.size(self._init_latent)
         if self.latent_dim == 0:
             raise RuntimeError(
