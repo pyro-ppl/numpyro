@@ -47,6 +47,12 @@ ModelInfo = namedtuple(
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
 
 
+class _substitute_default_key(Messenger):
+    def process_message(self, msg):
+        if msg["type"] == "prng_key" and msg["value"] is None:
+            msg["value"] = random.PRNGKey(0)
+
+
 def log_density(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
@@ -664,11 +670,6 @@ def initialize_model(
             if site["type"] in ["param", "mutable"]
         },
     )
-
-    class _substitute_default_key(Messenger):
-        def process_message(self, msg):
-            if msg["type"] == "prng_key" and msg["value"] is None:
-                msg["value"] = random.PRNGKey(0)
 
     model = _substitute_default_key(model)
 
