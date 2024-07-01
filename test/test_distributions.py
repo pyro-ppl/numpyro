@@ -2703,7 +2703,8 @@ def test_compose_transform_with_intermediates(ts):
 def test_unpack_transform(x_dim, y_dim):
     xy = np.random.randn(x_dim + y_dim)
     unpack_fn = lambda xy: {"x": xy[:x_dim], "y": xy[x_dim:]}  # noqa: E731
-    transform = transforms.UnpackTransform(unpack_fn)
+    pack_fn = lambda d: jnp.concatenate([d["x"], d["y"]], axis=-1)  # noqa: E731
+    transform = transforms.UnpackTransform(unpack_fn, pack_fn)
     z = transform(xy)
     if x_dim == y_dim:
         with pytest.warns(UserWarning, match="UnpackTransform.inv"):

@@ -9,7 +9,6 @@ import numpy as np
 
 import jax
 from jax import lax, vmap
-from jax.flatten_util import ravel_pytree
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
@@ -1102,13 +1101,15 @@ class UnpackTransform(Transform):
     Transforms a contiguous array to a pytree of subarrays.
 
     :param unpack_fn: callable used to unpack a contiguous array.
+    :param pack_fn: callable used to pack a pytree into a contiguous array.
     """
 
     domain = constraints.real_vector
     codomain = constraints.dependent
 
-    def __init__(self, unpack_fn):
+    def __init__(self, unpack_fn, pack_fn=None):
         self.unpack_fn = unpack_fn
+        self.pack_fn = pack_fn
 
     def __call__(self, x):
         batch_shape = x.shape[:-1]
@@ -1121,9 +1122,15 @@ class UnpackTransform(Transform):
             return self.unpack_fn(x)
 
     def _inverse(self, y):
+        if self.pack_fn is None:
+            raise NotImplementedError(
+                "pack_fn needs to be provided to perform UnpackTransform.inv."
+            )
         leading_dims = [
             v.shape[0] if jnp.ndim(v) > 0 else 0 for v in jax.tree.flatten(y)[0]
         ]
+        if not leading_dims:
+            return jnp.array([])
         d0 = leading_dims[0]
         not_scalar = d0 > 0 or len(leading_dims) > 1
         if not_scalar and all(d == d0 for d in leading_dims[1:]):
@@ -1132,7 +1139,7 @@ class UnpackTransform(Transform):
                 " cannot transform a batch of unpacked arrays.",
                 stacklevel=find_stack_level(),
             )
-        return ravel_pytree(y)[0]
+        return self.pack_fn(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.zeros(jnp.shape(x)[:-1])
@@ -1145,10 +1152,14 @@ class UnpackTransform(Transform):
 
     def tree_flatten(self):
         # XXX: what if unpack_fn is a parametrized callable pytree?
-        return (), ((), {"unpack_fn": self.unpack_fn})
+        return (), ((), {"unpack_fn": self.unpack_fn, "pack_fn": self.pack_fn})
 
     def __eq__(self, other):
-        return isinstance(other, UnpackTransform) and self.unpack_fn is other.unpack_fn
+        return (
+            isinstance(other, UnpackTransform)
+            and (self.unpack_fn is other.unpack_fn)
+            and (self.pack_fn is other.pack_fn)
+        )
 
 
 def _get_target_shape(shape, forward_shape, inverse_shape):
