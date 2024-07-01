@@ -805,7 +805,8 @@ class substitute(Messenger):
 
     def process_message(self, msg):
         if (
-            msg["type"] not in ("sample", "param", "mutable", "plate", "deterministic")
+            msg["type"]
+            not in ("sample", "param", "mutable", "plate", "deterministic", "prng_key")
         ) or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
