@@ -462,3 +462,24 @@ def test_hmcecs_multiple_plates():
     kernel = HMCECS(NUTS(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(0), data)
+
+
+def test_callable_chain_method():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0.0, 2.0))
+        y = numpyro.sample("y", dist.Normal(0.0, 2.0))
+        numpyro.sample("obs", dist.Normal(x + y, 1.0), obs=jnp.array([1.0]))
+
+    def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+        y = hmc_sites["y"]
+        new_x = dist.Normal(0.8 * (1 - y), jnp.sqrt(0.8)).sample(rng_key)
+        return {"x": new_x}
+
+    hmc_kernel = NUTS(model)
+    kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=["x"])
+    mcmc = MCMC(
+        kernel, num_warmup=100, num_chains=2, num_samples=100, chain_method=vmap
+    )
+    mcmc.run(random.PRNGKey(0))
+    samples = mcmc.get_samples()
+    assert set(samples.keys()) == {"x", "y"}
