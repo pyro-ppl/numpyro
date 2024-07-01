@@ -15,7 +15,7 @@ import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
-from numpyro.infer.autoguide import AutoIAFNormal
+from numpyro.infer.autoguide import AutoDiagonalNormal, AutoIAFNormal
 from numpyro.infer.reparam import (
     CircularReparam,
     ExplicitReparam,
@@ -226,6 +226,22 @@ def test_neutra_reparam_unobserved_model():
     reparam_model = neutra.reparam(model)
     with handlers.seed(rng_seed=0):
         reparam_model(data=None)
+
+
+def test_neutra_reparam_with_plate():
+    def model():
+        with numpyro.plate("N", 3, dim=-1):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+        assert x.shape == (3,)
+
+    guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, Adam(1e-3), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    params = svi.get_params(svi_state)
+    neutra = NeuTraReparam(guide, params)
+    reparam_model = neutra.reparam(model)
+    with handlers.seed(rng_seed=0):
+        reparam_model()
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
