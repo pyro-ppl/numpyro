@@ -656,13 +656,20 @@ def initialize_model(
 
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
-    def substitute_fn(site):
-        if site["type"] in ["param", "mutable"]:
-            return site["value"]
-        elif site["type"] == "prng_key":
+    model = substitute(
+        model,
+        data={
+            k: site["value"]
+            for k, site in model_trace.items()
+            if site["type"] in ["param", "mutable"]
+        },
+    )
+
+    def substitute_key(msg):
+        if msg["type"] == "prng_key":
             return random.PRNGKey(0)
 
-    model = substitute(model, substitute_fn=substitute_fn)
+    model = substitute(model, substitute_fn=substitute_key)
 
     constrained_values = {
         k: v["value"]
@@ -702,7 +709,14 @@ def initialize_model(
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
     (init_params, pe, grad), is_valid = find_valid_initial_params(
         rng_key,
-        substitute(model, substitute_fn=substitute_fn),
+        substitute(
+            model,
+            data={
+                k: site["value"]
+                for k, site in model_trace.items()
+                if site["type"] in ["plate"]
+            },
+        ),
         init_strategy=init_strategy,
         enum=has_enumerate_support,
         model_args=model_args,

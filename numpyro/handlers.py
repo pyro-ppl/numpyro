@@ -818,7 +818,7 @@ class substitute(Messenger):
             return
 
         if self.data is not None:
-            value = self.data.get(msg["name"])
+            value = self.data.get(msg.get("name"))
         else:
             value = self.substitute_fn(msg)
 
