@@ -21,6 +21,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
+from numpyro.primitives import Messenger
 from numpyro.util import (
     _validate_model,
     find_stack_level,
@@ -44,6 +45,12 @@ ModelInfo = namedtuple(
     "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
 )
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
+
+
+class _substitute_default_key(Messenger):
+    def process_message(self, msg):
+        if msg["type"] == "prng_key" and msg["value"] is None:
+            msg["value"] = random.PRNGKey(0)
 
 
 def log_density(model, model_args, model_kwargs, params):
@@ -660,9 +667,12 @@ def initialize_model(
         data={
             k: site["value"]
             for k, site in model_trace.items()
-            if site["type"] in ["param"]
+            if site["type"] in ["param", "mutable"]
         },
     )
+
+    model = _substitute_default_key(model)
+
     constrained_values = {
         k: v["value"]
         for k, v in model_trace.items()

@@ -21,7 +21,8 @@ from numpyro.contrib.module import (
     random_haiku_module,
 )
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer.autoguide import AutoDelta
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:jax.tree_.+ is deprecated:FutureWarning"
@@ -256,6 +257,11 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
     else:
         assert set(tr.keys()) == {"nn$params", "x", "y"}
 
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
+
 
 @pytest.mark.parametrize("dropout", [True, False])
 @pytest.mark.parametrize("batchnorm", [True, False])
@@ -300,3 +306,8 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
         assert tr["nn$state"]["type"] == "mutable"
     else:
         assert set(tr.keys()) == {"nn$params", "x", "y"}
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
