@@ -530,6 +530,12 @@ class plate(Messenger):
                 )
             return
 
+        if (
+            "block_plates" in msg.get("infer", {})
+            and self.name in msg["infer"]["block_plates"]
+        ):
+            return
+
         cond_indep_stack = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
