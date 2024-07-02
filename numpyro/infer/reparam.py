@@ -226,7 +226,7 @@ class NeuTraReparam(Reparam):
 
         # Step 2. Use trained guide in NeuTra MCMC
         neutra = NeuTraReparam(guide)
-        model = netra.reparam(model)
+        model = neutra.reparam(model)
         nuts = NUTS(model)
         # ...now use the model in HMC or NUTS...
 
