@@ -2877,3 +2877,243 @@ class WishartCholesky(Distribution):
                 batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
                 event_shape = matrix[-2:]
                 return batch_shape, event_shape
+
+
+class DoublyTruncatedPowerLaw(Distribution):
+    r"""Power law distribution with :math:`\alpha` index, and lower and upper bounds.
+    We can define the power law distribution as,
+
+    .. math::
+        f(x; \alpha, a, b) = \frac{x^{\alpha}}{Z(\alpha, a, b)},
+
+    where, :math:`a` and :math:`b` are the lower and upper bounds respectively,
+    and :math:`Z(\alpha, a, b)` is the normalization constant. It is defined as,
+
+    .. math::
+        Z(\alpha, a, b) = \begin{cases}
+            \log(b) - \log(a) & \text{if } \alpha = -1, \\
+            \frac{b^{1 + \alpha} - a^{1 + \alpha}}{1 + \alpha} & \text{otherwise}.
+        \end{cases}
+
+    :param alpha: index of the power law distribution
+    :param low: lower bound of the distribution
+    :param high: upper bound of the distribution
+    """
+
+    arg_constraints = {
+        "alpha": constraints.real,
+        "low": constraints.positive,
+        "high": constraints.positive,
+    }
+    reparametrized_params = ["alpha", "low", "high"]
+    pytree_aux_fields = ("_support", "_logZ")
+
+    def __init__(self, alpha, low, high, *, validate_args=None):
+        self.alpha, self.low, self.high = promote_shapes(alpha, low, high)
+        self._support = constraints.interval(low, high)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(alpha), jnp.shape(low), jnp.shape(high)
+        )
+        super(DoublyTruncatedPowerLaw, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+        self._logZ = self._log_Z()
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    def _log_Z(self):
+        return jnp.where(
+            jnp.equal(self.alpha, -1.0),
+            jnp.log(jnp.log(self.high) - jnp.log(self.low)),
+            jnp.log(
+                jnp.abs(
+                    jnp.power(self.low, 1.0 + self.alpha)
+                    - jnp.power(self.high, 1.0 + self.alpha)
+                )
+            )
+            - jnp.log(jnp.abs(1.0 + self.alpha)),
+        )
+
+    @validate_sample
+    def log_prob(self, value):
+        return self.alpha * jnp.log(value) - self._logZ
+
+    def cdf(self, value):
+        cdf_val = jnp.where(
+            jnp.equal(self.alpha, -1.0),
+            (jnp.log(value) - jnp.log(self.low))
+            / (jnp.log(self.high) - jnp.log(self.low)),
+            (jnp.power(value, 1.0 + self.alpha) - jnp.power(self.low, 1.0 + self.alpha))
+            / (
+                jnp.power(self.high, 1.0 + self.alpha)
+                - jnp.power(self.low, 1.0 + self.alpha)
+            ),
+        )
+        cdf_val = jnp.clip(cdf_val, a_min=0.0, a_max=1.0)
+        return cdf_val
+
+    def icdf(self, q):
+        def icdf_alpha_neg1(q):
+            return jnp.exp(
+                jnp.log(self.low) + q * (jnp.log(self.high) - jnp.log(self.low))
+            )
+
+        def icdf_alpha_neq_neg1(q):
+            return jnp.power(
+                jnp.power(self.low, 1.0 + self.alpha)
+                + q
+                * (
+                    jnp.power(self.high, 1.0 + self.alpha)
+                    - jnp.power(self.low, 1.0 + self.alpha)
+                ),
+                jnp.reciprocal(1.0 + self.alpha),
+            )
+
+        icdf_val = jnp.where(
+            jnp.equal(self.alpha, -1.0), icdf_alpha_neg1(q), icdf_alpha_neq_neg1(q)
+        )
+        nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
+        nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
+        return jnp.where(nan_mask, jnp.nan, icdf_val)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        samples = self.icdf(u)
+        return samples
+
+    def _kth_moment(self, k):
+        Z = jnp.exp(self._logZ)
+
+        def index_eq_neg1():
+            return (jnp.log(self.high) - jnp.log(self.low)) / Z
+
+        def index_neq_neg1():
+            power_index = k + self.alpha + 1.0
+            return (
+                jnp.power(self.high, power_index) - jnp.power(self.low, power_index)
+            ) / ((power_index) * Z)
+
+        return jnp.where(
+            jnp.equal(self.alpha + k, -1.0), index_eq_neg1(), index_neq_neg1()
+        )
+
+    @lazy_property
+    def mean(self):
+        return self._kth_moment(1)
+
+    @lazy_property
+    def variance(self):
+        moment2 = self._kth_moment(2)
+        return moment2 - lax.square(self.mean)
+
+
+class LowerTruncatedPowerLaw(Distribution):
+    r"""Lower truncated power law distribution with :math:`\alpha` index.
+    We can define the power law distribution as,
+
+    .. math::
+        f(x; \alpha, a) = (\alpha-1)a^{\alpha - 1}x^{-\alpha},
+        \qquad x \geq a, \qquad \alpha > 1,
+
+    where, :math:`a` is the lower bound. The cdf of the distribution is given by,
+
+    .. math::
+        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1-\alpha}.
+
+    The k-th moment of the distribution is given by,
+
+    .. math::
+        E[X^k] = \begin{cases}
+            \frac{\alpha-1}{\alpha-1-k}a^k & \text{if } k < \alpha-1, \\
+            \infty & \text{otherwise}.
+        \end{cases}
+
+    :param alpha: index of the power law distribution
+    :param low: lower bound of the distribution
+    """
+
+    arg_constraints = {
+        "alpha": constraints.greater_than(1.0),
+        "low": constraints.greater_than(1.0),
+    }
+    reparametrized_params = ["alpha", "low"]
+    pytree_aux_fields = ("_support",)
+
+    def __init__(self, alpha, low, *, validate_args=None):
+        self.alpha, self.low = promote_shapes(alpha, low)
+        batch_shape = lax.broadcast_shapes(jnp.shape(alpha), jnp.shape(low))
+        self._support = constraints.greater_than(low)
+        super(LowerTruncatedPowerLaw, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    @validate_sample
+    def log_prob(self, value):
+        return (
+            -self.alpha * jnp.log(value)
+            + (self.alpha - 1.0) * jnp.log(self.low)
+            + jnp.log(self.alpha - 1.0)
+        )
+
+    def cdf(self, value):
+        cdf_val = jnp.where(
+            jnp.less_equal(value, self.low),
+            jnp.zeros_like(value),
+            1.0 - jnp.power(value / self.low, 1.0 - self.alpha),
+        )
+        return cdf_val
+
+    def icdf(self, q):
+        nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
+        nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
+        return jnp.where(
+            nan_mask,
+            jnp.nan,
+            self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 - self.alpha)),
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        samples = self.icdf(u)
+        return samples
+
+    def _kth_moment(self, k):
+        return jnp.where(
+            jnp.less(k, self.alpha - 1),
+            (self.alpha - 1) / (self.alpha - 1 - k) * jnp.power(self.low, k),
+            jnp.inf,
+        )
+
+    @lazy_property
+    def mean(self):
+        return self._kth_moment(1)
+
+    @lazy_property
+    def variance(self):
+        return self._kth_moment(2) - lax.square(self.mean)
+
+    def entropy(self):
+        # The simplified expression for the entorpy is,
+        # H(x) = (alpha-1)log(a) - log(a-1)
+        #        + alpha(alpha-1)a^(alpha-1)\int_{a}^{\infty}x^{-alpha}log(x)dx
+        # The integral term can be reshaped into a lower incomplete gamma function.
+        # After simplification, we get the following expression.
+        # H(x) = (alpha-1)log(a) - log(a-1)
+        #        + (alpha/(alpha-1))a^(alpha-1)(1-gamma(2, (alpha-1)log(a)))
+        # I followed the definition of lower incomplete gamma function from wikipedia.
+        # https://en.wikipedia.org/wiki/Incomplete_gamma_function#Definition
+        # In the very same wikipedia article there was a recursive formula,
+        # https://en.wikipedia.org/wiki/Incomplete_gamma_function#Properties
+        # which I used to simplify the expression. It gave me the following expression.
+        # H(x) = log(a) - log(alpha-1) + (alpha/(alpha-1))(a^(alpha-1) + 1)
+        Hx = jnp.log(self.low) - jnp.log(self.alpha - 1)
+        Hx += self.alpha / (self.alpha - 1) * (jnp.power(self.low, self.alpha - 1) + 1)
+        return Hx
