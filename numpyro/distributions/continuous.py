@@ -3009,7 +3009,7 @@ class DoublyTruncatedPowerLaw(Distribution):
     @lazy_property
     def variance(self):
         moment2 = self._kth_moment(2)
-        return moment2 - lax.square(self.mean)
+        return moment2 - jnp.square(self.mean)
 
 
 class LowerTruncatedPowerLaw(Distribution):
@@ -3100,7 +3100,7 @@ class LowerTruncatedPowerLaw(Distribution):
 
     @lazy_property
     def variance(self):
-        return self._kth_moment(2) - lax.square(self.mean)
+        return self._kth_moment(2) - jnp.square(self.mean)
 
     def entropy(self):
         # The simplified expression for the entorpy is,
