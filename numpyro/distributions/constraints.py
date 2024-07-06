@@ -60,6 +60,7 @@ __all__ = [
     "unit_interval",
     "zero_sum",
     "Constraint",
+    "union_of_closed_intervals",
 ]
 
 import math
@@ -766,6 +767,50 @@ class _ZeroSum(Constraint):
         return (self.event_dim,), (("event_dim",), dict())
 
 
+class _UnionOfClosedIntervals(Constraint):
+    """A constraint representing the union of multiple intervals."""
+
+    event_dim = 1
+
+    def __init__(self, lower_bounds, upper_bounds) -> None:
+        assert isinstance(lower_bounds, (list, tuple, jnp.ndarray))
+        assert isinstance(upper_bounds, (list, tuple, jnp.ndarray))
+        assert len(lower_bounds) == len(upper_bounds), (
+            f"lower_bounds and upper_bounds must have the same length, "
+            f"but got {len(lower_bounds)} and {len(upper_bounds)}"
+        )
+        self.lower_bounds = jnp.asarray(lower_bounds)
+        self.upper_bounds = jnp.asarray(upper_bounds)
+
+    def __call__(self, x):
+        r"""Check if the input is within the union of intervals
+
+        .. math::
+            x \in \bigcup_{i=1}^{n} [a_i, b_i] \implies \bigvee_{i=1}^{n} (x \in [a_i, b_i])
+
+        :param x: The input to be checked.
+        """
+        return jnp.any((x >= self.lower_bounds) & (x <= self.upper_bounds), axis=-1)
+
+    def feasible_like(self, prototype):
+        return jnp.broadcast_to(
+            (self.lower_bounds + self.upper_bounds) / 2, jnp.shape(prototype)
+        )
+
+    def tree_flatten(self):
+        return (self.lower_bounds, self.upper_bounds), (
+            ("lower_bounds", "upper_bounds"),
+            dict(),
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, _UnionOfClosedIntervals):
+            return False
+        return jnp.array_equal(self.lower_bounds, other.lower_bounds) & jnp.array_equal(
+            self.upper_bounds, other.upper_bounds
+        )
+
+
 # TODO: Make types consistent
 # See https://github.com/pytorch/pytorch/issues/50616
 
@@ -805,3 +850,4 @@ sphere = _Sphere()
 unit_interval = _UnitInterval()
 open_interval = _OpenInterval
 zero_sum = _ZeroSum
+union_of_closed_intervals = _UnionOfClosedIntervals

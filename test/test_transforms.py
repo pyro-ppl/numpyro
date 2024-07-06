@@ -383,6 +383,12 @@ def test_batched_recursive_linear_transform():
         (constraints.softplus_positive, (2,)),
         (constraints.unit_interval, (4,)),
         (constraints.nonnegative, (7,)),
+        (
+            constraints.union_of_closed_intervals(
+                (-100, -50, 0, 50), (-50, 0, 50, 100)
+            ),
+            (4,),
+        ),
     ],
     ids=str,
 )

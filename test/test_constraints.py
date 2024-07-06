@@ -68,6 +68,11 @@ PARAMETRIZED_CONSTRAINTS = {
     ),
     "open_interval": T(constraints.open_interval, (_a(-1.0), _a(1.0)), dict()),
     "zero_sum": T(constraints.zero_sum, (), dict(event_dim=1)),
+    "union_of_closed_intervals": T(
+        constraints.union_of_closed_intervals,
+        (_a((-100, -50, 0, 50)), _a((-50, 0, 50, 100))),
+        dict(),
+    ),
 }
 
 # TODO: BijectorConstraint

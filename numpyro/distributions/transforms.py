@@ -1636,3 +1636,16 @@ def _transform_to_simplex(constraint):
 @biject_to.register(constraints.zero_sum)
 def _transform_to_zero_sum(constraint):
     return ZeroSumTransform(constraint.event_dim)
+
+
+@biject_to.register(constraints.union_of_closed_intervals)
+def _transform_to_union_of_intervals(constraint):
+    return ComposeTransform(
+        [
+            ReshapeTransform(
+                forward_shape=constraint.lower_bounds.shape,
+                inverse_shape=(constraint.lower_bounds.size,),
+            ),
+            ExpTransform(),
+        ]
+    )
