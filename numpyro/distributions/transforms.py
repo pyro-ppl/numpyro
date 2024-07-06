@@ -1639,6 +1639,7 @@ def _transform_to_zero_sum(constraint):
 
 
 @biject_to.register(constraints.union_of_closed_intervals)
+@biject_to.register(constraints.intersection_of_closed_intervals)
 def _transform_to_union_of_intervals(constraint):
     return ComposeTransform(
         [

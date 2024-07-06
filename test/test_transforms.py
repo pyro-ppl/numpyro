@@ -389,6 +389,12 @@ def test_batched_recursive_linear_transform():
             ),
             (4,),
         ),
+        (
+            constraints.intersection_of_closed_intervals(
+                (-100, -130, -150, -250), (200, 100, 250, 100)
+            ),
+            (4,),
+        ),
     ],
     ids=str,
 )

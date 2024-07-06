@@ -73,6 +73,11 @@ PARAMETRIZED_CONSTRAINTS = {
         (_a((-100, -50, 0, 50)), _a((-50, 0, 50, 100))),
         dict(),
     ),
+    "intersection_of_closed_intervals": T(
+        constraints.intersection_of_closed_intervals,
+        (_a((-100, -130, -150, -250)), _a((200, 100, 250, 100))),
+        dict(),
+    ),
 }
 
 # TODO: BijectorConstraint
