@@ -395,6 +395,10 @@ def test_batched_recursive_linear_transform():
             ),
             (4,),
         ),
+        (
+            constraints.unique_intervals((-10, -8, -6, -4), (4, 6, 8, 10)),
+            (4,),
+        ),
     ],
     ids=str,
 )

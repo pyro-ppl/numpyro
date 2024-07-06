@@ -78,6 +78,9 @@ PARAMETRIZED_CONSTRAINTS = {
         (_a((-100, -130, -150, -250)), _a((200, 100, 250, 100))),
         dict(),
     ),
+    "unique_intervals": T(
+        constraints.unique_intervals, (_a((-10, -8, -6, -4)), _a((4, 6, 8, 10))), dict()
+    ),
 }
 
 # TODO: BijectorConstraint

@@ -1650,3 +1650,15 @@ def _transform_to_union_of_intervals(constraint):
             ExpTransform(),
         ]
     )
+
+
+@biject_to.register(constraints.unique_intervals)
+def _transform_to_unique_intervals(constraint):
+    return ComposeTransform(
+        [
+            ReshapeTransform(
+                forward_shape=constraint.lower_bounds.shape,
+                inverse_shape=(constraint.lower_bounds.size,),
+            ),
+        ]
+    )
