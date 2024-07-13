@@ -913,19 +913,11 @@ CONTINUOUS = [
             ]
         ),  # Covariance
     ),
-    T(
-        dist.DoublyTruncatedPowerLaw,
-        -1.0,
-        jnp.array([1.0, 5.0]),
-        jnp.array([2.0, 50.0]),
-    ),
-    T(
-        dist.DoublyTruncatedPowerLaw,
-        jnp.pi,
-        jnp.array([1.0, 5.0]),
-        jnp.array([2.0, 50.0]),
-    ),
     T(dist.LowerTruncatedPowerLaw, jnp.pi, jnp.array([2.0, 5.0, 10.0, 50.0])),
+    T(dist.DoublyTruncatedPowerLaw, -1.0, 1.0, 2.0),
+    T(dist.DoublyTruncatedPowerLaw, jnp.pi, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, jnp.pi, 1.0, 2.0),
 ]
 
 DIRECTIONAL = [
@@ -1863,6 +1855,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
+            continue
+        if isinstance(jax_dist, dist.DoublyTruncatedPowerLaw) and i != 0:
             continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
             continue

@@ -28,6 +28,7 @@
 import numpy as np
 
 from jax import lax, vmap
+from jax._src.typing import Array
 from jax.experimental.sparse import BCOO
 from jax.lax import scan
 import jax.nn as nn
@@ -2920,23 +2921,32 @@ class DoublyTruncatedPowerLaw(Distribution):
         super(DoublyTruncatedPowerLaw, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
-        self._logZ = self._log_Z()
+        self._logZ = self._logZ()
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
 
-    def _log_Z(self):
+    def _logZ(self) -> Array:
+        def Z_when_alpha_neq_neg1(alpha):
+            one_more_alpha = 1.0 + alpha
+            Z = (
+                jnp.power(self.high, one_more_alpha)
+                - jnp.power(self.low, one_more_alpha)
+            ) / one_more_alpha
+            return Z
+
+        def Z_when_alpha_eq_neg1():
+            return jnp.log(self.high / self.low)
+
         return jnp.where(
-            jnp.equal(self.alpha, -1.0),
-            jnp.log(jnp.log(self.high) - jnp.log(self.low)),
+            jnp.not_equal(self.alpha, -1.0),
             jnp.log(
-                (
-                    jnp.power(self.high, 1.0 + self.alpha)
-                    - jnp.power(self.low, 1.0 + self.alpha)
+                Z_when_alpha_neq_neg1(
+                    jnp.where(jnp.not_equal(self.alpha, -1.0), self.alpha, -1.0)
                 )
-                / (1.0 + self.alpha)
             ),
+            jnp.log(Z_when_alpha_eq_neg1()),
         )
 
     @validate_sample
@@ -2944,15 +2954,26 @@ class DoublyTruncatedPowerLaw(Distribution):
         return self.alpha * jnp.log(value) - self._logZ
 
     def cdf(self, value):
+        def cdf_when_alpha_neq_neg1(alpha):
+            one_more_alpha = 1.0 + alpha
+            return (
+                jnp.power(value, one_more_alpha) - jnp.power(self.low, one_more_alpha)
+            ) / (
+                jnp.power(self.high, one_more_alpha)
+                - jnp.power(self.low, one_more_alpha)
+            )
+
+        def cdf_when_alpha_eq_neg1():
+            return (jnp.log(value) - jnp.log(self.low)) / (
+                jnp.log(self.high) - jnp.log(self.low)
+            )
+
         cdf_val = jnp.where(
-            jnp.equal(self.alpha, -1.0),
-            (jnp.log(value) - jnp.log(self.low))
-            / (jnp.log(self.high) - jnp.log(self.low)),
-            (jnp.power(value, 1.0 + self.alpha) - jnp.power(self.low, 1.0 + self.alpha))
-            / (
-                jnp.power(self.high, 1.0 + self.alpha)
-                - jnp.power(self.low, 1.0 + self.alpha)
+            jnp.not_equal(self.alpha, -1.0),
+            cdf_when_alpha_neq_neg1(
+                jnp.where(jnp.not_equal(self.alpha, -1.0), self.alpha, -1.0)
             ),
+            cdf_when_alpha_eq_neg1(),
         )
         return cdf_val
 
@@ -2962,19 +2983,23 @@ class DoublyTruncatedPowerLaw(Distribution):
                 jnp.log(self.low) + q * (jnp.log(self.high) - jnp.log(self.low))
             )
 
-        def icdf_alpha_neq_neg1(q):
+        def icdf_alpha_neq_neg1(q, alpha):
+            one_more_alpha = 1.0 + alpha
+            low_pow_one_more_alpha = jnp.power(self.low, one_more_alpha)
+            high_pow_one_more_alpha = jnp.power(self.high, one_more_alpha)
             return jnp.power(
-                jnp.power(self.low, 1.0 + self.alpha)
-                + q
-                * (
-                    jnp.power(self.high, 1.0 + self.alpha)
-                    - jnp.power(self.low, 1.0 + self.alpha)
-                ),
-                jnp.reciprocal(1.0 + self.alpha),
+                low_pow_one_more_alpha
+                + q * (high_pow_one_more_alpha - low_pow_one_more_alpha),
+                jnp.reciprocal(one_more_alpha),
             )
 
         icdf_val = jnp.where(
-            jnp.equal(self.alpha, -1.0), icdf_alpha_eq_neg1(q), icdf_alpha_neq_neg1(q)
+            jnp.not_equal(self.alpha, -1.0),
+            icdf_alpha_neq_neg1(
+                q,
+                jnp.where(jnp.not_equal(self.alpha, -1.0), self.alpha, -1.0),
+            ),
+            icdf_alpha_eq_neg1(q),
         )
         return icdf_val
 
