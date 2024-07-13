@@ -2908,7 +2908,8 @@ class DoublyTruncatedPowerLaw(Distribution):
         "high": constraints.positive,
     }
     reparametrized_params = ["alpha", "low", "high"]
-    pytree_aux_fields = ("_support", "_logZ")
+    pytree_aux_fields = ("_support",)
+    pytree_data_fields = ("alpha", "low", "high", "_logZ")
 
     def __init__(self, alpha, low, high, *, validate_args=None):
         self.alpha, self.low, self.high = promote_shapes(alpha, low, high)
@@ -2930,12 +2931,12 @@ class DoublyTruncatedPowerLaw(Distribution):
             jnp.equal(self.alpha, -1.0),
             jnp.log(jnp.log(self.high) - jnp.log(self.low)),
             jnp.log(
-                jnp.abs(
-                    jnp.power(self.low, 1.0 + self.alpha)
-                    - jnp.power(self.high, 1.0 + self.alpha)
+                (
+                    jnp.power(self.high, 1.0 + self.alpha)
+                    - jnp.power(self.low, 1.0 + self.alpha)
                 )
-            )
-            - jnp.log(jnp.abs(1.0 + self.alpha)),
+                / (1.0 + self.alpha)
+            ),
         )
 
     @validate_sample
@@ -2953,11 +2954,10 @@ class DoublyTruncatedPowerLaw(Distribution):
                 - jnp.power(self.low, 1.0 + self.alpha)
             ),
         )
-        cdf_val = jnp.clip(cdf_val, a_min=0.0, a_max=1.0)
         return cdf_val
 
     def icdf(self, q):
-        def icdf_alpha_neg1(q):
+        def icdf_alpha_eq_neg1(q):
             return jnp.exp(
                 jnp.log(self.low) + q * (jnp.log(self.high) - jnp.log(self.low))
             )
@@ -2974,11 +2974,9 @@ class DoublyTruncatedPowerLaw(Distribution):
             )
 
         icdf_val = jnp.where(
-            jnp.equal(self.alpha, -1.0), icdf_alpha_neg1(q), icdf_alpha_neq_neg1(q)
+            jnp.equal(self.alpha, -1.0), icdf_alpha_eq_neg1(q), icdf_alpha_neq_neg1(q)
         )
-        nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
-        nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
-        return jnp.where(nan_mask, jnp.nan, icdf_val)
+        return icdf_val
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)

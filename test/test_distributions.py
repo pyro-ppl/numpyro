@@ -913,6 +913,19 @@ CONTINUOUS = [
             ]
         ),  # Covariance
     ),
+    T(
+        dist.DoublyTruncatedPowerLaw,
+        -1.0,
+        jnp.array([1.0, 5.0]),
+        jnp.array([2.0, 50.0]),
+    ),
+    T(
+        dist.DoublyTruncatedPowerLaw,
+        jnp.pi,
+        jnp.array([1.0, 5.0]),
+        jnp.array([2.0, 50.0]),
+    ),
+    T(dist.LowerTruncatedPowerLaw, jnp.pi, jnp.array([2.0, 5.0, 10.0, 50.0])),
 ]
 
 DIRECTIONAL = [
@@ -1892,6 +1905,14 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
+    if jax_dist is dist.DoublyTruncatedPowerLaw:
+        pytest.skip(
+            "DoublyTruncatedPowerLaw distribution does not has mean/var implemented"
+        )
+    if jax_dist is dist.LowerTruncatedPowerLaw:
+        pytest.skip(
+            "LowerTruncatedPowerLaw distribution does not has mean/var implemented"
+        )
 
     n = (
         20000
