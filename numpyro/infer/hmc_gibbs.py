@@ -434,6 +434,13 @@ class DiscreteHMCGibbs(HMCGibbs):
             and site["fn"].has_enumerate_support
             and not site["is_observed"]
         }
+        self._support_enumerates = {
+            name: site["fn"].enumerate_support(False)
+            for name, site in self._prototype_trace.items()
+            if site["type"] == "sample"
+            and site["fn"].has_enumerate_support
+            and not site["is_observed"]
+        }
         self._gibbs_sites = [
             name
             for name, site in self._prototype_trace.items()

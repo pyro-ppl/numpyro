@@ -6,6 +6,7 @@ from functools import partial
 
 from jax import grad, jacfwd, lax, random
 from jax.flatten_util import ravel_pytree
+import jax
 import jax.numpy as jnp
 
 from numpyro.infer.hmc import momentum_generator
@@ -301,6 +302,11 @@ class MixedHMC(DiscreteHMCGibbs):
             adapt_state=adapt_state,
         )
 
+        z_discrete = jax.tree.map(
+            lambda idx, support: support[idx],
+            z_discrete,
+            self._support_enumerates,
+        )
         z = {**z_discrete, **hmc_state.z}
         return MixedHMCState(z, hmc_state, rng_key, accept_prob)
 
