@@ -139,6 +139,7 @@ class MixedHMC(DiscreteHMCGibbs):
                 partial(potential_fn, z_hmc=hmc_state.z),
                 idx,
                 self._support_sizes_flat[idx],
+                self._support_enumerates[idx],
             )
             # Algo 1, line 20: depending on reject or refract, we will update
             # the discrete variable and its corresponding kinetic energy. In case of
@@ -302,11 +303,6 @@ class MixedHMC(DiscreteHMCGibbs):
             adapt_state=adapt_state,
         )
 
-        z_discrete = jax.tree.map(
-            lambda idx, support: support[idx],
-            z_discrete,
-            self._support_enumerates,
-        )
         z = {**z_discrete, **hmc_state.z}
         return MixedHMCState(z, hmc_state, rng_key, accept_prob)
 

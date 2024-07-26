@@ -192,12 +192,22 @@ class HMCGibbs(MCMCKernel):
 
 
 def _discrete_gibbs_proposal_body_fn(
-    z_init_flat, unravel_fn, pe_init, potential_fn, idx, i, val
+    z_init_flat,
+    unravel_fn,
+    pe_init,
+    potential_fn,
+    idx,
+    i,
+    val,
+    support_size,
+    support_enumerate,
 ):
     rng_key, z, pe, log_weight_sum = val
     rng_key, rng_transition = random.split(rng_key)
-    proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
-    z_new_flat = z_init_flat.at[idx].set(proposal)
+    proposal_index = jnp.where(
+        support_enumerate[i] == z_init_flat[idx], support_size - 1, i
+    )
+    z_new_flat = z_init_flat.at[idx].set(support_enumerate[proposal_index])
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_weight_new = pe_init - pe_new
@@ -216,7 +226,9 @@ def _discrete_gibbs_proposal_body_fn(
     return rng_key, z, pe, log_weight_sum
 
 
-def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+def _discrete_gibbs_proposal(
+    rng_key, z_discrete, pe, potential_fn, idx, support_size, support_enumerate
+):
     # idx: current index of `z_discrete_flat` to update
     # support_size: support size of z_discrete at the index idx
 
@@ -234,6 +246,8 @@ def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support
         pe,
         potential_fn,
         idx,
+        support_size=support_size,
+        support_enumerate=support_enumerate,
     )
     init_val = (rng_key, z_discrete, pe, jnp.array(0.0))
     rng_key, z_new, pe_new, _ = fori_loop(0, support_size - 1, body_fn, init_val)
@@ -242,7 +256,14 @@ def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support
 
 
 def _discrete_modified_gibbs_proposal(
-    rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.0
+    rng_key,
+    z_discrete,
+    pe,
+    potential_fn,
+    idx,
+    support_size,
+    support_enumerate,
+    stay_prob=0.0,
 ):
     assert isinstance(stay_prob, float) and stay_prob >= 0.0 and stay_prob < 1
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
@@ -253,6 +274,8 @@ def _discrete_modified_gibbs_proposal(
         pe,
         potential_fn,
         idx,
+        support_size=support_size,
+        support_enumerate=support_enumerate,
     )
     # like gibbs_step but here, weight of the current value is 0
     init_val = (rng_key, z_discrete, pe, jnp.array(-jnp.inf))
@@ -276,12 +299,14 @@ def _discrete_modified_gibbs_proposal(
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+def _discrete_rw_proposal(
+    rng_key, z_discrete, pe, potential_fn, idx, support_size, support_enumerate
+):
     rng_key, rng_proposal = random.split(rng_key, 2)
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
     proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
-    z_new_flat = z_discrete_flat.at[idx].set(proposal)
+    z_new_flat = z_discrete_flat.at[idx].set(support_enumerate[proposal])
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
     log_accept_ratio = pe - pe_new
@@ -289,15 +314,26 @@ def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_si
 
 
 def _discrete_modified_rw_proposal(
-    rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.0
+    rng_key,
+    z_discrete,
+    pe,
+    potential_fn,
+    idx,
+    support_size,
+    support_enumerate,
+    stay_prob=0.0,
 ):
     assert isinstance(stay_prob, float) and stay_prob >= 0.0 and stay_prob < 1
     rng_key, rng_proposal, rng_stay = random.split(rng_key, 3)
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
     i = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
-    proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
-    proposal = jnp.where(random.bernoulli(rng_stay, stay_prob), idx, proposal)
+    proposal_index = jnp.where(
+        support_enumerate[i] == z_discrete_flat[idx], support_size - 1, i
+    )
+    proposal = jnp.where(
+        random.bernoulli(rng_stay, stay_prob), idx, support_enumerate[proposal_index]
+    )
     z_new_flat = z_discrete_flat.at[idx].set(proposal)
     z_new = unravel_fn(z_new_flat)
     pe_new = potential_fn(z_new)
@@ -434,13 +470,32 @@ class DiscreteHMCGibbs(HMCGibbs):
             and site["fn"].has_enumerate_support
             and not site["is_observed"]
         }
-        self._support_enumerates = {
-            name: site["fn"].enumerate_support(False)
-            for name, site in self._prototype_trace.items()
-            if site["type"] == "sample"
-            and site["fn"].has_enumerate_support
-            and not site["is_observed"]
-        }
+        max_length_support_enumerates = max(
+            (
+                site["fn"].enumerate_support(False).shape[0]
+                for site in self._prototype_trace.values()
+                if site["type"] == "sample"
+                and site["fn"].has_enumerate_support
+                and not site["is_observed"]
+            )
+        )
+        # All support_enumerates should have the same length to be used in the loop
+        # Each support is padded with zeros to have the same length
+        self._support_enumerates = np.zeros(
+            (len(self._support_sizes), max_length_support_enumerates), dtype=int
+        )
+        for i, (name, site) in enumerate(self._prototype_trace.items()):
+            if (
+                site["type"] == "sample"
+                and site["fn"].has_enumerate_support
+                and not site["is_observed"]
+            ):
+                self._support_enumerates[
+                    i, : site["fn"].enumerate_support(False).shape[0]
+                ] = site["fn"].enumerate_support(False)
+        self._support_enumerates = jnp.asarray(
+            self._support_enumerates, dtype=jnp.int32
+        )
         self._gibbs_sites = [
             name
             for name, site in self._prototype_trace.items()
