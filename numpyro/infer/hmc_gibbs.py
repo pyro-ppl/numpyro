@@ -5,6 +5,7 @@ from collections import namedtuple
 import copy
 from functools import partial
 
+import jax
 import numpy as np
 
 from jax import device_put, grad, jacfwd, random, value_and_grad
@@ -470,6 +471,11 @@ class DiscreteHMCGibbs(HMCGibbs):
             and site["fn"].has_enumerate_support
             and not site["is_observed"]
         }
+
+        # All support_enumerates should have the same length to be used in the loop
+        # Each support is padded with zeros to have the same length
+        # ravel is used to maintain a consistant behaviour with `support_sizes`
+
         max_length_support_enumerates = max(
             (
                 site["fn"].enumerate_support(False).shape[0]
@@ -479,23 +485,25 @@ class DiscreteHMCGibbs(HMCGibbs):
                 and not site["is_observed"]
             )
         )
-        # All support_enumerates should have the same length to be used in the loop
-        # Each support is padded with zeros to have the same length
-        self._support_enumerates = np.zeros(
-            (len(self._support_sizes), max_length_support_enumerates), dtype=int
-        )
-        for i, (name, site) in enumerate(self._prototype_trace.items()):
-            if (
-                site["type"] == "sample"
-                and site["fn"].has_enumerate_support
-                and not site["is_observed"]
-            ):
-                self._support_enumerates[
-                    i, : site["fn"].enumerate_support(False).shape[0]
-                ] = site["fn"].enumerate_support(False)
-        self._support_enumerates = jnp.asarray(
-            self._support_enumerates, dtype=jnp.int32
-        )
+        
+        support_enumerates = {}
+        for name, support_size in self._support_sizes.items():
+            site = self._prototype_trace[name]
+            enumerate_support = site["fn"].enumerate_support(False)
+            padded_enumerate_support = np.pad(
+                enumerate_support,
+                (0, max_length_support_enumerates - enumerate_support.shape[0]),
+            )
+            padded_enumerate_support = np.broadcast_to(
+                padded_enumerate_support,
+                support_size.shape + (max_length_support_enumerates,),
+            )
+            support_enumerates[name] = padded_enumerate_support
+
+        self._support_enumerates = jax.vmap(
+            lambda x: ravel_pytree(x)[0] , in_axes=0, out_axes=1
+        )(support_enumerates)
+
         self._gibbs_sites = [
             name
             for name, site in self._prototype_trace.items()
