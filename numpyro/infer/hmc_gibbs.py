@@ -476,16 +476,8 @@ class DiscreteHMCGibbs(HMCGibbs):
         # Each support is padded with zeros to have the same length
         # ravel is used to maintain a consistant behaviour with `support_sizes`
 
-        max_length_support_enumerates = max(
-            (
-                site["fn"].enumerate_support(False).shape[0]
-                for site in self._prototype_trace.values()
-                if site["type"] == "sample"
-                and site["fn"].has_enumerate_support
-                and not site["is_observed"]
-            )
-        )
-        
+        max_length_support_enumerates = max(size for size in self._support_sizes.values())
+
         support_enumerates = {}
         for name, support_size in self._support_sizes.items():
             site = self._prototype_trace[name]
