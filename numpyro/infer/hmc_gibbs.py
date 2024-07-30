@@ -5,9 +5,9 @@ from collections import namedtuple
 import copy
 from functools import partial
 
-import jax
 import numpy as np
 
+import jax
 from jax import device_put, grad, jacfwd, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -476,7 +476,9 @@ class DiscreteHMCGibbs(HMCGibbs):
         # Each support is padded with zeros to have the same length
         # ravel is used to maintain a consistant behaviour with `support_sizes`
 
-        max_length_support_enumerates = max(size for size in self._support_sizes.values())
+        max_length_support_enumerates = max(
+            size for size in self._support_sizes.values()
+        )
 
         support_enumerates = {}
         for name, support_size in self._support_sizes.items():
@@ -493,7 +495,7 @@ class DiscreteHMCGibbs(HMCGibbs):
             support_enumerates[name] = padded_enumerate_support
 
         self._support_enumerates = jax.vmap(
-            lambda x: ravel_pytree(x)[0] , in_axes=0, out_axes=1
+            lambda x: ravel_pytree(x)[0], in_axes=0, out_axes=1
         )(support_enumerates)
 
         self._gibbs_sites = [

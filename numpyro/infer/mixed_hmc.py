@@ -6,7 +6,6 @@ from functools import partial
 
 from jax import grad, jacfwd, lax, random
 from jax.flatten_util import ravel_pytree
-import jax
 import jax.numpy as jnp
 
 from numpyro.infer.hmc import momentum_generator
