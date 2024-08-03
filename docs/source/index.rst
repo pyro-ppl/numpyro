@@ -92,6 +92,7 @@ NumPyro documentation
    examples/hmcecs
    examples/stein_bnn
    examples/stein_dmm
+   tutorials/pathfinder
 
 
 Indices and tables
