@@ -18,7 +18,7 @@ from tqdm.auto import tqdm as tqdm_auto
 import jax
 from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
-from jax.experimental import host_callback
+from jax.experimental import io_callback
 import jax.numpy as jnp
 
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -201,24 +201,39 @@ def progress_bar_factory(num_samples, num_chains):
 
     remainder = num_samples % print_rate
 
+    chain_idx = {}
+
     tqdm_bars = {}
     finished_chains = []
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
-    def _update_tqdm(arg, transform, device):
-        chain_match = _CHAIN_RE.search(str(device))
-        assert chain_match
-        chain = int(chain_match.group())
-        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
-        tqdm_bars[chain].update(arg)
+    def _calc_chain_idx(iter_num):
+        try:
+            cval = chain_idx[iter_num]
+        except KeyError:
+            cval = 0
+            chain_idx[iter_num] = 0
 
-    def _close_tqdm(arg, transform, device):
-        chain_match = _CHAIN_RE.search(str(device))
-        assert chain_match
-        chain = int(chain_match.group())
-        tqdm_bars[chain].update(arg)
+        if cval + 1 == num_chains:
+            del chain_idx[iter_num]
+        else:
+            chain_idx[iter_num] += 1
+        return cval
+
+    def _update_tqdm(iter_num, increment):
+        iter_num = int(iter_num)
+        increment = int(increment)
+        chain = _calc_chain_idx(iter_num)
+        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
+        tqdm_bars[chain].update(increment)
+
+    def _close_tqdm(iter_num, increment):
+        iter_num = int(iter_num)
+        increment = int(increment)
+        chain = _calc_chain_idx(iter_num + 1)
+        tqdm_bars[chain].update(increment)
         finished_chains.append(chain)
         if len(finished_chains) == num_chains:
             for chain in range(num_chains):
@@ -231,26 +246,20 @@ def progress_bar_factory(num_samples, num_chains):
 
         _ = lax.cond(
             iter_num == 1,
-            lambda _: host_callback.id_tap(
-                _update_tqdm, 0, result=iter_num, tap_with_device=True
-            ),
-            lambda _: iter_num,
+            lambda _: io_callback(_update_tqdm, None, -1, 0),
+            lambda _: None,
             operand=None,
         )
         _ = lax.cond(
             iter_num % print_rate == 0,
-            lambda _: host_callback.id_tap(
-                _update_tqdm, print_rate, result=iter_num, tap_with_device=True
-            ),
-            lambda _: iter_num,
+            lambda _: io_callback(_update_tqdm, None, iter_num, print_rate),
+            lambda _: None,
             operand=None,
         )
         _ = lax.cond(
             iter_num == num_samples,
-            lambda _: host_callback.id_tap(
-                _close_tqdm, remainder, result=iter_num, tap_with_device=True
-            ),
-            lambda _: iter_num,
+            lambda _: io_callback(_close_tqdm, None, iter_num, remainder),
+            lambda _: None,
             operand=None,
         )
 
