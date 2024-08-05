@@ -3423,3 +3423,41 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
     x2 = dist2.sample(random.PRNGKey(7))
     assert jnp.allclose(x1, x2.squeeze())
     assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))
+
+
+def test_discrete_uniform_with_mixedhmc():
+    import numpyro
+    import numpyro.distributions as dist
+    from numpyro.infer import HMC, MCMC, MixedHMC
+
+    def model_1():
+        numpyro.sample("x0", dist.DiscreteUniform(10, 12))
+        numpyro.sample("x1", dist.Categorical(np.asarray([0.25, 0.25, 0.25, 0.25])))
+
+    mixed_hmc_kwargs = [
+        {"random_walk": False, "modified": False},
+        {"random_walk": True, "modified": False},
+        {"random_walk": True, "modified": True},
+        {"random_walk": False, "modified": True},
+    ]
+
+    num_samples = 1000
+
+    for kwargs in mixed_hmc_kwargs:
+        kernel = HMC(model_1, trajectory_length=1.2)
+        kernel = MixedHMC(kernel, num_discrete_updates=20, **kwargs)
+        mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples, progress_bar=False)
+        key = jax.random.PRNGKey(0)
+        mcmc.run(key)
+        samples = mcmc.get_samples()
+
+        assert jnp.all(
+            (samples["x0"] >= 10) & (samples["x0"] <= 12)
+        ), f"Failed with {kwargs=}"
+        assert jnp.all(
+            (samples["x1"] >= 0) & (samples["x1"] <= 3)
+        ), f"Failed with {kwargs=}"
+
+
+if __name__ == "__main__":
+    test_discrete_uniform_with_mixedhmc()
