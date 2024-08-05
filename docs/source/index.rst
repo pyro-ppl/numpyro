@@ -92,7 +92,7 @@ NumPyro documentation
    examples/hmcecs
    examples/stein_bnn
    examples/stein_dmm
-   tutorials/pathfinder
+   tutorials/other_samplers
 
 
 Indices and tables
