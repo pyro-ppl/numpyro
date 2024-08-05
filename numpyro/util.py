@@ -9,6 +9,7 @@ from itertools import zip_longest
 import os
 import random
 import re
+from threading import Lock
 import warnings
 
 import numpy as np
@@ -204,22 +205,24 @@ def progress_bar_factory(num_samples, num_chains):
     idx_map = {}
     tqdm_bars = {}
     finished_chains = []
+    lock = Lock()
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
     def _calc_chain_idx(iter_num):
-        try:
-            idx = idx_map[iter_num]
-        except KeyError:
-            idx = 0
-            idx_map[iter_num] = 0
+        with lock:
+            try:
+                idx = idx_map[iter_num]
+            except KeyError:
+                idx = 0
+                idx_map[iter_num] = 0
 
-        if idx + 1 == num_chains:
-            del idx_map[iter_num]
-        else:
-            idx_map[iter_num] += 1
-        return idx
+            if idx + 1 == num_chains:
+                del idx_map[iter_num]
+            else:
+                idx_map[iter_num] += 1
+            return idx
 
     def _update_tqdm(iter_num, increment):
         iter_num = int(iter_num)
