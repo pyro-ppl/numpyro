@@ -205,6 +205,7 @@ def progress_bar_factory(num_samples, num_chains):
     idx_map = {}
     tqdm_bars = {}
     finished_chains = []
+    # lock serializes access to idx_map and finished_chains to avoid races
     lock = Lock()
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
