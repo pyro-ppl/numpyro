@@ -3434,36 +3434,13 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
         dist.TruncatedCauchy(low=-1, high=1),
     ],
 )
-def test_tracer_leakage_in_parallel_truncated_distribution(my_dist):
-    n_data_samples = 1
-    n_mcmc_samples = 10
-    n_mcmc_warmup = 10
-    n_mcmc_chains = 2
-    rng_key = jax.random.PRNGKey(0)
-
-    data_samples = my_dist.sample(rng_key, (n_data_samples,))
-
-    def my_model():
-        numpyro.sample("obs", my_dist, obs=data_samples)
-
-    nuts_kernel = NUTS(my_model)
-    mcmc = MCMC(
-        nuts_kernel,
-        num_warmup=n_mcmc_warmup,
-        num_samples=n_mcmc_samples,
-        num_chains=n_mcmc_chains,
-    )
-    mcmc.run(rng_key)
-
-
-@pytest.mark.parametrize(
-    "my_dist",
-    [
-        dist.TruncatedNormal(low=-1, high=1),
-        dist.TruncatedCauchy(low=-1, high=1),
-    ],
-)
-def test_repeated_predictive_method_in_truncated_distribution(my_dist):
+def test_tracer_leakage_in_truncated_distribution(my_dist):
+    """
+    Tests parallel sampling and use of multiple predictve methods
+    on models using truncated distributions.
+    Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
+    https://github.com/CDCgov/multisignal-epi-inference/issues/282
+    """
     n_data_samples = 10
     n_prior_samples = 10
     n_mcmc_samples = 10
