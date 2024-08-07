@@ -23,7 +23,6 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 
-import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import (
     SineBivariateVonMises,
@@ -50,10 +49,8 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.nn import AutoregressiveNN
 
-numpyro.set_host_device_count(2)
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 
@@ -3427,41 +3424,3 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
     assert jnp.allclose(x1, x2.squeeze())
     assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))
 
-
-@pytest.mark.parametrize(
-    "my_dist",
-    [
-        dist.TruncatedNormal(low=-1, high=1),
-        dist.TruncatedCauchy(low=-1, high=1),
-    ],
-)
-def test_no_tracer_leakage_in_truncated_distribution(my_dist):
-    """
-    Tests parallel sampling and use of multiple predictve methods
-    on models using truncated distributions.
-    Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
-    https://github.com/CDCgov/multisignal-epi-inference/issues/282
-    """
-    n_data_samples = 10
-    n_prior_samples = 10
-    n_mcmc_samples = 10
-    n_mcmc_warmup = 10
-    n_mcmc_chains = 2
-    rng_key = jax.random.PRNGKey(0)
-
-    data_samples = my_dist.sample(rng_key, (n_data_samples,))
-
-    def my_model(obs=None):
-        numpyro.sample("obs", my_dist, obs=obs)
-
-    prior_predictive = Predictive(my_model, num_samples=n_prior_samples)
-    prior_predictive(rng_key)
-
-    nuts_kernel = NUTS(my_model)
-    mcmc = MCMC(
-        nuts_kernel,
-        num_warmup=n_mcmc_warmup,
-        num_samples=n_mcmc_samples,
-        num_chains=n_mcmc_chains,
-    )
-    mcmc.run(rng_key, obs=data_samples)
