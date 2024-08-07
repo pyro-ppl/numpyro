@@ -53,6 +53,7 @@ from numpyro.distributions.util import (
 from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.nn import AutoregressiveNN
 
+numpyro.set_host_device_count(2)
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 
