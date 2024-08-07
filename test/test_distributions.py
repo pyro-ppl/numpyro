@@ -913,6 +913,11 @@ CONTINUOUS = [
             ]
         ),  # Covariance
     ),
+    T(dist.LowerTruncatedPowerLaw, jnp.pi, jnp.array([2.0, 5.0, 10.0, 50.0])),
+    T(dist.DoublyTruncatedPowerLaw, -1.0, 1.0, 2.0),
+    T(dist.DoublyTruncatedPowerLaw, jnp.pi, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, jnp.pi, 1.0, 2.0),
 ]
 
 DIRECTIONAL = [
@@ -1851,6 +1856,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
             continue
+        if isinstance(jax_dist, dist.DoublyTruncatedPowerLaw) and i != 0:
+            continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
             continue
         actual_grad = jax.grad(fn, i)(*params)
@@ -1892,6 +1899,14 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
+    if jax_dist is dist.DoublyTruncatedPowerLaw:
+        pytest.skip(
+            "DoublyTruncatedPowerLaw distribution does not has mean/var implemented"
+        )
+    if jax_dist is dist.LowerTruncatedPowerLaw:
+        pytest.skip(
+            "LowerTruncatedPowerLaw distribution does not has mean/var implemented"
+        )
 
     n = (
         20000

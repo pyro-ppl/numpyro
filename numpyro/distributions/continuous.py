@@ -28,6 +28,7 @@
 import numpy as np
 
 from jax import lax, vmap
+from jax._src.typing import Array
 from jax.experimental.sparse import BCOO
 from jax.lax import scan
 import jax.nn as nn
@@ -2877,3 +2878,207 @@ class WishartCholesky(Distribution):
                 batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
                 event_shape = matrix[-2:]
                 return batch_shape, event_shape
+
+
+class DoublyTruncatedPowerLaw(Distribution):
+    r"""Power law distribution with :math:`\alpha` index, and lower and upper bounds.
+    We can define the power law distribution as,
+
+    .. math::
+        f(x; \alpha, a, b) = \frac{x^{\alpha}}{Z(\alpha, a, b)},
+
+    where, :math:`a` and :math:`b` are the lower and upper bounds respectively,
+    and :math:`Z(\alpha, a, b)` is the normalization constant. It is defined as,
+
+    .. math::
+        Z(\alpha, a, b) = \begin{cases}
+            \log(b) - \log(a) & \text{if } \alpha = -1, \\
+            \frac{b^{1 + \alpha} - a^{1 + \alpha}}{1 + \alpha} & \text{otherwise}.
+        \end{cases}
+
+    :param alpha: index of the power law distribution
+    :param low: lower bound of the distribution
+    :param high: upper bound of the distribution
+    """
+
+    arg_constraints = {
+        "alpha": constraints.real,
+        "low": constraints.positive,
+        "high": constraints.positive,
+    }
+    reparametrized_params = ["alpha", "low", "high"]
+    pytree_aux_fields = ("_support",)
+    pytree_data_fields = ("alpha", "low", "high", "_logZ")
+
+    def __init__(self, alpha, low, high, *, validate_args=None):
+        self.alpha, self.low, self.high = promote_shapes(alpha, low, high)
+        self._support = constraints.interval(low, high)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(alpha), jnp.shape(low), jnp.shape(high)
+        )
+        super(DoublyTruncatedPowerLaw, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+        self._logZ = self._logZ()
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    def _logZ(self) -> Array:
+        def Z_when_alpha_neq_neg1(alpha):
+            one_more_alpha = 1.0 + alpha
+            Z = (
+                jnp.power(self.high, one_more_alpha)
+                - jnp.power(self.low, one_more_alpha)
+            ) / one_more_alpha
+            return Z
+
+        def Z_when_alpha_eq_neg1():
+            return jnp.log(self.high / self.low)
+
+        return jnp.where(
+            jnp.not_equal(self.alpha, -1.0),
+            jnp.log(
+                Z_when_alpha_neq_neg1(
+                    jnp.where(jnp.not_equal(self.alpha, -1.0), self.alpha, -1.0)
+                )
+            ),
+            jnp.log(Z_when_alpha_eq_neg1()),
+        )
+
+    @validate_sample
+    def log_prob(self, value):
+        return self.alpha * jnp.log(value) - self._logZ
+
+    def cdf(self, value):
+        def cdf_when_alpha_neq_neg1(alpha):
+            one_more_alpha = 1.0 + alpha
+            return (
+                jnp.power(value, one_more_alpha) - jnp.power(self.low, one_more_alpha)
+            ) / (
+                jnp.power(self.high, one_more_alpha)
+                - jnp.power(self.low, one_more_alpha)
+            )
+
+        def cdf_when_alpha_eq_neg1():
+            return (jnp.log(value) - jnp.log(self.low)) / (
+                jnp.log(self.high) - jnp.log(self.low)
+            )
+
+        cdf_val = jnp.where(
+            jnp.not_equal(self.alpha, -1.0),
+            cdf_when_alpha_neq_neg1(
+                jnp.where(jnp.not_equal(self.alpha, -1.0), self.alpha, -1.0)
+            ),
+            cdf_when_alpha_eq_neg1(),
+        )
+        return cdf_val
+
+    def icdf(self, q):
+        def icdf_alpha_eq_neg1(q):
+            return jnp.exp(
+                jnp.log(self.low) + q * (jnp.log(self.high) - jnp.log(self.low))
+            )
+
+        def icdf_alpha_neq_neg1(q, alpha):
+            one_more_alpha = 1.0 + alpha
+            low_pow_one_more_alpha = jnp.power(self.low, one_more_alpha)
+            high_pow_one_more_alpha = jnp.power(self.high, one_more_alpha)
+            return jnp.power(
+                low_pow_one_more_alpha
+                + q * (high_pow_one_more_alpha - low_pow_one_more_alpha),
+                jnp.reciprocal(one_more_alpha),
+            )
+
+        icdf_val = jnp.where(
+            jnp.not_equal(self.alpha, -1.0),
+            icdf_alpha_neq_neg1(
+                q,
+                jnp.where(jnp.not_equal(self.alpha, -1.0), self.alpha, -1.0),
+            ),
+            icdf_alpha_eq_neg1(q),
+        )
+        return icdf_val
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        samples = self.icdf(u)
+        return samples
+
+
+class LowerTruncatedPowerLaw(Distribution):
+    r"""Lower truncated power law distribution with :math:`\alpha` index.
+    We can define the power law distribution as,
+
+    .. math::
+        f(x; \alpha, a) = (\alpha-1)a^{\alpha - 1}x^{-\alpha},
+        \qquad x \geq a, \qquad \alpha > 1,
+
+    where, :math:`a` is the lower bound. The cdf of the distribution is given by,
+
+    .. math::
+        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1-\alpha}.
+
+    The k-th moment of the distribution is given by,
+
+    .. math::
+        E[X^k] = \begin{cases}
+            \frac{\alpha-1}{\alpha-1-k}a^k & \text{if } k < \alpha-1, \\
+            \infty & \text{otherwise}.
+        \end{cases}
+
+    :param alpha: index of the power law distribution
+    :param low: lower bound of the distribution
+    """
+
+    arg_constraints = {
+        "alpha": constraints.greater_than(1.0),
+        "low": constraints.greater_than(1.0),
+    }
+    reparametrized_params = ["alpha", "low"]
+    pytree_aux_fields = ("_support",)
+
+    def __init__(self, alpha, low, *, validate_args=None):
+        self.alpha, self.low = promote_shapes(alpha, low)
+        batch_shape = lax.broadcast_shapes(jnp.shape(alpha), jnp.shape(low))
+        self._support = constraints.greater_than(low)
+        super(LowerTruncatedPowerLaw, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    @validate_sample
+    def log_prob(self, value):
+        return (
+            -self.alpha * jnp.log(value)
+            + (self.alpha - 1.0) * jnp.log(self.low)
+            + jnp.log(self.alpha - 1.0)
+        )
+
+    def cdf(self, value):
+        cdf_val = jnp.where(
+            jnp.less_equal(value, self.low),
+            jnp.zeros_like(value),
+            1.0 - jnp.power(value / self.low, 1.0 - self.alpha),
+        )
+        return cdf_val
+
+    def icdf(self, q):
+        nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
+        nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
+        return jnp.where(
+            nan_mask,
+            jnp.nan,
+            self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 - self.alpha)),
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        samples = self.icdf(u)
+        return samples
