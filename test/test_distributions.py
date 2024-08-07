@@ -3435,7 +3435,7 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
         dist.TruncatedCauchy(low=-1, high=1),
     ],
 )
-def test_tracer_leakage_in_truncated_distribution(my_dist):
+def test_no_tracer_leakage_in_truncated_distribution(my_dist):
     """
     Tests parallel sampling and use of multiple predictve methods
     on models using truncated distributions.
