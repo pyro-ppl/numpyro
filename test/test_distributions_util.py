@@ -13,9 +13,7 @@ import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 
 import jax
-import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, Predictive
 
 from numpyro.distributions.util import (
     add_diag,
@@ -28,8 +26,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix,
     von_mises_centered,
 )
-
-numpyro.set_host_device_count(2)
 
 
 @pytest.mark.parametrize("x, y", [(0.2, 10.0), (0.6, -10.0)])
@@ -194,37 +190,43 @@ def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
 @pytest.mark.parametrize(
     "my_dist",
     [
-        dist.TruncatedNormal(low=-1, high=1),
-        dist.TruncatedCauchy(low=-1, high=1),
+        dist.TruncatedNormal(low=-1., high=2.),
+        dist.TruncatedCauchy(low=-5, high=10),
+        dist.TruncatedDistribution(
+            dist.StudentT(3),
+            low=1.5)
     ],
 )
-def test_no_tracer_leakage_in_truncated_distribution(my_dist):
+def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
     """
-    Tests parallel sampling and use of multiple predictve methods
-    on models using truncated distributions.
+    Tests that truncated distributions, which use @lazy_property
+    values in their log_prob() methods, do not
+    have tracer leakage when log_prob() is called.
     Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
     https://github.com/CDCgov/multisignal-epi-inference/issues/282
     """
-    n_data_samples = 10
-    n_prior_samples = 10
-    n_mcmc_samples = 10
-    n_mcmc_warmup = 10
-    n_mcmc_chains = 2
-    rng_key = jax.random.PRNGKey(0)
+    jit_lp = jax.jit(my_dist.log_prob)
+    with jax.check_tracer_leaks():
+        jit_lp(1.)
 
-    data_samples = my_dist.sample(rng_key, (n_data_samples,))
-
-    def my_model(obs=None):
-        numpyro.sample("obs", my_dist, obs=obs)
-
-    prior_predictive = Predictive(my_model, num_samples=n_prior_samples)
-    prior_predictive(rng_key)
-
-    nuts_kernel = NUTS(my_model)
-    mcmc = MCMC(
-        nuts_kernel,
-        num_warmup=n_mcmc_warmup,
-        num_samples=n_mcmc_samples,
-        num_chains=n_mcmc_chains,
-    )
-    mcmc.run(rng_key, obs=data_samples)
+@pytest.mark.parametrize(
+    "my_dist",
+    [
+        dist.TruncatedNormal(low=-1., high=2.),
+        dist.TruncatedCauchy(low=-5, high=10),
+        dist.TruncatedDistribution(
+            dist.StudentT(3),
+            low=1.5)
+    ],
+)
+def test_no_tracer_leak_at_lazy_property_sample(my_dist):
+    """
+    Tests that truncated distributions, which use @lazy_property
+    values in their sample() methods, do not
+    have tracer leakage when sample() is called.
+    Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
+    https://github.com/CDCgov/multisignal-epi-inference/issues/282
+    """
+    jit_sample = jax.jit(my_dist.sample)
+    with jax.check_tracer_leaks():
+        jit_sample(jax.random.key(5))
