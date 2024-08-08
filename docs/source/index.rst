@@ -38,6 +38,7 @@ NumPyro documentation
    tutorials/truncated_distributions
    tutorials/censoring
    tutorials/hsgp_example
+   tutorials/other_samplers
 
 .. nbgallery::
    :maxdepth: 1
@@ -92,7 +93,6 @@ NumPyro documentation
    examples/hmcecs
    examples/stein_bnn
    examples/stein_dmm
-   tutorials/other_samplers
 
 
 Indices and tables
