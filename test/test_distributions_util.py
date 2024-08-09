@@ -8,10 +8,12 @@ from numpy.testing import assert_allclose
 import pytest
 import scipy
 
+import jax
 from jax import lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 
+import numpyro.distributions as dist
 from numpyro.distributions.util import (
     add_diag,
     binary_cross_entropy_with_logits,
@@ -182,3 +184,45 @@ def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
     expected = matrix + diag[..., None] * jnp.eye(matrix.shape[-1])
     actual = add_diag(matrix, diag)
     np.testing.assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "my_dist",
+    [
+        dist.TruncatedNormal(low=-1.0, high=2.0),
+        dist.TruncatedCauchy(low=-5, high=10),
+        dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
+    ],
+)
+def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
+    """
+    Tests that truncated distributions, which use @lazy_property
+    values in their log_prob() methods, do not
+    have tracer leakage when log_prob() is called.
+    Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
+    https://github.com/CDCgov/multisignal-epi-inference/issues/282
+    """
+    jit_lp = jax.jit(my_dist.log_prob)
+    with jax.check_tracer_leaks():
+        jit_lp(1.0)
+
+
+@pytest.mark.parametrize(
+    "my_dist",
+    [
+        dist.TruncatedNormal(low=-1.0, high=2.0),
+        dist.TruncatedCauchy(low=-5, high=10),
+        dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
+    ],
+)
+def test_no_tracer_leak_at_lazy_property_sample(my_dist):
+    """
+    Tests that truncated distributions, which use @lazy_property
+    values in their sample() methods, do not
+    have tracer leakage when sample() is called.
+    Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
+    https://github.com/CDCgov/multisignal-epi-inference/issues/282
+    """
+    jit_sample = jax.jit(my_dist.sample)
+    with jax.check_tracer_leaks():
+        jit_sample(jax.random.key(5))
