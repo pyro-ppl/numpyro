@@ -14,6 +14,8 @@ import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import digamma
 
+from numpyro.util import not_jax_tracer
+
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
     "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
@@ -692,7 +694,8 @@ class lazy_property(object):
         if instance is None:
             return self
         value = self.wrapped(instance)
-        setattr(instance, self.wrapped.__name__, value)
+        if not_jax_tracer(value):
+            setattr(instance, self.wrapped.__name__, value)
         return value
 
 
