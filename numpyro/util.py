@@ -202,28 +202,23 @@ def progress_bar_factory(num_samples, num_chains):
 
     remainder = num_samples % print_rate
 
-    idx_counter = 0
+    idx_counter = 0  # resource counter to assign chains to progress bars
     tqdm_bars = {}
-    # lock serializes access to idx_counter
+    # lock serializes access to idx_counter since callbacks are multithreaded
+    # this prevents races that assign multiple chains to a progress bar
     lock = Lock()
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
-    # Uses resource counting to assign chain ids
-    def _calc_chain_idx(iter_num):
-        nonlocal idx_counter
-        with lock:
-            idx = idx_counter
-            idx_counter += 1
-        return idx
-
-    def _update_tqdm(iter_num, increment, chain):
-        iter_num = int(iter_num)
+    def _update_tqdm(increment, chain):
         increment = int(increment)
         chain = int(chain)
-        if iter_num == 0:
-            chain = _calc_chain_idx(iter_num)
+        if chain == -1:
+            nonlocal idx_counter
+            with lock:
+                chain = idx_counter
+                idx_counter += 1
         tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
         tqdm_bars[chain].update(increment)
         return chain
@@ -241,15 +236,13 @@ def progress_bar_factory(num_samples, num_chains):
 
         chain = lax.cond(
             iter_num == 1,
-            lambda _: io_callback(_update_tqdm, jnp.array(0), 0, 0, chain),
+            lambda _: io_callback(_update_tqdm, jnp.array(0), 0, chain),
             lambda _: chain,
             operand=None,
         )
         chain = lax.cond(
             iter_num % print_rate == 0,
-            lambda _: io_callback(
-                _update_tqdm, jnp.array(0), iter_num, print_rate, chain
-            ),
+            lambda _: io_callback(_update_tqdm, jnp.array(0), print_rate, chain),
             lambda _: chain,
             operand=None,
         )
@@ -390,11 +383,9 @@ def fori_collect(
                 upper,
                 _body_fn_pbar,
                 ((init_val, collection, start_idx, thinning), -1),  # -1 for chain id
-            )
+            )[0]
 
-        (last_val, collection, _, _), _ = maybe_jit(loop_fn, donate_argnums=0)(
-            collection
-        )
+        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
 
     else:
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
