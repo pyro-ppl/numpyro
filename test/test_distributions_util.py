@@ -8,13 +8,12 @@ from numpy.testing import assert_allclose
 import pytest
 import scipy
 
+import jax
 from jax import lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 
-import jax
 import numpyro.distributions as dist
-
 from numpyro.distributions.util import (
     add_diag,
     binary_cross_entropy_with_logits,
@@ -190,11 +189,9 @@ def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
 @pytest.mark.parametrize(
     "my_dist",
     [
-        dist.TruncatedNormal(low=-1., high=2.),
+        dist.TruncatedNormal(low=-1.0, high=2.0),
         dist.TruncatedCauchy(low=-5, high=10),
-        dist.TruncatedDistribution(
-            dist.StudentT(3),
-            low=1.5)
+        dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
     ],
 )
 def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
@@ -207,16 +204,15 @@ def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
     """
     jit_lp = jax.jit(my_dist.log_prob)
     with jax.check_tracer_leaks():
-        jit_lp(1.)
+        jit_lp(1.0)
+
 
 @pytest.mark.parametrize(
     "my_dist",
     [
-        dist.TruncatedNormal(low=-1., high=2.),
+        dist.TruncatedNormal(low=-1.0, high=2.0),
         dist.TruncatedCauchy(low=-5, high=10),
-        dist.TruncatedDistribution(
-            dist.StudentT(3),
-            low=1.5)
+        dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
     ],
 )
 def test_no_tracer_leak_at_lazy_property_sample(my_dist):
