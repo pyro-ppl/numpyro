@@ -36,6 +36,10 @@ Predictive
     :show-inheritance:
     :member-order: bysource
 
+initialize_model
+----------------
+.. autofunction:: numpyro.infer.util.initialize_model
+
 log_density
 -----------
 .. autofunction:: numpyro.infer.util.log_density
