@@ -1,19 +1,18 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
 from collections import namedtuple
 from contextlib import contextmanager
 from functools import partial
 from typing import Callable, Optional
-import warnings
-
-import numpy as np
 
 import jax
+import jax.numpy as jnp
+import numpy as np
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
-import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions import constraints
@@ -857,6 +856,9 @@ class Predictive(object):
         The interface for the `Predictive` class is experimental, and
         might change in the future.
 
+    Note that for the predictive distribution to be returned as intended, observed
+    variables in the model (constraining the likelihood term) must be set to `None` (see Example).
+
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param callable guide: optional guide to get posterior samples of sites not present
@@ -907,6 +909,10 @@ class Predictive(object):
 
         predictive = Predictive(model, num_samples=1000)
         y_pred = predictive(rng_key, X)["obs"]
+
+    Note how above, no value for `y` is passed to `predictive`, resulting in `y`
+    being set to `None`. Setting the observed variable(s) to `None` when using
+    `Predictive` is required for the method to function as expected.
 
     If you also have posterior samples, you can sample from the posterior predictive::
 
