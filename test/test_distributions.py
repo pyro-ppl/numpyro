@@ -6,7 +6,7 @@ from functools import partial
 import inspect
 from itertools import product
 import math
-import os
+import os, sys
 from typing import Callable
 
 import numpy as np
@@ -50,6 +50,10 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
+
+#Enable 64bit support for higher accuracy
+if sys.maxsize > 2**32:
+    jax.config.update("jax_enable_x64", True)
 
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
@@ -913,7 +917,7 @@ CONTINUOUS = [
             ]
         ),  # Covariance
     ),
-    T(dist.LowerTruncatedPowerLaw, jnp.pi, jnp.array([2.0, 5.0, 10.0, 50.0])),
+    T(dist.LowerTruncatedPowerLaw, -jnp.pi, jnp.array([2.0, 5.0, 10.0, 50.0])),
     T(dist.DoublyTruncatedPowerLaw, -1.0, 1.0, 2.0),
     T(dist.DoublyTruncatedPowerLaw, jnp.pi, 5.0, 50.0),
     T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
@@ -1067,6 +1071,8 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.bernoulli(key, shape=size)
     elif isinstance(constraint, constraints.greater_than):
         return jnp.exp(random.normal(key, size)) + constraint.lower_bound + eps
+    elif isinstance(constraint, constraints.less_than):
+        return constraint.upper_bound - jnp.exp(random.normal(key, size)) - eps
     elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
@@ -1133,6 +1139,8 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.bernoulli(key, shape=size) - 2
     elif isinstance(constraint, constraints.greater_than):
         return constraint.lower_bound - jnp.exp(random.normal(key, size))
+    elif isinstance(constraint, constraints.less_than):
+        return constraint.upper_bound + jnp.exp(random.normal(key, size))
     elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         return random.randint(key, size, lower_bound - 1, lower_bound)
@@ -1856,7 +1864,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
             continue
-        if isinstance(jax_dist, dist.DoublyTruncatedPowerLaw) and i != 0:
+        if jax_dist is dist.DoublyTruncatedPowerLaw and i != 0:
             continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
             continue

@@ -3234,8 +3234,8 @@ class LowerTruncatedPowerLaw(Distribution):
     """
 
     arg_constraints = {
-        "alpha": constraints.greater_than(1.0),
-        "low": constraints.greater_than(1.0),
+        "alpha": constraints.less_than(-1.0),
+        "low": constraints.greater_than(0.0),
     }
     reparametrized_params = ["alpha", "low"]
     pytree_aux_fields = ("_support",)
@@ -3254,17 +3254,16 @@ class LowerTruncatedPowerLaw(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return (
-            -self.alpha * jnp.log(value)
-            + (self.alpha - 1.0) * jnp.log(self.low)
-            + jnp.log(self.alpha - 1.0)
-        )
+        one_more_alpha = 1.0 + self.alpha
+        return jnp.log(-jnp.power(value, self.alpha)*(one_more_alpha)/ \
+                       jnp.power(self.low, one_more_alpha))
+    
 
     def cdf(self, value):
         cdf_val = jnp.where(
             jnp.less_equal(value, self.low),
             jnp.zeros_like(value),
-            1.0 - jnp.power(value / self.low, 1.0 - self.alpha),
+            1.0 - jnp.power(value / self.low, 1.0 + self.alpha),
         )
         return cdf_val
 
@@ -3274,7 +3273,7 @@ class LowerTruncatedPowerLaw(Distribution):
         return jnp.where(
             nan_mask,
             jnp.nan,
-            self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 - self.alpha)),
+            self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 + self.alpha)),
         )
 
     def sample(self, key, sample_shape=()):
