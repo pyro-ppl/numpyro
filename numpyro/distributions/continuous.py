@@ -26,10 +26,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import jax
 
+import jax
 from jax import lax, vmap
-from jax._src.typing import Array
 from jax.experimental.sparse import BCOO
 from jax.lax import scan
 import jax.nn as nn
@@ -2929,35 +2928,38 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        r""" Logarithmic probability distribution:
+        r"""Logarithmic probability distribution:
         Z inequal minus one:
-        .. math:: 
-            (x^α) (α + 1)/(b^(α + 1) - a^(α + 1))
+        .. math::
+            (x^\alpha) (\alpha + 1)/(b^(\alpha + 1) - a^(\alpha + 1))
 
         Z equal minus one:
-        .. math:: 
-            (x^α)/(log(b) - log(a))
+        .. math::
+            (x^\alpha)/(log(b) - log(a))
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
         """
-       
+
         @jax.custom_jvp
         def f(x, alpha, low, high):
             neq_neg1_mask = jnp.not_equal(alpha, -1.0)
             neq_neg1_alpha = jnp.where(neq_neg1_mask, alpha, 0.0)
             eq_neg1_alpha = jnp.where(~neq_neg1_mask, alpha, -1.0)
-            
+
             def neq_neg1_fn():
                 one_more_alpha = 1.0 + neq_neg1_alpha
-                return jnp.log(jnp.power(x, neq_neg1_alpha)*(one_more_alpha)/ \
-                               (jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha)))            
-            def eq_neg1_fn():
-                return jnp.log(jnp.power(x, eq_neg1_alpha)/(jnp.log(high)-jnp.log(low)))
+                return jnp.log(
+                    jnp.power(x, neq_neg1_alpha)
+                    * (one_more_alpha)
+                    / (jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha))
+                )
 
-            return jnp.where(neq_neg1_mask,
-                      neq_neg1_fn(),
-                      eq_neg1_fn()
-                    )
-        
+            def eq_neg1_fn():
+                return jnp.log(
+                    jnp.power(x, eq_neg1_alpha) / (jnp.log(high) - jnp.log(low))
+                )
+
+            return jnp.where(neq_neg1_mask, neq_neg1_fn(), eq_neg1_fn())
+
         @f.defjvp
         def f_jvp(primals, tangents):
             x, alpha, low, high = primals
@@ -2975,48 +2977,76 @@ class DoublyTruncatedPowerLaw(Distribution):
             # Variable part for all values alpha unequal -1
             def alpha_tangent_variable(alpha):
                 one_more_alpha = 1.0 + alpha
-                return jnp.reciprocal(one_more_alpha) + \
-                        (jnp.power(low, one_more_alpha)*jnp.log(low) - \
-                            jnp.power(high, one_more_alpha)*jnp.log(high))/ \
-                            (jnp.power(high, one_more_alpha)-jnp.power(low, one_more_alpha))
+                return jnp.reciprocal(one_more_alpha) + (
+                    jnp.power(low, one_more_alpha) * jnp.log(low)
+                    - jnp.power(high, one_more_alpha) * jnp.log(high)
+                ) / (jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha))
 
             # Alpha tangent
-            alpha_tangent = jnp.where(neq_neg1_mask, 
-                    jnp.log(x) + alpha_tangent_variable(neq_neg1_alpha),
-                    # Approximate derivate with right an lefthand approximation
-                    jnp.log(x) + (alpha_tangent_variable(alpha-delta_eq_neg1) + 
-                                  alpha_tangent_variable(alpha+delta_eq_neg1))/2.0
+            alpha_tangent = jnp.where(
+                neq_neg1_mask,
+                jnp.log(x) + alpha_tangent_variable(neq_neg1_alpha),
+                # Approximate derivate with right an lefthand approximation
+                jnp.log(x)
+                + (
+                    alpha_tangent_variable(alpha - delta_eq_neg1)
+                    + alpha_tangent_variable(alpha + delta_eq_neg1)
+                )
+                / 2.0,
             )
 
-            #High and low tangents for alpha unequal -1
+            # High and low tangents for alpha unequal -1
             one_more_alpha = 1.0 + neq_neg1_alpha
-            low_tangent_neq_neg1 = (jnp.power(one_more_alpha, 2)*jnp.power(x, neq_neg1_alpha)*jnp.power(low, neq_neg1_alpha)) / \
-                          jnp.power(jnp.power(high, one_more_alpha)-jnp.power(low,one_more_alpha), 2)
-            high_tangent_neq_neg1 = (jnp.power(one_more_alpha, 2)*jnp.power(x, neq_neg1_alpha)*jnp.power(high, neq_neg1_alpha)) / \
-                          jnp.power(jnp.power(high, one_more_alpha)-jnp.power(low,one_more_alpha), 2)
-            
-            #High and low tangents for alpha equal -1
-            low_tangent_eq_neg1 = jnp.power(x, eq_neg1_alpha)/(low*jnp.power((jnp.log(high)-jnp.log(low)), 2))
-            high_tangent_eq_neg1 = -jnp.power(x, eq_neg1_alpha)/(high*jnp.power((jnp.log(high)-jnp.log(low)), 2))
+            low_tangent_neq_neg1 = (
+                jnp.power(one_more_alpha, 2)
+                * jnp.power(x, neq_neg1_alpha)
+                * jnp.power(low, neq_neg1_alpha)
+            ) / jnp.power(
+                jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha), 2
+            )
+            high_tangent_neq_neg1 = (
+                jnp.power(one_more_alpha, 2)
+                * jnp.power(x, neq_neg1_alpha)
+                * jnp.power(high, neq_neg1_alpha)
+            ) / jnp.power(
+                jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha), 2
+            )
+
+            # High and low tangents for alpha equal -1
+            low_tangent_eq_neg1 = jnp.power(x, eq_neg1_alpha) / (
+                low * jnp.power((jnp.log(high) - jnp.log(low)), 2)
+            )
+            high_tangent_eq_neg1 = -jnp.power(x, eq_neg1_alpha) / (
+                high * jnp.power((jnp.log(high) - jnp.log(low)), 2)
+            )
 
             # High and low tangents
-            low_tangent = jnp.where(neq_neg1_mask, low_tangent_neq_neg1, low_tangent_eq_neg1)
-            high_tangent = jnp.where(neq_neg1_mask, high_tangent_neq_neg1, high_tangent_eq_neg1)
+            low_tangent = jnp.where(
+                neq_neg1_mask, low_tangent_neq_neg1, low_tangent_eq_neg1
+            )
+            high_tangent = jnp.where(
+                neq_neg1_mask, high_tangent_neq_neg1, high_tangent_eq_neg1
+            )
 
             # Final tangents
-            tangent_out = alpha/x*x_t + alpha_tangent*alpha_t + low_tangent*low_t + high_tangent*high_t
+            tangent_out = (
+                alpha / x * x_t
+                + alpha_tangent * alpha_t
+                + low_tangent * low_t
+                + high_tangent * high_t
+            )
             return primal_out, tangent_out
 
         return f(value, self.alpha, self.low, self.high)
-    
+
     def cdf(self, value):
-        r""" Cumulated probability distribution:
+        r"""Cumulated probability distribution:
         Z inequal minus one:
-        .. math: 
-            (x^(α + 1) - a^(α + 1))/(b^(α + 1) - a^(α + 1))
+        .. math:
+            (x^(\alpha + 1) - a^(\alpha + 1))/(b^(\alpha + 1) - a^(\alpha + 1))
 
         Z equal minus one:
-        .. math:: 
+        .. math::
             (log(x) - log(a))/(log(b) - log(a))
 
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
@@ -3031,13 +3061,10 @@ class DoublyTruncatedPowerLaw(Distribution):
                 one_more_alpha = 1.0 + neq_neg1_alpha
                 return (
                     jnp.power(x, one_more_alpha) - jnp.power(low, one_more_alpha)
-                ) / (
-                    jnp.power(high, one_more_alpha)
-                    - jnp.power(low, one_more_alpha)
-                )
+                ) / (jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha))
 
             def cdf_when_alpha_eq_neg1():
-                return jnp.log(x/low) / jnp.log(high/low)
+                return jnp.log(x / low) / jnp.log(high / low)
 
             cdf_val = jnp.where(
                 neq_neg1_mask,
@@ -3045,7 +3072,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 cdf_when_alpha_eq_neg1(),
             )
             return jnp.clip(cdf_val, a_min=0.0, a_max=1.0)
-        
+
         @f.defjvp
         def f_jvp(primals, tangents):
             x, alpha, low, high = primals
@@ -3061,56 +3088,94 @@ class DoublyTruncatedPowerLaw(Distribution):
             # Tangents for alpha not equals -1
             def x_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                return ((one_more_alpha) * x**alpha) / (high**(one_more_alpha) - low**(one_more_alpha))
+                return ((one_more_alpha) * x**alpha) / (
+                    high ** (one_more_alpha) - low ** (one_more_alpha)
+                )
 
             def alpha_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                term1 = (x**(one_more_alpha) * jnp.log(x) - low**(one_more_alpha) * jnp.log(low)) / (high**(one_more_alpha) - low**(one_more_alpha))
-                term2 = ((x**(one_more_alpha) - low**(one_more_alpha)) * (high**(one_more_alpha) * jnp.log(high) - low**(one_more_alpha) * jnp.log(low))) / \
-                        (high**(one_more_alpha) - low**(one_more_alpha))**2
+                term1 = (
+                    x ** (one_more_alpha) * jnp.log(x)
+                    - low ** (one_more_alpha) * jnp.log(low)
+                ) / (high ** (one_more_alpha) - low ** (one_more_alpha))
+                term2 = (
+                    (x ** (one_more_alpha) - low ** (one_more_alpha))
+                    * (
+                        high ** (one_more_alpha) * jnp.log(high)
+                        - low ** (one_more_alpha) * jnp.log(low)
+                    )
+                ) / (high ** (one_more_alpha) - low ** (one_more_alpha)) ** 2
                 return term1 - term2
 
             def low_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                term1 = ((one_more_alpha) * low**alpha * (x**(one_more_alpha) - low**(one_more_alpha))) / (high**(one_more_alpha) - low**(one_more_alpha))**2
-                term2 = (one_more_alpha) * low**alpha / (high**(one_more_alpha) - low**(one_more_alpha))
+                term1 = (
+                    (one_more_alpha)
+                    * low**alpha
+                    * (x ** (one_more_alpha) - low ** (one_more_alpha))
+                ) / (high ** (one_more_alpha) - low ** (one_more_alpha)) ** 2
+                term2 = (
+                    (one_more_alpha)
+                    * low**alpha
+                    / (high ** (one_more_alpha) - low ** (one_more_alpha))
+                )
                 return term1 - term2
 
             def high_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                return -((one_more_alpha) * high**alpha * (x**(one_more_alpha) - low**(one_more_alpha))) / (high**(one_more_alpha) - low**(one_more_alpha))**2
-            
+                return (
+                    -(
+                        (one_more_alpha)
+                        * high**alpha
+                        * (x ** (one_more_alpha) - low ** (one_more_alpha))
+                    )
+                    / (high ** (one_more_alpha) - low ** (one_more_alpha)) ** 2
+                )
+
             # Tangents for alpha equals -1
             def x_eq_neg1():
-                return jnp.reciprocal(x*(jnp.log(high)-jnp.log(low)))
+                return jnp.reciprocal(x * (jnp.log(high) - jnp.log(low)))
 
             def low_eq_neg1():
-                return (jnp.log(x)-jnp.log(low))/ \
-                    (jnp.square(jnp.log(high)-jnp.log(low))*low) - \
-                    jnp.reciprocal((jnp.log(high)-jnp.log(low))*low)
+                return (jnp.log(x) - jnp.log(low)) / (
+                    jnp.square(jnp.log(high) - jnp.log(low)) * low
+                ) - jnp.reciprocal((jnp.log(high) - jnp.log(low)) * low)
 
             def high_eq_neg1():
-                return (jnp.log(x)-jnp.log(low))/ \
-                    (jnp.square(jnp.log(high)-jnp.log(low))*high)
-            
+                return (jnp.log(x) - jnp.log(low)) / (
+                    jnp.square(jnp.log(high) - jnp.log(low)) * high
+                )
+
             # Inlcuding approximation for alpha = -1 \
-            tangent_out = jnp.where(neq_neg1_mask, x_neq_neg1(neq_neg1_alpha), x_eq_neg1())*x_t +\
-                          jnp.where(neq_neg1_mask, alpha_neq_neg1(neq_neg1_alpha),\
-                                    (alpha_neq_neg1(alpha-delta_eq_neg1)+\
-                                     alpha_neq_neg1(alpha+delta_eq_neg1))/2.0
-                                    )*alpha_t +\
-                          jnp.where(neq_neg1_mask, low_neq_neg1(neq_neg1_alpha), low_eq_neg1())*low_t +\
-                          jnp.where(neq_neg1_mask, high_neq_neg1(neq_neg1_alpha), high_eq_neg1())*high_t
-            
+            tangent_out = (
+                jnp.where(neq_neg1_mask, x_neq_neg1(neq_neg1_alpha), x_eq_neg1()) * x_t
+                + jnp.where(
+                    neq_neg1_mask,
+                    alpha_neq_neg1(neq_neg1_alpha),
+                    (
+                        alpha_neq_neg1(alpha - delta_eq_neg1)
+                        + alpha_neq_neg1(alpha + delta_eq_neg1)
+                    )
+                    / 2.0,
+                )
+                * alpha_t
+                + jnp.where(neq_neg1_mask, low_neq_neg1(neq_neg1_alpha), low_eq_neg1())
+                * low_t
+                + jnp.where(
+                    neq_neg1_mask, high_neq_neg1(neq_neg1_alpha), high_eq_neg1()
+                )
+                * high_t
+            )
+
             return primal_out, tangent_out
 
         return f(value, self.alpha, self.low, self.high)
-    
+
     def icdf(self, q):
-        r""" Inverse cumulated probability distribution:
+        r"""Inverse cumulated probability distribution:
         Z inequal minus one:
         .. math::
-            a (b/a)^q 
+            a (b/a)^q
 
         Z equal minus one:
         .. math::
@@ -3118,7 +3183,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
         """
-        
+
         @jax.custom_jvp
         def f(q, alpha, low, high):
             neq_neg1_mask = jnp.not_equal(alpha, -1.0)
@@ -3131,11 +3196,11 @@ class DoublyTruncatedPowerLaw(Distribution):
                 return jnp.power(
                     low_pow_one_more_alpha
                     + q * (high_pow_one_more_alpha - low_pow_one_more_alpha),
-                    jnp.reciprocal(one_more_alpha)
+                    jnp.reciprocal(one_more_alpha),
                 )
 
             def icdf_alpha_eq_neg1():
-                return jnp.power(high/low, q)*low
+                return jnp.power(high / low, q) * low
 
             icdf_val = jnp.where(
                 neq_neg1_mask,
@@ -3143,7 +3208,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 icdf_alpha_eq_neg1(),
             )
             return icdf_val
-        
+
         @f.defjvp
         def f_jvp(primals, tangents):
             x, alpha, low, high = primals
@@ -3152,55 +3217,108 @@ class DoublyTruncatedPowerLaw(Distribution):
             delta_eq_neg1 = 10e-4
             neq_neg1_mask = jnp.not_equal(alpha, -1.0)
             neq_neg1_alpha = jnp.where(neq_neg1_mask, alpha, 0.0)
-   
+
             primal_out = f(*primals)
 
             # Tangents for alpha not equal -1
             def x_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                return ((high**(one_more_alpha) - low**(one_more_alpha)) * 
-                        (low**(one_more_alpha) + x * (high**(one_more_alpha) - low**(one_more_alpha)))**(1/(one_more_alpha) - 1)) / (one_more_alpha)
-            
+                return (
+                    (high ** (one_more_alpha) - low ** (one_more_alpha))
+                    * (
+                        low ** (one_more_alpha)
+                        + x * (high ** (one_more_alpha) - low ** (one_more_alpha))
+                    )
+                    ** (1 / (one_more_alpha) - 1)
+                ) / (one_more_alpha)
+
             def alpha_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                term1 = (low**(one_more_alpha) + x * (high**(one_more_alpha) - low**(one_more_alpha)))**(1/(one_more_alpha))
-                term2 = ((low**(one_more_alpha) * jnp.log(low) + x * (high**(one_more_alpha) * jnp.log(high) - low**(one_more_alpha) * jnp.log(low))) /
-                        ((one_more_alpha) * (low**(one_more_alpha) + x * (high**(one_more_alpha) - low**(one_more_alpha))))) 
-                term3 = jnp.log(low**(one_more_alpha) + x * (high**(one_more_alpha) - low**(one_more_alpha))) / (one_more_alpha)**2
+                term1 = (
+                    low ** (one_more_alpha)
+                    + x * (high ** (one_more_alpha) - low ** (one_more_alpha))
+                ) ** (1 / (one_more_alpha))
+                term2 = (
+                    low ** (one_more_alpha) * jnp.log(low)
+                    + x
+                    * (
+                        high ** (one_more_alpha) * jnp.log(high)
+                        - low ** (one_more_alpha) * jnp.log(low)
+                    )
+                ) / (
+                    (one_more_alpha)
+                    * (
+                        low ** (one_more_alpha)
+                        + x * (high ** (one_more_alpha) - low ** (one_more_alpha))
+                    )
+                )
+                term3 = (
+                    jnp.log(
+                        low ** (one_more_alpha)
+                        + x * (high ** (one_more_alpha) - low ** (one_more_alpha))
+                    )
+                    / (one_more_alpha) ** 2
+                )
                 return term1 * (term2 - term3)
 
             def low_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                return (((one_more_alpha) * low**alpha - (one_more_alpha) * x * low**alpha) * 
-                        (low**(one_more_alpha) + x * (high**(one_more_alpha) - low**(one_more_alpha)))**(1/(one_more_alpha) - 1)) / (one_more_alpha)
+                return (
+                    ((one_more_alpha) * low**alpha - (one_more_alpha) * x * low**alpha)
+                    * (
+                        low ** (one_more_alpha)
+                        + x * (high ** (one_more_alpha) - low ** (one_more_alpha))
+                    )
+                    ** (1 / (one_more_alpha) - 1)
+                ) / (one_more_alpha)
 
             def high_neq_neg1(alpha):
                 one_more_alpha = 1.0 + alpha
-                return x * high**alpha * (low**(one_more_alpha) + x * (high**(one_more_alpha) - low**(one_more_alpha)))**(1/(one_more_alpha) - 1)
+                return (
+                    x
+                    * high**alpha
+                    * (
+                        low ** (one_more_alpha)
+                        + x * (high ** (one_more_alpha) - low ** (one_more_alpha))
+                    )
+                    ** (1 / (one_more_alpha) - 1)
+                )
 
             # Tangents for alpha equals -1
             def dx_eq_neg1():
-                return low * (high/low)**x * jnp.log(high/low)
+                return low * (high / low) ** x * jnp.log(high / low)
 
             def low_eq_neg1():
-                return (high/low)**x - (high * x * (high/low)**(x-1))/low
+                return (high / low) ** x - (high * x * (high / low) ** (x - 1)) / low
 
             def high_eq_neg1():
-                return x * (high/low)**(x-1)
+                return x * (high / low) ** (x - 1)
 
             # Inlcuding approximation for alpha = -1 \
-            tangent_out = jnp.where(neq_neg1_mask, x_neq_neg1(neq_neg1_alpha), dx_eq_neg1())*x_t +\
-                          jnp.where(neq_neg1_mask, alpha_neq_neg1(neq_neg1_alpha),\
-                                    (alpha_neq_neg1(alpha-delta_eq_neg1)+\
-                                     alpha_neq_neg1(alpha+delta_eq_neg1))/2.0
-                                    )*alpha_t +\
-                          jnp.where(neq_neg1_mask, low_neq_neg1(neq_neg1_alpha), low_eq_neg1())*low_t +\
-                          jnp.where(neq_neg1_mask, high_neq_neg1(neq_neg1_alpha), high_eq_neg1())*high_t
-            
+            tangent_out = (
+                jnp.where(neq_neg1_mask, x_neq_neg1(neq_neg1_alpha), dx_eq_neg1()) * x_t
+                + jnp.where(
+                    neq_neg1_mask,
+                    alpha_neq_neg1(neq_neg1_alpha),
+                    (
+                        alpha_neq_neg1(alpha - delta_eq_neg1)
+                        + alpha_neq_neg1(alpha + delta_eq_neg1)
+                    )
+                    / 2.0,
+                )
+                * alpha_t
+                + jnp.where(neq_neg1_mask, low_neq_neg1(neq_neg1_alpha), low_eq_neg1())
+                * low_t
+                + jnp.where(
+                    neq_neg1_mask, high_neq_neg1(neq_neg1_alpha), high_eq_neg1()
+                )
+                * high_t
+            )
+
             return primal_out, tangent_out
 
         return f(q, self.alpha, self.low, self.high)
-    
+
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
@@ -3255,9 +3373,11 @@ class LowerTruncatedPowerLaw(Distribution):
     @validate_sample
     def log_prob(self, value):
         one_more_alpha = 1.0 + self.alpha
-        return jnp.log(-jnp.power(value, self.alpha)*(one_more_alpha)/ \
-                       jnp.power(self.low, one_more_alpha))
-    
+        return jnp.log(
+            -jnp.power(value, self.alpha)
+            * (one_more_alpha)
+            / jnp.power(self.low, one_more_alpha)
+        )
 
     def cdf(self, value):
         cdf_val = jnp.where(

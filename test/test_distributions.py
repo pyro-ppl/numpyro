@@ -6,7 +6,8 @@ from functools import partial
 import inspect
 from itertools import product
 import math
-import os, sys
+import os
+import sys
 from typing import Callable
 
 import numpy as np
@@ -51,7 +52,7 @@ from numpyro.distributions.util import (
 )
 from numpyro.nn import AutoregressiveNN
 
-#Enable 64bit support for higher accuracy
+# Enable 64bit support for higher accuracy
 if sys.maxsize > 2**32:
     jax.config.update("jax_enable_x64", True)
 
