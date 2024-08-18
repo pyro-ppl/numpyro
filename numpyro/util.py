@@ -325,14 +325,6 @@ def fori_collect(
     init_val_transformed = transform(init_val)
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
-    # host_callback does not work yet with multi-GPU platforms
-    # See: https://github.com/google/jax/issues/6447
-    if num_chains > 1 and jax.default_backend() == "gpu":
-        warnings.warn(
-            "We will disable progress bar because it does not work yet on multi-GPUs platforms.",
-            stacklevel=find_stack_level(),
-        )
-        progbar = False
 
     @partial(maybe_jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
