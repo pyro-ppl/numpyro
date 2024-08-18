@@ -404,6 +404,22 @@ ZeroSumNormal
     :show-inheritance:
     :member-order: bysource
 
+DoublyTruncatedPowerLaw
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.DoublyTruncatedPowerLaw
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LowerTruncatedPowerLaw
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.LowerTruncatedPowerLaw
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Discrete Distributions
 ----------------------
 
