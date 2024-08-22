@@ -698,9 +698,6 @@ class InverseGamma(TransformedDistribution):
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
-    def cdf(self, x):
-        return 1 - self.base_dist.cdf(1 / x)
-
     def entropy(self):
         return (
             self.concentration
@@ -1205,9 +1202,6 @@ class LogNormal(TransformedDistribution):
     def variance(self):
         return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
 
-    def cdf(self, x):
-        return self.base_dist.cdf(jnp.log(x))
-
     def entropy(self):
         return (1 + jnp.log(2 * jnp.pi)) / 2 + self.loc + jnp.log(self.scale)
 
@@ -1282,9 +1276,6 @@ class LogUniform(TransformedDistribution):
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
-
-    def cdf(self, x):
-        return self.base_dist.cdf(jnp.log(x))
 
     def entropy(self):
         log_low = jnp.log(self.low)
@@ -2161,12 +2152,6 @@ class Pareto(TransformedDistribution):
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return constraints.greater_than(self.scale)
-
-    def cdf(self, value):
-        return 1 - jnp.power(self.scale / value, self.alpha)
-
-    def icdf(self, q):
-        return self.scale / jnp.power(1 - q, 1 / self.alpha)
 
     def entropy(self):
         return jnp.log(self.scale / self.alpha) + 1 + 1 / self.alpha

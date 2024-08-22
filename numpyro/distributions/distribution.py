@@ -1105,6 +1105,24 @@ class TransformedDistribution(Distribution):
     def variance(self):
         raise NotImplementedError
 
+    def cdf(self, value):
+        sign = 1
+        for transform in reversed(self.transforms):
+            sign *= transform.sign
+            value = transform.inv(value)
+        q = self.base_dist.cdf(value)
+        return jnp.where(sign < 0, 1 - q, q)
+
+    def icdf(self, q):
+        sign = 1
+        for transform in self.transforms:
+            sign *= transform.sign
+        q = jnp.where(sign < 0, 1 - q, q)
+        value = self.base_dist.icdf(q)
+        for transform in self.transforms:
+            value = transform(value)
+        return value
+
 
 class FoldedDistribution(TransformedDistribution):
     """
