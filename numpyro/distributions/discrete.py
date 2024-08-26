@@ -936,8 +936,11 @@ class GeometricLogits(Distribution):
         return (1.0 / self.probs - 1.0) / self.probs
 
     def entropy(self):
-        nexp = jnp.exp(-self.logits)
-        return nexp * self.logits + jnp.log1p(nexp) * (1 + nexp)
+        logq = -jax.nn.softplus(self.logits)
+        logp = -jax.nn.softplus(-self.logits)
+        p = jax.scipy.special.expit(self.logits)
+        p_clip = jnp.clip(p, min=jnp.finfo(p).tiny)
+        return -(1 - p) * logq / p_clip - logp
 
 
 def Geometric(probs=None, logits=None, *, validate_args=None):
