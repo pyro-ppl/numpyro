@@ -378,6 +378,16 @@ def test_circular(shape):
     assert_allclose(actual_probe, expected_probe, atol=0.1)
 
 
+def test_circular_reparam_no_observe():
+    def model():
+        numpyro.sample("x", dist.VonMises(0, 1), obs=0.5)
+
+    with numpyro.handlers.seed(rng_seed=0):
+        with numpyro.handlers.reparam(config={"x": CircularReparam()}):
+            with pytest.raises(AssertionError, match="not support observe"):
+                model()
+
+
 _unconstrain_reparam = numpyro.infer.util._unconstrain_reparam
 
 
