@@ -379,8 +379,6 @@ def test_circular(shape):
 
 
 def test_circular_reparam_no_observe():
-    # Define two models which should return the same distributions
-    # This model is the expected distribution
     def model():
         numpyro.sample("x", dist.VonMises(0, 1), obs=0.5)
 
