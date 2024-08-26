@@ -341,6 +341,9 @@ def test_bijective_transforms(transform, shape):
         )
         slogdet = jnp.linalg.slogdet(jac)
         assert jnp.allclose(log_abs_det_jacobian, slogdet.logabsdet, atol=atol)
+        assert transform.domain.event_dim or jnp.allclose(
+            jnp.sign(jnp.diagonal(jac, axis1=-1, axis2=-2)), transform.sign
+        )
 
 
 def test_batched_recursive_linear_transform():
