@@ -469,8 +469,8 @@ class DiscreteUniform(Distribution):
             raise NotImplementedError(
                 "Inhomogeneous `high` not supported by `enumerate_support`."
             )
-        low = jnp.reshape(self.low, -1)[0]
-        high = jnp.reshape(self.high, -1)[0]
+        low = np.reshape(self.low, -1)[0]
+        high = np.reshape(self.high, -1)[0]
         values = jnp.arange(low, high + 1).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
