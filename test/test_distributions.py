@@ -1209,7 +1209,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     jax_dist = jax_dist_cls(*params)
     # Enable 64bit support for higher accuracy
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
@@ -1257,7 +1257,7 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_infer_shapes(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     shapes = []
     for param in params:
@@ -1284,7 +1284,7 @@ def test_infer_shapes(jax_dist, sp_dist, params):
 )
 def test_has_rsample(jax_dist, sp_dist, params):
     jax_dist = jax_dist(*params)
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     masked_dist = jax_dist.mask(False)
     indept_dist = jax_dist.expand_by([2]).to_event(1)
@@ -1340,7 +1340,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "StudentT": ["df"],
     }.get(jax_dist.__name__, [])
 
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     dist_args = [
@@ -1438,7 +1438,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
     ):
         pytest.xfail(reason="non-jittable params")
 
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     rng_key = random.PRNGKey(0)
@@ -1458,7 +1458,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 @pytest.mark.parametrize("jit", [False, True])
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
@@ -1523,7 +1523,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_entropy_scipy(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     jax_dist = jax_dist(*params)
@@ -1546,7 +1546,7 @@ def test_entropy_scipy(jax_dist, sp_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL + BASE
 )
 def test_entropy_samples(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     jax_dist = jax_dist(*params)
@@ -1593,7 +1593,7 @@ def test_mixture_log_prob():
 )
 @pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     d = jax_dist(*params)
     if d.event_dim > 0:
@@ -1647,7 +1647,7 @@ def test_gof(jax_dist, sp_dist, params):
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
     if jax_dist is dist.ZeroSumNormal:
         pytest.skip("skip gof test for ZeroSumNormal")
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     num_samples = 10000
@@ -1679,7 +1679,7 @@ def test_gof(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
 def test_independent_shape(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     d = jax_dist(*params)
     batch_shape, event_shape = d.batch_shape, d.event_shape
@@ -1866,7 +1866,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         pytest.skip("we have separated tests for LKJCholesky distribution")
     if jax_dist is _ImproperWrapper:
         pytest.skip("no param for ImproperUniform to test for log_prob gradient")
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     rng_key = random.PRNGKey(0)
@@ -1933,7 +1933,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         pytest.skip(
             f"{jax_dist.__name__} distribution does not has mean/var implemented"
         )
@@ -2098,7 +2098,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
 
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
@@ -2779,7 +2779,7 @@ def test_generated_sample_distribution(
             "{} sampling method taken from upstream, no need to"
             "test generated samples.".format(jax_dist.__name__)
         )
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     jax_dist = jax_dist(*params)
@@ -2823,7 +2823,7 @@ def test_zero_inflated_enumerate_support():
 @pytest.mark.parametrize("prepend_shape", [(), (2, 3)])
 @pytest.mark.parametrize("sample_shape", [(), (4,)])
 def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     jax_dist = jax_dist(*params)
     new_batch_shape = prepend_shape + jax_dist.batch_shape
@@ -2967,7 +2967,7 @@ def test_mask_grad(event_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_dist_pytree(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
 
     def f(x):
@@ -3254,7 +3254,7 @@ def _tree_equal(t1, t2):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_vmap_dist(jax_dist, sp_dist, params):
-    if jax_dist.__name__ in ["LowerTruncatedPowerLaw", "DoublyTruncatedPowerLaw"]:
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         numpyro.enable_x64()
     param_names = list(inspect.signature(jax_dist).parameters.keys())
     vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
