@@ -476,26 +476,24 @@ class DiscreteHMCGibbs(HMCGibbs):
         # Each support is padded with zeros to have the same length
         # ravel is used to maintain a consistant behaviour with `support_sizes`
 
-        max_length_support_enumerates = max(
-            size for size in self._support_sizes.values()
+        max_length_support_enumerates = np.max(
+            [size for size in self._support_sizes.values()]
         )
 
         support_enumerates = {}
         for name, support_size in self._support_sizes.items():
             site = self._prototype_trace[name]
-            enumerate_support = site["fn"].enumerate_support(False)
-            padded_enumerate_support = np.pad(
-                enumerate_support,
-                (0, max_length_support_enumerates - enumerate_support.shape[0]),
-            )
-            padded_enumerate_support = np.broadcast_to(
-                padded_enumerate_support,
-                support_size.shape + (max_length_support_enumerates,),
-            )
+            enumerate_support = site["fn"].enumerate_support(True).T
+            # Only the last dimension that corresponds to support size is padded
+            pad_width = [(0, 0) for _ in range(len(enumerate_support.shape) - 1)] + [
+                (0, max_length_support_enumerates - enumerate_support.shape[-1])
+            ]
+            padded_enumerate_support = np.pad(enumerate_support, pad_width)
+
             support_enumerates[name] = padded_enumerate_support
 
         self._support_enumerates = jax.vmap(
-            lambda x: ravel_pytree(x)[0], in_axes=0, out_axes=1
+            lambda x: ravel_pytree(x)[0], in_axes=len(support_size.shape), out_axes=1
         )(support_enumerates)
 
         self._gibbs_sites = [

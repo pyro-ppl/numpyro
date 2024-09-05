@@ -3430,10 +3430,16 @@ def test_discrete_uniform_with_mixedhmc():
     import numpyro.distributions as dist
     from numpyro.infer import HMC, MCMC, MixedHMC
 
-    def model_1():
-        numpyro.sample("x0", dist.DiscreteUniform(10, 12))
-        numpyro.sample("x1", dist.Categorical(np.asarray([0.25, 0.25, 0.25, 0.25])))
-
+    def sample_mixedhmc(model_fn, num_samples, **kwargs):
+        kernel = HMC(model_fn, trajectory_length=1.2)
+        kernel = MixedHMC(kernel, num_discrete_updates=20, **kwargs)
+        mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples, progress_bar=False)
+        key = jax.random.PRNGKey(0)
+        mcmc.run(key)
+        samples = mcmc.get_samples()
+        return samples
+    
+    num_samples = 1000
     mixed_hmc_kwargs = [
         {"random_walk": False, "modified": False},
         {"random_walk": True, "modified": False},
@@ -3441,21 +3447,66 @@ def test_discrete_uniform_with_mixedhmc():
         {"random_walk": False, "modified": True},
     ]
 
-    num_samples = 1000
-
+    # Case 1: one discrete uniform with one categorical
+    def model_1():
+        numpyro.sample("x0", dist.DiscreteUniform(10, 12))
+        numpyro.sample("x1", dist.Categorical(np.asarray([0.25, 0.25, 0.25, 0.25])))
+    
     for kwargs in mixed_hmc_kwargs:
-        kernel = HMC(model_1, trajectory_length=1.2)
-        kernel = MixedHMC(kernel, num_discrete_updates=20, **kwargs)
-        mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples, progress_bar=False)
-        key = jax.random.PRNGKey(0)
-        mcmc.run(key)
-        samples = mcmc.get_samples()
+        samples = sample_mixedhmc(model_1, num_samples, **kwargs)
 
         assert jnp.all(
             (samples["x0"] >= 10) & (samples["x0"] <= 12)
         ), f"Failed with {kwargs=}"
         assert jnp.all(
             (samples["x1"] >= 0) & (samples["x1"] <= 3)
+        ), f"Failed with {kwargs=}"
+
+    def model_2():
+        numpyro.sample("x0", dist.Categorical(0.25 * jnp.ones((4,))))
+        numpyro.sample("x1", dist.Categorical(0.1 * jnp.ones((10,))))
+
+    # Case 2: 2 categorical with different support lengths
+    for kwargs in mixed_hmc_kwargs:
+        samples = sample_mixedhmc(model_2, num_samples, **kwargs)
+
+        assert jnp.all(
+            (samples["x0"] >= 0) & (samples["x0"] <= 3)
+        ), f"Failed with {kwargs=}"
+        assert jnp.all(
+            (samples["x1"] >= 0) & (samples["x1"] <= 9)
+        ), f"Failed with {kwargs=}"
+
+    def model_3():
+        numpyro.sample("x0", dist.Categorical(0.25 * jnp.ones((3, 4))))
+        numpyro.sample("x1", dist.Categorical(0.1 * jnp.ones((3, 10))))
+
+    # Case 3: 2 categorical with different support lengths and batched by 3
+    for kwargs in mixed_hmc_kwargs:
+        samples = sample_mixedhmc(model_3, num_samples, **kwargs)
+
+        assert jnp.all(
+            (samples["x0"] >= 0) & (samples["x0"] <= 3)
+        ), f"Failed with {kwargs=}"
+        assert jnp.all(
+            (samples["x1"] >= 0) & (samples["x1"] <= 9)
+        ), f"Failed with {kwargs=}"
+
+    def model_4():
+        dist0 = dist.Categorical(0.25 * jnp.ones((3, 4)))
+        numpyro.sample("x0", dist0)
+        dist1 = dist.DiscreteUniform(10 * jnp.ones((3,)), 19 * jnp.ones((3,)))
+        numpyro.sample("x1", dist1)
+
+    # Case 4: 1 categorical with different support lengths and batched by 3
+    for kwargs in mixed_hmc_kwargs:
+        samples = sample_mixedhmc(model_4, num_samples, **kwargs)
+
+        assert jnp.all(
+            (samples["x0"] >= 0) & (samples["x0"] <= 3)
+        ), f"Failed with {kwargs=}"
+        assert jnp.all(
+            (samples["x1"] >= 10) & (samples["x1"] <= 20)
         ), f"Failed with {kwargs=}"
 
 
