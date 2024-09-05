@@ -405,7 +405,7 @@ def _matrix_forward_shape(shape, offset=0):
     N = shape[-1]
     D = round((0.25 + 2 * N) ** 0.5 - 0.5)
     if D * (D + 1) // 2 != N:
-        raise ValueError("Input is not a flattend lower-diagonal number")
+        raise ValueError("Input is not a flattened lower-diagonal number")
     D = D - offset
     return shape[:-1] + (D, D)
 
@@ -447,7 +447,7 @@ class CholeskyTransform(ParameterFreeTransform):
 
 class CorrCholeskyTransform(ParameterFreeTransform):
     r"""
-    Transforms a uncontrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
+    Transforms a unconstrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
     triangular matrix with positive diagonals and unit Euclidean norm for each row.
     The transform is processed as follows:
@@ -655,7 +655,7 @@ class IndependentTransform(Transform):
 
 class L1BallTransform(ParameterFreeTransform):
     r"""
-    Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
+    Transforms a unconstrained real vector :math:`x` into the unit L1 ball.
     """
 
     domain = constraints.real_vector

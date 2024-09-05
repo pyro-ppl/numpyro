@@ -147,7 +147,7 @@ def predict(model, args, samples, rng_key, y, n_seasons):
 
 
 def main(args):
-    # generate artifical dataset
+    # generate artificial dataset
     rng_key, _ = random.split(random.PRNGKey(0))
     T = args.T
     t = jnp.linspace(0, T + args.future, (T + args.future) * N_POINTS_PER_UNIT)

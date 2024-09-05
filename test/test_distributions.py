@@ -3345,7 +3345,7 @@ def test_vmap_dist(jax_dist, sp_dist, params):
 
 
 def test_vmap_validate_args():
-    # Test for #1684: vmapping distributions whould work when `validate_args=True`
+    # Test for #1684: vmapping distributions would work when `validate_args=True`
     v_dist = jax.vmap(
         lambda loc, scale: dist.Normal(loc=loc, scale=scale, validate_args=True),
         in_axes=(0, 0),
@@ -3428,7 +3428,7 @@ def _assert_not_jax_issue_19885(
 ) -> None:
     # jit-ing identity plus matrix multiplication leads to performance degradation as
     # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
-    # that the issue does not affect perforance in numpyro.
+    # that the issue does not affect perforamce in numpyro.
     for jit in [True, False]:
         result = jax.jit(func)(*args, **kwargs)
         block_until_ready = getattr(result, "block_until_ready", None)

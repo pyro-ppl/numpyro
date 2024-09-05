@@ -637,7 +637,7 @@ class DoublyTruncatedPowerLaw(Distribution):
             def high_eq_neg1():
                 return (log_x - log_low) / (jnp.square(log_high - log_low) * high)
 
-            # Inlcuding approximation for alpha = -1
+            # Including approximation for alpha = -1
             tangent_out = (
                 jnp.where(neq_neg1_mask, x_neq_neg1(neq_neg1_alpha), x_eq_neg1()) * x_t
                 + jnp.where(
@@ -791,7 +791,7 @@ class DoublyTruncatedPowerLaw(Distribution):
             def high_eq_neg1():
                 return x * jnp.power(high_over_low, x - 1)
 
-            # Inlcuding approximation for alpha = -1 \
+            # Including approximation for alpha = -1 \
             tangent_out = (
                 jnp.where(neq_neg1_mask, x_neq_neg1(neq_neg1_alpha), dx_eq_neg1()) * x_t
                 + jnp.where(

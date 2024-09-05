@@ -21,3 +21,11 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
         exclude: notebooks/*
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        stages: [commit, commit-msg]
+        args:
+          [--ignore-words-list, "Teh,aas", --check-filenames, --skip, "*.ipynb"]

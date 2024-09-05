@@ -104,7 +104,7 @@ class MixedHMC(DiscreteHMCGibbs):
             find_reasonable_step_size=None,
         )
 
-        # In HMC, when `hmc_state.r` is not None, we will skip drawing a random momemtum at the
+        # In HMC, when `hmc_state.r` is not None, we will skip drawing a random momentum at the
         # beginning of an HMC step. The reason is we need to maintain `r` between each sub-trajectories.
         r = momentum_generator(
             state.hmc_state.z, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r
