@@ -104,6 +104,15 @@ class Transform(object):
         """
         return shape
 
+    @property
+    def sign(self):
+        """
+        Sign of the derivative of the transform if it is bijective.
+        """
+        raise NotImplementedError(
+            f"Transform `{self.__class__.__name__}` does not implement `sign`."
+        )
+
     # Allow for pickle serialization of transforms.
     def __getstate__(self):
         attrs = {}
@@ -146,6 +155,10 @@ class _InverseTransform(Transform):
     @property
     def codomain(self):
         return self._inv.domain
+
+    @property
+    def sign(self):
+        return self._inv.sign
 
     @property
     def inv(self):
@@ -231,6 +244,10 @@ class AffineTransform(Transform):
         else:
             raise NotImplementedError
 
+    @property
+    def sign(self):
+        return jnp.sign(self.scale)
+
     def __call__(self, x):
         return self.loc + self.scale * x
 
@@ -308,6 +325,13 @@ class ComposeTransform(Transform):
             return constraints.independent(
                 self.parts[-1].codomain, output_event_dim - last_output_event_dim
             )
+
+    @property
+    def sign(self):
+        sign = 1
+        for transform in self.parts:
+            sign *= transform.sign
+        return sign
 
     def __call__(self, x):
         for part in self.parts:
@@ -509,6 +533,8 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
 
 
 class ExpTransform(Transform):
+    sign = 1
+
     # TODO: refine domain/codomain logic through setters, especially when
     # transforms for inverses are supported
     def __init__(self, domain=constraints.real):
@@ -550,6 +576,8 @@ class ExpTransform(Transform):
 
 
 class IdentityTransform(ParameterFreeTransform):
+    sign = 1
+
     def __call__(self, x):
         return x
 
@@ -912,9 +940,14 @@ class PowerTransform(Transform):
             return False
         return jnp.array_equal(self.exponent, other.exponent)
 
+    @property
+    def sign(self):
+        return jnp.sign(self.exponent)
+
 
 class SigmoidTransform(ParameterFreeTransform):
     codomain = constraints.unit_interval
+    sign = 1
 
     def __call__(self, x):
         return _clipped_expit(x)
@@ -1006,6 +1039,7 @@ class SoftplusTransform(ParameterFreeTransform):
 
     domain = constraints.real
     codomain = constraints.softplus_positive
+    sign = 1
 
     def __call__(self, x):
         return softplus(x)
@@ -1177,6 +1211,7 @@ class ReshapeTransform(Transform):
 
     domain = constraints.real
     codomain = constraints.real
+    sign = 1
 
     def __init__(self, forward_shape, inverse_shape) -> None:
         forward_size = math.prod(forward_shape)

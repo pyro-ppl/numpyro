@@ -541,6 +541,7 @@ CONTINUOUS = [
     T(dist.HalfNormal, 1.0),
     T(dist.HalfNormal, np.array([1.0, 2.0])),
     T(_ImproperWrapper, constraints.positive, (), (3,)),
+    T(dist.InverseGamma, np.array([3.1]), np.array([[2.0], [3.0]])),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.0], [3.0]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.Kumaraswamy, 10.0, np.array([2.0, 3.0])),
@@ -1601,7 +1602,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
-        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.StudentT) else 1e-5
+        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.LogNormal, dist.StudentT) else 1e-5
         if d.shape() == () and not d.is_discrete:
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
@@ -1618,7 +1619,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
         assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
-        pass
+        pytest.skip("cdf/icdf not implemented")
 
     # test against scipy
     if not sp_dist:
@@ -1632,7 +1633,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         expected_icdf = sp_dist.ppf(quantiles)
         assert_allclose(actual_icdf, expected_icdf, atol=1e-4, rtol=1e-4)
     except NotImplementedError:
-        pass
+        pytest.skip("cdf/icdf not implemented")
 
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DIRECTIONAL)

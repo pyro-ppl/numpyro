@@ -338,6 +338,7 @@ class CircularReparam(Reparam):
         if isinstance(support, constraints.independent):
             support = fn.support.base_constraint
         assert support is constraints.circular
+        assert obs is None, "CircularReparam does not support observe statements"
 
         # Draw parameter-free noise.
         new_fn = dist.ImproperUniform(constraints.real, fn.batch_shape, fn.event_shape)

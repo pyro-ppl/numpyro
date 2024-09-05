@@ -38,6 +38,7 @@ NumPyro documentation
    tutorials/truncated_distributions
    tutorials/censoring
    tutorials/hsgp_example
+   tutorials/other_samplers
 
 .. nbgallery::
    :maxdepth: 1

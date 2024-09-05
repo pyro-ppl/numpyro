@@ -9,6 +9,7 @@ from itertools import zip_longest
 import os
 import random
 import re
+from threading import Lock
 import warnings
 
 import numpy as np
@@ -18,7 +19,7 @@ from tqdm.auto import tqdm as tqdm_auto
 import jax
 from jax import device_put, jit, lax, vmap
 from jax.core import Tracer
-from jax.experimental import host_callback
+from jax.experimental import io_callback
 import jax.numpy as jnp
 
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -201,58 +202,57 @@ def progress_bar_factory(num_samples, num_chains):
 
     remainder = num_samples % print_rate
 
+    idx_counter = 0  # resource counter to assign chains to progress bars
     tqdm_bars = {}
-    finished_chains = []
+    # lock serializes access to idx_counter since callbacks are multithreaded
+    # this prevents races that assign multiple chains to a progress bar
+    lock = Lock()
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
-    def _update_tqdm(arg, transform, device):
-        chain_match = _CHAIN_RE.search(str(device))
-        assert chain_match
-        chain = int(chain_match.group())
+    def _update_tqdm(increment, chain):
+        increment = int(increment)
+        chain = int(chain)
+        if chain == -1:
+            nonlocal idx_counter
+            with lock:
+                chain = idx_counter
+                idx_counter += 1
         tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
-        tqdm_bars[chain].update(arg)
+        tqdm_bars[chain].update(increment)
+        return chain
 
-    def _close_tqdm(arg, transform, device):
-        chain_match = _CHAIN_RE.search(str(device))
-        assert chain_match
-        chain = int(chain_match.group())
-        tqdm_bars[chain].update(arg)
-        finished_chains.append(chain)
-        if len(finished_chains) == num_chains:
-            for chain in range(num_chains):
-                tqdm_bars[chain].close()
+    def _close_tqdm(increment, chain):
+        increment = int(increment)
+        chain = int(chain)
+        tqdm_bars[chain].update(increment)
+        tqdm_bars[chain].close()
 
-    def _update_progress_bar(iter_num):
+    def _update_progress_bar(iter_num, chain):
         """Updates tqdm progress bar of a JAX loop only if the iteration number is a multiple of the print_rate
         Usage: carry = progress_bar((iter_num, print_rate), carry)
         """
 
-        _ = lax.cond(
+        chain = lax.cond(
             iter_num == 1,
-            lambda _: host_callback.id_tap(
-                _update_tqdm, 0, result=iter_num, tap_with_device=True
-            ),
-            lambda _: iter_num,
+            lambda _: io_callback(_update_tqdm, jnp.array(0), 0, chain),
+            lambda _: chain,
             operand=None,
         )
-        _ = lax.cond(
+        chain = lax.cond(
             iter_num % print_rate == 0,
-            lambda _: host_callback.id_tap(
-                _update_tqdm, print_rate, result=iter_num, tap_with_device=True
-            ),
-            lambda _: iter_num,
+            lambda _: io_callback(_update_tqdm, jnp.array(0), print_rate, chain),
+            lambda _: chain,
             operand=None,
         )
         _ = lax.cond(
             iter_num == num_samples,
-            lambda _: host_callback.id_tap(
-                _close_tqdm, remainder, result=iter_num, tap_with_device=True
-            ),
-            lambda _: iter_num,
+            lambda _: io_callback(_close_tqdm, None, remainder, chain),
+            lambda _: None,
             operand=None,
         )
+        return chain
 
     def progress_bar_fori_loop(func):
         """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
@@ -261,9 +261,10 @@ def progress_bar_factory(num_samples, num_chains):
         """
 
         def wrapper_progress_bar(i, vals):
-            result = func(i, vals)
-            _update_progress_bar(i + 1)
-            return result
+            (subvals, chain) = vals
+            result = func(i, subvals)
+            chain = _update_progress_bar(i + 1, chain)
+            return (result, chain)
 
         return wrapper_progress_bar
 
@@ -324,14 +325,6 @@ def fori_collect(
     init_val_transformed = transform(init_val)
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
-    # host_callback does not work yet with multi-GPU platforms
-    # See: https://github.com/google/jax/issues/6447
-    if num_chains > 1 and jax.default_backend() == "gpu":
-        warnings.warn(
-            "We will disable progress bar because it does not work yet on multi-GPUs platforms.",
-            stacklevel=find_stack_level(),
-        )
-        progbar = False
 
     @partial(maybe_jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
@@ -378,8 +371,11 @@ def fori_collect(
 
         def loop_fn(collection):
             return fori_loop(
-                0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
-            )
+                0,
+                upper,
+                _body_fn_pbar,
+                ((init_val, collection, start_idx, thinning), -1),  # -1 for chain id
+            )[0]
 
         last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
 
