@@ -918,11 +918,11 @@ CONTINUOUS = [
             ]
         ),  # Covariance
     ),
-    T(dist.LowerTruncatedPowerLaw, -jnp.pi, jnp.array([2.0, 5.0, 10.0, 50.0])),
+    T(dist.LowerTruncatedPowerLaw, -np.pi, np.array([2.0, 5.0, 10.0, 50.0])),
     T(dist.DoublyTruncatedPowerLaw, -1.0, 1.0, 2.0),
-    T(dist.DoublyTruncatedPowerLaw, jnp.pi, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, np.pi, 5.0, 50.0),
     T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
-    T(dist.DoublyTruncatedPowerLaw, jnp.pi, 1.0, 2.0),
+    T(dist.DoublyTruncatedPowerLaw, np.pi, 1.0, 2.0),
 ]
 
 DIRECTIONAL = [
