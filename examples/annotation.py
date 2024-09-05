@@ -309,7 +309,7 @@ def main(args):
 #     is stored in `discrete_samples`. To merge those discrete samples into the `mcmc`
 #     instance, we can use the following pattern::
 #
-#         chain_discrete_samples = jax.tree_util.tree_map(
+#         chain_discrete_samples = jax.tree.map(
 #             lambda x: x.reshape((args.num_chains, args.num_samples) + x.shape[1:]),
 #             discrete_samples)
 #         mcmc.get_samples().update(discrete_samples)
@@ -320,7 +320,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.15.0")
+    assert numpyro.__version__.startswith("0.15.1")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

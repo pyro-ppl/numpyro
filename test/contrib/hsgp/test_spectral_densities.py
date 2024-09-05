@@ -4,6 +4,7 @@
 from functools import reduce
 from operator import mul
 
+import numpy as np
 import pytest
 
 import jax.numpy as jnp
@@ -22,8 +23,8 @@ from numpyro.contrib.hsgp.spectral_densities import (
     argnames="dim, w, alpha, length",
     argvalues=[
         (1, 0.1, 1.0, 0.2),
-        (2, jnp.array([0.1, 0.2]), 1.0, 0.2),
-        (3, jnp.array([0.1, 0.2, 0.3]), 1.0, 5.0),
+        (2, np.array([0.1, 0.2]), 1.0, 0.2),
+        (3, np.array([0.1, 0.2, 0.3]), 1.0, 5.0),
     ],
     ids=["dim=1", "dim=2", "dim=3"],
 )
@@ -39,8 +40,8 @@ def test_spectral_density_squared_exponential(dim, w, alpha, length):
     argnames="dim, nu, w, alpha, length",
     argvalues=[
         (1, 3 / 2, 0.1, 1.0, 0.2),
-        (2, 5 / 2, jnp.array([0.1, 0.2]), 1.0, 0.2),
-        (3, 5 / 2, jnp.array([0.1, 0.2, 0.3]), 1.0, 5.0),
+        (2, 5 / 2, np.array([0.1, 0.2]), 1.0, 0.2),
+        (3, 5 / 2, np.array([0.1, 0.2, 0.3]), 1.0, 5.0),
     ],
     ids=["dim=1", "dim=2", "dim=3"],
 )
@@ -113,8 +114,8 @@ def test_modified_bessel_first_kind_one_dim(v, z):
 @pytest.mark.parametrize(
     argnames="v, z",
     argvalues=[
-        (jnp.linspace(0.1, 1.0, 10), jnp.array([0.1])),
-        (jnp.linspace(0.1, 1.0, 10), jnp.linspace(0.1, 1.0, 10)),
+        (np.linspace(0.1, 1.0, 10), np.array([0.1])),
+        (np.linspace(0.1, 1.0, 10), np.linspace(0.1, 1.0, 10)),
     ],
     ids=["z=0.1", "z=0.2"],
 )

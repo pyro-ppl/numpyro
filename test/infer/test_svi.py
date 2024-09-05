@@ -11,7 +11,6 @@ import jax
 from jax import jit, lax, random, value_and_grad
 from jax.example_libraries import optimizers
 import jax.numpy as jnp
-from jax.tree_util import tree_all, tree_map
 
 import numpyro
 from numpyro import optim
@@ -31,7 +30,7 @@ from numpyro.util import fori_loop
 
 
 def assert_equal(a, b, prec=0):
-    return jax.tree_util.tree_map(lambda a, b: assert_allclose(a, b, atol=prec), a, b)
+    return jax.tree.map(lambda a, b: assert_allclose(a, b, atol=prec), a, b)
 
 
 @pytest.mark.parametrize("alpha", [0.0, 2.0])
@@ -272,7 +271,7 @@ def test_jitted_update_fn():
     expected = svi.get_params(svi.update(svi_state, data)[0])
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
 
-    tree_all(tree_map(partial(assert_allclose, atol=1e-5), actual, expected))
+    jax.tree.all(jax.tree.map(partial(assert_allclose, atol=1e-5), actual, expected))
 
 
 def test_param():

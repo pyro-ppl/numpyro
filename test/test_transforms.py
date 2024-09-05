@@ -8,9 +8,9 @@ import math
 import numpy as np
 import pytest
 
+import jax
 from jax import jacfwd, jit, random, vmap
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import (
@@ -175,14 +175,14 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
         # this test assumes jittable args, and non-jittable kwargs, which is
         # not suited for all transforms, see InverseAutoregressiveTransform.
         # TODO: split among jittable and non-jittable args/kwargs instead.
-        vmapped_transform_args = tree_map(lambda x: x[None], transform_args)
+        vmapped_transform_args = jax.tree.map(lambda x: x[None], transform_args)
 
         vmapped_transform = jit(
             vmap(lambda args: cls(*args, **transform_kwargs), in_axes=(0,))
         )(vmapped_transform_args)
         assert vmap(lambda x: x == transform, in_axes=0)(vmapped_transform).all()
 
-        twice_vmapped_transform_args = tree_map(
+        twice_vmapped_transform_args = jax.tree.map(
             lambda x: x[None], vmapped_transform_args
         )
 
@@ -366,6 +366,7 @@ def test_batched_recursive_linear_transform():
         (constraints.interval(8, 13), (17,)),
         (constraints.l1_ball, (4,)),
         (constraints.less_than(-1), ()),
+        (constraints.less_than_eq(-1), ()),
         (constraints.lower_cholesky, (15,)),
         (constraints.open_interval(3, 4), ()),
         (constraints.ordered_vector, (5,)),

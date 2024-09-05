@@ -33,6 +33,7 @@ import warnings
 
 import numpy as np
 
+import jax
 from jax import lax, tree_util
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
@@ -636,7 +637,7 @@ class ExpandedDistribution(Distribution):
             event_shape = jnp.shape(x)[batch_ndims:]
             return x.reshape(sample_shape + self.batch_shape + event_shape)
 
-        intermediates = tree_util.tree_map(reshape_sample, intermediates)
+        intermediates = jax.tree.map(reshape_sample, intermediates)
         samples = reshape_sample(samples)
         return samples, intermediates
 

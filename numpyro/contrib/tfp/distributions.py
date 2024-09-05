@@ -282,11 +282,11 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
         return self.support is None
 
     def tree_flatten(self):
-        return jax.tree_util.tree_flatten(self.tfp_dist)
+        return jax.tree.flatten(self.tfp_dist)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        fn = jax.tree_util.tree_unflatten(aux_data, params)
+        fn = jax.tree.unflatten(aux_data, params)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             return TFPDistribution[fn.__class__](**fn.parameters)

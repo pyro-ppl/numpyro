@@ -14,7 +14,6 @@ from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map
 
 import numpyro
 from numpyro.distributions import constraints
@@ -22,6 +21,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
+from numpyro.primitives import Messenger
 from numpyro.util import (
     _validate_model,
     find_stack_level,
@@ -45,6 +45,12 @@ ModelInfo = namedtuple(
     "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
 )
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
+
+
+class _substitute_default_key(Messenger):
+    def process_message(self, msg):
+        if msg["type"] == "prng_key" and msg["value"] is None:
+            msg["value"] = random.PRNGKey(0)
 
 
 def log_density(model, model_args, model_kwargs, params):
@@ -661,9 +667,12 @@ def initialize_model(
         data={
             k: site["value"]
             for k, site in model_trace.items()
-            if site["type"] in ["param"]
+            if site["type"] in ["param", "mutable"]
         },
     )
+
+    model = _substitute_default_key(model)
+
     constrained_values = {
         k: v["value"]
         for k, v in model_trace.items()
@@ -770,7 +779,7 @@ def _predictive(
         # inspect the model to get some structure
         rng_key, subkey = random.split(rng_key)
         batch_ndim = len(batch_shape)
-        prototype_sample = tree_map(
+        prototype_sample = jax.tree.map(
             lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[batch_ndim:])[0],
             posterior_samples,
         )
@@ -1027,7 +1036,7 @@ class Predictive(object):
         if self.batch_ndims == 0 or self.params == {} or self.guide is None:
             return self._call_with_params(rng_key, self.params, args, kwargs)
         elif self.batch_ndims == 1:  # batch over parameters
-            batch_size = jnp.shape(tree_flatten(self.params)[0][0])[0]
+            batch_size = jnp.shape(jax.tree.flatten(self.params)[0][0])[0]
             rng_keys = random.split(rng_key, batch_size)
             return jax.vmap(
                 partial(self._call_with_params, args=args, kwargs=kwargs),

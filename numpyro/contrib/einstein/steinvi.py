@@ -9,8 +9,9 @@ from functools import partial
 from itertools import chain
 import operator
 
+import jax
 from jax import grad, jacfwd, numpy as jnp, random, vmap
-from jax.tree_util import tree_map
+from jax.flatten_util import ravel_pytree
 
 from numpyro import handlers
 from numpyro.contrib.einstein.stein_kernels import SteinKernel
@@ -25,7 +26,7 @@ from numpyro.distributions.transforms import IdentityTransform
 from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
 from numpyro.optim import _NumPyroOptim
-from numpyro.util import fori_collect, ravel_pytree
+from numpyro.util import fori_collect
 
 SteinVIState = namedtuple("SteinVIState", ["optim_state", "rng_key"])
 SteinVIRunResult = namedtuple("SteinRunResult", ["params", "state", "losses"])
@@ -339,10 +340,10 @@ class SteinVI:
                 return force.reshape(attr_force.shape)
 
             reparam_jac = {
-                name: tree_map(lambda var: _nontrivial_jac(name, var), variables)
+                name: jax.tree.map(lambda var: _nontrivial_jac(name, var), variables)
                 for name, variables in unravel_pytree(particle).items()
             }
-            jac_params = tree_map(
+            jac_params = jax.tree.map(
                 _update_force,
                 unravel_pytree(attr_forces),
                 unravel_pytree(rep_forces),
@@ -362,7 +363,7 @@ class SteinVI:
         stein_param_grads = unravel_pytree_batched(particle_grads)
 
         # 6. Return loss and gradients (based on parameter forces)
-        res_grads = tree_map(
+        res_grads = jax.tree.map(
             lambda x: -x, {**non_mixture_param_grads, **stein_param_grads}
         )
         return jnp.linalg.norm(particle_grads), res_grads
@@ -426,7 +427,7 @@ class SteinVI:
                 if site["name"] in guide_init_params:
                     pval = guide_init_params[site["name"]]
                     if self.non_mixture_params_fn(site["name"]):
-                        pval = tree_map(lambda x: x[0], pval)
+                        pval = jax.tree.map(lambda x: x[0], pval)
                 else:
                     pval = site["value"]
                 params[site["name"]] = transform.inv(pval)

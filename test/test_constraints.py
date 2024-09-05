@@ -5,9 +5,9 @@ from collections import namedtuple
 
 import pytest
 
+import jax
 from jax import jit, vmap
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 
@@ -52,6 +52,7 @@ PARAMETRIZED_CONSTRAINTS = {
     "greater_than": T(constraints.greater_than, (_a(0.0),), dict()),
     "greater_than_eq": T(constraints.greater_than_eq, (_a(0.0),), dict()),
     "less_than": T(constraints.less_than, (_a(-1.0),), dict()),
+    "less_than_eq": T(constraints.less_than_eq, (_a(-1.0),), dict()),
     "independent": T(
         constraints.independent,
         (constraints.greater_than(jnp.zeros((2,))),),
@@ -133,14 +134,14 @@ def test_parametrized_constraint_pytree(cls, cst_args, cst_kwargs):
 
     if len(cst_args) > 0:
         # test creating and manipulating vmapped constraints
-        vmapped_cst_args = tree_map(lambda x: x[None], cst_args)
+        vmapped_cst_args = jax.tree.map(lambda x: x[None], cst_args)
 
         vmapped_csts = jit(vmap(lambda args: cls(*args, **cst_kwargs), in_axes=(0,)))(
             vmapped_cst_args
         )
         assert vmap(lambda x: x == constraint, in_axes=0)(vmapped_csts).all()
 
-        twice_vmapped_cst_args = tree_map(lambda x: x[None], vmapped_cst_args)
+        twice_vmapped_cst_args = jax.tree.map(lambda x: x[None], vmapped_cst_args)
 
         vmapped_csts = jit(
             vmap(

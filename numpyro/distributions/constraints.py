@@ -415,6 +415,16 @@ class _LessThan(Constraint):
         return jnp.array_equal(self.upper_bound, other.upper_bound)
 
 
+class _LessThanEq(_LessThan):
+    def __call__(self, x):
+        return x <= self.upper_bound
+
+    def __eq__(self, other):
+        if not isinstance(other, _LessThanEq):
+            return False
+        return jnp.array_equal(self.upper_bound, other.upper_bound)
+
+
 class _IntegerInterval(Constraint):
     is_discrete = True
 
@@ -768,6 +778,7 @@ dependent = _Dependent()
 greater_than = _GreaterThan
 greater_than_eq = _GreaterThanEq
 less_than = _LessThan
+less_than_eq = _LessThanEq
 independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan

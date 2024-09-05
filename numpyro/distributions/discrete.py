@@ -65,7 +65,7 @@ def _to_probs_multinom(logits):
 
 def _to_logits_multinom(probs):
     minval = jnp.finfo(jnp.result_type(probs)).min
-    return jnp.clip(jnp.log(probs), a_min=minval)
+    return jnp.clip(jnp.log(probs), minval)
 
 
 class BernoulliProbs(Distribution):
@@ -443,7 +443,7 @@ class DiscreteUniform(Distribution):
 
     def cdf(self, value):
         cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low + 1)
-        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+        return jnp.clip(cdf, 0.0, 1.0)
 
     def icdf(self, value):
         return self.low + value * (self.high - self.low + 1) - 1

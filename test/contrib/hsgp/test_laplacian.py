@@ -6,6 +6,7 @@ from __future__ import annotations
 from functools import reduce
 from operator import mul
 
+import numpy as np
 import pytest
 
 from jax._src.array import ArrayImpl
@@ -96,13 +97,13 @@ def test_sqrt_eigenvalues(ell: float | int, m: int | list[int], dim: int):
 @pytest.mark.parametrize(
     argnames="x, ell, m",
     argvalues=[
-        (jnp.linspace(0, 1, 10), 1, 1),
-        (jnp.linspace(-1, 1, 10), 1, 21),
-        (jnp.linspace(-2, -1, 10), 2, 10),
-        (jnp.linspace(0, 100, 500), 120, 100),
-        (jnp.linspace(jnp.zeros(3), jnp.ones(3), 10), 2, [2, 2, 3]),
+        (np.linspace(0, 1, 10), 1, 1),
+        (np.linspace(-1, 1, 10), 1, 21),
+        (np.linspace(-2, -1, 10), 2, 10),
+        (np.linspace(0, 100, 500), 120, 100),
+        (np.linspace(np.zeros(3), np.ones(3), 10), 2, [2, 2, 3]),
         (
-            jnp.linspace(jnp.zeros(3), jnp.ones(3), 100).reshape((10, 10, 3)),
+            np.linspace(np.zeros(3), np.ones(3), 100).reshape((10, 10, 3)),
             2,
             [2, 2, 3],
         ),
@@ -129,8 +130,8 @@ def test_eigenfunctions(x: ArrayImpl, ell: float | int, m: int | list[int]):
         (1, 1, False),
         (1, 2, False),
         ([1, 1], 2, False),
-        (jnp.array([1, 1])[..., None], 2, False),
-        (jnp.array([1, 1]), 2, True),
+        (np.array([1, 1])[..., None], 2, False),
+        (np.array([1, 1]), 2, True),
         ([1, 1], 1, True),
     ],
     ids=[

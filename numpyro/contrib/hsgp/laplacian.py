@@ -7,10 +7,13 @@ This module contains functions for computing eigenvalues and eigenfunctions of t
 
 from __future__ import annotations
 
+from typing import get_args
+
 from jaxlib.xla_extension import ArrayImpl
 
-import jax
 import jax.numpy as jnp
+
+from numpyro.contrib.hsgp.util import ARRAY_TYPE
 
 
 def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
@@ -210,7 +213,7 @@ def _convert_ell(
                 "The length of ell must be equal to the dimension of the space."
             )
         ell_ = jnp.array(ell)[..., None]  # dim x 1 array
-    elif isinstance(ell, jax.Array):
+    elif isinstance(ell, get_args(ARRAY_TYPE)):
         ell_ = ell
     if ell_.shape != (dim, 1):
         raise ValueError("ell must be a scalar or a list of length `dim`.")

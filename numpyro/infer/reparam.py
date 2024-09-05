@@ -226,7 +226,7 @@ class NeuTraReparam(Reparam):
 
         # Step 2. Use trained guide in NeuTra MCMC
         neutra = NeuTraReparam(guide)
-        model = netra.reparam(model)
+        model = neutra.reparam(model)
         nuts = NUTS(model)
         # ...now use the model in HMC or NUTS...
 
@@ -281,9 +281,15 @@ class NeuTraReparam(Reparam):
         compute_density = numpyro.get_mask() is not False
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
+            model_plates = {
+                msg["name"]
+                for msg in self.guide.prototype_trace.values()
+                if msg["type"] == "plate"
+            }
             z_unconstrained = numpyro.sample(
                 "{}_shared_latent".format(self.guide.prefix),
                 self.guide.get_base_dist().mask(False),
+                infer={"block_plates": model_plates},
             )
 
             # Differentiably transform.
