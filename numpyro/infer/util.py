@@ -8,8 +8,8 @@ from functools import partial
 from typing import Callable, Optional
 
 import jax
-import jax.numpy as jnp
 import numpy as np
+import jax.numpy as jnp
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
