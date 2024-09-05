@@ -2742,13 +2742,14 @@ def test_generated_sample_distribution(
 @pytest.mark.parametrize(
     "jax_dist, params, support",
     [
-        (dist.BernoulliLogits, (5.0,), jnp.arange(2)),
-        (dist.BernoulliProbs, (0.5,), jnp.arange(2)),
-        (dist.BinomialLogits, (4.5, 10), jnp.arange(11)),
-        (dist.BinomialProbs, (0.5, 11), jnp.arange(12)),
-        (dist.BetaBinomial, (2.0, 0.5, 12), jnp.arange(13)),
-        (dist.CategoricalLogits, (np.array([3.0, 4.0, 5.0]),), jnp.arange(3)),
-        (dist.CategoricalProbs, (np.array([0.1, 0.5, 0.4]),), jnp.arange(3)),
+        (dist.BernoulliLogits, (5.0,), np.arange(2)),
+        (dist.BernoulliProbs, (0.5,), np.arange(2)),
+        (dist.BinomialLogits, (4.5, 10), np.arange(11)),
+        (dist.BinomialProbs, (0.5, 11), np.arange(12)),
+        (dist.BetaBinomial, (2.0, 0.5, 12), np.arange(13)),
+        (dist.CategoricalLogits, (np.array([3.0, 4.0, 5.0]),), np.arange(3)),
+        (dist.CategoricalProbs, (np.array([0.1, 0.5, 0.4]),), np.arange(3)),
+        (dist.DiscreteUniform, (2, 4), np.arange(2, 5)),
     ],
 )
 @pytest.mark.parametrize("batch_shape", [(5,), ()])
@@ -3333,8 +3334,8 @@ def test_normal_log_cdf():
     "value",
     [
         -15.0,
-        jnp.array([[-15.0], [-10.0], [-5.0]]),
-        jnp.array([[[-15.0], [-10.0], [-5.0]], [[-14.0], [-9.0], [-4.0]]]),
+        np.array([[-15.0], [-10.0], [-5.0]]),
+        np.array([[[-15.0], [-10.0], [-5.0]], [[-14.0], [-9.0], [-4.0]]]),
     ],
 )
 def test_truncated_normal_log_prob_in_tail(value):
