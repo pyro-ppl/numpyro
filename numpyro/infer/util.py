@@ -1,18 +1,19 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import warnings
 from collections import namedtuple
 from contextlib import contextmanager
 from functools import partial
 from typing import Callable, Optional
+import warnings
+
+import numpy as np
 
 import jax
-import numpy as np
-import jax.numpy as jnp
 from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.lax import broadcast_shapes
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions import constraints
