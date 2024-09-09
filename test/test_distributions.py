@@ -3438,7 +3438,7 @@ def test_discrete_uniform_with_mixedhmc():
         mcmc.run(key)
         samples = mcmc.get_samples()
         return samples
-    
+
     num_samples = 1000
     mixed_hmc_kwargs = [
         {"random_walk": False, "modified": False},
@@ -3451,7 +3451,7 @@ def test_discrete_uniform_with_mixedhmc():
     def model_1():
         numpyro.sample("x0", dist.DiscreteUniform(10, 12))
         numpyro.sample("x1", dist.Categorical(np.asarray([0.25, 0.25, 0.25, 0.25])))
-    
+
     for kwargs in mixed_hmc_kwargs:
         samples = sample_mixedhmc(model_1, num_samples, **kwargs)
 
