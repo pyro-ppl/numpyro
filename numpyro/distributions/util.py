@@ -136,7 +136,6 @@ def _binomial_inversion(key, p, n):
         i, key, geom_acc = val
         key, key_u = random.split(key)
         u = random.uniform(key_u)
-        #FIXME: we run here against -inf as log1_p equals zero log(0+1) for p = 0
         geom = jnp.floor(jnp.log1p(-u) / log1_p) + 1
         geom_acc = geom_acc + geom
         return i + 1, key, geom_acc
@@ -147,7 +146,6 @@ def _binomial_inversion(key, p, n):
         # this cond_exclude_large_mu is unnecessary for correctness but will
         # still improve performance.
         cond_exclude_large_mu = p * n < _binomial_mu_thresh
-        #FIXME: for p equals 0 the while loop will never end, as -inf is not catched
         return cond_exclude_large_mu & (geom_acc <= n)
 
     log1_p = jnp.log1p(-p)
@@ -158,6 +156,8 @@ def _binomial_inversion(key, p, n):
 def _binomial_dispatch(key, p, n):
     def dispatch(key, p, n):
         is_le_mid = p <= 0.5
+        #Make sure p=0 is never taken into account as a fix for possible zeros in p.
+        p = jnp.sum(jnp.stack((p, jnp.ones(p.shape)*0.001)), where = (p == 0))
         pq = jnp.where(is_le_mid, p, 1 - p)
         mu = n * pq
         k = lax.cond(
@@ -173,7 +173,6 @@ def _binomial_dispatch(key, p, n):
     cond0 = jnp.isfinite(p) & (n > 0) & (p > 0)
     return lax.cond(
         cond0 & (p < 1),
-        # FIXME: at this point it does allow also zero values for p to be executed inside the dispatch function, even if their results are filtered out later.,
         (key, p, n),
         lambda x: dispatch(*x),
         (),
