@@ -138,6 +138,7 @@ class MixedHMC(DiscreteHMCGibbs):
                 partial(potential_fn, z_hmc=hmc_state.z),
                 idx,
                 self._support_sizes_flat[idx],
+                self._support_enumerates[idx],
             )
             # Algo 1, line 20: depending on reject or refract, we will update
             # the discrete variable and its corresponding kinetic energy. In case of
