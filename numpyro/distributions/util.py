@@ -157,7 +157,7 @@ def _binomial_dispatch(key, p, n):
     def dispatch(key, p, n):
         is_le_mid = p <= 0.5
         #Make sure p=0 is never taken into account as a fix for possible zeros in p.
-        p = jnp.sum(jnp.stack((p, jnp.ones(p.shape)*0.001)), where = (p == 0))
+        p = jnp.clip(p, jnp.finfo(jnp.float32).tiny)
         pq = jnp.where(is_le_mid, p, 1 - p)
         mu = n * pq
         k = lax.cond(
