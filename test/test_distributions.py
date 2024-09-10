@@ -3428,7 +3428,7 @@ def _assert_not_jax_issue_19885(
 ) -> None:
     # jit-ing identity plus matrix multiplication leads to performance degradation as
     # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
-    # that the issue does not affect perforamce in numpyro.
+    # that the issue does not affect performance in numpyro.
     for jit in [True, False]:
         result = jax.jit(func)(*args, **kwargs)
         block_until_ready = getattr(result, "block_until_ready", None)
