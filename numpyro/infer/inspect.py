@@ -629,9 +629,14 @@ def render_model(
 
     if filename is not None:
         filename = Path(filename)
+        # remove leading period from suffix
+        filename_without_suffix = filename.with_suffix("")
         graph.render(
-            filename.stem, view=False, cleanup=True, format=filename.suffix[1:]
-        )  # remove leading period from suffix
+            filename_without_suffix,
+            view=False,
+            cleanup=True,
+            format=filename.suffix[1:],
+        )
 
     return graph
 
