@@ -315,7 +315,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.15.2")
+    assert numpyro.__version__.startswith("0.15.3")
     parser = argparse.ArgumentParser(
         description="Probabilistic topic modelling with Flax and Haiku"
     )
