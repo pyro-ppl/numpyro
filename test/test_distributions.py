@@ -23,7 +23,6 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 
-import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import (
     SineBivariateVonMises,
@@ -1208,13 +1207,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     jax_dist = jax_dist_cls(*params)
-    # Enable 64bit support for higher accuracy
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
@@ -1261,11 +1254,6 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_infer_shapes(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     shapes = []
     for param in params:
         if param is None:
@@ -1290,12 +1278,7 @@ def test_infer_shapes(jax_dist, sp_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_has_rsample(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     jax_dist = jax_dist(*params)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     masked_dist = jax_dist.mask(False)
     indept_dist = jax_dist.expand_by([2]).to_event(1)
     transf_dist = dist.TransformedDistribution(jax_dist, biject_to(constraints.real))
@@ -1328,9 +1311,6 @@ def test_has_rsample(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (3, 2)])
 def test_unit(batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     log_factor = random.normal(random.PRNGKey(0), batch_shape)
     d = dist.Unit(log_factor=log_factor)
     x = d.sample(random.PRNGKey(1))
@@ -1353,11 +1333,11 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "StudentT": ["df"],
     }.get(jax_dist.__name__, [])
 
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
+    if (
+        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        and jnp.result_type(float) == jnp.float32
+    ):
+        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
 
     dist_args = [
         p
@@ -1423,9 +1403,6 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     ],
 )
 def test_pathwise_gradient(jax_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     rng_key = random.PRNGKey(0)
     N = 1000000
 
@@ -1457,12 +1434,6 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
     ):
         pytest.xfail(reason="non-jittable params")
 
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
-
     rng_key = random.PRNGKey(0)
     samples = jax_dist(*params).sample(key=rng_key, sample_shape=(2, 3))
 
@@ -1480,11 +1451,6 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 @pytest.mark.parametrize("jit", [False, True])
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
 
@@ -1548,12 +1514,6 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_entropy_scipy(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
-
     jax_dist = jax_dist(*params)
 
     try:
@@ -1574,12 +1534,6 @@ def test_entropy_scipy(jax_dist, sp_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL + BASE
 )
 def test_entropy_samples(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
-
     jax_dist = jax_dist(*params)
 
     try:
@@ -1599,9 +1553,6 @@ def test_entropy_samples(jax_dist, sp_dist, params):
 
 
 def test_entropy_categorical():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # There is no scipy mapping for categorical distributions, but the multinomial with
     # one trial has the same entropy--which we check here.
     logits = jax.random.normal(jax.random.key(9), (7,))
@@ -1612,9 +1563,6 @@ def test_entropy_categorical():
 
 
 def test_mixture_log_prob():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     gmm = dist.MixtureSameFamily(
         dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
     )
@@ -1630,11 +1578,6 @@ def test_mixture_log_prob():
 )
 @pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     d = jax_dist(*params)
     if d.event_dim > 0:
         pytest.skip("skip testing cdf/icdf methods of multivariate distributions")
@@ -1687,11 +1630,6 @@ def test_gof(jax_dist, sp_dist, params):
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
     if jax_dist is dist.ZeroSumNormal:
         pytest.skip("skip gof test for ZeroSumNormal")
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
 
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
@@ -1722,11 +1660,6 @@ def test_gof(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
 def test_independent_shape(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     d = jax_dist(*params)
     batch_shape, event_shape = d.batch_shape, d.event_shape
     shape = batch_shape + event_shape
@@ -1749,9 +1682,6 @@ def _tril_cholesky_to_tril_corr(x):
 
 @pytest.mark.parametrize("dimension", [2, 3, 5])
 def test_log_prob_LKJCholesky_uniform(dimension):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # When concentration=1, the distribution of correlation matrices is uniform.
     # We will test that fact here.
     d = dist.LKJCholesky(dimension=dimension, concentration=1)
@@ -1788,9 +1718,6 @@ def test_log_prob_LKJCholesky_uniform(dimension):
 @pytest.mark.parametrize("dimension", [2, 3, 5])
 @pytest.mark.parametrize("concentration", [0.6, 2.2])
 def test_log_prob_LKJCholesky(dimension, concentration):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # We will test against the fact that LKJCorrCholesky can be seen as a
     # TransformedDistribution with base distribution is a distribution of partial
     # correlations in C-vine method (modulo an affine transform to change domain from (0, 1)
@@ -1820,9 +1747,6 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
 
 def test_zero_inflated_logits_probs_agree():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     concentration = np.exp(np.random.normal(1))
     rate = np.exp(np.random.normal(1))
     d = dist.GammaPoisson(concentration, rate)
@@ -1836,9 +1760,6 @@ def test_zero_inflated_logits_probs_agree():
 
 @pytest.mark.parametrize("rate", [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
 def test_ZIP_log_prob(rate):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # if gate is 0 ZIP is Poisson
     zip_ = dist.ZeroInflatedPoisson(0.0, rate)
     pois = dist.Poisson(rate)
@@ -1859,9 +1780,6 @@ def test_ZIP_log_prob(rate):
 @pytest.mark.parametrize("total_count", [1, 2, 3, 10])
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
 def test_beta_binomial_log_prob(total_count, shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     concentration0 = np.exp(np.random.normal(size=shape))
     concentration1 = np.exp(np.random.normal(size=shape))
     value = jnp.arange(1 + total_count)
@@ -1880,9 +1798,6 @@ def test_beta_binomial_log_prob(total_count, shape):
 @pytest.mark.parametrize("total_count", [1, 2, 3, 10])
 @pytest.mark.parametrize("batch_shape", [(1,), (3, 1), (2, 3, 1)])
 def test_dirichlet_multinomial_log_prob(total_count, batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     event_shape = (3,)
     concentration = np.exp(np.random.normal(size=batch_shape + event_shape))
     # test on one-hots
@@ -1901,9 +1816,6 @@ def test_dirichlet_multinomial_log_prob(total_count, batch_shape):
 
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
 def test_gamma_poisson_log_prob(shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     gamma_conc = np.exp(np.random.normal(size=shape))
     gamma_rate = np.exp(np.random.normal(size=shape))
     value = jnp.arange(15)
@@ -1926,11 +1838,6 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         pytest.skip("we have separated tests for LKJCholesky distribution")
     if jax_dist is _ImproperWrapper:
         pytest.skip("no param for ImproperUniform to test for log_prob gradient")
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
 
     rng_key = random.PRNGKey(0)
     value = jax_dist(*params).sample(rng_key)
@@ -2000,9 +1907,6 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip(
             f"{jax_dist.__name__} distribution does not has mean/var implemented"
         )
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
 
     n = (
         20000
@@ -2164,12 +2068,6 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
 
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
-
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
@@ -2284,10 +2182,6 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
 
 
 def test_omnistaging_invalid_param():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     def f(x):
         return dist.LogNormal(x, -np.ones(2), validate_args=True).log_prob(0)
 
@@ -2296,10 +2190,6 @@ def test_omnistaging_invalid_param():
 
 
 def test_omnistaging_invalid_sample():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     def f(x):
         return dist.LogNormal(x, np.ones(2), validate_args=True).log_prob(-1)
 
@@ -2308,9 +2198,6 @@ def test_omnistaging_invalid_sample():
 
 
 def test_categorical_log_prob_grad():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     data = jnp.repeat(jnp.arange(3), 10)
 
     def f(x):
@@ -2329,9 +2216,6 @@ def test_categorical_log_prob_grad():
 
 
 def test_beta_proportion_invalid_mean():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     with dist.distribution.validation_enabled(), pytest.raises(
         ValueError, match=r"^BetaProportion distribution got invalid mean parameter\.$"
     ):
@@ -2466,9 +2350,6 @@ def test_beta_proportion_invalid_mean():
     ],
 )
 def test_constraints(constraint, x, expected):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     v = constraint.feasible_like(x)
     if jnp.result_type(v) == "float32" or jnp.result_type(v) == "float64":
         assert not constraint.is_discrete
@@ -2513,9 +2394,6 @@ def test_constraints(constraint, x, expected):
 )
 @pytest.mark.parametrize("shape", [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     transform = biject_to(constraint)
     event_dim = transform.domain.event_dim
     if isinstance(constraint, constraints._Interval):
@@ -2651,9 +2529,6 @@ def test_biject_to(constraint, shape):
     ],
 )
 def test_bijective_transforms(transform, event_shape, batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     shape = batch_shape + event_shape
     rng_key = random.PRNGKey(0)
     x = biject_to(transform.domain)(random.normal(rng_key, shape))
@@ -2691,9 +2566,6 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_composed_transform(batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     t1 = transforms.AffineTransform(0, 2)
     t2 = transforms.LowerCholeskyTransform()
     t = transforms.ComposeTransform([t1, t2, t1])
@@ -2712,9 +2584,6 @@ def test_composed_transform(batch_shape):
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_composed_transform_1(batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     t1 = transforms.AffineTransform(0, 2)
     t2 = transforms.LowerCholeskyTransform()
     t = transforms.ComposeTransform([t1, t2, t2])
@@ -2736,9 +2605,6 @@ def test_composed_transform_1(batch_shape):
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_simplex_to_order_transform(batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     simplex = jnp.arange(5.0) / jnp.arange(5.0).sum()
     simplex = jnp.broadcast_to(simplex, batch_shape + simplex.shape)
     transform = SimplexToOrderedTransform()
@@ -2751,9 +2617,6 @@ def test_simplex_to_order_transform(batch_shape):
 @pytest.mark.parametrize("prepend_event_shape", [(), (4,)])
 @pytest.mark.parametrize("sample_shape", [(), (7,)])
 def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     base_dist = (
         dist.Normal(0, 1)
         .expand(batch_shape + prepend_event_shape + (6,))
@@ -2793,9 +2656,6 @@ def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape
     ],
 )
 def test_transformed_distribution_intermediates(transformed_dist):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     sample, intermediates = transformed_dist.sample_with_intermediates(
         random.PRNGKey(1)
     )
@@ -2806,9 +2666,6 @@ def test_transformed_distribution_intermediates(transformed_dist):
 
 
 def test_transformed_transformed_distribution():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     loc, scale = -2, 3
     dist1 = dist.TransformedDistribution(
         dist.Normal(2, 3), transforms.PowerTransform(2.0)
@@ -2850,9 +2707,6 @@ def _make_iaf(input_dim, hidden_dims, rng_key):
     ],
 )
 def test_compose_transform_with_intermediates(ts):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     transform = transforms.ComposeTransform(ts)
     x = random.normal(random.PRNGKey(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
@@ -2863,9 +2717,6 @@ def test_compose_transform_with_intermediates(ts):
 
 @pytest.mark.parametrize("x_dim, y_dim", [(3, 3), (3, 4)])
 def test_unpack_transform(x_dim, y_dim):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     xy = np.random.randn(x_dim + y_dim)
     unpack_fn = lambda xy: {"x": xy[:x_dim], "y": xy[x_dim:]}  # noqa: E731
     pack_fn = lambda d: jnp.concatenate([d["x"], d["y"]], axis=-1)  # noqa: E731
@@ -2895,11 +2746,6 @@ def test_generated_sample_distribution(
             "{} sampling method taken from upstream, no need to"
             "test generated samples.".format(jax_dist.__name__)
         )
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
 
     jax_dist = jax_dist(*params)
     if sp_dist and not jax_dist.event_shape and not jax_dist.batch_shape:
@@ -2923,9 +2769,6 @@ def test_generated_sample_distribution(
 @pytest.mark.parametrize("batch_shape", [(5,), ()])
 @pytest.mark.parametrize("expand", [False, True])
 def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     p0 = jnp.broadcast_to(params[0], batch_shape + jnp.shape(params[0]))
     actual = jax_dist(p0, *params[1:]).enumerate_support(expand=expand)
     expected = support.reshape((-1,) + (1,) * len(batch_shape))
@@ -2935,9 +2778,6 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
 
 
 def test_zero_inflated_enumerate_support():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     base_dist = dist.Bernoulli(0.5)
     d = dist.ZeroInflatedDistribution(base_dist, gate=0.5)
     assert d.has_enumerate_support
@@ -2948,11 +2788,6 @@ def test_zero_inflated_enumerate_support():
 @pytest.mark.parametrize("prepend_shape", [(), (2, 3)])
 @pytest.mark.parametrize("sample_shape", [(), (4,)])
 def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     jax_dist = jax_dist(*params)
     new_batch_shape = prepend_shape + jax_dist.batch_shape
     expanded_dist = jax_dist.expand(new_batch_shape)
@@ -2976,9 +2811,6 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
 @pytest.mark.parametrize("event_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("sample_shape", [(1000,), (1000, 7, 1), (1000, 1, 7)])
 def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     expand_shape = (2, 3, 5)
     event_dim = min(event_dim, len(base_shape))
     loc = random.normal(random.PRNGKey(0), base_shape) * 10
@@ -2991,9 +2823,6 @@ def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (10, 3)])
 def test_sine_bivariate_von_mises_batch_shape(batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     phi_loc = jnp.broadcast_to(jnp.array(0.0), batch_shape)
     psi_loc = jnp.array(0.0)
     phi_conc = jnp.array(1.0)
@@ -3008,9 +2837,6 @@ def test_sine_bivariate_von_mises_batch_shape(batch_shape):
 
 
 def test_sine_bivariate_von_mises_sample_mean():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     loc = jnp.array([[2.0, -1.0], [-2, 1.0]])
 
     sine = SineBivariateVonMises(*loc, 5000, 5000, 0.0)
@@ -3021,9 +2847,6 @@ def test_sine_bivariate_von_mises_sample_mean():
 
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
 def test_polya_gamma(batch_shape, num_points=20000):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     d = dist.TruncatedPolyaGamma(batch_shape=batch_shape)
     rng_key = random.PRNGKey(0)
 
@@ -3045,9 +2868,6 @@ def test_polya_gamma(batch_shape, num_points=20000):
     [(0, (4, 3, 2, 1)), (0, (4, 3, 2, 2)), (1, (5, 4, 3, 2)), (2, (5, 4, 3))],
 )
 def test_expand_reshaped_distribution(extra_event_dims, expand_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     loc = jnp.zeros((1, 6))
     scale_tril = jnp.eye(6)
     d = dist.MultivariateNormal(loc, scale_tril=scale_tril)
@@ -3076,9 +2896,6 @@ def test_expand_reshaped_distribution(extra_event_dims, expand_shape):
 )
 @pytest.mark.parametrize("event_shape", [(), (3,)])
 def test_mask(batch_shape, event_shape, mask_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     jax_dist = (
         dist.Normal().expand(batch_shape + event_shape).to_event(len(event_shape))
     )
@@ -3095,10 +2912,6 @@ def test_mask(batch_shape, event_shape, mask_shape):
 
 @pytest.mark.parametrize("event_shape", [(), (4,), (2, 4)])
 def test_mask_grad(event_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     def f(x, data):
         base_dist = dist.Beta(jnp.exp(x), jnp.ones(event_shape)).to_event()
         mask = jnp.all(
@@ -3117,12 +2930,6 @@ def test_mask_grad(event_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_dist_pytree(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
-
     def f(x):
         return jax_dist(*params)
 
@@ -3158,10 +2965,6 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     "method, arg", [("to_event", 1), ("mask", False), ("expand", [5])]
 )
 def test_special_dist_pytree(method, arg):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     def f(x):
         d = dist.Normal(np.zeros(1), np.ones(1))
         return getattr(d, method)(arg)
@@ -3171,9 +2974,6 @@ def test_special_dist_pytree(method, arg):
 
 
 def test_expand_no_unnecessary_batch_shape_expansion():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # ExpandedDistribution can mutate the `batch_shape` of
     # its base distribution in order to make ExpandedDistribution
     # mappable, see #684. However, this mutation should not take
@@ -3212,9 +3012,6 @@ def test_expand_no_unnecessary_batch_shape_expansion():
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
 def test_kl_delta_normal_shape(batch_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     v = np.random.normal(size=batch_shape)
     loc = np.random.normal(size=batch_shape)
     scale = np.exp(np.random.normal(size=batch_shape))
@@ -3224,9 +3021,6 @@ def test_kl_delta_normal_shape(batch_shape):
 
 
 def test_kl_delta_normal():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     v = np.random.normal()
     loc = np.random.normal()
     scale = np.exp(np.random.normal())
@@ -3238,9 +3032,6 @@ def test_kl_delta_normal():
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
 @pytest.mark.parametrize("event_shape", [(), (4,), (2, 3)], ids=str)
 def test_kl_independent_normal(batch_shape, event_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     shape = batch_shape + event_shape
     p = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
     q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
@@ -3254,9 +3045,6 @@ def test_kl_independent_normal(batch_shape, event_shape):
 @pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
 @pytest.mark.parametrize("event_shape", [(), (4,), (2, 3)], ids=str)
 def test_kl_expanded_normal(batch_shape, event_shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     shape = batch_shape + event_shape
     p = dist.Normal(np.random.normal(), np.exp(np.random.normal())).expand(shape)
     q = dist.Normal(np.random.normal(), np.exp(np.random.normal())).expand(shape)
@@ -3289,9 +3077,6 @@ def test_kl_multivariate_normal_consistency_with_independent_normals(
     single_scale_q,
     single_loc_q,
 ):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     event_shape = (5,)
 
     def make_dists(loc_batch_shape, scales_batch_shape):
@@ -3322,9 +3107,6 @@ def test_kl_multivariate_normal_consistency_with_independent_normals(
 
 
 def test_kl_multivariate_normal_nondiagonal_covariance():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     p_mvn = dist.MultivariateNormal(np.zeros(2), covariance_matrix=np.eye(2))
     q_mvn = dist.MultivariateNormal(
         np.ones(2), covariance_matrix=np.array([[2, 0.8], [0.8, 0.5]])
@@ -3347,10 +3129,6 @@ def test_kl_multivariate_normal_nondiagonal_covariance():
     ],
 )
 def test_kl_univariate(shape, p_dist, q_dist):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     def make_dist(dist_class):
         params = {}
         for k, c in dist_class.arg_constraints.items():
@@ -3375,9 +3153,6 @@ def test_kl_univariate(shape, p_dist, q_dist):
 
 @pytest.mark.parametrize("shape", [(4,), (2, 3)], ids=str)
 def test_kl_dirichlet_dirichlet(shape):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     p = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
     q = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
     actual = kl_divergence(p, q)
@@ -3387,10 +3162,6 @@ def test_kl_dirichlet_dirichlet(shape):
 
 
 def test_vmapped_binomial_p0():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     # test that vmapped binomial with p = 0 does not have an infinite loop
     def sample_binomial_withp0(key):
         n = 2 * (random.uniform(key) > 0.5)
@@ -3443,11 +3214,6 @@ def _tree_equal(t1, t2):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_vmap_dist(jax_dist, sp_dist, params):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
-        numpyro.enable_x64()
     param_names = list(inspect.signature(jax_dist).parameters.keys())
     vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
     vmappable_param_idxs = vmappable_param_idxs[: len(params)]
@@ -3536,9 +3302,6 @@ def test_vmap_dist(jax_dist, sp_dist, params):
 
 
 def test_vmap_validate_args():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # Test for #1684: vmapping distributions would work when `validate_args=True`
     v_dist = jax.vmap(
         lambda loc, scale: dist.Normal(loc=loc, scale=scale, validate_args=True),
@@ -3554,9 +3317,6 @@ def test_vmap_validate_args():
 
 
 def test_multinomial_abstract_total_count():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.PRNGKey(0)
 
@@ -3572,9 +3332,6 @@ def test_multinomial_abstract_total_count():
 
 
 def test_normal_log_cdf():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # test if log_cdf method agrees with jax.scipy.stats.norm.logcdf
     # and if exp(log_cdf) agrees with cdf
     loc = jnp.array([[0.0, -10.0, 20.0]])
@@ -3596,9 +3353,6 @@ def test_normal_log_cdf():
     ],
 )
 def test_truncated_normal_log_prob_in_tail(value):
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # define set of distributions truncated in tail of distribution
     loc = 1.35
     scale = jnp.geomspace(0.01, 1, 10)
@@ -3613,9 +3367,6 @@ def test_truncated_normal_log_prob_in_tail(value):
 
 
 def test_sample_truncated_normal_in_tail():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # test, if samples from distributions truncated in
     # tail of distribution returns any inf's
     tail_dist = dist.TruncatedNormal(loc=0, scale=1, low=-16, high=-15)
@@ -3625,9 +3376,6 @@ def test_sample_truncated_normal_in_tail():
 
 @jax.enable_custom_prng()
 def test_jax_custom_prng():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
     assert ~jnp.isinf(samples).any()
 
@@ -3652,10 +3400,6 @@ def _assert_not_jax_issue_19885(
 
 @pytest.mark.xfail
 def test_jax_issue_19885(capfd: pytest.CaptureFixture) -> None:
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
-
     def func_with_warning(y) -> jnp.ndarray:
         return jnp.identity(y.shape[-1]) + jnp.matmul(y, y)
 
@@ -3663,9 +3407,6 @@ def test_jax_issue_19885(capfd: pytest.CaptureFixture) -> None:
 
 
 def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     # Create parameters.
     batch_size = 100
     event_size = 200
@@ -3689,9 +3430,6 @@ def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
 
 
 def test_gaussian_random_walk_linear_recursive_equivalence():
-    # The reason to add the disable x64 is explained in the github comment, please
-    # follow https://github.com/pyro-ppl/numpyro/pull/1807#issuecomment-2344443900
-    numpyro.enable_x64(False)
     dist1 = dist.GaussianRandomWalk(3.7, 15)
     dist2 = dist.TransformedDistribution(
         dist.Normal(0, 3.7).expand([15, 1]).to_event(2),
