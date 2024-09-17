@@ -519,10 +519,10 @@ class Distribution(metaclass=DistributionMeta):
 
     def cdf(self, value):
         """
-        The cummulative distribution function of this distribution.
+        The cumulative distribution function of this distribution.
 
         :param value: samples from this distribution.
-        :return: output of the cummulative distribution function evaluated at `value`.
+        :return: output of the cumulative distribution function evaluated at `value`.
         """
         raise NotImplementedError
 

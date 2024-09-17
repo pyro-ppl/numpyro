@@ -248,7 +248,7 @@ class AIES(EnsembleSampler):
         Defaults to False.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
         Valid keys are `AIES.DEMove()` and `AIES.StretchMove()`. Both tend to work well in practice.
-        If the sum of probabilites exceeds 1, the probabilities will be normalized. Defaults to `{AIES.DEMove(): 1.0}`.
+        If the sum of probabilities exceeds 1, the probabilities will be normalized. Defaults to `{AIES.DEMove(): 1.0}`.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
 
@@ -455,7 +455,7 @@ class ESS(EnsembleSampler):
     :param bool randomize_split: whether or not to permute the chain order at each iteration.
         Defaults to True.
     :param moves: a dictionary mapping moves to their respective probabilities of being selected.
-        If the sum of probabilites exceeds 1, the probabilities will be normalized. Valid keys include:
+        If the sum of probabilities exceeds 1, the probabilities will be normalized. Valid keys include:
         `ESS.DifferentialMove()` -> default proposal, works well along a wide range of target distributions,
         `ESS.GaussianMove()` -> for approximately normally distributed targets,
         `ESS.KDEMove()` -> for multimodal posteriors - requires large `num_chains`, and they must be well initialized

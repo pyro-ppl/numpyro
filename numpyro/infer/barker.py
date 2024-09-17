@@ -87,7 +87,7 @@ class BarkerMH(MCMCKernel):
     :param bool dense_mass: Whether to use a dense (i.e. full-rank) or diagonal mass matrix.
         (defaults to ``dense_mass=False``).
     :param float target_accept_prob: The target acceptance probability that is used to guide
-        step size adapation. Defaults to ``target_accept_prob=0.4``.
+        step size adaptation. Defaults to ``target_accept_prob=0.4``.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
 

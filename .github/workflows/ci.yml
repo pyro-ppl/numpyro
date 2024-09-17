@@ -72,6 +72,9 @@ jobs:
     - name: Test with pytest
       run: |
         CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
+    - name: Test x64
+      run: |
+        JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
 
 
   test-inference:

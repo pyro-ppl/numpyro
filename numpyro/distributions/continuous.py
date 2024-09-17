@@ -983,7 +983,7 @@ class LKJCholesky(Distribution):
     r"""
     LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
     controlled by ``concentration`` parameter :math:`\eta` to make the probability of the
-    correlation matrix :math:`M` generated from a Cholesky factor propotional to
+    correlation matrix :math:`M` generated from a Cholesky factor proportional to
     :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over Cholesky factors of correlation matrices.
 
@@ -1048,7 +1048,7 @@ class LKJCholesky(Distribution):
 
         # We construct base distributions to generate samples for each method.
         # The purpose of this base distribution is to generate a distribution for
-        # correlation matrices which is propotional to `det(M)^{\eta - 1}`.
+        # correlation matrices which is proportional to `det(M)^{\eta - 1}`.
         # (note that this is not a unique way to define base distribution)
         # Both of the following methods have marginal distribution of each off-diagonal
         # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2)
@@ -1150,12 +1150,12 @@ class LKJCholesky(Distribution):
         #   Generally, for a D dimensional matrix, we have:
         #       Jacobian = L22^(D-2) * L33^(D-3) * ... * Ldd^0
         #
-        # From [1], we know that probability of a correlation matrix is propotional to
+        # From [1], we know that probability of a correlation matrix is proportional to
         #   determinant ** (concentration - 1) = prod(L_ii ^ 2(concentration - 1))
         # On the other hand, Jabobian of the transformation from Cholesky factor to
         # correlation matrix is:
         #   prod(L_ii ^ (D - i))
-        # So the probability of a Cholesky factor is propotional to
+        # So the probability of a Cholesky factor is proportional to
         #   prod(L_ii ^ (2 * concentration - 2 + D - i)) =: prod(L_ii ^ order_i)
         # with order_i = 2 * concentration - 2 + D - i,
         # i = 2..D (we omit the element i = 1 because L_11 = 1)
@@ -1286,7 +1286,7 @@ class LogUniform(TransformedDistribution):
 def _batch_solve_triangular(A, B):
     """
     Extende solve_triangular for the case that B.ndim > A.ndim.
-    This is achived by first flattening the leading B.ndim - A.ndim dimensions of B and then
+    This is achieved by first flattening the leading B.ndim - A.ndim dimensions of B and then
     moving the first dimension to the end.
 
 
@@ -1720,7 +1720,7 @@ class CAR(Distribution):
                 D_rsqrt[..., None, :] * D_rsqrt[..., None]
             )
 
-        # TODO: look into sparse eignvalue methods
+        # TODO: look into sparse eigenvalue methods
         if isinstance(adj_matrix_scaled, np.ndarray):
             lam = np.linalg.eigvalsh(adj_matrix_scaled)
         else:

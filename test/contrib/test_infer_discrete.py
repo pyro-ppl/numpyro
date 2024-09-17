@@ -408,7 +408,7 @@ def test_mcmc_model_side_enumeration(model, temperature):
         k: v[0] for k, v in mcmc.get_samples().items() if k in ["loc", "scale"]
     }
 
-    # MAP estimate discretes, conditioned on posterior sampled continous latents.
+    # MAP estimate discrete, conditioned on posterior sampled continuous latents.
     model = handlers.seed(model, rng_seed=1)
     actual_trace = handlers.trace(
         infer_discrete(
