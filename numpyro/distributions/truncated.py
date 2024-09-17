@@ -562,7 +562,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 cdf_when_alpha_neq_neg1(),
                 cdf_when_alpha_eq_neg1(),
             )
-            return jnp.clip(cdf_val, a_min=0.0, a_max=1.0)
+            return jnp.clip(cdf_val, 0.0, 1.0)
 
         @f.defjvp
         def f_jvp(primals, tangents):
