@@ -103,7 +103,7 @@ def run_inference(model, args, rng_key, y):
 
 
 def main(args):
-    # generate artifical dataset
+    # generate artificial dataset
     num_data = args.num_data
     rng_key = jax.random.PRNGKey(0)
     t = jnp.arange(0, num_data)

@@ -93,7 +93,7 @@ class ELBO:
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
-        :return: dictionay containing ELBO loss and the mutable state
+        :return: dictionary containing ELBO loss and the mutable state
         """
         raise NotImplementedError("This ELBO objective does not support mutable state.")
 

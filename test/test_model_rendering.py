@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import numpy as np
 import pytest
 
@@ -8,7 +10,11 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer.inspect import generate_graph_specification, get_model_relations
+from numpyro.infer.inspect import (
+    generate_graph_specification,
+    get_model_relations,
+    render_model,
+)
 
 
 def simple(data):
@@ -129,3 +135,12 @@ def test_model_transformation(test_model, model_kwargs, expected_graph_spec):
     graph_spec = generate_graph_specification(relations)
 
     assert graph_spec == expected_graph_spec
+
+
+def test_render_model_filename():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    render_model(model, filename="graph.png")
+    assert os.path.exists("graph.png")
+    os.remove("graph.png")

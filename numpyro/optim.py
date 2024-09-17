@@ -222,7 +222,7 @@ class SM3(_NumPyroOptim):
 
 # TODO: currently, jax.scipy.optimize.minimize only supports 1D input,
 # so we need to add the following mechanism to transform params to flat_params
-# and pass `unravel_fn` arround.
+# and pass `unravel_fn` around.
 # When arbitrary pytree is supported in JAX, we can just simply use
 # identity functions for `init_fn` and `get_params`.
 _MinimizeState = namedtuple("MinimizeState", ["flat_params", "unravel_fn"])

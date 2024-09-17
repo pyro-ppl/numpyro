@@ -229,7 +229,7 @@ def get_dependencies(
     for d, upstreams in prior_dependencies.items():
         for u, p in upstreams.items():
             if u not in observed:
-                # Note the folowing reverses:
+                # Note the following reverses:
                 # u is henceforth downstream and d is henceforth upstream.
                 posterior_dependencies[u][d] = p.copy()
 
@@ -547,7 +547,7 @@ def render_graph(graph_specification, render_distributions=False):
                 shape = "plain"
                 rv_label = rv.replace(
                     "$params", ""
-                )  # incase of neural network parameters
+                )  # in case of neural network parameters
 
             # use different symbol for Deterministic site
             node_style = (
@@ -629,9 +629,14 @@ def render_model(
 
     if filename is not None:
         filename = Path(filename)
+        # remove leading period from suffix
+        filename_without_suffix = filename.with_suffix("")
         graph.render(
-            filename.stem, view=False, cleanup=True, format=filename.suffix[1:]
-        )  # remove leading period from suffix
+            filename_without_suffix,
+            view=False,
+            cleanup=True,
+            format=filename.suffix[1:],
+        )
 
     return graph
 

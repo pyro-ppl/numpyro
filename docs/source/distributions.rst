@@ -662,9 +662,25 @@ VonMises
 Truncated Distributions
 -----------------------
 
+DoublyTruncatedPowerLaw
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.DoublyTruncatedPowerLaw
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LeftTruncatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.truncated.LeftTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LowerTruncatedPowerLaw
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.LowerTruncatedPowerLaw
     :members:
     :undoc-members:
     :show-inheritance:

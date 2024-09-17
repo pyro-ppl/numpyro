@@ -158,7 +158,7 @@ def unif01_goodness_of_fit(samples, *, plot=False):
 
 def exp_goodness_of_fit(samples, plot=False):
     """
-    Transform exponentially distribued samples to Uniform(0,1) distribution and
+    Transform exponentially distributed samples to Uniform(0,1) distribution and
     assess goodness of fit via binned Pearson's chi^2 test.
 
     :param numpy.ndarray samples: A vector of real-valued samples from a
@@ -353,7 +353,7 @@ def _chi2sf(x, s):
        F(x; s) = \frac{ \gamma( x/2, s/2 ) }{ \Gamma(s/2) },
 
     with :math:`\gamma` is the incomplete gamma function defined above.
-    Therefore, the survival probability is givne by:
+    Therefore, the survival probability is given by:
 
     .. math::
        1 - \frac{ \gamma( x/2, s/2 ) }{ \Gamma(s/2) }.

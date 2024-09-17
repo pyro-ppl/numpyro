@@ -914,6 +914,11 @@ CONTINUOUS = [
             ]
         ),  # Covariance
     ),
+    T(dist.LowerTruncatedPowerLaw, -np.pi, np.array([2.0, 5.0, 10.0, 50.0])),
+    T(dist.DoublyTruncatedPowerLaw, -1.0, 1.0, 2.0),
+    T(dist.DoublyTruncatedPowerLaw, np.pi, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
+    T(dist.DoublyTruncatedPowerLaw, np.pi, 1.0, 2.0),
 ]
 
 DIRECTIONAL = [
@@ -1063,6 +1068,8 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.bernoulli(key, shape=size)
     elif isinstance(constraint, constraints.greater_than):
         return jnp.exp(random.normal(key, size)) + constraint.lower_bound + eps
+    elif isinstance(constraint, constraints.less_than):
+        return constraint.upper_bound - jnp.exp(random.normal(key, size)) - eps
     elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
@@ -1129,6 +1136,8 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.bernoulli(key, shape=size) - 2
     elif isinstance(constraint, constraints.greater_than):
         return constraint.lower_bound - jnp.exp(random.normal(key, size))
+    elif isinstance(constraint, constraints.less_than):
+        return constraint.upper_bound + jnp.exp(random.normal(key, size))
     elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         return random.randint(key, size, lower_bound - 1, lower_bound)
@@ -1323,6 +1332,12 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "LKJCholesky": ["concentration"],
         "StudentT": ["df"],
     }.get(jax_dist.__name__, [])
+
+    if (
+        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        and jnp.result_type(float) == jnp.float32
+    ):
+        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
 
     dist_args = [
         p
@@ -1739,14 +1754,7 @@ def test_zero_inflated_logits_probs_agree():
     gate_probs = expit(gate_logits)
     zi_logits = dist.ZeroInflatedDistribution(d, gate_logits=gate_logits)
     zi_probs = dist.ZeroInflatedDistribution(d, gate=gate_probs)
-    sample = np.random.randint(
-        0,
-        20,
-        (
-            1000,
-            100,
-        ),
-    )
+    sample = np.random.randint(0, 20, (1000, 100))
     assert_allclose(zi_probs.log_prob(sample), zi_logits.log_prob(sample))
 
 
@@ -1830,6 +1838,11 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         pytest.skip("we have separated tests for LKJCholesky distribution")
     if jax_dist is _ImproperWrapper:
         pytest.skip("no param for ImproperUniform to test for log_prob gradient")
+    if (
+        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        and jnp.result_type(float) == jnp.float32
+    ):
+        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
 
     rng_key = random.PRNGKey(0)
     value = jax_dist(*params).sample(rng_key)
@@ -1851,6 +1864,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         if isinstance(
             params[i], dist.Distribution
         ):  # skip taking grad w.r.t. base_dist
+            continue
+        if jax_dist is dist.DoublyTruncatedPowerLaw and i != 0:
             continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
             continue
@@ -1893,6 +1908,10 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
+    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
+        pytest.skip(
+            f"{jax_dist.__name__} distribution does not has mean/var implemented"
+        )
 
     n = (
         20000
@@ -2053,6 +2072,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         _General2DMixture,
     ):
         pytest.skip(f"{jax_dist.__name__} is a function, not a class")
+
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
@@ -2742,13 +2762,14 @@ def test_generated_sample_distribution(
 @pytest.mark.parametrize(
     "jax_dist, params, support",
     [
-        (dist.BernoulliLogits, (5.0,), jnp.arange(2)),
-        (dist.BernoulliProbs, (0.5,), jnp.arange(2)),
-        (dist.BinomialLogits, (4.5, 10), jnp.arange(11)),
-        (dist.BinomialProbs, (0.5, 11), jnp.arange(12)),
-        (dist.BetaBinomial, (2.0, 0.5, 12), jnp.arange(13)),
-        (dist.CategoricalLogits, (np.array([3.0, 4.0, 5.0]),), jnp.arange(3)),
-        (dist.CategoricalProbs, (np.array([0.1, 0.5, 0.4]),), jnp.arange(3)),
+        (dist.BernoulliLogits, (5.0,), np.arange(2)),
+        (dist.BernoulliProbs, (0.5,), np.arange(2)),
+        (dist.BinomialLogits, (4.5, 10), np.arange(11)),
+        (dist.BinomialProbs, (0.5, 11), np.arange(12)),
+        (dist.BetaBinomial, (2.0, 0.5, 12), np.arange(13)),
+        (dist.CategoricalLogits, (np.array([3.0, 4.0, 5.0]),), np.arange(3)),
+        (dist.CategoricalProbs, (np.array([0.1, 0.5, 0.4]),), np.arange(3)),
+        (dist.DiscreteUniform, (2, 4), np.arange(2, 5)),
     ],
 )
 @pytest.mark.parametrize("batch_shape", [(5,), ()])
@@ -3287,7 +3308,7 @@ def test_vmap_dist(jax_dist, sp_dist, params):
 
 
 def test_vmap_validate_args():
-    # Test for #1684: vmapping distributions whould work when `validate_args=True`
+    # Test for #1684: vmapping distributions would work when `validate_args=True`
     v_dist = jax.vmap(
         lambda loc, scale: dist.Normal(loc=loc, scale=scale, validate_args=True),
         in_axes=(0, 0),
@@ -3333,8 +3354,8 @@ def test_normal_log_cdf():
     "value",
     [
         -15.0,
-        jnp.array([[-15.0], [-10.0], [-5.0]]),
-        jnp.array([[[-15.0], [-10.0], [-5.0]], [[-14.0], [-9.0], [-4.0]]]),
+        np.array([[-15.0], [-10.0], [-5.0]]),
+        np.array([[[-15.0], [-10.0], [-5.0]], [[-14.0], [-9.0], [-4.0]]]),
     ],
 )
 def test_truncated_normal_log_prob_in_tail(value):
@@ -3370,7 +3391,7 @@ def _assert_not_jax_issue_19885(
 ) -> None:
     # jit-ing identity plus matrix multiplication leads to performance degradation as
     # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
-    # that the issue does not affect perforance in numpyro.
+    # that the issue does not affect performance in numpyro.
     for jit in [True, False]:
         result = jax.jit(func)(*args, **kwargs)
         block_until_ready = getattr(result, "block_until_ready", None)

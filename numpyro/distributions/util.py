@@ -149,6 +149,8 @@ def _binomial_inversion(key, p, n):
         return cond_exclude_large_mu & (geom_acc <= n)
 
     log1_p = jnp.log1p(-p)
+    # Make sure p=0 is never taken into account as a fix for possible zeros in p.
+    log1_p = jnp.where(log1_p == 0, -jnp.finfo(log1_p.dtype).tiny, log1_p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
     return ret[0]
 

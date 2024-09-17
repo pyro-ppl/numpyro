@@ -9,7 +9,7 @@ In this example, we run MCMC for various crowdsourced annotation models in [1].
 
 All models have discrete latent variables. Under the hood, we enumerate over
 (marginalize out) those discrete latent sites in inference. Those models have different
-complexity so they are great refererences for those who are new to Pyro/NumPyro
+complexity so they are great references for those who are new to Pyro/NumPyro
 enumeration mechanism. We recommend readers compare the implementations with the
 corresponding plate diagrams in [1] to see how concise a Pyro/NumPyro program is.
 
