@@ -346,7 +346,7 @@ def test_dense_mass(kernel_cls, rho):
 
 def test_change_point_x64():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
-    num_warmup, num_samples = 500, 3000
+    num_warmup, num_samples = 1000, 3000
 
     def model(data):
         alpha = 1 / jnp.mean(data.astype(np.float32))
