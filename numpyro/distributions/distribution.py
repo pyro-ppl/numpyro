@@ -229,22 +229,33 @@ class Distribution(metaclass=DistributionMeta):
         if validate_args is not None:
             self._validate_args = validate_args
         if self._validate_args:
-            for param, constraint in self.arg_constraints.items():
-                if param not in self.__dict__ and isinstance(
-                    getattr(type(self), param), lazy_property
-                ):
-                    continue
-                if constraints.is_dependent(constraint):
-                    continue  # skip constraints that cannot be checked
-                is_valid = constraint(getattr(self, param))
-                if not_jax_tracer(is_valid):
-                    if not np.all(is_valid):
-                        raise ValueError(
-                            "{} distribution got invalid {} parameter.".format(
-                                self.__class__.__name__, param
-                            )
-                        )
+            self.validate_args(strict=False)
         super(Distribution, self).__init__()
+
+    def validate_args(self, strict: bool = True) -> None:
+        """
+        Validate the arguments of the distribution.
+
+        :param strict: Require strict validation, raising an error if the function is
+            called inside jitted code.
+        """
+        for param, constraint in self.arg_constraints.items():
+            if param not in self.__dict__ and isinstance(
+                getattr(type(self), param), lazy_property
+            ):
+                continue
+            if constraints.is_dependent(constraint):
+                continue  # skip constraints that cannot be checked
+            is_valid = constraint(getattr(self, param))
+            if not_jax_tracer(is_valid):
+                if not np.all(is_valid):
+                    raise ValueError(
+                        "{} distribution got invalid {} parameter.".format(
+                            self.__class__.__name__, param
+                        )
+                    )
+            elif strict:
+                raise RuntimeError("Cannot validate arguments inside jitted code.")
 
     @property
     def batch_shape(self):
