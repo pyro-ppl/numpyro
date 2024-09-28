@@ -419,6 +419,59 @@ def logmatmulexp(x, y):
     return xy + x_shift + y_shift
 
 
+@jax.custom_jvp
+def log1mexp(x):
+    """
+    Numerically stable calculation of the quantity
+    :math:`\\log(1 - \\exp(x))`, following the algorithm
+    of `Mächler 2012`_.
+
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf # noqa
+
+    Returns ``-jnp.inf`` when ``x == 0`` and ``jnp.nan``
+    when ``x > 0``.
+
+    :param x: A number or array of numbers.
+    :return: The value of :math:`\\log(1 - \\exp(x))`.
+    """
+    return jnp.where(
+        x > -0.6931472,
+        jnp.log(-jnp.expm1(x)),
+        jnp.log1p(-jnp.exp(x)))
+
+
+# custom jvp for log1mexp to handle
+# the gradient when x is near 0.
+log1mexp.defjvps(
+    lambda tangent, primal_out, x: -tangent / jnp.expm1(-x))
+
+
+def logdiffexp(a, b):
+    """
+    Numerically stable calculation of the
+    quantity :math:`\\log(\\exp(a) - \\exp(b))`,
+    provided :math:`+\\infty > a \\ge b`,
+    following the algorithm of `Mächler 2012`_.
+
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf # noqa
+
+    Returns ``-jnp.inf`` when ``a == b``,
+    including when ``a == b == -jnp.inf``,
+    since this corresponds to ``jnp.log(0)``.
+    Returns ``jnp.nan`` when ``a < b``.
+
+    :param a: A number or array of numbers.
+    :param b: A number or array of numbers.
+    :return: The value of :math:`\\log(\\exp(a) - \\exp(b))`.
+    """
+    return jnp.where(a > b,
+                     a + log1mexp(b - a),
+                     jnp.where(
+                         (a == b) & (a < jnp.inf),
+                         -jnp.inf,
+                         jnp.nan))
+
+
 def clamp_probs(probs):
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)

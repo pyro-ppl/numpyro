@@ -1084,3 +1084,15 @@ BlockNeuralAutoregressiveTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Utilities
+---------
+
+log1mexp
+^^^^^^^^
+.. autofunction:: numpyro.distributions.util.log1mexp
+
+logdiffexp
+^^^^^^^^^^
+.. autofunction:: numpyro.distributions.util.logdiffexp
