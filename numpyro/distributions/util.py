@@ -426,8 +426,9 @@ def log1mexp(x):
     :math:`\\log(1 - \\exp(x))`, following the algorithm
     of `Mächler 2012`_.
 
-    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf # noqa
-
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
+    # noqa
+    
     Returns ``-jnp.inf`` when ``x == 0`` and ``jnp.nan``
     when ``x > 0``.
 
@@ -453,7 +454,8 @@ def logdiffexp(a, b):
     provided :math:`+\\infty > a \\ge b`,
     following the algorithm of `Mächler 2012`_.
 
-    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf # noqa
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
+    # noqa
 
     Returns ``-jnp.inf`` when ``a == b``,
     including when ``a == b == -jnp.inf``,
