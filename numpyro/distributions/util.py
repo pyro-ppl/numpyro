@@ -460,7 +460,8 @@ def logdiffexp(a, b):
     Returns ``-jnp.inf`` when ``a == b``,
     including when ``a == b == -jnp.inf``,
     since this corresponds to ``jnp.log(0)``.
-    Returns ``jnp.nan`` when ``a < b``.
+    Returns ``jnp.nan`` when ``a < b`` or
+    ``a == jnp.inf``.
 
     :param a: A number or array of numbers.
     :param b: A number or array of numbers.
