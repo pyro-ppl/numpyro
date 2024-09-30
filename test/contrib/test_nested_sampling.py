@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
@@ -17,9 +19,13 @@ except ImportError:
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:jax.tree_.+ is deprecated:FutureWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning"),
+    pytest.mark.skipif(
+        not os.environ.get("JAX_ENABLE_X64"),
+        reason="test suite for jaxns requires double precision",
+    ),
+]
 
 
 # Test helper to extract a few central moments from samples.
