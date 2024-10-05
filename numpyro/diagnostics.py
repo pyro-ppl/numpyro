@@ -96,13 +96,13 @@ def _fft_next_fast_len(target):
         target += 1
 
 
-def autocorrelation(x, axis=0, unbiased=False):
+def autocorrelation(x, axis=0, bias=True):
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
-    :param unbiased: use an unbiased estimator of the autocorrelation.
+    :param bias: whether to use a biased estimator.
     :return: autocorrelation of ``x``.
     :rtype: numpy.ndarray
     """
@@ -132,7 +132,7 @@ def autocorrelation(x, axis=0, unbiased=False):
     # the unbiased estimator is known to have "wild" tails, due to few samples at longer lags.
     # see Geyer (1992) and Priestley (1981) for a discussion. also note that it is only strictly
     # unbiased when the mean is known, whereas we it estimate from samples here.
-    if unbiased:
+    if not bias:
         autocorr = autocorr / np.arange(N, 0.0, -1)
 
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -140,19 +140,20 @@ def autocorrelation(x, axis=0, unbiased=False):
     return np.swapaxes(autocorr, axis, -1)
 
 
-def autocovariance(x, axis=0):
+def autocovariance(x, axis=0, bias=True):
     """
     Computes the autocovariance of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocovariance.
+    :param bias: whether to use a biased estimator.
     :return: autocovariance of ``x``.
     :rtype: numpy.ndarray
     """
-    return autocorrelation(x, axis) * x.var(axis=axis, keepdims=True)
+    return autocorrelation(x, axis, bias) * x.var(axis=axis, keepdims=True)
 
 
-def effective_sample_size(x):
+def effective_sample_size(x, bias=True):
     """
     Computes effective sample size of input ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -165,6 +166,7 @@ def effective_sample_size(x):
        Stan Development Team
 
     :param numpy.ndarray x: the input array.
+    :param bias: whether to use a biased estimator of the autocovariance.
     :return: effective sample size of ``x``.
     :rtype: numpy.ndarray
     """
@@ -173,7 +175,7 @@ def effective_sample_size(x):
     assert x.shape[1] >= 2
 
     # find autocovariance for each chain at lag k
-    gamma_k_c = autocovariance(x, axis=1)
+    gamma_k_c = autocovariance(x, axis=1, bias=bias)
 
     # find autocorrelation at lag k (from Stan reference)
     var_within, var_estimator = _compute_chain_variance_stats(x)
