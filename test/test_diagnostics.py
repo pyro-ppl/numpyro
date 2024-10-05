@@ -71,7 +71,7 @@ def test_autocorrelation():
     # the unbiased estimator has variance O(1) at large lags
     x = np.random.normal(size=20000)
     ac = autocorrelation(x, unbiased=True)
-    assert_(np.any(np.abs(ac[-100:]) > 0.01))
+    assert_(np.any(np.abs(ac[-100:]) > .1))
 
     ac = autocorrelation(x, unbiased=False)
     assert_allclose(np.abs(ac[-100:]), 0.0, atol=0.01)
