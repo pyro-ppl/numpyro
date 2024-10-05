@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
-from numpy.testing import assert_allclose
+from numpy.testing import assert_, assert_allclose
 import pytest
 from scipy.fftpack import next_fast_len
 
@@ -60,9 +60,21 @@ def test_hpdi():
 
 def test_autocorrelation():
     x = np.arange(10.0)
-    actual = autocorrelation(x)
+    actual = autocorrelation(x, unbiased=True)
     expected = np.array([1, 0.78, 0.52, 0.21, -0.13, -0.52, -0.94, -1.4, -1.91, -2.45])
     assert_allclose(actual, expected, atol=0.01)
+
+    actual = autocorrelation(x, unbiased=False)
+    expected = expected * np.arange(len(x), 0.0, -1) / len(x)
+    assert_allclose(actual, expected, atol=0.01)
+
+    # the unbiased estimator has variance O(1) at large lags
+    x = np.random.normal(size=20000)
+    ac = autocorrelation(x, unbiased=True)
+    assert_(np.any(np.abs(ac[-100:]) > 0.01))
+
+    ac = autocorrelation(x, unbiased=False)
+    assert_allclose(np.abs(ac[-100:]), 0.0, atol=0.01)
 
 
 def test_autocovariance():

@@ -96,12 +96,13 @@ def _fft_next_fast_len(target):
         target += 1
 
 
-def autocorrelation(x, axis=0):
+def autocorrelation(x, axis=0, unbiased=False):
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
+    :param unbiased: use an unbiased estimator of the autocorrelation.
     :return: autocorrelation of ``x``.
     :rtype: numpy.ndarray
     """
@@ -127,7 +128,13 @@ def autocorrelation(x, axis=0):
 
     # truncate and normalize the result, then transpose back to original shape
     autocorr = autocorr[..., :N]
-    autocorr = autocorr / np.arange(N, 0.0, -1)
+
+    # the unbiased estimator is known to have "wild" tails, due to few samples at longer lags.
+    # see Geyer (1992) and Priestley (1981) for a discussion. also note that it is only strictly
+    # unbiased when the mean is known, whereas we it estimate from samples here.
+    if unbiased:
+        autocorr = autocorr / np.arange(N, 0.0, -1)
+
     with np.errstate(invalid="ignore", divide="ignore"):
         autocorr = autocorr / autocorr[..., :1]
     return np.swapaxes(autocorr, axis, -1)
