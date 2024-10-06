@@ -302,12 +302,13 @@ class NestedSampler:
         # replace base samples in jaxns results by transformed samples
         self._results = results._replace(samples=samples)
 
-    def get_samples(self, rng_key, num_samples):
+    def get_samples(self, rng_key, num_samples, *, group_by_chain=False):
         """
         Draws samples from the weighted samples collected from the run.
 
         :param random.PRNGKey rng_key: Random number generator key to be used to draw samples.
         :param int num_samples: The number of samples.
+        :param bool group_by_chain: API compatibility argument. Not used.
         :return: a dict of posterior samples
         """
         if self._results is None:
