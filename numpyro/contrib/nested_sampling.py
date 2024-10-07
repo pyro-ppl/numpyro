@@ -3,7 +3,7 @@
 
 from functools import singledispatch
 
-from jax import random
+from jax import random, tree
 import jax.numpy as jnp
 
 try:
@@ -308,7 +308,7 @@ class NestedSampler:
 
         :param random.PRNGKey rng_key: Random number generator key to be used to draw samples.
         :param int num_samples: The number of samples.
-        :param bool group_by_chain: API compatibility argument. If True, a leading chain dimension of 1 is added to the output arrays.
+        :param bool group_by_chain: If True, a leading chain dimension of 1 is added to the output arrays.
         :return: a dict of posterior samples
         """
         if self._results is None:
@@ -320,7 +320,7 @@ class NestedSampler:
             rng_key, weighted_samples, sample_weights, S=num_samples, replace=True
         )
         chain_dim_sel = None if group_by_chain else Ellipsis
-        return jax.tree.map(lambda x: x[chain_dim_sel], samples)
+        return tree.map(lambda x: x[chain_dim_sel], samples)
 
     def get_weighted_samples(self):
         """
