@@ -9,9 +9,10 @@ from functools import partial
 from itertools import chain
 import operator
 
-import jax
-from jax import grad, jacfwd, numpy as jnp, random, vmap
+from jax import grad, numpy as jnp, random, vmap
+from jax.tree_util import tree_map
 from jax.flatten_util import ravel_pytree
+
 
 from numpyro import handlers
 from numpyro.contrib.einstein.stein_kernels import SteinKernel
@@ -20,11 +21,9 @@ from numpyro.contrib.einstein.stein_util import (
     batch_ravel_pytree,
     get_parameter_transform,
 )
-from numpyro.contrib.funsor import config_enumerate, enum
 from numpyro.distributions import Distribution
-from numpyro.distributions.transforms import IdentityTransform
-from numpyro.infer.autoguide import AutoGuide
-from numpyro.infer.util import _guess_max_plate_nesting, transform_fn
+from numpyro.infer.autoguide import AutoDelta, AutoGuide
+from numpyro.infer.util import transform_fn
 from numpyro.optim import _NumPyroOptim
 from numpyro.util import fori_collect
 
@@ -37,7 +36,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """Variational inference with Stein mixtures.
+    """ Variational inference with Stein mixtures inference.
 
 
     **Example:**
@@ -99,7 +98,6 @@ class SteinVI:
         loss_temperature: float = 1.0,
         repulsion_temperature: float = 1.0,
         non_mixture_guide_params_fn: Callable[[str], bool] = lambda name: False,
-        enum=True,
         **static_kwargs,
     ):
         if isinstance(guide, AutoGuide):
@@ -125,7 +123,7 @@ class SteinVI:
                 init_fn_name = guide.init_loc_fn.func.__name__
                 if init_fn_name == "init_to_uniform":
                     assert (
-                        guide.init_loc_fn.keywords.get("radius", None) != 0
+                        guide.init_loc_fn.keywords.get("radius", None) != 0.0
                     ), init_loc_error_message
             else:
                 init_fn_name = guide.init_loc_fn.__name__
@@ -148,7 +146,6 @@ class SteinVI:
         self.num_stein_particles = num_stein_particles
         self.loss_temperature = loss_temperature
         self.repulsion_temperature = repulsion_temperature
-        self.enum = enum
         self.non_mixture_params_fn = non_mixture_guide_params_fn
         self.guide_sites = None
         self.constrain_fn = None
@@ -238,34 +235,24 @@ class SteinVI:
         attractive_key, classic_key = random.split(rng_key)
 
         # 2. Calculate gradients for each particle
-        def kernel_particles_loss_fn(
-            rng_key, particles
-        ):  # TODO: rewrite using def to utilize jax caching
+        def kernel_particles_loss_fn(rng_key, particles):
             particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
             grads = vmap(
                 lambda i: grad(
-                    lambda particle: (
-                        vmap(
-                            lambda elbo_key: self.stein_loss.single_particle_loss(
-                                rng_key=elbo_key,
-                                model=handlers.scale(
-                                    self._inference_model, self.loss_temperature
-                                ),
-                                guide=self.guide,
-                                selected_particle=unravel_pytree(particle),
-                                unravel_pytree=unravel_pytree,
-                                flat_particles=particles,
-                                select_index=i,
-                                model_args=args,
-                                model_kwargs=kwargs,
-                                param_map=self.constrain_fn(non_mixture_uparams),
-                            )
-                        )(
-                            random.split(
-                                particle_keys[i], self.stein_loss.elbo_num_particles
-                            )
-                        )
-                    ).mean()
+                    lambda particle: self.stein_loss.particle_loss(
+                        rng_key=particle_keys[i],
+                        model=handlers.scale(
+                            self._inference_model, self.loss_temperature
+                        ),
+                        guide=self.guide,
+                        selected_particle=self.constrain_fn(unravel_pytree(particle)),
+                        unravel_pytree=unravel_pytree,
+                        flat_particles=vmap(particle_transform_fn)(particles),
+                        select_index=i,
+                        model_args=args,
+                        model_kwargs=kwargs,
+                        param_map=self.constrain_fn(non_mixture_uparams),
+                    )
                 )(particles[i])
             )(jnp.arange(self.stein_loss.stein_num_particles))
 
@@ -273,20 +260,15 @@ class SteinVI:
 
         def particle_transform_fn(particle):
             params = unravel_pytree(particle)
-
-            tparams = self.particle_transform_fn(params)
-            ctparams = self.constrain_fn(tparams)
-            tparticle, _ = ravel_pytree(tparams)
+            ctparams = self.constrain_fn(self.particle_transform_fn(params))
             ctparticle, _ = ravel_pytree(ctparams)
-            return tparticle, ctparticle
+            return ctparticle
 
         # 2.1 Lift particles to constraint space
-        tstein_particles, ctstein_particles = vmap(particle_transform_fn)(
-            stein_particles
-        )
+        ctstein_particles = vmap(particle_transform_fn)(stein_particles)
 
         # 2.2 Compute particle gradients (for attractive force)
-        particle_ljp_grads = kernel_particles_loss_fn(attractive_key, ctstein_particles)
+        particle_ljp_grads = kernel_particles_loss_fn(attractive_key, stein_particles)
 
         # 2.2 Compute non-mixture parameter gradients
         non_mixture_param_grads = grad(
@@ -301,9 +283,23 @@ class SteinVI:
             )
         )(non_mixture_uparams)
 
+        def loss_fn(particle, i):
+            return self.stein_loss.particle_loss(
+                rng_key=rng_key,
+                model=handlers.scale(self._inference_model, self.loss_temperature),
+                guide=self.guide,
+                selected_particle=self.constrain_fn(unravel_pytree(particle)),
+                unravel_pytree=unravel_pytree,
+                flat_particles=ctstein_particles,
+                select_index=i,
+                model_args=args,
+                model_kwargs=kwargs,
+                param_map=self.constrain_fn(non_mixture_uparams),
+            )
+
         # 3. Calculate kernel of particles
         kernel = self.kernel_fn.compute(
-            stein_particles, particle_info, kernel_particles_loss_fn
+            rng_key, stein_particles, particle_info, loss_fn
         )
 
         # 4. Calculate the attractive force and repulsive force on the particles
@@ -311,59 +307,28 @@ class SteinVI:
             lambda y: jnp.sum(
                 vmap(
                     lambda x, x_ljp_grad: self._apply_kernel(kernel, x, y, x_ljp_grad)
-                )(tstein_particles, particle_ljp_grads),
+                )(stein_particles, particle_ljp_grads),
                 axis=0,
             )
-        )(tstein_particles)
+        )(stein_particles)
+
         repulsive_force = vmap(
-            lambda y: jnp.sum(
+            lambda y: jnp.mean(
                 vmap(
                     lambda x: self.repulsion_temperature
                     * self._kernel_grad(kernel, x, y)
-                )(tstein_particles),
+                )(stein_particles),
                 axis=0,
             )
-        )(tstein_particles)
+        )(stein_particles)
 
-        def single_particle_grad(particle, attr_forces, rep_forces):
-            def _nontrivial_jac(var_name, var):
-                if isinstance(self.particle_transforms[var_name], IdentityTransform):
-                    return None
-                return jacfwd(self.particle_transforms[var_name].inv)(var)
-
-            def _update_force(attr_force, rep_force, jac):
-                force = attr_force.reshape(-1) + rep_force.reshape(-1)
-                if jac is not None:
-                    force = force @ jac.reshape(
-                        (_numel(jac.shape[: len(jac.shape) // 2]), -1)
-                    )
-                return force.reshape(attr_force.shape)
-
-            reparam_jac = {
-                name: jax.tree.map(lambda var: _nontrivial_jac(name, var), variables)
-                for name, variables in unravel_pytree(particle).items()
-            }
-            jac_params = jax.tree.map(
-                _update_force,
-                unravel_pytree(attr_forces),
-                unravel_pytree(rep_forces),
-                reparam_jac,
-            )
-            jac_particle, _ = ravel_pytree(jac_params)
-            return jac_particle
-
-        particle_grads = (
-            vmap(single_particle_grad)(
-                stein_particles, attractive_force, repulsive_force
-            )
-            / self.num_stein_particles
-        )
+        particle_grads = attractive_force + repulsive_force
 
         # 5. Decompose the monolithic particle forces back to concrete parameter values
         stein_param_grads = unravel_pytree_batched(particle_grads)
 
         # 6. Return loss and gradients (based on parameter forces)
-        res_grads = jax.tree.map(
+        res_grads = tree_map(
             lambda x: -x, {**non_mixture_param_grads, **stein_param_grads}
         )
         return jnp.linalg.norm(particle_grads), res_grads
@@ -400,7 +365,6 @@ class SteinVI:
         inv_transforms = {}
         particle_transforms = {}
         guide_param_names = set()
-        should_enum = False
         for site in model_trace.values():
             if (
                 "fn" in site
@@ -409,9 +373,7 @@ class SteinVI:
                 and isinstance(site["fn"], Distribution)
                 and site["fn"].is_discrete
             ):
-                if site["fn"].has_enumerate_support and self.enum:
-                    should_enum = True
-                else:
+                if site["fn"].has_enumerate_support:
                     raise Exception(
                         "Cannot enumerate model with discrete variables without enumerate support"
                     )
@@ -421,22 +383,17 @@ class SteinVI:
                 transform = get_parameter_transform(site)
                 inv_transforms[site["name"]] = transform
                 transforms[site["name"]] = transform.inv
-                particle_transforms[site["name"]] = site.get(
-                    "particle_transform", IdentityTransform()
-                )
+                particle_transforms[site["name"]] = transform
                 if site["name"] in guide_init_params:
                     pval = guide_init_params[site["name"]]
                     if self.non_mixture_params_fn(site["name"]):
-                        pval = jax.tree.map(lambda x: x[0], pval)
+                        pval = tree_map(lambda x: x[0], pval)
                 else:
                     pval = site["value"]
                 params[site["name"]] = transform.inv(pval)
                 if site["name"] in guide_trace:
                     guide_param_names.add(site["name"])
 
-        if should_enum:
-            mpn = _guess_max_plate_nesting(model_trace)
-            self._inference_model = enum(config_enumerate(self.model), -mpn - 1)
         self.guide_sites = guide_param_names
         self.constrain_fn = partial(transform_fn, inv_transforms)
         self.uconstrain_fn = partial(transform_fn, transforms)
@@ -482,6 +439,33 @@ class SteinVI:
         optim_state = self.optim.update(grads, optim_state)
         return SteinVIState(optim_state, rng_key), loss_val
 
+    def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
+        if init_state is None:
+            state = self.init(rng_key, *args, **kwargs)
+        else:
+            state = init_state
+        loss = self.evaluate(state, *args, **kwargs)
+
+        info_init = (state, loss)
+
+        def step(info):
+            state, loss = info
+            return self.update(state, *args, **kwargs)  # uses closure!
+
+        def collect(info):
+            _, loss = info
+            return loss
+
+        def extract(info):
+            state, _ = info
+            return state
+
+        def diagnostic(info):
+            _, loss = info
+            return f"Stein force {loss:.2f}."
+
+        return step, diagnostic, collect, extract, info_init
+
     def run(
         self,
         rng_key,
@@ -489,31 +473,24 @@ class SteinVI:
         *args,
         progress_bar=True,
         init_state=None,
-        collect_fn=lambda val: val[1],  # TODO: refactor
         **kwargs,
     ):
-        def bodyfn(_i, info):
-            body_state = info[0]
-            return (*self.update(body_state, *info[2:], **kwargs), *info[2:])
+        step, diagnostic, collect, extract, init_info = self.setup_run(
+            rng_key, num_steps, args, init_state, kwargs
+        )
 
-        if init_state is None:
-            state = self.init(rng_key, *args, **kwargs)
-        else:
-            state = init_state
-        loss = self.evaluate(state, *args, **kwargs)
         auxiliaries, last_res = fori_collect(
             0,
             num_steps,
-            lambda info: bodyfn(0, info),
-            (state, loss, *args),
+            step,
+            init_info,
             progbar=progress_bar,
-            transform=collect_fn,
+            transform=collect,
             return_last_val=True,
-            diagnostics_fn=lambda state: f"norm Stein force: {state[1]:.3f}"
-            if progress_bar
-            else None,
+            diagnostics_fn=diagnostic if progress_bar else None,
         )
-        state = last_res[0]
+
+        state = extract(last_res)
         return SteinVIRunResult(self.get_params(state), state, auxiliaries)
 
     def evaluate(self, state, *args, **kwargs):
@@ -532,3 +509,118 @@ class SteinVI:
             rng_key_eval, params, *args, **kwargs, **self.static_kwargs
         )
         return normed_stein_force
+
+
+class SVGD(SteinVI):
+    def __init__(
+        self,
+        model,
+        optim,
+        kernel_fn,
+        num_stein_particles=10,
+        guide_kwargs={},
+        **static_kwargs,
+    ):
+        super().__init__(
+            model=model,
+            guide=AutoDelta(model, **guide_kwargs),
+            optim=optim,
+            kernel_fn=kernel_fn,
+            num_stein_particles=num_stein_particles,
+            # With a Delta guide we only need one draw
+            # per particle to get its contribution to the expectation.
+            num_elbo_particles=1,
+            loss_temperature=1.0 / float(num_stein_particles),
+            # For SVGD repulsion temperature != 1 changes to
+            # target posterior so we keep it fixed at 1.
+            repulsion_temperature=1.0,
+            non_mixture_guide_params_fn=lambda name: False,
+            **static_kwargs,
+        )
+
+
+class ASVGD(SVGD):
+    """TODO"""
+
+    def __init__(
+        self,
+        model,
+        optim,
+        kernel_fn,
+        num_stein_particles=10,
+        num_cycles=10,
+        trans_speed=10,
+        guide_kwargs={},
+        **static_kwargs,
+    ):
+        self.num_cycles = num_cycles
+        self.trans_speed = trans_speed
+
+        super().__init__(
+            model,
+            optim,
+            kernel_fn,
+            num_stein_particles,
+            guide_kwargs,
+            **static_kwargs,
+        )
+
+    @staticmethod
+    def _cyclical_annealing(num_steps: int, num_cycles: int, trans_speed: int):
+        """Cyclical annealing schedule as in eq. 4 of [1].
+
+        **References** (MLA)
+        Annealed Stein Variational Gradient Descent. 2021. Francesco D'Angelo and Vincent Fortuin.
+
+        :param num_steps: The total number of steps. Corresponds to $T$ in eq. 4 of [1].
+        :param num_cycles: The total number of cycles. Corresponds to $C$ in eq. 4 of [1].
+        :param trans_speed: Speed of transition between two phases. Corresponds to $p$ in eq. 4 of [1].
+        """
+        norm = float(num_steps + 1) / float(num_cycles)
+        cycle_len = num_steps // num_cycles
+        last_start = (num_cycles - 1) * cycle_len
+
+        def cycle_fn(t):
+            last_cycle = t // last_start
+            return (1 - last_cycle) * (
+                ((t % cycle_len) + 1) / norm
+            ) ** trans_speed + last_cycle
+
+        return cycle_fn
+
+    def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
+        cyc_fn = ASVGD._cyclical_annealing(num_steps, self.num_cycles, self.trans_speed)
+
+        (
+            istep,
+            idiag,
+            icol,
+            iext,
+            iinit,
+        ) = super().setup_run(
+            rng_key,
+            num_steps,
+            args,
+            init_state,
+            kwargs,
+        )
+
+        def step(info):
+            t, iinfo = info[0], info[-1]
+            self.loss_temperature = cyc_fn(t) / float(self.num_stein_particles)
+            return (t + 1, istep(iinfo))
+
+        def diagnostic(info):
+            _, iinfo = info
+            return idiag(iinfo)
+
+        def collect(info):
+            _, iinfo = info
+            return icol(iinfo)
+
+        def extract_state(info):
+            _, iinfo = info
+            return iext(iinfo)
+
+        info_init = (0, iinit)
+        return step, diagnostic, collect, extract_state, info_init

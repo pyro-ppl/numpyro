@@ -8,8 +8,8 @@ from numpy.testing import assert_allclose
 import pytest
 import scipy
 
-import jax
 from jax import numpy as jnp
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.contrib.einstein.stein_util import batch_ravel_pytree, posdef, sqrth
 
@@ -82,10 +82,10 @@ def test_sqrth_shape(batch_shape):
 def test_ravel_pytree_batched(pytree, nbatch_dims):
     flat, _, unravel_fn = batch_ravel_pytree(pytree, nbatch_dims)
     unravel = unravel_fn(flat)
-    jax.tree.flatten(jax.tree.map(lambda x, y: assert_allclose(x, y), unravel, pytree))
+    tree_flatten(tree_map(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(
-        jax.tree.flatten(
-            jax.tree.map(
+        tree_flatten(
+            tree_map(
                 lambda x, y: jnp.result_type(x) == jnp.result_type(y), unravel, pytree
             )
         )[0]

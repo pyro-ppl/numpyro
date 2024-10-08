@@ -4,7 +4,8 @@
 from numpy.testing import assert_allclose
 from pytest import fail
 
-from jax import numpy as jnp, random, value_and_grad
+from jax import numpy as jnp, random, value_and_grad, grad
+from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro.contrib.einstein.stein_loss import SteinLoss
@@ -54,17 +55,18 @@ def test_stein_elbo():
 
 
 def test_stein_particle_loss():
-    def model(x):
-        numpyro.sample("x", dist.Normal(0, 1))
-        numpyro.sample("obs", dist.Normal(0, 1), obs=x)
+    def model(obs):
+        z = numpyro.sample("z", dist.Normal(0, 1))
+        numpyro.sample("obs", dist.Normal(z, 1), obs=obs)
 
     def guide(x):
-        numpyro.sample("x", dist.Normal(0, 1))
+        x = numpyro.param('x', 0.)
+        numpyro.sample("z", dist.Normal(x, 1))
 
-    def stein_loss_fn(x, particles, chosen_particle, assign):
+    def stein_loss_fn(chosen_particle, obs, particles, assign):
         return SteinLoss(
             elbo_num_particles=1, stein_num_particles=3
-        ).single_particle_loss(
+        ).particle_loss(
             random.PRNGKey(0),
             model,
             guide,
@@ -72,7 +74,7 @@ def test_stein_particle_loss():
             unravel_pytree,
             particles,
             assign,
-            (x,),
+            (obs,),
             {},
             {},
         )
@@ -80,18 +82,18 @@ def test_stein_particle_loss():
     xs = jnp.array([-1, 0.5, 3.0])
     num_particles = xs.shape[0]
     particles = {"x": xs}
+    zs = jnp.array([-0.1241799, -0.65357316, -0.96147573])   # from inspect
 
     flat_particles, unravel_pytree, _ = batch_ravel_pytree(particles, nbatch_dims=1)
-    losses, grads = [], []
-    for i in range(num_particles):
-        chosen_particle = unravel_pytree(flat_particles[i])
-        loss, grad = value_and_grad(stein_loss_fn)(
-            2.0, flat_particles, chosen_particle, i
-        )
-        losses.append(loss)
-        grads.append(grad)
 
-    assert jnp.abs(losses[0] - losses[1]) > 0.1
-    assert jnp.abs(losses[1] - losses[2]) > 0.1
-    assert_allclose(grads[0], grads[1])
-    assert_allclose(grads[1], grads[2])
+    for i in range(num_particles):
+        chosen_particle = {"x": jnp.array([-1.])}
+        act_loss = stein_loss_fn(
+            chosen_particle, 2.0, flat_particles, i
+        )
+
+        z = zs[i]
+        lp_m = dist.Normal().log_prob(z) + dist.Normal(z).log_prob(2.)
+        lp_g = logsumexp(dist.Normal(xs).log_prob(z)) - jnp.log(3)
+        exp_loss = lp_m - lp_g
+        assert_allclose(act_loss, exp_loss)

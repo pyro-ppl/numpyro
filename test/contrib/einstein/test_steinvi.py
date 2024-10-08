@@ -21,6 +21,8 @@ from numpyro.contrib.einstein import (
     RandomFeatureKernel,
     RBFKernel,
     SteinVI,
+    SVGD,
+    ASVGD
 )
 from numpyro.contrib.einstein.stein_kernels import MixtureKernel
 import numpyro.distributions as dist
@@ -116,7 +118,7 @@ def regression():
 
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_kernel_smoke(kernel, problem):
+def test_kernel_smoke_smi(kernel, problem):
     true_coefs, data, model = problem()
     stein = SteinVI(
         model,
@@ -126,6 +128,36 @@ def test_kernel_smoke(kernel, problem):
     )
     stein.run(random.PRNGKey(0), 1, *data)
 
+@pytest.mark.parametrize("kernel", KERNELS)
+@pytest.mark.parametrize("problem", (uniform_normal, regression))
+@pytest.mark.parametrize("method", ('ASVGD', 'SVGD', 'SteinVI'))
+def test_run_smoke(kernel, problem, method):
+    true_coefs, data, model = problem()
+    match method:
+        case 'ASVGD': 
+            stein = ASVGD(
+                model,
+                Adam(1e-1),
+                kernel,
+                num_stein_particles=1
+            )
+        case 'SVGD': 
+            stein = ASVGD(
+                model,
+                Adam(1e-1),
+                kernel,
+                num_stein_particles=1
+            )
+        case 'SteinVI':
+            stein = SteinVI(
+                model,
+                AutoNormal(model),
+                Adam(1e-1),
+                kernel,
+                num_stein_particles=1
+            )
+
+    stein.run(random.PRNGKey(0), 1, *data)
 
 ########################################
 # Stein Interior
