@@ -4,7 +4,7 @@
 from numpy.testing import assert_allclose
 from pytest import fail
 
-from jax import numpy as jnp, random, value_and_grad, grad
+from jax import numpy as jnp, random, value_and_grad
 from jax.scipy.special import logsumexp
 
 import numpyro
@@ -60,13 +60,11 @@ def test_stein_particle_loss():
         numpyro.sample("obs", dist.Normal(z, 1), obs=obs)
 
     def guide(x):
-        x = numpyro.param('x', 0.)
+        x = numpyro.param("x", 0.0)
         numpyro.sample("z", dist.Normal(x, 1))
 
     def stein_loss_fn(chosen_particle, obs, particles, assign):
-        return SteinLoss(
-            elbo_num_particles=1, stein_num_particles=3
-        ).particle_loss(
+        return SteinLoss(elbo_num_particles=1, stein_num_particles=3).particle_loss(
             random.PRNGKey(0),
             model,
             guide,
@@ -82,18 +80,16 @@ def test_stein_particle_loss():
     xs = jnp.array([-1, 0.5, 3.0])
     num_particles = xs.shape[0]
     particles = {"x": xs}
-    zs = jnp.array([-0.1241799, -0.65357316, -0.96147573])   # from inspect
+    zs = jnp.array([-0.1241799, -0.65357316, -0.96147573])  # from inspect
 
     flat_particles, unravel_pytree, _ = batch_ravel_pytree(particles, nbatch_dims=1)
 
     for i in range(num_particles):
-        chosen_particle = {"x": jnp.array([-1.])}
-        act_loss = stein_loss_fn(
-            chosen_particle, 2.0, flat_particles, i
-        )
+        chosen_particle = {"x": jnp.array([-1.0])}
+        act_loss = stein_loss_fn(chosen_particle, 2.0, flat_particles, i)
 
         z = zs[i]
-        lp_m = dist.Normal().log_prob(z) + dist.Normal(z).log_prob(2.)
+        lp_m = dist.Normal().log_prob(z) + dist.Normal(z).log_prob(2.0)
         lp_g = logsumexp(dist.Normal(xs).log_prob(z)) - jnp.log(3)
         exp_loss = lp_m - lp_g
         assert_allclose(act_loss, exp_loss)

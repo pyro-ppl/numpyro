@@ -116,36 +116,6 @@ class RBFKernel(SteinKernel):
         return self._mode
 
 
-class RBFHessianKernel(SteinKernel):
-    r"""Calculates the RBFHessianKernel from [1] (bottom of p. 4) given by
-    :math:`k(x,y)=\exp(\frac{1}{d}((x-y)^T M (x-y)))`
-    where `d` is the dimension of the particles (`x` and `y` ) and
-    :math: `M = \frac{1}{m} \nabla_x^2 log p(x)|_{x=x_i}`
-
-    **References:**
-        Maken, F. A., Ramos, F., & Ott, L. (2022). Stein Particle Filter for Nonlinear, non-Gaussian State Estimation.
-        IEEE Robotics and Automation Letters, 7(2), 5421-5428.
-
-    """
-
-    def __init__(self, mode="norm"):
-        assert mode == "norm", "RBFHessianKernel only defined for norm kernels"
-        self._mode = mode
-
-    def compute(self, rng_key, particles, partilces_info, loss_fn):
-        M = -vmap(hessian(loss_fn))(particles, jnp.arange(particles.shape[0])).mean(0)
-
-        def kernel(x, y):
-            diff = jnp.reshape(x, -1) - jnp.reshape(y, -1)
-            return jnp.exp(-(1 / jnp.shape(diff)[0]) * diff.T @ M @ diff)
-
-        return kernel
-
-    @property
-    def mode(self):
-        return self._mode
-
-
 class IMQKernel(SteinKernel):
     """
     Calculates the IMQ kernel

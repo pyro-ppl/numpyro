@@ -12,7 +12,7 @@ from numpyro.contrib.einstein.stein_kernels import (
     RBFKernel,
 )
 from numpyro.contrib.einstein.stein_loss import SteinLoss
-from numpyro.contrib.einstein.steinvi import SteinVI, ASVGD, SVGD
+from numpyro.contrib.einstein.steinvi import ASVGD, SVGD, SteinVI
 
 __all__ = [
     "ASVGD",

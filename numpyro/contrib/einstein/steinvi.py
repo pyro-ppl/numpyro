@@ -10,9 +10,8 @@ from itertools import chain
 import operator
 
 from jax import grad, numpy as jnp, random, vmap
-from jax.tree_util import tree_map
 from jax.flatten_util import ravel_pytree
-
+from jax.tree_util import tree_map
 
 from numpyro import handlers
 from numpyro.contrib.einstein.stein_kernels import SteinKernel
@@ -36,7 +35,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """ Variational inference with Stein mixtures inference.
+    """Variational inference with Stein mixtures inference.
 
 
     **Example:**
