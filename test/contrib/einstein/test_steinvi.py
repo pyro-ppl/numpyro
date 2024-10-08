@@ -117,19 +117,6 @@ def regression():
 
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_kernel_smoke_smi(kernel, problem):
-    true_coefs, data, model = problem()
-    stein = SteinVI(
-        model,
-        AutoNormal(model),
-        Adam(1e-1),
-        kernel,
-    )
-    stein.run(random.PRNGKey(0), 1, *data)
-
-
-@pytest.mark.parametrize("kernel", KERNELS)
-@pytest.mark.parametrize("problem", (uniform_normal, regression))
 @pytest.mark.parametrize("method", ("ASVGD", "SVGD", "SteinVI"))
 def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()

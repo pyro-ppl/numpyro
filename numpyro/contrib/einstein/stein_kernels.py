@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from jax import hessian, random, vmap
+from jax import random
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 import jax.scipy.linalg
