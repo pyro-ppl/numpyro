@@ -16,6 +16,7 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein import (
     ASVGD,
+    SVGD,
     GraphicalKernel,
     IMQKernel,
     LinearKernel,
@@ -124,7 +125,7 @@ def test_run_smoke(kernel, problem, method):
         stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
     if method == "SVGD":
         stein = SVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
-    if method =="SteinVI":
+    if method == "SteinVI":
         stein = SteinVI(
             model, AutoNormal(model), Adam(1e-1), kernel, num_stein_particles=1
         )
