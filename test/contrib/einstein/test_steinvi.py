@@ -120,15 +120,14 @@ def regression():
 @pytest.mark.parametrize("method", ("ASVGD", "SVGD", "SteinVI"))
 def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()
-    match method:
-        case "ASVGD":
-            stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
-        case "SVGD":
-            stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
-        case "SteinVI":
-            stein = SteinVI(
-                model, AutoNormal(model), Adam(1e-1), kernel, num_stein_particles=1
-            )
+    if method == "ASVGD":
+        stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+    if method == "SVGD":
+        stein = SVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+    if method =="SteinVI":
+        stein = SteinVI(
+            model, AutoNormal(model), Adam(1e-1), kernel, num_stein_particles=1
+        )
 
     stein.run(random.PRNGKey(0), 1, *data)
 
