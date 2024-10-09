@@ -100,9 +100,7 @@ class RBFKernel(SteinKernel):
             reduce = jnp.sum if self._normed() else lambda x: x
             kernel_res = jnp.exp(-reduce((x - y) ** 2) / stop_gradient(bandwidth))
             if self._mode == "matrix":
-                if (
-                    self.matrix_mode == "norm_diag"
-                ): 
+                if self.matrix_mode == "norm_diag":
                     return kernel_res * jnp.identity(x.shape[0])
                 else:
                     return jnp.diag(kernel_res)
@@ -119,8 +117,8 @@ class RBFKernel(SteinKernel):
 class IMQKernel(SteinKernel):
     """
     Calculates the IMQ kernel
-    :math:`k(x,y) = (c^2 + \\|x+y\\|^2_2)^{\\beta},`
-    from [1].
+    :math:`k(x,y) = (c^2 + \\|x-y\\|^2_2)^{\\beta},`
+    from Theorem 8 of [1].
 
     **References:**
 
@@ -158,8 +156,8 @@ class IMQKernel(SteinKernel):
 class LinearKernel(SteinKernel):
     """
     Calculates the linear kernel
-    :math:`k(x,y) = x \\cdot y + 1`
-    from [1].
+    :math:`k(x,y) = x^T y + 1`
+    from theorem 3.3 in [1].
 
     **References:**
 

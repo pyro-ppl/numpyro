@@ -7,7 +7,6 @@ import shutil
 import sys
 
 import nbsphinx
-import sphinx_rtd_theme
 
 # import pkg_resources
 
