@@ -251,6 +251,12 @@ class SteinVI:
         )
         attractive_key, classic_key = random.split(rng_key)
 
+        def particle_transform_fn(particle):
+            params = unravel_pytree(particle)
+            ctparams = self.constrain_fn(self.particle_transform_fn(params))
+            ctparticle, _ = ravel_pytree(ctparams)
+            return ctparticle
+
         # 2. Calculate gradients for each particle
         def kernel_particles_loss_fn(rng_key, particles):
             particle_keys = random.split(rng_key, self.stein_loss.stein_num_particles)
@@ -277,12 +283,6 @@ class SteinVI:
 
         # 2.1 Compute particle gradients (for attractive force)
         particle_ljp_grads = kernel_particles_loss_fn(attractive_key, stein_particles)
-
-        def particle_transform_fn(particle):
-            params = unravel_pytree(particle)
-            ctparams = self.constrain_fn(self.particle_transform_fn(params))
-            ctparticle, _ = ravel_pytree(ctparams)
-            return ctparticle
 
         # 2.3 Lift particles to constraint space
         ctstein_particles = vmap(particle_transform_fn)(stein_particles)
