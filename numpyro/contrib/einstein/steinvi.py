@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from collections.abc import Callable
 from copy import deepcopy
 import functools
 from functools import partial
@@ -14,7 +13,6 @@ from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_map
 
 from numpyro import handlers
-from numpyro.contrib.einstein.stein_kernels import SteinKernel
 from numpyro.contrib.einstein.stein_loss import SteinLoss
 from numpyro.contrib.einstein.stein_util import (
     batch_ravel_pytree,
@@ -23,7 +21,6 @@ from numpyro.contrib.einstein.stein_util import (
 from numpyro.distributions import Distribution
 from numpyro.infer.autoguide import AutoDelta, AutoGuide
 from numpyro.infer.util import transform_fn
-from numpyro.optim import _NumPyroOptim
 from numpyro.util import fori_collect
 
 SteinVIState = namedtuple("SteinVIState", ["optim_state", "rng_key"])
@@ -52,7 +49,7 @@ class SteinVI:
         >>> from numpyro.contrib.einstein import MixtureGuidePredictive, SteinVI, RBFKernel
 
         >>> def model(data):
-        ...     f = sample("fairness", dist.Beta(10, 10))
+        ...     f = sample("fairness", Beta(10, 10))
         ...     n = data.shape[0] if data is not None else 1
         ...     with plate("N", n):
         ...         sample("obs", Bernoulli(f), obs=data)
@@ -64,7 +61,7 @@ class SteinVI:
         ...     beta_q = param("beta_q",
         ...                     lambda rng_key: random.exponential(rng_key),
         ...                     constraint=positive)
-        ...     sample("fairness", dist.Beta(alpha_q, beta_q))
+        ...     sample("fairness", Beta(alpha_q, beta_q))
 
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
 
@@ -73,9 +70,9 @@ class SteinVI:
         >>> stein = SteinVI(model, guide, opt, k, num_stein_particles=2)
 
         >>> stein_result = stein.run(random.PRNGKey(0), 200, data)
-
-        >>> # Use guide to make predictive
         >>> params = stein_result.params
+
+        >>> # Use guide to make predictions.
         >>> predictive = MixtureGuidePredictive(model, guide, params, num_samples=10, guide_sites=stein.guide_sites)
         >>> samples = predictive(random.PRNGKey(1), data=None)
 
@@ -101,23 +98,23 @@ class SteinVI:
 
     **References:** (MLA style)
 
-        1. Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
-            International Conference on Machine Learning. PMLR, 2019.
-        2. Wang, Dilin, and Qiang Liu. "Nonlinear Stein Variational Gradient Descent for Learning Diversified
-            Mixture Models." International Conference on Machine Learning. PMLR, 2019.
-    """
+    1. Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
+        International Conference on Machine Learning. PMLR, 2019.
+    2. Wang, Dilin, and Qiang Liu. "Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models."
+        International Conference on Machine Learning. PMLR, 2019.
+    """  # noqa: E501
 
     def __init__(
         self,
-        model: Callable,
-        guide: Callable,
-        optim: _NumPyroOptim,
-        kernel_fn: SteinKernel,
-        num_stein_particles: int = 10,
-        num_elbo_particles: int = 10,
-        loss_temperature: float = 1.0,
-        repulsion_temperature: float = 1.0,
-        non_mixture_guide_params_fn: Callable[[str], bool] = lambda name: False,
+        model,
+        guide,
+        optim,
+        kernel_fn,
+        num_stein_particles=10,
+        num_elbo_particles=10,
+        loss_temperature=1.0,
+        repulsion_temperature=1.0,
+        non_mixture_guide_params_fn=lambda name: False,
         **static_kwargs,
     ):
         if isinstance(guide, AutoGuide):
@@ -278,19 +275,19 @@ class SteinVI:
 
             return grads
 
+        # 2.1 Compute particle gradients (for attractive force)
+        particle_ljp_grads = kernel_particles_loss_fn(attractive_key, stein_particles)
+
         def particle_transform_fn(particle):
             params = unravel_pytree(particle)
             ctparams = self.constrain_fn(self.particle_transform_fn(params))
             ctparticle, _ = ravel_pytree(ctparams)
             return ctparticle
 
-        # 2.1 Lift particles to constraint space
+        # 2.3 Lift particles to constraint space
         ctstein_particles = vmap(particle_transform_fn)(stein_particles)
 
-        # 2.2 Compute particle gradients (for attractive force)
-        particle_ljp_grads = kernel_particles_loss_fn(attractive_key, stein_particles)
-
-        # 2.2 Compute non-mixture parameter gradients
+        # 2.4 Compute non-mixture parameter gradients
         non_mixture_param_grads = grad(
             lambda cps: -self.stein_loss.loss(
                 classic_key,
@@ -303,6 +300,7 @@ class SteinVI:
             )
         )(non_mixture_uparams)
 
+        # 3. Calculate kernel of particles
         def loss_fn(particle, i):
             return self.stein_loss.particle_loss(
                 rng_key=rng_key,
@@ -317,7 +315,6 @@ class SteinVI:
                 param_map=self.constrain_fn(non_mixture_uparams),
             )
 
-        # 3. Calculate kernel of particles
         kernel = self.kernel_fn.compute(
             rng_key, stein_particles, particle_info, loss_fn
         )
@@ -342,12 +339,13 @@ class SteinVI:
             )
         )(stein_particles)
 
+        # 6. Compute the stein force
         particle_grads = attractive_force + repulsive_force
 
-        # 5. Decompose the monolithic particle forces back to concrete parameter values
+        # 7. Decompose the monolithic particle forces back to concrete parameter values
         stein_param_grads = unravel_pytree_batched(particle_grads)
 
-        # 6. Return loss and gradients (based on parameter forces)
+        # 8. Return loss and gradients (based on parameter forces)
         res_grads = tree_map(
             lambda x: -x, {**non_mixture_param_grads, **stein_param_grads}
         )
@@ -434,7 +432,7 @@ class SteinVI:
     def get_params(self, state: SteinVIState):
         """Gets values at `param` sites of the `model` and `guide`.
 
-        :param state: Current state of the SteinVI.
+        :param SteinVIState state: Current state of optimization.
         :return: Constraint parameters (i.e., particles).
         """
         params = self.constrain_fn(self.optim.get_params(state.optim_state))
@@ -558,7 +556,7 @@ class SVGD(SteinVI):
         >>> from numpyro.infer import Predictive
 
         >>> def model(data):
-        ...     f = sample("fairness", dist.Beta(10, 10))
+        ...     f = sample("fairness", Beta(10, 10))
         ...     n = data.shape[0] if data is not None else 1
         ...     with plate("N", n):
         ...         sample("obs", Bernoulli(f), obs=data)
@@ -597,8 +595,8 @@ class SVGD(SteinVI):
 
     **References:** (MLA style)
 
-        1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian
-            Inference Algorithm." Advances in neural information processing systems 29 (2016).
+    1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm."
+        Advances in neural information processing systems 29 (2016).
     """
 
     def __init__(
@@ -620,7 +618,7 @@ class SVGD(SteinVI):
             # per particle to get its contribution to the expectation.
             num_elbo_particles=1,
             loss_temperature=1.0 / float(num_stein_particles),
-            # For SVGD repulsion temperature != 1 changes to
+            # For SVGD repulsion temperature != 1 changes the
             # target posterior so we keep it fixed at 1.
             repulsion_temperature=1.0,
             non_mixture_guide_params_fn=lambda name: False,
@@ -646,7 +644,7 @@ class ASVGD(SVGD):
         >>> from numpyro.infer import Predictive
 
         >>> def model(data):
-        ...     f = sample("fairness", dist.Beta(10, 10))
+        ...     f = sample("fairness", Beta(10, 10))
         ...     n = data.shape[0] if data is not None else 1
         ...     with plate("N", n):
         ...         sample("obs", Bernoulli(f), obs=data)
@@ -689,8 +687,8 @@ class ASVGD(SVGD):
 
     **References:** (MLA style)
 
-        1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
-            Third Symposium on Advances in Approximate Bayesian Inference, 2021.
+    1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
+        Third Symposium on Advances in Approximate Bayesian Inference, 2021.
     """
 
     def __init__(
