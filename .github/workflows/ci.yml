@@ -118,6 +118,9 @@ jobs:
     - name: Test custom prng
       run: |
         JAX_ENABLE_CUSTOM_PRNG=1 pytest -vs test/infer/test_mcmc.py
+    - name: Test nested sampling
+      run: |
+        JAX_ENABLE_X64=1 pytest -vs test/contrib/test_nested_sampling.py
 
 
   examples:
