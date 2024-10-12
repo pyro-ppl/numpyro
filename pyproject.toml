@@ -1,24 +1,101 @@
+[project]
+name = "numpyro"
+version = "0.15.3"
+description = "Pyro PPL on NumPy"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Uber AI Labs", email = "npradhan@uber.com" },
+]
+keywords = ["probabilistic", "machine learning", "bayesian", "statistics"]
+license.file = "LICENSE.md"
+classifiers=[
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "jax>=0.4.25",
+    "jaxlib>=0.4.25",
+    "multipledispatch>=1.0.0",
+    "numpy>=2.0.2",
+    "tqdm>=4.66.5",
+]
+
+[project.optional-dependencies]
+doc = [
+    "ipython",  # sphinx needs this to render codes
+    "nbsphinx>=0.8.9",
+    "readthedocs-sphinx-search>=0.3.2",
+    "sphinx>=5",
+    "sphinx_rtd_theme",
+    "sphinx-gallery",
+]
+test = [
+    "importlib-metadata<5.0",
+    "ruff>=0.1.8",
+    "pytest>=4.1",
+    "pyro-api>=0.1.1",
+    "scikit-learn",
+    "scipy>=1.9",
+]
+dev = [
+    "dm-haiku",
+    "flax",
+    "funsor>=0.4.1",
+    "graphviz",
+    "jaxns==2.4.8",
+    "matplotlib",
+    "optax>=0.0.6",
+    "pylab-sdk",  # jaxns dependency
+    "pyyaml",  # flax dependency
+    "requests",  # pylab dependency
+    "tensorflow_probability>=0.18.0",
+]
+examples = [
+    "arviz",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "seaborn",
+    "scikit-learn",
+    "wordcloud",
+]
+cpu = ["numpyro", "jax[cpu]"]
+# gpu = ["numpyro", "jax[tpu]"]
+# cuda = ["numpyro", "jax[cuda]"]
+
+[project.urls]
+Documentation = "https://num.pyro.ai/en/stable/"
+Repository = "https://github.com/pyro-ppl/numpyro"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = ["src/numpyro/version.py"]
+
+[tool.hatch.build.targets.sdist.hooks.custom]
+hooks = ["write_version_file"]
+
+[tool.hatch.hooks.write_version_file]
+path = "your_package/version.py"
+template = '''
+# Auto-generated version file
+__version__ = "{version}"
+'''
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".ipynb_checkpoints",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pyenv",
-    ".pytest_cache",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    ".vscode",
+    ".*",
     "__pypackages__",
     "_build",
     "buck-out",
@@ -63,8 +140,8 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.lint.extend-per-file-ignores]
-"numpyro/contrib/tfp/distributions.py" = ["F811"]
-"numpyro/distributions/kl.py" = ["F811"]
+"src/numpyro/contrib/tfp/distributions.py" = ["F811"]
+"src/numpyro/distributions/kl.py" = ["F811"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -101,4 +178,9 @@ doctest_optionflags = [
     "ELLIPSIS",
     "NORMALIZE_WHITESPACE",
     "IGNORE_EXCEPTION_DETAIL",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pre-commit>=4.0.1",
 ]
