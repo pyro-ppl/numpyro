@@ -89,7 +89,8 @@ class BernoulliProbs(Distribution):
     @validate_sample
     def log_prob(self, value):
         ps_clamped = clamp_probs(self.probs)
-        return xlogy(value, ps_clamped) + xlog1py(1 - value, -ps_clamped)
+        value = jnp.array(value, jnp.result_type(float))
+        return xlogy(value, ps_clamped) + xlog1py(1.0 - value, -ps_clamped)
 
     @lazy_property
     def logits(self):
@@ -190,6 +191,7 @@ class BinomialProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        value = jnp.array(value, jnp.result_type(float))
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
@@ -558,6 +560,7 @@ class MultinomialProbs(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
+        value = jnp.array(value, jnp.result_type(float))
         return gammaln(self.total_count + 1) + jnp.sum(
             xlogy(value, self.probs) - gammaln(value + 1), axis=-1
         )
