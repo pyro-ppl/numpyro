@@ -21,6 +21,7 @@ from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning"),
+    pytest.mark.filterwarnings("ignore:JAX x64 is not enabled. Setting it now. Check for errors.:UserWarning"),
     pytest.mark.skipif(
         not os.environ.get("JAX_ENABLE_X64"),
         reason="test suite for jaxns requires double precision",

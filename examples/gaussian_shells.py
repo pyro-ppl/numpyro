@@ -32,9 +32,6 @@ from numpyro.contrib.nested_sampling import NestedSampler
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, DiscreteHMCGibbs
 
-numpyro.enable_x64()
-numpyro.set_host_device_count(2)
-
 
 class GaussianShell(dist.Distribution):
     support = dist.constraints.real_vector
@@ -126,6 +123,7 @@ def main(args):
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith("0.15.3")
+
     parser = argparse.ArgumentParser(description="Nested sampler for Gaussian shells")
     parser.add_argument("-n", "--num-samples", nargs="?", default=10000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
@@ -138,6 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
+    numpyro.enable_x64()
     numpyro.set_platform(args.device)
 
     main(args)
