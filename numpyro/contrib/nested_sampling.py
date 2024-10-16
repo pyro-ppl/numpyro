@@ -3,12 +3,13 @@
 
 from functools import singledispatch
 
+import jax
 from jax import random, tree
 import jax.numpy as jnp
 
 try:
+    import jaxns  # noqa: F401
     from jaxns import (
-        DefaultNestedSampler,
         Model,
         Prior,
         TerminationCondition,
@@ -17,11 +18,13 @@ try:
         resample,
         summary,
     )
+    from jaxns.public import DefaultNestedSampler
     from jaxns.utils import NestedSamplerResults
 
 except ImportError as e:
     raise ImportError(
-        "To use this module, please install `jaxns` package. It can be"
+        f"{e} \n "
+        f"To use this module, please install `jaxns>2.5` package. It can be"
         " installed with `pip install jaxns` with python>=3.8"
     ) from e
 
@@ -142,9 +145,7 @@ class NestedSampler:
     :param dict termination_kwargs: keyword arguments to terminate the sampler. Please
         refer to the upstream :meth:`jaxns.NestedSampler.__call__` method.
 
-    **Example**
-
-    .. doctest::
+    Example::
 
         >>> from jax import random
         >>> import jax.numpy as jnp
@@ -258,7 +259,7 @@ class NestedSampler:
 
         default_constructor_kwargs = dict(
             num_live_points=model.U_ndims * 25,
-            num_parallel_workers=1,
+            devices=jax.devices(),
             max_samples=1e4,
         )
         default_termination_kwargs = dict(dlogZ=1e-4)

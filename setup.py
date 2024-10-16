@@ -61,7 +61,7 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==2.4.8",
+            "jaxns==2.6.3",
             "matplotlib",
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency

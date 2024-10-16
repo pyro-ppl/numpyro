@@ -104,7 +104,7 @@ jobs:
     - name: Test with pytest
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
-        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
+        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py --ignore=test/contrib/test_nested_sampling.py
         pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
     - name: Test x64
       run: |
@@ -118,6 +118,9 @@ jobs:
     - name: Test custom prng
       run: |
         JAX_ENABLE_CUSTOM_PRNG=1 pytest -vs test/infer/test_mcmc.py
+    - name: Test nested sampling
+      run: |
+        JAX_ENABLE_X64=1 pytest -vs test/contrib/test_nested_sampling.py
 
 
   examples:

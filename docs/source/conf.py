@@ -34,6 +34,8 @@ from numpyro.infer.hmc import hmc  # noqa: E402
 
 hmc(None, None)
 
+autodoc_mock_imports = ["jaxns"]
+
 # -- Project information -----------------------------------------------------
 
 project = "NumPyro"
