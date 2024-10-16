@@ -719,7 +719,7 @@ class LowerCholeskyAffine(Transform):
        >>> scale_tril = jnp.array([[0.3, 0.0], [1.0, 0.5]])
        >>> affine = LowerCholeskyAffine(loc=loc, scale_tril=scale_tril)
        >>> affine(base)
-       Array([0.3, 1.5], dtype=float64)
+       Array([0.3, 1.5], dtype=float32)
     """
 
     domain = constraints.real_vector

@@ -13,15 +13,18 @@ import jax.numpy as jnp
 import numpyro
 
 try:
-    from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
+    if os.environ.get("JAX_ENABLE_X64"):
+        from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
+
 except ImportError:
     pytestmark = pytest.mark.skip(reason="jaxns is not installed")
+
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning"),
-    pytest.mark.filterwarnings("ignore:JAX x64 is not enabled. Setting it now. Check for errors.:UserWarning"),
+    pytest.mark.filterwarnings("ignore:JAX x64"),
     pytest.mark.skipif(
         not os.environ.get("JAX_ENABLE_X64"),
         reason="test suite for jaxns requires double precision",
