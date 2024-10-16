@@ -714,9 +714,9 @@ class LowerCholeskyAffine(Transform):
 
        >>> import jax.numpy as jnp
        >>> from numpyro.distributions.transforms import LowerCholeskyAffine
-       >>> base = jnp.ones(2)
-       >>> loc = jnp.zeros(2)
-       >>> scale_tril = jnp.array([[0.3, 0.0], [1.0, 0.5]])
+       >>> base = jnp.ones(2, dtype=jnp.float32)
+       >>> loc = jnp.zeros(2, dtype=jnp.float32)
+       >>> scale_tril = jnp.array([[0.3, 0.0], [1.0, 0.5]], dtype=jnp.float32)
        >>> affine = LowerCholeskyAffine(loc=loc, scale_tril=scale_tril)
        >>> affine(base)
        Array([0.3, 1.5], dtype=float32)
