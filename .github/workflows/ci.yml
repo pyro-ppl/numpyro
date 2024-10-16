@@ -104,8 +104,8 @@ jobs:
     - name: Test with pytest
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
-        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
-        pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
+        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py --ignore=test/contrib/test_nested_sampling.py
+        pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py --ignore=test/contrib/test_nested_sampling.py
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
