@@ -4,7 +4,7 @@ funsor
 ipython
 jax
 jaxlib
-jaxns==2.6.2
+jaxns==2.6.3
 Jinja2
 matplotlib
 multipledispatch

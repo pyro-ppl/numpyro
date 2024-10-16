@@ -145,9 +145,7 @@ class NestedSampler:
     :param dict termination_kwargs: keyword arguments to terminate the sampler. Please
         refer to the upstream :meth:`jaxns.NestedSampler.__call__` method.
 
-    **Example**
-
-    .. doctest::
+    Example::
 
         >>> from jax import random
         >>> import jax.numpy as jnp

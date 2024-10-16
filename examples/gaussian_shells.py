@@ -18,8 +18,6 @@ NUTS sampler.
        https://github.com/joshspeagle/dynesty/blob/master/demos/Examples%20--%20Gaussian%20Shells.ipynb
 """
 
-# ruff: noqa: E402
-
 import argparse
 
 import matplotlib.pyplot as plt
