@@ -1463,8 +1463,10 @@ class AutoSemiDAIS(AutoGuide):
         if self.global_guide is not None:
             global_latents = self.global_guide(*args, **kwargs)
             rng_key = numpyro.prng_key()
-            with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
-                data=global_latents
+            with (
+                handlers.block(),
+                handlers.seed(rng_seed=rng_key),
+                handlers.substitute(data=global_latents),
             ):
                 global_outputs = self.global_guide.model(*args, **kwargs)
             local_args = (global_outputs,)
@@ -1575,9 +1577,12 @@ class AutoSemiDAIS(AutoGuide):
             if self.local_guide is not None:
                 key = numpyro.prng_key()
                 subsample_guide = partial(_subsample_model, self.local_guide)
-                with handlers.block(), handlers.trace() as tr, handlers.seed(
-                    rng_seed=key
-                ), handlers.substitute(data=local_guide_params):
+                with (
+                    handlers.block(),
+                    handlers.trace() as tr,
+                    handlers.seed(rng_seed=key),
+                    handlers.substitute(data=local_guide_params),
+                ):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         subsample_guide(*local_args, **local_kwargs)
