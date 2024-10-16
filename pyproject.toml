@@ -77,7 +77,7 @@ Repository = "https://github.com/pyro-ppl/numpyro"
 
 
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 
