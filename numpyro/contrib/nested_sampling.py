@@ -4,7 +4,7 @@
 from functools import singledispatch
 
 import jax
-from jax import random
+from jax import random, tree
 import jax.numpy as jnp
 
 try:
@@ -305,12 +305,13 @@ class NestedSampler:
         # replace base samples in jaxns results by transformed samples
         self._results = results._replace(samples=samples)
 
-    def get_samples(self, rng_key, num_samples):
+    def get_samples(self, rng_key, num_samples, *, group_by_chain=False):
         """
         Draws samples from the weighted samples collected from the run.
 
         :param random.PRNGKey rng_key: Random number generator key to be used to draw samples.
         :param int num_samples: The number of samples.
+        :param bool group_by_chain: If True, a leading chain dimension of 1 is added to the output arrays.
         :return: a dict of posterior samples
         """
         if self._results is None:
@@ -318,9 +319,11 @@ class NestedSampler:
                 "NestedSampler.run(...) method should be called first to obtain results."
             )
         weighted_samples, sample_weights = self.get_weighted_samples()
-        return resample(
+        samples = resample(
             rng_key, weighted_samples, sample_weights, S=num_samples, replace=True
         )
+        chain_dim_sel = None if group_by_chain else Ellipsis
+        return tree.map(lambda x: x[chain_dim_sel], samples)
 
     def get_weighted_samples(self):
         """
