@@ -1,3 +1,91 @@
+[project]
+name = "numpyro"
+version = "0.1.53"
+description="Pyro PPL on NumPy"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Uber AI Labs", email = "npradhan@uber.com" },
+]
+keywords = ["probabilistic", "machine learning", "bayesian", "statistics"]
+license.file = "LICENSE.md"
+classifiers=[
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "jax>=0.4.25",
+    "jaxlib>=0.4.25",
+    "multipledispatch>=1.0.0",
+    "numpy>=1.22",
+    "tqdm>=4.60",
+]
+
+[project.optional-dependencies]
+doc = [
+    "ipython",  # sphinx needs this to render codes
+    "nbsphinx>=0.8.9",
+    "readthedocs-sphinx-search>=0.3.2",
+    "sphinx>=5",
+    "sphinx_rtd_theme",
+    "sphinx-gallery",
+]
+test = [
+    "importlib-metadata<5.0",
+    "ruff>=0.1.8",
+    "pytest>=4.1",
+    "pyro-api>=0.1.1",
+    "scikit-learn",
+    "scipy>=1.9",
+]
+dev = [
+    "dm-haiku",
+    "flax",
+    "funsor>=0.4.1",
+    "graphviz",
+    "jaxns==2.6.3",
+    "matplotlib",
+    "optax>=0.0.6",
+    "pylab-sdk",  # jaxns dependency
+    "pyyaml",  # flax dependency
+    "requests",  # pylab dependency
+    "tensorflow_probability>=0.18.0",
+]
+examples = [
+    "arviz",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "seaborn",
+    "scikit-learn",
+    "wordcloud",
+]
+cpu = ["numpyro", "jax[cpu]"]
+gpu = ["numpyro", "jax[tpu]"]
+cuda = ["numpyro", "jax[cuda]"]
+
+[project.urls]
+Documentation = "https://num.pyro.ai/en/stable/"
+Repository = "https://github.com/pyro-ppl/numpyro"
+
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+# NOTE: this can be simplified using src-layout
+[tool.setuptools.packages.find]
+include = ["numpyro*"]
+
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
