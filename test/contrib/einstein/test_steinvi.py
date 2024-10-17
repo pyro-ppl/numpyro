@@ -15,6 +15,8 @@ from jax import numpy as jnp, random
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein import (
+    ASVGD,
+    SVGD,
     GraphicalKernel,
     IMQKernel,
     LinearKernel,
@@ -116,14 +118,18 @@ def regression():
 
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_kernel_smoke(kernel, problem):
+@pytest.mark.parametrize("method", ("ASVGD", "SVGD", "SteinVI"))
+def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()
-    stein = SteinVI(
-        model,
-        AutoNormal(model),
-        Adam(1e-1),
-        kernel,
-    )
+    if method == "ASVGD":
+        stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+    if method == "SVGD":
+        stein = SVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+    if method == "SteinVI":
+        stein = SteinVI(
+            model, AutoNormal(model), Adam(1e-1), kernel, num_stein_particles=1
+        )
+
     stein.run(random.PRNGKey(0), 1, *data)
 
 

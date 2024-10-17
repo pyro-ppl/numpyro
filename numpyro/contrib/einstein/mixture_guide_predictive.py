@@ -4,20 +4,26 @@
 from collections.abc import Callable, Sequence
 from functools import partial
 from typing import Optional
+import warnings
 
-import jax
 from jax import numpy as jnp, random, vmap
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.handlers import substitute
 from numpyro.infer import Predictive
+from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.util import _predictive
+from numpyro.util import find_stack_level
 
 
 class MixtureGuidePredictive:
     """(EXPERIMENTAL INTERFACE) This class constructs the predictive distribution for
-    :class:`numpyro.contrib.einstein.steinvi.SteinVi`
+    :class:`numpyro.contrib.einstein.steinvi.SteinVi`.
 
     .. Note:: For single mixture component use numpyro.infer.Predictive.
+
+    .. Note:: For :class:`numpyro.contrib.einstein.steinvi.SVGD` and :class:`numpyro.contrib.einstein.steinvi.ASVGD` use
+        :class:`numpyro.infer.util.Predictive`.
 
     .. warning::
         The `MixtureGuidePredictive` is experimental and will likely be replaced by
@@ -44,6 +50,14 @@ class MixtureGuidePredictive:
         return_sites: Optional[Sequence[str]] = None,
         mixture_assignment_sitename="mixture_assignments",
     ):
+        if isinstance(guide, AutoGuide):
+            guide_name = guide.__class__.__name__
+            if guide_name == "AutoDelta":
+                warnings.warn(
+                    "Use numpyro.inter.Predictive with `batch_ndims=1` for ASVGD and SVGD.",
+                    stacklevel=find_stack_level(),
+                )
+
         self.model_predictive = partial(
             Predictive,
             model=model,
@@ -63,7 +77,7 @@ class MixtureGuidePredictive:
 
         self.guide = guide
         self.return_sites = return_sites
-        self.num_mixture_components = jnp.shape(jax.tree.flatten(params)[0][0])[0]
+        self.num_mixture_components = jnp.shape(tree_flatten(params)[0][0])[0]
         self.mixture_assignment_sitename = mixture_assignment_sitename
 
     def _call_with_params(self, rng_key, params, args, kwargs):
@@ -99,7 +113,7 @@ class MixtureGuidePredictive:
             minval=0,
             maxval=self.num_mixture_components,
         )
-        predictive_assign = jax.tree.map(
+        predictive_assign = tree_map(
             lambda arr: vmap(lambda i, assign: arr[i, assign])(
                 jnp.arange(self._batch_shape[0]), assigns
             ),
