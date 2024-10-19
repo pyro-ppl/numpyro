@@ -43,11 +43,10 @@ The framework currently supports several kernels, including:
 - `RandomFeatureKernel`
 - `MixtureKernel`
 - `GraphicalKernel`
-- `ProbabilityProductKernel`
 
 For example, usage see:
 
-- The `Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_
+- The `Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_.
 
 **References**
 
@@ -55,9 +54,9 @@ For example, usage see:
 Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
 Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
 Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
-Yvik Swan. https://arxiv.org/abs/2105.03481
+Yvik Swan.
 
-2. *Stein variational gradient descent: A general-purpose Bayesian inference algorithm* (2016)
+2. *Stein Variational Gradient Descent: A General-Purpose Bayesian Inference Algorithm* (2016)
 Qiang Liu, Dilin Wang. NeurIPS
 
 3. *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models* (2019)

@@ -12,17 +12,19 @@ from numpyro.contrib.einstein.stein_kernels import (
     RBFKernel,
 )
 from numpyro.contrib.einstein.stein_loss import SteinLoss
-from numpyro.contrib.einstein.steinvi import SteinVI
+from numpyro.contrib.einstein.steinvi import ASVGD, SVGD, SteinVI
 
 __all__ = [
-    "SteinVI",
-    "SteinLoss",
-    "RBFKernel",
+    "ASVGD",
+    "GraphicalKernel",
     "IMQKernel",
     "LinearKernel",
-    "RandomFeatureKernel",
-    "GraphicalKernel",
-    "MixtureKernel",
-    "ProbabilityProductKernel",
     "MixtureGuidePredictive",
+    "MixtureKernel",
+    "RandomFeatureKernel",
+    "RBFKernel",
+    "ProbabilityProductKernel",
+    "SVGD",
+    "SteinVI",
+    "SteinLoss",
 ]
