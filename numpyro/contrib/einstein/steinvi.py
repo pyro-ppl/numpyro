@@ -8,9 +8,8 @@ from functools import partial
 from itertools import chain
 import operator
 
-from jax import grad, numpy as jnp, random, vmap
+from jax import grad, numpy as jnp, random, tree, vmap
 from jax.flatten_util import ravel_pytree
-from jax.tree_util import tree_map
 
 from numpyro import handlers
 from numpyro.contrib.einstein.stein_loss import SteinLoss
@@ -346,7 +345,7 @@ class SteinVI:
         stein_param_grads = unravel_pytree_batched(particle_grads)
 
         # 8. Return loss and gradients (based on parameter forces)
-        res_grads = tree_map(
+        res_grads = tree.map(
             lambda x: -x, {**non_mixture_param_grads, **stein_param_grads}
         )
         return jnp.linalg.norm(particle_grads), res_grads
@@ -405,7 +404,7 @@ class SteinVI:
                 if site["name"] in guide_init_params:
                     pval = guide_init_params[site["name"]]
                     if self.non_mixture_params_fn(site["name"]):
-                        pval = tree_map(lambda x: x[0], pval)
+                        pval = tree.map(lambda x: x[0], pval)
                 else:
                     pval = site["value"]
                 params[site["name"]] = transform.inv(pval)

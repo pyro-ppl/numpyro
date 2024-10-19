@@ -6,8 +6,7 @@ from functools import partial
 from typing import Optional
 import warnings
 
-from jax import numpy as jnp, random, vmap
-from jax.tree_util import tree_flatten, tree_map
+from jax import numpy as jnp, random, tree, vmap
 
 from numpyro.handlers import substitute
 from numpyro.infer import Predictive
@@ -77,7 +76,7 @@ class MixtureGuidePredictive:
 
         self.guide = guide
         self.return_sites = return_sites
-        self.num_mixture_components = jnp.shape(tree_flatten(params)[0][0])[0]
+        self.num_mixture_components = jnp.shape(tree.flatten(params)[0][0])[0]
         self.mixture_assignment_sitename = mixture_assignment_sitename
 
     def _call_with_params(self, rng_key, params, args, kwargs):
@@ -113,7 +112,7 @@ class MixtureGuidePredictive:
             minval=0,
             maxval=self.num_mixture_components,
         )
-        predictive_assign = tree_map(
+        predictive_assign = tree.map(
             lambda arr: vmap(lambda i, assign: arr[i, assign])(
                 jnp.arange(self._batch_shape[0]), assigns
             ),
