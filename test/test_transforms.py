@@ -397,3 +397,16 @@ def test_biject_to(constraint, shape):
     expected_shape = constrained.shape[: constrained.ndim - constraint.event_dim]
     assert passed.shape == expected_shape
     assert jnp.all(passed)
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        CorrCholeskyTransform(),
+        CorrCholeskyTransform().inv,
+    ],
+)
+def test_compose_domain_codomain(transform):
+    composed = ComposeTransform([transform])
+    assert transform.domain.event_dim == composed.domain.event_dim
+    assert transform.codomain.event_dim == composed.codomain.event_dim

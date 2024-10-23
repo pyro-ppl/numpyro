@@ -282,7 +282,7 @@ class AffineTransform(Transform):
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
-    for part in parts[len(parts) - 1 :: -1]:
+    for part in parts[:-1][::-1]:
         input_event_dim = part.domain.event_dim + max(
             input_event_dim - part.codomain.event_dim, 0
         )
