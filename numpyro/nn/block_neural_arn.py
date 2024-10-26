@@ -114,7 +114,7 @@ def Tanh():
     return init_fun, apply_fun
 
 
-def LeakyTanh(min_grad: float = 0.001):
+def LeakyTanh(min_grad: float = 0.01):
     """
     Leaky Tanh nonlinearity :math:`y=Tanh(x) + cx` with its log-Jacobian.
 
@@ -204,6 +204,7 @@ def BlockNeuralAutoregressiveNN(
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     :param str residual: Type of residual connections to use. One of `None`, `"normal"`, `"gated"`.
+    :param tuple activation: An (`init_fn`, `update_fn`) pair. Defaults to ``LeakyTanh``.
     :return: an (`init_fn`, `update_fn`) pair.
     """
     layers = []

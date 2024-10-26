@@ -9,14 +9,17 @@ import pytest
 
 from jax import jacfwd, random
 from jax.example_libraries import stax
+import jax.numpy as jnp
+import jax.random as jr
 
+from numpyro.distributions import Normal, TransformedDistribution
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,
     InverseAutoregressiveTransform,
 )
 from numpyro.distributions.util import matrix_to_tril_vec
 from numpyro.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
-from numpyro.nn.block_neural_arn import Tanh, LeakyTanh
+from numpyro.nn.block_neural_arn import LeakyTanh, Tanh
 
 
 def _make_iaf_args(input_dim, hidden_dims):
@@ -110,3 +113,21 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
 
         assert np.sum(np.abs(np.triu(jac, 1))) == 0.00
         assert np.all(np.abs(matrix_to_tril_vec(jac)) > 0)
+
+
+def test_bnaf_normalization():
+    dim = (1,)
+    x = jnp.linspace(-1000, 1000, 5000)[:, None]
+
+    init_fn, apply_fn = BlockNeuralAutoregressiveNN(dim[0], activation=LeakyTanh(0.1))
+    params = init_fn(jr.PRNGKey(0), (1,))[1]
+    arn = partial(apply_fn, params)
+    bnaf = BlockNeuralAutoregressiveTransform(arn)
+    dist = TransformedDistribution(Normal(jnp.zeros(dim), 0.5), bnaf.inv)
+    probs = jnp.exp(dist.log_prob(x))
+    probs, x = jnp.squeeze(probs), jnp.squeeze(x)
+
+    # Rough integral
+    integral = jnp.trapezoid(probs, x)
+    assert integral > 0.9
+    assert integral < 1.1
