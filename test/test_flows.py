@@ -16,6 +16,7 @@ from numpyro.distributions.flows import (
 )
 from numpyro.distributions.util import matrix_to_tril_vec
 from numpyro.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
+from numpyro.nn.block_neural_arn import Tanh, LeakyTanh
 
 
 def _make_iaf_args(input_dim, hidden_dims):
@@ -34,8 +35,12 @@ def _make_iaf_args(input_dim, hidden_dims):
     return (partial(arn, init_params),)
 
 
-def _make_bnaf_args(input_dim, hidden_factors):
-    arn_init, arn = BlockNeuralAutoregressiveNN(input_dim, hidden_factors)
+def _make_bnaf_args(input_dim, hidden_factors, activation):
+    arn_init, arn = BlockNeuralAutoregressiveNN(
+        input_dim,
+        hidden_factors,
+        activation=activation,
+    )
     _, rng_key_perm = random.split(random.PRNGKey(0))
     _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
     return (partial(arn, init_params),)
@@ -46,10 +51,24 @@ def _make_bnaf_args(input_dim, hidden_factors):
     [
         (InverseAutoregressiveTransform, _make_iaf_args(5, hidden_dims=[10]), 5),
         (InverseAutoregressiveTransform, _make_iaf_args(7, hidden_dims=[8, 9]), 7),
-        (BlockNeuralAutoregressiveTransform, _make_bnaf_args(7, hidden_factors=[4]), 7),
         (
             BlockNeuralAutoregressiveTransform,
-            _make_bnaf_args(7, hidden_factors=[2, 3]),
+            _make_bnaf_args(7, hidden_factors=[4], activation=LeakyTanh()),
+            7,
+        ),
+        (
+            BlockNeuralAutoregressiveTransform,
+            _make_bnaf_args(7, hidden_factors=[2, 3], activation=LeakyTanh()),
+            7,
+        ),
+        (
+            BlockNeuralAutoregressiveTransform,
+            _make_bnaf_args(7, hidden_factors=[4], activation=Tanh()),
+            7,
+        ),
+        (
+            BlockNeuralAutoregressiveTransform,
+            _make_bnaf_args(7, hidden_factors=[2, 3], activation=Tanh()),
             7,
         ),
     ],
