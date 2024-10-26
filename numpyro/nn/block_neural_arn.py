@@ -121,6 +121,7 @@ def LeakyTanh(min_grad: float = 0.01):
     This choice when used in ``BlockNeuralAutoregressiveNN`` ensures the image of the
     transformation is the set of real values (unlike ``Tanh``).
 
+    :param float min_grad: The minimum gradient value (:math:`c` above). Defaults to 0.01.
     :return: an (`init_fn`, `apply_fn`) pair.
     """
 
