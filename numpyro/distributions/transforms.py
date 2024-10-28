@@ -1209,10 +1209,6 @@ class ReshapeTransform(Transform):
     :param inverse_shape: Shape of the sample for the inverse transform.
     """
 
-    domain = constraints.real
-    codomain = constraints.real
-    sign = 1
-
     def __init__(self, forward_shape, inverse_shape) -> None:
         forward_size = math.prod(forward_shape)
         inverse_size = math.prod(inverse_shape)
@@ -1223,6 +1219,14 @@ class ReshapeTransform(Transform):
             )
         self._forward_shape = forward_shape
         self._inverse_shape = inverse_shape
+
+    @property
+    def domain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, len(self._inverse_shape))
+
+    @property
+    def codomain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, len(self._forward_shape))
 
     def forward_shape(self, shape):
         return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
