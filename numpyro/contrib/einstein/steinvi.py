@@ -581,8 +581,9 @@ class SVGD(SteinVI):
         kernel selection are not well understood yet.
     :param num_stein_particles: Number of particles (i.e., mixture components) in the mixture approximation.
         Default is 10.
-    :param Dict guide_kwargs: Keyword arguments for `~numpyro.infer.autoguide.AutoDelta`.
-        Default behaviour is the same as the default for `~numpyro.infer.autoguide.AutoDelta`.
+    :param Dict guide_kwargs: Keyword arguments for :class:`~numpyro.infer.autoguide.AutoDelta`.
+        Default behaviour is the same as the default for :class:`~numpyro.infer.autoguide.AutoDelta`.
+
         Usage::
 
             opt = Adagrad(step_size=0.05)
@@ -669,12 +670,13 @@ class ASVGD(SVGD):
         This may change as criteria for kernel selection are not well understood yet.
     :param num_stein_particles: Number of particles (i.e., mixture components) in the mixture approximation.
         Default is `10`.
-    :param num_cycles: The total number of cycles during inference. This corresponds to $C$ in eq. 4 of [1].
+    :param num_cycles: The total number of cycles during inference. This corresponds to :math:`C` in eq. 4 of [1].
         Default is `10`.
-    :param trans_speed: Speed of transition between two phases during inference. This corresponds to $p$ in eq. 4
+    :param trans_speed: Speed of transition between two phases during inference. This corresponds to :math:`p` in eq. 4
         of [1]. Default is `10`.
-    :param Dict guide_kwargs: Keyword arguments for `~numpyro.infer.autoguide.AutoDelta`.
-        Default behaviour is the same as the default for `~numpyro.infer.autoguide.AutoDelta`.
+    :param Dict guide_kwargs: Keyword arguments for :class:`~numpyro.infer.autoguide.AutoDelta`.
+        Default behaviour is the same as the default for :class:`~numpyro.infer.autoguide.AutoDelta`.
+
         Usage::
 
             opt = Adagrad(step_size=0.05)
