@@ -133,9 +133,8 @@ def ss_model(data, num_data, num_mix_comp=2):
         sine = SineBivariateVonMises(
             phi_loc=phi_loc[assign],
             psi_loc=psi_loc[assign],
-            # These concentrations are an order of magnitude lower than expected (550-1000)!
-            phi_concentration=70 * phi_conc[assign],
-            psi_concentration=70 * psi_conc[assign],
+            phi_concentration=1000 * phi_conc[assign],
+            psi_concentration=1000 * psi_conc[assign],
             weighted_correlation=corr_scale[assign],
         )
         return numpyro.sample("phi_psi", SineSkewed(sine, skewness[assign]), obs=data)
@@ -143,7 +142,7 @@ def ss_model(data, num_data, num_mix_comp=2):
 
 def run_hmc(rng_key, model, data, num_mix_comp, args, bvm_init_locs):
     kernel = NUTS(
-        model, init_strategy=init_to_value(values=bvm_init_locs), max_tree_depth=7
+        model, init_strategy=init_to_value(values=bvm_init_locs)
     )
     mcmc = MCMC(kernel, num_samples=args.num_samples, num_warmup=args.num_warmup)
     mcmc.run(rng_key, data, len(data), num_mix_comp)
@@ -162,7 +161,7 @@ def num_mix_comps(amino_acid):
     return num_mix.get(amino_acid, 9)
 
 
-def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.pdf"):
+def ramachandran_plot(data, pred_data, aas, file_name="ssbvm_mixture.png"):
     amino_acids = {"S": "Serine", "P": "Proline", "G": "Glycine"}
     fig, axss = plt.subplots(2, len(aas))
     cdata = data
