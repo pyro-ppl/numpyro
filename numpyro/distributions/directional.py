@@ -308,7 +308,7 @@ class SineBivariateVonMises(Distribution):
     .. note:: Sample efficiency drops as
 
         .. math::
-            \frac{\rho}{\sqrt(\kappa_1\kappa_2)} \rightarrow 1
+            \frac{\rho^2}{\kappa_1\kappa_2} \rightarrow 1
 
         because the distribution becomes increasingly bimodal. To avoid inefficient sampling use the
         `weighted_correlation` parameter with a skew away from one (e.g.,
