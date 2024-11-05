@@ -141,9 +141,7 @@ def ss_model(data, num_data, num_mix_comp=2):
 
 
 def run_hmc(rng_key, model, data, num_mix_comp, args, bvm_init_locs):
-    kernel = NUTS(
-        model, init_strategy=init_to_value(values=bvm_init_locs)
-    )
+    kernel = NUTS(model, init_strategy=init_to_value(values=bvm_init_locs))
     mcmc = MCMC(kernel, num_samples=args.num_samples, num_warmup=args.num_warmup)
     mcmc.run(rng_key, data, len(data), num_mix_comp)
     mcmc.print_summary()
