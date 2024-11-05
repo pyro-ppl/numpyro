@@ -16,7 +16,7 @@ Nested Sampling is a non-MCMC approach that works for arbitrary probability mode
 
 Stein Variational Inference
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Stein Variational Inference (SteinVI) is a family of VI techniques for approximate Bayesian inference based on
+Stein variational inference (SteinVI) is a family of VI techniques for approximate Bayesian inference based on
 Stein’s method (see [1] for an overview). It is gaining popularity as it combines
 the scalability of traditional VI with the flexibility of non-parametric particle-based methods.
 
@@ -24,9 +24,9 @@ Stein variational gradient descent (SVGD) [2] is a recent SteinVI technique whic
 particles :math:`\{z_i\}_{i=1}^N` to approximate a distribution p(z).
 SVGD is well suited for capturing correlations between latent variables as a particle-based method.
 The technique preserves the scalability of traditional VI approaches while offering the flexibility and modeling scope
-of methods such as Markov chain Monte Carlo (MCMC). SVGD is good at capturing multi-modality [3][4].
+of methods such as Markov chain Monte Carlo (MCMC). SVGD is good at capturing multi-modality [3].
 
-``numpyro.contrib.einstein`` is a framework for particle-based inference using the Stein mixture algorithm.
+``numpyro.contrib.einstein`` is a framework for particle-based inference using the Stein mixture inference algorithm [4].
 The framework works on Stein mixtures, a restricted mixture of guide programs parameterized by Stein particles.
 Similarly to how SVGD works, Stein mixtures can approximate model posteriors by moving the Stein particles according
 to the Stein forces. Because the Stein particles parameterize a guide, they capture a neighborhood rather than a
@@ -44,27 +44,33 @@ The framework currently supports several kernels, including:
 - `MixtureKernel`
 - `GraphicalKernel`
 
-For example, usage see:
+SteinVI based examples include:
 
 - The `Bayesian neural network example <https://num.pyro.ai/en/latest/examples/stein_bnn.html>`_.
+- The `deep Markov example <https://num.pyro.ai/en/latest/examples/stein_dmm.html>`_.
 
 **References**
 
-1. *Stein's Method Meets Statistics: A Review of Some Recent Developments* (2021)
-Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
-Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
-Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
-Yvik Swan.
+1. *Stein's Method Meets Statistics: A Review of Some Recent Developments.* 2021.
+    Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
+    Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
+    Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
+    Yvik Swan.
 
-2. *Stein Variational Gradient Descent: A General-Purpose Bayesian Inference Algorithm* (2016)
-Qiang Liu, Dilin Wang. NeurIPS
+2. *Stein Variational Gradient Descent: A General-Purpose Bayesian Inference Algorithm.* 2016.
+    Qiang Liu, Dilin Wang. NeurIPS
 
-3. *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models* (2019)
-Dilin Wang, Qiang Liu. PMLR
+3. *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models.* 2019.
+    Dilin Wang, Qiang Liu. PMLR
+
+4. *ELBOing Stein: Variational Bayes with Stein Mixture Inference.* 2024.
+    Ola Rønning, Eric Nalisnick, Christophe Ley, Padhraic Smyth, and Thomas Hamelryck. arXiv:2410.22948.
 
 SteinVI Interface
 -----------------
 .. autoclass:: numpyro.contrib.einstein.steinvi.SteinVI
+.. autoclass:: numpyro.contrib.einstein.steinvi.SVGD
+.. autoclass:: numpyro.contrib.einstein.steinvi.ASVGD
 
 SteinVI Kernels
 ---------------
