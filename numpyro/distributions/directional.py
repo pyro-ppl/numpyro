@@ -8,6 +8,7 @@ from math import pi
 import operator
 
 from jax import lax
+from jax.lax import stop_gradient
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy import special
@@ -311,7 +312,9 @@ class SineBivariateVonMises(Distribution):
             \frac{\rho}{\kappa_1\kappa_2} \rightarrow 1
 
         because the distribution becomes increasingly bimodal. To avoid bimodality use the `weighted_correlation`
-        parameter with a skew away from one (e.g., Beta(1,3)). The `weighted_correlation` should be in [0,1].
+        parameter with a skew away from one (e.g.,
+        `TransformedDistribution(Beta(3,3), AffineTransform(loc=-1, scale=2))`).  The `weighted_correlation`
+        should be in [-1,1].
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
 
@@ -404,7 +407,10 @@ class SineBivariateVonMises(Distribution):
             jnp.log(jnp.clip(corr**2, jnp.finfo(jnp.result_type(float)).tiny))
             - jnp.log(4 * jnp.prod(conc, axis=-1))
         )
-        fs += log_I1(49, conc, terms=51).sum(-1)
+        num_I1terms = jnp.maximum(
+            501, jnp.max(self.phi_concentration) + jnp.max(self.psi_concentration)
+        ).astype(int)
+        fs += log_I1(49, conc, terms=stop_gradient(num_I1terms)).sum(-1)
         norm_const = 2 * jnp.log(jnp.array(2 * pi)) + logsumexp(fs, 0)
         return norm_const.reshape(jnp.shape(self.phi_loc))
 

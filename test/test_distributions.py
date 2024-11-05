@@ -3464,3 +3464,16 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
     x2 = dist2.sample(random.PRNGKey(7))
     assert jnp.allclose(x1, x2.squeeze())
     assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))
+
+
+@pytest.mark.parametrize("conc", [1.0, 10.0, 1000.0])
+def test_sine_bivariate_von_mises_norm(conc):
+    dist = SineBivariateVonMises(0, 0, conc, conc, 0.0)
+    num_samples = 500
+    x = jnp.linspace(-jnp.pi, jnp.pi, num_samples)
+    y = jnp.linspace(-jnp.pi, jnp.pi, num_samples)
+    mesh = jnp.stack(jnp.meshgrid(x, y), axis=-1)
+    integral_torus = (
+        jnp.exp(dist.log_prob(mesh)) * (2 * jnp.pi) ** 2 / num_samples**2
+    ).sum()
+    assert jnp.allclose(integral_torus, 1.0, rtol=1e-2)
