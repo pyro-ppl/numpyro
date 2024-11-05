@@ -3466,7 +3466,7 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
     assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))
 
 
-@pytest.mark.parametrize("conc", [1.0, 10.0, 1000.0])
+@pytest.mark.parametrize("conc", [1.0, 10.0, 1000.0, 10000.0])
 def test_sine_bivariate_von_mises_norm(conc):
     dist = SineBivariateVonMises(0, 0, conc, conc, 0.0)
     num_samples = 500
