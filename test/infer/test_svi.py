@@ -227,8 +227,17 @@ def test_beta_bernoulli(elbo, optimizer):
     )
 
 
-@pytest.mark.parametrize("progress_bar", [True, False])
-def test_run(progress_bar):
+@pytest.mark.parametrize(
+    argnames="vectorize_particles",
+    argvalues=[True, False, jax.pmap, lambda x: x],
+    ids=["vmap", "lax", "pmap", "custom"],
+)
+@pytest.mark.parametrize(
+    argnames="progress_bar",
+    argvalues=[True, False],
+    ids=["progress_bar", "no_progress_bar"],
+)
+def test_run(vectorize_particles, progress_bar):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
@@ -247,7 +256,12 @@ def test_run(progress_bar):
         )
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
+    svi = SVI(
+        model,
+        guide,
+        optim.Adam(0.05),
+        Trace_ELBO(vectorize_particles=vectorize_particles),
+    )
     svi_result = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
     params, losses = svi_result.params, svi_result.losses
     assert losses.shape == (1000,)
