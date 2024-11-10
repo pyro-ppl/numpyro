@@ -26,6 +26,10 @@ from numpyro.ops.provenance import eval_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 
+def _apply_vmap(fn, keys):
+    return vmap(fn)(keys)
+
+
 class ELBO:
     """
     Base class for all ELBO objectives.
@@ -36,7 +40,8 @@ class ELBO:
         (gradient) estimators.
     :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
         num_particles-many particles in parallel. If False use `jax.lax.map`.
-        Defaults to True.
+        Defaults to True. You can also pass a callable to specify a custom vectorization
+        strategy, for example `jax.pmap`.
     """
 
     """
@@ -49,6 +54,22 @@ class ELBO:
     def __init__(self, num_particles=1, vectorize_particles=True):
         self.num_particles = num_particles
         self.vectorize_particles = vectorize_particles
+        self.vectorize_particles_fn = self._assign_vectorize_particles_fn(
+            vectorize_particles
+        )
+
+    def _assign_vectorize_particles_fn(self, vectorize_particles):
+        """Assigns a vectorization function to self.vectorize_particles_fn."""
+        if callable(vectorize_particles):
+            return vectorize_particles
+        elif vectorize_particles is True:
+            return _apply_vmap
+        elif vectorize_particles is False:
+            return jax.lax.map
+        else:
+            raise ValueError(
+                "`vectorize_particles` needs to be a boolean or a callable."
+            )
 
     def loss(
         self,
@@ -123,7 +144,8 @@ class Trace_ELBO(ELBO):
         (gradient) estimators.
     :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
         num_particles-many particles in parallel. If False use `jax.lax.map`.
-        Defaults to True.
+        Defaults to True. You can also pass a callable to specify a custom vectorization
+        strategy, for example `jax.pmap`.
     :param multi_sample_guide: Whether to make an assumption that the guide proposes
         multiple samples.
     """
@@ -228,10 +250,9 @@ class Trace_ELBO(ELBO):
             return {"loss": -elbo, "mutable_state": mutable_state}
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            if self.vectorize_particles:
-                elbos, mutable_state = vmap(single_particle_elbo)(rng_keys)
-            else:
-                elbos, mutable_state = jax.lax.map(single_particle_elbo, rng_keys)
+            elbos, mutable_state = self.vectorize_particles_fn(
+                single_particle_elbo, rng_keys
+            )
             return {"loss": -jnp.mean(elbos), "mutable_state": mutable_state}
 
 
@@ -362,10 +383,9 @@ class TraceMeanField_ELBO(ELBO):
             return {"loss": -elbo, "mutable_state": mutable_state}
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            if self.vectorize_particles:
-                elbos, mutable_state = vmap(single_particle_elbo)(rng_keys)
-            else:
-                elbos, mutable_state = jax.lax.map(single_particle_elbo, rng_keys)
+            elbos, mutable_state = self.vectorize_particles_fn(
+                single_particle_elbo, rng_keys
+            )
             return {"loss": -jnp.mean(elbos), "mutable_state": mutable_state}
 
 
@@ -387,7 +407,8 @@ class RenyiELBO(ELBO):
         used to form the objective (gradient) estimator. Default is 2.
     :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
         num_particles-many particles in parallel. If False use `jax.lax.map`.
-        Defaults to True.
+        Defaults to True. You can also pass a callable to specify a custom vectorization
+        strategy, for example `jax.pmap`.
 
     Example::
 
@@ -504,10 +525,9 @@ class RenyiELBO(ELBO):
         )
 
         rng_keys = random.split(rng_key, self.num_particles)
-        if self.vectorize_particles:
-            elbos, common_plate_scale = vmap(single_particle_elbo)(rng_keys)
-        else:
-            elbos, common_plate_scale = jax.lax.map(single_particle_elbo, rng_keys)
+        elbos, common_plate_scale = self.vectorize_particles_fn(
+            single_particle_elbo, rng_keys
+        )
         assert common_plate_scale.shape == (self.num_particles,)
         assert elbos.shape[0] == self.num_particles
         scaled_elbos = (1.0 - self.alpha) * elbos
@@ -853,10 +873,9 @@ class TraceGraph_ELBO(ELBO):
             return -single_particle_elbo(rng_key)
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            if self.vectorize_particles:
-                return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
-            else:
-                return -jnp.mean(jax.lax.map(single_particle_elbo, rng_keys))
+            return -jnp.mean(
+                self.vectorize_particles_fn(single_particle_elbo, rng_keys)
+            )
 
 
 def get_importance_trace_enum(
@@ -1043,7 +1062,10 @@ class TraceEnum_ELBO(ELBO):
     can_infer_discrete = True
 
     def __init__(
-        self, num_particles=1, max_plate_nesting=float("inf"), vectorize_particles=True
+        self,
+        num_particles=1,
+        max_plate_nesting=float("inf"),
+        vectorize_particles=True,
     ):
         self.max_plate_nesting = max_plate_nesting
         super().__init__(
@@ -1221,7 +1243,6 @@ class TraceEnum_ELBO(ELBO):
             return -single_particle_elbo(rng_key)
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            if self.vectorize_particles:
-                return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
-            else:
-                return -jnp.mean(jax.lax.map(single_particle_elbo, rng_keys))
+            return -jnp.mean(
+                self.vectorize_particles_fn(single_particle_elbo, rng_keys)
+            )
