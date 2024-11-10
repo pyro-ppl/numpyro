@@ -137,9 +137,7 @@ def test_predictive_with_deterministic(parallel):
     argnames="parallel", argvalues=[True, False], ids=["parallel", "sequential"]
 )
 def test_discrete_predictive_with_deterministic(parallel):
-    """Tests that the default behavior when predicting from models with
-    deterministic sites doesn't lead to static deterministic sites in the predictive.
-    """
+    """Tests that the predictive samples include deterministic sites for discrete models."""
     model, probs = categorical_probs()
 
     predictive = Predictive(
