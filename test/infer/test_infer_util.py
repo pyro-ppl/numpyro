@@ -69,6 +69,26 @@ def linear_regression():
     return model, X, y
 
 
+def categorical_probs():
+    probs0 = 0.5
+    nbatch0, nbatch1 = 2, 1
+    probs = jnp.ones((nbatch0, nbatch1, 3)) * probs0
+
+    def model(probs):
+        probs = numpyro.deterministic("probs", probs)
+
+        plate = numpyro.plate("plate", size=probs.shape[-1], dim=-1)
+
+        with plate:
+            numpyro.sample(
+                "counts_categorical",
+                dist.Categorical(probs=probs),
+                infer={"enumerate": "parallel"},
+            )
+
+    return model, probs
+
+
 @pytest.mark.parametrize("parallel", [True, False])
 def test_predictive(parallel):
     model, data, true_probs = beta_bernoulli()
@@ -111,6 +131,27 @@ def test_predictive_with_deterministic(parallel):
     # check shapes
     assert predictive_samples["mu"].shape == (100,) + X[:n_preds].shape
     assert predictive_samples["obs"].shape == (100,) + X[:n_preds].shape
+
+
+@pytest.mark.parametrize(
+    argnames="parallel", argvalues=[True, False], ids=["parallel", "sequential"]
+)
+def test_discrete_predictive_with_deterministic(parallel):
+    """Tests that the predictive samples include deterministic sites for discrete models."""
+    model, probs = categorical_probs()
+
+    predictive = Predictive(
+        model=model,
+        posterior_samples=dict(probs=probs),
+        infer_discrete=True,
+        batch_ndims=2,
+        parallel=parallel,
+        exclude_deterministic=False,
+    )
+
+    predictive_samples = predictive(random.PRNGKey(1), probs=probs)
+    assert predictive_samples.keys() == {"counts_categorical"}
+    assert predictive_samples["counts_categorical"].shape == probs.shape
 
 
 def test_predictive_with_guide():

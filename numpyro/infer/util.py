@@ -790,6 +790,16 @@ def _predictive(
 
     def single_prediction(val):
         rng_key, samples = val
+
+        def _samples_wo_deterministic(msg):
+            return samples.get(msg["name"]) if msg["type"] != "deterministic" else None
+
+        substituted_model = (
+            substitute(masked_model, substitute_fn=_samples_wo_deterministic)
+            if exclude_deterministic
+            else substitute(masked_model, samples)
+        )
+
         if infer_discrete:
             from numpyro.contrib.funsor import config_enumerate
             from numpyro.contrib.funsor.discrete import _sample_posterior
@@ -797,7 +807,7 @@ def _predictive(
             model_trace = prototype_trace
             temperature = 1
             pred_samples = _sample_posterior(
-                config_enumerate(condition(model, samples)),
+                config_enumerate(substituted_model),
                 first_available_dim,
                 temperature,
                 rng_key,
@@ -805,17 +815,6 @@ def _predictive(
                 **model_kwargs,
             )
         else:
-
-            def _samples_wo_deterministic(msg):
-                return (
-                    samples.get(msg["name"]) if msg["type"] != "deterministic" else None
-                )
-
-            substituted_model = (
-                substitute(masked_model, substitute_fn=_samples_wo_deterministic)
-                if exclude_deterministic
-                else substitute(masked_model, samples)
-            )
             model_trace = trace(seed(substituted_model, rng_key)).get_trace(
                 *model_args, **model_kwargs
             )
