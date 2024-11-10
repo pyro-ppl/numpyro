@@ -25,6 +25,7 @@ from numpyro.infer import (
     TraceGraph_ELBO,
     TraceMeanField_ELBO,
 )
+from numpyro.infer.elbo import _apply_vmap
 from numpyro.primitives import mutable as numpyro_mutable
 from numpyro.util import fori_loop
 
@@ -161,6 +162,14 @@ def test_renyi_create_plates(n, k):
             jnp.abs(jnp.stack([renyi_idx01, renyi_idx02, renyi_idx12]) - renyi_random)
         )
         assert_allclose(atol, 0.0, atol=1e-5)
+
+
+def test_assign_vectorize_particles_fn():
+    elbo = Trace_ELBO()
+    assert elbo._assign_vectorize_particles_fn(True) == _apply_vmap
+    assert elbo._assign_vectorize_particles_fn(False) == jax.lax.map
+    assert elbo._assign_vectorize_particles_fn(jax.pmap) == jax.pmap
+    assert callable(elbo._assign_vectorize_particles_fn(lambda x: x))
 
 
 @pytest.mark.parametrize(
