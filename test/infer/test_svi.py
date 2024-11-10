@@ -163,7 +163,12 @@ def test_renyi_create_plates(n, k):
         assert_allclose(atol, 0.0, atol=1e-5)
 
 
-def test_vectorized_particle():
+@pytest.mark.parametrize(
+    argnames="vectorize_particles",
+    argvalues=[True, False, jax.pmap, lambda x: x],
+    ids=["vmap", "lax", "pmap", "custom"],
+)
+def test_vectorized_particle(vectorize_particles):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
@@ -176,13 +181,16 @@ def test_vectorized_particle():
         beta_q = numpyro.param("beta_q", 1.0, constraint=constraints.positive)
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    vmap_results = SVI(
-        model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=True)
+    results = SVI(
+        model,
+        guide,
+        optim.Adam(0.1),
+        Trace_ELBO(vectorize_particles=vectorize_particles),
     ).run(random.PRNGKey(0), 100, data)
     map_results = SVI(
         model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=False)
     ).run(random.PRNGKey(0), 100, data)
-    assert_allclose(vmap_results.losses, map_results.losses, atol=1e-5)
+    assert_allclose(results.losses, map_results.losses, atol=1e-5)
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
