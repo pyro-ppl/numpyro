@@ -521,6 +521,18 @@ CONTINUOUS = [
     T(dist.GaussianRandomWalk, 0.1, 10),
     T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
     T(
+        dist.GaussianStateSpace,
+        10,
+        np.array([[0.8, 0.2], [-0.1, 1.1]]),
+        np.array([[0.8, 0.2], [0.2, 0.7]]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.2], [-0.1, 1.1]]),
+        np.array([0.1, 0.3, 0.25])[:, None, None] * np.array([[0.8, 0.2], [0.2, 0.7]]),
+    ),
+    T(
         dist.GaussianCopulaBeta,
         np.array([7.0, 2.0]),
         np.array([4.0, 10.0]),
@@ -1426,6 +1438,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
     if jax_dist.__name__ in (
         "EulerMaruyama",
         "GaussianRandomWalk",
+        "GaussianStateSpace",
         "_ImproperWrapper",
         "LKJ",
         "LKJCholesky",
@@ -2093,7 +2106,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             and dist_args[i] == "base_dist"
         ):
             continue
-        if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+        if (
+            issubclass(jax_dist, (dist.GaussianRandomWalk, dist.GaussianStateSpace))
+            and dist_args[i] == "num_steps"
+        ):
             continue
         if jax_dist is dist.ZeroSumNormal and dist_args[i] == "event_shape":
             continue
@@ -3477,3 +3493,20 @@ def test_sine_bivariate_von_mises_norm(conc):
         jnp.exp(dist.log_prob(mesh)) * (2 * jnp.pi) ** 2 / num_samples**2
     ).sum()
     assert jnp.allclose(integral_torus, 1.0, rtol=1e-2)
+
+
+def test_gaussian_random_walk_state_space_equivalence():
+    # Gaussian random walks are state space models with one state and unit transition
+    # matrix. Here, we verify we get the expected results.
+    scale = 0.3
+    num_steps = 4
+    d1 = dist.GaussianRandomWalk(scale, num_steps)
+    d2 = dist.GaussianStateSpace(num_steps, jnp.eye(1), scale_tril=scale * jnp.eye(1))
+    assert jnp.allclose(d1.variance, jnp.squeeze(d2.variance, axis=-1))
+
+    key = jax.random.key(18)
+    x1 = d1.sample(key, (3,))
+    x2 = d2.sample(key, (3,))
+    assert jnp.allclose(x1, jnp.squeeze(x2, axis=-1))
+
+    assert jnp.allclose(d1.log_prob(x1), d2.log_prob(x2))

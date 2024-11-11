@@ -192,6 +192,14 @@ GaussianRandomWalk
     :show-inheritance:
     :member-order: bysource
 
+GaussianStateSpace
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.GaussianStateSpace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Gompertz
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Gompertz

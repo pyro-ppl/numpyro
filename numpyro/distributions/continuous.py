@@ -59,6 +59,7 @@ from numpyro.distributions.transforms import (
     CorrMatrixCholeskyTransform,
     ExpTransform,
     PowerTransform,
+    RecursiveLinearTransform,
     SigmoidTransform,
     ZeroSumTransform,
 )
@@ -548,6 +549,109 @@ class Chi2(Gamma):
     def __init__(self, df, *, validate_args=None):
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
+
+
+class GaussianStateSpace(TransformedDistribution):
+    r"""
+    Gaussian state space model.
+
+    .. math::
+        \mathbf{z}_{t} &= \mathbf{A} \mathbf{z}_{t - 1} + \boldsymbol{\epsilon}_t\\
+        &=\sum_{k=1} \mathbf{A}^{t-k} \boldsymbol{\epsilon}_t,
+
+    where :math:`\mathbf{z}_t` is the state vector at step :math:`t`, :math:`\mathbf{A}`
+    is the transition matrix, and :math:`\boldsymbol\epsilon` is the innovation noise.
+
+
+    :param num_steps: Number of steps.
+    :param transition_matrix: State space transition matrix :math:`\mathbf{A}`.
+    :param covariance_matrix: Covariance of the innovation noise
+        :math:`\boldsymbol\epsilon`.
+    :param precision_matrix: Precision matrix of the innovation noise
+        :math:`\boldsymbol\epsilon`.
+    :param scale_tril: Scale matrix of the innovation noise
+        :math:`\boldsymbol\epsilon`.
+    """
+
+    arg_constraints = {
+        "covariance_matrix": constraints.positive_definite,
+        "precision_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+        "transition_matrix": constraints.real_matrix,
+    }
+    support = constraints.real_matrix
+    pytree_aux_fields = ("num_steps",)
+
+    def __init__(
+        self,
+        num_steps,
+        transition_matrix,
+        covariance_matrix=None,
+        precision_matrix=None,
+        scale_tril=None,
+        *,
+        validate_args=None,
+    ):
+        assert (
+            isinstance(num_steps, int) and num_steps > 0
+        ), "`num_steps` argument should be an positive integer."
+        self.num_steps = num_steps
+        assert (
+            transition_matrix.ndim == 2
+        ), "`transition_matrix` argument should be a square matrix"
+        self.transition_matrix = transition_matrix
+        # Expand the covariance/presicion/scale matrices to the right number of steps.
+        args = {
+            "covariance_matrix": covariance_matrix,
+            "precision_matrix": precision_matrix,
+            "scale_tril": scale_tril,
+        }
+        args = {
+            key: jnp.expand_dims(value, axis=-3).repeat(num_steps, axis=-3)
+            for key, value in args.items()
+            if value is not None
+        }
+        base_distribution = MultivariateNormal(**args)
+        self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
+        base_distribution = base_distribution.to_event(1)
+        transform = RecursiveLinearTransform(transition_matrix)
+        super().__init__(base_distribution, transform, validate_args=validate_args)
+
+    @property
+    def mean(self):
+        # The mean of the base distribution is zero and it has the right shape.
+        return self.base_dist.mean
+
+    @property
+    def variance(self):
+        # Given z_t = \sum_{k=1}^t A^{t-k} \epsilon_t, the covariance of the state
+        # vector at step t is E[z_t transpose(z_t)] = \sum_{k,k'}^t A^{t-k}
+        # E[\epsilon_k transpose(\epsilon_{k'})] transpose(A^{t-k'}). We only have
+        # contributions for k = k' because innovations at different steps are
+        # independent such that E[z_t transpose(z_t)] = \sum_k^t A^{t-k} @
+        # @ covariance_matrix @ transpose(A^{t-k}). Using `scan` is an easy way to
+        # evaluate this expression.
+        _, scale_tril = scan(
+            lambda carry, _: (self.transition_matrix @ carry, carry),
+            self.scale_tril,
+            jnp.arange(self.num_steps),
+        )
+        return (
+            jnp.diagonal(scale_tril @ scale_tril.mT, axis1=-1, axis2=-2)
+            .cumsum(axis=0)
+            .swapaxes(0, -2)
+        )
+
+    @lazy_property
+    def covariance_matrix(self):
+        return self.scale_tril @ self.scale_tril.mT
+
+    @lazy_property
+    def precision_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
 
 
 class GaussianRandomWalk(Distribution):
