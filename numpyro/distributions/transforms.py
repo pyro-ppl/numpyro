@@ -1345,7 +1345,7 @@ class RecursiveLinearTransform(Transform):
     are vectors and :math:`A` is a square transition matrix. The series is initialized
     by :math:`y_0 = 0`.
 
-    :param transition_matrix: Squared transition matrix :math:`A` for successive states
+    :param transition_matrix: Square transition matrix :math:`A` for successive states
         or a batch of transition matrices.
 
     **Example:**
