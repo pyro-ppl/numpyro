@@ -32,7 +32,7 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
-    - name: Lint with ruff
+    - name: Lint with mypy and ruff
       run: |
         make lint
     - name: Build documentation
