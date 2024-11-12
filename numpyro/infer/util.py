@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
 from typing import Callable, Optional
@@ -931,7 +932,7 @@ class Predictive(object):
         guide: Optional[Callable] = None,
         params: Optional[dict] = None,
         num_samples: Optional[int] = None,
-        return_sites: Optional[list[str]] = None,
+        return_sites: Optional[Sequence[str]] = None,
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,
