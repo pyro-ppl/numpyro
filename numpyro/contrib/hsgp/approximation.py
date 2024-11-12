@@ -21,14 +21,18 @@ from numpyro.contrib.hsgp.spectral_densities import (
 import numpyro.distributions as dist
 
 
-def _non_centered_approximation(phi: ArrayImpl, spd: ArrayImpl, m: int) -> ArrayImpl:
+def _non_centered_approximation(
+    phi: ArrayImpl, spd: ArrayImpl, m: int | list[int]
+) -> ArrayImpl:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=1.0))
 
     return phi @ (spd * beta)
 
 
-def _centered_approximation(phi: ArrayImpl, spd: ArrayImpl, m: int) -> ArrayImpl:
+def _centered_approximation(
+    phi: ArrayImpl, spd: ArrayImpl, m: int | list[int]
+) -> ArrayImpl:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
 
