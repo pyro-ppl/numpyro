@@ -287,6 +287,9 @@ def scan_wrapper(
     if length is None:
         length = jnp.shape(jax.tree.flatten(xs)[0][0])[0]
 
+    if substitute_stack is None:
+        substitute_stack = []
+
     if enum and history > 0:
         return scan_enum(  # TODO: replay for enum
             f,
