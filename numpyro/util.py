@@ -778,3 +778,27 @@ def find_stack_level() -> int:
         else:
             break
     return n
+
+
+def nested_attrgetter(*collect_fields):
+    """
+    Like attrgetter, but allows for accessing dictionary keys
+    using the dot notation (e.g., 'x.c.d').
+    """
+
+    def getter(obj):
+        return tuple(_get_nested_attr(obj, field) for field in collect_fields)
+
+    return getter
+
+
+def _get_nested_attr(obj, field):
+    """
+    Helper function to recursively access attributes and dictionary keys.
+    """
+    for attr in field.split("."):
+        try:
+            obj = getattr(obj, attr)
+        except AttributeError:
+            obj = obj[attr]
+    return obj

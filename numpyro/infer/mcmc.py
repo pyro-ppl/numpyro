@@ -20,6 +20,7 @@ from numpyro.util import (
     fori_collect,
     identity,
     is_prng_key,
+    nested_attrgetter,
 )
 
 __all__ = [
@@ -192,7 +193,7 @@ def _collect_fn(collect_fields, remove_sites):
     @cached_by(_collect_fn, collect_fields, remove_sites)
     def collect(x):
         if collect_fields:
-            fields = attrgetter(*collect_fields)(x[0])
+            fields = nested_attrgetter(*collect_fields)(x[0])
 
             if remove_sites != ():
                 fields = [fields] if len(collect_fields) == 1 else list(fields)

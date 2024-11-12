@@ -1199,3 +1199,12 @@ def test_remove_sites(kernel_cls, remove_sites):
     samps = mcmc.get_samples()
 
     assert all([site[3:] not in samps for site in remove_sites])
+
+
+def test_extra_fields_include_unconstrained_samples():
+    def model():
+        numpyro.sample("x", dist.HalfNormal(1))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(0), extra_fields=("z.x",))
+    assert_allclose(mcmc.get_samples()["x"], jnp.exp(mcmc.get_extra_fields()["z.x"]))
