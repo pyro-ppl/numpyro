@@ -51,6 +51,7 @@ setup(
         "test": [
             "importlib-metadata<5.0",
             "ruff>=0.1.8",
+            "mypy>=1.13",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
             "scikit-learn",

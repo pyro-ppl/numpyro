@@ -14,6 +14,13 @@ repos:
         language: system
         files: "(.py$)|(.*.ipynb$)"
 
+      - id: mypy
+        name: mypy
+        language: python
+        entry: mypy --install-types --non-interactive
+        files: ^numpyro/
+
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

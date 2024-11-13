@@ -22,7 +22,7 @@ def align_param(dim, param):
 
 def spectral_density_squared_exponential(
     dim: int, w: ArrayImpl, alpha: float, length: float | ArrayImpl
-) -> float:
+) -> ArrayImpl:
     """
     Spectral density of the squared exponential kernel.
 
@@ -46,7 +46,7 @@ def spectral_density_squared_exponential(
     :param float alpha: amplitude
     :param float length: length scale
     :return: spectral density value
-    :rtype: float
+    :rtype: ArrayImpl
     """
     length = align_param(dim, length)
     c = alpha * jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1)

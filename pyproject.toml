@@ -102,3 +102,15 @@ doctest_optionflags = [
     "NORMALIZE_WHITESPACE",
     "IGNORE_EXCEPTION_DETAIL",
 ]
+
+[tool.mypy]
+ignore_errors = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "numpyro.contrib.control_flow.*", # types missing
+    "numpyro.contrib.funsor.*",       # types missing
+    "numpyro.contrib.hsgp.*",
+]
+ignore_errors = false

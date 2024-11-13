@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from functools import partial
+from typing import Callable
 
 import jax
 from jax import device_put, lax, random
@@ -278,13 +279,16 @@ def scan_wrapper(
     length,
     reverse,
     rng_key=None,
-    substitute_stack=[],
+    substitute_stack=None,
     enum=False,
     history=1,
     first_available_dim=None,
 ):
     if length is None:
         length = jnp.shape(jax.tree.flatten(xs)[0][0])[0]
+
+    if substitute_stack is None:
+        substitute_stack = []
 
     if enum and history > 0:
         return scan_enum(  # TODO: replay for enum
@@ -339,7 +343,14 @@ def scan_wrapper(
     return last_carry, (pytree_trace, ys)
 
 
-def scan(f, init, xs, length=None, reverse=False, history=1):
+def scan(
+    f: Callable,
+    init,
+    xs,
+    length: int | None = None,
+    reverse: bool = False,
+    history: int = 1,
+):
     """
     This primitive scans a function over the leading array axes of
     `xs` while carrying along state. See :func:`jax.lax.scan` for more
@@ -433,7 +444,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
     :param init: the initial carrying state
     :param xs: the values over which we scan along the leading axis. This can
         be any JAX pytree (e.g. list/dict of arrays).
-    :param length: optional value specifying the length of `xs`
+    :param int | None length: optional value specifying the length of `xs`
         but can be used when `xs` is an empty pytree (e.g. None)
     :param bool reverse: optional boolean specifying whether to run the scan iteration
         forward (the default) or in reverse

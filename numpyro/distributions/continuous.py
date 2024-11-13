@@ -600,7 +600,7 @@ class GaussianStateSpace(TransformedDistribution):
             transition_matrix.ndim == 2
         ), "`transition_matrix` argument should be a square matrix"
         self.transition_matrix = transition_matrix
-        # Expand the covariance/presicion/scale matrices to the right number of steps.
+        # Expand the covariance/precision/scale matrices to the right number of steps.
         args = {
             "covariance_matrix": covariance_matrix,
             "precision_matrix": precision_matrix,
