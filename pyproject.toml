@@ -112,5 +112,6 @@ module = [
     "numpyro.contrib.control_flow.*", # types missing
     "numpyro.contrib.funsor.*",       # types missing
     "numpyro.contrib.hsgp.*",
+    "numpyro.contrib.stochastic_support.*",
 ]
 ignore_errors = false

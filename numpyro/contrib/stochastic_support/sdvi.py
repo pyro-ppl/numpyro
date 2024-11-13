@@ -1,23 +1,28 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from typing import Any, Callable, OrderedDict as OrderedDictType
+
+from jaxlib.xla_extension import ArrayImpl
 
 import jax
 import jax.numpy as jnp
 
-from numpyro.contrib.stochastic_support.dcc import StochasticSupportInference
+from numpyro.contrib.stochastic_support.dcc import (
+    RunInferenceResult,
+    SDVIResult,
+    StochasticSupportInference,
+)
 from numpyro.handlers import condition
 from numpyro.infer import (
+    ELBO,
     SVI,
     Trace_ELBO,
     TraceEnum_ELBO,
     TraceGraph_ELBO,
     TraceMeanField_ELBO,
 )
-from numpyro.infer.autoguide import AutoNormal
-
-SDVIResult = namedtuple("SDVIResult", ["guides", "slp_weights"])
+from numpyro.infer.autoguide import AutoGuide, AutoNormal
 
 VALID_ELBOS = (Trace_ELBO, TraceMeanField_ELBO, TraceEnum_ELBO, TraceGraph_ELBO)
 
@@ -69,13 +74,13 @@ class SDVI(StochasticSupportInference):
 
     def __init__(
         self,
-        model,
+        model: Callable,
         optimizer,
-        svi_num_steps=1000,
-        combine_elbo_particles=1000,
-        guide_init=AutoNormal,
-        loss=Trace_ELBO(),
-        svi_progress_bar=False,
+        svi_num_steps: int = 1000,
+        combine_elbo_particles: int = 1000,
+        guide_init: Callable = AutoNormal,
+        loss: ELBO = Trace_ELBO(),
+        svi_progress_bar: bool = False,
         num_slp_samples=1000,
         max_slps=124,
     ):
@@ -92,7 +97,13 @@ class SDVI(StochasticSupportInference):
 
         super().__init__(model, num_slp_samples, max_slps)
 
-    def _run_inference(self, rng_key, branching_trace, *args, **kwargs):
+    def _run_inference(
+        self,
+        rng_key: ArrayImpl,
+        branching_trace: OrderedDictType,
+        *args: Any,
+        **kwargs: Any,
+    ) -> RunInferenceResult:
         """
         Run SVI on a given SLP defined by its branching trace.
         """
@@ -108,7 +119,14 @@ class SDVI(StochasticSupportInference):
         )
         return guide, svi_result.params
 
-    def _combine_inferences(self, rng_key, guides, branching_traces, *args, **kwargs):
+    def _combine_inferences(  # type: ignore[override]
+        self,
+        rng_key: ArrayImpl,
+        guides: dict[str, tuple[AutoGuide, dict[str, Any]]],
+        branching_traces: dict[str, OrderedDictType],
+        *args: Any,
+        **kwargs: Any,
+    ) -> SDVIResult:
         """Weight each SLP proportional to its estimated ELBO."""
         elbos = {}
         for bt, (guide, param_map) in guides.items():
