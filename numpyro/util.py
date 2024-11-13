@@ -787,7 +787,8 @@ def nested_attrgetter(*collect_fields):
     """
 
     def getter(obj):
-        return tuple(_get_nested_attr(obj, field) for field in collect_fields)
+        results = tuple(_get_nested_attr(obj, field) for field in collect_fields)
+        return results if len(collect_fields) > 1 else results[0]
 
     return getter
 
