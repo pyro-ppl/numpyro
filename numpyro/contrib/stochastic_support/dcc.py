@@ -124,7 +124,7 @@ class StochasticSupportInference(ABC):
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
         **kwargs: Any,
-    ) -> SDVIResult:
+    ) -> DCCResult | SDVIResult:
         raise NotImplementedError
 
     def run(self, rng_key, *args, **kwargs):
