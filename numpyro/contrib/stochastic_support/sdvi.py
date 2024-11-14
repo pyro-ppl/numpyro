@@ -76,13 +76,13 @@ class SDVI(StochasticSupportInference):
         self,
         model: Callable,
         optimizer,
-        svi_num_steps: int = 1000,
-        combine_elbo_particles: int = 1000,
+        svi_num_steps: int = 1_000,
+        combine_elbo_particles: int = 1_000,
         guide_init: Callable = AutoNormal,
         loss: ELBO = Trace_ELBO(),
         svi_progress_bar: bool = False,
-        num_slp_samples=1000,
-        max_slps=124,
+        num_slp_samples: int = 1_000,
+        max_slps: int = 124,
     ):
         self.guide_init = guide_init
         self.optimizer = optimizer

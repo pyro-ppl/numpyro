@@ -15,6 +15,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.autoguide import AutoGuide, AutoNormal
+from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import init_to_value, log_density
 
 DCCResult = namedtuple("DCCResult", ["samples", "slp_weights"])
@@ -127,7 +128,9 @@ class StochasticSupportInference(ABC):
     ) -> DCCResult | SDVIResult:
         raise NotImplementedError
 
-    def run(self, rng_key, *args, **kwargs):
+    def run(
+        self, rng_key: ArrayImpl, *args: Any, **kwargs: Any
+    ) -> DCCResult | SDVIResult:
         """
         Run inference on each SLP separately and combine the results.
 
@@ -193,8 +196,8 @@ class DCC(StochasticSupportInference):
         self,
         model: Callable,
         mcmc_kwargs: dict[str, Any],
-        kernel_cls: Callable = NUTS,
-        num_slp_samples: int = 1000,
+        kernel_cls: type[MCMCKernel] = NUTS,
+        num_slp_samples: int = 1_000,
         max_slps: int = 124,
         proposal_scale: float = 1.0,
     ) -> None:
@@ -216,7 +219,7 @@ class DCC(StochasticSupportInference):
         Run MCMC on the model conditioned on the given branching trace.
         """
         slp_model = condition(self.model, data=branching_trace)
-        kernel = self.kernel_cls(slp_model)
+        kernel = self.kernel_cls(slp_model)  # type: ignore[call-arg]
         mcmc = MCMC(kernel, **self.mcmc_kwargs)
         mcmc.run(rng_key, *args, **kwargs)
 
