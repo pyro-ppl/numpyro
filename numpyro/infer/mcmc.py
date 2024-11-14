@@ -20,6 +20,7 @@ from numpyro.util import (
     fori_collect,
     identity,
     is_prng_key,
+    nested_attrgetter,
 )
 
 __all__ = [
@@ -192,7 +193,7 @@ def _collect_fn(collect_fields, remove_sites):
     @cached_by(_collect_fn, collect_fields, remove_sites)
     def collect(x):
         if collect_fields:
-            fields = attrgetter(*collect_fields)(x[0])
+            fields = nested_attrgetter(*collect_fields)(x[0])
 
             if remove_sites != ():
                 fields = [fields] if len(collect_fields) == 1 else list(fields)
@@ -585,7 +586,10 @@ class MCMC(object):
         :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.mcmc.MCMCKernel.default_fields`)
             from the state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to collect during
             the MCMC run. Exclude sample sites from collection with "~`sampler.sample_field`.`sample_site`".
-            e.g. "~z.a" will prevent site "a" from being collected if you're using the NUTS sampler.
+            e.g. "~z.a" will prevent site "a" from being collected if you're using the NUTS sampler. To
+            collect samples of a site "a" in the unconstrained space, we can specify the variable here, e.g.
+            `extra_fields=("z.a",)`.
+
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
@@ -622,7 +626,8 @@ class MCMC(object):
             during the MCMC run. Note that subfields can be accessed using dots, e.g.
             `"adapt_state.step_size"` can be used to collect step sizes at each step. Exclude sample sites from
             collection with "~`sampler.sample_field`.`sample_site`". e.g. "~z.a" will prevent site "a" from
-            being collected if you're using the NUTS sampler.
+            being collected if you're using the NUTS sampler. To collect samples of a site "a" in the
+            unconstrained space, we can specify the variable here, e.g. `extra_fields=("z.a",)`.
         :type extra_fields: tuple or list of str
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn` provided to the kernel. If the kernel is
