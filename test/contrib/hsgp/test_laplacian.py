@@ -131,8 +131,12 @@ def test_eigenfunctions(x: ArrayLike, ell: float | int, m: int | list[int]):
         (1, 2, False),
         ([1, 1], 2, False),
         (np.array([1, 1])[..., None], 2, False),
+        (jnp.array([1, 1])[..., None], 2, False),
         (np.array([1, 1]), 2, True),
+        (jnp.array([1, 1]), 2, True),
         ([1, 1], 1, True),
+        (np.array([1, 1]), 1, True),
+        (jnp.array([1, 1]), 1, True),
     ],
     ids=[
         "ell-float",
@@ -140,8 +144,12 @@ def test_eigenfunctions(x: ArrayLike, ell: float | int, m: int | list[int]):
         "ell-int-multdim",
         "ell-list",
         "ell-array",
+        "ell-jax-array",
         "ell-array-fail",
+        "ell-jax-array-fail",
         "dim-fail",
+        "dim-fail-array",
+        "dim-fail-jax",
     ],
 )
 def test_convert_ell(ell, dim, xfail):

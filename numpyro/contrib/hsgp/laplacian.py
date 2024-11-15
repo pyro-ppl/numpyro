@@ -7,6 +7,8 @@ This module contains functions for computing eigenvalues and eigenfunctions of t
 
 from __future__ import annotations
 
+import numpy as np
+
 from jax import Array
 import jax.numpy as jnp
 from jax.typing import ArrayLike
@@ -208,8 +210,8 @@ def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> 
                 "The length of ell must be equal to the dimension of the space."
             )
         ell_ = jnp.array(ell)[..., None]  # dim x 1 array
-    elif isinstance(ell, Array):
-        ell_ = ell
+    elif isinstance(ell, Array) | isinstance(ell, np.ndarray):
+        ell_ = jnp.array(ell)
     if jnp.shape(ell_) != (dim, 1):
         raise ValueError("ell must be a scalar or a list of length `dim`.")
     return ell_
