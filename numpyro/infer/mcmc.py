@@ -189,27 +189,28 @@ def _sample_fn_nojit_args(state, sampler, args, kwargs):
     return (sampler.sample(state[0], args, kwargs),)
 
 
-def _collect_fn(collect_fields, remove_sites):
-    @cached_by(_collect_fn, collect_fields, remove_sites)
-    def collect(x):
+def _collect_and_postprocess(postprocess_fn, collect_fields, remove_sites):
+    @cached_by(_collect_and_postprocess, postprocess_fn, collect_fields, remove_sites)
+    def collect_and_postprocess(x):
         if collect_fields:
             fields = nested_attrgetter(*collect_fields)(x[0])
+            fields = [fields] if len(collect_fields) == 1 else list(fields)
+            fields[0] = postprocess_fn(fields[0], *x[1:])
 
             if remove_sites != ():
-                fields = [fields] if len(collect_fields) == 1 else list(fields)
                 assert isinstance(fields[0], dict)
 
                 sample_sites = fields[0].copy()
                 for site in remove_sites:
                     sample_sites.pop(site)
                 fields[0] = sample_sites
-                fields = fields[0] if len(collect_fields) == 1 else fields
 
+            fields = fields[0] if len(collect_fields) == 1 else fields
             return fields
         else:
             return x[0]
 
-    return collect
+    return collect_and_postprocess
 
 
 # XXX: Is there a better hash key that we can use?
@@ -396,8 +397,7 @@ class MCMC(object):
         except TypeError:
             fns, key = None, None
         if fns is None:
-
-            def laxmap_postprocess_fn(states, args, kwargs):
+            def _postprocess_fn(state, args, kwargs):
                 if self.postprocess_fn is None:
                     body_fn = self.sampler.postprocess_fn(args, kwargs)
                 else:
@@ -405,11 +405,11 @@ class MCMC(object):
                 if self.chain_method == "vectorized" and self.num_chains > 1:
                     body_fn = vmap(body_fn)
 
-                return lax.map(body_fn, states)
+                return body_fn(state)
 
             if self._jit_model_args:
                 sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
-                postprocess_fn = jit(laxmap_postprocess_fn)
+                postprocess_fn = _postprocess_fn
             else:
                 sample_fn = partial(
                     _sample_fn_nojit_args,
@@ -417,9 +417,7 @@ class MCMC(object):
                     args=self._args,
                     kwargs=self._kwargs,
                 )
-                postprocess_fn = jit(
-                    partial(laxmap_postprocess_fn, args=self._args, kwargs=self._kwargs)
-                )
+                postprocess_fn = partial(_postprocess_fn, args=self._args, kwargs=self._kwargs)
 
             fns = sample_fn, postprocess_fn
             if key is not None:
@@ -470,7 +468,7 @@ class MCMC(object):
             upper_idx,
             sample_fn,
             init_val,
-            transform=_collect_fn(collect_fields, remove_sites),
+            transform=_collect_and_postprocess(postprocess_fn, collect_fields, remove_sites),
             progbar=self.progress_bar,
             return_last_val=True,
             thinning=self.thinning,
@@ -487,18 +485,6 @@ class MCMC(object):
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
-        # Apply constraints if number of samples is non-zero
-        site_values = jax.tree.flatten(states[self._sample_field])[0]
-        # XXX: lax.map still works if some arrays have 0 size
-        # so we only need to filter out the case site_value.shape[0] == 0
-        # (which happens when lower_idx==upper_idx)
-        if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
-            if self._jit_model_args:
-                states[self._sample_field] = postprocess_fn(
-                    states[self._sample_field], args, kwargs
-                )
-            else:
-                states[self._sample_field] = postprocess_fn(states[self._sample_field])
         return states, last_state
 
     def _set_collection_params(
