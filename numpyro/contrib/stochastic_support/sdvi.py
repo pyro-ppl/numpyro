@@ -3,10 +3,9 @@
 
 from typing import Any, Callable, OrderedDict as OrderedDictType
 
-from jaxlib.xla_extension import ArrayImpl
-
 import jax
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 from numpyro.contrib.stochastic_support.dcc import (
     RunInferenceResult,
@@ -83,7 +82,7 @@ class SDVI(StochasticSupportInference):
         svi_progress_bar: bool = False,
         num_slp_samples: int = 1_000,
         max_slps: int = 124,
-    ):
+    ) -> None:
         self.guide_init = guide_init
         self.optimizer = optimizer
         self.svi_num_steps = svi_num_steps
@@ -99,7 +98,7 @@ class SDVI(StochasticSupportInference):
 
     def _run_inference(
         self,
-        rng_key: ArrayImpl,
+        rng_key: ArrayLike,
         branching_trace: OrderedDictType,
         *args: Any,
         **kwargs: Any,
@@ -121,7 +120,7 @@ class SDVI(StochasticSupportInference):
 
     def _combine_inferences(  # type: ignore[override]
         self,
-        rng_key: ArrayImpl,
+        rng_key: ArrayLike,
         guides: dict[str, tuple[AutoGuide, dict[str, Any]]],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,

@@ -7,16 +7,12 @@ This module contains functions for computing eigenvalues and eigenfunctions of t
 
 from __future__ import annotations
 
-from typing import get_args
-
-from jaxlib.xla_extension import ArrayImpl
-
+from jax import Array
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
-from numpyro.contrib.hsgp.util import ARRAY_TYPE
 
-
-def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
+def eigenindices(m: list[int] | int, dim: int) -> Array:
     """Returns the indices of the first :math:`D \\times m^\\star` eigenvalues of the laplacian operator.
 
     .. math::
@@ -35,7 +31,7 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
     :param int dim: The dimension of the space.
 
     :returns: An array of the indices of the first :math:`D \\times m^\\star` eigenvalues.
-    :rtype: ArrayImpl
+    :rtype: Array
 
     **Examples:**
 
@@ -78,8 +74,8 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 
 
 def sqrt_eigenvalues(
-    ell: int | float | list[int | float], m: list[int] | int, dim: int
-) -> ArrayImpl:
+    ell: ArrayLike | list[int | float], m: list[int] | int, dim: int
+) -> Array:
     """
     The first :math:`m^\\star \\times D` square root of eigenvalues of the laplacian operator in
     :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`. See Eq. (56) in [1].
@@ -96,16 +92,14 @@ def sqrt_eigenvalues(
     :param int dim: The dimension of the space.
 
     :returns: An array of the first :math:`m^\\star \\times D` square root of eigenvalues.
-    :rtype: ArrayImpl
+    :rtype: Array
     """
     ell_ = _convert_ell(ell, dim)
     S = eigenindices(m, dim)
     return S * jnp.pi / 2 / ell_  # dim x prod(m) array of eigenvalues
 
 
-def eigenfunctions(
-    x: ArrayImpl, ell: float | list[float], m: int | list[int]
-) -> ArrayImpl:
+def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -> Array:
     """
     The first :math:`m^\\star` eigenfunctions of the laplacian operator in
     :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
@@ -141,7 +135,7 @@ def eigenfunctions(
         1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
            Stat Comput 30, 419-446 (2020)
 
-    :param ArrayImpl x: The points at which to evaluate the eigenfunctions.
+    :param ArrayLike x: The points at which to evaluate the eigenfunctions.
         If `x` is 1D the problem is assumed unidimensional.
         Otherwise, the dimension of the input space is inferred as the last dimension of `x`.
         Other dimensions are treated as batch dimensions.
@@ -150,25 +144,27 @@ def eigenfunctions(
     :param int | list[int] m: The number of eigenvalues to compute in each dimension.
         If an integer, the same number of eigenvalues is computed in each dimension.
     :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
-    :rtype: ArrayImpl
+    :rtype: Array
     """
-    if x.ndim == 1:
-        x_ = x[..., None]
+    if jnp.ndim(x) == 1:
+        x_ = jnp.expand_dims(x, axis=-1)
     else:
-        x_ = x
-    dim = x_.shape[-1]  # others assumed batch dims
-    n_batch_dims = x_.ndim - 1
+        x_ = jnp.array(x)
+    dim = jnp.shape(x)[-1]  # others assumed batch dims
+    n_batch_dims = jnp.ndim(x) - 1
     ell_ = _convert_ell(ell, dim)
     a = jnp.expand_dims(ell_, tuple(range(n_batch_dims)))
     b = jnp.expand_dims(sqrt_eigenvalues(ell_, m, dim), tuple(range(n_batch_dims)))
-    return jnp.prod(jnp.sqrt(1 / a) * jnp.sin(b * (x_[..., None] + a)), axis=-2)
+    return jnp.prod(
+        jnp.sqrt(1 / a) * jnp.sin(b * (jnp.expand_dims(x_, axis=-1) + a)), axis=-2
+    )
 
 
-def eigenfunctions_periodic(x: ArrayImpl, w0: float, m: int):
+def eigenfunctions_periodic(x: ArrayLike, w0: float, m: int) -> tuple[Array, Array]:
     """
     Basis functions for the approximation of the periodic kernel.
 
-    :param ArrayImpl x: The points at which to evaluate the eigenfunctions.
+    :param ArrayLike x: The points at which to evaluate the eigenfunctions.
     :param float w0: The frequency of the periodic kernel.
     :param int m: The number of eigenfunctions to compute.
 
@@ -178,11 +174,11 @@ def eigenfunctions_periodic(x: ArrayImpl, w0: float, m: int):
     .. warning::
         Multidimensional inputs are not supported.
     """
-    if x.ndim > 1:
+    if jnp.ndim(x) > 1:
         raise ValueError(
             "Multidimensional inputs are not supported by the periodic kernel."
         )
-    m1 = jnp.tile(w0 * x[:, None], m)
+    m1 = jnp.tile(w0 * jnp.expand_dims(x, axis=-1), m)
     m2 = jnp.diag(jnp.arange(m, dtype=jnp.float32))
     mw0x = m1 @ m2
     cosines = jnp.cos(mw0x)
@@ -190,31 +186,29 @@ def eigenfunctions_periodic(x: ArrayImpl, w0: float, m: int):
     return cosines, sines
 
 
-def _convert_ell(
-    ell: float | int | list[float | int] | ArrayImpl, dim: int
-) -> ArrayImpl:
+def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> Array:
     """
     Process the half-length of the approximation interval and return a `D \\times 1` array.
 
     If `ell` is a scalar, it is converted to a list of length dim, then transformed into an Array.
 
-    :param float | int | list[float | int] | ArrayImpl ell: The length of the interval in each dimension divided by 2.
+    :param float | int | list[float | int] | ArrayLike ell: The length of the interval in each dimension divided by 2.
         If a float or int, the same length is used in each dimension.
     :param int dim: The dimension of the space.
 
     :returns: A `D \\times 1` array of the half-lengths of the approximation interval.
-    :rtype: ArrayImpl
+    :rtype: Array
     """
     if isinstance(ell, float) | isinstance(ell, int):
-        ell = [ell] * dim
+        ell = jnp.array([ell] * dim)[..., None]
     if isinstance(ell, list):
         if len(ell) != dim:
             raise ValueError(
                 "The length of ell must be equal to the dimension of the space."
             )
         ell_ = jnp.array(ell)[..., None]  # dim x 1 array
-    elif isinstance(ell, get_args(ARRAY_TYPE)):
+    elif isinstance(ell, Array):
         ell_ = ell
-    if ell_.shape != (dim, 1):
+    if jnp.shape(ell_) != (dim, 1):
         raise ValueError("ell must be a scalar or a list of length `dim`.")
     return ell_

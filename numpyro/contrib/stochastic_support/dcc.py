@@ -5,11 +5,10 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict, namedtuple
 from typing import Any, Callable, OrderedDict as OrderedDictType
 
-from jaxlib.xla_extension import ArrayImpl
-
 import jax
 from jax import random
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
@@ -62,7 +61,7 @@ class StochasticSupportInference(ABC):
         self.max_slps: int = max_slps
 
     def _find_slps(
-        self, rng_key: ArrayImpl, *args: Any, **kwargs: Any
+        self, rng_key: ArrayLike, *args: Any, **kwargs: Any
     ) -> dict[str, OrderedDictType]:
         """
         Discover the straight-line programs (SLPs) in the model by sampling from the prior.
@@ -110,7 +109,7 @@ class StochasticSupportInference(ABC):
     @abstractmethod
     def _run_inference(
         self,
-        rng_key: ArrayImpl,
+        rng_key: ArrayLike,
         branching_trace: OrderedDictType,
         *args: Any,
         **kwargs: Any,
@@ -120,7 +119,7 @@ class StochasticSupportInference(ABC):
     @abstractmethod
     def _combine_inferences(
         self,
-        rng_key: ArrayImpl,
+        rng_key: ArrayLike,
         inferences: dict[str, Any],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
@@ -129,7 +128,7 @@ class StochasticSupportInference(ABC):
         raise NotImplementedError
 
     def run(
-        self, rng_key: ArrayImpl, *args: Any, **kwargs: Any
+        self, rng_key: ArrayLike, *args: Any, **kwargs: Any
     ) -> DCCResult | SDVIResult:
         """
         Run inference on each SLP separately and combine the results.
@@ -210,7 +209,7 @@ class DCC(StochasticSupportInference):
 
     def _run_inference(
         self,
-        rng_key: ArrayImpl,
+        rng_key: ArrayLike,
         branching_trace: OrderedDictType,
         *args: Any,
         **kwargs: Any,
@@ -227,7 +226,7 @@ class DCC(StochasticSupportInference):
 
     def _combine_inferences(  # type: ignore[override]
         self,
-        rng_key: ArrayImpl,
+        rng_key: ArrayLike,
         samples: dict[str, Any],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
@@ -245,7 +244,7 @@ class DCC(StochasticSupportInference):
         """
 
         def log_weight(
-            rng_key: ArrayImpl,
+            rng_key: ArrayLike,
             i: int,
             slp_model: Callable,
             slp_samples: dict[str, Any],
@@ -262,9 +261,7 @@ class DCC(StochasticSupportInference):
             model_log_density, _ = log_density(slp_model, args, kwargs, guide_trace)
             return model_log_density - guide_log_density
 
-        log_weights: Callable[
-            [ArrayImpl, ArrayImpl, Callable, dict[str, Any]], ArrayImpl
-        ] = jax.vmap(log_weight, in_axes=(None, 0, None, None))
+        log_weights: Callable = jax.vmap(log_weight, in_axes=(None, 0, None, None))
 
         log_Zs = {}
         for bt, slp_samples in samples.items():

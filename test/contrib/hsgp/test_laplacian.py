@@ -9,8 +9,8 @@ from operator import mul
 import numpy as np
 import pytest
 
-from jax._src.array import ArrayImpl
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 from numpyro.contrib.hsgp.laplacian import (
     _convert_ell,
@@ -110,7 +110,7 @@ def test_sqrt_eigenvalues(ell: float | int, m: int | list[int], dim: int):
     ],
     ids=["x_pos", "x_contains_zero", "x_neg2", "x_pos2-large", "x_2d", "x_batch"],
 )
-def test_eigenfunctions(x: ArrayImpl, ell: float | int, m: int | list[int]):
+def test_eigenfunctions(x: ArrayLike, ell: float | int, m: int | list[int]):
     phi = eigenfunctions(x=x, ell=ell, m=m)
     if isinstance(m, int):
         m = [m]
