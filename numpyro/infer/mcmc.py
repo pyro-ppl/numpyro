@@ -195,7 +195,9 @@ def _collect_and_postprocess(postprocess_fn, collect_fields, remove_sites):
         if collect_fields:
             fields = nested_attrgetter(*collect_fields)(x[0])
             fields = [fields] if len(collect_fields) == 1 else list(fields)
-            fields[0] = postprocess_fn(fields[0], *x[1:])
+            site_values = jax.tree.flatten(fields[0])[0]
+            if len(site_values) > 0:
+                fields[0] = postprocess_fn(fields[0], *x[1:])
 
             if remove_sites != ():
                 assert isinstance(fields[0], dict)
@@ -397,7 +399,6 @@ class MCMC(object):
         except TypeError:
             fns, key = None, None
         if fns is None:
-
             def _postprocess_fn(state, args, kwargs):
                 if self.postprocess_fn is None:
                     body_fn = self.sampler.postprocess_fn(args, kwargs)
@@ -418,9 +419,7 @@ class MCMC(object):
                     args=self._args,
                     kwargs=self._kwargs,
                 )
-                postprocess_fn = partial(
-                    _postprocess_fn, args=self._args, kwargs=self._kwargs
-                )
+                postprocess_fn = partial(_postprocess_fn, args=self._args, kwargs=self._kwargs)
 
             fns = sample_fn, postprocess_fn
             if key is not None:
@@ -471,9 +470,7 @@ class MCMC(object):
             upper_idx,
             sample_fn,
             init_val,
-            transform=_collect_and_postprocess(
-                postprocess_fn, collect_fields, remove_sites
-            ),
+            transform=_collect_and_postprocess(postprocess_fn, collect_fields, remove_sites),
             progbar=self.progress_bar,
             return_last_val=True,
             thinning=self.thinning,
