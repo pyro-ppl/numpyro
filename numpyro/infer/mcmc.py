@@ -397,6 +397,7 @@ class MCMC(object):
         except TypeError:
             fns, key = None, None
         if fns is None:
+
             def _postprocess_fn(state, args, kwargs):
                 if self.postprocess_fn is None:
                     body_fn = self.sampler.postprocess_fn(args, kwargs)
@@ -417,7 +418,9 @@ class MCMC(object):
                     args=self._args,
                     kwargs=self._kwargs,
                 )
-                postprocess_fn = partial(_postprocess_fn, args=self._args, kwargs=self._kwargs)
+                postprocess_fn = partial(
+                    _postprocess_fn, args=self._args, kwargs=self._kwargs
+                )
 
             fns = sample_fn, postprocess_fn
             if key is not None:
@@ -468,7 +471,9 @@ class MCMC(object):
             upper_idx,
             sample_fn,
             init_val,
-            transform=_collect_and_postprocess(postprocess_fn, collect_fields, remove_sites),
+            transform=_collect_and_postprocess(
+                postprocess_fn, collect_fields, remove_sites
+            ),
             progbar=self.progress_bar,
             return_last_val=True,
             thinning=self.thinning,
