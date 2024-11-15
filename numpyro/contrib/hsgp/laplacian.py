@@ -199,8 +199,9 @@ def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> 
     :returns: A `D \\times 1` array of the half-lengths of the approximation interval.
     :rtype: Array
     """
+    ell_ = jnp.empty((dim, 1))
     if isinstance(ell, float) | isinstance(ell, int):
-        ell = jnp.array([ell] * dim)[..., None]
+        ell_ = jnp.array([ell] * dim)[..., None]
     if isinstance(ell, list):
         if len(ell) != dim:
             raise ValueError(
