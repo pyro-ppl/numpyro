@@ -201,7 +201,7 @@ def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> 
     """
     ell_ = jnp.empty((dim, 1))
     if isinstance(ell, float) | isinstance(ell, int):
-        ell_ = jnp.array([ell] * dim)[..., None]
+        ell = jnp.array([ell] * dim)[..., None]
     if isinstance(ell, list):
         if len(ell) != dim:
             raise ValueError(
