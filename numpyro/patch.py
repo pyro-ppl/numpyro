@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 from types import ModuleType
 from typing import Callable
 
