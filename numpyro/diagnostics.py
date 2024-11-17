@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 
-def _compute_chain_variance_stats(x):
+def _compute_chain_variance_stats(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     # compute within-chain variance and variance estimator
     # input has shape C x N x sample_shape
     C, N = x.shape[:2]
@@ -40,7 +40,7 @@ def _compute_chain_variance_stats(x):
     return var_within, var_estimator
 
 
-def gelman_rubin(x):
+def gelman_rubin(x: np.ndarray) -> np.ndarray:
     """
     Computes R-hat over chains of samples ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -59,7 +59,7 @@ def gelman_rubin(x):
     return rhat
 
 
-def split_gelman_rubin(x):
+def split_gelman_rubin(x: np.ndarray) -> np.ndarray:
     """
     Computes split R-hat over chains of samples ``x``, where the first dimension
     of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -78,7 +78,7 @@ def split_gelman_rubin(x):
     return split_rhat
 
 
-def _fft_next_fast_len(target):
+def _fft_next_fast_len(target: int) -> int:
     # find the smallest number >= N such that the only divisors are 2, 3, 5
     # works just like scipy.fftpack.next_fast_len
     if target <= 2:
@@ -96,7 +96,7 @@ def _fft_next_fast_len(target):
         target += 1
 
 
-def autocorrelation(x, axis=0, bias=True):
+def autocorrelation(x: np.ndarray, axis: int = 0, bias: bool = True) -> np.ndarray:
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
@@ -140,7 +140,7 @@ def autocorrelation(x, axis=0, bias=True):
     return np.swapaxes(autocorr, axis, -1)
 
 
-def autocovariance(x, axis=0, bias=True):
+def autocovariance(x: np.ndarray, axis: int = 0, bias: bool = True) -> np.ndarray:
     """
     Computes the autocovariance of samples at dimension ``axis``.
 
@@ -153,7 +153,7 @@ def autocovariance(x, axis=0, bias=True):
     return autocorrelation(x, axis, bias) * x.var(axis=axis, keepdims=True)
 
 
-def effective_sample_size(x, bias=True):
+def effective_sample_size(x: np.ndarray, bias: bool = True) -> np.ndarray:
     """
     Computes effective sample size of input ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -201,7 +201,7 @@ def effective_sample_size(x, bias=True):
     return n_eff
 
 
-def hpdi(x, prob=0.90, axis=0):
+def hpdi(x: np.ndarray, prob: float = 0.90, axis: int = 0) -> np.ndarray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
@@ -229,7 +229,9 @@ def hpdi(x, prob=0.90, axis=0):
     return np.concatenate([hpd_left, hpd_right], axis=axis)
 
 
-def summary(samples, prob=0.90, group_by_chain=True):
+def summary(
+    samples: dict | np.ndarray, prob: float = 0.90, group_by_chain: bool = True
+) -> dict:
     """
     Returns a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -279,7 +281,9 @@ def summary(samples, prob=0.90, group_by_chain=True):
     return summary_dict
 
 
-def print_summary(samples, prob=0.90, group_by_chain=True):
+def print_summary(
+    samples: dict | np.ndarray, prob: float = 0.90, group_by_chain: bool = True
+) -> None:
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,

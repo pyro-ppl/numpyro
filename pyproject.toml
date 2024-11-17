@@ -106,12 +106,16 @@ doctest_optionflags = [
 [tool.mypy]
 ignore_errors = true
 ignore_missing_imports = true
+plugins = ["numpy.typing.mypy_plugin"]
 
 [[tool.mypy.overrides]]
 module = [
-    "numpyro.contrib.control_flow.*", # types missing
-    "numpyro.contrib.funsor.*",       # types missing
+    "numpyro.contrib.control_flow.*",       # types missing
+    "numpyro.contrib.funsor.*",             # types missing
     "numpyro.contrib.hsgp.*",
     "numpyro.contrib.stochastic_support.*",
+    "numpyro.diagnostics.*",
+    "numpyro.patch.*",
+    "numpyro.util.*",
 ]
 ignore_errors = false
