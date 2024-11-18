@@ -3357,6 +3357,13 @@ def test_explicit_validate_args():
         jitted(d, True)
 
 
+def test_get_args():
+    # Test that we only pick up parameters that were supplied or derived by the
+    # constructor.
+    d = dist.MultivariateNormal(precision_matrix=jnp.eye(3))
+    assert set(d.get_args()) == {"loc", "precision_matrix", "scale_tril"}
+
+
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.PRNGKey(0)
