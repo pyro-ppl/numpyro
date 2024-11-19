@@ -232,6 +232,17 @@ class Distribution(metaclass=DistributionMeta):
             self.validate_args(strict=False)
         super(Distribution, self).__init__()
 
+    def get_args(self) -> dict:
+        """
+        Get arguments of the distribution.
+        """
+        return {
+            param: getattr(self, param)
+            for param in self.arg_constraints
+            if param in self.__dict__
+            or not isinstance(getattr(type(self), param), lazy_property)
+        }
+
     def validate_args(self, strict: bool = True) -> None:
         """
         Validate the arguments of the distribution.
@@ -239,14 +250,11 @@ class Distribution(metaclass=DistributionMeta):
         :param strict: Require strict validation, raising an error if the function is
             called inside jitted code.
         """
-        for param, constraint in self.arg_constraints.items():
-            if param not in self.__dict__ and isinstance(
-                getattr(type(self), param), lazy_property
-            ):
-                continue
+        for param, value in self.get_args().items():
+            constraint = self.arg_constraints[param]
             if constraints.is_dependent(constraint):
                 continue  # skip constraints that cannot be checked
-            is_valid = constraint(getattr(self, param))
+            is_valid = constraint(value)
             if not_jax_tracer(is_valid):
                 if not np.all(is_valid):
                     raise ValueError(
