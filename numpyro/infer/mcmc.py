@@ -195,9 +195,7 @@ def _collect_and_postprocess(postprocess_fn, collect_fields, remove_sites):
         if collect_fields:
             fields = nested_attrgetter(*collect_fields)(x[0])
             fields = [fields] if len(collect_fields) == 1 else list(fields)
-            site_values = jax.tree.flatten(fields[0])[0]
-            if len(site_values) > 0:
-                fields[0] = postprocess_fn(fields[0], *x[1:])
+            fields[0] = postprocess_fn(fields[0], *x[1:])
 
             if remove_sites != ():
                 assert isinstance(fields[0], dict)
@@ -400,13 +398,27 @@ class MCMC(object):
             fns, key = None, None
         if fns is None:
 
+            def ensure_vmap(fn, batch_size=None):
+                def wrapper(x):
+                    x_arrays = jax.tree.flatten(x)[0]
+                    if len(x_arrays) > 0:
+                        return vmap(fn)(x)
+                    else:
+                        assert batch_size is not None
+                        return jax.tree.map(
+                            lambda x: jnp.broadcast_to(x, (batch_size,) + jnp.shape(x)),
+                            fn(x),
+                        )
+
+                return wrapper
+
             def _postprocess_fn(state, args, kwargs):
                 if self.postprocess_fn is None:
                     body_fn = self.sampler.postprocess_fn(args, kwargs)
                 else:
                     body_fn = self.postprocess_fn
                 if self.chain_method == "vectorized" and self.num_chains > 1:
-                    body_fn = vmap(body_fn)
+                    body_fn = ensure_vmap(body_fn, batch_size=self.num_chains)
 
                 return body_fn(state)
 
