@@ -257,6 +257,8 @@ def summary(
 
     summary_dict = {}
     for name, value in samples.items():
+        if len(value) == 0:
+            continue
         value = device_get(value)
         value_flat = np.reshape(value, (-1,) + value.shape[2:])
         mean = value_flat.mean(axis=0)
@@ -307,6 +309,8 @@ def print_summary(
             "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
     summary_dict = summary(samples, prob, group_by_chain=True)
+    if not summary_dict:
+        return
 
     row_names = {
         k: k + "[" + ",".join(map(lambda x: str(x - 1), v.shape[2:])) + "]"
