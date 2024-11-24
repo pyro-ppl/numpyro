@@ -140,7 +140,7 @@ def main(args):
 
     plt.xlabel("Time Steps")
     plt.tight_layout()
-    plt.savefig("var2_with_confidence_interval.png")
+    plt.savefig("var2.png")
 
 
 if __name__ == "__main__":
