@@ -2237,8 +2237,12 @@ def test_categorical_log_prob_grad():
 
 
 def test_beta_proportion_invalid_mean():
-    with dist.distribution.validation_enabled(), pytest.raises(
-        ValueError, match=r"^BetaProportion distribution got invalid mean parameter\.$"
+    with (
+        dist.distribution.validation_enabled(),
+        pytest.raises(
+            ValueError,
+            match=r"^BetaProportion distribution got invalid mean parameter\.$",
+        ),
     ):
         dist.BetaProportion(1.0, 1.0)
 
