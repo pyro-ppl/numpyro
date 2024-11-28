@@ -96,3 +96,20 @@ def test_multirun(kernel_cls):
     )
     mcmc.run(random.PRNGKey(2), labels)
     mcmc.run(random.PRNGKey(3), labels)
+
+
+@pytest.mark.parametrize("kernel_cls", [AIES, ESS])
+def test_warmup(kernel_cls):
+    n_chains = 10
+    kernel = kernel_cls(model)
+
+    mcmc = MCMC(
+        kernel,
+        num_warmup=10,
+        num_samples=10,
+        progress_bar=False,
+        num_chains=n_chains,
+        chain_method="vectorized",
+    )
+    mcmc.warmup(random.PRNGKey(2), labels)
+    mcmc.run(random.PRNGKey(3), labels)
