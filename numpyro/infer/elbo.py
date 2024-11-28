@@ -893,8 +893,11 @@ def get_importance_trace_enum(
         trace as _trace,
     )
 
-    with plate_to_enum_plate(), enum(
-        first_available_dim=(-max_plate_nesting - 1) if max_plate_nesting else None
+    with (
+        plate_to_enum_plate(),
+        enum(
+            first_available_dim=(-max_plate_nesting - 1) if max_plate_nesting else None
+        ),
     ):
         guide = substitute(guide, data=params)
         with _without_rsample_stop_gradient():
