@@ -18,13 +18,19 @@ def var2_scan(y):
 
     # Priors for constants and coefficients
     c = numpyro.sample("c", dist.Normal(0, 1).expand([K]))  # Constants vector of size K
-    Phi1 = numpyro.sample("Phi1", dist.Normal(0, 1).expand([K, K]))  # Coefficients for lag 1
-    Phi2 = numpyro.sample("Phi2", dist.Normal(0, 1).expand([K, K]))  # Coefficients for lag 2
+    Phi1 = numpyro.sample(
+        "Phi1", dist.Normal(0, 1).expand([K, K])
+    )  # Coefficients for lag 1
+    Phi2 = numpyro.sample(
+        "Phi2", dist.Normal(0, 1).expand([K, K])
+    )  # Coefficients for lag 2
 
     # Priors for error terms
     with numpyro.plate("K", K):
         sigma = numpyro.sample("sigma", dist.HalfNormal(1.0))  # Standard deviations
-    L_omega = numpyro.sample("L_omega", dist.LKJCholesky(dimension=K, concentration=1.0))
+    L_omega = numpyro.sample(
+        "L_omega", dist.LKJCholesky(dimension=K, concentration=1.0)
+    )
     L_Sigma = jnp.matmul(jnp.diag(sigma), L_omega)
 
     def transition(carry, t):
@@ -71,10 +77,14 @@ def generate_var2_data(T, K, c, Phi1, Phi2, sigma):
 
     # Generate the time series
     for t in range(2, T):
-        y[t] = c + Phi1 @ y[t - 1] + Phi2 @ y[t - 2] + np.random.multivariate_normal(mean=np.zeros(K), cov=sigma)
+        y[t] = (
+            c
+            + Phi1 @ y[t - 1]
+            + Phi2 @ y[t - 2]
+            + np.random.multivariate_normal(mean=np.zeros(K), cov=sigma)
+        )
 
     return y
-
 
 
 def run_inference(model, args, rng_key, y):
@@ -129,7 +139,12 @@ def main(args):
         # True values
         axes[i].plot(time_steps, y[:, i], label=f"True Variable {i + 1}", color="blue")
         # Posterior mean prediction
-        axes[i].plot(time_steps[2:], mean_prediction[:, i], label=f"Predicted Mean Variable {i + 1}", color="orange")
+        axes[i].plot(
+            time_steps[2:],
+            mean_prediction[:, i],
+            label=f"Predicted Mean Variable {i + 1}",
+            color="orange",
+        )
         # 95% confidence interval
         axes[i].fill_between(
             time_steps[2:],
@@ -137,7 +152,7 @@ def main(args):
             upper_bound[:, i],
             color="orange",
             alpha=0.2,
-            label="95% CI"
+            label="95% CI",
         )
         axes[i].set_title(f"Variable {i + 1}")
         axes[i].legend()
