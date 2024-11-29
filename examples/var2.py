@@ -4,7 +4,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-import jax
+
 from jax import random
 import jax.numpy as jnp
 
@@ -30,7 +30,12 @@ def var2_scan(y):
     def transition(carry, t):
         y_prev1, y_prev2, y_obs = carry  # Previous two observations and observed data
         m_t = c + jnp.dot(Phi1, y_prev1) + jnp.dot(Phi2, y_prev2)  # Mean prediction
-        y_t = numpyro.sample(f"y_{t}", dist.MultivariateNormal(loc=m_t, scale_tril=L_Sigma), obs=y_obs[t])  # Conditioned on observed y
+        # Conditioned on observed y
+        y_t = numpyro.sample(
+            f"y_{t}",
+            dist.MultivariateNormal(loc=m_t, scale_tril=L_Sigma),
+            obs=y_obs[t],
+        )
         new_carry = (y_t, y_prev1, y_obs)
         return new_carry, m_t
 
@@ -127,11 +132,11 @@ def main(args):
         axes[i].plot(time_steps[2:], mean_prediction[:, i], label=f"Predicted Mean Variable {i + 1}", color="orange")
         # 95% confidence interval
         axes[i].fill_between(
-            time_steps[2:], 
-            lower_bound[:, i], 
-            upper_bound[:, i], 
-            color="orange", 
-            alpha=0.2, 
+            time_steps[2:],
+            lower_bound[:, i],
+            upper_bound[:, i],
+            color="orange",
+            alpha=0.2,
             label="95% CI"
         )
         axes[i].set_title(f"Variable {i + 1}")
