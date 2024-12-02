@@ -7,6 +7,7 @@ This provides a small set of utilities in NumPyro that are used to diagnose post
 
 from collections import OrderedDict
 from itertools import product
+from typing import Union
 
 import numpy as np
 
@@ -230,7 +231,7 @@ def hpdi(x: np.ndarray, prob: float = 0.90, axis: int = 0) -> np.ndarray:
 
 
 def summary(
-    samples: dict | np.ndarray, prob: float = 0.90, group_by_chain: bool = True
+    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
 ) -> dict:
     """
     Returns a summary table displaying diagnostics of ``samples`` from the
@@ -284,7 +285,7 @@ def summary(
 
 
 def print_summary(
-    samples: dict | np.ndarray, prob: float = 0.90, group_by_chain: bool = True
+    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
 ) -> None:
     """
     Prints a summary table displaying diagnostics of ``samples`` from the

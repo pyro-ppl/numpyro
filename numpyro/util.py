@@ -10,7 +10,7 @@ import os
 import random
 import re
 from threading import Lock
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Optional
 import warnings
 
 import numpy as np
@@ -27,7 +27,7 @@ _DISABLE_CONTROL_FLOW_PRIM = False
 _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
-def set_rng_seed(rng_seed: int | None = None) -> None:
+def set_rng_seed(rng_seed: Optional[int] = None) -> None:
     """
     Initializes internal state for the Python and NumPy random number generators.
 
@@ -49,7 +49,7 @@ def enable_x64(use_x64: bool = True) -> None:
     jax.config.update("jax_enable_x64", use_x64)
 
 
-def set_platform(platform: str | None = None) -> None:
+def set_platform(platform: Optional[str] = None) -> None:
     """
     Changes platform to CPU, GPU, or TPU. This utility only takes
     effect at the beginning of your program.
@@ -408,7 +408,7 @@ def fori_collect(
 
 
 def soft_vmap(
-    fn: Callable, xs: Any, batch_ndims: int = 1, chunk_size: int | None = None
+    fn: Callable, xs: Any, batch_ndims: int = 1, chunk_size: Optional[int] = None
 ) -> Any:
     """
     Vectorizing map that maps a function `fn` over `batch_ndims` leading axes
@@ -466,7 +466,7 @@ def format_shapes(
     *,
     compute_log_prob: bool = False,
     title: str = "Trace Shapes:",
-    last_site: str | None = None,
+    last_site: Optional[str] = None,
 ):
     """
     Given the trace of a function, returns a string showing a table of the shapes of

@@ -3,7 +3,7 @@
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict, namedtuple
-from typing import Any, Callable, OrderedDict as OrderedDictType
+from typing import Any, Callable, OrderedDict as OrderedDictType, Union
 
 import jax
 from jax import random
@@ -21,9 +21,9 @@ DCCResult = namedtuple("DCCResult", ["samples", "slp_weights"])
 
 SDVIResult = namedtuple("SDVIResult", ["guides", "slp_weights"])
 
-RunInferenceResult = (
-    dict[str, Any] | tuple[AutoGuide, dict[str, Any]]
-)  # for mcmc or sdvi
+RunInferenceResult = Union[
+    dict[str, Any], tuple[AutoGuide, dict[str, Any]]
+]  # for mcmc or sdvi
 
 
 class StochasticSupportInference(ABC):
@@ -124,12 +124,12 @@ class StochasticSupportInference(ABC):
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
         **kwargs: Any,
-    ) -> DCCResult | SDVIResult:
+    ) -> Union[DCCResult, SDVIResult]:
         raise NotImplementedError
 
     def run(
         self, rng_key: ArrayLike, *args: Any, **kwargs: Any
-    ) -> DCCResult | SDVIResult:
+    ) -> Union[DCCResult, SDVIResult]:
         """
         Run inference on each SLP separately and combine the results.
 

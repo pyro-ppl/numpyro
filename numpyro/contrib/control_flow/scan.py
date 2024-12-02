@@ -3,7 +3,7 @@
 
 from collections import OrderedDict
 from functools import partial
-from typing import Callable
+from typing import Callable, Optional
 
 import jax
 from jax import device_put, lax, random
@@ -348,7 +348,7 @@ def scan(
     f: Callable,
     init,
     xs,
-    length: int | None = None,
+    length: Optional[int] = None,
     reverse: bool = False,
     history: int = 1,
 ):
