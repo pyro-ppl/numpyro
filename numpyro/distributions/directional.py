@@ -320,6 +320,9 @@ class SineBivariateVonMises(Distribution):
     .. note:: In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can be used as a likelihood but not
         for latent variables.
 
+    .. note:: Normalization remains accurate for concentrations up to 10,000. Unlike Pyro, there is no assertion to
+        verify this during initialization, as JIT-compilation would invalidate such a check.
+
     ** References: **
         1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
 
