@@ -8,6 +8,9 @@ on:
   pull_request:
     branches: [ master ]
 
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   lint:
 
@@ -32,6 +35,7 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
+        export PYTEST_ADDOPTS="--cov"
     - name: Lint with mypy and ruff
       run: |
         make lint
@@ -42,6 +46,9 @@ jobs:
       run: |
         make doctest
         python -m doctest -v README.md
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
 
 
   test-modeling:
@@ -69,12 +76,16 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install .[dev,test]
         pip freeze
+        export PYTEST_ADDOPTS="--cov"
     - name: Test with pytest
       run: |
         CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
 
 
   test-inference:
@@ -101,6 +112,7 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install .[dev,test]
         pip freeze
+        export PYTEST_ADDOPTS="--cov=numpyro"
     - name: Test with pytest
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
@@ -121,6 +133,9 @@ jobs:
     - name: Test nested sampling
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/contrib/test_nested_sampling.py
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
 
 
   examples:
@@ -145,6 +160,10 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install .[dev,examples,test]
         pip freeze
+        export PYTEST_ADDOPTS="--cov=numpyro"
     - name: Test with pytest
       run: |
         CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
