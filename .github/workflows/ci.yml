@@ -35,7 +35,6 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
-        export PYTEST_ADDOPTS="--cov"
     - name: Lint with mypy and ruff
       run: |
         make lint
@@ -46,9 +45,6 @@ jobs:
       run: |
         make doctest
         python -m doctest -v README.md
-    - name: Coveralls
-      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
-      uses: coverallsapp/github-action@v2
 
 
   test-modeling:
