@@ -67,7 +67,9 @@ def var2_scan(y):
     L_omega = numpyro.sample(
         "L_omega", dist.LKJCholesky(dimension=K, concentration=1.0)
     )
-    L_Sigma = sigma[..., None] * L_omega  # Alternative: jnp.einsum("...i,...ij->...ij", sigma, L_omega)
+    L_Sigma = (
+        sigma[..., None] * L_omega
+    )  # Alternative: jnp.einsum("...i,...ij->...ij", sigma, L_omega)
 
     def transition(carry, t):
         y_prev1, y_prev2, y_obs = carry  # Previous two observations and observed data
