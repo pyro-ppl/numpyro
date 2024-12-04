@@ -1,12 +1,42 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+r"""
+Example: VAR(2) process
+=======================
+
+In this example, we demonstrate how to implement and perform Bayesian inference for a 
+Vector Autoregressive process of order 2 (VAR(2)). VAR models are widely used in 
+time series analysis, especially for capturing the dynamics between multiple variables.
+
+A VAR(2) process for a multivariate time series :math:`y_t` with :math:`K` variables is defined as:
+
+.. math::
+
+    y_t = c + \Phi_1 y_{t-1} + \Phi_2 y_{t-2} + \epsilon_t
+
+Here, :math:`c` is a constant vector, :math:`\Phi_1` and :math:`\Phi_2` are coefficient matrices for lag 1 
+and lag 2, respectively, and :math:`\epsilon_t` is a Gaussian noise term with zero mean and a 
+covariance matrix :math:`\Sigma`.
+
+This example uses NumPyro's `scan` utility to efficiently model the temporal dependencies without
+explicit Python loops.
+
+Reference
+---------
+For more information on Vector Autoregressive models, see:
+https://otexts.com/fpp2/VAR.html
+
+.. image:: ../_static/img/examples/var2.png
+    :align: center
+"""
+
 import argparse
 import os
 import time
 
 import matplotlib.pyplot as plt
-import numpy as np 
+import numpy as np
 
 from jax import random
 import jax.numpy as jnp
