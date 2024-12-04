@@ -478,7 +478,12 @@ def test_callable_chain_method():
     hmc_kernel = NUTS(model)
     kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=["x"])
     mcmc = MCMC(
-        kernel, num_warmup=100, num_chains=2, num_samples=100, chain_method=vmap
+        kernel,
+        num_warmup=100,
+        num_chains=2,
+        num_samples=100,
+        chain_method=vmap,
+        progress_bar=False,
     )
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()
