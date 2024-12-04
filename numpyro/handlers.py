@@ -10,6 +10,21 @@ read `Poutine: A Guide to Programming with Effect Handlers in Pyro
 can be composed together or new ones added to enable implementation of custom
 inference utilities and algorithms.
 
+When a handler, such as `handlers.seed`, is applied to a model in NumPyro, e.g.,
+`seeded_model = handlers.seed(model, rng_seed=0)`, it creates a callable object
+with stateful attributes. These attributes can interfere with JAX primitives,
+such as `jax.jit`, `jax.vmap`, and `jax.grad`. To ensure proper composition with
+JAX primitives, handlers should be applied locally within the function or context
+where the model is used, rather than globally. For example::
+
+    # Good: can be used in a jitted function
+    def seeded_model(data):
+        return handlers.seed(model, rng_seed=0)(data)
+
+    # Bad: might create tracer-leaks when used in a jitted function
+    seeded_model = handlers.seed(model, rng_seed=0)
+
+
 **Example**
 
 As an example, we are using :class:`~numpyro.handlers.seed`, :class:`~numpyro.handlers.trace`
