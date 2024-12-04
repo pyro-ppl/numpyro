@@ -22,6 +22,10 @@ covariance matrix :math:`\Sigma`.
 This example uses NumPyro's `scan` utility to efficiently model the temporal dependencies without
 explicit Python loops.
 
+For more general time series forecasting techniques and examples, refer to the
+`Time Series Forecasting` tutorial:
+https://num.pyro.ai/en/stable/tutorials/time_series_forecasting.html#Forecasting
+
 Reference
 ---------
 For more information on Vector Autoregressive models, see:
@@ -52,19 +56,18 @@ def var2_scan(y):
     # Priors for constants and coefficients
     c = numpyro.sample("c", dist.Normal(0, 1).expand([K]))  # Constants vector of size K
     Phi1 = numpyro.sample(
-        "Phi1", dist.Normal(0, 1).expand([K, K])
+        "Phi1", dist.Normal(0, 1).expand([K, K]).to_event(2)
     )  # Coefficients for lag 1
     Phi2 = numpyro.sample(
-        "Phi2", dist.Normal(0, 1).expand([K, K])
+        "Phi2", dist.Normal(0, 1).expand([K, K]).to_event(2)
     )  # Coefficients for lag 2
 
     # Priors for error terms
-    with numpyro.plate("K", K):
-        sigma = numpyro.sample("sigma", dist.HalfNormal(1.0))  # Standard deviations
+    sigma = numpyro.sample("sigma", dist.HalfNormal(1.0).expand([K]).to_event(1))
     L_omega = numpyro.sample(
         "L_omega", dist.LKJCholesky(dimension=K, concentration=1.0)
     )
-    L_Sigma = jnp.matmul(jnp.diag(sigma), L_omega)
+    L_Sigma = sigma[..., None] * L_omega  # Alternative: jnp.einsum("...i,...ij->...ij", sigma, L_omega)
 
     def transition(carry, t):
         y_prev1, y_prev2, y_obs = carry  # Previous two observations and observed data
