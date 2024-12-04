@@ -66,6 +66,7 @@ setup(
             "matplotlib",
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency
+            "pytest-cov",
             "pyyaml",  # flax dependency
             "requests",  # pylab dependency
             "tensorflow_probability>=0.18.0",
