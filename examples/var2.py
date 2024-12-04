@@ -6,7 +6,7 @@ import os
 import time
 
 import matplotlib.pyplot as plt
-import numpy as np
+import numpy as np 
 
 from jax import random
 import jax.numpy as jnp
