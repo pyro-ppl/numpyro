@@ -365,6 +365,12 @@ class MCMC(object):
                 stacklevel=find_stack_level(),
             )
         self.chain_method = chain_method
+        if callable(chain_method) and (num_chains > 1) and progress_bar:
+            warnings.warn(
+                "Disabling progress bar as `chain_method` is a callable and `num_chains > 1`.",
+                stacklevel=find_stack_level(),
+            )
+            progress_bar = False
         self.progress_bar = progress_bar
         if "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
