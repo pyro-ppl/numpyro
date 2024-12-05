@@ -1,5 +1,5 @@
 [![Build Status](https://github.com/pyro-ppl/numpyro/workflows/CI/badge.svg)](https://github.com/pyro-ppl/numpyro/actions)
-[![Coverage Status](https://coveralls.io/repos/github/pyro-ppl/numpyro/badge.svg)](https://coveralls.io/github/pyro-ppl/numpyro)
+[![Coverage Status](https://coveralls.io/repos/github/pyro-ppl/numpyro/badge.svg?branch=master&kill_cache=1)](https://coveralls.io/github/pyro-ppl/numpyro?branch=master)
 [![Documentation Status](https://readthedocs.org/projects/numpyro/badge/?version=latest)](https://numpyro.readthedocs.io/en/latest/?badge=latest)
 [![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 
