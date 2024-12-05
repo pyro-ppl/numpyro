@@ -147,16 +147,20 @@ class Distribution(metaclass=DistributionMeta):
     def gather_pytree_data_fields(cls):
         bases = inspect.getmro(cls)
 
-        all_pytree_data_fields = ()
+        all_pytree_data_fields = set()
         for base in bases:
             if issubclass(base, Distribution):
-                all_pytree_data_fields += base.__dict__.get(
-                    "pytree_data_fields",
-                    tuple(base.__dict__.get("arg_constraints", {}).keys()),
+                all_pytree_data_fields.update(
+                    base.__dict__.get(
+                        "pytree_data_fields",
+                        tuple(
+                            arg
+                            for arg in base.__dict__.get("arg_constraints", {})
+                            if not isinstance(getattr(cls, arg, None), lazy_property)
+                        ),
+                    )
                 )
-        # remove duplicates
-        all_pytree_data_fields = tuple(set(all_pytree_data_fields))
-        return all_pytree_data_fields
+        return tuple(all_pytree_data_fields)
 
     @classmethod
     def gather_pytree_aux_fields(cls) -> tuple:
