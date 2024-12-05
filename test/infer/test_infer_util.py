@@ -29,6 +29,8 @@ from numpyro.infer.util import (
     Predictive,
     constrain_fn,
     initialize_model,
+    log_densities,
+    log_density,
     log_likelihood,
     potential_energy,
     transform_fn,
@@ -264,6 +266,23 @@ def test_log_likelihood(batch_shape):
     assert_allclose(
         loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data), rtol=1e-6
     )
+
+
+def test_log_densities():
+    model, data, _ = beta_bernoulli()
+    samples = Predictive(model, return_sites=["beta"], num_samples=1)(random.key(7))
+    samples = {key: value[0] for key, value in samples.items()}
+
+    logden, _ = log_density(model, (data,), {}, samples)
+    assert logden.shape == ()
+
+    logdens, _ = log_densities(model, (data,), {}, samples)
+    assert set(logdens) == {"beta", "obs"}
+    assert all(x.shape == () for x in logdens.values())
+
+    logdens, _ = log_densities(model, (data,), {}, samples, False)
+    assert logdens["beta"].shape == (2,)
+    assert logdens["obs"].shape == (800, 2)
 
 
 def test_model_with_transformed_distribution():

@@ -54,21 +54,28 @@ class _substitute_default_key(Messenger):
             msg["value"] = random.PRNGKey(0)
 
 
-def log_density(model, model_args, model_kwargs, params):
+def log_densities(
+    model,
+    model_args: tuple,
+    model_kwargs: dict,
+    params: dict,
+    sum_log_prob: bool = True,
+):
     """
-    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
+    (EXPERIMENTAL INTERFACE) Computes log of density for each site of the model given
     latent values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs: kwargs provided to the model.
-    :param dict params: dictionary of current parameter values keyed by site
-        name.
-    :return: log of joint density and a corresponding model trace
+    :param model_args: args provided to the model.
+    :param model_kwargs: kwargs provided to the model.
+    :param params: Dictionary of current parameter values keyed by site name.
+    :param sum_log_prob: sum log probability over batch dimensions.
+    :return: Dictionary mapping site names to log of density and a corresponding model
+        trace.
     """
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = jnp.zeros(())
+    log_joint = {}
     for site in model_trace.values():
         if site["type"] == "sample":
             value = site["value"]
@@ -94,9 +101,26 @@ def log_density(model, model_args, model_kwargs, params):
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
 
-            log_prob = jnp.sum(log_prob)
-            log_joint = log_joint + log_prob
+            log_joint[site["name"]] = jnp.sum(log_prob) if sum_log_prob else log_prob
     return log_joint, model_trace
+
+
+def log_density(model, model_args: tuple, model_kwargs: dict, params: dict):
+    """
+    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given latent
+    values ``params``.
+
+    :param model: Python callable containing NumPyro primitives.
+    :param model_args: args provided to the model.
+    :param model_kwargs: kwargs provided to the model.
+    :param params: Dictionary of current parameter values keyed by site name.
+    :return: Log of joint density and a corresponding model trace.
+    """
+    log_joint, model_trace = log_densities(model, model_args, model_kwargs, params)
+    # We need to start with 0.0 instead of 0 because log_joint may be empty or only
+    # contain integers, but log_density must be a floating point value to be
+    # differentiable by jax.
+    return sum(log_joint.values(), start=0.0), model_trace
 
 
 class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
