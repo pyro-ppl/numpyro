@@ -54,7 +54,7 @@ class _substitute_default_key(Messenger):
             msg["value"] = random.PRNGKey(0)
 
 
-def log_densities(
+def compute_log_probs(
     model,
     model_args: tuple,
     model_kwargs: dict,
@@ -116,7 +116,7 @@ def log_density(model, model_args: tuple, model_kwargs: dict, params: dict):
     :param params: Dictionary of current parameter values keyed by site name.
     :return: Log of joint density and a corresponding model trace.
     """
-    log_joint, model_trace = log_densities(model, model_args, model_kwargs, params)
+    log_joint, model_trace = compute_log_probs(model, model_args, model_kwargs, params)
     # We need to start with 0.0 instead of 0 because log_joint may be empty or only
     # contain integers, but log_density must be a floating point value to be
     # differentiable by jax.
