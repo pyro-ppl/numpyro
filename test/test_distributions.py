@@ -3521,3 +3521,16 @@ def test_gaussian_random_walk_state_space_equivalence():
     assert jnp.allclose(x1, jnp.squeeze(x2, axis=-1))
 
     assert jnp.allclose(d1.log_prob(x1), d2.log_prob(x2))
+
+
+def test_consistent_pytree() -> None:
+    def make_dist():
+        return dist.MultivariateNormal(precision_matrix=jnp.eye(2))
+
+    init = make_dist()
+    # Access the covariance matrix to evaluate the lazy property.
+    init.covariance_matrix
+    assert "covariance_matrix" in init.__dict__
+
+    # Run scan which validates that pytree structures are consistent.
+    jax.lax.scan(lambda *_: (make_dist(), None), init, jnp.arange(7))
