@@ -116,7 +116,7 @@ def Tanh():
 
 def LeakyTanh(min_grad: float = 0.01):
     """
-    Leaky Tanh nonlinearity :math:`y=Tanh(x) + cx` with its log-Jacobian.
+    Leaky Tanh nonlinearity :math:`y=\text{tanh}(x) + cx` with its log-Jacobian.
 
     This choice when used in ``BlockNeuralAutoregressiveNN`` ensures the image of the
     transformation is the set of real values (unlike ``Tanh``).
@@ -192,8 +192,8 @@ def BlockNeuralAutoregressiveNN(
     An implementation of Block Neural Autoregressive neural network.
 
     In contrast to the original paper, by default, we use ``LeakyTanh`` as the
-    activation, defined as :math:`y=Tanh(x) + cx` with :math:`c` being a small constant,
-    to ensure the transform maps from real -> real.
+    activation, defined as :math:`y=Tanh(x) + cx` with :math:`c` being a small constant
+    (default to 0.01), which ensures the transform maps from real -> real.
 
     **References**
 
