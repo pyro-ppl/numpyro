@@ -40,6 +40,10 @@ log_density
 -----------
 .. autofunction:: numpyro.infer.util.log_density
 
+compute_log_probs
+-----------------
+.. autofunction:: numpyro.infer.util.compute_log_probs
+
 get_transforms
 --------------
 .. autofunction:: numpyro.infer.util.get_transforms
