@@ -83,6 +83,8 @@ jobs:
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        flag-name: test-modeling
 
 
   test-inference:
@@ -134,6 +136,8 @@ jobs:
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        flag-name: test-inference
 
 
   examples:
@@ -166,3 +170,19 @@ jobs:
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        flag-name: examples
+
+
+  finish:
+
+    needs: [test-modeling, test-inference, examples]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls finished
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel-finished: true
+        carryforward: "test-modeling,test-inference,examples"
+

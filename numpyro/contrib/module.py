@@ -114,6 +114,7 @@ def flax_module(
     def apply_with_state(params, *args, **kwargs):
         params = {"params": params, **nn_state}
         out, new_state = nn_module.apply(params, mutable=mutable, *args, **kwargs)
+        new_state = jax.lax.stop_gradient(new_state)
         nn_state.update(**new_state)
         return out
 
@@ -202,6 +203,7 @@ def haiku_module(name, nn_module, *args, input_shape=None, apply_rng=False, **kw
 
     def apply_with_state(params, *args, **kwargs):
         out, new_state = nn_module.apply(params, nn_state, *args, **kwargs)
+        new_state = jax.lax.stop_gradient(new_state)
         nn_state.update(**new_state)
         return out
 
