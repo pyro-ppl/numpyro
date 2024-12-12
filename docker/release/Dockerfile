@@ -18,6 +18,6 @@ ENV PATH=/root/.local/bin:$PATH
 
 # install python packages via pip
 RUN pip3 install --user \
-    # we pull wheels from google's api as per https://github.com/google/jax#installation
+    # we pull wheels from google's api as per https://github.com/jax-ml/jax#installation
     # the pre-compiled wheels that google provides work for now. This may change in the future (and necessitate building from source)
     numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

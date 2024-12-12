@@ -90,7 +90,7 @@ def _(d):
         # NB: icdf is not available yet for Gamma distribution
         # so this will raise an NotImplementedError for now.
         # We will need scipy.special.gammaincinv, which is not available yet in JAX
-        # see issue: https://github.com/google/jax/issues/5350
+        # see issue: https://github.com/jax-ml/jax/issues/5350
         # TODO: consider wrap jaxns GammaPrior transform implementation
         gammas = uniform_reparam_transform(gamma_dist)(q)
         return gammas / gammas.sum(-1, keepdims=True)
