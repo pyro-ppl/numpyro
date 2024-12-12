@@ -76,7 +76,7 @@ def set_host_device_count(n: int) -> None:
         `xla_force_host_platform_device_count` flag in XLA is incomplete. If you
         observe some strange phenomenon when using this utility, please let us
         know through our issue or forum page. More information is available in this
-        `JAX issue <https://github.com/google/jax/issues/1408>`_.
+        `JAX issue <https://github.com/jax-ml/jax/issues/1408>`_.
 
     :param int n: number of CPU devices to use.
     """

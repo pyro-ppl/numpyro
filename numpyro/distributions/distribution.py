@@ -138,7 +138,7 @@ class Distribution(metaclass=DistributionMeta):
     pytree_aux_fields = ("_batch_shape", "_event_shape")
 
     # register Distribution as a pytree
-    # ref: https://github.com/google/jax/issues/2916
+    # ref: https://github.com/jax-ml/jax/issues/2916
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)

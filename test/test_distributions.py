@@ -3436,7 +3436,7 @@ def _assert_not_jax_issue_19885(
     capfd: pytest.CaptureFixture, func: Callable, *args, **kwargs
 ) -> None:
     # jit-ing identity plus matrix multiplication leads to performance degradation as
-    # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
+    # discussed in https://github.com/jax-ml/jax/issues/19885. This assertion verifies
     # that the issue does not affect performance in numpyro.
     for jit in [True, False]:
         result = jax.jit(func)(*args, **kwargs)
