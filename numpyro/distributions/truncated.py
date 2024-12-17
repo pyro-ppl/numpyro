@@ -67,10 +67,13 @@ class LeftTruncatedDistribution(Distribution):
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
         u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
+        return self.icdf(u)
+
+    def icdf(self, q):
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return (1 - sign) * loc + sign * self.base_dist.icdf(
-            (1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high
+            (1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high
         )
 
     @validate_sample
@@ -138,7 +141,10 @@ class RightTruncatedDistribution(Distribution):
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
         u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
-        return self.base_dist.icdf(u * self._cdf_at_high)
+        return self.icdf(u)
+
+    def icdf(self, q):
+        return self.base_dist.icdf(q * self._cdf_at_high)
 
     @validate_sample
     def log_prob(self, value):
@@ -235,18 +241,20 @@ class TwoSidedTruncatedDistribution(Distribution):
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
         u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
+        return self.icdf(u)
 
+    def icdf(self, q):
         # NB: we use a more numerically stable formula for a symmetric base distribution
-        #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) = icdf[(1 - u) * cdf(low) + u * cdf(high)]
+        #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * q) = icdf[(1 - q) * cdf(low) + q * cdf(high)]
         # will suffer by precision issues when low is large;
         # If low < loc:
-        #   A = icdf[(1 - u) * cdf(low) + u * cdf(high)]
+        #   A = icdf[(1 - q) * cdf(low) + q * cdf(high)]
         # Else
-        #   A = 2 * loc - icdf[(1 - u) * cdf(2*loc-low)) + u * cdf(2*loc - high)]
+        #   A = 2 * loc - icdf[(1 - q) * cdf(2*loc-low)) + q * cdf(2*loc - high)]
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return (1 - sign) * loc + sign * self.base_dist.icdf(
-            clamp_probs((1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
+            clamp_probs((1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high)
         )
 
     @validate_sample
