@@ -28,11 +28,10 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 import warnings
 
 import numpy as np
-from typyng import Any
 
 import jax
 from jax import lax, tree_util
