@@ -4,7 +4,7 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
-from typing import Callable, Generator, Optional, Union, cast
+from typing import Any, Callable, Generator, Optional, Union, cast
 import warnings
 
 import jax
@@ -16,12 +16,16 @@ import numpyro
 from numpyro.distributions.distribution import DistributionLike
 from numpyro.util import find_stack_level, identity
 
+# Type aliases
+MessageType = dict[str, Any]
+
 _PYRO_STACK: list = []
+
 
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def default_process_message(msg: dict) -> None:
+def default_process_message(msg: MessageType) -> None:
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -31,7 +35,7 @@ def default_process_message(msg: dict) -> None:
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
 
-def apply_stack(msg: dict) -> dict:
+def apply_stack(msg: MessageType) -> MessageType:
     """
     Execute the effect stack at a single site according to the following scheme:
 
@@ -111,7 +115,13 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def _masked_observe(name, fn, obs, obs_mask, **kwargs) -> Array:
+def _masked_observe(
+    name: str,
+    fn: DistributionLike,
+    obs: Optional[ArrayLike],
+    obs_mask,
+    **kwargs,
+) -> Array:
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
@@ -308,7 +318,7 @@ def deterministic(name: str, value: ArrayLike) -> Array:
     if not _PYRO_STACK:
         return jnp.asarray(value)
 
-    initial_msg: dict = {
+    initial_msg: MessageType = {
         "type": "deterministic",
         "name": name,
         "value": value,
@@ -535,14 +545,16 @@ class plate(Messenger):
         return self._indices
 
     @staticmethod
-    def _get_batch_shape(cond_indep_stack: list[CondIndepStackFrame]) -> tuple:
+    def _get_batch_shape(
+        cond_indep_stack: list[CondIndepStackFrame],
+    ) -> tuple[int, ...]:
         n_dims = max(-f.dim for f in cond_indep_stack)
         batch_shape = [1] * n_dims
         for f in cond_indep_stack:
             batch_shape[f.dim] = f.size
         return tuple(batch_shape)
 
-    def process_message(self, msg: dict) -> None:
+    def process_message(self, msg: MessageType) -> None:
         if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
@@ -582,7 +594,7 @@ class plate(Messenger):
                 self.size / self.subsample_size if self.subsample_size else 1
             )
 
-    def postprocess_message(self, msg: dict) -> None:
+    def postprocess_message(self, msg: MessageType) -> None:
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:
