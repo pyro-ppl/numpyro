@@ -93,9 +93,11 @@ class Messenger(object):
                     _PYRO_STACK.pop()
 
     def process_message(self, msg):
+        """To be implemented by subclasses."""
         pass
 
     def postprocess_message(self, msg):
+        """To be implemented by subclasses."""
         pass
 
     def __call__(self, *args, **kwargs):
@@ -108,7 +110,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def _masked_observe(name, fn, obs, obs_mask, **kwargs) -> ArrayLike:
+def _masked_observe(name, fn, obs, obs_mask, **kwargs) -> Array:
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
@@ -130,7 +132,7 @@ def sample(
     sample_shape: Tuple[int, ...] = (),
     infer: Optional[Dict] = None,
     obs_mask: Optional[ArrayLike] = None,
-):
+) -> Array:
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -205,7 +207,7 @@ def sample(
         if obs is None:
             return fn(rng_key=rng_key, sample_shape=sample_shape)
         else:
-            return obs
+            return cast(Array, obs)
 
     if obs_mask is not None:
         return _masked_observe(
@@ -232,7 +234,9 @@ def sample(
     return msg["value"]
 
 
-def param(name: str, init_value: Optional[ArrayLike | Callable] = None, **kwargs):
+def param(
+    name: str, init_value: Optional[ArrayLike | Callable] = None, **kwargs
+) -> Array:
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
@@ -262,7 +266,7 @@ def param(name: str, init_value: Optional[ArrayLike | Callable] = None, **kwargs
         assert not callable(
             init_value
         ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
-        return init_value
+        return cast(Array, init_value)
 
     if callable(init_value):
 
@@ -466,7 +470,13 @@ class plate(Messenger):
         is allocated.
     """
 
-    def __init__(self, name, size, subsample_size=None, dim=None):
+    def __init__(
+        self,
+        name: str,
+        size: int,
+        subsample_size: Optional[int] = None,
+        dim: Optional[int] = None,
+    ) -> None:
         self.name = name
         assert size > 0, "size of plate should be positive"
         self.size = size
