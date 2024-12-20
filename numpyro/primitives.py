@@ -4,21 +4,23 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
+from typing import Callable, Dict, List, Optional, Tuple, cast
 import warnings
 
 import jax
-from jax import lax, random
+from jax import Array, lax, random
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro
 from numpyro.util import find_stack_level, identity
 
-_PYRO_STACK = []
+_PYRO_STACK: List = []
 
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def default_process_message(msg):
+def default_process_message(msg: Dict) -> None:
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -28,7 +30,7 @@ def default_process_message(msg):
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
 
-def apply_stack(msg):
+def apply_stack(msg: Dict) -> Dict:
     """
     Execute the effect stack at a single site according to the following scheme:
 
@@ -61,19 +63,20 @@ def apply_stack(msg):
 
 
 class Messenger(object):
-    def __init__(self, fn=None):
+    def __init__(self, fn: Optional[Callable] = None) -> None:
         if fn is not None and not callable(fn):
             raise ValueError(
                 "Expected `fn` to be a Python callable object; "
                 "instead found type(fn) = {}.".format(type(fn))
             )
         self.fn = fn
-        functools.update_wrapper(self, fn, updated=[])
+        if fn is not None:
+            functools.update_wrapper(self, fn, updated=[])
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         _PYRO_STACK.append(self)
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
         if exc_type is None:
             assert _PYRO_STACK[-1] is self
             _PYRO_STACK.pop()
@@ -86,7 +89,7 @@ class Messenger(object):
             # then remove it and everything below it in the stack.
             if self in _PYRO_STACK:
                 loc = _PYRO_STACK.index(self)
-                for i in range(loc, len(_PYRO_STACK)):
+                for _ in range(loc, len(_PYRO_STACK)):
                     _PYRO_STACK.pop()
 
     def process_message(self, msg):
@@ -105,7 +108,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def _masked_observe(name, fn, obs, obs_mask, **kwargs):
+def _masked_observe(name, fn, obs, obs_mask, **kwargs) -> ArrayLike:
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
@@ -120,7 +123,13 @@ def _masked_observe(name, fn, obs, obs_mask, **kwargs):
 
 
 def sample(
-    name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_mask=None
+    name: str,
+    fn,
+    obs: Optional[ArrayLike] = None,
+    rng_key: Optional[ArrayLike] = None,
+    sample_shape: Tuple[int, ...] = (),
+    infer: Optional[Dict] = None,
+    obs_mask: Optional[ArrayLike] = None,
 ):
     """
     Returns a random sample from the stochastic function `fn`. This can have
@@ -223,7 +232,7 @@ def sample(
     return msg["value"]
 
 
-def param(name, init_value=None, **kwargs):
+def param(name: str, init_value: Optional[ArrayLike | Callable] = None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
@@ -257,11 +266,11 @@ def param(name, init_value=None, **kwargs):
 
     if callable(init_value):
 
-        def fn(init_fn, *args, **kwargs):
+        def fn(init_fn: Callable, *args, **kwargs):
             return init_fn(prng_key())
 
     else:
-        fn = identity
+        fn = cast(Callable, identity)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -280,7 +289,7 @@ def param(name, init_value=None, **kwargs):
     return msg["value"]
 
 
-def deterministic(name, value):
+def deterministic(name: str, value: ArrayLike) -> Array:
     """
     Used to designate deterministic sites in the model. Note that most effect
     handlers will not operate on deterministic sites (except
@@ -292,9 +301,9 @@ def deterministic(name, value):
     :param jnp.ndarray value: deterministic value to record in the trace.
     """
     if not _PYRO_STACK:
-        return value
+        return cast(Array, value)
 
-    initial_msg = {
+    initial_msg: Dict = {
         "type": "deterministic",
         "name": name,
         "value": value,
@@ -306,7 +315,7 @@ def deterministic(name, value):
     return msg["value"]
 
 
-def mutable(name, init_value=None):
+def mutable(name: str, init_value: Optional[ArrayLike] = None) -> ArrayLike | None:
     """
     This primitive is used to store a mutable value that can be changed
     during model execution::
@@ -338,7 +347,7 @@ def mutable(name, init_value=None):
     return msg["value"]
 
 
-def _inspect():
+def _inspect() -> Dict:
     """
     EXPERIMENTAL Inspect the Pyro stack.
 
@@ -362,7 +371,7 @@ def _inspect():
     return msg
 
 
-def get_mask():
+def get_mask() -> ArrayLike | None:
     """
     Records the effects of enclosing ``handlers.mask`` handlers.
     This is useful for avoiding expensive ``numpyro.factor()`` computations during
@@ -381,7 +390,7 @@ def get_mask():
     return _inspect()["mask"]
 
 
-def module(name, nn, input_shape=None):
+def module(name: str, nn: Tuple, input_shape: Optional[Tuple] = None) -> Callable:
     """
     Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -408,7 +417,7 @@ def module(name, nn, input_shape=None):
     return functools.partial(nn_apply, nn_params)
 
 
-def _subsample_fn(size, subsample_size, rng_key=None):
+def _subsample_fn(size: int, subsample_size: int, rng_key: Optional[ArrayLike] = None):
     if rng_key is None:
         raise ValueError(
             "Missing random key to generate subsample indices."
