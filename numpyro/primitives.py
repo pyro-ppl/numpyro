@@ -7,6 +7,8 @@ import functools
 from typing import Callable, Generator, Optional, Union, cast
 import warnings
 
+from distributions.distribution import DistributionLike
+
 import jax
 from jax import Array, lax, random
 import jax.numpy as jnp
@@ -126,7 +128,7 @@ def _masked_observe(name, fn, obs, obs_mask, **kwargs) -> Array:
 
 def sample(
     name: str,
-    fn,
+    fn: DistributionLike,
     obs: Optional[ArrayLike] = None,
     rng_key: Optional[ArrayLike] = None,
     sample_shape: tuple[int, ...] = (),
@@ -207,7 +209,7 @@ def sample(
         if obs is None:
             return fn(rng_key=rng_key, sample_shape=sample_shape)
         else:
-            return cast(Array, obs)
+            return jnp.asarray(obs)
 
     if obs_mask is not None:
         return _masked_observe(
@@ -266,7 +268,7 @@ def param(
         assert not callable(
             init_value
         ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
-        return cast(Array, init_value)
+        return jnp.asarray(init_value)
 
     if callable(init_value):
 
@@ -305,7 +307,7 @@ def deterministic(name: str, value: ArrayLike) -> Array:
     :param jnp.ndarray value: deterministic value to record in the trace.
     """
     if not _PYRO_STACK:
-        return cast(Array, value)
+        return jnp.asarray(value)
 
     initial_msg: dict = {
         "type": "deterministic",
@@ -697,7 +699,7 @@ def subsample(data: ArrayLike, event_dim: int) -> Array:
     :rtype: ~jnp.ndarray
     """
     if not _PYRO_STACK:
-        return cast(Array, data)
+        return jnp.asarray(data)
 
     assert isinstance(event_dim, int) and event_dim >= 0
     initial_msg = {
