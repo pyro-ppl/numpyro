@@ -4,7 +4,7 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
-from typing import Callable, Dict, Generator, List, Optional, Tuple, cast
+from typing import Callable, Generator, Optional, cast
 import warnings
 
 import jax
@@ -15,12 +15,12 @@ from jax.typing import ArrayLike
 import numpyro
 from numpyro.util import find_stack_level, identity
 
-_PYRO_STACK: List = []
+_PYRO_STACK: list = []
 
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def default_process_message(msg: Dict) -> None:
+def default_process_message(msg: dict) -> None:
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -30,7 +30,7 @@ def default_process_message(msg: Dict) -> None:
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
 
-def apply_stack(msg: Dict) -> Dict:
+def apply_stack(msg: dict) -> dict:
     """
     Execute the effect stack at a single site according to the following scheme:
 
@@ -129,8 +129,8 @@ def sample(
     fn,
     obs: Optional[ArrayLike] = None,
     rng_key: Optional[ArrayLike] = None,
-    sample_shape: Tuple[int, ...] = (),
-    infer: Optional[Dict] = None,
+    sample_shape: tuple[int, ...] = (),
+    infer: Optional[dict] = None,
     obs_mask: Optional[ArrayLike] = None,
 ) -> Array:
     """
@@ -307,7 +307,7 @@ def deterministic(name: str, value: ArrayLike) -> Array:
     if not _PYRO_STACK:
         return cast(Array, value)
 
-    initial_msg: Dict = {
+    initial_msg: dict = {
         "type": "deterministic",
         "name": name,
         "value": value,
@@ -351,7 +351,7 @@ def mutable(name: str, init_value: Optional[ArrayLike] = None) -> ArrayLike | No
     return msg["value"]
 
 
-def _inspect() -> Dict:
+def _inspect() -> dict:
     """
     EXPERIMENTAL Inspect the Pyro stack.
 
@@ -394,7 +394,7 @@ def get_mask() -> ArrayLike | None:
     return _inspect()["mask"]
 
 
-def module(name: str, nn: Tuple, input_shape: Optional[Tuple] = None) -> Callable:
+def module(name: str, nn: tuple, input_shape: Optional[tuple] = None) -> Callable:
     """
     Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -532,14 +532,14 @@ class plate(Messenger):
         return self._indices
 
     @staticmethod
-    def _get_batch_shape(cond_indep_stack: List[CondIndepStackFrame]) -> Tuple:
+    def _get_batch_shape(cond_indep_stack: list[CondIndepStackFrame]) -> tuple:
         n_dims = max(-f.dim for f in cond_indep_stack)
         batch_shape = [1] * n_dims
         for f in cond_indep_stack:
             batch_shape[f.dim] = f.size
         return tuple(batch_shape)
 
-    def process_message(self, msg: Dict) -> None:
+    def process_message(self, msg: dict) -> None:
         if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
@@ -555,7 +555,7 @@ class plate(Messenger):
         ):
             return
 
-        cond_indep_stack: List[CondIndepStackFrame] = msg["cond_indep_stack"]
+        cond_indep_stack: list[CondIndepStackFrame] = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
         if msg["type"] == "deterministic":
@@ -579,7 +579,7 @@ class plate(Messenger):
                 self.size / self.subsample_size if self.subsample_size else 1
             )
 
-    def postprocess_message(self, msg: Dict) -> None:
+    def postprocess_message(self, msg: dict) -> None:
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:
@@ -609,7 +609,7 @@ class plate(Messenger):
 
 @contextmanager
 def plate_stack(
-    prefix: str, sizes: List[int], rightmost_dim: int = -1
+    prefix: str, sizes: list[int], rightmost_dim: int = -1
 ) -> Generator[None, None, None]:
     """
     Create a contiguous stack of :class:`plate` s with dimensions::
