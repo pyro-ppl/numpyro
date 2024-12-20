@@ -7,14 +7,13 @@ import functools
 from typing import Callable, Generator, Optional, Union, cast
 import warnings
 
-from distributions.distribution import DistributionLike
-
 import jax
 from jax import Array, lax, random
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 import numpyro
+from numpyro.distributions.distribution import DistributionLike
 from numpyro.util import find_stack_level, identity
 
 _PYRO_STACK: list = []
