@@ -34,7 +34,7 @@ import warnings
 import numpy as np
 
 import jax
-from jax import Array, lax, tree_util
+from jax import lax, tree_util
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 from jax.typing import ArrayLike
@@ -303,13 +303,13 @@ class Distribution(metaclass=DistributionMeta):
     def has_rsample(self) -> bool:
         return set(self.reparametrized_params) == set(self.arg_constraints)
 
-    def rsample(self, key, sample_shape=()):
+    def rsample(self, key, sample_shape=()) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
         raise NotImplementedError
 
-    def shape(self, sample_shape=()):
+    def shape(self, sample_shape=()) -> tuple[int, ...]:
         """
         The tensor shape of samples from this distribution.
 
@@ -324,7 +324,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         return sample_shape + self.batch_shape + self.event_shape
 
-    def sample(self, key, sample_shape=()):
+    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
         `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
@@ -362,14 +362,14 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """
         Mean of the distribution.
         """
         raise NotImplementedError
 
     @property
-    def variance(self):
+    def variance(self) -> ArrayLike:
         """
         Variance of the distribution.
         """
@@ -541,7 +541,7 @@ class Distribution(metaclass=DistributionMeta):
         event_shape = ()
         return batch_shape, event_shape
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> ArrayLike:
         """
         The cumulative distribution function of this distribution.
 
@@ -550,7 +550,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         """
         The inverse cumulative distribution function of this distribution.
 
@@ -572,6 +572,9 @@ class DistributionLike(Protocol):
     or tensorflow_probability.distributions.Distribution.
     """
 
+    def __call__(self, *args: functools.Any, **kwds: functools.Any) -> functools.Any:
+        return super().__call__(*args, **kwds)
+
     @property
     def batch_shape(self) -> tuple[int, ...]: ...
 
@@ -581,7 +584,9 @@ class DistributionLike(Protocol):
     @property
     def event_dim(self) -> int: ...
 
-    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> Array: ...
+    def sample(
+        self, key: ArrayLike, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike: ...
 
     def log_prob(self, value: ArrayLike) -> ArrayLike: ...
 

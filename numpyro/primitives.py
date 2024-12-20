@@ -133,7 +133,7 @@ def sample(
     sample_shape: tuple[int, ...] = (),
     infer: Optional[dict] = None,
     obs_mask: Optional[ArrayLike] = None,
-) -> Array:
+) -> ArrayLike:
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -208,7 +208,7 @@ def sample(
         if obs is None:
             return fn(rng_key=rng_key, sample_shape=sample_shape)
         else:
-            return jnp.asarray(obs)
+            return obs
 
     if obs_mask is not None:
         return _masked_observe(
@@ -670,7 +670,7 @@ def prng_key() -> Union[Array, None]:
     return msg["value"]
 
 
-def subsample(data: ArrayLike, event_dim: int) -> Array:
+def subsample(data: ArrayLike, event_dim: int) -> ArrayLike:
     """
     EXPERIMENTAL Subsampling statement to subsample data based on enclosing
     :class:`~numpyro.primitives.plate` s.
@@ -698,7 +698,7 @@ def subsample(data: ArrayLike, event_dim: int) -> Array:
     :rtype: ~jnp.ndarray
     """
     if not _PYRO_STACK:
-        return jnp.asarray(data)
+        return data
 
     assert isinstance(event_dim, int) and event_dim >= 0
     initial_msg = {
