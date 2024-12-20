@@ -572,8 +572,8 @@ class DistributionLike(Protocol):
     or tensorflow_probability.distributions.Distribution.
     """
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return super().__call__(*args, **kwds)
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return super().__call__(*args, **kwargs)
 
     @property
     def batch_shape(self) -> tuple[int, ...]: ...

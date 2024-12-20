@@ -1,13 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 from collections import namedtuple
 from functools import partial
 import inspect
 from itertools import product
 import math
 import os
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -3540,6 +3539,9 @@ def test_consistent_pytree() -> None:
 
 # Test class that properly implements DistributionLike
 class ValidDistributionLike:
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return ()
+
     @property
     def batch_shape(self) -> tuple[int, ...]:
         return ()
@@ -3600,6 +3602,7 @@ def test_distribution_like_interface():
     my_dist = ValidDistributionLike()
 
     # Test basic properties
+    assert my_dist() == ()
     assert my_dist.batch_shape == ()
     assert my_dist.event_shape == ()
     assert my_dist.event_dim == 0
