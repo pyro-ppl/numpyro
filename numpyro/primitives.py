@@ -121,7 +121,7 @@ def _masked_observe(
     obs: Optional[ArrayLike],
     obs_mask,
     **kwargs,
-) -> Array:
+) -> ArrayLike:
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
@@ -247,7 +247,7 @@ def sample(
 
 def param(
     name: str, init_value: Optional[Union[ArrayLike, Callable]] = None, **kwargs
-) -> Array:
+) -> Optional[ArrayLike]:
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
@@ -277,7 +277,7 @@ def param(
         assert not callable(
             init_value
         ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
-        return jnp.asarray(init_value)
+        return init_value
 
     if callable(init_value):
 
@@ -304,7 +304,7 @@ def param(
     return msg["value"]
 
 
-def deterministic(name: str, value: ArrayLike) -> Array:
+def deterministic(name: str, value: ArrayLike) -> ArrayLike:
     """
     Used to designate deterministic sites in the model. Note that most effect
     handlers will not operate on deterministic sites (except
@@ -316,7 +316,7 @@ def deterministic(name: str, value: ArrayLike) -> Array:
     :param jnp.ndarray value: deterministic value to record in the trace.
     """
     if not _PYRO_STACK:
-        return jnp.asarray(value)
+        return value
 
     initial_msg: Message = {
         "type": "deterministic",
