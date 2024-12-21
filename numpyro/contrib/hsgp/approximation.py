@@ -25,14 +25,14 @@ def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=1.0))
 
-    return jnp.asarray(phi @ (spd * beta))
+    return phi @ (spd * beta)
 
 
 def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
 
-    return jnp.asarray(phi @ beta)
+    return phi @ beta
 
 
 def linear_approximation(
