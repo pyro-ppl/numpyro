@@ -10,7 +10,7 @@ from itertools import product
 from typing import Union
 
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 
 import jax
 from jax import device_get
@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-def _compute_chain_variance_stats(x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+def _compute_chain_variance_stats(x: NDArray) -> tuple[NDArray, NDArray]:
     # compute within-chain variance and variance estimator
     # input has shape C x N x sample_shape
     C, N = x.shape[:2]
@@ -42,7 +42,7 @@ def _compute_chain_variance_stats(x: npt.NDArray) -> tuple[npt.NDArray, npt.NDAr
     return var_within, var_estimator
 
 
-def gelman_rubin(x: npt.NDArray) -> npt.NDArray:
+def gelman_rubin(x: NDArray) -> NDArray:
     """
     Computes R-hat over chains of samples ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -61,7 +61,7 @@ def gelman_rubin(x: npt.NDArray) -> npt.NDArray:
     return rhat
 
 
-def split_gelman_rubin(x: npt.NDArray) -> npt.NDArray:
+def split_gelman_rubin(x: NDArray) -> NDArray:
     """
     Computes split R-hat over chains of samples ``x``, where the first dimension
     of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -98,7 +98,7 @@ def _fft_next_fast_len(target: int) -> int:
         target += 1
 
 
-def autocorrelation(x: npt.NDArray, axis: int = 0, bias: bool = True) -> npt.NDArray:
+def autocorrelation(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
@@ -142,7 +142,7 @@ def autocorrelation(x: npt.NDArray, axis: int = 0, bias: bool = True) -> npt.NDA
     return np.swapaxes(autocorr, axis, -1)
 
 
-def autocovariance(x: npt.NDArray, axis: int = 0, bias: bool = True) -> npt.NDArray:
+def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     """
     Computes the autocovariance of samples at dimension ``axis``.
 
@@ -155,7 +155,7 @@ def autocovariance(x: npt.NDArray, axis: int = 0, bias: bool = True) -> npt.NDAr
     return autocorrelation(x, axis, bias) * x.var(axis=axis, keepdims=True)
 
 
-def effective_sample_size(x: npt.NDArray, bias: bool = True) -> npt.NDArray:
+def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
     """
     Computes effective sample size of input ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -203,7 +203,7 @@ def effective_sample_size(x: npt.NDArray, bias: bool = True) -> npt.NDArray:
     return n_eff
 
 
-def hpdi(x: npt.NDArray, prob: float = 0.90, axis: int = 0) -> npt.NDArray:
+def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
@@ -286,7 +286,7 @@ def summary(
 
 
 def print_summary(
-    samples: Union[dict, npt.NDArray], prob: float = 0.90, group_by_chain: bool = True
+    samples: Union[dict, NDArray], prob: float = 0.90, group_by_chain: bool = True
 ) -> None:
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
