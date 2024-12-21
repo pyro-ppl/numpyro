@@ -24,11 +24,11 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-
 from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
+from typing import Any, Protocol, runtime_checkable
 import warnings
 
 import numpy as np
@@ -37,6 +37,7 @@ import jax
 from jax import lax, tree_util
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+from jax.typing import ArrayLike
 
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
@@ -270,7 +271,7 @@ class Distribution(metaclass=DistributionMeta):
                 raise RuntimeError("Cannot validate arguments inside jitted code.")
 
     @property
-    def batch_shape(self):
+    def batch_shape(self) -> tuple[int, ...]:
         """
         Returns the shape over which the distribution parameters are batched.
 
@@ -280,7 +281,7 @@ class Distribution(metaclass=DistributionMeta):
         return self._batch_shape
 
     @property
-    def event_shape(self):
+    def event_shape(self) -> tuple[int, ...]:
         """
         Returns the shape of a single sample from the distribution without
         batching.
@@ -291,7 +292,7 @@ class Distribution(metaclass=DistributionMeta):
         return self._event_shape
 
     @property
-    def event_dim(self):
+    def event_dim(self) -> int:
         """
         :return: Number of dimensions of individual events.
         :rtype: int
@@ -299,16 +300,16 @@ class Distribution(metaclass=DistributionMeta):
         return len(self.event_shape)
 
     @property
-    def has_rsample(self):
+    def has_rsample(self) -> bool:
         return set(self.reparametrized_params) == set(self.arg_constraints)
 
-    def rsample(self, key, sample_shape=()):
+    def rsample(self, key, sample_shape=()) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
         raise NotImplementedError
 
-    def shape(self, sample_shape=()):
+    def shape(self, sample_shape=()) -> tuple[int, ...]:
         """
         The tensor shape of samples from this distribution.
 
@@ -323,7 +324,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         return sample_shape + self.batch_shape + self.event_shape
 
-    def sample(self, key, sample_shape=()):
+    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
         `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
@@ -361,14 +362,14 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """
         Mean of the distribution.
         """
         raise NotImplementedError
 
     @property
-    def variance(self):
+    def variance(self) -> ArrayLike:
         """
         Variance of the distribution.
         """
@@ -540,7 +541,7 @@ class Distribution(metaclass=DistributionMeta):
         event_shape = ()
         return batch_shape, event_shape
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> ArrayLike:
         """
         The cumulative distribution function of this distribution.
 
@@ -549,7 +550,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         """
         The inverse cumulative distribution function of this distribution.
 
@@ -561,6 +562,43 @@ class Distribution(metaclass=DistributionMeta):
     @property
     def is_discrete(self):
         return self.support.is_discrete
+
+
+@runtime_checkable
+class DistributionLike(Protocol):
+    """A protocol for typing distributions.
+
+    Used to type object of type numpyro.distributions.Distribution, funsor.Funsor
+    or tensorflow_probability.distributions.Distribution.
+    """
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return super().__call__(*args, **kwargs)
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]: ...
+
+    @property
+    def event_shape(self) -> tuple[int, ...]: ...
+
+    @property
+    def event_dim(self) -> int: ...
+
+    def sample(
+        self, key: ArrayLike, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike: ...
+
+    def log_prob(self, value: ArrayLike) -> ArrayLike: ...
+
+    @property
+    def mean(self) -> ArrayLike: ...
+
+    @property
+    def variance(self) -> ArrayLike: ...
+
+    def cdf(self, value: ArrayLike) -> ArrayLike: ...
+
+    def icdf(self, q: ArrayLike) -> ArrayLike: ...
 
 
 class ExpandedDistribution(Distribution):

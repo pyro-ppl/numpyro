@@ -21,18 +21,14 @@ from numpyro.contrib.hsgp.spectral_densities import (
 import numpyro.distributions as dist
 
 
-def _non_centered_approximation(
-    phi: ArrayLike, spd: ArrayLike, m: int | list[int]
-) -> Array:
+def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=1.0))
 
     return phi @ (spd * beta)
 
 
-def _centered_approximation(
-    phi: ArrayLike, spd: ArrayLike, m: int | list[int]
-) -> Array:
+def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
 
@@ -40,7 +36,7 @@ def _centered_approximation(
 
 
 def linear_approximation(
-    phi: ArrayLike, spd: ArrayLike, m: int | list[int], non_centered: bool = True
+    phi: Array, spd: Array, m: int, non_centered: bool = True
 ) -> Array:
     """
     Linear approximation formula of the Hilbert space Gaussian process.
@@ -52,10 +48,10 @@ def linear_approximation(
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayLike phi: laplacian eigenfunctions
-    :param ArrayLike spd: square root of the diagonal of the spectral density evaluated at square
+    :param Array phi: laplacian eigenfunctions
+    :param Array spd: square root of the diagonal of the spectral density evaluated at square
         root of the first `m` eigenvalues.
-    :param int | list[int] m: number of eigenfunctions in the approximation
+    :param int m: number of eigenfunctions in the approximation
     :param bool non_centered: whether to use a non-centered parameterization
     :return: The low-rank approximation linear model
     :rtype: Array
