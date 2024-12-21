@@ -17,7 +17,7 @@ from numpyro.distributions.distribution import DistributionLike
 from numpyro.util import find_stack_level, identity
 
 # Type aliases
-MessageType = dict[str, Any]
+Message = dict[str, Any]
 
 _PYRO_STACK: list = []
 
@@ -25,7 +25,7 @@ _PYRO_STACK: list = []
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def default_process_message(msg: MessageType) -> None:
+def default_process_message(msg: Message) -> None:
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -35,7 +35,7 @@ def default_process_message(msg: MessageType) -> None:
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
 
-def apply_stack(msg: MessageType) -> MessageType:
+def apply_stack(msg: Message) -> Message:
     """
     Execute the effect stack at a single site according to the following scheme:
 
@@ -318,7 +318,7 @@ def deterministic(name: str, value: ArrayLike) -> Array:
     if not _PYRO_STACK:
         return jnp.asarray(value)
 
-    initial_msg: MessageType = {
+    initial_msg: Message = {
         "type": "deterministic",
         "name": name,
         "value": value,
@@ -554,7 +554,7 @@ class plate(Messenger):
             batch_shape[f.dim] = f.size
         return tuple(batch_shape)
 
-    def process_message(self, msg: MessageType) -> None:
+    def process_message(self, msg: Message) -> None:
         if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
@@ -594,7 +594,7 @@ class plate(Messenger):
                 self.size / self.subsample_size if self.subsample_size else 1
             )
 
-    def postprocess_message(self, msg: MessageType) -> None:
+    def postprocess_message(self, msg: Message) -> None:
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:
