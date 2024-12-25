@@ -4,6 +4,7 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
+from types import TracebackType
 from typing import Any, Callable, Generator, Optional, Union, cast
 import warnings
 
@@ -81,7 +82,12 @@ class Messenger(object):
     def __enter__(self) -> None:
         _PYRO_STACK.append(self)
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         if exc_type is None:
             assert _PYRO_STACK[-1] is self
             _PYRO_STACK.pop()

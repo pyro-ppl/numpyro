@@ -92,6 +92,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
+from types import TracebackType
 from typing import Callable, Optional, Union
 import warnings
 
@@ -349,7 +350,12 @@ class collapse(trace):
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         import funsor
 
         _coerce = COERCIONS.pop()
@@ -362,7 +368,7 @@ class collapse(trace):
         # Convert delayed statements to pyro.factor()
         reduced_vars = []
         log_prob_terms = []
-        plates = frozenset()
+        plates: frozenset[str] = frozenset()
         for name, site in self.trace.items():
             if site["type"] != "sample":
                 continue
