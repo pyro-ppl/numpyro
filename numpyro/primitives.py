@@ -97,11 +97,11 @@ class Messenger(object):
                 for _ in range(loc, len(_PYRO_STACK)):
                     _PYRO_STACK.pop()
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         """To be implemented by subclasses."""
         pass
 
-    def postprocess_message(self, msg):
+    def postprocess_message(self, msg: Message) -> None:
         """To be implemented by subclasses."""
         pass
 

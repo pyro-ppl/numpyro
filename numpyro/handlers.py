@@ -92,18 +92,21 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
+from typing import Callable, Optional
 import warnings
 
 import numpy as np
 
 from jax import random
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
+    Message,
     Messenger,
     apply_stack,
     plate,
@@ -158,12 +161,12 @@ class trace(Messenger):
                       'value': Array(-0.20584235, dtype=float32)})])
     """
 
-    def __enter__(self):
+    def __enter__(self) -> OrderedDict[str, Message]:  # type: ignore [override]
         super(trace, self).__enter__()
-        self.trace = OrderedDict()
+        self.trace: OrderedDict[str, Message] = OrderedDict()
         return self.trace
 
-    def postprocess_message(self, msg):
+    def postprocess_message(self, msg: Message) -> None:
         if "name" not in msg:
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
@@ -175,7 +178,7 @@ class trace(Messenger):
         )
         self.trace[msg["name"]] = msg.copy()
 
-    def get_trace(self, *args, **kwargs):
+    def get_trace(self, *args, **kwargs) -> OrderedDict[str, Message]:
         """
         Run the wrapped callable and return the recorded trace.
 
@@ -217,12 +220,16 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, trace=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        trace: Optional[OrderedDict[str, Message]] = None,
+    ) -> None:
         assert trace is not None
         self.trace = trace
         super(replay, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
             name = msg["name"]
             guide_msg = self.trace[name]
@@ -282,12 +289,12 @@ class block(Messenger):
 
     def __init__(
         self,
-        fn=None,
-        hide_fn=None,
-        hide=None,
-        expose_types=None,
-        expose=None,
-    ):
+        fn: Optional[Callable] = None,
+        hide_fn: Optional[Callable] = None,
+        hide: Optional[list[str]] = None,
+        expose_types: Optional[list[str]] = None,
+        expose: Optional[list[str]] = None,
+    ) -> None:
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
@@ -300,7 +307,7 @@ class block(Messenger):
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if self.hide_fn(msg):
             msg["stop"] = True
 
@@ -315,7 +322,7 @@ class collapse(trace):
 
     _coerce = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         if collapse._coerce is None:
             import funsor
             from funsor.distribution import CoerceDistributionToFunsor
@@ -324,7 +331,7 @@ class collapse(trace):
             collapse._coerce = CoerceDistributionToFunsor("jax")
         super().__init__(*args, **kwargs)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         from funsor.terms import Funsor
 
         if msg["type"] == "sample":
@@ -334,7 +341,7 @@ class collapse(trace):
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
 
-    def __enter__(self):
+    def __enter__(self) -> OrderedDict[str, Message]:  # type: ignore [override]
         self.preserved_plates = frozenset(
             h.name for h in _PYRO_STACK if isinstance(h, plate)
         )
@@ -411,7 +418,12 @@ class condition(Messenger):
        >>> assert exec_trace['a']['is_observed']
     """
 
-    def __init__(self, fn=None, data=None, condition_fn=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        data: Optional[dict[str, ArrayLike]] = None,
+        condition_fn: Optional[Callable] = None,
+    ) -> None:
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
@@ -451,12 +463,16 @@ class infer_config(Messenger):
     :param config_fn: a callable taking a site and returning an infer dict
     """
 
-    def __init__(self, fn=None, config_fn=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        config_fn: Optional[Callable] = None,
+    ) -> None:
         super().__init__(fn)
         self.config_fn = config_fn
 
-    def process_message(self, msg):
-        if msg["type"] in ("sample",):
+    def process_message(self, msg: Message) -> None:
+        if msg["type"] in ("sample",) and self.config_fn is not None:
             msg["infer"].update(self.config_fn(msg))
 
 
