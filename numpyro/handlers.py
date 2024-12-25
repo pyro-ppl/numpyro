@@ -569,7 +569,7 @@ class mask(Messenger):
         self.mask = mask
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "sample":
             if msg["type"] == "inspect":
                 msg["mask"] = (
@@ -884,6 +884,8 @@ class substitute(Messenger):
                         ("substitute", self.substitute_fn)
                     )
             return
+
+        value = None
 
         if self.data is not None and (name := msg.get("name")) in self.data:
             value = self.data[name]
