@@ -92,12 +92,12 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 import warnings
 
 import numpy as np
 
-from jax import random
+from jax import Array, random
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
@@ -106,6 +106,7 @@ from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
+    DistributionLike,
     Message,
     Messenger,
     apply_stack,
@@ -502,20 +503,24 @@ class lift(Messenger):
     :param prior: prior function in the form of a Distribution or a dict of Distributions
     """
 
-    def __init__(self, fn=None, prior=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        prior: Optional[Union[DistributionLike, dict[str, DistributionLike]]] = None,
+    ) -> None:
         super().__init__(fn)
         self.prior = prior
-        self._samples_cache = {}
+        self._samples_cache: dict[str, Message] = {}
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self._samples_cache = {}
         return super().__enter__()
 
-    def __exit__(self, *args, **kwargs):
+    def __exit__(self, *args, **kwargs) -> None:
         self._samples_cache = {}
         return super().__exit__(*args, **kwargs)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "param":
             return
 
@@ -554,7 +559,11 @@ class mask(Messenger):
         probability of sample sites (`True` includes a site, `False` excludes a site).
     """
 
-    def __init__(self, fn=None, mask=True):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        mask: Optional[ArrayLike] = True,
+    ) -> None:
         if jnp.result_type(mask) != "bool":
             raise ValueError("`mask` should be a bool array.")
         self.mask = mask
@@ -595,12 +604,16 @@ class reparam(Messenger):
     :type config: dict or callable
     """
 
-    def __init__(self, fn=None, config=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        config: Optional[Union[dict, Callable]] = None,
+    ) -> None:
         assert isinstance(config, dict) or callable(config)
         self.config = config
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "sample":
             return
 
@@ -640,14 +653,18 @@ class scale(Messenger):
     :type scale: float or numpy.ndarray
     """
 
-    def __init__(self, fn=None, scale=1.0):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        scale: ArrayLike = 1.0,
+    ) -> None:
         if not_jax_tracer(scale):
             if np.any(np.less_equal(scale, 0)):
                 raise ValueError("'scale' argument should be positive.")
         self.scale = scale
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] not in ("param", "sample", "plate"):
             return
 
@@ -688,13 +705,20 @@ class scope(Messenger):
     :param list hide_types: an optional list of side types to skip renaming.
     """
 
-    def __init__(self, fn=None, prefix="", divider="/", *, hide_types=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        prefix: str = "",
+        divider: str = "/",
+        *,
+        hide_types: Optional[list[str]] = None,
+    ) -> None:
         self.prefix = prefix
         self.divider = divider
         self.hide_types = [] if hide_types is None else hide_types
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg.get("name") and msg["type"] not in self.hide_types:
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
 
@@ -758,17 +782,25 @@ class seed(Messenger):
        >>> assert x == y
     """
 
-    def __init__(self, fn=None, rng_seed=None, hide_types=None):
-        if not is_prng_key(rng_seed) and (
-            isinstance(rng_seed, int)
-            or (
-                isinstance(rng_seed, (np.ndarray, jnp.ndarray))
-                and not jnp.shape(rng_seed)
-            )
-        ):
-            rng_seed = random.PRNGKey(rng_seed)
-        if not is_prng_key(rng_seed):
-            raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        rng_seed: Optional[Array] = None,
+        hide_types: Optional[list[str]] = None,
+    ) -> None:
+        if rng_seed is not None:
+            if not is_prng_key(rng_seed) and (
+                isinstance(rng_seed, int)
+                or (
+                    isinstance(rng_seed, (np.ndarray, jnp.ndarray))
+                    and not jnp.shape(rng_seed)
+                )
+            ):
+                rng_seed = random.PRNGKey(rng_seed)
+            if not is_prng_key(rng_seed):
+                raise TypeError(
+                    "Incorrect type for rng_seed: {}".format(type(rng_seed))
+                )
         self.rng_key = rng_seed
         self.hide_types = [] if hide_types is None else hide_types
         super(seed, self).__init__(fn)
