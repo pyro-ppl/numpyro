@@ -805,7 +805,7 @@ class seed(Messenger):
         self.hide_types = [] if hide_types is None else hide_types
         super(seed, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] in self.hide_types:
             return
         if msg["type"] not in ["sample", "prng_key", "plate", "control_flow"]:
@@ -813,8 +813,9 @@ class seed(Messenger):
         if (msg["kwargs"]["rng_key"] is not None) or (msg["value"] is not None):
             # no need to create a new key when value is available
             return
-        self.rng_key, rng_key_sample = random.split(self.rng_key)
-        msg["kwargs"]["rng_key"] = rng_key_sample
+        if self.rng_key is not None:
+            self.rng_key, rng_key_sample = random.split(self.rng_key)
+            msg["kwargs"]["rng_key"] = rng_key_sample
 
 
 class substitute(Messenger):
@@ -857,7 +858,12 @@ class substitute(Messenger):
        >>> assert exec_trace['a']['value'] == -1
     """
 
-    def __init__(self, fn=None, data=None, substitute_fn=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        data: Optional[dict[str, Array]] = None,
+        substitute_fn: Optional[Callable] = None,
+    ) -> None:
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
@@ -866,7 +872,7 @@ class substitute(Messenger):
             )
         super(substitute, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if (
             msg["type"] not in ("sample", "param", "mutable", "plate", "deterministic")
         ) or msg.get("_control_flow_done", False):
@@ -879,9 +885,9 @@ class substitute(Messenger):
                     )
             return
 
-        if self.data is not None:
-            value = self.data.get(msg.get("name"))
-        else:
+        if self.data is not None and (name := msg.get("name")) in self.data:
+            value = self.data[name]
+        elif self.substitute_fn is not None:
             value = self.substitute_fn(msg)
 
         if value is not None:
@@ -932,17 +938,22 @@ class do(Messenger):
       >>> assert z_square == 1
     """
 
-    def __init__(self, fn=None, data=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        data: Optional[dict[str, ArrayLike]] = None,
+    ) -> None:
         self.data = data
         self._intervener_id = str(id(self))
         super(do, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "sample":
             return
         if (
             msg.get("_intervener_id", None) != self._intervener_id
-            and self.data.get(msg["name"]) is not None
+            and self.data is not None
+            and (name := msg.get("name")) in self.data
         ):
             if msg.get("_intervener_id", None) is not None:
                 warnings.warn(
@@ -957,7 +968,7 @@ class do(Messenger):
             new_msg = msg.copy()
             apply_stack(new_msg)
 
-            intervention = self.data.get(msg["name"])
+            intervention = self.data[name]
             msg["name"] = msg["name"] + "__CF"  # mangle old name
             msg["value"] = intervention
             msg["is_observed"] = True
