@@ -116,6 +116,7 @@ module = [
     "numpyro.contrib.stochastic_support.*",
     "numpyro.diagnostics.*",
     "numpyro.handlers.*",
+    "numpyro.optim.*",
     "numpyro.primitives.*",
     "numpyro.patch.*",
     "numpyro.util.*",

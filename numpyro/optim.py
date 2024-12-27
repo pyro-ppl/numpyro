@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Union
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -18,6 +18,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
 from jax.tree_util import register_pytree_node
+from jax.typing import ArrayLike
 
 __all__ = [
     "Adam",
@@ -31,12 +32,14 @@ __all__ = [
     "SM3",
 ]
 
-_Params = TypeVar("_Params")
+_Params = Union[dict[str, ArrayLike], ArrayLike]
 _OptState = TypeVar("_OptState")
-_IterOptState = tuple[int, _OptState]
+_IterOptState = tuple[ArrayLike, _OptState]
 
 
-def _value_and_grad(f, x, forward_mode_differentiation=False):
+def _value_and_grad(
+    f, x, forward_mode_differentiation=False
+) -> tuple[tuple[ArrayLike, Any], ArrayLike]:
     if forward_mode_differentiation:
 
         def _wrapper(x):
@@ -80,7 +83,7 @@ class _NumPyroOptim(object):
         fn: Callable[[Any], tuple],
         state: _IterOptState,
         forward_mode_differentiation: bool = False,
-    ):
+    ) -> tuple[tuple[ArrayLike, Any], _IterOptState]:
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -225,7 +228,7 @@ class SM3(_NumPyroOptim):
 # and pass `unravel_fn` around.
 # When arbitrary pytree is supported in JAX, we can just simply use
 # identity functions for `init_fn` and `get_params`.
-_MinimizeState = namedtuple("MinimizeState", ["flat_params", "unravel_fn"])
+_MinimizeState = namedtuple("_MinimizeState", ["flat_params", "unravel_fn"])
 register_pytree_node(
     _MinimizeState,
     lambda state: ((state.flat_params,), (state.unravel_fn,)),
