@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -32,14 +32,12 @@ __all__ = [
     "SM3",
 ]
 
-_Params = Union[dict[str, ArrayLike], ArrayLike]
+_Params = Any
 _OptState = TypeVar("_OptState")
 _IterOptState = tuple[ArrayLike, _OptState]
 
 
-def _value_and_grad(
-    f, x, forward_mode_differentiation=False
-) -> tuple[tuple[ArrayLike, Any], ArrayLike]:
+def _value_and_grad(f, x, forward_mode_differentiation=False) -> tuple:
     if forward_mode_differentiation:
 
         def _wrapper(x):
@@ -54,6 +52,9 @@ def _value_and_grad(
 
 class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
+        self.init_fn: Callable[[_Params], _IterOptState]
+        self.update_fn: Callable[[ArrayLike, _Params, _OptState], _OptState]
+        self.get_params_fn: Callable[[_OptState], _Params]
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
     def init(self, params: _Params) -> _IterOptState:
@@ -83,7 +84,7 @@ class _NumPyroOptim(object):
         fn: Callable[[Any], tuple],
         state: _IterOptState,
         forward_mode_differentiation: bool = False,
-    ) -> tuple[tuple[ArrayLike, Any], _IterOptState]:
+    ) -> tuple[tuple[Any, Any], _IterOptState]:
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -110,7 +111,7 @@ class _NumPyroOptim(object):
         fn: Callable[[Any], tuple],
         state: _IterOptState,
         forward_mode_differentiation: bool = False,
-    ) -> tuple[tuple[ArrayLike, Any], _IterOptState]:
+    ) -> tuple[tuple[Any, Any], _IterOptState]:
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -177,7 +178,7 @@ class ClippedAdam(_NumPyroOptim):
         self.clip_norm = clip_norm
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
-    def update(self, g, state):
+    def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
         i, opt_state = state
         # clip norm
         g = jax.tree.map(lambda g_: jnp.clip(g_, -self.clip_norm, self.clip_norm), g)
@@ -309,8 +310,8 @@ class Minimize(_NumPyroOptim):
         self,
         fn: Callable[[Any], tuple],
         state: _IterOptState,
-        forward_mode_differentiation=False,
-    ):
+        forward_mode_differentiation: bool = False,
+    ) -> tuple[tuple[Any, None], _IterOptState]:
         i, (flat_params, unravel_fn) = state
 
         def loss_fn(x):
