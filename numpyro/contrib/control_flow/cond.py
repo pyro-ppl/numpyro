@@ -74,9 +74,8 @@ def cond_wrapper(
 
 
 def cond(pred: bool, true_fun: Callable, false_fun: Callable, operand: Any) -> Any:
-    """
-    This primitive conditionally applies ``true_fun`` or ``false_fun``. See
-    :func:`jax.lax.cond` for more information.
+    """This primitive conditionally applies ``true_fun`` or ``false_fun``. See :func:`jax.lax.cond` for more
+    information.
 
     **Usage**:
 

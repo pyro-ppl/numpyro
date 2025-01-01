@@ -50,8 +50,8 @@ def get_parameter_transform(site):
 
 
 def batch_ravel_pytree(pytree, nbatch_dims=0):
-    """Ravel a pytree to a flat array. Assumes all leaves have the same shape. If `nbatch_dims>1' then the batch
-    is flattened to one dimension.
+    """Ravel a pytree to a flat array. Assumes all leaves have the same shape. If `nbatch_dims>1' then the batch is
+    flattened to one dimension.
 
     :param pytree: a pytree of arrays with same shape.
     :param nbatch_dims: number of batch dimensions in from right most.

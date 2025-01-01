@@ -15,8 +15,7 @@ def _clamp_preserve_gradients(x, min, max):
 
 # adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
 class InverseAutoregressiveTransform(Transform):
-    """
-    An implementation of Inverse Autoregressive Flow, using Eq (10) from Kingma et al., 2016,
+    """An implementation of Inverse Autoregressive Flow, using Eq (10) from Kingma et al., 2016,
 
         :math:`\\mathbf{y} = \\mu_t + \\sigma_t\\odot\\mathbf{x}`
 
@@ -77,8 +76,7 @@ class InverseAutoregressiveTransform(Transform):
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        """
-        Calculates the elementwise determinant of the log jacobian.
+        """Calculates the elementwise determinant of the log jacobian.
 
         :param numpy.ndarray x: the input to the transform
         :param numpy.ndarray y: the output of the transform
@@ -110,8 +108,7 @@ class InverseAutoregressiveTransform(Transform):
 
 
 class BlockNeuralAutoregressiveTransform(Transform):
-    """
-    An implementation of Block Neural Autoregressive flow.
+    """An implementation of Block Neural Autoregressive flow.
 
     **References**
 
@@ -142,8 +139,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
         )
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        """
-        Calculates the elementwise determinant of the log jacobian.
+        """Calculates the elementwise determinant of the log jacobian.
 
         :param numpy.ndarray x: the input to the transform
         :param numpy.ndarray y: the output of the transform

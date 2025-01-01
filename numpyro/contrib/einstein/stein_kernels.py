@@ -21,9 +21,7 @@ class SteinKernel(ABC):
     @property
     @abstractmethod
     def mode(self):
-        """
-        Returns the type of kernel, either 'norm' or 'vector' or 'matrix'.
-        """
+        """Returns the type of kernel, either 'norm' or 'vector' or 'matrix'."""
         raise NotImplementedError
 
     @abstractmethod
@@ -34,7 +32,7 @@ class SteinKernel(ABC):
         particle_info: dict[str, tuple[int, int]],
         loss_fn: Callable[[jnp.ndarray], float],
     ):
-        """Computes the kernel function given the input Stein particles
+        """Computes the kernel function given the input Stein particles.
 
         :param particles: The Stein particles to compute the kernel from
         :param particle_info: A mapping from parameter names to the position in the
@@ -47,16 +45,16 @@ class SteinKernel(ABC):
         raise NotImplementedError
 
     def init(self, rng_key, particles_shape):
-        """
-        Initializes the kernel
-        :param rng_key: a JAX PRNGKey to initialize the kernel
-        :param tuple particles_shape: shape of the input `particles` in :meth:`compute`
+        """Initializes the kernel :param rng_key: a JAX PRNGKey to initialize the kernel :param tuple
+        particles_shape:
+
+        shape of the input `particles` in :meth:`compute`
         """
         pass
 
 
 class RBFKernel(SteinKernel):
-    """Calculates the Gaussian RBF kernel function used in [1]. The kernel is given by
+    """Calculates the Gaussian RBF kernel function used in [1]. The kernel is given by.
 
         :math:`k(x,y) = \\exp(\\frac{-1}{h} \\|x-y\\|^2)`,
 
@@ -119,7 +117,7 @@ class RBFKernel(SteinKernel):
 
 
 class IMQKernel(SteinKernel):
-    """Calculates the IMQ kernel from Theorem 8 of [1]. The kernel is given by
+    """Calculates the IMQ kernel from Theorem 8 of [1]. The kernel is given by.
 
         :math:`k(x,y) = (c^2 + \\|x-y\\|^2_2)^{\\beta},`
 
@@ -161,8 +159,7 @@ class IMQKernel(SteinKernel):
 
 
 class LinearKernel(SteinKernel):
-    """
-    Calculates the linear kernel from Theorem 3.3 in [1]. The kernel is given by
+    """Calculates the linear kernel from Theorem 3.3 in [1]. The kernel is given by.
 
         :math:`k(x,y) = x^T y + 1`.
 
@@ -191,7 +188,7 @@ class LinearKernel(SteinKernel):
 
 
 class RandomFeatureKernel(SteinKernel):
-    """Calculates the Gaussian variate of random kernel in eq. 5 and 6 of [1]. The kernel is given by
+    """Calculates the Gaussian variate of random kernel in eq. 5 and 6 of [1]. The kernel is given by.
 
         :math:`k(x,y)= \\frac{1}{m}\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l)`,
 
@@ -283,7 +280,7 @@ class RandomFeatureKernel(SteinKernel):
 
 
 class MixtureKernel(SteinKernel):
-    """Calculates a mixture of multiple kernels from eq. 1 of [1]. The kernel is given by
+    """Calculates a mixture of multiple kernels from eq. 1 of [1]. The kernel is given by.
 
         :math:`k(x,y) = \\sum_i w_ik_i(x,y)`,
 
@@ -330,8 +327,8 @@ class MixtureKernel(SteinKernel):
 
 
 class GraphicalKernel(SteinKernel):
-    """Calculates the graphical kernel, also called the coordinate-wise kernel, from Theorem 1 in [1].
-    The kernel is given by
+    """Calculates the graphical kernel, also called the coordinate-wise kernel, from Theorem 1 in [1]. The kernel is
+    given by.
 
         :math:`k(x,y) = diag({k_l(x_l,y_l)})`,
 

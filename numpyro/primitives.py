@@ -150,10 +150,8 @@ def sample(
     infer: Optional[dict] = None,
     obs_mask: Optional[ArrayLike] = None,
 ) -> ArrayLike:
-    """
-    Returns a random sample from the stochastic function `fn`. This can have
-    additional side effects when wrapped inside effect handlers like
-    :class:`~numpyro.handlers.substitute`.
+    """Returns a random sample from the stochastic function `fn`. This can have additional side effects when wrapped
+    inside effect handlers like :class:`~numpyro.handlers.substitute`.
 
     .. note::
         By design, `sample` primitive is meant to be used inside a NumPyro model.
@@ -254,10 +252,8 @@ def sample(
 def param(
     name: str, init_value: Optional[Union[ArrayLike, Callable]] = None, **kwargs
 ) -> Optional[ArrayLike]:
-    """
-    Annotate the given site as an optimizable parameter for use with
-    :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
-    can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
+    """Annotate the given site as an optimizable parameter for use with :mod:`jax.example_libraries.optimizers`. For
+    an example of how `param` statements can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
     :param init_value: initial value specified by the user or a lazy callable
@@ -311,12 +307,9 @@ def param(
 
 
 def deterministic(name: str, value: ArrayLike) -> ArrayLike:
-    """
-    Used to designate deterministic sites in the model. Note that most effect
-    handlers will not operate on deterministic sites (except
-    :func:`~numpyro.handlers.trace`), so deterministic sites should be
-    side-effect free. The use case for deterministic nodes is to record any
-    values in the model execution trace.
+    """Used to designate deterministic sites in the model. Note that most effect handlers will not operate on
+    deterministic sites (except :func:`~numpyro.handlers.trace`), so deterministic sites should be side-effect free.
+    The use case for deterministic nodes is to record any values in the model execution trace.
 
     :param str name: name of the deterministic site.
     :param jnp.ndarray value: deterministic value to record in the trace.
@@ -371,8 +364,7 @@ def mutable(
 
 
 def _inspect() -> dict:
-    """
-    EXPERIMENTAL Inspect the Pyro stack.
+    """EXPERIMENTAL Inspect the Pyro stack.
 
     .. warning:: The format of the returned message may change at any time and
         does not guarantee backwards compatibility.
@@ -414,10 +406,8 @@ def get_mask() -> Union[ArrayLike, None]:
 
 
 def module(name: str, nn: tuple, input_shape: Optional[tuple] = None) -> Callable:
-    """
-    Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
-    model so that its parameters are registered for optimization via
-    :func:`~numpyro.primitives.param` statements.
+    """Declare a :mod:`~jax.example_libraries.stax` style neural network inside a model so that its parameters are
+    registered for optimization via :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
     :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.example_libraries.stax`
@@ -465,11 +455,9 @@ def _subsample_fn(size: int, subsample_size: int, rng_key: Optional[ArrayLike] =
 
 
 class plate(Messenger):
-    """
-    Construct for annotating conditionally independent variables. Within a
-    `plate` context manager, `sample` sites will be automatically broadcasted to
-    the size of the plate. Additionally, a scale factor might be applied by
-    certain inference algorithms if `subsample_size` is specified.
+    """Construct for annotating conditionally independent variables. Within a `plate` context manager, `sample`
+    sites will be automatically broadcasted to the size of the plate. Additionally, a scale factor might be applied
+    by certain inference algorithms if `subsample_size` is specified.
 
     .. note:: This can be used to subsample minibatches of data:
 
@@ -650,9 +638,7 @@ def plate_stack(
 
 
 def factor(name: str, log_factor: ArrayLike) -> None:
-    """
-    Factor statement to add arbitrary log probability factor to a
-    probabilistic model.
+    """Factor statement to add arbitrary log probability factor to a probabilistic model.
 
     :param str name: Name of the trivial sample.
     :param jnp.ndarray log_factor: A possibly batched log probability factor.
@@ -663,9 +649,8 @@ def factor(name: str, log_factor: ArrayLike) -> None:
 
 
 def prng_key() -> Union[Array, None]:
-    """
-    A statement to draw a pseudo-random number generator key
-    :func:`~jax.random.PRNGKey` under :class:`~numpyro.handlers.seed` handler.
+    """A statement to draw a pseudo-random number generator key :func:`~jax.random.PRNGKey` under
+    :class:`~numpyro.handlers.seed` handler.
 
     :return: a PRNG key of shape (2,) and dtype unit32.
     """
@@ -689,9 +674,7 @@ def prng_key() -> Union[Array, None]:
 
 
 def subsample(data: ArrayLike, event_dim: int) -> ArrayLike:
-    """
-    EXPERIMENTAL Subsampling statement to subsample data based on enclosing
-    :class:`~numpyro.primitives.plate` s.
+    """EXPERIMENTAL Subsampling statement to subsample data based on enclosing :class:`~numpyro.primitives.plate` s.
 
     This is typically called on arguments to ``model()`` when subsampling is
     performed automatically by :class:`~numpyro.primitives.plate` s by passing

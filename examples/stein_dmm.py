@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Deep Markov Model inferred using SteinVI
 =================================================
@@ -59,8 +58,7 @@ def emitter(x, params):
 
 
 def transition(x, params):
-    """Parameterizes the gaussian latent transition probability `p(z_t | z_{t-1})`
-    See section 5 in [1].
+    """Parameterizes the gaussian latent transition probability `p(z_t | z_{t-1})` See section 5 in [1].
 
     **Reference:**
         1. Structured Inference Networks for Nonlinear State Space Models [arXiv:1609.09869]
@@ -96,7 +94,10 @@ def combiner(x, params):
 
 
 def gru(xs, lengths, init_hidden, params):
-    """RNN with GRU. Based on https://github.com/jax-ml/jax/pull/2298"""
+    """RNN with GRU.
+
+    Based on https://github.com/jax-ml/jax/pull/2298
+    """
 
     def apply_fun_single(state, inputs):
         i, x = inputs

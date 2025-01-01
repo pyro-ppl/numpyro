@@ -17,9 +17,8 @@ from jax.interpreters.pxla import xla_pmap_p
 
 
 def eval_provenance(fn, **kwargs):
-    """
-    Compute the provenance output of ``fun`` using JAX's abstract
-    interpretation machinery. There is no actual array computation performed.
+    """Compute the provenance output of ``fun`` using JAX's abstract interpretation machinery. There is no actual
+    array computation performed.
 
     Example::
 

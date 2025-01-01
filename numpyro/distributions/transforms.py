@@ -91,24 +91,22 @@ class Transform(object):
         return self(x), None
 
     def forward_shape(self, shape):
-        """
-        Infers the shape of the forward computation, given the input shape.
+        """Infers the shape of the forward computation, given the input shape.
+
         Defaults to preserving shape.
         """
         return shape
 
     def inverse_shape(self, shape):
-        """
-        Infers the shapes of the inverse computation, given the output shape.
+        """Infers the shapes of the inverse computation, given the output shape.
+
         Defaults to preserving shape.
         """
         return shape
 
     @property
     def sign(self):
-        """
-        Sign of the derivative of the transform if it is bijective.
-        """
+        """Sign of the derivative of the transform if it is bijective."""
         raise NotImplementedError(
             f"Transform `{self.__class__.__name__}` does not implement `sign`."
         )
@@ -422,10 +420,7 @@ def _matrix_inverse_shape(shape, offset=0):
 
 
 class CholeskyTransform(ParameterFreeTransform):
-    r"""
-    Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
-    positive definite matrix.
-    """
+    r"""Transform via the mapping :math:`y = cholesky(x)`, where `x` is a positive definite matrix."""
 
     domain = constraints.positive_definite
     codomain = constraints.lower_cholesky
@@ -517,10 +512,7 @@ class CorrCholeskyTransform(ParameterFreeTransform):
 
 
 class CorrMatrixCholeskyTransform(CholeskyTransform):
-    r"""
-    Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
-    correlation matrix.
-    """
+    r"""Transform via the mapping :math:`y = cholesky(x)`, where `x` is a correlation matrix."""
 
     domain = constraints.corr_matrix
     codomain = constraints.corr_cholesky
@@ -589,11 +581,8 @@ class IdentityTransform(ParameterFreeTransform):
 
 
 class IndependentTransform(Transform):
-    """
-    Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many
-    dims in :meth:`check`, so that an event is valid only if all its
-    independent entries are valid.
-    """
+    """Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many dims in :meth:`check`, so that an
+    event is valid only if all its independent entries are valid."""
 
     def __init__(self, base_transform, reinterpreted_batch_ndims):
         assert isinstance(base_transform, Transform)
@@ -654,9 +643,7 @@ class IndependentTransform(Transform):
 
 
 class L1BallTransform(ParameterFreeTransform):
-    r"""
-    Transforms a unconstrained real vector :math:`x` into the unit L1 ball.
-    """
+    r"""Transforms a unconstrained real vector :math:`x` into the unit L1 ball."""
 
     domain = constraints.real_vector
     codomain = constraints.l1_ball
@@ -702,8 +689,7 @@ class L1BallTransform(ParameterFreeTransform):
 
 
 class LowerCholeskyAffine(Transform):
-    r"""
-    Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
+    r"""Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
 
     :param loc: a real vector.
     :param scale_tril: a lower triangular matrix with positive diagonal.
@@ -775,12 +761,8 @@ class LowerCholeskyAffine(Transform):
 
 
 class LowerCholeskyTransform(ParameterFreeTransform):
-    """
-    Transform a real vector to a lower triangular cholesky
-    factor, where the strictly lower triangular submatrix is
-    unconstrained and the diagonal is parameterized with an
-    exponential transform.
-    """
+    """Transform a real vector to a lower triangular cholesky factor, where the strictly lower triangular submatrix
+    is unconstrained and the diagonal is parameterized with an exponential transform."""
 
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
@@ -810,16 +792,13 @@ class LowerCholeskyTransform(ParameterFreeTransform):
 
 
 class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
-    r"""
-    Like `LowerCholeskyTransform` this `Transform` transforms
-    a real vector to a lower triangular cholesky factor. However
-    it does so via a decomposition
+    r"""Like `LowerCholeskyTransform` this `Transform` transforms a real vector to a lower triangular cholesky
+    factor. However it does so via a decomposition.
 
     :math:`y = loc + unit\_scale\_tril\ @\ scale\_diag\ @\ x`.
 
-    where :math:`unit\_scale\_tril` has ones along the diagonal
-    and :math:`scale\_diag` is a diagonal matrix with all positive
-    entries that is parameterized with a softplus transform.
+    where :math:`unit\_scale\_tril` has ones along the diagonal and :math:`scale\_diag` is a diagonal matrix with
+    all positive entries that is parameterized with a softplus transform.
     """
 
     domain = constraints.real_vector
@@ -844,8 +823,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
 
 
 class OrderedTransform(ParameterFreeTransform):
-    """
-    Transform a real vector to an ordered vector.
+    """Transform a real vector to an ordered vector.
 
     **References:**
 
@@ -861,7 +839,6 @@ class OrderedTransform(ParameterFreeTransform):
        >>> base = jnp.ones(3)
        >>> transform = OrderedTransform()
        >>> assert jnp.allclose(transform(base), jnp.array([1., 3.7182817, 6.4365635]), rtol=1e-3, atol=1e-3)
-
     """
 
     domain = constraints.real_vector
@@ -960,9 +937,8 @@ class SigmoidTransform(ParameterFreeTransform):
 
 
 class SimplexToOrderedTransform(Transform):
-    """
-    Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
-    Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
+    """Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints) Used in [1] to
+    induce a prior on latent cutpoints via transforming ordered category probabilities.
 
     :param anchor_point: Anchor point is a nuisance parameter to improve the identifiability of the transform.
         For simplicity, we assume it is a scalar value, but it is broadcastable x.shape[:-1].
@@ -982,7 +958,6 @@ class SimplexToOrderedTransform(Transform):
        >>> base = jnp.array([0.3, 0.1, 0.4, 0.2])
        >>> transform = SimplexToOrderedTransform()
        >>> assert jnp.allclose(transform(base), jnp.array([-0.8472978, -0.40546507, 1.3862944]), rtol=1e-3, atol=1e-3)
-
     """
 
     domain = constraints.simplex
@@ -1032,8 +1007,8 @@ def _softplus_inv(y):
 
 
 class SoftplusTransform(ParameterFreeTransform):
-    r"""
-    Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
+    r"""Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
+
     The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
     """
 
@@ -1052,10 +1027,9 @@ class SoftplusTransform(ParameterFreeTransform):
 
 
 class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
-    """
-    Transform from unconstrained vector to lower-triangular matrices with
-    nonnegative diagonal entries. This is useful for parameterizing positive
-    definite matrices in terms of their Cholesky factorization.
+    """Transform from unconstrained vector to lower-triangular matrices with nonnegative diagonal entries.
+
+    This is useful for parameterizing positive definite matrices in terms of their Cholesky factorization.
     """
 
     domain = constraints.real_vector
@@ -1131,8 +1105,7 @@ class StickBreakingTransform(ParameterFreeTransform):
 
 
 class UnpackTransform(Transform):
-    """
-    Transforms a contiguous array to a pytree of subarrays.
+    """Transforms a contiguous array to a pytree of subarrays.
 
     :param unpack_fn: callable used to unpack a contiguous array.
     :param pack_fn: callable used to pack a pytree into a contiguous array.
@@ -1202,8 +1175,7 @@ def _get_target_shape(shape, forward_shape, inverse_shape):
 
 
 class ReshapeTransform(Transform):
-    """
-    Reshape a sample, leaving batch dimensions unchanged.
+    """Reshape a sample, leaving batch dimensions unchanged.
 
     :param forward_shape: Shape to transform the sample to.
     :param inverse_shape: Shape of the sample for the inverse transform.
@@ -1265,11 +1237,9 @@ def _normalize_rfft_shape(input_shape, shape):
 
 
 class RealFastFourierTransform(Transform):
-    """
-    N-dimensional discrete fast Fourier transform for real input.
+    """N-dimensional discrete fast Fourier transform for real input.
 
-    :param transform_shape: Length of each transformed axis to use from the input,
-        defaults to the input size.
+    :param transform_shape: Length of each transformed axis to use from the input, defaults to the input size.
     :param transform_ndims: Number of trailing dimensions to transform.
     """
 
@@ -1433,12 +1403,11 @@ class RecursiveLinearTransform(Transform):
 class ZeroSumTransform(Transform):
     """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
 
-    :param transform_ndims: Number of trailing dimensions to transform.
-
-    **References**
-    [1] https://github.com/pymc-devs/pymc/blob/244fb97b01ad0f3dadf5c3837b65839e2a59a0e8/pymc/distributions/transforms.py#L266
-    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
-    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
+    :param transform_ndims: Number of trailing dimensions to transform. **References** [1] https://github.com/pymc-
+        devs/pymc/blob/244fb97b01ad0f3dadf5c3837b65839e2a59a0e8/pymc/distributions/transforms.py#L266 [2]
+        https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html [3]
+        https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-
+        seyboldt/
     """
 
     def __init__(self, transform_ndims: int = 1) -> None:

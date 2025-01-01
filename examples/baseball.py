@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Baseball Batting Average
 =================================
@@ -66,9 +65,8 @@ from numpyro.infer import HMC, MCMC, NUTS, SA, Predictive, log_likelihood
 
 
 def fully_pooled(at_bats, hits=None):
-    r"""
-    Number of hits in $K$ at bats for each player has a Binomial
-    distribution with a common probability of success, $\phi$.
+    r"""Number of hits in $K$ at bats for each player has a Binomial distribution with a common probability of
+    success, $\phi$.
 
     :param (jnp.ndarray) at_bats: Number of at bats for each player.
     :param (jnp.ndarray) hits: Number of hits for the given at bats.
@@ -82,9 +80,8 @@ def fully_pooled(at_bats, hits=None):
 
 
 def not_pooled(at_bats, hits=None):
-    r"""
-    Number of hits in $K$ at bats for each player has a Binomial
-    distribution with independent probability of success, $\phi_i$.
+    r"""Number of hits in $K$ at bats for each player has a Binomial distribution with independent probability of
+    success, $\phi_i$.
 
     :param (jnp.ndarray) at_bats: Number of at bats for each player.
     :param (jnp.ndarray) hits: Number of hits for the given at bats.
@@ -98,9 +95,9 @@ def not_pooled(at_bats, hits=None):
 
 
 def partially_pooled(at_bats, hits=None):
-    r"""
-    Number of hits has a Binomial distribution with independent
-    probability of success, $\phi_i$. Each $\phi_i$ follows a Beta
+    r"""Number of hits has a Binomial distribution with independent probability of success, $\phi_i$. Each $\phi_i$
+    follows a Beta.
+
     distribution with concentration parameters $c_1$ and $c_2$, where
     $c_1 = m * kappa$, $c_2 = (1 - m) * kappa$, $m ~ Uniform(0, 1)$,
     and $kappa ~ Pareto(1, 1.5)$.
@@ -119,10 +116,8 @@ def partially_pooled(at_bats, hits=None):
 
 
 def partially_pooled_with_logit(at_bats, hits=None):
-    r"""
-    Number of hits has a Binomial distribution with a logit link function.
-    The logits $\alpha$ for each player is normally distributed with the
-    mean and scale parameters sharing a common prior.
+    r"""Number of hits has a Binomial distribution with a logit link function. The logits $\alpha$ for each player is
+    normally distributed with the mean and scale parameters sharing a common prior.
 
     :param (jnp.ndarray) at_bats: Number of at bats for each player.
     :param (jnp.ndarray) hits: Number of hits for the given at bats.

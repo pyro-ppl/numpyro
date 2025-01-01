@@ -89,9 +89,7 @@ This consists of the following fields:
 
 
 def _numpy_delete(x, idx):
-    """
-    Gets the subarray from `x` where data from index `idx` on the first axis is removed.
-    """
+    """Gets the subarray from `x` where data from index `idx` on the first axis is removed."""
     # NB: numpy.delete is not yet available in JAX
     mask = jnp.arange(x.shape[0] - 1) < idx
     return jnp.where(mask.reshape((-1,) + (1,) * (x.ndim - 1)), x[:-1], x[1:])
@@ -250,8 +248,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
 
 # TODO: this shares almost the same code as HMC, so we can abstract out much of the implementation
 class SA(MCMCKernel):
-    """
-    Sample Adaptive MCMC, a gradient-free sampler.
+    """Sample Adaptive MCMC, a gradient-free sampler.
 
     This is a very fast (in term of n_eff / s) sampler but requires
     many warmup (burn-in) steps. In each MCMC step, we only need to
@@ -387,8 +384,7 @@ class SA(MCMCKernel):
         return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
-        """
-        Run SA from the given :data:`~numpyro.infer.sa.SAState` and return the resulting
+        """Run SA from the given :data:`~numpyro.infer.sa.SAState` and return the resulting
         :data:`~numpyro.infer.sa.SAState`.
 
         :param SAState state: Represents the current state.

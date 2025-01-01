@@ -321,17 +321,13 @@ class Dirichlet(Distribution):
 
 
 class EulerMaruyama(Distribution):
-    """
-    Euler–Maruyama method is a method for the approximate numerical solution
-    of a stochastic differential equation (SDE)
+    """Euler–Maruyama method is a method for the approximate numerical solution of a stochastic differential
+    equation (SDE)
 
     :param ndarray t: discretized time
     :param callable sde_fn: function returning the drift and diffusion coefficients of SDE
-    :param Distribution init_dist: Distribution for initial values.
-
-    **References**
-
-    [1] https://en.wikipedia.org/wiki/Euler-Maruyama_method
+    :param Distribution init_dist: Distribution for initial values. **References** [1]
+        https://en.wikipedia.org/wiki/Euler-Maruyama_method
     """
 
     arg_constraints = {"t": constraints.ordered_vector}
@@ -552,8 +548,7 @@ class Chi2(Gamma):
 
 
 class GaussianStateSpace(TransformedDistribution):
-    r"""
-    Gaussian state space model.
+    r"""Gaussian state space model.
 
     .. math::
         \mathbf{z}_{t} &= \mathbf{A} \mathbf{z}_{t - 1} + \boldsymbol{\epsilon}_t\\
@@ -1011,8 +1006,8 @@ class Laplace(Distribution):
 
 
 class LKJ(TransformedDistribution):
-    r"""
-    LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
+    r"""LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
+
     parameter :math:`\eta` to make the probability of the correlation matrix :math:`M` proportional
     to :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over correlation matrices.
@@ -1084,9 +1079,9 @@ class LKJ(TransformedDistribution):
 
 
 class LKJCholesky(Distribution):
-    r"""
-    LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
-    controlled by ``concentration`` parameter :math:`\eta` to make the probability of the
+    r"""LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is controlled by
+    ``concentration`` parameter :math:`\eta` to make the probability of the.
+
     correlation matrix :math:`M` generated from a Cholesky factor proportional to
     :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over Cholesky factors of correlation matrices.
@@ -1437,19 +1432,15 @@ def _batch_trace_from_cholesky(L):
 
 
 class MatrixNormal(Distribution):
-    """
-    Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization,
-    i.e. :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`.
-    The distribution is related to the multivariate normal distribution in the following way.
-    If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
+    """Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization, i.e.
+    :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`. The
+    distribution is related to the multivariate normal distribution in the following way. If :math:`X ~ MN(loc,U,V)`
+    then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
 
     :param array_like loc: Location of the distribution.
     :param array_like scale_tril_row: Lower cholesky of rows correlation matrix.
-    :param array_like scale_tril_column: Lower cholesky of columns correlation matrix.
-
-    **References**
-
-    [1] https://en.wikipedia.org/wiki/Matrix_normal_distribution
+    :param array_like scale_tril_column: Lower cholesky of columns correlation matrix. **References** [1]
+        https://en.wikipedia.org/wiki/Matrix_normal_distribution
     """
 
     arg_constraints = {
@@ -1692,11 +1683,9 @@ def _to_sparse(A):
 
 
 class CAR(Distribution):
-    r"""
-    The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
-    normal in which the precision matrix is structured according to the adjacency matrix of
-    sites. The amount of autocorrelation between sites is controlled by ``correlation``. The
-    distribution is a popular prior for areal spatial data.
+    r"""The Conditional Autoregressive (CAR) distribution is a special case of the multivariate normal in which the
+    precision matrix is structured according to the adjacency matrix of sites. The amount of autocorrelation between
+    sites is controlled by ``correlation``. The distribution is a popular prior for areal spatial data.
 
     :param float or ndarray loc: mean of the multivariate normal
     :param float correlation: autoregression parameter. For most cases, the value should lie
@@ -1997,8 +1986,8 @@ class MultivariateStudentT(Distribution):
 
 
 def _batch_mv(bmat, bvec):
-    r"""
-    Performs a batched matrix-vector product, with compatible but different batch shapes.
+    r"""Performs a batched matrix-vector product, with compatible but different batch shapes.
+
     This function takes as input `bmat`, containing :math:`n \times n` matrices, and
     `bvec`, containing length :math:`n` vectors.
     Both `bmat` and `bvec` may have any number of leading dimensions, which correspond
@@ -2009,10 +1998,8 @@ def _batch_mv(bmat, bvec):
 
 
 def _batch_capacitance_tril(W, D):
-    r"""
-    Computes Cholesky of :math:`I + W.T @ inv(D) @ W` for a batch of matrices :math:`W`
-    and a batch of vectors :math:`D`.
-    """
+    r"""Computes Cholesky of :math:`I + W.T @ inv(D) @ W` for a batch of matrices :math:`W` and a batch of vectors
+    :math:`D`."""
     Wt_Dinv = jnp.swapaxes(W, -1, -2) / jnp.expand_dims(D, -2)
     K = jnp.matmul(Wt_Dinv, W)
     # could be inefficient
@@ -2281,8 +2268,7 @@ def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None
 
 
 class SoftLaplace(Distribution):
-    """
-    Smooth distribution with Laplace-like tail behavior.
+    """Smooth distribution with Laplace-like tail behavior.
 
     This distribution corresponds to the log-convex density::
 
@@ -2526,14 +2512,11 @@ class Weibull(Distribution):
 
 
 class BetaProportion(Beta):
-    """
-    The BetaProportion distribution is a reparameterization of the conventional
-    Beta distribution in terms of a the variate mean and a
-    precision parameter.
+    """The BetaProportion distribution is a reparameterization of the conventional Beta distribution in terms of a
+    the variate mean and a precision parameter.
 
-    **Reference:**
-     `Beta regression for modelling rates and proportion`, Ferrari Silvia, and
-      Francisco Cribari-Neto. Journal of Applied Statistics  31.7 (2004): 799-815.
+    **Reference:**  `Beta regression for modelling rates and proportion`, Ferrari Silvia, and   Francisco Cribari-
+    Neto. Journal of Applied Statistics  31.7 (2004): 799-815.
     """
 
     arg_constraints = {
@@ -2556,8 +2539,7 @@ class BetaProportion(Beta):
 
 
 class AsymmetricLaplaceQuantile(Distribution):
-    """An alternative parameterization of AsymmetricLaplace commonly applied in
-    Bayesian quantile regression.
+    """An alternative parameterization of AsymmetricLaplace commonly applied in Bayesian quantile regression.
 
     Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
     define the balance between left- versus right-hand sides of the
@@ -2618,9 +2600,8 @@ class AsymmetricLaplaceQuantile(Distribution):
 
 
 class ZeroSumNormal(TransformedDistribution):
-    r"""
-    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
-    more axes are constrained to sum to zero (the last axis by default).
+    r"""Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where
+    one or more axes are constrained to sum to zero (the last axis by default).
 
     .. math::
         \begin{align*}
@@ -2712,8 +2693,7 @@ class ZeroSumNormal(TransformedDistribution):
 
 
 class Wishart(TransformedDistribution):
-    """
-    Wishart distribution for covariance matrices.
+    """Wishart distribution for covariance matrices.
 
     :param concentration: Positive concentration parameter analogous to the
         concentration of a :class:`Gamma` distribution. The concentration must be larger
@@ -2805,8 +2785,7 @@ class Wishart(TransformedDistribution):
 
 
 class WishartCholesky(Distribution):
-    """
-    Cholesky factor of a Wishart distribution for covariance matrices.
+    """Cholesky factor of a Wishart distribution for covariance matrices.
 
     :param concentration: Positive concentration parameter analogous to the
         concentration of a :class:`Gamma` distribution. The concentration must be larger

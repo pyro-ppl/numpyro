@@ -1,11 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
-"""
-Optimizer classes defined here are light wrappers over the corresponding optimizers
-sourced from :mod:`jax.example_libraries.optimizers` with an interface that is better
-suited for working with NumPyro inference algorithms.
-"""
+"""Optimizer classes defined here are light wrappers over the corresponding optimizers sourced from
+:mod:`jax.example_libraries.optimizers` with an interface that is better suited for working with NumPyro inference
+algorithms."""
 
 from collections import namedtuple
 from collections.abc import Callable
@@ -54,8 +51,7 @@ class _NumPyroOptim(object):
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
     def init(self, params: _Params) -> _IterOptState:
-        """
-        Initialize the optimizer with parameters designated to be optimized.
+        """Initialize the optimizer with parameters designated to be optimized.
 
         :param params: a collection of numpy arrays.
         :return: initial optimizer state.
@@ -64,8 +60,7 @@ class _NumPyroOptim(object):
         return jnp.array(0), opt_state
 
     def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
-        """
-        Gradient update for the optimizer.
+        """Gradient update for the optimizer.
 
         :param g: gradient information for parameters.
         :param state: current optimizer state.
@@ -81,17 +76,13 @@ class _NumPyroOptim(object):
         state: _IterOptState,
         forward_mode_differentiation: bool = False,
     ):
-        """
-        Performs an optimization step for the objective function `fn`.
-        For most optimizers, the update is performed based on the gradient
-        of the objective function w.r.t. the current state. However, for
-        some optimizers such as :class:`Minimize`, the update is performed
-        by reevaluating the function multiple times to get optimal
-        parameters.
+        """Performs an optimization step for the objective function `fn`. For most optimizers, the update is
+        performed based on the gradient of the objective function w.r.t. the current state. However, for some
+        optimizers such as :class:`Minimize`, the update is performed by reevaluating the function multiple times to
+        get optimal parameters.
 
-        :param fn: an objective function returning a pair where the first item
-            is a scalar loss function to be differentiated and the second item
-            is an auxiliary output.
+        :param fn: an objective function returning a pair where the first item is a scalar loss function to be
+            differentiated and the second item is an auxiliary output.
         :param state: current optimizer state.
         :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
         :return: a pair of the output of objective function and the new optimizer state.
@@ -108,10 +99,8 @@ class _NumPyroOptim(object):
         state: _IterOptState,
         forward_mode_differentiation: bool = False,
     ):
-        """
-        Like :meth:`eval_and_update` but when the value of the objective function
-        or the gradients are not finite, we will not update the input `state`
-        and will set the objective output to `nan`.
+        """Like :meth:`eval_and_update` but when the value of the objective function or the gradients are not
+        finite, we will not update the input `state` and will set the objective output to `nan`.
 
         :param fn: objective function.
         :param state: current optimizer state.
@@ -131,8 +120,7 @@ class _NumPyroOptim(object):
         return (out, aux), state
 
     def get_params(self, state: _IterOptState) -> _Params:
-        """
-        Get current parameter values.
+        """Get current parameter values.
 
         :param state: current optimizer state.
         :return: collection with current value for parameters.
@@ -158,16 +146,10 @@ class Adam(_NumPyroOptim):
 
 
 class ClippedAdam(_NumPyroOptim):
-    """
-    :class:`~numpyro.optim.Adam` optimizer with gradient clipping.
+    """:class:`~numpyro.optim.Adam` optimizer with gradient clipping.
 
-    :param float clip_norm: All gradient values will be clipped between
-        `[-clip_norm, clip_norm]`.
-
-    **Reference:**
-
-    `A Method for Stochastic Optimization`, Diederik P. Kingma, Jimmy Ba
-    https://arxiv.org/abs/1412.6980
+    :param float clip_norm: All gradient values will be clipped between `[-clip_norm, clip_norm]`. **Reference:** `A
+        Method for Stochastic Optimization`, Diederik P. Kingma, Jimmy Ba https://arxiv.org/abs/1412.6980
     """
 
     def __init__(self, *args, clip_norm=10.0, **kwargs):
@@ -320,12 +302,9 @@ class Minimize(_NumPyroOptim):
 
 
 def optax_to_numpyro(transformation) -> _NumPyroOptim:
-    """
-    This function produces a ``numpyro.optim._NumPyroOptim`` instance from an
-    ``optax.GradientTransformation`` so that it can be used with
-    ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the
-    ``(init_fn, update_fn, get_params_fn)`` interface defined by
-    :mod:`jax.example_libraries.optimizers`.
+    """This function produces a ``numpyro.optim._NumPyroOptim`` instance from an ``optax.GradientTransformation`` so
+    that it can be used with ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the ``(init_fn,
+    update_fn, get_params_fn)`` interface defined by :mod:`jax.example_libraries.optimizers`.
 
     :param transformation: An ``optax.GradientTransformation`` instance to wrap.
     :return: An instance of ``numpyro.optim._NumPyroOptim`` wrapping the supplied

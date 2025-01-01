@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Proportion Test
 ========================
@@ -30,10 +29,8 @@ from numpyro.infer import MCMC, NUTS
 
 
 def make_dataset(rng_key) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """
-    Make simulated dataset where potential customers who get a
-    sales calls have ~2% higher chance of making another purchase.
-    """
+    """Make simulated dataset where potential customers who get a sales calls have ~2% higher chance of making
+    another purchase."""
     key1, key2, key3 = random.split(rng_key, 3)
 
     num_calls = 51342
@@ -86,10 +83,7 @@ def model(design_matrix: jnp.ndarray, outcome: jnp.ndarray = None) -> None:
 
 
 def print_results(coef: jnp.ndarray, interval_size: float = 0.95) -> None:
-    """
-    Print the confidence interval for the effect size with interval_size
-    probability mass.
-    """
+    """Print the confidence interval for the effect size with interval_size probability mass."""
 
     baseline_response = expit(coef[:, 0])
     response_with_calls = expit(coef[:, 0] + coef[:, 1])
@@ -122,9 +116,7 @@ def run_inference(
     num_chains: int,
     interval_size: float = 0.95,
 ) -> None:
-    """
-    Estimate the effect size.
-    """
+    """Estimate the effect size."""
 
     kernel = NUTS(model)
     mcmc = MCMC(

@@ -31,7 +31,8 @@ def _numel(shape):
 
 
 def log_I1(orders: int, value, terms=250):
-    r"""Compute first n log modified bessel function of first kind
+    r"""Compute first n log modified bessel function of first kind.
+
     .. math ::
         \log(I_v(z)) = v*\log(z/2) + \log(\sum_{k=0}^\inf \exp\left[2*k*\log(z/2) - \sum_kk^k log(kk)
         - \lgamma(v + k + 1)\right])
@@ -78,8 +79,7 @@ def log_I1(orders: int, value, terms=250):
 
 
 class VonMises(Distribution):
-    """
-    The von Mises distribution, also known as the circular normal distribution.
+    """The von Mises distribution, also known as the circular normal distribution.
 
     This distribution is supported by a circular constraint from -pi to +pi. By
     default, the circular support behaves like
@@ -100,7 +100,7 @@ class VonMises(Distribution):
     support = constraints.circular
 
     def __init__(self, loc, concentration, *, validate_args=None):
-        """von Mises distribution for sampling directions.
+        """Von Mises distribution for sampling directions.
 
         :param loc: center of distribution
         :param concentration: concentration of distribution
@@ -114,7 +114,7 @@ class VonMises(Distribution):
         )
 
     def sample(self, key, sample_shape=()):
-        """Generate sample from von Mises distribution
+        """Generate sample from von Mises distribution.
 
         :param key: random number generator key
         :param sample_shape: shape of samples
@@ -137,14 +137,17 @@ class VonMises(Distribution):
 
     @property
     def mean(self):
-        """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
+        """Computes circular mean of distribution.
+
+        NOTE: same as location when mapped to support [-pi, pi]
+        """
         return jnp.broadcast_to(
             (self.loc + jnp.pi) % (2.0 * jnp.pi) - jnp.pi, self.batch_shape
         )
 
     @property
     def variance(self):
-        """Computes circular variance of distribution"""
+        """Computes circular variance of distribution."""
         return jnp.broadcast_to(
             1.0 - i1e(self.concentration) / i0e(self.concentration), self.batch_shape
         )
@@ -155,11 +158,10 @@ PhiMarginalState = namedtuple("PhiMarginalState", ["i", "done", "phi", "key"])
 
 class SineSkewed(Distribution):
     r"""Sine-skewing [1] is a procedure for producing a distribution that breaks pointwise symmetry on a torus
-    distribution. The new distribution is called the Sine Skewed X distribution, where X is the name of the (symmetric)
-    base distribution. Torus distributions are distributions with support on products of circles
-    (i.e., :math:`\otimes S^1` where :math:`S^1 = [-pi,pi)`).
-    So, a 0-torus is a point, the 1-torus is a circle,
-    and the 2-torus is commonly associated with the donut shape.
+    distribution. The new distribution is called the Sine Skewed X distribution, where X is the name of the
+    (symmetric) base distribution. Torus distributions are distributions with support on products of circles (i.e.,
+    :math:`\otimes S^1` where :math:`S^1 = [-pi,pi)`). So, a 0-torus is a point, the 1-torus is a circle, and the
+    2-torus is commonly associated with the donut shape.
 
     The sine skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
     For example with a von Mises distribution over a circle (1-torus), the sine skewed von Mises distribution has one
@@ -281,13 +283,12 @@ class SineSkewed(Distribution):
 
     @property
     def mean(self):
-        """Mean of the base distribution"""
+        """Mean of the base distribution."""
         return self.base_dist.mean
 
 
 class SineBivariateVonMises(Distribution):
-    r"""Unimodal distribution of two dependent angles on the 2-torus
-    (:math:`S^1 \otimes S^1`) given by
+    r"""Unimodal distribution of two dependent angles on the 2-torus (:math:`S^1 \otimes S^1`) given by.
 
     .. math::
         C^{-1}\exp(\kappa_1\cos(x_1-\mu_1) + \kappa_2\cos(x_2 -\mu_2) + \rho\sin(x_1 - \mu_1)\sin(x_2 - \mu_2))
@@ -528,7 +529,10 @@ class SineBivariateVonMises(Distribution):
 
     @property
     def mean(self):
-        """Computes circular mean of distribution. Note: same as location when mapped to support [-pi, pi]"""
+        """Computes circular mean of distribution.
+
+        Note: same as location when mapped to support [-pi, pi]
+        """
         mean = (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
             2.0 * jnp.pi
         ) - jnp.pi
@@ -542,8 +546,7 @@ class SineBivariateVonMises(Distribution):
 
 
 class ProjectedNormal(Distribution):
-    """
-    Projected isotropic normal distribution of arbitrary dimension.
+    """Projected isotropic normal distribution of arbitrary dimension.
 
     This distribution over directional data is qualitatively similar to the von
     Mises and von Mises-Fisher distributions, but permits tractable variational
@@ -580,10 +583,8 @@ class ProjectedNormal(Distribution):
 
     @property
     def mean(self):
-        """
-        Note this is the mean in the sense of a centroid in the submanifold
-        that minimizes expected squared geodesic distance.
-        """
+        """Note this is the mean in the sense of a centroid in the submanifold that minimizes expected squared
+        geodesic distance."""
         return safe_normalize(self.concentration)
 
     @property

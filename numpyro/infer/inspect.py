@@ -76,8 +76,7 @@ def get_dependencies(
     model_args: Optional[tuple] = None,
     model_kwargs: Optional[dict] = None,
 ) -> dict[str, object]:
-    r"""
-    Infers dependency structure about a conditioned model.
+    r"""Infers dependency structure about a conditioned model.
 
     This returns a nested dictionary with structure like::
 
@@ -425,9 +424,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
 
 
 def generate_graph_specification(model_relations, render_params=False):
-    """
-    Convert model relations into data structure which can be readily
-    converted into a network.
+    """Convert model relations into data structure which can be readily converted into a network.
 
     :param bool render_params: Whether to add nodes of params.
     """
@@ -500,8 +497,7 @@ def generate_graph_specification(model_relations, render_params=False):
 
 
 def render_graph(graph_specification, render_distributions=False):
-    """
-    Create a graphviz object given a graph specification.
+    """Create a graphviz object given a graph specification.
 
     :param bool render_distributions: Show distribution of each RV in plot.
     """
@@ -607,8 +603,7 @@ def render_model(
     render_distributions=False,
     render_params=False,
 ):
-    """
-    Wrap all functions needed to automatically render a model.
+    """Wrap all functions needed to automatically render a model.
 
     .. warning:: This utility does not support the
         :func:`~numpyro.contrib.control_flow.scan` primitive.

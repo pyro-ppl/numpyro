@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Bayesian Models of Annotation
 ======================================
@@ -80,9 +79,7 @@ def get_data():
 
 
 def multinomial(annotations):
-    """
-    This model corresponds to the plate diagram in Figure 1 of reference [1].
-    """
+    """This model corresponds to the plate diagram in Figure 1 of reference [1]."""
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
@@ -99,9 +96,7 @@ def multinomial(annotations):
 
 
 def dawid_skene(positions, annotations):
-    """
-    This model corresponds to the plate diagram in Figure 2 of reference [1].
-    """
+    """This model corresponds to the plate diagram in Figure 2 of reference [1]."""
     num_annotators = int(np.max(positions)) + 1
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
@@ -124,9 +119,7 @@ def dawid_skene(positions, annotations):
 
 
 def mace(positions, annotations):
-    """
-    This model corresponds to the plate diagram in Figure 3 of reference [1].
-    """
+    """This model corresponds to the plate diagram in Figure 3 of reference [1]."""
     num_annotators = int(np.max(positions)) + 1
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
@@ -155,9 +148,7 @@ def mace(positions, annotations):
 
 
 def hierarchical_dawid_skene(positions, annotations):
-    """
-    This model corresponds to the plate diagram in Figure 4 of reference [1].
-    """
+    """This model corresponds to the plate diagram in Figure 4 of reference [1]."""
     num_annotators = int(np.max(positions)) + 1
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
@@ -192,9 +183,7 @@ def hierarchical_dawid_skene(positions, annotations):
 
 
 def item_difficulty(annotations):
-    """
-    This model corresponds to the plate diagram in Figure 5 of reference [1].
-    """
+    """This model corresponds to the plate diagram in Figure 5 of reference [1]."""
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
@@ -220,9 +209,7 @@ def item_difficulty(annotations):
 
 
 def logistic_random_effects(positions, annotations):
-    """
-    This model corresponds to the plate diagram in Figure 5 of reference [1].
-    """
+    """This model corresponds to the plate diagram in Figure 5 of reference [1]."""
     num_annotators = int(np.max(positions)) + 1
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape

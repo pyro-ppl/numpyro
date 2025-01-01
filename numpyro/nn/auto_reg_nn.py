@@ -12,8 +12,7 @@ from numpyro.nn.masked_dense import MaskedDense
 
 
 def sample_mask_indices(input_dim, hidden_dim):
-    """
-    Samples the indices assigned to hidden units during the construction of MADE masks
+    """Samples the indices assigned to hidden units during the construction of MADE masks.
 
     :param input_dim: the dimensionality of the input variable
     :type input_dim: int
@@ -26,8 +25,7 @@ def sample_mask_indices(input_dim, hidden_dim):
 
 
 def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
-    """
-    Creates (non-conditional) MADE masks
+    """Creates (non-conditional) MADE masks.
 
     :param input_dim: the dimensionality of the input variable
     :type input_dim: int
@@ -70,8 +68,7 @@ def AutoregressiveNN(
     skip_connections=False,
     nonlinearity=stax.Relu,
 ):
-    """
-    An implementation of a MADE-like auto-regressive neural network.
+    """An implementation of a MADE-like auto-regressive neural network.
 
     Similar to the purely functional layer implemented in jax.example_libraries.stax,
     the `AutoregressiveNN` class has `init_fun` and `apply_fun` methods,

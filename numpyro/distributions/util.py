@@ -318,9 +318,7 @@ def promote_shapes(*args, shape=()):
 
 
 def sum_rightmost(x, dim):
-    """
-    Sum out ``dim`` many rightmost dimensions of a given tensor.
-    """
+    """Sum out ``dim`` many rightmost dimensions of a given tensor."""
     out_dim = jnp.ndim(x) - dim
     x = jnp.reshape(jnp.expand_dims(x, -1), jnp.shape(x)[:out_dim] + (-1,))
     return jnp.sum(x, axis=-1)
@@ -350,8 +348,7 @@ def vec_to_tril_matrix(t, diagonal=0):
 
 
 def cholesky_update(L, x, coef=1):
-    """
-    Finds cholesky of L @ L.T + coef * x @ x.T.
+    """Finds cholesky of L @ L.T + coef * x @ x.T.
 
     **References;**
 
@@ -410,9 +407,7 @@ def signed_stick_breaking_tril(t):
 
 
 def logmatmulexp(x, y):
-    """
-    Numerically stable version of ``(x.log() @ y.log()).exp()``.
-    """
+    """Numerically stable version of ``(x.log() @ y.log()).exp()``."""
     x_shift = lax.stop_gradient(jnp.amax(x, -1, keepdims=True))
     y_shift = lax.stop_gradient(jnp.amax(y, -2, keepdims=True))
     xy = jnp.log(jnp.matmul(jnp.exp(x - x_shift), jnp.exp(y - y_shift)))
@@ -466,9 +461,9 @@ def gammaincinv(a, y):
 
 
 def is_identically_zero(x):
-    """
-    Check if argument is exactly the number zero. True for the number zero;
-    false for other numbers; false for ndarrays.
+    """Check if argument is exactly the number zero.
+
+    True for the number zero; false for other numbers; false for ndarrays.
     """
     if isinstance(x, (int, float)):
         return x == 0
@@ -477,9 +472,9 @@ def is_identically_zero(x):
 
 
 def is_identically_one(x):
-    """
-    Check if argument is exactly the number one. True for the number one;
-    false for other numbers; false for ndarrays.
+    """Check if argument is exactly the number one.
+
+    True for the number one; false for other numbers; false for ndarrays.
     """
     if isinstance(x, (int, float)):
         return x == 1
@@ -490,10 +485,9 @@ def is_identically_one(x):
 def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
     """Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
 
-    *** References ***
-    [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
-        Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
-
+    *** References *** [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;     Chapter
+    9, p. 473-476.
+    http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
 
     :param key: random number generator key
     :param concentration: concentration of distribution
@@ -528,7 +522,7 @@ def _von_mises_centered(key, concentration, shape, dtype):
     s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
 
     def cond_fn(*args):
-        """check if all are done or reached max number of iterations"""
+        """Check if all are done or reached max number of iterations."""
         i, _, done, _, _ = args[0]
         return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
 
@@ -567,9 +561,7 @@ def _von_mises_centered(key, concentration, shape, dtype):
 
 
 def scale_and_mask(x, scale=None, mask=None):
-    """
-    Scale and mask a tensor, broadcasting and avoiding unnecessary ops.
-    """
+    """Scale and mask a tensor, broadcasting and avoiding unnecessary ops."""
     if is_identically_zero(x):
         return x
     if not (scale is None or is_identically_one(scale)):
@@ -582,9 +574,7 @@ def scale_and_mask(x, scale=None, mask=None):
 
 # TODO: use funsor implementation
 def periodic_repeat(x, size, dim):
-    """
-    Repeat a ``period``-sized array up to given ``size``.
-    """
+    """Repeat a ``period``-sized array up to given ``size``."""
     assert isinstance(size, int) and size >= 0
     assert isinstance(dim, int)
     if dim >= 0:
@@ -598,10 +588,8 @@ def periodic_repeat(x, size, dim):
 
 
 def safe_normalize(x, *, p=2):
-    """
-    Safely project a vector onto the sphere wrt the ``p``-norm. This avoids the
-    singularity at zero by mapping zero to the uniform unit vector proportional
-    to ``[1, 1, ..., 1]``.
+    """Safely project a vector onto the sphere wrt the ``p``-norm. This avoids the singularity at zero by mapping
+    zero to the uniform unit vector proportional to ``[1, 1, ..., 1]``.
 
     :param numpy.ndarray x: A vector
     :param float p: The norm exponent, defaults to 2 i.e. the Euclidean norm.
@@ -629,9 +617,7 @@ def is_prng_key(key):
 
 
 def assert_one_of(**kwargs):
-    """
-    Assert that exactly one of the keyword arguments is not None.
-    """
+    """Assert that exactly one of the keyword arguments is not None."""
     specified = [key for key, value in kwargs.items() if value is not None]
     if len(specified) != 1:
         raise ValueError(
@@ -640,16 +626,12 @@ def assert_one_of(**kwargs):
 
 
 def multidigamma(a: jnp.ndarray, d: jnp.ndarray) -> jnp.ndarray:
-    """
-    Derivative of the log of multivariate gamma.
-    """
+    """Derivative of the log of multivariate gamma."""
     return digamma(a[..., None] - 0.5 * jnp.arange(d)).sum(axis=-1)
 
 
 def tri_logabsdet(a: jnp.ndarray) -> jnp.ndarray:
-    """
-    Evaluate the `logabsdet` of a triangular positive-definite matrix.
-    """
+    """Evaluate the `logabsdet` of a triangular positive-definite matrix."""
     return jnp.log(jnp.diagonal(a, axis1=-1, axis2=-2)).sum(axis=-1)
 
 
@@ -677,11 +659,10 @@ def tri_logabsdet(a: jnp.ndarray) -> jnp.ndarray:
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 class lazy_property(object):
-    r"""
-    Used as a decorator for lazy loading of class attributes. This uses a
-    non-data descriptor that calls the wrapped method to compute the property on
-    first call; thereafter replacing the wrapped method into an instance
-    attribute.
+    r"""Used as a decorator for lazy loading of class attributes.
+
+    This uses a non-data descriptor that calls the wrapped method to compute the property on first call; thereafter
+    replacing the wrapped method into an instance attribute.
     """
 
     def __init__(self, wrapped):
@@ -714,8 +695,6 @@ def validate_sample(log_prob_fn):
 
 
 def add_diag(matrix: jnp.ndarray, diag: jnp.ndarray) -> jnp.ndarray:
-    """
-    Add `diag` to the trailing diagonal of `matrix`.
-    """
+    """Add `diag` to the trailing diagonal of `matrix`."""
     idx = jnp.arange(matrix.shape[-1])
     return matrix.at[..., idx, idx].add(diag)

@@ -31,8 +31,7 @@ def _apply_vmap(fn, keys):
 
 
 class ELBO:
-    """
-    Base class for all ELBO objectives.
+    """Base class for all ELBO objectives.
 
     Subclasses should implement either :meth:`loss` or :meth:`loss_with_mutable_state`.
 
@@ -80,18 +79,15 @@ class ELBO:
         *args,
         **kwargs,
     ):
-        """
-        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+        """Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
+        :param dict param_map: dictionary of current parameter values keyed by site name.
         :param model: Python callable with NumPyro primitives for the model.
         :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
+        :param args: arguments to the model / guide (these can possibly vary during the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary during the course of
+            fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
         return self.loss_with_mutable_state(
@@ -101,29 +97,24 @@ class ELBO:
     def loss_with_mutable_state(
         self, rng_key, param_map, model, guide, *args, **kwargs
     ):
-        """
-        Like :meth:`loss` but also update and return the mutable state, which stores the
-        values at :func:`~numpyro.mutable` sites.
+        """Like :meth:`loss` but also update and return the mutable state, which stores the values at
+        :func:`~numpyro.mutable` sites.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
+        :param dict param_map: dictionary of current parameter values keyed by site name.
         :param model: Python callable with NumPyro primitives for the model.
         :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
+        :param args: arguments to the model / guide (these can possibly vary during the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary during the course of
+            fitting).
         :return: dictionary containing ELBO loss and the mutable state
         """
         raise NotImplementedError("This ELBO objective does not support mutable state.")
 
 
 class Trace_ELBO(ELBO):
-    """
-    A trace implementation of ELBO-based SVI. The estimator is constructed
-    along the lines of references [1] and [2]. There are no restrictions on the
-    dependency structure of the model or the guide.
+    """A trace implementation of ELBO-based SVI. The estimator is constructed along the lines of references [1] and
+    [2]. There are no restrictions on the dependency structure of the model or the guide.
 
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -266,8 +257,8 @@ def _get_log_prob_sum(site):
 
 
 def _check_mean_field_requirement(model_trace, guide_trace):
-    """
-    Checks that the guide and model sample sites are ordered identically.
+    """Checks that the guide and model sample sites are ordered identically.
+
     This is sufficient but not necessary for correctness.
     """
     model_sites = [
@@ -297,10 +288,8 @@ def _check_mean_field_requirement(model_trace, guide_trace):
 
 
 class TraceMeanField_ELBO(ELBO):
-    """
-    A trace implementation of ELBO-based SVI. This is currently the only
-    ELBO estimator in NumPyro that uses analytic KL divergences when those
-    are available.
+    """A trace implementation of ELBO-based SVI. This is currently the only ELBO estimator in NumPyro that uses
+    analytic KL divergences when those are available.
 
     .. warning:: This estimator may give incorrect results if the mean-field
         condition is not satisfied.
@@ -390,14 +379,11 @@ class TraceMeanField_ELBO(ELBO):
 
 
 class RenyiELBO(ELBO):
-    r"""
-    An implementation of Renyi's :math:`\alpha`-divergence
-    variational inference following reference [1].
-    In order for the objective to be a strict lower bound, we require
-    :math:`\alpha \ge 0`. Note, however, that according to reference [1], depending
-    on the dataset :math:`\alpha < 0` might give better results. In the special case
-    :math:`\alpha = 0`, the objective function is that of the important weighted
-    autoencoder derived in reference [2].
+    r"""An implementation of Renyi's :math:`\alpha`-divergence variational inference following reference [1]. In
+    order for the objective to be a strict lower bound, we require :math:`\alpha \ge 0`. Note, however, that
+    according to reference [1], depending on the dataset :math:`\alpha < 0` might give better results. In the
+    special case :math:`\alpha = 0`, the objective function is that of the important weighted autoencoder derived in
+    reference [2].
 
     .. note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
 
@@ -544,8 +530,9 @@ class RenyiELBO(ELBO):
 
 
 def _get_plate_stacks(trace):
-    """
-    This builds a dict mapping site name to a set of plate stacks. Each
+    """This builds a dict mapping site name to a set of plate stacks.
+
+    Each
     plate stack is a list of :class:`CondIndepStackFrame`s corresponding to
     a :class:`plate`. This information is used by :class:`Trace_ELBO` and
     :class:`TraceGraph_ELBO`.
@@ -558,10 +545,8 @@ def _get_plate_stacks(trace):
 
 
 class MultiFrameTensor(dict):
-    """
-    A container for sums of Tensors among different :class:`plate` contexts.
-    Used in :class:`~numpyro.infer.elbo.TraceGraph_ELBO` to simplify
-    downstream cost computation logic.
+    """A container for sums of Tensors among different :class:`plate` contexts. Used in
+    :class:`~numpyro.infer.elbo.TraceGraph_ELBO` to simplify downstream cost computation logic.
 
     Example::
 
@@ -577,8 +562,9 @@ class MultiFrameTensor(dict):
         self.add(*items)
 
     def add(self, *items):
-        """
-        Add a collection of (cond_indep_stack, tensor) pairs. Keys are
+        """Add a collection of (cond_indep_stack, tensor) pairs.
+
+        Keys are
         ``cond_indep_stack``s, i.e. tuples of :class:`CondIndepStackFrame`s.
         Values are :class:`numpy.ndarray`s.
         """
@@ -625,9 +611,7 @@ def _identify_dense_edges(trace):
 
 
 def _topological_sort(succ, reverse=False):
-    """
-    Return a list of nodes (site names) in topologically sorted order.
-    """
+    """Return a list of nodes (site names) in topologically sorted order."""
 
     def dfs(site, visited):
         if site in visited:
@@ -719,9 +703,7 @@ def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
 
 
 def get_importance_log_probs(model, guide, args, kwargs, params):
-    """
-    Returns log probabilities at each site for the guide and the model that is run against it.
-    """
+    """Returns log probabilities at each site for the guide and the model that is run against it."""
     model_tr, guide_tr = get_importance_trace(model, guide, args, kwargs, params)
     model_log_probs = {
         name: site["log_prob"]
@@ -774,23 +756,19 @@ def get_nonreparam_deps(model, guide, args, kwargs, param_map, latents=None):
 
 
 class TraceGraph_ELBO(ELBO):
-    """
-    A TraceGraph implementation of ELBO-based SVI. The gradient estimator
-    is constructed along the lines of reference [1] specialized to the case
-    of the ELBO. It supports arbitrary dependency structure for the model
-    and guide.
-    Fine-grained conditional dependency information as recorded in the
-    trace is used to reduce the variance of the gradient estimator.
-    In particular provenance tracking [2] is used to find the ``cost`` terms
-    that depend on each non-reparameterizable sample site.
+    """A TraceGraph implementation of ELBO-based SVI. The gradient estimator is constructed along the lines of
+    reference [1] specialized to the case of the ELBO. It supports arbitrary dependency structure for the model and
+    guide. Fine-grained conditional dependency information as recorded in the trace is used to reduce the variance
+    of the gradient estimator. In particular provenance tracking [2] is used to find the ``cost`` terms that depend
+    on each non-reparameterizable sample site.
 
     References
 
-    [1] `Gradient Estimation Using Stochastic Computation Graphs`,
-        John Schulman, Nicolas Heess, Theophane Weber, Pieter Abbeel
+    [1] `Gradient Estimation Using Stochastic Computation Graphs`,     John Schulman, Nicolas Heess, Theophane
+    Weber, Pieter Abbeel
 
-    [2] `Nonstandard Interpretations of Probabilistic Programs for Efficient Inference`,
-        David Wingate, Noah Goodman, Andreas Stuhlmüller, Jeffrey Siskind
+    [2] `Nonstandard Interpretations of Probabilistic Programs for Efficient Inference`,     David Wingate, Noah
+    Goodman, Andreas Stuhlmüller, Jeffrey Siskind
     """
 
     can_infer_discrete = True
@@ -801,18 +779,15 @@ class TraceGraph_ELBO(ELBO):
         )
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        """
-        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+        """Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
+        :param dict param_map: dictionary of current parameter values keyed by site name.
         :param model: Python callable with NumPyro primitives for the model.
         :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
+        :param args: arguments to the model / guide (these can possibly vary during the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary during the course of
+            fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
 
@@ -881,8 +856,8 @@ class TraceGraph_ELBO(ELBO):
 def get_importance_trace_enum(
     model, guide, args, kwargs, params, max_plate_nesting, model_deps, guide_desc
 ):
-    """
-    (EXPERIMENTAL) Returns traces from the enumerated guide and the enumerated model that is run against it.
+    """(EXPERIMENTAL) Returns traces from the enumerated guide and the enumerated model that is run against it.
+
     The returned traces also store the log probability at each site and the log measure for measure vars.
     """
     import funsor
@@ -1033,11 +1008,9 @@ def guess_max_plate_nesting(model, guide, args, kwargs, param_map):
 
 
 class TraceEnum_ELBO(ELBO):
-    """
-    (EXPERIMENTAL) A TraceEnum implementation of ELBO-based SVI. The gradient estimator
-    is constructed along the lines of reference [1] specialized to the case
-    of the ELBO. It supports arbitrary dependency structure for the model
-    and guide.
+    """(EXPERIMENTAL) A TraceEnum implementation of ELBO-based SVI. The gradient estimator is constructed along the
+    lines of reference [1] specialized to the case of the ELBO. It supports arbitrary dependency structure for the
+    model and guide.
 
     Fine-grained conditional dependency information as recorded in the
     trace is used to reduce the variance of the gradient estimator.
