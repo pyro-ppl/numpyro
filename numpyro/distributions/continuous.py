@@ -3007,7 +3007,7 @@ class Levy(Distribution):
         """
         shifted_value = value - self.loc
         return -0.5 * (
-            jnp.log(2.0 * jnp.pi * self.scale) + self.scale / shifted_value
+            jnp.log(2.0 * jnp.pi) - jnp.log(self.scale) + self.scale / shifted_value
         ) - 1.5 * jnp.log(shifted_value)
 
     def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
@@ -3031,9 +3031,6 @@ class Levy(Distribution):
         return jnp.broadcast_to(jnp.inf, self.batch_shape)
 
     def entropy(self) -> ArrayLike:
-        return (
-            0.5
-            + 1.5 * jnp.euler_gamma
-            + 0.5 * jnp.log(16 * jnp.pi)
-            + jnp.log(self.scale)
-        )
+        return jnp.broadcast_to(
+            0.5 + 1.5 * jnp.euler_gamma + 0.5 * jnp.log(16 * jnp.pi), self.batch_shape
+        ) + jnp.log(self.scale)
