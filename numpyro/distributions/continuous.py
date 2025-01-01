@@ -49,6 +49,7 @@ from jax.scipy.special import (
     xlogy,
 )
 from jax.scipy.stats import norm as jax_norm
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
@@ -2966,3 +2967,73 @@ class WishartCholesky(Distribution):
                 batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
                 event_shape = matrix[-2:]
                 return batch_shape, event_shape
+
+
+class Levy(Distribution):
+    r"""Lévy distribution is a special case of Lévy alpha-stable distribution.
+    Its probability density function is given by,
+
+    .. math::
+        f(x\mid \mu, c) = \sqrt{\frac{c}{2\pi(x-\mu)^{3}}} \exp\left(-\frac{c}{2(x-\mu)}\right), \qquad x > \mu
+
+    where :math:`\mu` is the location parameter and :math:`c` is the scale parameter.
+
+    :param loc: Location parameter.
+    :param scale: Scale parameter.
+    """
+
+    arg_constraints = {
+        "loc": constraints.positive,
+        "scale": constraints.positive,
+    }
+
+    def __init__(self, loc, scale, *, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        self._support = constraints.greater_than(loc)
+        super(Levy, self).__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False)
+    def support(self):
+        return self._support
+
+    @validate_sample
+    def log_prob(self, value):
+        r"""Compute the log probability density function of the Lévy distribution.
+
+        .. math::
+            \log f(x\mid \mu, c) = \frac{1}{2}\log\left(\frac{c}{2\pi}\right) - \frac{c}{2(x-\mu)}
+            - \frac{3}{2}\log(x-\mu), \qquad x > \mu
+        """
+        shifted_value = value - self.loc
+        return -0.5 * (
+            jnp.log(2.0 * jnp.pi * self.scale) + self.scale / shifted_value
+        ) - 1.5 * jnp.log(shifted_value)
+
+    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        u = random.uniform(key, shape=sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        return self.loc + self.scale * jnp.power(ndtri(1 - 0.5 * q), -2)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        inv_standardized = self.scale / (value - self.loc)
+        return 2.0 - 2.0 * ndtr(jnp.sqrt(inv_standardized))
+
+    @property
+    def mean(self) -> ArrayLike:
+        return jnp.broadcast_to(jnp.inf, self.batch_shape)
+
+    @property
+    def variance(self) -> ArrayLike:
+        return jnp.broadcast_to(jnp.inf, self.batch_shape)
+
+    def entropy(self) -> ArrayLike:
+        return (
+            0.5
+            + 1.5 * jnp.euler_gamma
+            + 0.5 * jnp.log(16 * jnp.pi)
+            + jnp.log(self.scale)
+        )

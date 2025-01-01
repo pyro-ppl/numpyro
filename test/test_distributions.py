@@ -456,6 +456,7 @@ _DIST_MAP = {
     ),
     dist.Wishart: _wishart_to_scipy,
     _TruncatedNormal: _truncnorm_to_scipy,
+    dist.Levy: lambda loc, scale: osp.levy(loc=loc, scale=scale),
 }
 
 
@@ -933,6 +934,9 @@ CONTINUOUS = [
     T(dist.DoublyTruncatedPowerLaw, np.pi, 5.0, 50.0),
     T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
     T(dist.DoublyTruncatedPowerLaw, np.pi, 1.0, 2.0),
+    T(dist.Levy, 0.0, 1.0),
+    T(dist.Levy, 0.0, np.array([1.0, 2.0, 10.0])),
+    T(dist.Levy, np.array([1.0, 2.0, 10.0]), np.pi),
 ]
 
 DIRECTIONAL = [
