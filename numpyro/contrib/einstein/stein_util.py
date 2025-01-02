@@ -11,7 +11,8 @@ from numpyro.distributions.transforms import ComposeTransform, IdentityTransform
 
 
 def posdef(m):
-    """Map a matrix to a positive definite matrix, where all eigenvalues are >= 1e-5."""
+    """Map a matrix to a positive definite matrix, where all eigenvalues are >=
+    1e-5."""
     mlambda, mvec = jnp.linalg.eigh(m)
     mlambda = jnp.maximum(mlambda, 1e-5)
     return (mvec * jnp.expand_dims(mlambda, -2)) @ jnp.swapaxes(mvec, -2, -1)
@@ -50,8 +51,8 @@ def get_parameter_transform(site):
 
 
 def batch_ravel_pytree(pytree, nbatch_dims=0):
-    """Ravel a pytree to a flat array. Assumes all leaves have the same shape. If `nbatch_dims>1' then the batch
-    is flattened to one dimension.
+    """Ravel a pytree to a flat array. Assumes all leaves have the same shape. If
+    `nbatch_dims>1' then the batch is flattened to one dimension.
 
     :param pytree: a pytree of arrays with same shape.
     :param nbatch_dims: number of batch dimensions in from right most.

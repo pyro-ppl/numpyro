@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 r"""
 Example: Sine-skewed sine (bivariate von Mises) mixture
 =======================================================

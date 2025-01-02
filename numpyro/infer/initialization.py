@@ -12,9 +12,8 @@ from numpyro.util import find_stack_level
 
 
 def init_to_median(site=None, num_samples=15):
-    """
-    Initialize to the prior median. For priors with no `.sample` method implemented,
-    we defer to the :func:`init_to_uniform` strategy.
+    """Initialize to the prior median. For priors with no `.sample` method
+    implemented, we defer to the :func:`init_to_uniform` strategy.
 
     :param int num_samples: number of prior points to calculate median.
     """
@@ -46,8 +45,9 @@ def init_to_median(site=None, num_samples=15):
 
 
 def init_to_mean(site=None):
-    """
-    Initialize to the prior mean. For priors with no `.mean` property implemented,
+    """Initialize to the prior mean.
+
+    For priors with no `.mean` property implemented,
     we defer to the :func:`init_to_median` strategy.
     """
     if site is None:
@@ -76,18 +76,20 @@ def init_to_mean(site=None):
 
 
 def init_to_sample(site=None):
-    """
-    Initialize to a prior sample. For priors with no `.sample` method implemented,
+    """Initialize to a prior sample.
+
+    For priors with no `.sample` method implemented,
     we defer to the :func:`init_to_uniform` strategy.
     """
     return init_to_median(site, num_samples=1)
 
 
 def init_to_uniform(site=None, radius=2):
-    """
-    Initialize to a random point in the area `(-radius, radius)` of unconstrained domain.
+    """Initialize to a random point in the area `(-radius, radius)` of unconstrained
+    domain.
 
-    :param float radius: specifies the range to draw an initial point in the unconstrained domain.
+    :param float radius: specifies the range to draw an initial point in the
+        unconstrained domain.
     """
     if site is None:
         return partial(init_to_uniform, radius=radius)
@@ -121,16 +123,13 @@ def init_to_uniform(site=None, radius=2):
 
 
 def init_to_feasible(site=None):
-    """
-    Initialize to an arbitrary feasible point, ignoring distribution
-    parameters.
-    """
+    """Initialize to an arbitrary feasible point, ignoring distribution
+    parameters."""
     return init_to_uniform(site, radius=0)
 
 
 def init_to_value(site=None, values={}):
-    """
-    Initialize to the value specified in `values`. We defer to
+    """Initialize to the value specified in `values`. We defer to
     :func:`init_to_uniform` strategy for sites which do not appear in `values`.
 
     :param dict values: dictionary of initial values keyed by site name.

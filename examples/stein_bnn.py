@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Bayesian Neural Network with SteinVI
 =============================================
@@ -41,7 +40,7 @@ def load_data() -> DataState:
 
 
 def normalize(val, mean=None, std=None):
-    """Normalize data to zero mean, unit variance"""
+    """Normalize data to zero mean, unit variance."""
     if mean is None and std is None:
         # Only use training data to estimate mean and std.
         std = jnp.std(val, 0, keepdims=True)

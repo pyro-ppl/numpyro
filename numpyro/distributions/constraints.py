@@ -72,11 +72,10 @@ from jax.tree_util import register_pytree_node
 
 
 class Constraint(object):
-    """
-    Abstract base class for constraints.
+    """Abstract base class for constraints.
 
-    A constraint object represents a region over which a variable is valid,
-    e.g. within which a variable can be optimized.
+    A constraint object represents a region over which a variable is valid, e.g.
+    within which a variable can be optimized.
     """
 
     is_discrete = False
@@ -93,16 +92,12 @@ class Constraint(object):
         return self.__class__.__name__[1:] + "()"
 
     def check(self, value):
-        """
-        Returns a byte tensor of `sample_shape + batch_shape` indicating
-        whether each event in value satisfies this constraint.
-        """
+        """Returns a byte tensor of `sample_shape + batch_shape` indicating whether
+        each event in value satisfies this constraint."""
         return self(value)
 
     def feasible_like(self, prototype):
-        """
-        Get a feasible value which has the same shape as dtype as `prototype`.
-        """
+        """Get a feasible value which has the same shape as dtype as `prototype`."""
         raise NotImplementedError
 
     @classmethod
@@ -123,10 +118,8 @@ class ParameterFreeConstraint(Constraint):
 
 
 class _SingletonConstraint(ParameterFreeConstraint):
-    """
-    A constraint type which has only one canonical instance, like constraints.real,
-    and unlike constraints.interval.
-    """
+    """A constraint type which has only one canonical instance, like
+    constraints.real, and unlike constraints.interval."""
 
     def __new__(cls):
         if (not hasattr(cls, "_instance")) or (type(cls._instance) is not cls):
@@ -188,9 +181,8 @@ class _CorrMatrix(_SingletonConstraint):
 
 
 class _Dependent(Constraint):
-    """
-    Placeholder for variables whose support depends on other variables.
-    These variables obey no simple coordinate-wise constraints.
+    """Placeholder for variables whose support depends on other variables. These
+    variables obey no simple coordinate-wise constraints.
 
     :param bool is_discrete: Optional value of ``.is_discrete`` in case this
         can be computed statically. If not provided, access to the
@@ -315,11 +307,9 @@ class _Nonnegative(_SingletonConstraint, _GreaterThanEq):
 
 
 class _IndependentConstraint(Constraint):
-    """
-    Wraps a constraint by aggregating over ``reinterpreted_batch_ndims``-many
-    dims in :meth:`check`, so that an event is valid only if all its
-    independent entries are valid.
-    """
+    """Wraps a constraint by aggregating over ``reinterpreted_batch_ndims``-many
+    dims in :meth:`check`, so that an event is valid only if all its independent
+    entries are valid."""
 
     def __init__(self, base_constraint, reinterpreted_batch_ndims):
         assert isinstance(base_constraint, Constraint)
@@ -597,9 +587,7 @@ class _Multinomial(Constraint):
 
 
 class _L1Ball(_SingletonConstraint):
-    """
-    Constrain to the L1 ball of any dimension.
-    """
+    """Constrain to the L1 ball of any dimension."""
 
     event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
@@ -660,10 +648,8 @@ class _PositiveSemiDefinite(_SingletonConstraint):
 
 
 class _PositiveOrderedVector(_SingletonConstraint):
-    """
-    Constrains to a positive real-valued tensor where the elements are monotonically
-    increasing along the `event_shape` dimension.
-    """
+    """Constrains to a positive real-valued tensor where the elements are
+    monotonically increasing along the `event_shape` dimension."""
 
     event_dim = 1
 
@@ -725,9 +711,7 @@ class _ScaledUnitLowerCholesky(_LowerCholesky):
 
 
 class _Sphere(_SingletonConstraint):
-    """
-    Constrain to the Euclidean sphere of any dimension.
-    """
+    """Constrain to the Euclidean sphere of any dimension."""
 
     event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.

@@ -138,11 +138,11 @@ def test_weight_convergence():
     LIKELIHOOD2_STD = 0.62177
 
     def log_marginal_likelihood(data, likelihood_std, prior_mean, prior_std):
-        """
-        Calculate the marginal likelihood of a model with Normal likelihood, unknown mean,
-        and Normal prior.
+        """Calculate the marginal likelihood of a model with Normal likelihood,
+        unknown mean, and Normal prior.
 
-        Taken from Section 2.5 at https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf.
+        Taken from Section 2.5 at
+        https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf.
         """
         num_data = data.shape[0]
         likelihood_var = jnp.square(likelihood_std)

@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Predator-Prey Model
 ============================
@@ -40,8 +39,9 @@ matplotlib.use("Agg")  # noqa: E402
 
 
 def dz_dt(z, t, theta):
-    """
-    Lotka–Volterra equations. Real positive parameters `alpha`, `beta`, `gamma`, `delta`
+    """Lotka–Volterra equations.
+
+    Real positive parameters `alpha`, `beta`, `gamma`, `delta`
     describes the interaction of two species.
     """
     u = z[0]

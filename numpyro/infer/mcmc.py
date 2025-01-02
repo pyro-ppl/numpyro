@@ -30,9 +30,8 @@ __all__ = [
 
 
 class MCMCKernel(ABC):
-    """
-    Defines the interface for the Markov transition kernel that is
-    used for :class:`~numpyro.infer.mcmc.MCMC` inference.
+    """Defines the interface for the Markov transition kernel that is used for
+    :class:`~numpyro.infer.mcmc.MCMC` inference.
 
     **Example:**
 
@@ -76,10 +75,9 @@ class MCMCKernel(ABC):
     """
 
     def postprocess_fn(self, model_args, model_kwargs):
-        """
-        Get a function that transforms unconstrained values at sample sites to values
-        constrained to the site's support, in addition to returning deterministic
-        sites in the model.
+        """Get a function that transforms unconstrained values at sample sites to
+        values constrained to the site's support, in addition to returning
+        deterministic sites in the model.
 
         :param model_args: Arguments to the model.
         :param model_kwargs: Keyword arguments to the model.
@@ -88,8 +86,7 @@ class MCMCKernel(ABC):
 
     @abstractmethod
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        """
-        Initialize the `MCMCKernel` and return an initial state to begin sampling
+        """Initialize the `MCMCKernel` and return an initial state to begin sampling
         from.
 
         :param random.PRNGKey rng_key: Random number generator key to initialize
@@ -108,8 +105,7 @@ class MCMCKernel(ABC):
 
     @abstractmethod
     def sample(self, state, model_args, model_kwargs):
-        """
-        Given the current `state`, return the next `state` using the given
+        """Given the current `state`, return the next `state` using the given
         transition kernel.
 
         :param state: A `pytree <https://jax.readthedocs.io/en/latest/pytrees.html>`_
@@ -124,9 +120,10 @@ class MCMCKernel(ABC):
 
     @property
     def sample_field(self):
-        """
-        The attribute of the `state` object passed to :meth:`sample` that denotes
-        the MCMC sample. This is used by :meth:`postprocess_fn` and for reporting
+        """The attribute of the `state` object passed to :meth:`sample` that denotes
+        the MCMC sample.
+
+        This is used by :meth:`postprocess_fn` and for reporting
         results in :meth:`MCMC.print_summary()
         <numpyro.infer.mcmc.MCMC.print_summary>`.
         """
@@ -134,16 +131,16 @@ class MCMCKernel(ABC):
 
     @property
     def default_fields(self):
-        """
-        The attributes of the `state` object to be collected by default during
-        the MCMC run (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is called).
-        """
+        """The attributes of the `state` object to be collected by default during
+        the MCMC run (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is
+        called)."""
         return (self.sample_field,)
 
     @property
     def is_ensemble_kernel(self):
-        """
-        Denotes whether the kernel is an ensemble kernel. If True,
+        """Denotes whether the kernel is an ensemble kernel.
+
+        If True,
         diagnostics_str will be displayed during the MCMC run
         (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is called)
         if `chain_method` = "vectorized".
@@ -151,10 +148,8 @@ class MCMCKernel(ABC):
         return False
 
     def get_diagnostics_str(self, state):
-        """
-        Given the current `state`, returns the diagnostics string to
-        be added to progress bar for diagnostics purpose.
-        """
+        """Given the current `state`, returns the diagnostics string to be added to
+        progress bar for diagnostics purpose."""
         return ""
 
 
@@ -222,8 +217,7 @@ def _hashable(x):
 
 
 class MCMC(object):
-    """
-    Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
+    """Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
 
     .. note:: `chain_method` is an experimental arg, which might be removed in a future version.
 
@@ -548,10 +542,9 @@ class MCMC(object):
 
     @property
     def post_warmup_state(self):
-        """
-        The state before the sampling phase. If this attribute is not None,
-        :meth:`run` will skip the warmup phase and start with the state
-        specified in this attribute.
+        """The state before the sampling phase. If this attribute is not None,
+        :meth:`run` will skip the warmup phase and start with the state specified in
+        this attribute.
 
         .. note:: This attribute can be used to sequentially draw MCMC samples. For example,
 
@@ -572,9 +565,7 @@ class MCMC(object):
 
     @property
     def last_state(self):
-        """
-        The final MCMC state at the end of the sampling phase.
-        """
+        """The final MCMC state at the end of the sampling phase."""
         return self._last_state
 
     def warmup(
@@ -586,10 +577,10 @@ class MCMC(object):
         init_params=None,
         **kwargs,
     ):
-        """
-        Run the MCMC warmup adaptation phase. After this call, `self.post_warmup_state` will be set
-        and the :meth:`run` method will skip the warmup adaptation phase. To run `warmup` again
-        for the new data, it is required to run :meth:`warmup` again.
+        """Run the MCMC warmup adaptation phase. After this call,
+        `self.post_warmup_state` will be set and the :meth:`run` method will skip
+        the warmup adaptation phase. To run `warmup` again for the new data, it is
+        required to run :meth:`warmup` again.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
@@ -624,8 +615,7 @@ class MCMC(object):
         self._warmup_state = self._last_state
 
     def run(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
-        """
-        Run the MCMC samplers and collect samples.
+        """Run the MCMC samplers and collect samples.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
             For multi-chains, a batch of `num_chains` keys can be supplied. If `rng_key`
@@ -720,8 +710,7 @@ class MCMC(object):
         self._set_collection_params()
 
     def get_samples(self, group_by_chain=False):
-        """
-        Get samples from the MCMC run.
+        """Get samples from the MCMC run.
 
         :param bool group_by_chain: Whether to preserve the chain dimension. If True,
             all samples will have num_chains as the size of their leading dimension.
@@ -737,7 +726,6 @@ class MCMC(object):
             posterior_samples = mcmc.get_samples()
             predictive = Predictive(model, posterior_samples=posterior_samples)
             samples = predictive(rng_key1, *model_args, **model_kwargs)
-
         """
         return (
             self._states[self._sample_field]
@@ -746,8 +734,7 @@ class MCMC(object):
         )
 
     def get_extra_fields(self, group_by_chain=False):
-        """
-        Get extra fields from the MCMC run.
+        """Get extra fields from the MCMC run.
 
         :param bool group_by_chain: Whether to preserve the chain dimension. If True,
             all samples will have num_chains as the size of their leading dimension.
@@ -758,10 +745,11 @@ class MCMC(object):
         return {k: v for k, v in states.items() if k != self._sample_field}
 
     def print_summary(self, prob=0.9, exclude_deterministic=True):
-        """
-        Print the statistics of posterior samples collected during running this MCMC instance.
+        """Print the statistics of posterior samples collected during running this
+        MCMC instance.
 
-        :param float prob: the probability mass of samples within the credible interval.
+        :param float prob: the probability mass of samples within the credible
+            interval.
         :param bool exclude_deterministic: whether or not print out the statistics
             at deterministic sites.
         """
@@ -788,9 +776,8 @@ class MCMC(object):
             )
 
     def transfer_states_to_host(self):
-        """
-        Reduce the memory footprint of collected samples by transferring them to the host device.
-        """
+        """Reduce the memory footprint of collected samples by transferring them to
+        the host device."""
         self._states = device_get(self._states)
         self._states_flat = device_get(self._get_states_flat())
 

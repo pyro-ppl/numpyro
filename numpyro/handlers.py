@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 This provides a small set of effect handlers in NumPyro that are modeled
 after Pyro's `poutine <http://docs.pyro.ai/en/stable/poutine.html>`_ module.
@@ -134,8 +133,7 @@ __all__ = [
 
 
 class trace(Messenger):
-    """
-    Returns a handler that records the inputs and outputs at primitive calls
+    """Returns a handler that records the inputs and outputs at primitive calls
     inside `fn`.
 
     **Example:**
@@ -181,8 +179,7 @@ class trace(Messenger):
         self.trace[msg["name"]] = msg.copy()
 
     def get_trace(self, *args, **kwargs) -> OrderedDict[str, Message]:
-        """
-        Run the wrapped callable and return the recorded trace.
+        """Run the wrapped callable and return the recorded trace.
 
         :param `*args`: arguments to the callable.
         :param `**kwargs`: keyword arguments to the callable.
@@ -193,10 +190,9 @@ class trace(Messenger):
 
 
 class replay(Messenger):
-    """
-    Given a callable `fn` and an execution trace `trace`,
-    return a callable which substitutes `sample` calls in `fn` with
-    values from the corresponding site names in `trace`.
+    """Given a callable `fn` and an execution trace `trace`, return a callable which
+    substitutes `sample` calls in `fn` with values from the corresponding site names
+    in `trace`.
 
     :param fn: Python callable with NumPyro primitives.
     :param trace: an OrderedDict containing execution metadata.
@@ -251,12 +247,11 @@ class replay(Messenger):
 
 
 class block(Messenger):
-    """
-    Given a callable `fn`, return another callable that selectively hides
-    primitive sites from other effect handlers on the stack. In the absence
-    of parameters, all primitive sites are blocked. `hide_fn` takes precedence
-    over `hide`, which has higher priority than `expose_types` followed by `expose`.
-    Only the parameter with the precedence is considered.
+    """Given a callable `fn`, return another callable that selectively hides
+    primitive sites from other effect handlers on the stack. In the absence of
+    parameters, all primitive sites are blocked. `hide_fn` takes precedence over
+    `hide`, which has higher priority than `expose_types` followed by `expose`. Only
+    the parameter with the precedence is considered.
 
     :param callable fn: Python callable with NumPyro primitives.
     :param callable hide_fn: function which when given a dictionary containing
@@ -315,9 +310,10 @@ class block(Messenger):
 
 
 class collapse(trace):
-    """
-    EXPERIMENTAL Collapses all sites in the context by lazily sampling and
-    attempting to use conjugacy relations. If no conjugacy is known this will
+    """EXPERIMENTAL Collapses all sites in the context by lazily sampling and
+    attempting to use conjugacy relations.
+
+    If no conjugacy is known this will
     fail. Code using the results of sample sites must be written to accept
     Funsors rather than Tensors. This requires ``funsor`` to be installed.
     """
@@ -395,8 +391,7 @@ class collapse(trace):
 
 
 class condition(Messenger):
-    """
-    Conditions unobserved sample sites to values from `data` or `condition_fn`.
+    """Conditions unobserved sample sites to values from `data` or `condition_fn`.
     Similar to :class:`~numpyro.handlers.substitute` except that it only affects
     `sample` sites and changes the `is_observed` property to `True`.
 
@@ -461,10 +456,9 @@ class condition(Messenger):
 
 
 class infer_config(Messenger):
-    """
-    Given a callable `fn` that contains NumPyro primitive calls
-    and a callable `config_fn` taking a trace site and returning a dictionary,
-    updates the value of the infer kwarg at a sample site to config_fn(site).
+    """Given a callable `fn` that contains NumPyro primitive calls and a callable
+    `config_fn` taking a trace site and returning a dictionary, updates the value of
+    the infer kwarg at a sample site to config_fn(site).
 
     :param fn: a stochastic function (callable containing NumPyro primitive calls)
     :param config_fn: a callable taking a site and returning an infer dict
@@ -484,10 +478,9 @@ class infer_config(Messenger):
 
 
 class lift(Messenger):
-    """
-    Given a stochastic function with ``param`` calls and a prior distribution,
-    create a stochastic function where all param calls are replaced by sampling from prior.
-    Prior should be a distribution or a dict of names to distributions.
+    """Given a stochastic function with ``param`` calls and a prior distribution,
+    create a stochastic function where all param calls are replaced by sampling from
+    prior. Prior should be a distribution or a dict of names to distributions.
 
     Consider the following NumPyro program:
 
@@ -558,8 +551,7 @@ class lift(Messenger):
 
 
 class mask(Messenger):
-    """
-    This messenger masks out some of the sample statements elementwise.
+    """This messenger masks out some of the sample statements elementwise.
 
     :param mask: a boolean or a boolean-valued array for masking elementwise log
         probability of sample sites (`True` includes a site, `False` excludes a site).
@@ -587,8 +579,7 @@ class mask(Messenger):
 
 
 class reparam(Messenger):
-    """
-    Reparametrizes each affected sample site into one or more auxiliary sample
+    """Reparametrizes each affected sample site into one or more auxiliary sample
     sites followed by a deterministic transformation [1].
 
     To specify reparameterizers, pass a ``config`` dict or callable to the
@@ -648,14 +639,13 @@ class reparam(Messenger):
 
 
 class scale(Messenger):
-    """
-    This messenger rescales the log probability score.
+    """This messenger rescales the log probability score.
 
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param scale: a positive scaling factor that is broadcastable to the shape
-        of log probability.
+    :param scale: a positive scaling factor that is broadcastable to the shape of
+        log probability.
     :type scale: float or numpy.ndarray
     """
 
@@ -687,8 +677,8 @@ class scale(Messenger):
 
 
 class scope(Messenger):
-    """
-    This handler prepend a prefix followed by a divider to the name of sample sites.
+    """This handler prepend a prefix followed by a divider to the name of sample
+    sites.
 
     **Example:**
 
@@ -738,14 +728,13 @@ class scope(Messenger):
 
 
 class seed(Messenger):
-    """
-    JAX uses a functional pseudo random number generator that requires passing
-    in a seed :func:`~jax.random.PRNGKey` to every stochastic function. The
-    `seed` handler allows us to initially seed a stochastic function with a
+    """JAX uses a functional pseudo random number generator that requires passing in
+    a seed :func:`~jax.random.PRNGKey` to every stochastic function. The `seed`
+    handler allows us to initially seed a stochastic function with a
     :func:`~jax.random.PRNGKey`. Every call to the :func:`~numpyro.handlers.sample`
-    primitive inside the function results in a splitting of this initial seed
-    so that we use a fresh seed for each subsequent call without having to
-    explicitly pass in a `PRNGKey` to each `sample` call.
+    primitive inside the function results in a splitting of this initial seed so
+    that we use a fresh seed for each subsequent call without having to explicitly
+    pass in a `PRNGKey` to each `sample` call.
 
     :param fn: Python callable with NumPyro primitives.
     :param rng_seed: a random number generator seed.
@@ -825,12 +814,10 @@ class seed(Messenger):
 
 
 class substitute(Messenger):
-    """
-    Given a callable `fn` and a dict `data` keyed by site names
-    (alternatively, a callable `substitute_fn`), return a callable
-    which substitutes all primitive calls in `fn` with values from
-    `data` whose key matches the site name. If the site name
-    is not present in `data`, there is no side effect.
+    """Given a callable `fn` and a dict `data` keyed by site names (alternatively, a
+    callable `substitute_fn`), return a callable which substitutes all primitive
+    calls in `fn` with values from `data` whose key matches the site name. If the
+    site name is not present in `data`, there is no side effect.
 
     If a `substitute_fn` is provided, then the value at the site is
     replaced by the value returned from the call to `substitute_fn`
@@ -903,11 +890,10 @@ class substitute(Messenger):
 
 
 class do(Messenger):
-    """
-    Given a stochastic function with some sample statements and a dictionary
-    of values at names, set the return values of those sites equal to the values
-    as if they were hard-coded to those values and introduce fresh sample sites
-    with the same names whose values do not propagate.
+    """Given a stochastic function with some sample statements and a dictionary of
+    values at names, set the return values of those sites equal to the values as if
+    they were hard-coded to those values and introduce fresh sample sites with the
+    same names whose values do not propagate.
 
     Composes freely with :func:`~numpyro.handlers.condition` to represent
     counterfactual distributions over potential outcomes. See Single World

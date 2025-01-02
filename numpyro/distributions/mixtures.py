@@ -12,8 +12,7 @@ from numpyro.util import is_prng_key
 
 
 def Mixture(mixing_distribution, component_distributions, *, validate_args=None):
-    """
-    A marginalized finite mixture of component distributions
+    """A marginalized finite mixture of component distributions.
 
     The returned distribution will be either a:
 
@@ -45,7 +44,7 @@ def Mixture(mixing_distribution, component_distributions, *, validate_args=None)
 
 
 class _MixtureBase(Distribution):
-    """An abstract base class for mixture distributions
+    """An abstract base class for mixture distributions.
 
     This consolidates all the shared logic for the mixture distributions, and
     subclasses should implement the ``component_*`` methods to specialize.
@@ -70,12 +69,12 @@ class _MixtureBase(Distribution):
 
     @property
     def mixture_size(self):
-        """The number of components in the mixture"""
+        """The number of components in the mixture."""
         return self._mixture_size
 
     @property
     def mixing_distribution(self):
-        """The ``Categorical`` distribution over components"""
+        """The ``Categorical`` distribution over components."""
         return self._mixing_distribution
 
     @property
@@ -101,7 +100,7 @@ class _MixtureBase(Distribution):
         return mean_cond_var + var_cond_mean
 
     def cdf(self, samples):
-        """The cumulative distribution function
+        """The cumulative distribution function.
 
         :param value: samples from this distribution.
         :return: output of the cumulative distribution function evaluated at
@@ -113,14 +112,13 @@ class _MixtureBase(Distribution):
         return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
 
     def sample_with_intermediates(self, key, sample_shape=()):
-        """
-        A version of ``sample`` that also returns the sampled component indices
+        """A version of ``sample`` that also returns the sampled component indices.
 
         :param jax.random.PRNGKey key: the rng_key key to be used for the
             distribution.
         :param tuple sample_shape: the sample shape for the distribution.
-        :return: A 2-element tuple with the samples from the distribution, and
-            the indices of the sampled components.
+        :return: A 2-element tuple with the samples from the distribution, and the
+            indices of the sampled components.
         :rtype: tuple
         """
         assert is_prng_key(key)
@@ -156,8 +154,7 @@ class _MixtureBase(Distribution):
 
 
 class MixtureSameFamily(_MixtureBase):
-    """
-    A finite mixture of component distributions from the same family
+    """A finite mixture of component distributions from the same family.
 
     This mixture only supports a mixture of component distributions that are all
     of the same family. The different components are specified along the last
@@ -220,8 +217,7 @@ class MixtureSameFamily(_MixtureBase):
 
     @property
     def component_distribution(self):
-        """
-        Return the vectorized distribution of components being mixed.
+        """Return the vectorized distribution of components being mixed.
 
         :return: Component distribution
         :rtype: Distribution
@@ -261,8 +257,7 @@ class MixtureSameFamily(_MixtureBase):
 
 
 class MixtureGeneral(_MixtureBase):
-    """
-    A finite mixture of component distributions from different families
+    """A finite mixture of component distributions from different families.
 
     If all of the component distributions are from the same family, the more
     specific implementation in :class:`~numpyro.distributions.MixtureSameFamily`
@@ -385,7 +380,7 @@ class MixtureGeneral(_MixtureBase):
 
     @property
     def component_distributions(self):
-        """The list of component distributions in the mixture
+        """The list of component distributions in the mixture.
 
         :return: The list of component distributions
         :rtype: list[Distribution]

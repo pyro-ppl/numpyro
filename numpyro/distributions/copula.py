@@ -11,13 +11,16 @@ from numpyro.util import is_prng_key
 
 
 class GaussianCopula(Distribution):
-    """
-    A distribution that links the `batch_shape[:-1]` of marginal distribution `marginal_dist`
-    with a multivariate Gaussian copula modelling the correlation between the axes.
+    """A distribution that links the `batch_shape[:-1]` of marginal distribution
+    `marginal_dist` with a multivariate Gaussian copula modelling the correlation
+    between the axes.
 
-    :param Distribution marginal_dist: Distribution whose last batch axis is to be coupled.
-    :param array_like correlation_matrix: Correlation matrix of coupling multivariate normal distribution.
-    :param array_like correlation_cholesky: Correlation Cholesky factor of coupling multivariate normal distribution.
+    :param Distribution marginal_dist: Distribution whose last batch axis is to be
+        coupled.
+    :param array_like correlation_matrix: Correlation matrix of coupling
+        multivariate normal distribution.
+    :param array_like correlation_cholesky: Correlation Cholesky factor of coupling
+        multivariate normal distribution.
     """
 
     arg_constraints = {
