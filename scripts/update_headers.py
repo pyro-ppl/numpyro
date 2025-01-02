@@ -52,7 +52,11 @@ for basename, comment in file_types:
         lineno += 1
 
         # Ensure next line is blank.
-        if lineno < len(lines) and not lines[lineno].isspace():
+        if (
+            lineno < len(lines)
+            and not lines[lineno].isspace()
+            and not lines[lineno] == '"""\n'
+        ):
             lines.insert(lineno, "\n")
             changed = True
 
