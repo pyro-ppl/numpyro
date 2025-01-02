@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -32,7 +32,7 @@ __all__ = [
     "SM3",
 ]
 
-_Params = Any
+_Params = TypeVar("_Params")
 _OptState = TypeVar("_OptState")
 _IterOptState = tuple[ArrayLike, _OptState]
 
@@ -50,7 +50,7 @@ def _value_and_grad(f, x, forward_mode_differentiation=False) -> tuple:
         return value_and_grad(f, has_aux=True)(x)
 
 
-class _NumPyroOptim(object):
+class _NumPyroOptim(Generic[_Params, _OptState]):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
         self.init_fn: Callable[[_Params], _IterOptState]
         self.update_fn: Callable[[ArrayLike, _Params, _OptState], _OptState]
@@ -229,7 +229,11 @@ class SM3(_NumPyroOptim):
 # and pass `unravel_fn` around.
 # When arbitrary pytree is supported in JAX, we can just simply use
 # identity functions for `init_fn` and `get_params`.
-_MinimizeState = namedtuple("_MinimizeState", ["flat_params", "unravel_fn"])
+class _MinimizeState(namedtuple("_MinimizeState", ["flat_params", "unravel_fn"])):
+    flat_params: ArrayLike
+    unravel_fn: Callable[[ArrayLike], _Params]
+
+
 register_pytree_node(
     _MinimizeState,
     lambda state: ((state.flat_params,), (state.unravel_fn,)),
@@ -239,9 +243,9 @@ register_pytree_node(
 
 def _minimize_wrapper() -> (
     tuple[
-        Callable[[Any], _MinimizeState],
-        Callable[[Any, Any, Any], Any],
-        Callable[[Any], _Params],
+        Callable[[_Params], _MinimizeState],
+        Callable[[Any, Any, _MinimizeState], _MinimizeState],
+        Callable[[_MinimizeState], _Params],
     ]
 ):
     def init_fn(params: _Params) -> _MinimizeState:
@@ -254,7 +258,7 @@ def _minimize_wrapper() -> (
         # we don't use update_fn in Minimize, so let it do nothing
         return opt_state
 
-    def get_params(opt_state: _MinimizeState) -> _Params:
+    def get_params(opt_state: _MinimizeState) -> _Params:  # type: ignore[type-var]
         flat_params, unravel_fn = opt_state
         return unravel_fn(flat_params)
 
@@ -301,7 +305,7 @@ class Minimize(_NumPyroOptim):
         >>> assert_allclose(quantiles["b"], 3., atol=1e-3)
     """
 
-    def __init__(self, method="BFGS", **kwargs):
+    def __init__(self, method="BFGS", **kwargs) -> None:
         super().__init__(_minimize_wrapper)
         self._method = method
         self._kwargs = kwargs
