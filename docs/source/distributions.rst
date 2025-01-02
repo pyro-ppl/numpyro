@@ -256,6 +256,14 @@ Laplace
     :show-inheritance:
     :member-order: bysource
 
+Levy
+^^^^
+.. autoclass:: numpyro.distributions.continuous.Levy
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LKJ
 ^^^
 .. autoclass:: numpyro.distributions.continuous.LKJ
