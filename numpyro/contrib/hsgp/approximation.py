@@ -1,9 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
-"""
-This module contains the low-rank approximation functions of the Hilbert space Gaussian process.
-"""
+"""This module contains the low-rank approximation functions of the Hilbert space
+Gaussian process."""
 
 from __future__ import annotations
 
@@ -38,8 +36,7 @@ def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
 def linear_approximation(
     phi: Array, spd: Array, m: int, non_centered: bool = True
 ) -> Array:
-    """
-    Linear approximation formula of the Hilbert space Gaussian process.
+    """Linear approximation formula of the Hilbert space Gaussian process.
 
     See Eq. (8) in [1].
 
@@ -69,8 +66,8 @@ def hsgp_squared_exponential(
     m: int | list[int],
     non_centered: bool = True,
 ) -> Array:
-    """
-    Hilbert space Gaussian process approximation using the squared exponential kernel.
+    """Hilbert space Gaussian process approximation using the squared exponential
+    kernel.
 
     The main idea of the approach is to combine the associated spectral density of the
     squared exponential kernel and the spectrum of the Dirichlet Laplacian operator to
@@ -118,8 +115,7 @@ def hsgp_matern(
     m: int | list[int],
     non_centered: bool = True,
 ) -> Array:
-    """
-    Hilbert space Gaussian process approximation using the Matérn kernel.
+    """Hilbert space Gaussian process approximation using the Matérn kernel.
 
     The main idea of the approach is to combine the associated spectral density of the
     Matérn kernel kernel and the spectrum of the Dirichlet Laplacian operator to obtain
@@ -162,8 +158,8 @@ def hsgp_matern(
 def hsgp_periodic_non_centered(
     x: ArrayLike, alpha: float, length: float, w0: float, m: int
 ) -> Array:
-    """
-    Low rank approximation for the periodic squared exponential kernel in the non-centered parametrization.
+    """Low rank approximation for the periodic squared exponential kernel in the
+    non-centered parametrization.
 
     See Appendix B in [1].
 

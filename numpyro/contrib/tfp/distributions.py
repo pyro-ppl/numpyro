@@ -45,8 +45,7 @@ def _get_codomain(bijector):
 
 
 class BijectorConstraint(constraints.Constraint):
-    """
-    A constraint which is codomain of a TensorFlow bijector.
+    """A constraint which is codomain of a TensorFlow bijector.
 
     :param ~tensorflow_probability.substrates.jax.bijectors.Bijector bijector: a TensorFlow bijector
     """
@@ -75,8 +74,8 @@ class BijectorConstraint(constraints.Constraint):
 
 
 class BijectorTransform(Transform):
-    """
-    A wrapper for TensorFlow bijectors to make them compatible with NumPyro's transforms.
+    """A wrapper for TensorFlow bijectors to make them compatible with NumPyro's
+    transforms.
 
     :param ~tensorflow_probability.substrates.jax.bijectors.Bijector bijector: a TensorFlow bijector
     """
@@ -208,9 +207,8 @@ class _TFPDistributionMeta(type(NumPyroDistribution)):
 
 
 class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
-    """
-    A thin wrapper for TensorFlow Probability (TFP) distributions. The constructor
-    has the same signature as the corresponding TFP distribution.
+    """A thin wrapper for TensorFlow Probability (TFP) distributions. The
+    constructor has the same signature as the corresponding TFP distribution.
 
     This class can be used to convert a TFP distribution to a NumPyro-compatible one
     as follows::

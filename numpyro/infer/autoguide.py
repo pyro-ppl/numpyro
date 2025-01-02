@@ -71,8 +71,7 @@ __all__ = [
 
 
 class AutoGuide(ABC):
-    """
-    Base class for automatic guides.
+    """Base class for automatic guides.
 
     Derived classes must implement the :meth:`__call__` method.
 
@@ -123,8 +122,7 @@ class AutoGuide(ABC):
 
     @abstractmethod
     def __call__(self, *args, **kwargs):
-        """
-        A guide with the same ``*args, **kwargs`` as the base ``model``.
+        """A guide with the same ``*args, **kwargs`` as the base ``model``.
 
         :return: A dict mapping sample site name to sampled value.
         :rtype: dict
@@ -133,9 +131,8 @@ class AutoGuide(ABC):
 
     @abstractmethod
     def sample_posterior(self, rng_key, params, *, sample_shape=()):
-        """
-        Generate samples from the approximate posterior over the latent
-        sites in the model.
+        """Generate samples from the approximate posterior over the latent sites in
+        the model.
 
         :param jax.random.PRNGKey rng_key: random key to be used draw samples.
         :param dict params: Current parameters of model and autoguide.
@@ -190,8 +187,7 @@ class AutoGuide(ABC):
                 self._prototype_frame_full_sizes[name] = site["args"][0]
 
     def median(self, params):
-        """
-        Returns the posterior median value of each latent variable.
+        """Returns the posterior median value of each latent variable.
 
         :param dict params: A dict containing parameter values.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
@@ -218,8 +214,7 @@ class AutoGuide(ABC):
 
 
 class AutoGuideList(AutoGuide):
-    """
-    Container class to combine multiple automatic guides.
+    """Container class to combine multiple automatic guides.
 
     Example usage::
 
@@ -251,10 +246,9 @@ class AutoGuideList(AutoGuide):
         )
 
     def append(self, part):
-        """
-        Add an automatic or custom guide for part of the model. The guide should
-        have been created by blocking the model to restrict to a subset of
-        sample sites. No two parts should operate on any one sample site.
+        """Add an automatic or custom guide for part of the model. The guide should
+        have been created by blocking the model to restrict to a subset of sample
+        sites. No two parts should operate on any one sample site.
 
         :param part: a partial guide to add
         :type part: AutoGuide
@@ -341,10 +335,9 @@ class AutoGuideList(AutoGuide):
 
 
 class AutoNormal(AutoGuide):
-    """
-    This implementation of :class:`AutoGuide` uses Normal distributions
-    to construct a guide over the entire latent space. The guide does not
-    depend on the model's ``*args, **kwargs``.
+    """This implementation of :class:`AutoGuide` uses Normal distributions to
+    construct a guide over the entire latent space. The guide does not depend on the
+    model's ``*args, **kwargs``.
 
     This should be equivalent to :class:`AutoDiagonalNormal` , but with
     more convenient site names and with better support for mean field ELBO.
@@ -497,10 +490,9 @@ class AutoNormal(AutoGuide):
 
 
 class AutoDelta(AutoGuide):
-    """
-    This implementation of :class:`AutoGuide` uses Delta distributions to
-    construct a MAP guide over the entire latent space. The guide does not
-    depend on the model's ``*args, **kwargs``.
+    """This implementation of :class:`AutoGuide` uses Delta distributions to
+    construct a MAP guide over the entire latent space. The guide does not depend on
+    the model's ``*args, **kwargs``.
 
     .. note:: This class does MAP inference in constrained space.
 
@@ -606,7 +598,9 @@ class AutoDelta(AutoGuide):
 
 
 def _unravel_dict(x_flat, shape_dict):
-    """Return `x` from the flatten version `x_flat`. Shape information
+    """Return `x` from the flatten version `x_flat`.
+
+    Shape information
     of each item in `x` is defined in `shape_dict`.
     """
     assert jnp.ndim(x_flat) == 1
@@ -641,9 +635,8 @@ def _ravel_dict_with_shape_dict(x, shape_dict):
 
 
 class AutoContinuous(AutoGuide):
-    """
-    Base class for implementations of continuous-valued Automatic
-    Differentiation Variational Inference [1].
+    """Base class for implementations of continuous-valued Automatic Differentiation
+    Variational Inference [1].
 
     Each derived class implements its own :meth:`_get_posterior` method.
 
@@ -767,17 +760,16 @@ class AutoContinuous(AutoGuide):
             return unpack_single_latent(latent_sample)
 
     def get_base_dist(self):
-        """
-        Returns the base distribution of the posterior when reparameterized
-        as a :class:`~numpyro.distributions.distribution.TransformedDistribution`. This
-        should not depend on the model's `*args, **kwargs`.
+        """Returns the base distribution of the posterior when reparameterized as a
+        :class:`~numpyro.distributions.distribution.TransformedDistribution`.
+
+        This should not depend on the model's `*args, **kwargs`.
         """
         raise NotImplementedError
 
     def get_transform(self, params):
-        """
-        Returns the transformation learned by the guide to generate samples from the unconstrained
-        (approximate) posterior.
+        """Returns the transformation learned by the guide to generate samples from
+        the unconstrained (approximate) posterior.
 
         :param dict params: Current parameters of model and autoguide.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
@@ -795,8 +787,7 @@ class AutoContinuous(AutoGuide):
             return posterior.transforms[0]
 
     def get_posterior(self, params):
-        """
-        Returns the posterior distribution.
+        """Returns the posterior distribution.
 
         :param dict params: Current parameters of model and autoguide.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
@@ -814,13 +805,12 @@ class AutoContinuous(AutoGuide):
 
 
 class AutoDAIS(AutoContinuous):
-    """
-    This implementation of :class:`AutoDAIS` uses Differentiable Annealed
-    Importance Sampling (DAIS) [1, 2] to construct a guide over the entire
-    latent space. Samples from the variational distribution (i.e. guide)
-    are generated using a combination of (uncorrected) Hamiltonian Monte Carlo
-    and Annealed Importance Sampling. The same algorithm is called Uncorrected
-    Hamiltonian Annealing in [1].
+    """This implementation of :class:`AutoDAIS` uses Differentiable Annealed
+    Importance Sampling (DAIS) [1, 2] to construct a guide over the entire latent
+    space. Samples from the variational distribution (i.e. guide) are generated
+    using a combination of (uncorrected) Hamiltonian Monte Carlo and Annealed
+    Importance Sampling. The same algorithm is called Uncorrected Hamiltonian
+    Annealing in [1].
 
     Note that AutoDAIS cannot be used in conjunction with data subsampling.
 
@@ -1014,13 +1004,12 @@ class AutoDAIS(AutoContinuous):
 
 
 class AutoSurrogateLikelihoodDAIS(AutoDAIS):
-    """
-    This implementation of :class:`AutoSurrogateLikelihoodDAIS` provides a
-    mini-batchable family of variational distributions as described in [1].
-    It combines a user-provided surrogate likelihood with Differentiable Annealed
-    Importance Sampling (DAIS) [2, 3]. It is not applicable to models with local
-    latent variables (see :class:`AutoSemiDAIS`), but unlike :class:`AutoDAIS`, it
-    *can* be used in conjunction with data subsampling.
+    """This implementation of :class:`AutoSurrogateLikelihoodDAIS` provides a mini-
+    batchable family of variational distributions as described in [1]. It combines a
+    user-provided surrogate likelihood with Differentiable Annealed Importance
+    Sampling (DAIS) [2, 3]. It is not applicable to models with local latent
+    variables (see :class:`AutoSemiDAIS`), but unlike :class:`AutoDAIS`, it *can* be
+    used in conjunction with data subsampling.
 
     **Reference:**
 
@@ -1222,13 +1211,12 @@ def _subsample_model(model, *args, **kwargs):
 
 
 class AutoSemiDAIS(AutoGuide):
-    r"""
-    This implementation of :class:`AutoSemiDAIS` [1] combines a parametric
+    r"""This implementation of :class:`AutoSemiDAIS` [1] combines a parametric
     variational distribution over global latent variables with Differentiable
     Annealed Importance Sampling (DAIS) [2, 3] to infer local latent variables.
-    Unlike :class:`AutoDAIS` this guide can be used in conjunction with data subsampling.
-    Note that the resulting ELBO can be understood as a particular realization of a
-    'locally enhanced bound' as described in reference [4].
+    Unlike :class:`AutoDAIS` this guide can be used in conjunction with data
+    subsampling. Note that the resulting ELBO can be understood as a particular
+    realization of a 'locally enhanced bound' as described in reference [4].
 
     **References:**
 
@@ -1719,10 +1707,9 @@ class AutoSemiDAIS(AutoGuide):
 
 
 class AutoDiagonalNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a Normal distribution
-    with a diagonal covariance matrix to construct a guide over the entire
-    latent space. The guide does not depend on the model's ``*args, **kwargs``.
+    """This implementation of :class:`AutoContinuous` uses a Normal distribution
+    with a diagonal covariance matrix to construct a guide over the entire latent
+    space. The guide does not depend on the model's ``*args, **kwargs``.
 
     Usage::
 
@@ -1763,9 +1750,7 @@ class AutoDiagonalNormal(AutoContinuous):
         return IndependentTransform(AffineTransform(loc, scale), 1)
 
     def get_posterior(self, params):
-        """
-        Returns a diagonal Normal posterior distribution.
-        """
+        """Returns a diagonal Normal posterior distribution."""
         transform = self.get_transform(params).base_transform
         return dist.Normal(transform.loc, transform.scale)
 
@@ -1780,10 +1765,9 @@ class AutoDiagonalNormal(AutoContinuous):
 
 
 class AutoMultivariateNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a MultivariateNormal
-    distribution to construct a guide over the entire latent space.
-    The guide does not depend on the model's ``*args, **kwargs``.
+    """This implementation of :class:`AutoContinuous` uses a MultivariateNormal
+    distribution to construct a guide over the entire latent space. The guide does
+    not depend on the model's ``*args, **kwargs``.
 
     Usage::
 
@@ -1824,9 +1808,7 @@ class AutoMultivariateNormal(AutoContinuous):
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
-        """
-        Returns a multivariate Normal posterior distribution.
-        """
+        """Returns a multivariate Normal posterior distribution."""
         transform = self.get_transform(params)
         return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
 
@@ -1844,9 +1826,7 @@ class AutoMultivariateNormal(AutoContinuous):
 
 
 class AutoBatchedMixin:
-    """
-    Mixin to infer the batch and event shapes of batched auto guides.
-    """
+    """Mixin to infer the batch and event shapes of batched auto guides."""
 
     # Available from AutoContinuous.
     latent_dim: int
@@ -1903,10 +1883,9 @@ class AutoBatchedMixin:
 
 
 class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a batched MultivariateNormal
-    distribution to construct a guide over the entire latent space.
-    The guide does not depend on the model's ``*args, **kwargs``.
+    """This implementation of :class:`AutoContinuous` uses a batched
+    MultivariateNormal distribution to construct a guide over the entire latent
+    space. The guide does not depend on the model's ``*args, **kwargs``.
 
     Usage::
 
@@ -1956,10 +1935,9 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
 
 
 class AutoLowRankMultivariateNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a LowRankMultivariateNormal
-    distribution to construct a guide over the entire latent space.
-    The guide does not depend on the model's ``*args, **kwargs``.
+    """This implementation of :class:`AutoContinuous` uses a
+    LowRankMultivariateNormal distribution to construct a guide over the entire
+    latent space. The guide does not depend on the model's ``*args, **kwargs``.
 
     Usage::
 
@@ -2009,9 +1987,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         return LowerCholeskyAffine(posterior.loc, posterior.scale_tril)
 
     def get_posterior(self, params):
-        """
-        Returns a lowrank multivariate Normal posterior distribution.
-        """
+        """Returns a lowrank multivariate Normal posterior distribution."""
         loc = params["{}_loc".format(self.prefix)]
         cov_factor = params["{}_cov_factor".format(self.prefix)]
         scale = params["{}_scale".format(self.prefix)]
@@ -2034,8 +2010,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
 
 
 class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a batched
+    """This implementation of :class:`AutoContinuous` uses a batched
     AutoLowRankMultivariateNormal distribution to construct a guide over the entire
     latent space. The guide does not depend on the model's ``*args, **kwargs``.
 
@@ -2093,13 +2068,12 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
 
 
 class AutoLaplaceApproximation(AutoContinuous):
-    r"""
-    Laplace approximation (quadratic approximation) approximates the posterior
-    :math:`\log p(z | x)` by a multivariate normal distribution in the
-    unconstrained space. Under the hood, it uses Delta distributions to
-    construct a MAP (i.e. point estimate) guide over the entire (unconstrained) latent
-    space. Its covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
-    at the MAP point of `z`.
+    r"""Laplace approximation (quadratic approximation) approximates the posterior
+    :math:`\log p(z | x)` by a multivariate normal distribution in the unconstrained
+    space. Under the hood, it uses Delta distributions to construct a MAP (i.e.
+    point estimate) guide over the entire (unconstrained) latent space. Its
+    covariance is given by the inverse of the hessian of :math:`-\log p(x, z)` at
+    the MAP point of `z`.
 
     Usage::
 
@@ -2172,9 +2146,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
-        """
-        Returns a multivariate Normal posterior distribution.
-        """
+        """Returns a multivariate Normal posterior distribution."""
         transform = self.get_transform(params)
         return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
 
@@ -2196,12 +2168,11 @@ class AutoLaplaceApproximation(AutoContinuous):
 
 
 class AutoIAFNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a Diagonal Normal
+    """This implementation of :class:`AutoContinuous` uses a Diagonal Normal
     distribution transformed via a
-    :class:`~numpyro.distributions.flows.InverseAutoregressiveTransform`
-    to construct a guide over the entire latent space. The guide does not
-    depend on the model's ``*args, **kwargs``.
+    :class:`~numpyro.distributions.flows.InverseAutoregressiveTransform` to
+    construct a guide over the entire latent space. The guide does not depend on the
+    model's ``*args, **kwargs``.
 
     Usage::
 
@@ -2274,12 +2245,11 @@ class AutoIAFNormal(AutoContinuous):
 
 
 class AutoBNAFNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a Diagonal Normal
+    """This implementation of :class:`AutoContinuous` uses a Diagonal Normal
     distribution transformed via a
-    :class:`~numpyro.distributions.flows.BlockNeuralAutoregressiveTransform`
-    to construct a guide over the entire latent space. The guide does not
-    depend on the model's ``*args, **kwargs``.
+    :class:`~numpyro.distributions.flows.BlockNeuralAutoregressiveTransform` to
+    construct a guide over the entire latent space. The guide does not depend on the
+    model's ``*args, **kwargs``.
 
     Usage::
 

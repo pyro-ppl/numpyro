@@ -24,11 +24,11 @@ def _log_beta_1(alpha, value):
 
 
 class BetaBinomial(Distribution):
-    r"""
-    Compound distribution comprising of a beta-binomial pair. The probability of
-    success (``probs`` for the :class:`~numpyro.distributions.Binomial` distribution)
-    is unknown and randomly drawn from a :class:`~numpyro.distributions.Beta` distribution
-    prior to a certain number of Bernoulli trials given by ``total_count``.
+    r"""Compound distribution comprising of a beta-binomial pair. The probability of
+    success (``probs`` for the :class:`~numpyro.distributions.Binomial`
+    distribution) is unknown and randomly drawn from a
+    :class:`~numpyro.distributions.Beta` distribution prior to a certain number of
+    Bernoulli trials given by ``total_count``.
 
     :param numpy.ndarray concentration1: 1st concentration parameter (alpha) for the
         Beta distribution.
@@ -97,12 +97,11 @@ class BetaBinomial(Distribution):
 
 
 class DirichletMultinomial(Distribution):
-    r"""
-    Compound distribution comprising of a dirichlet-multinomial pair. The probability of
-    classes (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
-    is unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
-    distribution prior to a certain number of Categorical trials given by
-    ``total_count``.
+    r"""Compound distribution comprising of a dirichlet-multinomial pair. The
+    probability of classes (``probs`` for the
+    :class:`~numpyro.distributions.Multinomial` distribution) is unknown and
+    randomly drawn from a :class:`~numpyro.distributions.Dirichlet` distribution
+    prior to a certain number of Categorical trials given by ``total_count``.
 
     :param numpy.ndarray concentration: concentration parameter (alpha) for the
         Dirichlet distribution.
@@ -175,13 +174,13 @@ class DirichletMultinomial(Distribution):
 
 
 class GammaPoisson(Distribution):
-    r"""
-    Compound distribution comprising of a gamma-poisson pair, also referred to as
+    r"""Compound distribution comprising of a gamma-poisson pair, also referred to as
     a gamma-poisson mixture. The ``rate`` parameter for the
     :class:`~numpyro.distributions.Poisson` distribution is unknown and randomly
     drawn from a :class:`~numpyro.distributions.Gamma` distribution.
 
-    :param numpy.ndarray concentration: shape parameter (alpha) of the Gamma distribution.
+    :param numpy.ndarray concentration: shape parameter (alpha) of the Gamma
+        distribution.
     :param numpy.ndarray rate: rate parameter (beta) for the Gamma distribution.
     """
 
@@ -274,9 +273,8 @@ class NegativeBinomialLogits(GammaPoisson):
 
 
 class NegativeBinomial2(GammaPoisson):
-    """
-    Another parameterization of GammaPoisson with `rate` is replaced by `mean`.
-    """
+    """Another parameterization of GammaPoisson with `rate` is replaced by
+    `mean`."""
 
     arg_constraints = {
         "mean": constraints.positive,

@@ -66,10 +66,9 @@ class _TFPKernelMeta(ABCMeta):
 
 
 class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
-    """
-    A thin wrapper for TensorFlow Probability (TFP) MCMC transition kernels.
-    The argument `target_log_prob_fn` in TFP is replaced by either `model`
-    or `potential_fn` (which is the negative of `target_log_prob_fn`).
+    """A thin wrapper for TensorFlow Probability (TFP) MCMC transition kernels. The
+    argument `target_log_prob_fn` in TFP is replaced by either `model` or
+    `potential_fn` (which is the negative of `target_log_prob_fn`).
 
     This class can be used to convert a TFP kernel to a NumPyro-compatible one
     as follows::
@@ -164,10 +163,8 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         return ("z",)
 
     def get_diagnostics_str(self, state):
-        """
-        Given the current `state`, returns the diagnostics string to
-        be added to progress bar for diagnostics purpose.
-        """
+        """Given the current `state`, returns the diagnostics string to be added to
+        progress bar for diagnostics purpose."""
         return ""
 
     def init(
@@ -207,9 +204,9 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
-        """
-        Run the kernel from the given :data:`~numpyro.contrib.tfp.mcmc.TFPKernelState`
-        and return the resulting :data:`~numpyro.contrib.tfp.mcmc.TFPKernelState`.
+        """Run the kernel from the given
+        :data:`~numpyro.contrib.tfp.mcmc.TFPKernelState` and return the resulting
+        :data:`~numpyro.contrib.tfp.mcmc.TFPKernelState`.
 
         :param TFPKernelState state: Represents the current state.
         :param model_args: Arguments provided to the model.

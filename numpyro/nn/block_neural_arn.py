@@ -92,8 +92,7 @@ def BlockMaskedDense(
 
 
 def Tanh():
-    """
-    Tanh nonlinearity with its log jacobian.
+    """Tanh nonlinearity with its log jacobian.
 
     :return: an (`init_fn`, `update_fn`) pair.
     """
@@ -115,8 +114,7 @@ def Tanh():
 
 
 def LeakyTanh(min_grad: float = 0.01):
-    """
-    Leaky Tanh nonlinearity :math:`y=\text{tanh}(x) + cx` with its log-Jacobian.
+    """Leaky Tanh nonlinearity :math:`y=\text{tanh}(x) + cx` with its log-Jacobian.
 
     This choice when used in ``BlockNeuralAutoregressiveNN`` ensures the image of the
     transformation is the set of real values (unlike ``Tanh``).
@@ -141,8 +139,7 @@ def LeakyTanh(min_grad: float = 0.01):
 
 
 def FanInResidualNormal():
-    """
-    Similar to stax.FanInSum but also keeps track of log determinant of Jacobian.
+    """Similar to stax.FanInSum but also keeps track of log determinant of Jacobian.
     It is required that the second fan-in branch is identity.
 
     :return: an (`init_fn`, `update_fn`) pair.
@@ -160,9 +157,8 @@ def FanInResidualNormal():
 
 
 def FanInResidualGated(gate_init=normal(1.0)):
-    """
-    Similar to FanInNormal uses a learnable parameter `gate` to interpolate two fan-in branches.
-    It is required that the second fan-in branch is identity.
+    """Similar to FanInNormal uses a learnable parameter `gate` to interpolate two
+    fan-in branches. It is required that the second fan-in branch is identity.
 
     :param gate_init: initialization method for the gate.
     :return: an (`init_fn`, `update_fn`) pair.
@@ -188,8 +184,7 @@ def BlockNeuralAutoregressiveNN(
     residual=None,
     activation=None,
 ):
-    """
-    An implementation of Block Neural Autoregressive neural network.
+    """An implementation of Block Neural Autoregressive neural network.
 
     In contrast to the original paper, by default, we use ``LeakyTanh`` as the
     activation, defined as :math:`y=Tanh(x) + cx` with :math:`c` being a small constant

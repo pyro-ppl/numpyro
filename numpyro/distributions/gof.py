@@ -29,7 +29,6 @@
 # ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
 # TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 # USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 """
 Goodness of Fit Testing
 -----------------------
@@ -134,11 +133,10 @@ def multinomial_goodness_of_fit(probs, counts, *, total_count=None, plot=False):
 
 
 def unif01_goodness_of_fit(samples, *, plot=False):
-    """
-    Bin uniformly distributed samples and apply Pearson's chi^2 test.
+    """Bin uniformly distributed samples and apply Pearson's chi^2 test.
 
-    :param numpy.ndarray samples: A vector of real-valued samples from a
-        candidate distribution that should be Uniform(0, 1)-distributed.
+    :param numpy.ndarray samples: A vector of real-valued samples from a candidate
+        distribution that should be Uniform(0, 1)-distributed.
     :param bool plot: Whether to print a histogram. Defaults to False.
     :returns: Goodness of fit, as a p-value.
     :rtype: float
@@ -157,12 +155,11 @@ def unif01_goodness_of_fit(samples, *, plot=False):
 
 
 def exp_goodness_of_fit(samples, plot=False):
-    """
-    Transform exponentially distributed samples to Uniform(0,1) distribution and
+    """Transform exponentially distributed samples to Uniform(0,1) distribution and
     assess goodness of fit via binned Pearson's chi^2 test.
 
-    :param numpy.ndarray samples: A vector of real-valued samples from a
-        candidate distribution that should be Exponential(1)-distributed.
+    :param numpy.ndarray samples: A vector of real-valued samples from a candidate
+        distribution that should be Exponential(1)-distributed.
     :param bool plot: Whether to print a histogram. Defaults to False.
     :returns: Goodness of fit, as a p-value.
     :rtype: float
@@ -173,14 +170,13 @@ def exp_goodness_of_fit(samples, plot=False):
 
 
 def density_goodness_of_fit(samples, probs, plot=False):
-    """
-    Transform arbitrary continuous samples to Uniform(0,1) distribution and
+    """Transform arbitrary continuous samples to Uniform(0,1) distribution and
     assess goodness of fit via binned Pearson's chi^2 test.
 
     :param numpy.ndarray samples: A vector list of real-valued samples from a
         distribution.
-    :param numpy.ndarray probs: A vector of probability densities evaluated at
-        those samples.
+    :param numpy.ndarray probs: A vector of probability densities evaluated at those
+        samples.
     :param bool plot: Whether to print a histogram. Defaults to False.
     :returns: Goodness of fit, as a p-value.
     :rtype: float
@@ -225,10 +221,9 @@ def get_nearest_neighbor_distances(samples):
 
 
 def vector_density_goodness_of_fit(samples, probs, *, dim=None, plot=False):
-    """
-    Transform arbitrary multivariate continuous samples to Univariate(0,1)
-    distribution via nearest neighbor distribution [1,2,3] and assess goodness
-    of fit via binned Pearson's chi^2 test.
+    """Transform arbitrary multivariate continuous samples to Univariate(0,1)
+    distribution via nearest neighbor distribution [1,2,3] and assess goodness of
+    fit via binned Pearson's chi^2 test.
 
     [1] Peter J. Bickel and Leo Breiman (1983)
         "Sums of Functions of Nearest Neighbor Distances, Moment Bounds, Limit
@@ -268,8 +263,7 @@ def vector_density_goodness_of_fit(samples, probs, *, dim=None, plot=False):
 
 
 def auto_goodness_of_fit(samples, probs, *, dim=None, plot=False):
-    """
-    Dispatch on sample dimension and delegate to either
+    """Dispatch on sample dimension and delegate to either
     :func:`density_goodness_of_fit` or :func:`vector_density_goodness_of_fit`.
 
     :param numpy.ndarray samples: A tensor of samples stacked on their leftmost
@@ -340,9 +334,8 @@ def _incomplete_gamma(x, s):
 
 
 def _chi2sf(x, s):
-    r"""
-    This function returns the survival function of the chi^2
-    distribution. The survival function is given as:
+    r"""This function returns the survival function of the chi^2 distribution. The
+    survival function is given as:
 
     .. math::
        1 - CDF

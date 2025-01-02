@@ -1,6 +1,5 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 """
 Example: Deep Markov Model inferred using SteinVI
 =================================================
@@ -96,7 +95,10 @@ def combiner(x, params):
 
 
 def gru(xs, lengths, init_hidden, params):
-    """RNN with GRU. Based on https://github.com/jax-ml/jax/pull/2298"""
+    """RNN with GRU.
+
+    Based on https://github.com/jax-ml/jax/pull/2298
+    """
 
     def apply_fun_single(state, inputs):
         i, x = inputs

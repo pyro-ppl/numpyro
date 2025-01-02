@@ -56,8 +56,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 
 class BarkerMH(MCMCKernel):
-    """
-    This is a gradient-based MCMC algorithm of Metropolis-Hastings type that uses
+    """This is a gradient-based MCMC algorithm of Metropolis-Hastings type that uses
     a skew-symmetric proposal distribution that depends on the gradient of the
     potential (the Barker proposal; see reference [1]). In particular the proposal
     distribution is skewed in the direction of the gradient at the current sample.

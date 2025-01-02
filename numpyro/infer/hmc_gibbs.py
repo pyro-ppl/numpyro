@@ -36,8 +36,7 @@ def _wrap_model(model, *args, **kwargs):
 
 
 class HMCGibbs(MCMCKernel):
-    """
-    [EXPERIMENTAL INTERFACE]
+    """[EXPERIMENTAL INTERFACE]
 
     HMC-within-Gibbs. This inference algorithm allows the user to combine
     general purpose gradient-based inference (HMC or NUTS) with custom
@@ -79,7 +78,6 @@ class HMCGibbs(MCMCKernel):
         >>> mcmc = MCMC(kernel, num_warmup=100, num_samples=100, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
-
     """
 
     sample_field = "z"
@@ -346,8 +344,7 @@ def _discrete_gibbs_fn(potential_fn, support_sizes, proposal_fn):
 
 
 class DiscreteHMCGibbs(HMCGibbs):
-    """
-    [EXPERIMENTAL INTERFACE]
+    """[EXPERIMENTAL INTERFACE]
 
     A subclass of :class:`HMCGibbs` which performs Metropolis updates for discrete latent sites.
 
@@ -394,7 +391,6 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
         >>> assert abs(jnp.var(samples) - 4.36) < 0.5
-
     """
 
     def __init__(self, inner_kernel, *, random_walk=False, modified=False):
@@ -500,8 +496,7 @@ def _wrap_gibbs_state(model, *args, **kwargs):
 
 
 class HMCECS(HMCGibbs):
-    """
-    [EXPERIMENTAL INTERFACE]
+    """[EXPERIMENTAL INTERFACE]
 
     HMC with Energy Conserving Subsampling.
 
@@ -553,7 +548,6 @@ class HMCECS(HMCGibbs):
         >>> mcmc.run(random.PRNGKey(0), data)
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.) < 0.1
-
     """
 
     def __init__(self, inner_kernel, *, num_blocks=1, proxy=None):
@@ -680,10 +674,8 @@ class HMCECS(HMCGibbs):
 
     @staticmethod
     def taylor_proxy(reference_params, degree=2):
-        """
-        This is just a convenient static method which calls
-        :func:`~numpyro.contrib.ecs_proxies.taylor_proxy`.
-        """
+        """This is just a convenient static method which calls
+        :func:`~numpyro.contrib.ecs_proxies.taylor_proxy`."""
         return taylor_proxy(reference_params, degree)
 
 

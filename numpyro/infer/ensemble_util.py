@@ -25,8 +25,8 @@ def get_nondiagonal_indices(n):
 
 
 def batch_ravel_pytree(pytree):
-    """
-    Ravel (flatten) a pytree of arrays with leading batch dimension down to a (batch_size, 1D) array.
+    """Ravel (flatten) a pytree of arrays with leading batch dimension down to a
+    (batch_size, 1D) array.
 
     Args:
       pytree: a pytree of arrays and scalars to ravel.

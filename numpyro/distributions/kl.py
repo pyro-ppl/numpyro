@@ -54,9 +54,8 @@ from numpyro.distributions.util import scale_and_mask, sum_rightmost
 
 
 def kl_divergence(p, q):
-    r"""
-    Compute Kullback-Leibler divergence :math:`KL(p \| q)` between two distributions.
-    """
+    r"""Compute Kullback-Leibler divergence :math:`KL(p \| q)` between two
+    distributions."""
     raise NotImplementedError
 
 

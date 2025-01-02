@@ -16,8 +16,8 @@ from numpyro.util import find_stack_level
 
 
 class MixtureGuidePredictive:
-    """(EXPERIMENTAL INTERFACE) This class constructs the predictive distribution for
-    :class:`numpyro.contrib.einstein.steinvi.SteinVi`.
+    """(EXPERIMENTAL INTERFACE) This class constructs the predictive distribution
+    for :class:`numpyro.contrib.einstein.steinvi.SteinVi`.
 
     .. Note:: For single mixture component use numpyro.infer.Predictive.
 

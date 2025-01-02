@@ -28,8 +28,7 @@ _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
 def set_rng_seed(rng_seed: Optional[int] = None) -> None:
-    """
-    Initializes internal state for the Python and NumPy random number generators.
+    """Initializes internal state for the Python and NumPy random number generators.
 
     :param int rng_seed: seed for Python and NumPy random states.
     """
@@ -38,8 +37,7 @@ def set_rng_seed(rng_seed: Optional[int] = None) -> None:
 
 
 def enable_x64(use_x64: bool = True) -> None:
-    """
-    Changes the default array type to use 64 bit precision as in NumPy.
+    """Changes the default array type to use 64 bit precision as in NumPy.
 
     :param bool use_x64: when `True`, JAX arrays will use 64 bits by default;
         else 32 bits.
@@ -50,9 +48,8 @@ def enable_x64(use_x64: bool = True) -> None:
 
 
 def set_platform(platform: Optional[str] = None) -> None:
-    """
-    Changes platform to CPU, GPU, or TPU. This utility only takes
-    effect at the beginning of your program.
+    """Changes platform to CPU, GPU, or TPU. This utility only takes effect at the
+    beginning of your program.
 
     :param str platform: either 'cpu', 'gpu', or 'tpu'.
     """
@@ -62,8 +59,7 @@ def set_platform(platform: Optional[str] = None) -> None:
 
 
 def set_host_device_count(n: int) -> None:
-    """
-    By default, XLA considers all CPU cores as one device. This utility tells XLA
+    """By default, XLA considers all CPU cores as one device. This utility tells XLA
     that there are `n` host (CPU) devices available to use. As a consequence, this
     allows parallel mapping in JAX :func:`jax.pmap` to work in CPU platform.
 
@@ -91,9 +87,7 @@ def set_host_device_count(n: int) -> None:
 
 @contextmanager
 def optional(condition: bool, context_manager) -> Generator:
-    """
-    Optionally wrap inside `context_manager` if condition is `True`.
-    """
+    """Optionally wrap inside `context_manager` if condition is `True`."""
     if condition:
         with context_manager:
             yield
@@ -161,9 +155,8 @@ def is_prng_key(key: jax.Array) -> bool:
 
 
 def not_jax_tracer(x):
-    """
-    Checks if `x` is not an array generated inside `jit`, `pmap`, `vmap`, or `lax_control_flow`.
-    """
+    """Checks if `x` is not an array generated inside `jit`, `pmap`, `vmap`, or
+    `lax_control_flow`."""
     return not isinstance(x, Tracer)
 
 
@@ -194,9 +187,8 @@ def cached_by(outer_fn, *keys):
 
 
 def progress_bar_factory(num_samples: int, num_chains: int) -> Callable:
-    """Factory that builds a progress bar decorator along
-    with the `set_tqdm_description` and `close_tqdm` functions
-    """
+    """Factory that builds a progress bar decorator along with the
+    `set_tqdm_description` and `close_tqdm` functions."""
 
     if num_samples > 20:
         print_rate = int(num_samples / 20)
@@ -259,6 +251,7 @@ def progress_bar_factory(num_samples: int, num_chains: int) -> Callable:
 
     def progress_bar_fori_loop(func: Callable) -> Callable:
         """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
+
         Note that `body_fun` must be looping over a tuple who's first element is `np.arange(num_samples)`.
         This means that `iter_num` is the current iteration number
         """
@@ -286,11 +279,10 @@ def fori_collect(
     thinning=1,
     **progbar_opts,
 ):
-    """
-    This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
-    effect of collecting values from the loop body. In addition, this allows for
-    post-processing of these samples via `transform`, and progress bar updates.
-    Note that, `progbar=False` will be faster, especially when collecting a
+    """This looping construct works like :func:`~jax.lax.fori_loop` but with the
+    additional effect of collecting values from the loop body. In addition, this
+    allows for post-processing of these samples via `transform`, and progress bar
+    updates. Note that, `progbar=False` will be faster, especially when collecting a
     lot of samples. Refer to example usage in :func:`~numpyro.infer.mcmc.hmc`.
 
     :param int lower: the index to start the collective work. In other words,
@@ -410,10 +402,9 @@ def fori_collect(
 def soft_vmap(
     fn: Callable, xs: Any, batch_ndims: int = 1, chunk_size: Optional[int] = None
 ) -> Any:
-    """
-    Vectorizing map that maps a function `fn` over `batch_ndims` leading axes
-    of `xs`. This uses jax.vmap over smaller chunks of the batch dimensions
-    to keep memory usage constant.
+    """Vectorizing map that maps a function `fn` over `batch_ndims` leading axes of
+    `xs`. This uses jax.vmap over smaller chunks of the batch dimensions to keep
+    memory usage constant.
 
     :param callable fn: The function to map over.
     :param xs: JAX pytree (e.g. an array, a list/tuple/dict of arrays,...)
@@ -468,9 +459,8 @@ def format_shapes(
     title: str = "Trace Shapes:",
     last_site: Optional[str] = None,
 ):
-    """
-    Given the trace of a function, returns a string showing a table of the shapes of
-    all sites in the trace.
+    """Given the trace of a function, returns a string showing a table of the shapes
+    of all sites in the trace.
 
     Use :class:`~numpyro.handlers.trace` handler (or funsor
     :class:`~numpyro.contrib.funsor.enum_messenger.trace` handler for enumeration) to
@@ -714,9 +704,7 @@ def check_model_guide_match(model_trace: dict, guide_trace: dict) -> None:
 
 
 def _format_table(rows):
-    """
-    Formats a right justified table using None as column separator.
-    """
+    """Formats a right justified table using None as column separator."""
     # compute column widths
     column_widths = [0, 0, 0]
     for row in rows:
@@ -761,9 +749,8 @@ def _format_table(rows):
 
 
 def find_stack_level() -> int:
-    """
-    Find the first place in the stack that is not inside numpyro
-    (tests notwithstanding).
+    """Find the first place in the stack that is not inside numpyro (tests
+    notwithstanding).
 
     Source:
     https://github.com/pandas-dev/pandas/blob/ccb25ab1d24c4fb9691270706a59c8d319750870/pandas/util/_exceptions.py#L27-L48
@@ -786,10 +773,8 @@ def find_stack_level() -> int:
 
 
 def nested_attrgetter(*collect_fields):
-    """
-    Like attrgetter, but allows for accessing dictionary keys
-    using the dot notation (e.g., 'x.c.d').
-    """
+    """Like attrgetter, but allows for accessing dictionary keys using the dot
+    notation (e.g., 'x.c.d')."""
 
     def getter(obj):
         results = tuple(_get_nested_attr(obj, field) for field in collect_fields)
@@ -799,9 +784,7 @@ def nested_attrgetter(*collect_fields):
 
 
 def _get_nested_attr(obj, field):
-    """
-    Helper function to recursively access attributes and dictionary keys.
-    """
+    """Helper function to recursively access attributes and dictionary keys."""
     for attr in field.split("."):
         try:
             obj = getattr(obj, attr)
