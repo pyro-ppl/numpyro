@@ -114,8 +114,9 @@ def test_predictive(parallel):
 
 @pytest.mark.parametrize("parallel", [True, False])
 def test_predictive_with_deterministic(parallel):
-    """Tests that the default behavior when predicting from models with deterministic sites doesn't lead to static
-    deterministic sites in the predictive."""
+    """Tests that the default behavior when predicting from models with
+    deterministic sites doesn't lead to static deterministic sites in the predictive.
+    """
     n_preds = 400
     model, X, y = linear_regression()
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)

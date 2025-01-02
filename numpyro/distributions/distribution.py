@@ -54,8 +54,10 @@ _VALIDATION_ENABLED = False
 
 
 def enable_validation(is_validate=True):
-    """Enable or disable validation checks in NumPyro. Validation checks provide useful warnings and errors, e.g.
-    NaN checks, validating distribution arguments and support values, etc. which is useful for debugging.
+    """
+    Enable or disable validation checks in NumPyro. Validation checks provide useful warnings and
+    errors, e.g. NaN checks, validating distribution arguments and support values, etc. which is
+    useful for debugging.
 
     .. note:: This utility does not take effect under JAX's JIT compilation or vectorized
         transformation :func:`jax.vmap`.
@@ -69,7 +71,8 @@ def enable_validation(is_validate=True):
 
 @contextmanager
 def validation_enabled(is_validate=True):
-    """Context manager that is useful when temporarily enabling/disabling validation checks.
+    """
+    Context manager that is useful when temporarily enabling/disabling validation checks.
 
     :param bool is_validate: whether to enable validation checks.
     """
@@ -99,8 +102,9 @@ class DistributionMeta(type):
 
 
 class Distribution(metaclass=DistributionMeta):
-    """Base class for probability distributions in NumPyro. The design largely follows from
-    :mod:`torch.distributions`.
+    """
+    Base class for probability distributions in NumPyro. The design largely
+    follows from :mod:`torch.distributions`.
 
     :param batch_shape: The batch shape for the distribution. This designates
         independent (possibly non-identical) dimensions of a sample from the
@@ -234,7 +238,9 @@ class Distribution(metaclass=DistributionMeta):
         super(Distribution, self).__init__()
 
     def get_args(self) -> dict:
-        """Get arguments of the distribution."""
+        """
+        Get arguments of the distribution.
+        """
         return {
             param: getattr(self, param)
             for param in self.arg_constraints
@@ -243,9 +249,11 @@ class Distribution(metaclass=DistributionMeta):
         }
 
     def validate_args(self, strict: bool = True) -> None:
-        """Validate the arguments of the distribution.
+        """
+        Validate the arguments of the distribution.
 
-        :param strict: Require strict validation, raising an error if the function is called inside jitted code.
+        :param strict: Require strict validation, raising an error if the function is
+            called inside jitted code.
         """
         for param, value in self.get_args().items():
             constraint = self.arg_constraints[param]
@@ -264,7 +272,8 @@ class Distribution(metaclass=DistributionMeta):
 
     @property
     def batch_shape(self) -> tuple[int, ...]:
-        """Returns the shape over which the distribution parameters are batched.
+        """
+        Returns the shape over which the distribution parameters are batched.
 
         :return: batch shape of the distribution.
         :rtype: tuple
@@ -273,7 +282,9 @@ class Distribution(metaclass=DistributionMeta):
 
     @property
     def event_shape(self) -> tuple[int, ...]:
-        """Returns the shape of a single sample from the distribution without batching.
+        """
+        Returns the shape of a single sample from the distribution without
+        batching.
 
         :return: event shape of the distribution.
         :rtype: tuple
@@ -299,7 +310,8 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     def shape(self, sample_shape=()) -> tuple[int, ...]:
-        """The tensor shape of samples from this distribution.
+        """
+        The tensor shape of samples from this distribution.
 
         Samples are of shape::
 
@@ -313,9 +325,11 @@ class Distribution(metaclass=DistributionMeta):
         return sample_shape + self.batch_shape + self.event_shape
 
     def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
-        """Returns a sample from the distribution having shape given by `sample_shape + batch_shape + event_shape`.
-        Note that when `sample_shape` is non-empty, leading dimensions (of size `sample_shape`) of the returned
-        sample will be filled with iid draws from the distribution instance.
+        """
+        Returns a sample from the distribution having shape given by
+        `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
+        leading dimensions (of size `sample_shape`) of the returned sample will
+        be filled with iid draws from the distribution instance.
 
         :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
@@ -325,8 +339,9 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     def sample_with_intermediates(self, key, sample_shape=()):
-        """Same as ``sample`` except that any intermediate computations are returned (useful for
-        `TransformedDistribution`).
+        """
+        Same as ``sample`` except that any intermediate computations are
+        returned (useful for `TransformedDistribution`).
 
         :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
@@ -336,7 +351,9 @@ class Distribution(metaclass=DistributionMeta):
         return self.sample(key, sample_shape=sample_shape), []
 
     def log_prob(self, value):
-        """Evaluates the log probability density for a batch of samples given by `value`.
+        """
+        Evaluates the log probability density for a batch of samples given by
+        `value`.
 
         :param value: A batch of samples from the distribution.
         :return: an array with shape `value.shape[:-self.event_shape]`
@@ -346,12 +363,16 @@ class Distribution(metaclass=DistributionMeta):
 
     @property
     def mean(self) -> ArrayLike:
-        """Mean of the distribution."""
+        """
+        Mean of the distribution.
+        """
         raise NotImplementedError
 
     @property
     def variance(self) -> ArrayLike:
-        """Variance of the distribution."""
+        """
+        Variance of the distribution.
+        """
         raise NotImplementedError
 
     def _validate_sample(self, value):
@@ -373,7 +394,9 @@ class Distribution(metaclass=DistributionMeta):
         return self.sample(key, *args, **kwargs)
 
     def to_event(self, reinterpreted_batch_ndims=None):
-        """Interpret the rightmost `reinterpreted_batch_ndims` batch dimensions as dependent event dimensions.
+        """
+        Interpret the rightmost `reinterpreted_batch_ndims` batch dimensions as
+        dependent event dimensions.
 
         :param reinterpreted_batch_ndims: Number of rightmost batch dims to
             interpret as event dims.
@@ -387,15 +410,22 @@ class Distribution(metaclass=DistributionMeta):
         return Independent(self, reinterpreted_batch_ndims)
 
     def enumerate_support(self, expand=True):
-        """Returns an array with shape `len(support) x batch_shape` containing all values in the support."""
+        """
+        Returns an array with shape `len(support) x batch_shape`
+        containing all values in the support.
+        """
         raise NotImplementedError
 
     def entropy(self):
-        """Returns the entropy of the distribution."""
+        """
+        Returns the entropy of the distribution.
+        """
         raise NotImplementedError
 
     def expand(self, batch_shape):
-        """Returns a new :class:`ExpandedDistribution` instance with batch dimensions expanded to `batch_shape`.
+        """
+        Returns a new :class:`ExpandedDistribution` instance with batch
+        dimensions expanded to `batch_shape`.
 
         :param tuple batch_shape: batch shape to expand to.
         :return: an instance of `ExpandedDistribution`.
@@ -407,9 +437,11 @@ class Distribution(metaclass=DistributionMeta):
         return ExpandedDistribution(self, batch_shape)
 
     def expand_by(self, sample_shape):
-        """Expands a distribution by adding ``sample_shape`` to the left side of its
-        :attr:`~numpyro.distributions.distribution.Distribution.batch_shape`. To expand internal dims of
-        ``self.batch_shape`` from 1 to something larger, use :meth:`expand` instead.
+        """
+        Expands a distribution by adding ``sample_shape`` to the left side of
+        its :attr:`~numpyro.distributions.distribution.Distribution.batch_shape`.
+        To expand internal dims of ``self.batch_shape`` from 1 to something
+        larger, use :meth:`expand` instead.
 
         :param tuple sample_shape: The size of the iid batch to be drawn
             from the distribution.
@@ -419,7 +451,9 @@ class Distribution(metaclass=DistributionMeta):
         return self.expand(tuple(sample_shape) + self.batch_shape)
 
     def mask(self, mask):
-        """Masks a distribution by a boolean or boolean-valued array that is broadcastable to the distributions
+        """
+        Masks a distribution by a boolean or boolean-valued array that is
+        broadcastable to the distributions
         :attr:`Distribution.batch_shape` .
 
         :param mask: A boolean or boolean valued array (`True` includes
@@ -462,6 +496,7 @@ class Distribution(metaclass=DistributionMeta):
             >>> params = svi_result.params
             >>> # inferred_mean is closer to 1
             >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+
         """
         if mask is True:
             return self
@@ -469,7 +504,9 @@ class Distribution(metaclass=DistributionMeta):
 
     @classmethod
     def infer_shapes(cls, *args, **kwargs):
-        r"""Infers ``batch_shape`` and ``event_shape`` given shapes of args to :meth:`__init__`.
+        r"""
+        Infers ``batch_shape`` and ``event_shape`` given shapes of args to
+        :meth:`__init__`.
 
         .. note:: This assumes distribution shape depends only on the shapes
             of tensor inputs, not in the data contained in those inputs.
@@ -505,7 +542,8 @@ class Distribution(metaclass=DistributionMeta):
         return batch_shape, event_shape
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
-        """The cumulative distribution function of this distribution.
+        """
+        The cumulative distribution function of this distribution.
 
         :param value: samples from this distribution.
         :return: output of the cumulative distribution function evaluated at `value`.
@@ -513,7 +551,8 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
-        """The inverse cumulative distribution function of this distribution.
+        """
+        The inverse cumulative distribution function of this distribution.
 
         :param q: quantile values, should belong to [0, 1].
         :return: the samples whose cdf values equals to `q`.
@@ -529,8 +568,8 @@ class Distribution(metaclass=DistributionMeta):
 class DistributionLike(Protocol):
     """A protocol for typing distributions.
 
-    Used to type object of type numpyro.distributions.Distribution, funsor.Funsor or
-    tensorflow_probability.distributions.Distribution.
+    Used to type object of type numpyro.distributions.Distribution, funsor.Funsor
+    or tensorflow_probability.distributions.Distribution.
     """
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -714,7 +753,8 @@ class ExpandedDistribution(Distribution):
 
 
 class ImproperUniform(Distribution):
-    """A helper distribution with zero :meth:`log_prob` over the `support` domain.
+    """
+    A helper distribution with zero :meth:`log_prob` over the `support` domain.
 
     .. note:: `sample` method is not implemented for this distribution. In autoguide and mcmc,
         initial parameters for improper sites are derived from `init_to_uniform` or `init_to_value`
@@ -788,8 +828,9 @@ class ImproperUniform(Distribution):
 
 
 class Independent(Distribution):
-    """Reinterprets batch dimensions of a distribution as event dims by shifting the batch-event dim boundary
-    further to the left.
+    """
+    Reinterprets batch dimensions of a distribution as event dims by shifting
+    the batch-event dim boundary further to the left.
 
     From a practical standpoint, this is useful when changing the result of
     :meth:`log_prob`. For example, a univariate Normal distribution can be
@@ -881,9 +922,11 @@ class Independent(Distribution):
 
 
 class MaskedDistribution(Distribution):
-    """Masks a distribution by a boolean array that is broadcastable to the distribution's
-    :attr:`Distribution.batch_shape`. In the special case ``mask is False``, computation of :meth:`log_prob` , is
-    skipped, and constant zero values are returned instead.
+    """
+    Masks a distribution by a boolean array that is broadcastable to the
+    distribution's :attr:`Distribution.batch_shape`.
+    In the special case ``mask is False``, computation of :meth:`log_prob` , is skipped,
+    and constant zero values are returned instead.
 
     :param mask: A boolean or boolean-valued array.
     :type mask: jnp.ndarray or bool
@@ -985,8 +1028,10 @@ class MaskedDistribution(Distribution):
 
 
 class TransformedDistribution(Distribution):
-    """Returns a distribution instance obtained as a result of applying a sequence of transforms to a base
-    distribution. For an example, see :class:`~numpyro.distributions.LogNormal` and
+    """
+    Returns a distribution instance obtained as a result of applying
+    a sequence of transforms to a base distribution. For an example,
+    see :class:`~numpyro.distributions.LogNormal` and
     :class:`~numpyro.distributions.HalfNormal`.
 
     :param base_distribution: the base distribution over which to apply transforms.
@@ -1141,8 +1186,9 @@ class TransformedDistribution(Distribution):
 
 
 class FoldedDistribution(TransformedDistribution):
-    """Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``, but additionally supports
-    :meth:`log_prob` .
+    """
+    Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``,
+    but additionally supports :meth:`log_prob` .
 
     :param Distribution base_dist: A univariate distribution to reflect.
     """
@@ -1214,7 +1260,8 @@ class Delta(Distribution):
 
 
 class Unit(Distribution):
-    """Trivial nonnormalized distribution representing the unit type.
+    """
+    Trivial nonnormalized distribution representing the unit type.
 
     The unit type has a single value with no data, i.e. ``value.size == 0``.
 

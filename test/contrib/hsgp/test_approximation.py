@@ -123,8 +123,8 @@ def test_kernel_approx_squared_exponential(
     ell: float,
     xfail: bool,
 ):
-    """Ensure that the approximation of the squared exponential kernel is accurate, matching the exact kernel
-    implementation from sklearn.
+    """ensure that the approximation of the squared exponential kernel is accurate,
+    matching the exact kernel implementation from sklearn.
 
     See Riutort-Mayol 2023 equation (13) for the approximation formula.
     """
@@ -203,8 +203,8 @@ def test_kernel_approx_squared_exponential(
 def test_kernel_approx_squared_matern(
     x1: ArrayLike, x2: ArrayLike, nu: float, length: ArrayLike, ell: float
 ):
-    """Ensure that the approximation of the matern kernel is accurate, matching the exact kernel implementation from
-    sklearn.
+    """ensure that the approximation of the matern kernel is accurate,
+    matching the exact kernel implementation from sklearn.
 
     See Riutort-Mayol 2023 equation (13) for the approximation formula.
     """
@@ -248,11 +248,11 @@ def test_kernel_approx_periodic(
     w0: float,
     length: float,
 ):
-    """Ensure that the approximation of the periodic kernel is accurate, matching the exact kernel implementation
-    from sklearn.
+    """ensure that the approximation of the periodic kernel is accurate,
+    matching the exact kernel implementation from sklearn
 
-    Note that the exact kernel implementation is parameterized with respect to the period, and the periodicity is
-    w0**(-1). We adjust the input values by dividing by 2*pi.
+    Note that the exact kernel implementation is parameterized with respect to the period,
+    and the periodicity is w0**(-1). We adjust the input values by dividing by 2*pi.
 
     See Riutort-Mayol 2023 appendix B for the approximation formula.
     """

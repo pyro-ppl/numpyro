@@ -484,7 +484,8 @@ class DiscreteUniform(Distribution):
 
 
 class OrderedLogistic(CategoricalProbs):
-    """A categorical distribution with ordered outcomes.
+    """
+    A categorical distribution with ordered outcomes.
 
     **References:**
 
@@ -687,7 +688,8 @@ def Multinomial(
 
 
 class Poisson(Distribution):
-    r"""Creates a Poisson distribution parameterized by rate, the rate parameter.
+    r"""
+    Creates a Poisson distribution parameterized by rate, the rate parameter.
 
     Samples are nonnegative integers, with a pmf given by
 
@@ -827,7 +829,8 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 def ZeroInflatedDistribution(
     base_dist, *, gate=None, gate_logits=None, validate_args=None
 ):
-    """Generic Zero Inflated distribution.
+    """
+    Generic Zero Inflated distribution.
 
     :param Distribution base_dist: the base distribution.
     :param numpy.ndarray gate: probability of extra zeros given via a Bernoulli distribution.
@@ -841,7 +844,8 @@ def ZeroInflatedDistribution(
 
 
 class ZeroInflatedPoisson(ZeroInflatedProbs):
-    """A Zero Inflated Poisson distribution.
+    """
+    A Zero Inflated Poisson distribution.
 
     :param numpy.ndarray gate: probability of extra zeros.
     :param numpy.ndarray rate: rate of Poisson distribution.

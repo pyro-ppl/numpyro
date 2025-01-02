@@ -195,9 +195,10 @@ def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
     ],
 )
 def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
-    """Tests that truncated distributions, which use @lazy_property values in their log_prob() methods, do not have
-    tracer leakage when log_prob() is called.
-
+    """
+    Tests that truncated distributions, which use @lazy_property
+    values in their log_prob() methods, do not
+    have tracer leakage when log_prob() is called.
     Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
     https://github.com/CDCgov/multisignal-epi-inference/issues/282
     """
@@ -215,9 +216,10 @@ def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
     ],
 )
 def test_no_tracer_leak_at_lazy_property_sample(my_dist):
-    """Tests that truncated distributions, which use @lazy_property values in their sample() methods, do not have
-    tracer leakage when sample() is called.
-
+    """
+    Tests that truncated distributions, which use @lazy_property
+    values in their sample() methods, do not
+    have tracer leakage when sample() is called.
     Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
     https://github.com/CDCgov/multisignal-epi-inference/issues/282
     """

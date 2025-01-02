@@ -19,7 +19,9 @@ from numpyro.util import not_jax_tracer
 
 
 class Reparam(ABC):
-    """Base class for reparameterizers."""
+    """
+    Base class for reparameterizers.
+    """
 
     @abstractmethod
     def __call__(self, name, fn, obs):
@@ -32,8 +34,8 @@ class Reparam(ABC):
         return fn, obs
 
     def _unwrap(self, fn):
-        """Unwrap Independent(...) and ExpandedDistribution(...) distributions.
-
+        """
+        Unwrap Independent(...) and ExpandedDistribution(...) distributions.
         We can recover the input `fn` from the result triple `(fn, expand_shape, event_dim)`
         with `fn.expand(expand_shape).to_event(event_dim - fn.event_dim)`.
         """
@@ -45,7 +47,9 @@ class Reparam(ABC):
         return fn, expand_shape, event_dim
 
     def _wrap(self, fn, expand_shape, event_dim):
-        """Wrap in Independent and ExpandedDistribution distributions."""
+        """
+        Wrap in Independent and ExpandedDistribution distributions.
+        """
         # Match batch_shape.
         assert fn.event_dim <= event_dim
         fn = fn.expand(expand_shape)  # no-op if expand_shape == fn.batch_shape
@@ -58,8 +62,9 @@ class Reparam(ABC):
 
 
 class LocScaleReparam(Reparam):
-    """Generic decentering reparameterizer [1] for latent variables parameterized by ``loc`` and ``scale`` (and
-    possibly additional ``shape_params``).
+    """
+    Generic decentering reparameterizer [1] for latent variables parameterized
+    by ``loc`` and ``scale`` (and possibly additional ``shape_params``).
 
     This reparameterization works only for latent variables, not likelihoods.
 
@@ -141,7 +146,9 @@ class LocScaleReparam(Reparam):
 
 
 class TransformReparam(Reparam):
-    """Reparameterizer for :class:`~numpyro.distributions.TransformedDistribution` latent variables.
+    """
+    Reparameterizer for
+    :class:`~numpyro.distributions.TransformedDistribution` latent variables.
 
     This is useful for transformed distributions with complex,
     geometry-changing transforms, where the posterior has simple shape in
@@ -179,7 +186,9 @@ class TransformReparam(Reparam):
 
 
 class ProjectedNormalReparam(Reparam):
-    """Reparametrizer for :class:`~numpyro.distributions.ProjectedNormal` latent variables.
+    """
+    Reparametrizer for :class:`~numpyro.distributions.ProjectedNormal` latent
+    variables.
 
     This reparameterization works only for latent variables, not likelihoods.
     """
@@ -203,7 +212,8 @@ class ProjectedNormalReparam(Reparam):
 
 
 class NeuTraReparam(Reparam):
-    """Neural Transport reparameterizer [1] of multiple latent variables.
+    """
+    Neural Transport reparameterizer [1] of multiple latent variables.
 
     This uses a trained :class:`~numpyro.infer.autoguide.AutoContinuous`
     guide to alter the geometry of a model, typically for use e.g. in MCMC.
@@ -304,8 +314,9 @@ class NeuTraReparam(Reparam):
         return None, value
 
     def transform_sample(self, latent):
-        """Given latent samples from the warped posterior (with possible batch dimensions), return a `dict` of
-        samples from the latent sites in the model.
+        """
+        Given latent samples from the warped posterior (with possible batch dimensions),
+        return a `dict` of samples from the latent sites in the model.
 
         :param latent: sample from the warped posterior (possibly batched).
         :return: a `dict` of samples keyed by latent sites in the model.
@@ -316,7 +327,10 @@ class NeuTraReparam(Reparam):
 
 
 class CircularReparam(Reparam):
-    """Reparametrizer for :class:`~numpyro.distributions.VonMises` latent variables."""
+    """
+    Reparametrizer for :class:`~numpyro.distributions.VonMises` latent
+    variables.
+    """
 
     def __call__(self, name, fn, obs):
         # Support must be circular
@@ -343,9 +357,11 @@ class CircularReparam(Reparam):
 
 
 class ExplicitReparam(Reparam):
-    """Explicit reparametrizer of a latent variable :code:`x` to a transformed space :code:`y = transform(x)` with
-    more amenable geometry. This reparametrizer is similar to :class:`.TransformReparam` but allows
-    reparametrizations to be decoupled from the model declaration.
+    """
+    Explicit reparametrizer of a latent variable :code:`x` to a transformed space
+    :code:`y = transform(x)` with more amenable geometry. This reparametrizer is similar
+    to :class:`.TransformReparam` but allows reparametrizations to be decoupled from the
+    model declaration.
 
     :param transform: Bijective transform to the reparameterized space.
 

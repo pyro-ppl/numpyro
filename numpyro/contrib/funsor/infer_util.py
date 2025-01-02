@@ -21,7 +21,8 @@ funsor.set_backend("jax")
 
 @contextmanager
 def plate_to_enum_plate():
-    """A context manager to replace `numpyro.plate` statement by a funsor-based
+    """
+    A context manager to replace `numpyro.plate` statement by a funsor-based
     :class:`~numpyro.contrib.funsor.enum_messenger.plate`.
 
     This is useful when doing inference for the usual NumPyro programs with
@@ -32,6 +33,7 @@ def plate_to_enum_plate():
         with plate_to_enum_plate():
             model_trace = numpyro.contrib.funsor.trace(enum_model).get_trace(
                 *model_args, **model_kwargs)
+
     """
     try:
         numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)
@@ -41,7 +43,7 @@ def plate_to_enum_plate():
 
 
 def _config_enumerate_fn(site, default):
-    """Helper function used internally in config_enumerate."""
+    """helper function used internally in config_enumerate"""
     if (
         site["type"] == "sample"
         and (not site["is_observed"])
@@ -52,7 +54,8 @@ def _config_enumerate_fn(site, default):
 
 
 def config_enumerate(fn=None, default="parallel"):
-    """Configures enumeration for all relevant sites in a NumPyro model.
+    """
+    Configures enumeration for all relevant sites in a NumPyro model.
 
     When configuring for exhaustive enumeration of discrete variables, this
     configures all sample sites whose distribution satisfies
@@ -81,7 +84,7 @@ def config_enumerate(fn=None, default="parallel"):
 
 
 def _config_kl_fn(site, sites):
-    """Helper function used internally in config_kl."""
+    """helper function used internally in config_kl"""
     if (
         site["type"] == "sample"
         and (not site["is_observed"])
@@ -92,10 +95,13 @@ def _config_kl_fn(site, sites):
 
 
 def config_kl(fn=None, sites=None):
-    """Configures the ``kl`` flag in the ``infer`` dict for all sample sites in ``sites`` in a NumPyro model. If
-    ``kl`` is ``analytic``, and ``TraceEnum_ELBO`` is being used, an attempt is made to analytically compute the KL
-    divergence in the ELBO at the corresponding site. If ``analytic`` is specified and it is not possible to
-    analytically compute the KL divergence then an error is raised.
+    """
+    Configures the ``kl`` flag in the ``infer`` dict for all sample sites in
+    ``sites`` in a NumPyro model. If ``kl`` is ``analytic``, and ``TraceEnum_ELBO``
+    is being used, an attempt is made to analytically compute the KL divergence
+    in the ELBO at the corresponding site. If ``analytic`` is specified and
+    it is not possible to analytically compute the KL divergence then an error
+    is raised.
 
     This can be used as either a function::
 
@@ -118,12 +124,12 @@ def config_kl(fn=None, sites=None):
 
 
 def _get_shift(name):
-    """Helper function used internally in sarkka_bilmes_product."""
+    """helper function used internally in sarkka_bilmes_product"""
     return len(re.search(r"^(_PREV_)*", name).group(0)) // 6
 
 
 def _shift_name(name, t):
-    """Helper function used internally in sarkka_bilmes_product."""
+    """helper function used internally in sarkka_bilmes_product"""
     if t >= 0:
         return t * "_PREV_" + name
     return name.replace("_PREV_" * -t, "", 1)
@@ -293,8 +299,10 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
 
 
 def log_density(model, model_args, model_kwargs, params):
-    """Similar to :func:`numpyro.infer.util.log_density` but works for models with discrete latent variables.
-    Internally, this uses :mod:`funsor` to marginalize discrete latent sites and evaluate the joint log probability.
+    """
+    Similar to :func:`numpyro.infer.util.log_density` but works for models
+    with discrete latent variables. Internally, this uses :mod:`funsor`
+    to marginalize discrete latent sites and evaluate the joint log probability.
 
     :param model: Python callable containing NumPyro primitives. Typically,
         the model has been enumerated by using

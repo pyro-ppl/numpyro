@@ -68,7 +68,8 @@ def _make_loss_fn(
 
 
 class SVI(object):
-    """Stochastic Variational Inference given an ELBO loss objective.
+    """
+    Stochastic Variational Inference given an ELBO loss objective.
 
     **References**
 
@@ -163,7 +164,8 @@ class SVI(object):
             self.optim = optax_to_numpyro(optim)
 
     def init(self, rng_key, *args, init_params=None, **kwargs):
-        """Gets the initial SVI state.
+        """
+        Gets the initial SVI state.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
@@ -244,7 +246,8 @@ class SVI(object):
         return SVIState(self.optim.init(params), mutable_state, rng_key)
 
     def get_params(self, svi_state):
-        """Gets values at `param` sites of the `model` and `guide`.
+        """
+        Gets values at `param` sites of the `model` and `guide`.
 
         :param svi_state: current state of SVI.
         :return: the corresponding parameters
@@ -253,14 +256,17 @@ class SVI(object):
         return params
 
     def update(self, svi_state, *args, forward_mode_differentiation=False, **kwargs):
-        """Take a single step of SVI (possibly on a batch / minibatch of data), using the optimizer.
+        """
+        Take a single step of SVI (possibly on a batch / minibatch of data),
+        using the optimizer.
 
         :param svi_state: current state of SVI.
-        :param args: arguments to the model / guide (these can possibly vary during the course of fitting).
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
         :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
             Defaults to False.
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary during the course of
-            fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
@@ -285,15 +291,17 @@ class SVI(object):
     def stable_update(
         self, svi_state, *args, forward_mode_differentiation=False, **kwargs
     ):
-        """Similar to :meth:`update` but returns the current state if the the loss or the new state contains invalid
-        values.
+        """
+        Similar to :meth:`update` but returns the current state if the
+        the loss or the new state contains invalid values.
 
         :param svi_state: current state of SVI.
-        :param args: arguments to the model / guide (these can possibly vary during the course of fitting).
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
         :param forward_mode_differentiation: boolean flag indicating whether to use forward mode differentiation.
             Defaults to False.
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary during the course of
-            fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
@@ -327,9 +335,10 @@ class SVI(object):
         init_params=None,
         **kwargs,
     ):
-        """(EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return the optimized parameters and
-        the stacked losses at every step. If `num_steps` is large, setting `progress_bar=False` can make the run
-        faster.
+        """
+        (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
+        the optimized parameters and the stacked losses at every step. If `num_steps`
+        is large, setting `progress_bar=False` can make the run faster.
 
         .. note:: For a complex training process (e.g. the one requires early stopping,
             epoch training, varying args/kwargs,...), we recommend to use the more
@@ -424,7 +433,8 @@ class SVI(object):
         return SVIRunResult(self.get_params(svi_state), svi_state, losses)
 
     def evaluate(self, svi_state, *args, **kwargs):
-        """Take a single step of SVI (possibly on a batch / minibatch of data).
+        """
+        Take a single step of SVI (possibly on a batch / minibatch of data).
 
         :param svi_state: current state of SVI.
         :param args: arguments to the model / guide (these can possibly vary during

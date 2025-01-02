@@ -111,8 +111,9 @@ def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
 
 
 def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
-    r"""Hamiltonian Monte Carlo inference, using either fixed number of steps or the No U-Turn Sampler (NUTS) with
-    adaptive path length.
+    r"""
+    Hamiltonian Monte Carlo inference, using either fixed number of
+    steps or the No U-Turn Sampler (NUTS) with adaptive path length.
 
     **References:**
 
@@ -209,7 +210,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         model_kwargs=None,
         rng_key=None,
     ):
-        """Initializes the HMC sampler.
+        """
+        Initializes the HMC sampler.
 
         :param init_params: Initial parameters to begin sampling. The type must
             be consistent with the input type to `potential_fn`.
@@ -277,6 +279,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
             randomness.
+
         """
         rng_key = random.PRNGKey(0) if rng_key is None else rng_key
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
@@ -452,14 +455,16 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
     _next = _nuts_next if algo == "NUTS" else _hmc_next
 
     def sample_kernel(hmc_state, model_args=(), model_kwargs=None):
-        """Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted) step size
-        and return a new :data:`~numpyro.infer.mcmc.HMCState`.
+        """
+        Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted)
+        step size and return a new :data:`~numpyro.infer.mcmc.HMCState`.
 
         :param hmc_state: Current sample (and associated state).
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :return: new proposed :data:`~numpyro.infer.mcmc.HMCState` from simulating
             Hamiltonian dynamics given existing state.
+
         """
         model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(
@@ -532,8 +537,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
 
 
 class HMC(MCMCKernel):
-    """Hamiltonian Monte Carlo inference, using fixed trajectory length, with provision for step size and mass
-    matrix adaptation.
+    """
+    Hamiltonian Monte Carlo inference, using fixed trajectory length, with
+    provision for step size and mass matrix adaptation.
 
     .. note:: Until the kernel is used in an MCMC run, `postprocess_fn` will return the
         identity function.
@@ -796,7 +802,8 @@ class HMC(MCMCKernel):
         return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
-        """Run HMC from the given :data:`~numpyro.infer.hmc.HMCState` and return the resulting
+        """
+        Run HMC from the given :data:`~numpyro.infer.hmc.HMCState` and return the resulting
         :data:`~numpyro.infer.hmc.HMCState`.
 
         :param HMCState state: Represents the current state.
@@ -814,8 +821,9 @@ class HMC(MCMCKernel):
 
 
 class NUTS(HMC):
-    """Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS) with adaptive path length and mass
-    matrix adaptation.
+    """
+    Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
+    with adaptive path length and mass matrix adaptation.
 
     .. note:: Until the kernel is used in an MCMC run, `postprocess_fn` will return the
         identity function.

@@ -17,7 +17,8 @@ MixedHMCState = namedtuple("MixedHMCState", "z, hmc_state, rng_key, accept_prob"
 
 
 class MixedHMC(DiscreteHMCGibbs):
-    """Implementation of Mixed Hamiltonian Monte Carlo (reference [1]).
+    """
+    Implementation of Mixed Hamiltonian Monte Carlo (reference [1]).
 
     .. note:: The number of discrete sites to update at each MCMC iteration
         (`n_D` in reference [1]) is fixed at value 1.

@@ -57,8 +57,9 @@ This consists of the following fields:
 
 
 class EnsembleSampler(MCMCKernel, ABC):
-    """Abstract class for ensemble samplers. Each MCMC sample is divided into two sub-iterations in which half of
-    the ensemble is updated.
+    """
+    Abstract class for ensemble samplers. Each MCMC sample is divided into two sub-iterations
+    in which half of the ensemble is updated.
 
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
@@ -105,12 +106,12 @@ class EnsembleSampler(MCMCKernel, ABC):
 
     @abstractmethod
     def init_inner_state(self, rng_key):
-        """Return inner_state."""
+        """return inner_state"""
         raise NotImplementedError
 
     @abstractmethod
     def update_active_chains(self, active, inactive, inner_state):
-        """Return (updated active set of chains, updated inner state)"""
+        """return (updated active set of chains, updated inner state)"""
         raise NotImplementedError
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
@@ -346,16 +347,20 @@ class AIES(EnsembleSampler):
 
     @staticmethod
     def DEMove(sigma=1.0e-5, g0=None):
-        """A proposal using differential evolution.
+        """
+        A proposal using differential evolution.
 
-        This
-        `Differential evolution proposal <http://www.stat.columbia.edu/~gelman/stuff_for_blog/cajo.pdf>`_
-         is        implemented following `Nelson et al. (2013) <https://doi.org/10.1088/0067-0049/210/1/11>`_.
+        This `Differential evolution proposal
+        <http://www.stat.columbia.edu/~gelman/stuff_for_blog/cajo.pdf>`_ is
+        implemented following `Nelson et al. (2013)
+        <https://doi.org/10.1088/0067-0049/210/1/11>`_.
 
-        :param sigma: (optional) The standard deviation of the Gaussian used to stretch the proposal vector.
+        :param sigma: (optional)
+            The standard deviation of the Gaussian used to stretch the proposal vector.
             Defaults to `1.0.e-5`.
-        :param g0 (optional): The mean stretch factor for the proposal vector. By default, it is `2.38 /
-            sqrt(2*ndim)` as recommended by the two references.
+        :param g0 (optional):
+            The mean stretch factor for the proposal vector. By default,
+            it is `2.38 / sqrt(2*ndim)` as recommended by the two references.
         """
 
         def make_de_move(n_chains):

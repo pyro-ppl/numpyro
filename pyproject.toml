@@ -121,12 +121,3 @@ module = [
     "numpyro.util.*",
 ]
 ignore_errors = false
-
-[tool.docformatter]
-# The ``summaries`` are not (yet) 75 characters because the summary lines can't be
-# automatically wrapped and must be re-written, which should be done at some point.
-recursive = true
-wrap-summaries = 116
-wrap-descriptions = 116
-black = true
-syntax = "sphinx"

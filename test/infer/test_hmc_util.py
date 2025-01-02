@@ -104,7 +104,10 @@ Example = namedtuple("test_case", ["model", "args"])
 
 
 def register_model(init_args):
-    """Register the model along with each of the model arguments as test examples."""
+    """
+    Register the model along with each of the model arguments
+    as test examples.
+    """
 
     def register_fn(model):
         for args in init_args:

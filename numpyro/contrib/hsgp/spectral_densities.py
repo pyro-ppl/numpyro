@@ -1,6 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-"""This module contains spectral densities for various kernel functions."""
+
+"""
+This module contains spectral densities for various kernel functions.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +22,8 @@ def align_param(dim, param):
 def spectral_density_squared_exponential(
     dim: int, w: ArrayLike, alpha: float, length: float | ArrayLike
 ) -> Array:
-    """Spectral density of the squared exponential kernel.
+    """
+    Spectral density of the squared exponential kernel.
 
     See Section 4.2 in [1] and Section 2.1 in [2].
 
@@ -52,7 +56,8 @@ def spectral_density_squared_exponential(
 def spectral_density_matern(
     dim: int, nu: float, w: ArrayLike, alpha: float, length: float | ArrayLike
 ) -> float:
-    """Spectral density of the Matérn kernel.
+    """
+    Spectral density of the Matérn kernel.
 
     See Eq. (4.15) in [1] and Section 2.1 in [2].
 
@@ -99,15 +104,18 @@ def diag_spectral_density_squared_exponential(
     m: int | list[int],
     dim: int,
 ) -> Array:
-    """Evaluates the spectral density of the squared exponential kernel at the first :math:`D \\times m^\\star`
+    """
+    Evaluates the spectral density of the squared exponential kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
 
     :param float alpha: amplitude of the squared exponential kernel
-    :param float length: length scale of the squared exponential kernel :param float | int | list[float | int] ell:
-        The length of the interval divided by 2 in each dimension. If a float or int, the same length is used in
-        each dimension. :param int | list[int] m: The number of eigenvalues to compute for each dimension. If an
-        integer, the same number of eigenvalues is computed in each dimension.
+    :param float length: length scale of the squared exponential kernel
+    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
+        If a float or int, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param int dim: The dimension of the space
+
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
@@ -130,16 +138,19 @@ def diag_spectral_density_matern(
     m: int | list[int],
     dim: int,
 ) -> Array:
-    """Evaluates the spectral density of the Matérn kernel at the first :math:`D \\times m^\\star` square root
-    eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
+    """
+    Evaluates the spectral density of the Matérn kernel at the first :math:`D \\times m^\\star`
+    square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
 
     :param float nu: smoothness parameter
     :param float alpha: amplitude of the Matérn kernel
-    :param float length: length scale of the Matérn kernel :param float | int | list[float | int] ell: The length of
-        the interval divided by 2 in each dimension. If a float or int, the same length is used in each dimension.
-        :param int | list[int] m: The number of eigenvalues to compute for each dimension. If an integer, the same
-        number of eigenvalues is computed in each dimension.
+    :param float length: length scale of the Matérn kernel
+    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
+        If a float or int, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param int dim: The dimension of the space
+
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
@@ -165,8 +176,10 @@ def modified_bessel_first_kind(v, z):
 
 
 def diag_spectral_density_periodic(alpha: float, length: float, m: int) -> Array:
-    """Not actually a spectral density but these are used in the same way. These are simply the first `m`
-    coefficients of the low rank approximation for the periodic kernel. See Appendix B in [1].
+    """
+    Not actually a spectral density but these are used in the same
+    way. These are simply the first `m` coefficients of the low rank
+    approximation for the periodic kernel. See Appendix B in [1].
 
     **References:**
 

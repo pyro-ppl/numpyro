@@ -27,9 +27,11 @@ RunInferenceResult = Union[
 
 
 class StochasticSupportInference(ABC):
-    """Base class for running inference in programs with stochastic support. Each subclass decomposes the input
-    model into so called straight-line programs (SLPs) which are the different control-flow paths in the model.
-    Inference is then run in each SLP separately and the results are combined to produce an overall posterior.
+    """
+    Base class for running inference in programs with stochastic support. Each subclass
+    decomposes the input model into so called straight-line programs (SLPs) which are
+    the different control-flow paths in the model. Inference is then run in each SLP
+    separately and the results are combined to produce an overall posterior.
 
     .. note:: This implementation assumes that all stochastic branching is done based on the
        outcomes of discrete sampling sites that are annotated with ``infer={"branching": True}``.
@@ -61,10 +63,10 @@ class StochasticSupportInference(ABC):
     def _find_slps(
         self, rng_key: ArrayLike, *args: Any, **kwargs: Any
     ) -> dict[str, OrderedDictType]:
-        """Discover the straight-line programs (SLPs) in the model by sampling from the prior.
-
-        This implementation assumes that all branching is done via discrete sampling sites that are annotated with
-        `infer={"branching": True}`.
+        """
+        Discover the straight-line programs (SLPs) in the model by sampling from the prior.
+        This implementation assumes that all branching is done via discrete sampling sites
+        that are annotated with `infer={"branching": True}`.
         """
         branching_traces = {}
         for _ in range(self.num_slp_samples):
@@ -80,7 +82,9 @@ class StochasticSupportInference(ABC):
         return branching_traces
 
     def _get_branching_trace(self, tr: dict[str, Any]) -> OrderedDictType:
-        """Extract the sites from the trace that are annotated with `infer={"branching": True}`."""
+        """
+        Extract the sites from the trace that are annotated with `infer={"branching": True}`.
+        """
         branching_trace = OrderedDict()
         for site in tr.values():
             if (
@@ -126,7 +130,8 @@ class StochasticSupportInference(ABC):
     def run(
         self, rng_key: ArrayLike, *args: Any, **kwargs: Any
     ) -> Union[DCCResult, SDVIResult]:
-        """Run inference on each SLP separately and combine the results.
+        """
+        Run inference on each SLP separately and combine the results.
 
         :param jax.random.PRNGKey rng_key: Random number generator key.
         :param args: Arguments to the model.
@@ -147,7 +152,9 @@ class StochasticSupportInference(ABC):
 
 
 class DCC(StochasticSupportInference):
-    """Implements the Divide, Conquer, and Combine (DCC) algorithm for models with stochastic support from [1].
+    """
+    Implements the Divide, Conquer, and Combine (DCC) algorithm for models with
+    stochastic support from [1].
 
     **References:**
 
@@ -207,7 +214,9 @@ class DCC(StochasticSupportInference):
         *args: Any,
         **kwargs: Any,
     ) -> RunInferenceResult:
-        """Run MCMC on the model conditioned on the given branching trace."""
+        """
+        Run MCMC on the model conditioned on the given branching trace.
+        """
         slp_model = condition(self.model, data=branching_trace)
         kernel = self.kernel_cls(slp_model)  # type: ignore[call-arg]
         mcmc = MCMC(kernel, **self.mcmc_kwargs)
@@ -223,9 +232,11 @@ class DCC(StochasticSupportInference):
         *args: Any,
         **kwargs: Any,
     ) -> DCCResult:
-        """Weight each SLP proportional to its estimated normalization constant. The normalization constants are
-        estimated using importance sampling with the proposal centred on the MCMC samples. This is a special case of
-        the layered adaptive importance sampling algorithm from [1].
+        """
+        Weight each SLP proportional to its estimated normalization constant.
+        The normalization constants are estimated using importance sampling with
+        the proposal centred on the MCMC samples. This is a special case of the
+        layered adaptive importance sampling algorithm from [1].
 
         **References:**
         1. *Layered adaptive importance sampling*,

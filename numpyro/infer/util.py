@@ -61,14 +61,17 @@ def compute_log_probs(
     params: dict,
     sum_log_prob: bool = True,
 ):
-    """(EXPERIMENTAL INTERFACE) Computes log of density for each site of the model given latent values ``params``.
+    """
+    (EXPERIMENTAL INTERFACE) Computes log of density for each site of the model given
+    latent values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
     :param model_args: args provided to the model.
     :param model_kwargs: kwargs provided to the model.
     :param params: Dictionary of current parameter values keyed by site name.
     :param sum_log_prob: sum log probability over batch dimensions.
-    :return: Dictionary mapping site names to log of density and a corresponding model trace.
+    :return: Dictionary mapping site names to log of density and a corresponding model
+        trace.
     """
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
@@ -103,7 +106,9 @@ def compute_log_probs(
 
 
 def log_density(model, model_args: tuple, model_kwargs: dict, params: dict):
-    """(EXPERIMENTAL INTERFACE) Computes log of joint density for the model given latent values ``params``.
+    """
+    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given latent
+    values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
     :param model_args: args provided to the model.
@@ -119,7 +124,9 @@ def log_density(model, model_args: tuple, model_kwargs: dict, params: dict):
 
 
 class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
-    """Stop gradient for samples at latent sample sites for which has_rsample=False."""
+    """
+    Stop gradient for samples at latent sample sites for which has_rsample=False.
+    """
 
     def postprocess_message(self, msg):
         if (
@@ -136,8 +143,9 @@ class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
 
 
 def get_importance_trace(model, guide, args, kwargs, params):
-    """(EXPERIMENTAL) Returns traces from the guide and the model that is run against it. The returned traces also
-    store the log probability at each site.
+    """
+    (EXPERIMENTAL) Returns traces from the guide and the model that is run against it.
+    The returned traces also store the log probability at each site.
 
     .. note:: Gradients are blocked at latent sites which do not have reparametrized samplers.
     """
@@ -165,8 +173,10 @@ def get_importance_trace(model, guide, args, kwargs, params):
 
 
 def transform_fn(transforms, params, invert=False):
-    """(EXPERIMENTAL INTERFACE) Callable that applies a transformation from the `transforms` dict to values in the
-    `params` dict and returns the transformed values keyed on the same names.
+    """
+    (EXPERIMENTAL INTERFACE) Callable that applies a transformation from the `transforms`
+    dict to values in the `params` dict and returns the transformed values keyed on
+    the same names.
 
     :param transforms: Dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
@@ -180,10 +190,13 @@ def transform_fn(transforms, params, invert=False):
 
 
 def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=False):
-    """(EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given unconstrained parameters `params`.
-    The `transforms` is used to transform these unconstrained parameters to base values of the corresponding priors
-    in `model`. If a prior is a transformed distribution, the corresponding base value lies in the support of base
-    distribution. Otherwise, the base value lies in the support of the distribution.
+    """
+    (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
+    unconstrained parameters `params`. The `transforms` is used to transform these
+    unconstrained parameters to base values of the corresponding priors in `model`.
+    If a prior is a transformed distribution, the corresponding base value lies in
+    the support of base distribution. Otherwise, the base value lies in the support
+    of the distribution.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
@@ -236,8 +249,10 @@ def get_transforms(model, model_args, model_kwargs, params):
 
 
 def unconstrain_fn(model, model_args, model_kwargs, params):
-    """(EXPERIMENTAL INTERFACE) Given a NumPyro model and a dict of parameters, this function applies the right
-    transformation to convert parameter values from constrained space to unconstrained space.
+    """
+    (EXPERIMENTAL INTERFACE) Given a NumPyro model and a dict of parameters,
+    this function applies the right transformation to convert parameter values
+    from constrained space to unconstrained space.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
@@ -284,9 +299,10 @@ def _unconstrain_reparam(params, site):
 
 
 def potential_energy(model, model_args, model_kwargs, params, enum=False):
-    """(EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params. Under the hood, we
-    will transform these unconstrained parameters to the values belong to the supports of the corresponding priors
-    in `model`.
+    """
+    (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
+    Under the hood, we will transform these unconstrained parameters to the values
+    belong to the supports of the corresponding priors in `model`.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
@@ -327,10 +343,13 @@ def find_valid_initial_params(
     forward_mode_differentiation=False,
     validate_grad=True,
 ):
-    """(EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial valid unconstrained value for
-    all the parameters. This function also returns the corresponding potential energy, the gradients, and an
-    `is_valid` flag to say whether the initial parameters are valid. Parameter values are considered valid if the
-    values and the gradients for the log density have finite values.
+    """
+    (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
+    valid unconstrained value for all the parameters. This function also returns
+    the corresponding potential energy, the gradients, and an
+    `is_valid` flag to say whether the initial parameters are valid. Parameter values
+    are considered valid if the values and the gradients for the log density have
+    finite values.
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
@@ -533,9 +552,12 @@ def get_potential_fn(
     model_args=(),
     model_kwargs=None,
 ):
-    """(EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a function which, given unconstrained
-    parameters, evaluates the potential energy (negative log joint density). In addition, this returns a function to
-    transform unconstrained values at sample sites to constrained values within their respective support.
+    """
+    (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
+    function which, given unconstrained parameters, evaluates the potential
+    energy (negative log joint density). In addition, this returns a
+    function to transform unconstrained values at sample sites to constrained
+    values within their respective support.
 
     :param model: Python callable containing Pyro primitives.
     :param dict inv_transforms: dictionary of transforms keyed by names.
@@ -589,9 +611,10 @@ def get_potential_fn(
 
 
 def _guess_max_plate_nesting(model_trace):
-    """Guesses max_plate_nesting by using model trace.
-
-    This optimistically assumes static model structure.
+    """
+    Guesses max_plate_nesting by using model trace.
+    This optimistically assumes static model
+    structure.
     """
     sites = [site for site in model_trace.values() if site["type"] == "sample"]
 
@@ -616,9 +639,10 @@ def initialize_model(
     forward_mode_differentiation=False,
     validate_grad=True,
 ):
-    """(EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn` and
-    :func:`~numpyro.infer.util.find_valid_initial_params` under the hood to return a tuple of (`init_params_info`,
-    `potential_fn`, `postprocess_fn`, `model_trace`).
+    """
+    (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
+    and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
+    to return a tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`, `model_trace`).
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
@@ -849,8 +873,9 @@ def _predictive(
 
 
 class Predictive(object):
-    """This class is used to construct predictive distribution. The predictive distribution is obtained by running
-    model conditioned on latent samples from `posterior_samples`.
+    """
+    This class is used to construct predictive distribution. The predictive distribution is obtained
+    by running model conditioned on latent samples from `posterior_samples`.
 
     .. warning::
         The interface for the `Predictive` class is experimental, and
@@ -1030,9 +1055,10 @@ class Predictive(object):
         )
 
     def __call__(self, rng_key, *args, **kwargs):
-        """Returns dict of samples from the predictive distribution. By default, only sample sites not contained in
-        `posterior_samples` are returned. This can be modified by changing the `return_sites` keyword argument of
-        this :class:`Predictive` instance.
+        """
+        Returns dict of samples from the predictive distribution. By default, only sample sites not
+        contained in `posterior_samples` are returned. This can be modified by changing the
+        `return_sites` keyword argument of this :class:`Predictive` instance.
 
         :param jax.random.PRNGKey rng_key: random key to draw samples.
         :param args: model arguments.
@@ -1055,8 +1081,9 @@ class Predictive(object):
 def log_likelihood(
     model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs
 ):
-    """(EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model, given samples of all latent
-    variables.
+    """
+    (EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model,
+    given samples of all latent variables.
 
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.

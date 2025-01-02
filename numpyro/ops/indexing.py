@@ -9,7 +9,8 @@ def _is_batched(arg):
 
 
 def vindex(tensor, args):
-    """Vectorized advanced indexing with broadcasting semantics.
+    """
+    Vectorized advanced indexing with broadcasting semantics.
 
     See also the convenience wrapper :class:`Vindex`.
 
@@ -127,7 +128,8 @@ def vindex(tensor, args):
 
 
 class Vindex:
-    """Convenience wrapper around :func:`vindex`.
+    """
+    Convenience wrapper around :func:`vindex`.
 
     The following are equivalent::
 

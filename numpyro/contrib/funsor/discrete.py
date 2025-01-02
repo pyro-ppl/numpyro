@@ -108,8 +108,10 @@ def _sample_posterior(
 
 
 def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=None):
-    """A handler that samples discrete sites marked with ``site["infer"]["enumerate"] = "parallel"`` from the
-    posterior, conditioned on observations.
+    """
+    A handler that samples discrete sites marked with
+    ``site["infer"]["enumerate"] = "parallel"`` from the posterior,
+    conditioned on observations.
 
     Example::
 

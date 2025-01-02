@@ -298,14 +298,16 @@ class TwoSidedTruncatedDistribution(Distribution):
 
 
 def TruncatedDistribution(base_dist, low=None, high=None, *, validate_args=None):
-    """A function to generate a truncated distribution.
+    """
+    A function to generate a truncated distribution.
 
-    :param base_dist: The base distribution to be truncated. This should be a univariate distribution. Currently,
-        only the following distributions are supported: Cauchy, Laplace, Logistic, Normal, and StudentT.
-    :param low: the value which is used to truncate the base distribution from below. Setting this parameter to None
-        to not truncate from below.
-    :param high: the value which is used to truncate the base distribution from above. Setting this parameter to
-        None to not truncate from above.
+    :param base_dist: The base distribution to be truncated. This should be a univariate
+        distribution. Currently, only the following distributions are supported:
+        Cauchy, Laplace, Logistic, Normal, and StudentT.
+    :param low: the value which is used to truncate the base distribution from below.
+        Setting this parameter to None to not truncate from below.
+    :param high: the value which is used to truncate the base distribution from above.
+        Setting this parameter to None to not truncate from above.
     """
     if high is None:
         if low is None:
@@ -377,8 +379,8 @@ class TruncatedPolyaGamma(Distribution):
 
 
 class DoublyTruncatedPowerLaw(Distribution):
-    r"""Power law distribution with :math:`\alpha` index, and lower and upper bounds. We can define the power law
-    distribution as,
+    r"""Power law distribution with :math:`\alpha` index, and lower and upper bounds.
+    We can define the power law distribution as,
 
     .. math::
         f(x; \alpha, a, b) = \frac{x^{\alpha}}{Z(\alpha, a, b)},
@@ -833,8 +835,8 @@ class DoublyTruncatedPowerLaw(Distribution):
 
 
 class LowerTruncatedPowerLaw(Distribution):
-    r"""Lower truncated power law distribution with :math:`\alpha` index. We can define the power law distribution
-    as,
+    r"""Lower truncated power law distribution with :math:`\alpha` index.
+    We can define the power law distribution as,
 
     .. math::
         f(x; \alpha, a) = (-\alpha-1)a^{-\alpha - 1}x^{-\alpha},

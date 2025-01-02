@@ -33,6 +33,7 @@ def _numel(shape):
 class SteinVI:
     """Variational inference with Stein mixtures inference.
 
+
     **Example:**
 
     .. doctest::
@@ -350,8 +351,7 @@ class SteinVI:
         return jnp.linalg.norm(particle_grads), res_grads
 
     def init(self, rng_key, *args, **kwargs):
-        """Register random variable transformations, constraints and determine initialize positions of the
-        particles.
+        """Register random variable transformations, constraints and determine initialize positions of the particles.
 
         :param jax.random.PRNGKey rng_key: Random number generator seed.
         :param args: Positional arguments to the model and guide.
@@ -438,7 +438,8 @@ class SteinVI:
         return params
 
     def update(self, state: SteinVIState, *args, **kwargs) -> SteinVIState:
-        """Take a single step of SteinVI using the optimizer. We recommend using the run method instead of update.
+        """Take a single step of SteinVI using the optimizer. We recommend using
+        the run method instead of update.
 
         :param SteinVIState state: Current state of inference.
         :param args: Position arguments to the model and guide.

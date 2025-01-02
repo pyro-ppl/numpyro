@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 """
 Example: Hilbert space approximation for Gaussian processes.
 ============================================================
@@ -65,7 +66,9 @@ from numpyro.infer import MCMC, NUTS, init_to_median
 
 # --- Data processing functions
 def get_labour_days(dates):
-    """First monday of September."""
+    """
+    First monday of September
+    """
     is_september = dates.dt.month.eq(9)
     is_monday = dates.dt.weekday.eq(0)
     is_first_week = dates.dt.day.le(7)
@@ -77,7 +80,9 @@ def get_labour_days(dates):
 
 
 def get_memorial_days(dates):
-    """Last monday of May."""
+    """
+    Last monday of May
+    """
     is_may = dates.dt.month.eq(5)
     is_monday = dates.dt.weekday.eq(0)
     is_last_week = dates.dt.day.ge(25)
@@ -89,7 +94,9 @@ def get_memorial_days(dates):
 
 
 def get_thanksgiving_days(dates):
-    """Third thursday of November."""
+    """
+    Third thursday of November
+    """
     is_november = dates.dt.month.eq(11)
     is_thursday = dates.dt.weekday.eq(3)
     is_third_week = dates.dt.day.between(22, 28)
@@ -165,9 +172,10 @@ def diag_spectral_density(alpha, length, L, M):
 
 
 def eigenfunctions(x, L, M):
-    """The first `M` eigenfunctions of the laplacian operator in `[-L, L]` evaluated at `x`.
-
-    These are used for the approximation of the squared exponential kernel.
+    """
+    The first `M` eigenfunctions of the laplacian operator in `[-L, L]`
+    evaluated at `x`. These are used for the approximation of the
+    squared exponential kernel.
     """
     m1 = (jnp.pi / (2 * L)) * jnp.tile(L + x[:, None], M)
     m2 = jnp.diag(jnp.linspace(1, M, num=M))
@@ -182,9 +190,9 @@ def modified_bessel_first_kind(v, z):
 
 
 def diag_spectral_density_periodic(alpha, length, M):
-    """Not actually a spectral density but these are used in the same way.
-
-    These are simply the first `M` coefficients of the low rank
+    """
+    Not actually a spectral density but these are used in the same
+    way. These are simply the first `M` coefficients of the low rank
     approximation for the periodic kernel.
     """
     a = length ** (-2)
@@ -195,7 +203,9 @@ def diag_spectral_density_periodic(alpha, length, M):
 
 
 def eigenfunctions_periodic(x, w0, M):
-    """Basis functions for the approximation of the periodic kernel."""
+    """
+    Basis functions for the approximation of the periodic kernel.
+    """
     m1 = jnp.tile(w0 * x[:, None], M)
     m2 = jnp.diag(jnp.arange(M, dtype=jnp.float32))
     mw0x = m1 @ m2
@@ -206,7 +216,10 @@ def eigenfunctions_periodic(x, w0, M):
 
 # --- Approximate Gaussian processes --- #
 def approx_se_ncp(x, alpha, length, L, M):
-    """Hilbert space approximation for the squared exponential kernel in the non-centered parametrisation."""
+    """
+    Hilbert space approximation for the squared
+    exponential kernel in the non-centered parametrisation.
+    """
     phi = eigenfunctions(x, L, M)
     spd = jnp.sqrt(diag_spectral_density(alpha, length, L, M))
     with plate("basis", M):
@@ -217,7 +230,10 @@ def approx_se_ncp(x, alpha, length, L, M):
 
 
 def approx_periodic_gp_ncp(x, alpha, length, w0, M):
-    """Low rank approximation for the periodic squared exponential kernel in the non-centered parametrisation."""
+    """
+    Low rank approximation for the periodic squared
+    exponential kernel in the non-centered parametrisation.
+    """
     q2 = diag_spectral_density_periodic(alpha, length, M)
     cosines, sines = eigenfunctions_periodic(x, w0, M)
 

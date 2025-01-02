@@ -27,9 +27,11 @@ VALID_ELBOS = (Trace_ELBO, TraceMeanField_ELBO, TraceEnum_ELBO, TraceGraph_ELBO)
 
 
 class SDVI(StochasticSupportInference):
-    """Implements the Support Decomposition Variational Inference (SDVI) algorithm for models with stochastic
-    support from [1]. This implementation creates a separate guide for each SLP, trains the guides separately, and
-    then combines the guides by weighting them proportional to their ELBO estimates.
+    """
+    Implements the Support Decomposition Variational Inference (SDVI) algorithm for models with
+    stochastic support from [1]. This implementation creates a separate guide for each SLP, trains
+    the guides separately, and then combines the guides by weighting them proportional to their ELBO
+    estimates.
 
     **References:**
 
@@ -101,7 +103,9 @@ class SDVI(StochasticSupportInference):
         *args: Any,
         **kwargs: Any,
     ) -> RunInferenceResult:
-        """Run SVI on a given SLP defined by its branching trace."""
+        """
+        Run SVI on a given SLP defined by its branching trace.
+        """
         slp_model = condition(self.model, branching_trace)
         guide = self.guide_init(slp_model)
         svi = SVI(slp_model, guide, self.optimizer, loss=self.loss)

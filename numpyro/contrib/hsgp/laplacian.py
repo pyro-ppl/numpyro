@@ -1,6 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-"""This module contains functions for computing eigenvalues and eigenfunctions of the laplace operator."""
+
+"""
+This module contains functions for computing eigenvalues and eigenfunctions of the laplace operator.
+"""
 
 from __future__ import annotations
 
@@ -57,6 +60,7 @@ def eigenindices(m: list[int] | int, dim: int) -> Array:
             Array([[1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],
                    [1, 1, 1, 2, 2, 2, 1, 1, 1, 2, 2, 2],
                    [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3]], dtype=int32)
+
     """
     if isinstance(m, int):
         m = [m] * dim
@@ -74,8 +78,9 @@ def eigenindices(m: list[int] | int, dim: int) -> Array:
 def sqrt_eigenvalues(
     ell: ArrayLike | list[int | float], m: list[int] | int, dim: int
 ) -> Array:
-    """The first :math:`m^\\star \\times D` square root of eigenvalues of the laplacian operator in :math:`[-L_1,
-    L_1] \\times ... \\times [-L_D, L_D]`. See Eq. (56) in [1].
+    """
+    The first :math:`m^\\star \\times D` square root of eigenvalues of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`. See Eq. (56) in [1].
 
     **References:**
 
@@ -97,9 +102,12 @@ def sqrt_eigenvalues(
 
 
 def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -> Array:
-    """The first :math:`m^\\star` eigenfunctions of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times
-    [-L_D, L_D]` evaluated at values of `x`. See Eq. (56) in [1]. If `x` is 1D, the problem is assumed
-    unidimensional. Otherwise, the dimension of the input space is inferred as the size of the last dimension of
+    """
+    The first :math:`m^\\star` eigenfunctions of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
+    evaluated at values of `x`. See Eq. (56) in [1].
+    If `x` is 1D, the problem is assumed unidimensional.
+    Otherwise, the dimension of the input space is inferred as the size of the last dimension of
     `x`. Other dimensions are treated as batch dimensions.
 
     **Example:**
@@ -155,7 +163,8 @@ def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -
 
 
 def eigenfunctions_periodic(x: ArrayLike, w0: float, m: int) -> tuple[Array, Array]:
-    """Basis functions for the approximation of the periodic kernel.
+    """
+    Basis functions for the approximation of the periodic kernel.
 
     :param ArrayLike x: The points at which to evaluate the eigenfunctions.
     :param float w0: The frequency of the periodic kernel.
@@ -180,7 +189,8 @@ def eigenfunctions_periodic(x: ArrayLike, w0: float, m: int) -> tuple[Array, Arr
 
 
 def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> Array:
-    """Process the half-length of the approximation interval and return a `D \\times 1` array.
+    """
+    Process the half-length of the approximation interval and return a `D \\times 1` array.
 
     If `ell` is a scalar, it is converted to a list of length dim, then transformed into an Array.
 

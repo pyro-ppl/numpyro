@@ -58,12 +58,16 @@ TreeInfo = namedtuple(
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
-    """Dual Averaging is a scheme to solve convex optimization problems. It belongs to a class of subgradient
-    methods which uses subgradients (which lie in a dual space) to update states (in primal space) of a model. Under
-    some conditions, the averages of generated parameters during the scheme are guaranteed to converge to an optimal
-    value. However, a counter-intuitive aspect of traditional subgradient methods is "new subgradients enter the
-    model with decreasing weights" (see reference [1]). Dual Averaging scheme resolves that issue by updating
-    parameters using weights equally for subgradients, hence we have the name "dual averaging".
+    """
+    Dual Averaging is a scheme to solve convex optimization problems. It
+    belongs to a class of subgradient methods which uses subgradients (which
+    lie in a dual space) to update states (in primal space) of a model. Under
+    some conditions, the averages of generated parameters during the scheme are
+    guaranteed to converge to an optimal value. However, a counter-intuitive
+    aspect of traditional subgradient methods is "new subgradients enter the
+    model with decreasing weights" (see reference [1]). Dual Averaging scheme
+    resolves that issue by updating parameters using weights equally for
+    subgradients, hence we have the name "dual averaging".
 
     This class implements a dual averaging scheme which is adapted for Markov
     chain Monte Carlo (MCMC) algorithms. To be more precise, we will replace
@@ -127,8 +131,10 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
 
 
 def welford_covariance(diagonal=True):
-    """Implements Welford's online method for estimating (co)variance. Useful for adapting diagonal and dense mass
-    structures for HMC. It is required that each sample is a 1-dimensional array.
+    """
+    Implements Welford's online method for estimating (co)variance. Useful for
+    adapting diagonal and dense mass structures for HMC. It is required that
+    each sample is a 1-dimensional array.
 
     **References:**
 
@@ -254,7 +260,9 @@ def _kinetic_grad(kinetic_fn, inverse_mass_matrix, r):
 
 
 def velocity_verlet(potential_fn, kinetic_fn, forward_mode_differentiation=False):
-    r"""Second order symplectic integrator that uses the velocity verlet algorithm for position `z` and momentum `r`.
+    r"""
+    Second order symplectic integrator that uses the velocity verlet algorithm
+    for position `z` and momentum `r`.
 
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
@@ -312,8 +320,9 @@ def find_reasonable_step_size(
     z_info,
     rng_key,
 ):
-    """Finds a reasonable step size by tuning `init_step_size`. This function is used to avoid working with a too
-    large or too small step size in HMC.
+    """
+    Finds a reasonable step size by tuning `init_step_size`. This function is used
+    to avoid working with a too large or too small step size in HMC.
 
     **References:**
 
@@ -376,7 +385,8 @@ def find_reasonable_step_size(
 
 
 def build_adaptation_schedule(num_steps):
-    """Builds a window adaptation schedule to be used during warmup phase of HMC.
+    """
+    Builds a window adaptation schedule to be used during warmup phase of HMC.
 
     :param int num_steps: Number of warmup steps.
     :return: a list of contiguous windows, each has attributes `start` and `end`,
@@ -514,7 +524,9 @@ def warmup_adapter(
     target_accept_prob=0.8,
     regularize_mass_matrix=True,
 ):
-    """A scheme to adapt tunable parameters, namely step size and mass matrix, during the warmup phase of HMC.
+    """
+    A scheme to adapt tunable parameters, namely step size and mass matrix, during
+    the warmup phase of HMC.
 
     :param int num_adapt_steps: Number of warmup steps.
     :param find_reasonable_step_size: A callable to find a reasonable step size
@@ -1083,7 +1095,8 @@ def build_tree(
     max_delta_energy=1000.0,
     max_tree_depth=10,
 ):
-    """Builds a binary tree from the `verlet_state`. This is used in NUTS sampler.
+    """
+    Builds a binary tree from the `verlet_state`. This is used in NUTS sampler.
 
     **References:**
 
@@ -1211,7 +1224,8 @@ euclidean_kinetic_energy._kinetic_grad = _euclidean_kinetic_energy_grad
 
 
 def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
-    """Merges subposteriors following consensus Monte Carlo algorithm.
+    """
+    Merges subposteriors following consensus Monte Carlo algorithm.
 
     **References:**
 
@@ -1270,7 +1284,8 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
 
 
 def parametric(subposteriors, diagonal=False):
-    """Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
+    """
+    Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
 
     **References:**
 
@@ -1307,7 +1322,8 @@ def parametric(subposteriors, diagonal=False):
 
 
 def parametric_draws(subposteriors, num_draws, diagonal=False, rng_key=None):
-    """Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
+    """
+    Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
 
     **References:**
 

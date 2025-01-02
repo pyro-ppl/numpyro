@@ -47,7 +47,7 @@ class StackFrame(
 
 
 class DimType(Enum):
-    """Enumerates the possible types of dimensions to allocate."""
+    """Enumerates the possible types of dimensions to allocate"""
 
     LOCAL = 0
     GLOBAL = 1
@@ -61,10 +61,11 @@ NameRequest.__new__.__defaults__ = (None, DimType.LOCAL)
 
 
 class DimStack:
-    """Single piece of global state to keep track of the mapping between names and dimensions.
+    """
+    Single piece of global state to keep track of the mapping between names and dimensions.
 
-    Replaces the plate DimAllocator, the enum EnumAllocator, the stack in MarkovMessenger, _param_dims and
-    _value_dims in EnumMessenger, and dim_to_symbol in msg['infer']
+    Replaces the plate DimAllocator, the enum EnumAllocator, the stack in MarkovMessenger,
+    _param_dims and _value_dims in EnumMessenger, and dim_to_symbol in msg['infer']
     """
 
     def __init__(self):
@@ -313,7 +314,8 @@ class NamedMessenger(DimStackCleanupMessenger):
 
 
 class LocalNamedMessenger(NamedMessenger):
-    """Handler for converting to/from funsors consistent with Pyro's positional batch dimensions.
+    """
+    Handler for converting to/from funsors consistent with Pyro's positional batch dimensions.
 
     :param int history: The number of previous contexts visible from the
         current context. Defaults to 1. If zero, this is similar to
@@ -429,7 +431,9 @@ class GlobalNamedMessenger(NamedMessenger):
 
 
 class BaseEnumMessenger(NamedMessenger):
-    """Handles first_available_dim management, enum effects should inherit from this."""
+    """
+    Handles first_available_dim management, enum effects should inherit from this
+    """
 
     def __init__(self, fn=None, first_available_dim=None):
         assert (
@@ -457,8 +461,9 @@ class BaseEnumMessenger(NamedMessenger):
 
 
 class plate(GlobalNamedMessenger):
-    """An alternative implementation of :class:`numpyro.primitives.plate` primitive. Note that only this version is
-    compatible with enumeration.
+    """
+    An alternative implementation of :class:`numpyro.primitives.plate` primitive. Note
+    that only this version is compatible with enumeration.
 
     There is also a context manager
     :func:`~numpyro.contrib.funsor.infer_util.plate_to_enum_plate`
@@ -556,12 +561,15 @@ class plate(GlobalNamedMessenger):
 
 
 class enum(BaseEnumMessenger):
-    """Enumerates in parallel over discrete sample sites marked ``infer={"enumerate": "parallel"}``.
+    """
+    Enumerates in parallel over discrete sample sites marked
+    ``infer={"enumerate": "parallel"}``.
 
     :param callable fn: Python callable with NumPyro primitives.
-    :param int first_available_dim: The first tensor dimension (counting from the right) that is available for
-        parallel enumeration. This dimension and all dimensions left may be used internally by Pyro. This should be
-        a negative integer or None.
+    :param int first_available_dim: The first tensor dimension (counting
+        from the right) that is available for parallel enumeration. This
+        dimension and all dimensions left may be used internally by Pyro.
+        This should be a negative integer or None.
     """
 
     def process_message(self, msg):
@@ -595,8 +603,9 @@ class enum(BaseEnumMessenger):
 
 
 class trace(OrigTraceMessenger):
-    """This version of :class:`~numpyro.handlers.trace` handler records information necessary to do packing after
-    execution.
+    """
+    This version of :class:`~numpyro.handlers.trace` handler records
+    information necessary to do packing after execution.
 
     Each sample site is annotated with a "dim_to_name" dictionary,
     which can be passed directly to :func:`to_funsor`.
@@ -619,7 +628,8 @@ class trace(OrigTraceMessenger):
 
 
 def markov(fn=None, history=1, keep=False):
-    """Markov dependency declaration.
+    """
+    Markov dependency declaration.
 
     This is a statistical equivalent of a memory management arena.
 
@@ -645,7 +655,8 @@ def markov(fn=None, history=1, keep=False):
 
 
 def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
-    """A primitive to convert a Python object to a :class:`~funsor.terms.Funsor`.
+    """
+    A primitive to convert a Python object to a :class:`~funsor.terms.Funsor`.
 
     :param x: An object.
     :param funsor.domains.Domain output: An optional output hint to uniquely
@@ -676,7 +687,8 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
 
 
 def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
-    """A primitive to extract a python object from a :class:`~funsor.terms.Funsor`.
+    """
+    A primitive to extract a python object from a :class:`~funsor.terms.Funsor`.
 
     :param ~funsor.terms.Funsor x: A funsor object
     :param OrderedDict name_to_dim: An optional inputs hint which maps

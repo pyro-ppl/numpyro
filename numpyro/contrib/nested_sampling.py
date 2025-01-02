@@ -44,8 +44,10 @@ tfpd = tfp.distributions
 
 @singledispatch
 def uniform_reparam_transform(d):
-    """A helper for :class:`UniformReparam` to get the transform that transforms a uniform distribution over a unit
-    hypercube to the target distribution `d`."""
+    """
+    A helper for :class:`UniformReparam` to get the transform that transforms
+    a uniform distribution over a unit hypercube to the target distribution `d`.
+    """
     if isinstance(d, dist.TransformedDistribution):
         outer_transform = dist.transforms.ComposeTransform(d.transforms)
         return lambda q: outer_transform(uniform_reparam_transform(d.base_dist)(q))
@@ -97,7 +99,8 @@ def _(d):
 
 
 class UniformReparam(Reparam):
-    """Reparameterize a distribution to a Uniform over the unit hypercube.
+    """
+    Reparameterize a distribution to a Uniform over the unit hypercube.
 
     Most univariate distribution uses Inverse CDF for the reparameterization.
     """
@@ -187,7 +190,8 @@ class NestedSampler:
         self._results: NestedSamplerResults | None = None
 
     def run(self, rng_key, *args, **kwargs):
-        """Run the nested samplers and collect weighted samples.
+        """
+        Run the nested samplers and collect weighted samples.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: The arguments needed by the `model`.
@@ -300,7 +304,8 @@ class NestedSampler:
         self._results = results._replace(samples=samples)
 
     def get_samples(self, rng_key, num_samples, *, group_by_chain=False):
-        """Draws samples from the weighted samples collected from the run.
+        """
+        Draws samples from the weighted samples collected from the run.
 
         :param random.PRNGKey rng_key: Random number generator key to be used to draw samples.
         :param int num_samples: The number of samples.
@@ -319,7 +324,9 @@ class NestedSampler:
         return tree.map(lambda x: x[chain_dim_sel], samples)
 
     def get_weighted_samples(self):
-        """Gets weighted samples and their corresponding log weights."""
+        """
+        Gets weighted samples and their corresponding log weights.
+        """
         if self._results is None:
             raise RuntimeError(
                 "NestedSampler.run(...) method should be called first to obtain results."
@@ -328,9 +335,8 @@ class NestedSampler:
         return self._results.samples, self._results.log_dp_mean
 
     def print_summary(self):
-        """Print summary of the result.
-
-        This is a wrapper of :func:`jaxns.utils.summary`.
+        """
+        Print summary of the result. This is a wrapper of :func:`jaxns.utils.summary`.
         """
         if self._results is None:
             raise RuntimeError(
@@ -339,9 +345,8 @@ class NestedSampler:
         summary(self._results)
 
     def diagnostics(self):
-        """Plot diagnostics of the result.
-
-        This is a wrapper of :func:`jaxns.plotting.plot_diagnostics`
+        """
+        Plot diagnostics of the result. This is a wrapper of :func:`jaxns.plotting.plot_diagnostics`
         and :func:`jaxns.plotting.plot_cornerplot`.
         """
         if self._results is None:

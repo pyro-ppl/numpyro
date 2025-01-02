@@ -352,8 +352,10 @@ def scan(
     reverse: bool = False,
     history: int = 1,
 ):
-    """This primitive scans a function over the leading array axes of `xs` while carrying along state. See
-    :func:`jax.lax.scan` for more information.
+    """
+    This primitive scans a function over the leading array axes of
+    `xs` while carrying along state. See :func:`jax.lax.scan` for more
+    information.
 
     **Usage**:
 

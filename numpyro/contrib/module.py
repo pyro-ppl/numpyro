@@ -25,8 +25,10 @@ __all__ = [
 def flax_module(
     name, nn_module, *args, input_shape=None, apply_rng=None, mutable=None, **kwargs
 ):
-    """Declare a :mod:`~flax` style neural network inside a model so that its parameters are registered for
-    optimization via :func:`~numpyro.primitives.param` statements.
+    """
+    Declare a :mod:`~flax` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
 
     Given a flax ``nn_module``, in flax to evaluate the module with
     a given set of parameters, we use: ``nn_module.apply(params, x)``.
@@ -124,8 +126,10 @@ def flax_module(
 
 
 def haiku_module(name, nn_module, *args, input_shape=None, apply_rng=False, **kwargs):
-    """Declare a :mod:`~haiku` style neural network inside a model so that its parameters are registered for
-    optimization via :func:`~numpyro.primitives.param` statements.
+    """
+    Declare a :mod:`~haiku` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
 
     Given a haiku ``nn_module``, in haiku to evaluate the module with
     a given set of parameters, we use: ``nn_module.apply(params, None, x)``.
@@ -217,7 +221,9 @@ register_pytree_node(
 
 
 def _update_params(params, new_params, prior, prefix=""):
-    """A helper to recursively set prior to new_params."""
+    """
+    A helper to recursively set prior to new_params.
+    """
     for name, item in params.items():
         flatten_name = ".".join([prefix, name]) if prefix else name
         if isinstance(item, dict):
@@ -253,7 +259,8 @@ def random_flax_module(
     mutable=None,
     **kwargs,
 ):
-    """A primitive to place a prior over the parameters of the Flax module `nn_module`.
+    """
+    A primitive to place a prior over the parameters of the Flax module `nn_module`.
 
     .. note::
         Parameters of a Flax module are stored in a nested dict. For example,
@@ -381,7 +388,8 @@ def random_flax_module(
 def random_haiku_module(
     name, nn_module, prior, *args, input_shape=None, apply_rng=False, **kwargs
 ):
-    """A primitive to place a prior over the parameters of the Haiku module `nn_module`.
+    """
+    A primitive to place a prior over the parameters of the Haiku module `nn_module`.
 
     :param str name: name of NumPyro module
     :param nn_module: the module to be registered with NumPyro

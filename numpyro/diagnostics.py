@@ -1,6 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-"""This provides a small set of utilities in NumPyro that are used to diagnose posterior samples."""
+
+"""
+This provides a small set of utilities in NumPyro that are used to diagnose posterior samples.
+"""
 
 from collections import OrderedDict
 from itertools import product
@@ -40,8 +43,10 @@ def _compute_chain_variance_stats(x: NDArray) -> tuple[NDArray, NDArray]:
 
 
 def gelman_rubin(x: NDArray) -> NDArray:
-    """Computes R-hat over chains of samples ``x``, where the first dimension of ``x`` is chain dimension and the
-    second dimension of ``x`` is draw dimension. It is required that ``x.shape[0] >= 2`` and ``x.shape[1] >= 2``.
+    """
+    Computes R-hat over chains of samples ``x``, where the first dimension of
+    ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
+    It is required that ``x.shape[0] >= 2`` and ``x.shape[1] >= 2``.
 
     :param numpy.ndarray x: the input array.
     :return: R-hat of ``x``.
@@ -57,8 +62,10 @@ def gelman_rubin(x: NDArray) -> NDArray:
 
 
 def split_gelman_rubin(x: NDArray) -> NDArray:
-    """Computes split R-hat over chains of samples ``x``, where the first dimension of ``x`` is chain dimension and
-    the second dimension of ``x`` is draw dimension. It is required that ``x.shape[1] >= 4``.
+    """
+    Computes split R-hat over chains of samples ``x``, where the first dimension
+    of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
+    It is required that ``x.shape[1] >= 4``.
 
     :param numpy.ndarray x: the input array.
     :return: split R-hat of ``x``.
@@ -92,7 +99,8 @@ def _fft_next_fast_len(target: int) -> int:
 
 
 def autocorrelation(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
-    """Computes the autocorrelation of samples at dimension ``axis``.
+    """
+    Computes the autocorrelation of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
@@ -135,7 +143,8 @@ def autocorrelation(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
 
 
 def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
-    """Computes the autocovariance of samples at dimension ``axis``.
+    """
+    Computes the autocovariance of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocovariance.
@@ -147,8 +156,9 @@ def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
 
 
 def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
-    """Computes effective sample size of input ``x``, where the first dimension of ``x`` is chain dimension and the
-    second dimension of ``x`` is draw dimension.
+    """
+    Computes effective sample size of input ``x``, where the first dimension of
+    ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
 
     **References:**
 
@@ -194,8 +204,9 @@ def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
 
 
 def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
-    """Computes "highest posterior density interval" (HPDI) which is the narrowest interval with probability mass
-    ``prob``.
+    """
+    Computes "highest posterior density interval" (HPDI) which is the narrowest
+    interval with probability mass ``prob``.
 
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
@@ -223,9 +234,12 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
 def summary(
     samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
 ) -> dict:
-    """Returns a summary table displaying diagnostics of ``samples`` from the posterior. The diagnostics displayed
-    are mean, standard deviation, median, the 90% Credibility Interval :func:`~numpyro.diagnostics.hpdi`,
-    :func:`~numpyro.diagnostics.effective_sample_size`, and :func:`~numpyro.diagnostics.split_gelman_rubin`.
+    """
+    Returns a summary table displaying diagnostics of ``samples`` from the
+    posterior. The diagnostics displayed are mean, standard deviation, median,
+    the 90% Credibility Interval :func:`~numpyro.diagnostics.hpdi`,
+    :func:`~numpyro.diagnostics.effective_sample_size`, and
+    :func:`~numpyro.diagnostics.split_gelman_rubin`.
 
     :param samples: a collection of input samples with left most dimension is chain
         dimension and second to left most dimension is draw dimension.
@@ -274,9 +288,12 @@ def summary(
 def print_summary(
     samples: Union[dict, NDArray], prob: float = 0.90, group_by_chain: bool = True
 ) -> None:
-    """Prints a summary table displaying diagnostics of ``samples`` from the posterior. The diagnostics displayed
-    are mean, standard deviation, median, the 90% Credibility Interval :func:`~numpyro.diagnostics.hpdi`,
-    :func:`~numpyro.diagnostics.effective_sample_size`, and :func:`~numpyro.diagnostics.split_gelman_rubin`.
+    """
+    Prints a summary table displaying diagnostics of ``samples`` from the
+    posterior. The diagnostics displayed are mean, standard deviation, median,
+    the 90% Credibility Interval :func:`~numpyro.diagnostics.hpdi`,
+    :func:`~numpyro.diagnostics.effective_sample_size`, and
+    :func:`~numpyro.diagnostics.split_gelman_rubin`.
 
     :param samples: a collection of input samples with left most dimension is chain
         dimension and second to left most dimension is draw dimension.

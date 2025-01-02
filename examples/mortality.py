@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 """
 Example: Modelling mortality over space and time
 ================================================
@@ -95,7 +96,9 @@ from numpyro.infer.reparam import LocScaleReparam
 
 
 def create_lookup(s1, s2):
-    """Create a map between s1 indices and unique s2 indices."""
+    """
+    Create a map between s1 indices and unique s2 indices
+    """
     lookup = np.column_stack([s1, s2])
     lookup = np.unique(lookup, axis=0)
     lookup = lookup[lookup[:, 1].argsort()]

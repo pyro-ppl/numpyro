@@ -2762,9 +2762,11 @@ def test_unpack_transform(x_dim, y_dim):
 def test_generated_sample_distribution(
     jax_dist, sp_dist, params, N_sample=100_000, key=random.PRNGKey(11)
 ):
-    """On samplers that we do not get directly from JAX, (e.g. we only get Gumbel(0,1) but also provide samplers for
-    Gumbel(loc, scale)), also test agreement in the empirical distribution of generated samples between our samplers
-    and those from SciPy."""
+    """On samplers that we do not get directly from JAX, (e.g. we only get
+    Gumbel(0,1) but also provide samplers for Gumbel(loc, scale)), also test
+    agreement in the empirical distribution of generated samples between our
+    samplers and those from SciPy.
+    """
 
     if jax_dist not in [dist.Gumbel]:
         pytest.skip(
@@ -3582,7 +3584,7 @@ class InvalidDistributionLike:
 
 
 def test_valid_distribution_implementations():
-    """Test that valid implementations are recognized as DistributionLike."""
+    """Test that valid implementations are recognized as DistributionLike"""
     # Test standard NumPyro distribution
     assert isinstance(dist.Normal(0, 1), DistributionLike)
 
@@ -3591,13 +3593,13 @@ def test_valid_distribution_implementations():
 
 
 def test_invalid_distribution_implementations():
-    """Test that invalid implementations are not recognized as DistributionLike."""
+    """Test that invalid implementations are not recognized as DistributionLike"""
     assert not isinstance(InvalidDistributionLike(), DistributionLike)
     assert not isinstance(object(), DistributionLike)
 
 
 def test_distribution_like_interface():
-    """Test that we can use a custom DistributionLike implementation where a Distribution is expected."""
+    """Test that we can use a custom DistributionLike implementation where a Distribution is expected"""
     my_dist = ValidDistributionLike()
 
     # Test basic properties
@@ -3628,7 +3630,7 @@ def test_distribution_like_interface():
 
 
 def test_distribution_like_with_shapes():
-    """Test a DistributionLike implementation with non-trivial shapes."""
+    """Test a DistributionLike implementation with non-trivial shapes"""
 
     class ShapedDistributionLike:
         @property

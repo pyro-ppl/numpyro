@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 r"""
 Example: VAR(2) process
 =======================
@@ -96,8 +97,8 @@ def var2_scan(y):
 
 
 def generate_var2_data(T, K, c, Phi1, Phi2, sigma):
-    """Generate time series data from a VAR(2) process.
-
+    """
+    Generate time series data from a VAR(2) process.
     Args:
         T (int): Number of time steps.
         K (int): Number of variables in the time series.
@@ -125,8 +126,8 @@ def generate_var2_data(T, K, c, Phi1, Phi2, sigma):
 
 
 def run_inference(model, args, rng_key, y):
-    """Run MCMC inference for the given model.
-
+    """
+    Run MCMC inference for the given model.
     Args:
         model: The probabilistic model to infer.
         args: Command-line arguments.
