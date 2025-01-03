@@ -1013,6 +1013,20 @@ DISCRETE = [
     T(dist.Delta, 1),
     T(dist.Delta, np.array([0.0, 2.0])),
     T(dist.Delta, np.array([0.0, 2.0]), np.array([-2.0, -4.0])),
+    T(
+        dist.Delta,
+        np.array([0.0, 2.0]),
+        -3.0,
+        0,
+        constraints.real_vector,
+    ),
+    T(
+        dist.Delta,
+        np.array([[1.0, 1.5], [2.3, 1.2]])[..., None, None] * np.eye(3),
+        np.array([-2.0, -4.0]),
+        1,
+        constraints.positive_definite,
+    ),
     T(dist.DirichletMultinomial, np.array([1.0, 2.0, 3.9]), 10),
     T(dist.DirichletMultinomial, np.array([0.2, 0.7, 1.1]), np.array([5, 5])),
     T(dist.GammaPoisson, 2.0, 2.0),
@@ -1446,7 +1460,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
         "LKJCholesky",
         "_SparseCAR",
         "ZeroSumNormal",
-    ):
+    ) or (jax_dist.__name__ == "Delta" and len(params) > 2):
         pytest.xfail(reason="non-jittable params")
 
     rng_key = random.PRNGKey(0)
@@ -1882,7 +1896,11 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             continue
         if jax_dist is dist.DoublyTruncatedPowerLaw and i != 0:
             continue
-        if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
+        if (
+            params[i] is None
+            or isinstance(params[i], constraints.Constraint)
+            or jnp.result_type(params[i]) in (jnp.int32, jnp.int64)
+        ):
             continue
         actual_grad = jax.grad(fn, i)(*params)
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
