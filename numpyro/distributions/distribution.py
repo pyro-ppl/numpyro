@@ -1213,18 +1213,25 @@ class Delta(Distribution):
         "log_density": constraints.real,
     }
     reparametrized_params = ["v", "log_density"]
+    pytree_aux_fields = ("v", "log_density", "_support")
 
-    def __init__(self, v=0.0, log_density=0.0, event_dim=0, *, validate_args=None):
-        if event_dim > jnp.ndim(v):
+    def __init__(
+        self, v=0.0, log_density=0.0, event_dim=0, support=None, *, validate_args=None
+    ):
+        if support is None:
+            support = constraints.real
+        if event_dim:
+            support = constraints.independent(support, event_dim)
+        if support.event_dim > jnp.ndim(v):
             raise ValueError(
-                "Expected event_dim <= v.dim(), actual {} vs {}".format(
-                    event_dim, jnp.ndim(v)
-                )
+                "Expected event_dim + support.event_dim <= v.dim(), actual "
+                f"{support.event_dim} vs {jnp.ndim(v)}."
             )
-        batch_dim = jnp.ndim(v) - event_dim
+        batch_dim = jnp.ndim(v) - support.event_dim
         batch_shape = jnp.shape(v)[:batch_dim]
         event_shape = jnp.shape(v)[batch_dim:]
         self.v = v
+        self._support = support
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(
@@ -1233,7 +1240,7 @@ class Delta(Distribution):
 
     @constraints.dependent_property
     def support(self):
-        return constraints.independent(constraints.real, self.event_dim)
+        return self._support
 
     def sample(self, key, sample_shape=()):
         if not sample_shape:
