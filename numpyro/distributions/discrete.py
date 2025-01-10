@@ -228,7 +228,7 @@ class BinomialProbs(Distribution):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
             if np.amin(self.total_count) != total_count:
                 raise NotImplementedError(
-                    "Inhomogeneous total count not supported" " by `enumerate_support`."
+                    "Inhomogeneous total count not supported by `enumerate_support`."
                 )
         else:
             total_count = jnp.amax(self.total_count)
