@@ -25,7 +25,6 @@ from numpyro import deterministic, plate, sample, set_platform, subsample
 from numpyro.contrib.einstein import MixtureGuidePredictive, RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
 from numpyro.examples.datasets import BOSTON_HOUSING, load_dataset
-from numpyro.infer import init_to_uniform
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adagrad
 
@@ -121,12 +120,12 @@ def main(args):
     rng_key, inf_key = random.split(inf_key)
 
     # We find that SteinVI benefits from a small radius when inferring BNNs.
-    guide = AutoNormal(model, init_loc_fn=partial(init_to_uniform, radius=0.1))
+    guide = AutoNormal(model)  # , init_loc_fn=partial(init_to_uniform, radius=0.1))
 
     stein = SteinVI(
         model,
         guide,
-        Adagrad(0.5),
+        Adagrad(1.0),
         RBFKernel(),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
