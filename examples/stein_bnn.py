@@ -120,7 +120,7 @@ def main(args):
     rng_key, inf_key = random.split(inf_key)
 
     # We find that SteinVI benefits from a small radius when inferring BNNs.
-    guide = AutoNormal(model)  # , init_loc_fn=partial(init_to_uniform, radius=0.1))
+    guide = AutoNormal(model)
 
     stein = SteinVI(
         model,
