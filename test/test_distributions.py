@@ -3681,3 +3681,9 @@ def test_distribution_like_with_shapes():
 
     assert my_dist.mean.shape == (2, 3, 4)
     assert my_dist.variance.shape == (2, 3, 4)
+
+
+def test_distribution_repr():
+    result = repr(dist.Wishart(7, jnp.eye(5)).expand([3, 4]).to_event(1))
+    assert "batch shape (3,)" in result
+    assert "event shape (4, 5, 5)"

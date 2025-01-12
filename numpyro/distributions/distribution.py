@@ -563,6 +563,13 @@ class Distribution(metaclass=DistributionMeta):
     def is_discrete(self):
         return self.support.is_discrete
 
+    def __repr__(self) -> str:
+        cls = self.__class__
+        return (
+            f"<{cls.__module__}.{cls.__name__} object at {id(self):#x} with batch "
+            f"shape {self.batch_shape} and event shape {self.event_shape}>"
+        )
+
 
 @runtime_checkable
 class DistributionLike(Protocol):
