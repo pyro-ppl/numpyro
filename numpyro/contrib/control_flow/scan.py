@@ -82,7 +82,7 @@ def _subs_wrapper(subs_map, i, length, site):
                 )
         else:
             raise RuntimeError(
-                f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1},"
+                f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim + 1},"
                 f" but got {value_ndim}. This might happen when you use nested scan,"
                 " which is currently not supported. Please report the issue to us!"
             )

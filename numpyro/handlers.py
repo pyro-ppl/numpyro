@@ -434,9 +434,7 @@ class condition(Messenger):
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
-            raise ValueError(
-                "Only one of `data` or `condition_fn` " "should be provided."
-            )
+            raise ValueError("Only one of `data` or `condition_fn` should be provided.")
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
@@ -874,7 +872,7 @@ class substitute(Messenger):
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
             raise ValueError(
-                "Only one of `data` or `substitute_fn` " "should be provided."
+                "Only one of `data` or `substitute_fn` should be provided."
             )
         super(substitute, self).__init__(fn)
 

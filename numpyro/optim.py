@@ -241,13 +241,11 @@ register_pytree_node(
 )
 
 
-def _minimize_wrapper() -> (
-    tuple[
-        Callable[[_Params], _MinimizeState],
-        Callable[[Any, Any, _MinimizeState], _MinimizeState],
-        Callable[[_MinimizeState], _Params],
-    ]
-):
+def _minimize_wrapper() -> tuple[
+    Callable[[_Params], _MinimizeState],
+    Callable[[Any, Any, _MinimizeState], _MinimizeState],
+    Callable[[_MinimizeState], _Params],
+]:
     def init_fn(params: _Params) -> _MinimizeState:
         flat_params, unravel_fn = ravel_pytree(params)
         return _MinimizeState(flat_params, unravel_fn)

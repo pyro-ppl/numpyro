@@ -75,9 +75,9 @@ def run_hmc(mcmc_key, args, data, obs, kernel):
 
 
 def main(args):
-    assert (
-        11_000_000 >= args.num_datapoints
-    ), "11,000,000 data points in the Higgs dataset"
+    assert 11_000_000 >= args.num_datapoints, (
+        "11,000,000 data points in the Higgs dataset"
+    )
     # full dataset takes hours for plain hmc!
     if args.dataset == "higgs":
         _, fetch = load_dataset(

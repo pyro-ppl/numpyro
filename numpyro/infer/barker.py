@@ -181,7 +181,7 @@ class BarkerMH(MCMCKernel):
         )
         if self._potential_fn and init_params is None:
             raise ValueError(
-                "Valid value of `init_params` must be provided with" " `potential_fn`."
+                "Valid value of `init_params` must be provided with `potential_fn`."
             )
 
         pe, grad = jax.value_and_grad(self._potential_fn)(init_params)

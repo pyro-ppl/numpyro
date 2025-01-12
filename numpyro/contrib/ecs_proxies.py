@@ -12,13 +12,11 @@ from numpyro.handlers import block, substitute, trace
 
 TaylorTwoProxyState = namedtuple(
     "TaylorProxyState",
-    "ref_subsample_log_liks,"
-    "ref_subsample_log_lik_grads,"
-    "ref_subsample_log_lik_hessians",
+    "ref_subsample_log_liks,ref_subsample_log_lik_grads,ref_subsample_log_lik_hessians",
 )
 
 TaylorOneProxyState = namedtuple(
-    "TaylorOneProxyState", "ref_subsample_log_liks," "ref_subsample_log_lik_grads,"
+    "TaylorOneProxyState", "ref_subsample_log_liks,ref_subsample_log_lik_grads,"
 )
 
 

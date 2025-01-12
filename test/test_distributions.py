@@ -3446,9 +3446,9 @@ def _assert_not_jax_issue_19885(
         if block_until_ready:
             result = block_until_ready()
         _, err = capfd.readouterr()
-        assert (
-            "MatMul reference implementation being executed" not in err
-        ), f"jit: {jit}"
+        assert "MatMul reference implementation being executed" not in err, (
+            f"jit: {jit}"
+        )
     return result
 
 
