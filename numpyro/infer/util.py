@@ -17,6 +17,7 @@ from jax.lax import broadcast_shapes
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -685,6 +686,18 @@ def initialize_model(
         has_enumerate_support,
         model_trace,
     ) = _get_model_transforms(substituted_model, model_args, model_kwargs)
+
+    for name, site in model_trace.items():
+        if (
+            site["type"] == "sample"
+            and isinstance(site["fn"], dist.Delta)
+            and not site["is_observed"]
+        ):
+            raise ValueError(
+                f"Sample site '{name}' has a delta distribution; use "
+                "`numpyro.deterministic` to add this value to the trace instead."
+            )
+
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
     model = substitute(
