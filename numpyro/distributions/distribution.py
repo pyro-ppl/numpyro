@@ -1250,7 +1250,7 @@ class Delta(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        log_prob = jnp.log(value == self.v)
+        log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 

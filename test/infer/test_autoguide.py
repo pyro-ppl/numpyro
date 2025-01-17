@@ -1350,3 +1350,18 @@ def test_auto_batched_median(auto_class) -> None:
     assert jnp.allclose(
         jnp.stack(list(median.values())).ravel(), params["auto_loc"].ravel()
     )
+
+
+def test_autoguide_with_delta_site() -> None:
+    def model(x):
+        numpyro.sample("x", dist.Delta(3.0), obs=x)
+        # Need to sample a latent variable so the guide is not empty.
+        numpyro.sample("y", dist.Normal())
+
+    guide = AutoDiagonalNormal(lambda: model(None))
+    with pytest.raises(ValueError, match="has a delta distribution"):
+        numpyro.handlers.seed(guide, 9)()
+
+    # Check delta distributions are fine if observed.
+    guide = AutoDiagonalNormal(lambda: model(3.0))
+    numpyro.handlers.seed(guide, 9)()
