@@ -18,7 +18,7 @@ import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 
 import jax
-from jax import device_put, jit, lax, vmap
+from jax import jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import io_callback
 import jax.numpy as jnp
@@ -386,7 +386,7 @@ def fori_collect(
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
-        vals = (init_val, collection, device_put(start_idx), device_put(thinning))
+        vals = (init_val, collection, jnp.asarray(start_idx), jnp.asarray(thinning))
 
         if upper == 0:
             # special case, only compiling
