@@ -6,7 +6,7 @@ from functools import partial
 from typing import Callable, Optional
 
 import jax
-from jax import device_put, lax, random
+from jax import lax, random
 import jax.numpy as jnp
 
 from numpyro import handlers
@@ -228,7 +228,6 @@ def scan_enum(
                 # return early if length = unroll_steps
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
-                wrapped_carry = jax.tree.map(device_put, wrapped_carry)
                 wrapped_carry, (pytree_trace, ys) = lax.scan(
                     body_fn, wrapped_carry, xs_, length - unroll_steps, reverse
                 )
@@ -331,7 +330,7 @@ def scan_wrapper(
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    wrapped_carry = jax.tree.map(device_put, (0, rng_key, init))
+    wrapped_carry = (jnp.asarray(0), rng_key, init)
     last_carry, (pytree_trace, ys) = lax.scan(
         body_fn, wrapped_carry, xs, length=length, reverse=reverse
     )

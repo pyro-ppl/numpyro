@@ -4,7 +4,7 @@
 from functools import partial
 from typing import Any, Callable
 
-from jax import device_put, lax
+from jax import lax
 
 from numpyro import handlers
 from numpyro.ops.pytree import PytreeTrace
@@ -69,7 +69,7 @@ def cond_wrapper(
 
     wrapped_true_fun = wrap_fn(true_fun, substitute_stack)
     wrapped_false_fun = wrap_fn(false_fun, substitute_stack)
-    wrapped_operand = device_put((rng_key, operand))
+    wrapped_operand = (rng_key, operand)
     return lax.cond(pred, wrapped_true_fun, wrapped_false_fun, wrapped_operand)
 
 

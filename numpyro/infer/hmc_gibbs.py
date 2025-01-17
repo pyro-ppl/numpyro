@@ -7,7 +7,7 @@ from functools import partial
 
 import numpy as np
 
-from jax import device_put, grad, jacfwd, random, value_and_grad
+from jax import grad, jacfwd, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit
@@ -148,7 +148,7 @@ class HMCGibbs(MCMCKernel):
 
         z = {**gibbs_sites, **hmc_state.z}
 
-        return device_put(HMCGibbsState(z, hmc_state, rng_key))
+        return HMCGibbsState(z, hmc_state, rng_key)
 
     def sample(self, state, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs

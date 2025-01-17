@@ -208,7 +208,7 @@ class BarkerMH(MCMCKernel):
             wa_state,
             rng_key,
         )
-        return jax.device_put(init_state)
+        return init_state
 
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
