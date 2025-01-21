@@ -133,9 +133,10 @@ def test_vec_to_tril_matrix(shape, diagonal):
 @pytest.mark.parametrize("dim", [1, 4])
 @pytest.mark.parametrize("coef", [1, -1])
 def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
-    A = random.normal(random.PRNGKey(0), chol_batch_shape + (dim, dim))
+    key1, key2 = random.split(random.PRNGKey(19470715))
+    A = random.normal(key1, chol_batch_shape + (dim, dim))
     A = A @ jnp.swapaxes(A, -2, -1) + jnp.eye(dim)
-    x = random.normal(random.PRNGKey(0), vec_batch_shape + (dim,)) * 0.1
+    x = random.normal(key2, vec_batch_shape + (dim,)) * 0.1
     xxt = x[..., None] @ x[..., None, :]
     expected = jnp.linalg.cholesky(A + coef * xxt)
     actual = cholesky_update(jnp.linalg.cholesky(A), x, coef)

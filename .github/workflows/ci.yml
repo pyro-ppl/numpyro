@@ -77,7 +77,8 @@ jobs:
         CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
     - name: Test x64
       run: |
-        JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
+        JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k "PowerLaw or test_log_prob_gradient"
+        JAX_ENABLE_X64=1 pytest test/test_transforms.py::test_bijective_transforms
     - name: Coveralls
       if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
       uses: coverallsapp/github-action@v2

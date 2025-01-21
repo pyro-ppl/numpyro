@@ -139,8 +139,9 @@ def test_scale(use_context_manager):
             numpyro.sample("obs", dist.Normal(x, 1), obs=data)
 
     model = model if use_context_manager else handlers.scale(model, 10.0)
-    data = random.normal(random.PRNGKey(0), (3,))
-    x = random.normal(random.PRNGKey(1))
+    key1, key2 = random.split(random.PRNGKey(0), 2)
+    data = random.normal(key1, (3,))
+    x = random.normal(key2)
     log_joint = log_density(model, (data,), {}, {"x": x})[0]
     log_prob1, log_prob2 = (
         dist.Normal(0, 1).log_prob(x),
