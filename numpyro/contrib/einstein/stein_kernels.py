@@ -468,25 +468,25 @@ class RadialGaussNewtonKernel(SteinKernel):
         .. math::
             k(x,y) = \exp\left(-\frac{1}{2d}(x-y)^T M (x-y)\right),
 
-    where particles :math:`x,y \in R^d` and :math:`M` is a metric matrix. :math:`M` approximates the expected curvature
-    of the log posterior using Hessian approximations :math:`A(x)`.
+    where :math:`x,y \in R^d` are particles and :math:`M` is a metric matrix. :math:`M` approximates the expected
+    curvature of the log posterior using Hessian approximations :math:`A(x)`.
 
-    The matrix :math:`M` is computed using :math:`m` particles as follows [2, Eq. 19, p.5)]:
+    The matrix :math:`M` is computed using :math:`m` particles as follows [2, Eq. 19, p.5]:
 
         .. math::
-            M= \frac{1}{m} \sum_{i\in 1} A(x_i)
+            M= \frac{1}{m} \sum_{i=1}^m A(x_i)
 
     with the Hessian approximation given by:
 
         .. math::
-            A(x) = J(x)^T J(x),
+            A(x) = J(x) J(x)^T,
 
-    where :math:`J(x)` is the Jacobian of the ELBO at :math:`x`.
+    where :math:`J(x)` is the Jacobian of an ELBO at :math:`x`.
 
-    ** References **: (MLA)
-    1.  Maken, Fahira Afzal, Fabio Ramos, and Lionel Ott. "Stein particle filter for
-        nonlinear, non-gaussian state estimation." IEEE Robotics and Automation
-        Letters 7.2 (2022).
+    **References**:
+
+    1. Maken, Fahira Afzal, Fabio Ramos, and Lionel Ott. "Stein Particle Filter for Nonlinear,
+        **Non-Gaussian State Estimation."** IEEE Robotics and Automation Letters 7.2 (2022).
     2. Detommaso, Gianluca, et al. "A Stein variational Newton method."
         Advances in Neural Information Processing Systems 31 (2018).
     """
