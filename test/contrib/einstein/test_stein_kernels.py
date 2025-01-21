@@ -18,6 +18,7 @@ from numpyro.contrib.einstein.stein_kernels import (
     LinearKernel,
     MixtureKernel,
     ProbabilityProductKernel,
+    RadialGaussNewtonKernel,
     RandomFeatureKernel,
     RBFKernel,
 )
@@ -25,7 +26,9 @@ from numpyro.distributions import Normal
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adam
 
-T = namedtuple("TestSteinKernel", ["kernel", "particle_info", "loss_fn", "kval"])
+T = namedtuple(
+    "TestSteinKernel", ["name", "kernel", "particle_info", "loss_fn", "kval"]
+)
 
 PARTICLES = np.array([[1.0, 2.0], [10.0, 5.0], [7.0, 3.0], [2.0, -1]])
 
@@ -36,6 +39,7 @@ def MOCK_MODEL():
 
 TEST_CASES = [
     T(
+        "RBFKernel",
         RBFKernel,
         lambda d: {},
         lambda x: x,
@@ -63,8 +67,15 @@ TEST_CASES = [
             "matrix": np.array([[0.00490776, 0.0], [0.0, 0.00490776]]),
         },
     ),
-    T(RandomFeatureKernel, lambda d: {}, lambda x: x, {"norm": 13.805723}),
     T(
+        "RandomFeatureKernel",
+        RandomFeatureKernel,
+        lambda d: {},
+        lambda x: x,
+        {"norm": 13.805723},
+    ),
+    T(
+        "IMQKernel",
         IMQKernel,
         lambda d: {},
         lambda x: x,
@@ -84,6 +95,7 @@ TEST_CASES = [
         },
     ),
     T(
+        "LinearKernel",
         LinearKernel,
         lambda d: {},
         lambda x: x,
@@ -96,6 +108,7 @@ TEST_CASES = [
         },
     ),
     T(
+        "MixtureKernel",
         lambda mode: MixtureKernel(
             mode=mode,
             ws=np.array([0.2, 0.8]),
@@ -107,6 +120,7 @@ TEST_CASES = [
         {"matrix": np.array([[0.00490776, 0.0], [0.0, 0.00490776]])},
     ),
     T(
+        "GraphicalKernel",
         lambda mode: GraphicalKernel(
             mode=mode, local_kernel_fns={"p1": RBFKernel("norm")}
         ),
@@ -124,6 +138,7 @@ TEST_CASES = [
         },
     ),
     T(
+        "ProbibilityProductKernel",
         lambda mode: ProbabilityProductKernel(mode=mode, guide=AutoNormal(MOCK_MODEL)),
         lambda d: {"x_auto_loc": (0, 1), "x_auto_scale": (1, 2)},
         lambda x: x,
@@ -139,18 +154,33 @@ TEST_CASES = [
         #        = 0.2544481
         {"norm": 0.2544481},
     ),
+    T(
+        "RadialGaussNewtonKernel",
+        lambda mode: RadialGaussNewtonKernel(),
+        lambda d: {},
+        lambda key, particle, i: jnp.linalg.norm(particle),  # Mock ELBO
+        # let
+        #   J(z) = (2/sqrt(z.sum()))*z.T . z
+        #   M = mean(map(J, particles)) = [[0.6612069 , 0.19051724],
+        #                                  [0.19051724, 0.3387931 ]]
+        #   diff = [1, 2] -  [10, 5] = [-9, -3]
+        #   quad_form = diff.T . M . diff = 66.89482758620689
+        # in
+        # k(x,y) = exp(-1/(2*2) * quad_form) = 5.457407430444593e-08
+        {"norm": 5.457407430444593e-08},
+    ),
 ]
 
 
-TEST_IDS = [t[0].__class__.__name__ for t in TEST_CASES]
+TEST_IDS = [t.name for t in TEST_CASES]
 
 
-@pytest.mark.parametrize(
-    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
-)
-@pytest.mark.parametrize("particles", [PARTICLES])
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
-def test_kernel_forward(kernel, particles, particle_info, loss_fn, mode, kval):
+@pytest.mark.parametrize(
+    "name, kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
+)
+def test_kernel_forward(name, kernel, particle_info, loss_fn, mode, kval):
+    particles = PARTICLES
     if mode not in kval:
         pytest.skip()
     (d,) = particles[0].shape
@@ -162,11 +192,11 @@ def test_kernel_forward(kernel, particles, particle_info, loss_fn, mode, kval):
 
 
 @pytest.mark.parametrize(
-    "kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
+    "name, kernel, particle_info, loss_fn, kval", TEST_CASES, ids=TEST_IDS
 )
 @pytest.mark.parametrize("mode", ["norm", "vector", "matrix"])
-@pytest.mark.parametrize("particles", [PARTICLES])
-def test_apply_kernel(kernel, particles, particle_info, loss_fn, mode, kval):
+def test_apply_kernel(name, kernel, particle_info, loss_fn, mode, kval):
+    particles = PARTICLES
     if mode not in kval:
         pytest.skip()
     (d,) = particles[0].shape
