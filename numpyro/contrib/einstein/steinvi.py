@@ -96,6 +96,7 @@ class SteinVI:
         during inference.
 
     **References:**
+
     1. Rønning, Ola, et al. "ELBOing Stein: Variational Bayes with Stein Mixture Inference."
         arXiv preprint arXiv:2410.22948 (2024).
     2. Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
@@ -713,8 +714,9 @@ class ASVGD(SVGD):
         """Cyclical annealing schedule as in eq. 4 of [1].
 
         **References** (MLA)
-            1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
-                Third Symposium on Advances in Approximate Bayesian Inference, 2021.
+
+        1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
+            Third Symposium on Advances in Approximate Bayesian Inference, 2021.
 
         :param num_steps: The total number of steps. Corresponds to $T$ in eq. 4 of [1].
         :param num_cycles: The total number of cycles. Corresponds to $C$ in eq. 4 of [1].
