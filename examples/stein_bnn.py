@@ -129,7 +129,7 @@ def main(args):
     stein = SteinVI(
         model,
         guide,
-        Adagrad(0.5),
+        Adagrad(1.0),
         RBFKernel(),
         repulsion_temperature=args.repulsion,
         num_stein_particles=args.num_stein_particles,
@@ -182,7 +182,7 @@ def main(args):
     ax.plot(pred_y.mean(0), "ko", label="y pred")
     ax.set(xlabel="example", ylabel="y", title="Mean Predictions with 90% CI")
     ax.legend()
-    fig.savefig("stein_bnn.png")
+    fig.savefig("stein_bnn.pdf")
 
 
 if __name__ == "__main__":
