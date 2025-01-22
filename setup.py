@@ -9,8 +9,8 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_jax_version_constraints = ">=0.4.25, <0.5.0"
-_jaxlib_version_constraints = ">=0.4.25, 0.5.0"
+_jax_version_constraints = ">=0.4.25,<0.5.0"
+_jaxlib_version_constraints = ">=0.4.25,<0.5.0"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
