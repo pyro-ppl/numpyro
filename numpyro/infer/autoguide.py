@@ -227,7 +227,7 @@ class AutoGuideList(AutoGuide):
         guide = AutoGuideList(my_model)
         guide.append(
             AutoNormal(
-                numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=0), hide=["coefs"])
+                numpyro.handlers.block(model, hide=["coefs"])
             )
         )
         guide.append(

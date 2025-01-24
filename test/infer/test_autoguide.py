@@ -1068,13 +1068,7 @@ def test_autoguidelist(auto_classes, Elbo):
             ValueError,
             match="AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported.",
         ):
-            guide.append(
-                auto_classes[1](
-                    numpyro.handlers.block(
-                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
-                    )
-                )
-            )
+            guide.append(auto_classes[1](numpyro.handlers.block(model, hide=["a"])))
         return
     if auto_classes[1] == AutoSemiDAIS:
         with pytest.raises(
@@ -1083,9 +1077,7 @@ def test_autoguidelist(auto_classes, Elbo):
         ):
             guide.append(
                 auto_classes[1](
-                    numpyro.handlers.block(
-                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
-                    ),
+                    numpyro.handlers.block(model, hide=["a"]),
                     local_model=None,
                     global_guide=None,
                 )
@@ -1098,19 +1090,13 @@ def test_autoguidelist(auto_classes, Elbo):
         ):
             guide.append(
                 auto_classes[1](
-                    numpyro.handlers.block(
-                        numpyro.handlers.seed(model, rng_seed=1), hide=["a"]
-                    ),
+                    numpyro.handlers.block(model, hide=["a"]),
                     surrogate_model=None,
                 )
             )
         return
 
-    guide.append(
-        auto_classes[1](
-            numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=1), hide=["a"])
-        )
-    )
+    guide.append(auto_classes[1](numpyro.handlers.block(model, hide=["a"])))
 
     optimiser = numpyro.optim.Adam(step_size=0.1)
     svi = SVI(model, guide, optimiser, Elbo())
@@ -1195,7 +1181,7 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
         numpyro.deterministic("x2", x**2)
 
     guide = AutoGuideList(model)
-    blocked_model = handlers.block(handlers.seed(model, 7), hide=["x2"])
+    blocked_model = handlers.block(model, hide=["x2"])
 
     # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
     if auto_class == AutoDAIS:
