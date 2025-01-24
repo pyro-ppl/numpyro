@@ -199,7 +199,9 @@ def scan_enum(
         return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
 
     with (
-        handlers.block(hide_fn=lambda site: not site["name"].startswith("_PREV_")),
+        handlers.block(
+            hide_fn=lambda site: not site.get("name", "nameless").startswith("_PREV_")
+        ),
         enum(first_available_dim=first_available_dim),
     ):
         wrapped_carry = (0, rng_key, init)
