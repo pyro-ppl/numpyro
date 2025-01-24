@@ -310,8 +310,17 @@ class block(Messenger):
         super(block, self).__init__(fn)
 
     def process_message(self, msg: Message) -> None:
-        if self.hide_fn(msg):
-            msg["stop"] = True
+        if not self.hide_fn(msg):
+            return
+        msg["stop"] = True
+
+        # For specific message types, get a prng key from the stack. These types match
+        # the implementation in `seed` except `prng_key` because it would lead to
+        # infinite recursion. The corresponding message reaches the seed handler unless
+        # messages of `prng_key` type are blocked.
+        allowed_types = {"sample", "plate", "control_flow"}
+        if msg["type"] in allowed_types and msg["kwargs"]["rng_key"] is None:
+            msg["kwargs"]["rng_key"] = numpyro.prng_key()
 
 
 class collapse(trace):
@@ -748,7 +757,7 @@ class seed(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param rng_seed: a random number generator seed.
     :type rng_seed: int, jnp.ndarray scalar, or jax.random.PRNGKey
-    :param list hide_types: an optional list of side types to skip seeding, e.g. ['plate'].
+    :param list hide_types: an optional list of site types to skip seeding, e.g. ['plate'].
 
     .. note::
 
