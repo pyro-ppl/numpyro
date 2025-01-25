@@ -437,7 +437,7 @@ def log1mexp(x):
     :return: The value of :math:`\\log(1 - \\exp(x))`.
     """
     return jnp.where(
-        x > -0.6931472,
+        x > -0.6931472,  # approx log(2)
         jnp.log(-jnp.expm1(x)),
         jnp.log1p(-jnp.exp(x)))
 
@@ -469,12 +469,12 @@ def logdiffexp(a, b):
     :param b: A number or array of numbers.
     :return: The value of :math:`\\log(\\exp(a) - \\exp(b))`.
     """
-    return jnp.where(a > b,
-                     a + log1mexp(b - a),
-                     jnp.where(
-                         (a == b) & (a < jnp.inf),
-                         -jnp.inf,
-                         jnp.nan))
+    return jnp.where(
+        (a < jnp.inf) & (a > b),
+        a + log1mexp(b - a),
+        jnp.where(a == b,
+                  -jnp.inf,
+                  jnp.nan))
 
 
 def clamp_probs(probs):

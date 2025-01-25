@@ -4,7 +4,11 @@
 from numbers import Number
 
 import numpy as np
-from numpy.testing import assert_allclose
+from numpy.testing import (
+    assert_allclose,
+    assert_array_equal,
+    assert_array_almost_equal)
+
 import pytest
 import scipy
 
@@ -24,6 +28,7 @@ from numpyro.distributions.util import (
     safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered,
+    logdiffexp
 )
 
 
@@ -76,6 +81,50 @@ def test_categorical_stats(p):
     z = categorical(rng_key, p, (n,))
     _, counts = np.unique(z, return_counts=True)
     assert_allclose(counts / float(n), p, atol=0.01)
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [
+        (jnp.array([jnp.inf, 0, 6.5, 4.99999, -jnp.inf]),
+         jnp.array([5, 0, 6.5, 5, -jnp.inf]),
+         jnp.array([jnp.nan, -jnp.inf, -jnp.inf, jnp.nan, -jnp.inf])),
+        (jnp.inf, .3532, jnp.nan),
+        (0, 0, -jnp.inf),
+        (-jnp.inf, -jnp.inf, -jnp.inf),
+        (5.6, 5.6, -jnp.inf),
+        (1e34, 1e34/0.9999, jnp.nan)
+    ]
+)
+def test_logdiffexp_bounds_handling(a, b, expected):
+    """
+    Test bounds handling for logdiffexp.
+
+    logdiffexp(jnp.inf, anything) should be nan,
+
+    logdiffexp(a, b) for a < b should be nan, even if numbers
+    are very close.
+
+    logdiffexp(a, b) for a == b should be -jnp.inf
+    even if a == b == -jnp.inf (log(0 - 0))
+    """
+    assert_array_equal(logdiffexp(a, b), expected)
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        (jnp.array([53, 23.532, 8, -1.35]),
+         jnp.array([56, -63.2, 2, -5.32]))
+    ]
+)
+def test_logdiffexp_agrees_with_manual(a, b):
+    """
+    logdiffexp should agree with a manual implementation
+    for small values.
+    """
+    assert_array_almost_equal(logdiffexp(a, b),
+                              jnp.log(jnp.exp(a) - jnp.exp(b)))
 
 
 @pytest.mark.parametrize(
