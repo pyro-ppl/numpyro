@@ -94,6 +94,47 @@ def test_log1mexp_grads(x):
 
 
 @pytest.mark.parametrize(
+    "x, expected",
+    [
+        (jnp.array([0.01, 0, -jnp.inf]),
+         jnp.array([jnp.nan, -jnp.inf, 0])),
+        (0.001, jnp.nan),
+        (0, -jnp.inf),
+        (-jnp.inf, 0)
+    ]
+)
+def test_log1mexp_bounds_handling(x, expected):
+    """
+    log1mexp(x) should be nan for x > 0.
+
+    log1mexp(x) should be -inf for x == 0.
+
+    log1mexp(-inf) should be 0.
+
+    This should work vectorized and not interfere
+    with other calculations.
+    """
+    assert_array_equal(log1mexp(x), expected)
+
+
+@pytest.mark.parametrize(
+    "x",
+    [
+        jnp.array([-0.6, -8.32, -3]),
+        -2.5,
+        -0.01
+    ]
+)
+def test_log1mexp_agrees_with_basic(x):
+    """
+    log1mexp should agree with a basic implementation
+    for values where the basic implementation is stable.
+    """
+    assert_array_almost_equal(log1mexp(x),
+                              jnp.log(1 - jnp.exp(x)))
+
+
+@pytest.mark.parametrize(
     "a, b",
     [
         (-20., -35.),
@@ -141,10 +182,10 @@ def test_logdiffexp_bounds_handling(a, b, expected):
          jnp.array([56, -63.2, 2, -5.32]))
     ]
 )
-def test_logdiffexp_agrees_with_manual(a, b):
+def test_logdiffexp_agrees_with_basic(a, b):
     """
-    logdiffexp should agree with a manual implementation
-    for small values.
+    logdiffexp should agree with a basic implementation
+    for values at which the basic implementation is stable.
     """
     assert_array_almost_equal(logdiffexp(a, b),
                               jnp.log(jnp.exp(a) - jnp.exp(b)))
