@@ -89,6 +89,7 @@ class BernoulliProbs(Distribution):
     @validate_sample
     def log_prob(self, value):
         ps_clamped = clamp_probs(self.probs)
+        value = jnp.array(value, jnp.result_type(float))
         return xlogy(value, ps_clamped) + xlog1py(1 - value, -ps_clamped)
 
     @lazy_property
@@ -190,6 +191,7 @@ class BinomialProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        value = jnp.array(value, jnp.result_type(float))
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
@@ -226,7 +228,7 @@ class BinomialProbs(Distribution):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
             if np.amin(self.total_count) != total_count:
                 raise NotImplementedError(
-                    "Inhomogeneous total count not supported" " by `enumerate_support`."
+                    "Inhomogeneous total count not supported by `enumerate_support`."
                 )
         else:
             total_count = jnp.amax(self.total_count)
@@ -261,12 +263,13 @@ class BinomialLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        log_factorial_n = gammaln(self.total_count + 1)
+        total_count = jnp.array(self.total_count, dtype=jnp.result_type(float))
+        log_factorial_n = gammaln(total_count + 1)
         log_factorial_k = gammaln(value + 1)
-        log_factorial_nmk = gammaln(self.total_count - value + 1)
+        log_factorial_nmk = gammaln(total_count - value + 1)
         normalize_term = (
             self.total_count * jnp.clip(self.logits, 0)
-            + xlog1py(self.total_count, jnp.exp(-jnp.abs(self.logits)))
+            + xlog1py(total_count, jnp.exp(-jnp.abs(self.logits)))
             - log_factorial_n
         )
         return (
@@ -556,8 +559,7 @@ class MultinomialProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
+        value = jnp.array(value, jnp.result_type(float))
         return gammaln(self.total_count + 1) + jnp.sum(
             xlogy(value, self.probs) - gammaln(value + 1), axis=-1
         )

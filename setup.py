@@ -9,8 +9,8 @@ import sys
 from setuptools import find_packages, setup
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-_jax_version_constraints = ">=0.4.25"
-_jaxlib_version_constraints = ">=0.4.25"
+_jax_version_constraints = ">=0.4.25,<0.5.0"
+_jaxlib_version_constraints = ">=0.4.25,<0.5.0"
 
 # Find version
 for line in open(os.path.join(PROJECT_PATH, "numpyro", "version.py")):
@@ -51,6 +51,7 @@ setup(
         "test": [
             "importlib-metadata<5.0",
             "ruff>=0.1.8",
+            "mypy>=1.13",
             "pytest>=4.1",
             "pyro-api>=0.1.1",
             "scikit-learn",
@@ -61,10 +62,11 @@ setup(
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==2.4.8",
+            "jaxns==2.6.3",
             "matplotlib",
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency
+            "pytest-cov",
             "pyyaml",  # flax dependency
             "requests",  # pylab dependency
             "tensorflow_probability>=0.18.0",
@@ -99,5 +101,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
 )

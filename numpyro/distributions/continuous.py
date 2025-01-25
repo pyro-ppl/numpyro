@@ -49,6 +49,7 @@ from jax.scipy.special import (
     xlogy,
 )
 from jax.scipy.stats import norm as jax_norm
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
@@ -59,6 +60,7 @@ from numpyro.distributions.transforms import (
     CorrMatrixCholeskyTransform,
     ExpTransform,
     PowerTransform,
+    RecursiveLinearTransform,
     SigmoidTransform,
     ZeroSumTransform,
 )
@@ -550,6 +552,109 @@ class Chi2(Gamma):
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
+class GaussianStateSpace(TransformedDistribution):
+    r"""
+    Gaussian state space model.
+
+    .. math::
+        \mathbf{z}_{t} &= \mathbf{A} \mathbf{z}_{t - 1} + \boldsymbol{\epsilon}_t\\
+        &=\sum_{k=1} \mathbf{A}^{t-k} \boldsymbol{\epsilon}_t,
+
+    where :math:`\mathbf{z}_t` is the state vector at step :math:`t`, :math:`\mathbf{A}`
+    is the transition matrix, and :math:`\boldsymbol\epsilon` is the innovation noise.
+
+
+    :param num_steps: Number of steps.
+    :param transition_matrix: State space transition matrix :math:`\mathbf{A}`.
+    :param covariance_matrix: Covariance of the innovation noise
+        :math:`\boldsymbol\epsilon`.
+    :param precision_matrix: Precision matrix of the innovation noise
+        :math:`\boldsymbol\epsilon`.
+    :param scale_tril: Scale matrix of the innovation noise
+        :math:`\boldsymbol\epsilon`.
+    """
+
+    arg_constraints = {
+        "covariance_matrix": constraints.positive_definite,
+        "precision_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+        "transition_matrix": constraints.real_matrix,
+    }
+    support = constraints.real_matrix
+    pytree_aux_fields = ("num_steps",)
+
+    def __init__(
+        self,
+        num_steps,
+        transition_matrix,
+        covariance_matrix=None,
+        precision_matrix=None,
+        scale_tril=None,
+        *,
+        validate_args=None,
+    ):
+        assert isinstance(num_steps, int) and num_steps > 0, (
+            "`num_steps` argument should be an positive integer."
+        )
+        self.num_steps = num_steps
+        assert transition_matrix.ndim == 2, (
+            "`transition_matrix` argument should be a square matrix"
+        )
+        self.transition_matrix = transition_matrix
+        # Expand the covariance/precision/scale matrices to the right number of steps.
+        args = {
+            "covariance_matrix": covariance_matrix,
+            "precision_matrix": precision_matrix,
+            "scale_tril": scale_tril,
+        }
+        args = {
+            key: jnp.expand_dims(value, axis=-3).repeat(num_steps, axis=-3)
+            for key, value in args.items()
+            if value is not None
+        }
+        base_distribution = MultivariateNormal(**args)
+        self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
+        base_distribution = base_distribution.to_event(1)
+        transform = RecursiveLinearTransform(transition_matrix)
+        super().__init__(base_distribution, transform, validate_args=validate_args)
+
+    @property
+    def mean(self):
+        # The mean of the base distribution is zero and it has the right shape.
+        return self.base_dist.mean
+
+    @property
+    def variance(self):
+        # Given z_t = \sum_{k=1}^t A^{t-k} \epsilon_t, the covariance of the state
+        # vector at step t is E[z_t transpose(z_t)] = \sum_{k,k'}^t A^{t-k}
+        # E[\epsilon_k transpose(\epsilon_{k'})] transpose(A^{t-k'}). We only have
+        # contributions for k = k' because innovations at different steps are
+        # independent such that E[z_t transpose(z_t)] = \sum_k^t A^{t-k} @
+        # @ covariance_matrix @ transpose(A^{t-k}). Using `scan` is an easy way to
+        # evaluate this expression.
+        _, scale_tril = scan(
+            lambda carry, _: (self.transition_matrix @ carry, carry),
+            self.scale_tril,
+            jnp.arange(self.num_steps),
+        )
+        return (
+            jnp.diagonal(scale_tril @ scale_tril.mT, axis1=-1, axis2=-2)
+            .cumsum(axis=0)
+            .swapaxes(0, -2)
+        )
+
+    @lazy_property
+    def covariance_matrix(self):
+        return self.scale_tril @ self.scale_tril.mT
+
+    @lazy_property
+    def precision_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+
 class GaussianRandomWalk(Distribution):
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
@@ -557,9 +662,9 @@ class GaussianRandomWalk(Distribution):
     pytree_aux_fields = ("num_steps",)
 
     def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
-        assert (
-            isinstance(num_steps, int) and num_steps > 0
-        ), "`num_steps` argument should be an positive integer."
+        assert isinstance(num_steps, int) and num_steps > 0, (
+            "`num_steps` argument should be an positive integer."
+        )
         self.scale = scale
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
@@ -1658,9 +1763,9 @@ class CAR(Distribution):
             # TODO: look into future jax sparse csr functionality and other developments
             self.adj_matrix = _to_sparse(adj_matrix)
         else:
-            assert not _is_sparse(
-                adj_matrix
-            ), "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            assert not _is_sparse(adj_matrix), (
+                "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            )
             # TODO: look into static jax ndarray representation
             (self.adj_matrix,) = promote_shapes(
                 adj_matrix, shape=batch_shape + adj_matrix.shape[-2:]
@@ -1679,14 +1784,14 @@ class CAR(Distribution):
         )
 
         if self._validate_args and (isinstance(adj_matrix, np.ndarray) or is_sparse):
-            assert (
-                self.adj_matrix.sum(axis=-1) > 0
-            ).all() > 0, "all sites in adjacency matrix must have neighbours"
+            assert (self.adj_matrix.sum(axis=-1) > 0).all() > 0, (
+                "all sites in adjacency matrix must have neighbours"
+            )
 
             if self.is_sparse:
-                assert (
-                    self.adj_matrix != self.adj_matrix.T
-                ).nnz == 0, "adjacency matrix must be symmetric"
+                assert (self.adj_matrix != self.adj_matrix.T).nnz == 0, (
+                    "adjacency matrix must be symmetric"
+                )
             else:
                 assert np.array_equal(
                     self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
@@ -2862,3 +2967,101 @@ class WishartCholesky(Distribution):
                 batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
                 event_shape = matrix[-2:]
                 return batch_shape, event_shape
+
+
+class Levy(Distribution):
+    r"""Lévy distribution is a special case of Lévy alpha-stable distribution.
+    Its probability density function is given by,
+
+    .. math::
+        f(x\mid \mu, c) = \sqrt{\frac{c}{2\pi(x-\mu)^{3}}} \exp\left(-\frac{c}{2(x-\mu)}\right), \qquad x > \mu
+
+    where :math:`\mu` is the location parameter and :math:`c` is the scale parameter.
+
+    :param loc: Location parameter.
+    :param scale: Scale parameter.
+    """
+
+    arg_constraints = {
+        "loc": constraints.positive,
+        "scale": constraints.positive,
+    }
+
+    def __init__(self, loc, scale, *, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        self._support = constraints.greater_than(loc)
+        super(Levy, self).__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False)
+    def support(self):
+        return self._support
+
+    @validate_sample
+    def log_prob(self, value):
+        r"""Compute the log probability density function of the Lévy distribution.
+
+        .. math::
+            \log f(x\mid \mu, c) = \frac{1}{2}\log\left(\frac{c}{2\pi}\right) - \frac{c}{2(x-\mu)}
+            - \frac{3}{2}\log(x-\mu), \qquad x > \mu
+
+        :param value: A batch of samples from the distribution.
+        :return: an array with shape `value.shape[:-self.event_shape]`
+        :rtype: numpy.ndarray
+        """
+        shifted_value = value - self.loc
+        return -0.5 * (
+            jnp.log(2.0 * jnp.pi) - jnp.log(self.scale) + self.scale / shifted_value
+        ) - 1.5 * jnp.log(shifted_value)
+
+    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        u = random.uniform(key, shape=sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""
+        The inverse cumulative distribution function of Lévy distribution is given by,
+
+        .. math::
+            F^{-1}(q\mid \mu, c) = \mu + c\left(\Phi^{-1}(1-q/2)\right)^{-2}
+
+        where :math:`\Phi^{-1}` is the inverse of the standard normal cumulative distribution function.
+
+        :param q: quantile values, should belong to [0, 1].
+        :return: the samples whose cdf values equals to `q`.
+        """
+        return self.loc + self.scale * jnp.power(ndtri(1 - 0.5 * q), -2)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""The cumulative distribution function of Lévy distribution is given by,
+
+        .. math::
+            F(x\mid \mu, c) = 2 - 2\Phi\left(\sqrt{\frac{c}{x-\mu}}\right)
+
+        where :math:`\Phi` is the standard normal cumulative distribution function.
+
+        :param value: samples from Lévy distribution.
+        :return: output of the cumulative distribution function evaluated at `value`.
+        """
+        inv_standardized = self.scale / (value - self.loc)
+        return 2.0 - 2.0 * ndtr(jnp.sqrt(inv_standardized))
+
+    @property
+    def mean(self) -> ArrayLike:
+        return jnp.broadcast_to(jnp.inf, self.batch_shape)
+
+    @property
+    def variance(self) -> ArrayLike:
+        return jnp.broadcast_to(jnp.inf, self.batch_shape)
+
+    def entropy(self) -> ArrayLike:
+        r"""If :math:`X \sim \text{Levy}(\mu, c)`, then the entropy of :math:`X` is given by,
+
+        .. math::
+            H(X) = \frac{1}{2}+\frac{3}{2}\gamma+\frac{1}{2}\ln{\left(16\pi c^2\right)}
+
+        """
+        return jnp.broadcast_to(
+            0.5 + 1.5 * jnp.euler_gamma + 0.5 * jnp.log(16 * jnp.pi), self.batch_shape
+        ) + jnp.log(self.scale)

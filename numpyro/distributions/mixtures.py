@@ -149,7 +149,10 @@ class _MixtureBase(Distribution):
     def log_prob(self, value, intermediates=None):
         del intermediates
         sum_log_probs = self.component_log_probs(value)
-        return jax.nn.logsumexp(sum_log_probs, axis=-1)
+        safe_sum_log_probs = jnp.where(
+            jnp.isneginf(sum_log_probs), -jnp.inf, sum_log_probs
+        )
+        return jax.nn.logsumexp(safe_sum_log_probs, axis=-1)
 
 
 class MixtureSameFamily(_MixtureBase):
@@ -356,9 +359,9 @@ class MixtureGeneral(_MixtureBase):
                     "All component distributions must have the same support."
                 )
         else:
-            assert isinstance(
-                support, constraints.Constraint
-            ), "support must be a Constraint object"
+            assert isinstance(support, constraints.Constraint), (
+                "support must be a Constraint object"
+            )
 
         self._mixing_distribution = mixing_distribution
         self._component_distributions = component_distributions

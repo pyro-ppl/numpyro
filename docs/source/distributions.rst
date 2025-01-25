@@ -192,6 +192,14 @@ GaussianRandomWalk
     :show-inheritance:
     :member-order: bysource
 
+GaussianStateSpace
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.GaussianStateSpace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Gompertz
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Gompertz
@@ -243,6 +251,14 @@ Kumaraswamy
 Laplace
 ^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Laplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Levy
+^^^^
+.. autoclass:: numpyro.distributions.continuous.Levy
     :members:
     :undoc-members:
     :show-inheritance:

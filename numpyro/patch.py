@@ -1,8 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from types import ModuleType
+from typing import Callable
 
-def patch_dependency(target, root_module):
+
+def patch_dependency(target: str, root_module: ModuleType) -> Callable:
     parts = target.split(".")
     assert parts[0] == root_module.__name__
     module = root_module

@@ -58,8 +58,10 @@ def _get_abstract_trace(model, model_args, model_kwargs):
 
 def _get_log_probs(model, model_args, model_kwargs, **sample):
     # Note: We use seed 0 for parameter initialization.
-    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
-        data=sample
+    with (
+        handlers.trace() as tr,
+        handlers.seed(rng_seed=0),
+        handlers.substitute(data=sample),
     ):
         model(*model_args, **model_kwargs)
     return {
@@ -370,8 +372,9 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
 
         # Note: We use seed 0 for parameter initialization.
         with handlers.trace() as tr, handlers.seed(rng_seed=0):
-            with handlers.substitute(data=sample), substitute_deterministic(
-                data=sample
+            with (
+                handlers.substitute(data=sample),
+                substitute_deterministic(data=sample),
             ):
                 model(*model_args, **model_kwargs)
         provenance_arrays = {}

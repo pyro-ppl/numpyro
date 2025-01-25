@@ -7,8 +7,10 @@ This provides a small set of utilities in NumPyro that are used to diagnose post
 
 from collections import OrderedDict
 from itertools import product
+from typing import Union
 
 import numpy as np
+from numpy.typing import NDArray
 
 import jax
 from jax import device_get
@@ -24,7 +26,7 @@ __all__ = [
 ]
 
 
-def _compute_chain_variance_stats(x):
+def _compute_chain_variance_stats(x: NDArray) -> tuple[NDArray, NDArray]:
     # compute within-chain variance and variance estimator
     # input has shape C x N x sample_shape
     C, N = x.shape[:2]
@@ -40,7 +42,7 @@ def _compute_chain_variance_stats(x):
     return var_within, var_estimator
 
 
-def gelman_rubin(x):
+def gelman_rubin(x: NDArray) -> NDArray:
     """
     Computes R-hat over chains of samples ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -59,7 +61,7 @@ def gelman_rubin(x):
     return rhat
 
 
-def split_gelman_rubin(x):
+def split_gelman_rubin(x: NDArray) -> NDArray:
     """
     Computes split R-hat over chains of samples ``x``, where the first dimension
     of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -78,7 +80,7 @@ def split_gelman_rubin(x):
     return split_rhat
 
 
-def _fft_next_fast_len(target):
+def _fft_next_fast_len(target: int) -> int:
     # find the smallest number >= N such that the only divisors are 2, 3, 5
     # works just like scipy.fftpack.next_fast_len
     if target <= 2:
@@ -96,12 +98,13 @@ def _fft_next_fast_len(target):
         target += 1
 
 
-def autocorrelation(x, axis=0):
+def autocorrelation(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
+    :param bias: whether to use a biased estimator.
     :return: autocorrelation of ``x``.
     :rtype: numpy.ndarray
     """
@@ -127,25 +130,32 @@ def autocorrelation(x, axis=0):
 
     # truncate and normalize the result, then transpose back to original shape
     autocorr = autocorr[..., :N]
-    autocorr = autocorr / np.arange(N, 0.0, -1)
+
+    # the unbiased estimator is known to have "wild" tails, due to few samples at longer lags.
+    # see Geyer (1992) and Priestley (1981) for a discussion. also note that it is only strictly
+    # unbiased when the mean is known, whereas we it estimate from samples here.
+    if not bias:
+        autocorr = autocorr / np.arange(N, 0.0, -1)
+
     with np.errstate(invalid="ignore", divide="ignore"):
-        autocorr = autocorr / autocorr[..., :1]
+        autocorr = (autocorr / autocorr[..., :1]).astype(np.float64)
     return np.swapaxes(autocorr, axis, -1)
 
 
-def autocovariance(x, axis=0):
+def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     """
     Computes the autocovariance of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocovariance.
+    :param bias: whether to use a biased estimator.
     :return: autocovariance of ``x``.
     :rtype: numpy.ndarray
     """
-    return autocorrelation(x, axis) * x.var(axis=axis, keepdims=True)
+    return autocorrelation(x, axis, bias) * x.var(axis=axis, keepdims=True)
 
 
-def effective_sample_size(x):
+def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
     """
     Computes effective sample size of input ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -158,6 +168,7 @@ def effective_sample_size(x):
        Stan Development Team
 
     :param numpy.ndarray x: the input array.
+    :param bias: whether to use a biased estimator of the autocovariance.
     :return: effective sample size of ``x``.
     :rtype: numpy.ndarray
     """
@@ -166,7 +177,7 @@ def effective_sample_size(x):
     assert x.shape[1] >= 2
 
     # find autocovariance for each chain at lag k
-    gamma_k_c = autocovariance(x, axis=1)
+    gamma_k_c = autocovariance(x, axis=1, bias=bias)
 
     # find autocorrelation at lag k (from Stan reference)
     var_within, var_estimator = _compute_chain_variance_stats(x)
@@ -192,7 +203,7 @@ def effective_sample_size(x):
     return n_eff
 
 
-def hpdi(x, prob=0.90, axis=0):
+def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
@@ -220,7 +231,9 @@ def hpdi(x, prob=0.90, axis=0):
     return np.concatenate([hpd_left, hpd_right], axis=axis)
 
 
-def summary(samples, prob=0.90, group_by_chain=True):
+def summary(
+    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
+) -> dict:
     """
     Returns a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -246,6 +259,8 @@ def summary(samples, prob=0.90, group_by_chain=True):
 
     summary_dict = {}
     for name, value in samples.items():
+        if len(value) == 0:
+            continue
         value = device_get(value)
         value_flat = np.reshape(value, (-1,) + value.shape[2:])
         mean = value_flat.mean(axis=0)
@@ -270,7 +285,9 @@ def summary(samples, prob=0.90, group_by_chain=True):
     return summary_dict
 
 
-def print_summary(samples, prob=0.90, group_by_chain=True):
+def print_summary(
+    samples: Union[dict, NDArray], prob: float = 0.90, group_by_chain: bool = True
+) -> None:
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -294,6 +311,8 @@ def print_summary(samples, prob=0.90, group_by_chain=True):
             "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
     summary_dict = summary(samples, prob, group_by_chain=True)
+    if not summary_dict:
+        return
 
     row_names = {
         k: k + "[" + ",".join(map(lambda x: str(x - 1), v.shape[2:])) + "]"

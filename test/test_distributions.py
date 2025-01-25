@@ -7,7 +7,7 @@ import inspect
 from itertools import product
 import math
 import os
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -20,6 +20,7 @@ import jax
 from jax import grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
+from jax.random import PRNGKey
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 
@@ -32,6 +33,7 @@ from numpyro.distributions import (
 )
 from numpyro.distributions.batch_util import vmap_over
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
+from numpyro.distributions.distribution import DistributionLike
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
 from numpyro.distributions.transforms import (
@@ -454,6 +456,7 @@ _DIST_MAP = {
     ),
     dist.Wishart: _wishart_to_scipy,
     _TruncatedNormal: _truncnorm_to_scipy,
+    dist.Levy: lambda loc, scale: osp.levy(loc=loc, scale=scale),
 }
 
 
@@ -520,6 +523,18 @@ CONTINUOUS = [
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.0], [3.0]])),
     T(dist.GaussianRandomWalk, 0.1, 10),
     T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
+    T(
+        dist.GaussianStateSpace,
+        10,
+        np.array([[0.8, 0.2], [-0.1, 1.1]]),
+        np.array([[0.8, 0.2], [0.2, 0.7]]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.2], [-0.1, 1.1]]),
+        np.array([0.1, 0.3, 0.25])[:, None, None] * np.array([[0.8, 0.2], [0.2, 0.7]]),
+    ),
     T(
         dist.GaussianCopulaBeta,
         np.array([7.0, 2.0]),
@@ -919,6 +934,9 @@ CONTINUOUS = [
     T(dist.DoublyTruncatedPowerLaw, np.pi, 5.0, 50.0),
     T(dist.DoublyTruncatedPowerLaw, -1.0, 5.0, 50.0),
     T(dist.DoublyTruncatedPowerLaw, np.pi, 1.0, 2.0),
+    T(dist.Levy, 0.0, 1.0),
+    T(dist.Levy, 0.0, np.array([1.0, 2.0, 10.0])),
+    T(dist.Levy, np.array([1.0, 2.0, 10.0]), np.pi),
 ]
 
 DIRECTIONAL = [
@@ -1426,6 +1444,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
     if jax_dist.__name__ in (
         "EulerMaruyama",
         "GaussianRandomWalk",
+        "GaussianStateSpace",
         "_ImproperWrapper",
         "LKJ",
         "LKJCholesky",
@@ -2093,7 +2112,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             and dist_args[i] == "base_dist"
         ):
             continue
-        if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
+        if (
+            issubclass(jax_dist, (dist.GaussianRandomWalk, dist.GaussianStateSpace))
+            and dist_args[i] == "num_steps"
+        ):
             continue
         if jax_dist is dist.ZeroSumNormal and dist_args[i] == "event_shape":
             continue
@@ -2221,8 +2243,12 @@ def test_categorical_log_prob_grad():
 
 
 def test_beta_proportion_invalid_mean():
-    with dist.distribution.validation_enabled(), pytest.raises(
-        ValueError, match=r"^BetaProportion distribution got invalid mean parameter\.$"
+    with (
+        dist.distribution.validation_enabled(),
+        pytest.raises(
+            ValueError,
+            match=r"^BetaProportion distribution got invalid mean parameter\.$",
+        ),
     ):
         dist.BetaProportion(1.0, 1.0)
 
@@ -3341,6 +3367,13 @@ def test_explicit_validate_args():
         jitted(d, True)
 
 
+def test_get_args():
+    # Test that we only pick up parameters that were supplied or derived by the
+    # constructor.
+    d = dist.MultivariateNormal(precision_matrix=jnp.eye(3))
+    assert set(d.get_args()) == {"loc", "precision_matrix", "scale_tril"}
+
+
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.PRNGKey(0)
@@ -3409,7 +3442,7 @@ def _assert_not_jax_issue_19885(
     capfd: pytest.CaptureFixture, func: Callable, *args, **kwargs
 ) -> None:
     # jit-ing identity plus matrix multiplication leads to performance degradation as
-    # discussed in https://github.com/google/jax/issues/19885. This assertion verifies
+    # discussed in https://github.com/jax-ml/jax/issues/19885. This assertion verifies
     # that the issue does not affect performance in numpyro.
     for jit in [True, False]:
         result = jax.jit(func)(*args, **kwargs)
@@ -3417,9 +3450,9 @@ def _assert_not_jax_issue_19885(
         if block_until_ready:
             result = block_until_ready()
         _, err = capfd.readouterr()
-        assert (
-            "MatMul reference implementation being executed" not in err
-        ), f"jit: {jit}"
+        assert "MatMul reference implementation being executed" not in err, (
+            f"jit: {jit}"
+        )
     return result
 
 
@@ -3464,3 +3497,197 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
     x2 = dist2.sample(random.PRNGKey(7))
     assert jnp.allclose(x1, x2.squeeze())
     assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))
+
+
+@pytest.mark.parametrize("conc", [1.0, 10.0, 1000.0, 10000.0])
+def test_sine_bivariate_von_mises_norm(conc):
+    dist = SineBivariateVonMises(0, 0, conc, conc, 0.0)
+    num_samples = 500
+    x = jnp.linspace(-jnp.pi, jnp.pi, num_samples)
+    y = jnp.linspace(-jnp.pi, jnp.pi, num_samples)
+    mesh = jnp.stack(jnp.meshgrid(x, y), axis=-1)
+    integral_torus = (
+        jnp.exp(dist.log_prob(mesh)) * (2 * jnp.pi) ** 2 / num_samples**2
+    ).sum()
+    assert jnp.allclose(integral_torus, 1.0, rtol=1e-2)
+
+
+def test_gaussian_random_walk_state_space_equivalence():
+    # Gaussian random walks are state space models with one state and unit transition
+    # matrix. Here, we verify we get the expected results.
+    scale = 0.3
+    num_steps = 4
+    d1 = dist.GaussianRandomWalk(scale, num_steps)
+    d2 = dist.GaussianStateSpace(num_steps, jnp.eye(1), scale_tril=scale * jnp.eye(1))
+    assert jnp.allclose(d1.variance, jnp.squeeze(d2.variance, axis=-1))
+
+    key = jax.random.key(18)
+    x1 = d1.sample(key, (3,))
+    x2 = d2.sample(key, (3,))
+    assert jnp.allclose(x1, jnp.squeeze(x2, axis=-1))
+
+    assert jnp.allclose(d1.log_prob(x1), d2.log_prob(x2))
+
+
+def test_consistent_pytree() -> None:
+    def make_dist():
+        return dist.MultivariateNormal(precision_matrix=jnp.eye(2))
+
+    init = make_dist()
+    # Access the covariance matrix to evaluate the lazy property.
+    init.covariance_matrix
+    assert "covariance_matrix" in init.__dict__
+
+    # Run scan which validates that pytree structures are consistent.
+    jax.lax.scan(lambda *_: (make_dist(), None), init, jnp.arange(7))
+
+
+# Test class that properly implements DistributionLike
+class ValidDistributionLike:
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return ()
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        return ()
+
+    @property
+    def event_shape(self) -> tuple[int, ...]:
+        return ()
+
+    @property
+    def event_dim(self) -> int:
+        return 0
+
+    def sample(self, key, sample_shape=()):
+        return jnp.array(0.0)
+
+    def log_prob(self, value):
+        return jnp.array(0.0)
+
+    @property
+    def mean(self):
+        return jnp.array(0.0)
+
+    @property
+    def variance(self):
+        return jnp.array(1.0)
+
+    def cdf(self, value):
+        return jnp.array(0.5)
+
+    def icdf(self, q):
+        return jnp.array(0.0)
+
+
+# Test class missing required methods
+class InvalidDistributionLike:
+    @property
+    def batch_shape(self):
+        return ()
+
+
+def test_valid_distribution_implementations():
+    """Test that valid implementations are recognized as DistributionLike"""
+    # Test standard NumPyro distribution
+    assert isinstance(dist.Normal(0, 1), DistributionLike)
+
+    # Test custom implementation
+    assert isinstance(ValidDistributionLike(), DistributionLike)
+
+
+def test_invalid_distribution_implementations():
+    """Test that invalid implementations are not recognized as DistributionLike"""
+    assert not isinstance(InvalidDistributionLike(), DistributionLike)
+    assert not isinstance(object(), DistributionLike)
+
+
+def test_distribution_like_interface():
+    """Test that we can use a custom DistributionLike implementation where a Distribution is expected"""
+    my_dist = ValidDistributionLike()
+
+    # Test basic properties
+    assert my_dist() == ()
+    assert my_dist.batch_shape == ()
+    assert my_dist.event_shape == ()
+    assert my_dist.event_dim == 0
+
+    # Test methods
+    key = PRNGKey(0)
+    sample = my_dist.sample(key)
+    assert isinstance(sample, jnp.ndarray)
+
+    log_prob = my_dist.log_prob(0.0)
+    assert isinstance(log_prob, jnp.ndarray)
+
+    mean = my_dist.mean
+    assert isinstance(mean, jnp.ndarray)
+
+    var = my_dist.variance
+    assert isinstance(var, jnp.ndarray)
+
+    cdf = my_dist.cdf(0.0)
+    assert isinstance(cdf, jnp.ndarray)
+
+    icdf = my_dist.icdf(0.5)
+    assert isinstance(icdf, jnp.ndarray)
+
+
+def test_distribution_like_with_shapes():
+    """Test a DistributionLike implementation with non-trivial shapes"""
+
+    class ShapedDistributionLike:
+        @property
+        def batch_shape(self):
+            return (2, 3)
+
+        @property
+        def event_shape(self):
+            return (4,)
+
+        @property
+        def event_dim(self):
+            return 1
+
+        def sample(self, key, sample_shape=()):
+            shape = sample_shape + self.batch_shape + self.event_shape
+            return jnp.zeros(shape)
+
+        def log_prob(self, value):
+            return jnp.zeros(self.batch_shape)
+
+        @property
+        def mean(self):
+            return jnp.zeros(self.batch_shape + self.event_shape)
+
+        @property
+        def variance(self):
+            return jnp.ones(self.batch_shape + self.event_shape)
+
+        def cdf(self, value):
+            return jnp.full(self.batch_shape, 0.5)
+
+        def icdf(self, q):
+            return jnp.zeros(self.batch_shape + self.event_shape)
+
+    my_dist = ShapedDistributionLike()
+
+    assert my_dist.batch_shape == (2, 3)
+    assert my_dist.event_shape == (4,)
+    assert my_dist.event_dim == 1
+
+    key = PRNGKey(0)
+    sample = my_dist.sample(key, sample_shape=(5,))
+    assert sample.shape == (5, 2, 3, 4)
+
+    log_prob = my_dist.log_prob(jnp.zeros((2, 3, 4)))
+    assert log_prob.shape == (2, 3)
+
+    assert my_dist.mean.shape == (2, 3, 4)
+    assert my_dist.variance.shape == (2, 3, 4)
+
+
+def test_distribution_repr():
+    result = repr(dist.Wishart(7, jnp.eye(5)).expand([3, 4]).to_event(1))
+    assert "batch shape (3,)" in result
+    assert "event shape (4, 5, 5)"

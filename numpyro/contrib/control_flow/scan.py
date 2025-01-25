@@ -3,9 +3,10 @@
 
 from collections import OrderedDict
 from functools import partial
+from typing import Callable, Optional
 
 import jax
-from jax import device_put, lax, random
+from jax import lax, random
 import jax.numpy as jnp
 
 from numpyro import handlers
@@ -81,7 +82,7 @@ def _subs_wrapper(subs_map, i, length, site):
                 )
         else:
             raise RuntimeError(
-                f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1},"
+                f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim + 1},"
                 f" but got {value_ndim}. This might happen when you use nested scan,"
                 " which is currently not supported. Please report the issue to us!"
             )
@@ -197,9 +198,10 @@ def scan_enum(
             )
         return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
 
-    with handlers.block(
-        hide_fn=lambda site: not site["name"].startswith("_PREV_")
-    ), enum(first_available_dim=first_available_dim):
+    with (
+        handlers.block(hide_fn=lambda site: not site["name"].startswith("_PREV_")),
+        enum(first_available_dim=first_available_dim),
+    ):
         wrapped_carry = (0, rng_key, init)
         y0s = []
         # We run unroll_steps + 1 where the last step is used for rolling with `lax.scan`
@@ -226,7 +228,6 @@ def scan_enum(
                 # return early if length = unroll_steps
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
-                wrapped_carry = jax.tree.map(device_put, wrapped_carry)
                 wrapped_carry, (pytree_trace, ys) = lax.scan(
                     body_fn, wrapped_carry, xs_, length - unroll_steps, reverse
                 )
@@ -278,13 +279,16 @@ def scan_wrapper(
     length,
     reverse,
     rng_key=None,
-    substitute_stack=[],
+    substitute_stack=None,
     enum=False,
     history=1,
     first_available_dim=None,
 ):
     if length is None:
         length = jnp.shape(jax.tree.flatten(xs)[0][0])[0]
+
+    if substitute_stack is None:
+        substitute_stack = []
 
     if enum and history > 0:
         return scan_enum(  # TODO: replay for enum
@@ -326,7 +330,7 @@ def scan_wrapper(
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    wrapped_carry = jax.tree.map(device_put, (0, rng_key, init))
+    wrapped_carry = (jnp.asarray(0), rng_key, init)
     last_carry, (pytree_trace, ys) = lax.scan(
         body_fn, wrapped_carry, xs, length=length, reverse=reverse
     )
@@ -339,7 +343,14 @@ def scan_wrapper(
     return last_carry, (pytree_trace, ys)
 
 
-def scan(f, init, xs, length=None, reverse=False, history=1):
+def scan(
+    f: Callable,
+    init,
+    xs,
+    length: Optional[int] = None,
+    reverse: bool = False,
+    history: int = 1,
+):
     """
     This primitive scans a function over the leading array axes of
     `xs` while carrying along state. See :func:`jax.lax.scan` for more
@@ -433,7 +444,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
     :param init: the initial carrying state
     :param xs: the values over which we scan along the leading axis. This can
         be any JAX pytree (e.g. list/dict of arrays).
-    :param length: optional value specifying the length of `xs`
+    :param int | None length: optional value specifying the length of `xs`
         but can be used when `xs` is an empty pytree (e.g. None)
     :param bool reverse: optional boolean specifying whether to run the scan iteration
         forward (the default) or in reverse

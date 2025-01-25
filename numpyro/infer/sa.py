@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 
-from jax import device_put, lax, random, vmap
+from jax import lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
@@ -174,7 +174,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             adapt_state,
             rng_key_sa,
         )
-        return device_put(sa_state)
+        return sa_state
 
     def sample_kernel(sa_state, model_args=(), model_kwargs=None):
         pe_fn = potential_fn
@@ -345,7 +345,7 @@ class SA(MCMCKernel):
         )
         if self._potential_fn and init_params is None:
             raise ValueError(
-                "Valid value of `init_params` must be provided with" " `potential_fn`."
+                "Valid value of `init_params` must be provided with `potential_fn`."
             )
 
         # NB: init args is different from HMC

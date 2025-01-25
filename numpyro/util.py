@@ -10,6 +10,7 @@ import os
 import random
 import re
 from threading import Lock
+from typing import Any, Callable, Generator, Optional
 import warnings
 
 import numpy as np
@@ -17,7 +18,7 @@ import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 
 import jax
-from jax import device_put, jit, lax, vmap
+from jax import jit, lax, vmap
 from jax.core import Tracer
 from jax.experimental import io_callback
 import jax.numpy as jnp
@@ -26,7 +27,7 @@ _DISABLE_CONTROL_FLOW_PRIM = False
 _CHAIN_RE = re.compile(r"\d+$")  # e.g. get '3' from 'TFRT_CPU_3'
 
 
-def set_rng_seed(rng_seed):
+def set_rng_seed(rng_seed: Optional[int] = None) -> None:
     """
     Initializes internal state for the Python and NumPy random number generators.
 
@@ -36,7 +37,7 @@ def set_rng_seed(rng_seed):
     np.random.seed(rng_seed)
 
 
-def enable_x64(use_x64=True):
+def enable_x64(use_x64: bool = True) -> None:
     """
     Changes the default array type to use 64 bit precision as in NumPy.
 
@@ -44,11 +45,11 @@ def enable_x64(use_x64=True):
         else 32 bits.
     """
     if not use_x64:
-        use_x64 = os.getenv("JAX_ENABLE_X64", 0)
-    jax.config.update("jax_enable_x64", bool(use_x64))
+        use_x64 = bool(os.getenv("JAX_ENABLE_X64", 0))
+    jax.config.update("jax_enable_x64", use_x64)
 
 
-def set_platform(platform=None):
+def set_platform(platform: Optional[str] = None) -> None:
     """
     Changes platform to CPU, GPU, or TPU. This utility only takes
     effect at the beginning of your program.
@@ -60,7 +61,7 @@ def set_platform(platform=None):
     jax.config.update("jax_platform_name", platform)
 
 
-def set_host_device_count(n):
+def set_host_device_count(n: int) -> None:
     """
     By default, XLA considers all CPU cores as one device. This utility tells XLA
     that there are `n` host (CPU) devices available to use. As a consequence, this
@@ -75,13 +76,13 @@ def set_host_device_count(n):
         `xla_force_host_platform_device_count` flag in XLA is incomplete. If you
         observe some strange phenomenon when using this utility, please let us
         know through our issue or forum page. More information is available in this
-        `JAX issue <https://github.com/google/jax/issues/1408>`_.
+        `JAX issue <https://github.com/jax-ml/jax/issues/1408>`_.
 
     :param int n: number of CPU devices to use.
     """
-    xla_flags = os.getenv("XLA_FLAGS", "")
+    xla_flags_str = os.getenv("XLA_FLAGS", "")
     xla_flags = re.sub(
-        r"--xla_force_host_platform_device_count=\S+", "", xla_flags
+        r"--xla_force_host_platform_device_count=\S+", "", xla_flags_str
     ).split()
     os.environ["XLA_FLAGS"] = " ".join(
         ["--xla_force_host_platform_device_count={}".format(n)] + xla_flags
@@ -89,7 +90,7 @@ def set_host_device_count(n):
 
 
 @contextmanager
-def optional(condition, context_manager):
+def optional(condition: bool, context_manager) -> Generator:
     """
     Optionally wrap inside `context_manager` if condition is `True`.
     """
@@ -101,7 +102,7 @@ def optional(condition, context_manager):
 
 
 @contextmanager
-def control_flow_prims_disabled():
+def control_flow_prims_disabled() -> Generator:
     global _DISABLE_CONTROL_FLOW_PRIM
     stored_flag = _DISABLE_CONTROL_FLOW_PRIM
     try:
@@ -111,14 +112,16 @@ def control_flow_prims_disabled():
         _DISABLE_CONTROL_FLOW_PRIM = stored_flag
 
 
-def maybe_jit(fn, *args, **kwargs):
+def maybe_jit(fn: Callable, *args, **kwargs) -> Callable:
     if _DISABLE_CONTROL_FLOW_PRIM:
         return fn
     else:
         return jit(fn, *args, **kwargs)
 
 
-def cond(pred, true_operand, true_fun, false_operand, false_fun):
+def cond(
+    pred: bool, true_operand, true_fun: Callable, false_operand, false_fun: Callable
+) -> Any:
     if _DISABLE_CONTROL_FLOW_PRIM:
         if pred:
             return true_fun(true_operand)
@@ -128,7 +131,7 @@ def cond(pred, true_operand, true_fun, false_operand, false_fun):
         return lax.cond(pred, true_operand, true_fun, false_operand, false_fun)
 
 
-def while_loop(cond_fun, body_fun, init_val):
+def while_loop(cond_fun: Callable, body_fun: Callable, init_val: Any) -> Any:
     if _DISABLE_CONTROL_FLOW_PRIM:
         val = init_val
         while cond_fun(val):
@@ -148,7 +151,7 @@ def fori_loop(lower, upper, body_fun, init_val):
         return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
-def is_prng_key(key):
+def is_prng_key(key: jax.Array) -> bool:
     try:
         if jax.dtypes.issubdtype(key.dtype, jax.dtypes.prng_key):
             return key.shape == ()
@@ -190,7 +193,7 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
-def progress_bar_factory(num_samples, num_chains):
+def progress_bar_factory(num_samples: int, num_chains: int) -> Callable:
     """Factory that builds a progress bar decorator along
     with the `set_tqdm_description` and `close_tqdm` functions
     """
@@ -254,7 +257,7 @@ def progress_bar_factory(num_samples, num_chains):
         )
         return chain
 
-    def progress_bar_fori_loop(func):
+    def progress_bar_fori_loop(func: Callable) -> Callable:
         """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
         Note that `body_fun` must be looping over a tuple who's first element is `np.arange(num_samples)`.
         This means that `iter_num` is the current iteration number
@@ -272,13 +275,13 @@ def progress_bar_factory(num_samples, num_chains):
 
 
 def fori_collect(
-    lower,
-    upper,
-    body_fun,
-    init_val,
-    transform=identity,
-    progbar=True,
-    return_last_val=False,
+    lower: int,
+    upper: int,
+    body_fun: Callable,
+    init_val: Any,
+    transform: Callable = identity,
+    progbar: bool = True,
+    return_last_val: bool = False,
     collection_size=None,
     thinning=1,
     **progbar_opts,
@@ -383,7 +386,7 @@ def fori_collect(
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
-        vals = (init_val, collection, device_put(start_idx), device_put(thinning))
+        vals = (init_val, collection, jnp.asarray(start_idx), jnp.asarray(thinning))
 
         if upper == 0:
             # special case, only compiling
@@ -404,7 +407,9 @@ def fori_collect(
     return (collection, last_val) if return_last_val else collection
 
 
-def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
+def soft_vmap(
+    fn: Callable, xs: Any, batch_ndims: int = 1, chunk_size: Optional[int] = None
+) -> Any:
     """
     Vectorizing map that maps a function `fn` over `batch_ndims` leading axes
     of `xs`. This uses jax.vmap over smaller chunks of the batch dimensions
@@ -457,11 +462,11 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
 
 
 def format_shapes(
-    trace,
+    trace: dict,
     *,
-    compute_log_prob=False,
-    title="Trace Shapes:",
-    last_site=None,
+    compute_log_prob: bool = False,
+    title: str = "Trace Shapes:",
+    last_site: Optional[str] = None,
 ):
     """
     Given the trace of a function, returns a string showing a table of the shapes of
@@ -510,7 +515,7 @@ def format_shapes(
             batch_shape = getattr(site["fn"], "batch_shape", ())
             event_shape = getattr(site["fn"], "event_shape", ())
             rows.append(
-                [f"{name} dist", None]
+                [f"{name} dist", None]  # type: ignore[arg-type]
                 + [str(size) for size in batch_shape]
                 + ["|", None]
                 + [str(size) for size in event_shape]
@@ -522,7 +527,7 @@ def format_shapes(
             batch_shape = shape[: len(shape) - event_dim]
             event_shape = shape[len(shape) - event_dim :]
             rows.append(
-                ["value", None]
+                ["value", None]  # type: ignore[arg-type]
                 + [str(size) for size in batch_shape]
                 + ["|", None]
                 + [str(size) for size in event_shape]
@@ -534,14 +539,14 @@ def format_shapes(
             ):
                 batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
                 rows.append(
-                    ["log_prob", None]
+                    ["log_prob", None]  # type: ignore[arg-type]
                     + [str(size) for size in batch_shape]
                     + ["|", None]
                 )
         elif site["type"] == "plate":
             shape = getattr(site["value"], "shape", ())
             rows.append(
-                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]  # type: ignore[arg-type]
             )
 
         if name == last_site:
@@ -551,7 +556,7 @@ def format_shapes(
 
 
 # TODO: follow pyro.util.check_site_shape logics for more complete validation
-def _validate_model(model_trace, plate_warning="loose"):
+def _validate_model(model_trace: dict, plate_warning: str = "loose") -> None:
     # TODO: Consider exposing global configuration for those strategies.
     assert plate_warning in ["loose", "strict", "error"]
     enum_dims = set(
@@ -591,7 +596,7 @@ def _validate_model(model_trace, plate_warning="loose"):
                         warnings.warn(message, stacklevel=find_stack_level())
 
 
-def check_model_guide_match(model_trace, guide_trace):
+def check_model_guide_match(model_trace: dict, guide_trace: dict) -> None:
     """
     Checks the following assumptions:
 
@@ -778,3 +783,28 @@ def find_stack_level() -> int:
         else:
             break
     return n
+
+
+def nested_attrgetter(*collect_fields):
+    """
+    Like attrgetter, but allows for accessing dictionary keys
+    using the dot notation (e.g., 'x.c.d').
+    """
+
+    def getter(obj):
+        results = tuple(_get_nested_attr(obj, field) for field in collect_fields)
+        return results if len(collect_fields) > 1 else results[0]
+
+    return getter
+
+
+def _get_nested_attr(obj, field):
+    """
+    Helper function to recursively access attributes and dictionary keys.
+    """
+    for attr in field.split("."):
+        try:
+            obj = getattr(obj, attr)
+        except AttributeError:
+            obj = obj[attr]
+    return obj

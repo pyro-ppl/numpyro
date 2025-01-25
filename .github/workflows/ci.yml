@@ -8,13 +8,16 @@ on:
   pull_request:
     branches: [ master ]
 
+env:
+  PYTEST_ADDOPTS: "--cov=numpyro --cov-append"
+
 jobs:
   lint:
 
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.9","3.10","3.12"]
 
     steps:
     - uses: actions/checkout@v2
@@ -32,7 +35,7 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install -r docs/requirements.txt
         pip freeze
-    - name: Lint with ruff
+    - name: Lint with mypy and ruff
       run: |
         make lint
     - name: Build documentation
@@ -50,7 +53,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.9", "3.10"]
 
     steps:
     - uses: actions/checkout@v2
@@ -67,7 +70,7 @@ jobs:
         pip install jaxlib
         pip install jax
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install .[dev,test]
+        pip install -e .[dev,test]
         pip freeze
     - name: Test with pytest
       run: |
@@ -75,6 +78,13 @@ jobs:
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        flag-name: test-modeling
 
 
   test-inference:
@@ -83,7 +93,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.9", "3.10"]
 
     steps:
     - uses: actions/checkout@v2
@@ -99,12 +109,12 @@ jobs:
         pip install jaxlib
         pip install jax
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install .[dev,test]
+        pip install -e .[dev,test]
         pip freeze
     - name: Test with pytest
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
-        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
+        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py --ignore=test/contrib/test_nested_sampling.py
         pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
     - name: Test x64
       run: |
@@ -118,6 +128,16 @@ jobs:
     - name: Test custom prng
       run: |
         JAX_ENABLE_CUSTOM_PRNG=1 pytest -vs test/infer/test_mcmc.py
+    - name: Test nested sampling
+      run: |
+        JAX_ENABLE_X64=1 pytest -vs test/contrib/test_nested_sampling.py
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        flag-name: test-inference
 
 
   examples:
@@ -126,7 +146,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.10"]
 
     steps:
     - uses: actions/checkout@v2
@@ -140,8 +160,29 @@ jobs:
         pip install jaxlib
         pip install jax
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install .[dev,examples,test]
+        pip install -e .[dev,examples,test]
         pip freeze
     - name: Test with pytest
       run: |
         CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example
+    - name: Coveralls
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        flag-name: examples
+
+
+  finish:
+
+    needs: [test-modeling, test-inference, examples]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls finished
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel-finished: true
+        carryforward: "test-modeling,test-inference,examples"
+

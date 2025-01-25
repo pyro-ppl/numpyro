@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
 from typing import Callable, Optional
@@ -16,6 +17,7 @@ from jax.lax import broadcast_shapes
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -53,21 +55,28 @@ class _substitute_default_key(Messenger):
             msg["value"] = random.PRNGKey(0)
 
 
-def log_density(model, model_args, model_kwargs, params):
+def compute_log_probs(
+    model,
+    model_args: tuple,
+    model_kwargs: dict,
+    params: dict,
+    sum_log_prob: bool = True,
+):
     """
-    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
+    (EXPERIMENTAL INTERFACE) Computes log of density for each site of the model given
     latent values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs: kwargs provided to the model.
-    :param dict params: dictionary of current parameter values keyed by site
-        name.
-    :return: log of joint density and a corresponding model trace
+    :param model_args: args provided to the model.
+    :param model_kwargs: kwargs provided to the model.
+    :param params: Dictionary of current parameter values keyed by site name.
+    :param sum_log_prob: sum log probability over batch dimensions.
+    :return: Dictionary mapping site names to log of density and a corresponding model
+        trace.
     """
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = jnp.zeros(())
+    log_joint = {}
     for site in model_trace.values():
         if site["type"] == "sample":
             value = site["value"]
@@ -93,9 +102,26 @@ def log_density(model, model_args, model_kwargs, params):
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
 
-            log_prob = jnp.sum(log_prob)
-            log_joint = log_joint + log_prob
+            log_joint[site["name"]] = jnp.sum(log_prob) if sum_log_prob else log_prob
     return log_joint, model_trace
+
+
+def log_density(model, model_args: tuple, model_kwargs: dict, params: dict):
+    """
+    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given latent
+    values ``params``.
+
+    :param model: Python callable containing NumPyro primitives.
+    :param model_args: args provided to the model.
+    :param model_kwargs: kwargs provided to the model.
+    :param params: Dictionary of current parameter values keyed by site name.
+    :return: Log of joint density and a corresponding model trace.
+    """
+    log_joint, model_trace = compute_log_probs(model, model_args, model_kwargs, params)
+    # We need to start with 0.0 instead of 0 because log_joint may be empty or only
+    # contain integers, but log_density must be a floating point value to be
+    # differentiable by jax.
+    return sum(log_joint.values(), start=0.0), model_trace
 
 
 class _without_rsample_stop_gradient(numpyro.primitives.Messenger):
@@ -660,6 +686,18 @@ def initialize_model(
         has_enumerate_support,
         model_trace,
     ) = _get_model_transforms(substituted_model, model_args, model_kwargs)
+
+    for name, site in model_trace.items():
+        if (
+            site["type"] == "sample"
+            and isinstance(site["fn"], dist.Delta)
+            and not site["is_observed"]
+        ):
+            raise ValueError(
+                f"Sample site '{name}' has a delta distribution; use "
+                "`numpyro.deterministic` to add this value to the trace instead."
+            )
+
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
     model = substitute(
@@ -790,6 +828,16 @@ def _predictive(
 
     def single_prediction(val):
         rng_key, samples = val
+
+        def _samples_wo_deterministic(msg):
+            return samples.get(msg["name"]) if msg["type"] != "deterministic" else None
+
+        substituted_model = (
+            substitute(masked_model, substitute_fn=_samples_wo_deterministic)
+            if exclude_deterministic
+            else substitute(masked_model, samples)
+        )
+
         if infer_discrete:
             from numpyro.contrib.funsor import config_enumerate
             from numpyro.contrib.funsor.discrete import _sample_posterior
@@ -797,7 +845,7 @@ def _predictive(
             model_trace = prototype_trace
             temperature = 1
             pred_samples = _sample_posterior(
-                config_enumerate(condition(model, samples)),
+                config_enumerate(substituted_model),
                 first_available_dim,
                 temperature,
                 rng_key,
@@ -805,17 +853,6 @@ def _predictive(
                 **model_kwargs,
             )
         else:
-
-            def _samples_wo_deterministic(msg):
-                return (
-                    samples.get(msg["name"]) if msg["type"] != "deterministic" else None
-                )
-
-            substituted_model = (
-                substitute(masked_model, substitute_fn=_samples_wo_deterministic)
-                if exclude_deterministic
-                else substitute(masked_model, samples)
-            )
             model_trace = trace(seed(substituted_model, rng_key)).get_trace(
                 *model_args, **model_kwargs
             )
@@ -932,7 +969,7 @@ class Predictive(object):
         guide: Optional[Callable] = None,
         params: Optional[dict] = None,
         num_samples: Optional[int] = None,
-        return_sites: Optional[list[str]] = None,
+        return_sites: Optional[Sequence[str]] = None,
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,

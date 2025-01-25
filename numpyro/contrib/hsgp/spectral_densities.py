@@ -7,11 +7,10 @@ This module contains spectral densities for various kernel functions.
 
 from __future__ import annotations
 
-from jaxlib.xla_extension import ArrayImpl
-
-from jax import vmap
+from jax import Array, vmap
 import jax.numpy as jnp
 from jax.scipy import special
+from jax.typing import ArrayLike
 
 from numpyro.contrib.hsgp.laplacian import sqrt_eigenvalues
 
@@ -21,8 +20,8 @@ def align_param(dim, param):
 
 
 def spectral_density_squared_exponential(
-    dim: int, w: ArrayImpl, alpha: float, length: float | ArrayImpl
-) -> float:
+    dim: int, w: ArrayLike, alpha: float, length: float | ArrayLike
+) -> Array:
     """
     Spectral density of the squared exponential kernel.
 
@@ -42,11 +41,11 @@ def spectral_density_squared_exponential(
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param int dim: dimension
-    :param ArrayImpl w: frequency
+    :param ArrayLike w: frequency
     :param float alpha: amplitude
     :param float length: length scale
     :return: spectral density value
-    :rtype: float
+    :rtype: Array
     """
     length = align_param(dim, length)
     c = alpha * jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1)
@@ -55,7 +54,7 @@ def spectral_density_squared_exponential(
 
 
 def spectral_density_matern(
-    dim: int, nu: float, w: ArrayImpl, alpha: float, length: float | ArrayImpl
+    dim: int, nu: float, w: ArrayLike, alpha: float, length: float | ArrayLike
 ) -> float:
     """
     Spectral density of the Matérn kernel.
@@ -78,7 +77,7 @@ def spectral_density_matern(
 
     :param int dim: dimension
     :param float nu: smoothness
-    :param ArrayImpl w: frequency
+    :param ArrayLike w: frequency
     :param float alpha: amplitude
     :param float length: length scale
     :return: spectral density value
@@ -104,7 +103,7 @@ def diag_spectral_density_squared_exponential(
     ell: float | int | list[float | int],
     m: int | list[int],
     dim: int,
-) -> ArrayImpl:
+) -> Array:
     """
     Evaluates the spectral density of the squared exponential kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
@@ -118,7 +117,7 @@ def diag_spectral_density_squared_exponential(
     :param int dim: The dimension of the space
 
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
-    :rtype: ArrayImpl
+    :rtype: Array
     """
 
     def _spectral_density(w):
@@ -138,7 +137,7 @@ def diag_spectral_density_matern(
     ell: float | int | list[float | int],
     m: int | list[int],
     dim: int,
-) -> ArrayImpl:
+) -> Array:
     """
     Evaluates the spectral density of the Matérn kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
@@ -153,7 +152,7 @@ def diag_spectral_density_matern(
     :param int dim: The dimension of the space
 
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
-    :rtype: ArrayImpl
+    :rtype: Array
     """
 
     def _spectral_density(w):
@@ -176,7 +175,7 @@ def modified_bessel_first_kind(v, z):
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
-def diag_spectral_density_periodic(alpha: float, length: float, m: int) -> ArrayImpl:
+def diag_spectral_density_periodic(alpha: float, length: float, m: int) -> Array:
     """
     Not actually a spectral density but these are used in the same
     way. These are simply the first `m` coefficients of the low rank
@@ -191,7 +190,7 @@ def diag_spectral_density_periodic(alpha: float, length: float, m: int) -> Array
     :param float length: length scale
     :param int m: number of eigenvalues
     :return: "spectral density" vector
-    :rtype: ArrayImpl
+    :rtype: Array
     """
     a = length ** (-2)
     j = jnp.arange(0, m)

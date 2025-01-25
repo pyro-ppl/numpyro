@@ -219,9 +219,9 @@ class SineSkewed(Distribution):
     support = constraints.independent(constraints.circular, 1)
 
     def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
-        assert (
-            base_dist.event_shape == skewness.shape[-1:]
-        ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
+        assert base_dist.event_shape == skewness.shape[-1:], (
+            "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
+        )
 
         batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness.shape[:-1])
         event_shape = skewness.shape[-1:]
@@ -308,15 +308,20 @@ class SineBivariateVonMises(Distribution):
     .. note:: Sample efficiency drops as
 
         .. math::
-            \frac{\rho}{\kappa_1\kappa_2} \rightarrow 1
+            \frac{\rho^2}{\kappa_1\kappa_2} \rightarrow 1
 
-        because the distribution becomes increasingly bimodal. To avoid bimodality use the `weighted_correlation`
-        parameter with a skew away from one (e.g., Beta(1,3)). The `weighted_correlation` should be in [0,1].
+        because the distribution becomes increasingly bimodal. To avoid inefficient sampling use the
+        `weighted_correlation` parameter with a skew away from one (e.g.,
+        `TransformedDistribution(Beta(5,5), AffineTransform(loc=-1, scale=2))`).  The `weighted_correlation`
+        should be in [-1,1].
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
 
     .. note:: In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can be used as a likelihood but not
         for latent variables.
+
+    .. note:: Normalization remains accurate for concentrations up to 10,000. Unlike Pyro, there is no assertion to
+        verify this during initialization, as JIT-compilation would invalidate such a check.
 
     ** References: **
         1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
@@ -404,7 +409,8 @@ class SineBivariateVonMises(Distribution):
             jnp.log(jnp.clip(corr**2, jnp.finfo(jnp.result_type(float)).tiny))
             - jnp.log(4 * jnp.prod(conc, axis=-1))
         )
-        fs += log_I1(49, conc, terms=51).sum(-1)
+        num_I1terms = 10_001
+        fs += log_I1(49, conc, terms=num_I1terms).sum(-1)
         norm_const = 2 * jnp.log(jnp.array(2 * pi)) + logsumexp(fs, 0)
         return norm_const.reshape(jnp.shape(self.phi_loc))
 
@@ -594,8 +600,7 @@ class ProjectedNormal(Distribution):
             event_shape = value.shape[-1:]
             if event_shape != self.event_shape:
                 raise ValueError(
-                    f"Expected event shape {self.event_shape}, "
-                    f"but got {event_shape}"
+                    f"Expected event shape {self.event_shape}, but got {event_shape}"
                 )
             self._validate_sample(value)
         dim = int(self.concentration.shape[-1])

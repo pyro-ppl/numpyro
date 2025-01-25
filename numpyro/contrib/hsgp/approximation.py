@@ -7,9 +7,9 @@ This module contains the low-rank approximation functions of the Hilbert space G
 
 from __future__ import annotations
 
-from jaxlib.xla_extension import ArrayImpl
-
+from jax import Array
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
@@ -21,14 +21,14 @@ from numpyro.contrib.hsgp.spectral_densities import (
 import numpyro.distributions as dist
 
 
-def _non_centered_approximation(phi: ArrayImpl, spd: ArrayImpl, m: int) -> ArrayImpl:
+def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=1.0))
 
     return phi @ (spd * beta)
 
 
-def _centered_approximation(phi: ArrayImpl, spd: ArrayImpl, m: int) -> ArrayImpl:
+def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
 
@@ -36,8 +36,8 @@ def _centered_approximation(phi: ArrayImpl, spd: ArrayImpl, m: int) -> ArrayImpl
 
 
 def linear_approximation(
-    phi: ArrayImpl, spd: ArrayImpl, m: int | list[int], non_centered: bool = True
-) -> ArrayImpl:
+    phi: Array, spd: Array, m: int, non_centered: bool = True
+) -> Array:
     """
     Linear approximation formula of the Hilbert space Gaussian process.
 
@@ -48,13 +48,13 @@ def linear_approximation(
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayImpl phi: laplacian eigenfunctions
-    :param ArrayImpl spd: square root of the diagonal of the spectral density evaluated at square
+    :param Array phi: laplacian eigenfunctions
+    :param Array spd: square root of the diagonal of the spectral density evaluated at square
         root of the first `m` eigenvalues.
-    :param int | list[int] m: number of eigenfunctions in the approximation
+    :param int m: number of eigenfunctions in the approximation
     :param bool non_centered: whether to use a non-centered parameterization
     :return: The low-rank approximation linear model
-    :rtype: ArrayImpl
+    :rtype: Array
     """
     if non_centered:
         return _non_centered_approximation(phi, spd, m)
@@ -62,13 +62,13 @@ def linear_approximation(
 
 
 def hsgp_squared_exponential(
-    x: ArrayImpl,
+    x: ArrayLike,
     alpha: float,
     length: float,
     ell: float | int | list[float | int],
     m: int | list[int],
     non_centered: bool = True,
-) -> ArrayImpl:
+) -> Array:
     """
     Hilbert space Gaussian process approximation using the squared exponential kernel.
 
@@ -84,7 +84,7 @@ def hsgp_squared_exponential(
         2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayImpl x: input data
+    :param ArrayLike x: input data
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
     :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
@@ -95,9 +95,9 @@ def hsgp_squared_exponential(
         If an integer, the same number of eigenvalues is computed in each dimension.
     :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True
     :return: the low-rank approximation linear model
-    :rtype: ArrayImpl
+    :rtype: Array
     """
-    dim = x.shape[-1] if x.ndim > 1 else 1
+    dim = jnp.shape(x)[-1] if jnp.ndim(x) > 1 else 1
     phi = eigenfunctions(x=x, ell=ell, m=m)
     spd = jnp.sqrt(
         diag_spectral_density_squared_exponential(
@@ -110,14 +110,14 @@ def hsgp_squared_exponential(
 
 
 def hsgp_matern(
-    x: ArrayImpl,
+    x: ArrayLike,
     nu: float,
     alpha: float,
     length: float,
     ell: float | int | list[float | int],
     m: int | list[int],
     non_centered: bool = True,
-):
+) -> Array:
     """
     Hilbert space Gaussian process approximation using the Matérn kernel.
 
@@ -133,7 +133,7 @@ def hsgp_matern(
         2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayImpl x: input data
+    :param ArrayLike x: input data
     :param float nu: smoothness parameter
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
@@ -145,9 +145,9 @@ def hsgp_matern(
         If an integer, the same number of eigenvalues is computed in each dimension.
     :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True.
     :return: the low-rank approximation linear model
-    :rtype: ArrayImpl
+    :rtype: Array
     """
-    dim = x.shape[-1] if x.ndim > 1 else 1
+    dim = jnp.shape(x)[-1] if jnp.ndim(x) > 1 else 1
     phi = eigenfunctions(x=x, ell=ell, m=m)
     spd = jnp.sqrt(
         diag_spectral_density_matern(
@@ -160,8 +160,8 @@ def hsgp_matern(
 
 
 def hsgp_periodic_non_centered(
-    x: ArrayImpl, alpha: float, length: float, w0: float, m: int
-) -> ArrayImpl:
+    x: ArrayLike, alpha: float, length: float, w0: float, m: int
+) -> Array:
     """
     Low rank approximation for the periodic squared exponential kernel in the non-centered parametrization.
 
@@ -172,13 +172,13 @@ def hsgp_periodic_non_centered(
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayImpl x: input data
+    :param ArrayLike x: input data
     :param float alpha: amplitude
     :param float length: length scale
     :param float w0: frequency of the periodic kernel
     :param int m: number of eigenvalues to compute and include in the approximation
     :return: the low-rank approximation linear model
-    :rtype: ArrayImpl
+    :rtype: Array
     """
     q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
     cosines, sines = eigenfunctions_periodic(x=x, w0=w0, m=m)

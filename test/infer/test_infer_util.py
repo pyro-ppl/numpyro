@@ -27,8 +27,10 @@ from numpyro.infer.initialization import (
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import (
     Predictive,
+    compute_log_probs,
     constrain_fn,
     initialize_model,
+    log_density,
     log_likelihood,
     potential_energy,
     transform_fn,
@@ -67,6 +69,26 @@ def linear_regression():
             numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
 
     return model, X, y
+
+
+def categorical_probs():
+    probs0 = 0.5
+    nbatch0, nbatch1 = 2, 1
+    probs = jnp.ones((nbatch0, nbatch1, 3)) * probs0
+
+    def model(probs):
+        probs = numpyro.deterministic("probs", probs)
+
+        plate = numpyro.plate("plate", size=probs.shape[-1], dim=-1)
+
+        with plate:
+            numpyro.sample(
+                "counts_categorical",
+                dist.Categorical(probs=probs),
+                infer={"enumerate": "parallel"},
+            )
+
+    return model, probs
 
 
 @pytest.mark.parametrize("parallel", [True, False])
@@ -111,6 +133,27 @@ def test_predictive_with_deterministic(parallel):
     # check shapes
     assert predictive_samples["mu"].shape == (100,) + X[:n_preds].shape
     assert predictive_samples["obs"].shape == (100,) + X[:n_preds].shape
+
+
+@pytest.mark.parametrize(
+    argnames="parallel", argvalues=[True, False], ids=["parallel", "sequential"]
+)
+def test_discrete_predictive_with_deterministic(parallel):
+    """Tests that the predictive samples include deterministic sites for discrete models."""
+    model, probs = categorical_probs()
+
+    predictive = Predictive(
+        model=model,
+        posterior_samples=dict(probs=probs),
+        infer_discrete=True,
+        batch_ndims=2,
+        parallel=parallel,
+        exclude_deterministic=False,
+    )
+
+    predictive_samples = predictive(random.PRNGKey(1), probs=probs)
+    assert predictive_samples.keys() == {"counts_categorical"}
+    assert predictive_samples["counts_categorical"].shape == probs.shape
 
 
 def test_predictive_with_guide():
@@ -223,6 +266,23 @@ def test_log_likelihood(batch_shape):
     assert_allclose(
         loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data), rtol=1e-6
     )
+
+
+def test_compute_log_probs():
+    model, data, _ = beta_bernoulli()
+    samples = Predictive(model, return_sites=["beta"], num_samples=1)(random.key(7))
+    samples = {key: value[0] for key, value in samples.items()}
+
+    logden, _ = log_density(model, (data,), {}, samples)
+    assert logden.shape == ()
+
+    logdens, _ = compute_log_probs(model, (data,), {}, samples)
+    assert set(logdens) == {"beta", "obs"}
+    assert all(x.shape == () for x in logdens.values())
+
+    logdens, _ = compute_log_probs(model, (data,), {}, samples, False)
+    assert logdens["beta"].shape == (2,)
+    assert logdens["obs"].shape == (800, 2)
 
 
 def test_model_with_transformed_distribution():

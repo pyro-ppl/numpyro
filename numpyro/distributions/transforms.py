@@ -282,7 +282,7 @@ class AffineTransform(Transform):
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
-    for part in parts[len(parts) - 1 :: -1]:
+    for part in parts[:-1][::-1]:
         input_event_dim = part.domain.event_dim + max(
             input_event_dim - part.codomain.event_dim, 0
         )
@@ -1209,10 +1209,6 @@ class ReshapeTransform(Transform):
     :param inverse_shape: Shape of the sample for the inverse transform.
     """
 
-    domain = constraints.real
-    codomain = constraints.real
-    sign = 1
-
     def __init__(self, forward_shape, inverse_shape) -> None:
         forward_size = math.prod(forward_shape)
         inverse_size = math.prod(inverse_shape)
@@ -1223,6 +1219,14 @@ class ReshapeTransform(Transform):
             )
         self._forward_shape = forward_shape
         self._inverse_shape = inverse_shape
+
+    @property
+    def domain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, len(self._inverse_shape))
+
+    @property
+    def codomain(self) -> constraints.Constraint:
+        return constraints.independent(constraints.real, len(self._forward_shape))
 
     def forward_shape(self, shape):
         return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
@@ -1341,7 +1345,7 @@ class RecursiveLinearTransform(Transform):
     are vectors and :math:`A` is a square transition matrix. The series is initialized
     by :math:`y_0 = 0`.
 
-    :param transition_matrix: Squared transition matrix :math:`A` for successive states
+    :param transition_matrix: Square transition matrix :math:`A` for successive states
         or a batch of transition matrices.
 
     **Example:**

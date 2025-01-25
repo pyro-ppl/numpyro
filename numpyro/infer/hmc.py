@@ -7,7 +7,7 @@ import math
 import os
 import warnings
 
-from jax import device_put, lax, random, vmap
+from jax import lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -359,7 +359,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             wa_state,
             rng_key_hmc,
         )
-        return device_put(hmc_state)
+        return hmc_state
 
     def _hmc_next(
         step_size,
@@ -751,7 +751,7 @@ class HMC(MCMCKernel):
         )
         if self._potential_fn and init_params is None:
             raise ValueError(
-                "Valid value of `init_params` must be provided with" " `potential_fn`."
+                "Valid value of `init_params` must be provided with `potential_fn`."
             )
 
         # change dense_mass to a structural form

@@ -24,11 +24,11 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-
 from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
+from typing import Any, Protocol, runtime_checkable
 import warnings
 
 import numpy as np
@@ -37,6 +37,7 @@ import jax
 from jax import lax, tree_util
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+from jax.typing import ArrayLike
 
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
@@ -138,7 +139,7 @@ class Distribution(metaclass=DistributionMeta):
     pytree_aux_fields = ("_batch_shape", "_event_shape")
 
     # register Distribution as a pytree
-    # ref: https://github.com/google/jax/issues/2916
+    # ref: https://github.com/jax-ml/jax/issues/2916
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
@@ -147,16 +148,20 @@ class Distribution(metaclass=DistributionMeta):
     def gather_pytree_data_fields(cls):
         bases = inspect.getmro(cls)
 
-        all_pytree_data_fields = ()
+        all_pytree_data_fields = set()
         for base in bases:
             if issubclass(base, Distribution):
-                all_pytree_data_fields += base.__dict__.get(
-                    "pytree_data_fields",
-                    tuple(base.__dict__.get("arg_constraints", {}).keys()),
+                all_pytree_data_fields.update(
+                    base.__dict__.get(
+                        "pytree_data_fields",
+                        tuple(
+                            arg
+                            for arg in base.__dict__.get("arg_constraints", {})
+                            if not isinstance(getattr(cls, arg, None), lazy_property)
+                        ),
+                    )
                 )
-        # remove duplicates
-        all_pytree_data_fields = tuple(set(all_pytree_data_fields))
-        return all_pytree_data_fields
+        return tuple(all_pytree_data_fields)
 
     @classmethod
     def gather_pytree_aux_fields(cls) -> tuple:
@@ -232,6 +237,17 @@ class Distribution(metaclass=DistributionMeta):
             self.validate_args(strict=False)
         super(Distribution, self).__init__()
 
+    def get_args(self) -> dict:
+        """
+        Get arguments of the distribution.
+        """
+        return {
+            param: getattr(self, param)
+            for param in self.arg_constraints
+            if param in self.__dict__
+            or not isinstance(getattr(type(self), param), lazy_property)
+        }
+
     def validate_args(self, strict: bool = True) -> None:
         """
         Validate the arguments of the distribution.
@@ -239,14 +255,11 @@ class Distribution(metaclass=DistributionMeta):
         :param strict: Require strict validation, raising an error if the function is
             called inside jitted code.
         """
-        for param, constraint in self.arg_constraints.items():
-            if param not in self.__dict__ and isinstance(
-                getattr(type(self), param), lazy_property
-            ):
-                continue
+        for param, value in self.get_args().items():
+            constraint = self.arg_constraints[param]
             if constraints.is_dependent(constraint):
                 continue  # skip constraints that cannot be checked
-            is_valid = constraint(getattr(self, param))
+            is_valid = constraint(value)
             if not_jax_tracer(is_valid):
                 if not np.all(is_valid):
                     raise ValueError(
@@ -258,7 +271,7 @@ class Distribution(metaclass=DistributionMeta):
                 raise RuntimeError("Cannot validate arguments inside jitted code.")
 
     @property
-    def batch_shape(self):
+    def batch_shape(self) -> tuple[int, ...]:
         """
         Returns the shape over which the distribution parameters are batched.
 
@@ -268,7 +281,7 @@ class Distribution(metaclass=DistributionMeta):
         return self._batch_shape
 
     @property
-    def event_shape(self):
+    def event_shape(self) -> tuple[int, ...]:
         """
         Returns the shape of a single sample from the distribution without
         batching.
@@ -279,7 +292,7 @@ class Distribution(metaclass=DistributionMeta):
         return self._event_shape
 
     @property
-    def event_dim(self):
+    def event_dim(self) -> int:
         """
         :return: Number of dimensions of individual events.
         :rtype: int
@@ -287,16 +300,16 @@ class Distribution(metaclass=DistributionMeta):
         return len(self.event_shape)
 
     @property
-    def has_rsample(self):
+    def has_rsample(self) -> bool:
         return set(self.reparametrized_params) == set(self.arg_constraints)
 
-    def rsample(self, key, sample_shape=()):
+    def rsample(self, key, sample_shape=()) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
         raise NotImplementedError
 
-    def shape(self, sample_shape=()):
+    def shape(self, sample_shape=()) -> tuple[int, ...]:
         """
         The tensor shape of samples from this distribution.
 
@@ -311,7 +324,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         return sample_shape + self.batch_shape + self.event_shape
 
-    def sample(self, key, sample_shape=()):
+    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
         `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
@@ -349,14 +362,14 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """
         Mean of the distribution.
         """
         raise NotImplementedError
 
     @property
-    def variance(self):
+    def variance(self) -> ArrayLike:
         """
         Variance of the distribution.
         """
@@ -528,7 +541,7 @@ class Distribution(metaclass=DistributionMeta):
         event_shape = ()
         return batch_shape, event_shape
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> ArrayLike:
         """
         The cumulative distribution function of this distribution.
 
@@ -537,7 +550,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         """
         The inverse cumulative distribution function of this distribution.
 
@@ -549,6 +562,50 @@ class Distribution(metaclass=DistributionMeta):
     @property
     def is_discrete(self):
         return self.support.is_discrete
+
+    def __repr__(self) -> str:
+        cls = self.__class__
+        return (
+            f"<{cls.__module__}.{cls.__name__} object at {id(self):#x} with batch "
+            f"shape {self.batch_shape} and event shape {self.event_shape}>"
+        )
+
+
+@runtime_checkable
+class DistributionLike(Protocol):
+    """A protocol for typing distributions.
+
+    Used to type object of type numpyro.distributions.Distribution, funsor.Funsor
+    or tensorflow_probability.distributions.Distribution.
+    """
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return super().__call__(*args, **kwargs)
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]: ...
+
+    @property
+    def event_shape(self) -> tuple[int, ...]: ...
+
+    @property
+    def event_dim(self) -> int: ...
+
+    def sample(
+        self, key: ArrayLike, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike: ...
+
+    def log_prob(self, value: ArrayLike) -> ArrayLike: ...
+
+    @property
+    def mean(self) -> ArrayLike: ...
+
+    @property
+    def variance(self) -> ArrayLike: ...
+
+    def cdf(self, value: ArrayLike) -> ArrayLike: ...
+
+    def icdf(self, q: ArrayLike) -> ArrayLike: ...
 
 
 class ExpandedDistribution(Distribution):
@@ -1193,7 +1250,7 @@ class Delta(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        log_prob = jnp.log(value == self.v)
+        log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 

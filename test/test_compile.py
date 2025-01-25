@@ -36,7 +36,10 @@ def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
 
     num_traces_for_heuristic = 2 if find_heuristic_step_size else 0
     if deterministic:
-        assert GLOBAL["count"] == 4 + num_traces_for_heuristic
+        # We have two extra calls to the model to get deterministic values:
+        # 1. transform the init state
+        # 2. transform state during the loop
+        assert GLOBAL["count"] == 5 + num_traces_for_heuristic
     else:
         assert GLOBAL["count"] == 3 + num_traces_for_heuristic
 

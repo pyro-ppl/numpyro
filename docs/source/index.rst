@@ -83,6 +83,7 @@ NumPyro documentation
    examples/zero_inflated_poisson
    examples/cvae
    tutorials/tbip
+   examples/var2
 
 .. nbgallery::
    :maxdepth: 1

@@ -14,18 +14,25 @@ repos:
         language: system
         files: "(.py$)|(.*.ipynb$)"
 
+      - id: mypy
+        name: mypy
+        language: python
+        entry: mypy --install-types --non-interactive
+        files: ^numpyro/
+
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: debug-statements
       - id: check-yaml
       - id: check-added-large-files
-        exclude: notebooks/*
+        exclude: notebooks/
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.3.0
     hooks:
       - id: codespell
-        stages: [commit, commit-msg]
+        stages: [pre-commit, commit-msg]
         args:
           [--ignore-words-list, "Teh,aas", --check-filenames, --skip, "*.ipynb"]

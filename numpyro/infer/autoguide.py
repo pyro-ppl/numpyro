@@ -104,9 +104,9 @@ class AutoGuide(ABC):
             plates = self.create_plates(*args, **kwargs)
             if isinstance(plates, numpyro.plate):
                 plates = [plates]
-            assert all(
-                isinstance(p, numpyro.plate) for p in plates
-            ), "create_plates() returned a non-plate"
+            assert all(isinstance(p, numpyro.plate) for p in plates), (
+                "create_plates() returned a non-plate"
+            )
             self.plates = {p.name: p for p in plates}
         for name, frame in sorted(self._prototype_frames.items()):
             if name not in self.plates:
@@ -181,9 +181,9 @@ class AutoGuide(ABC):
                         biject_to(site["fn"].support)
                 for frame in site["cond_indep_stack"]:
                     if frame.name in self._prototype_frames:
-                        assert (
-                            frame == self._prototype_frames[frame.name]
-                        ), f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
+                        assert frame == self._prototype_frames[frame.name], (
+                            f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
+                        )
                     else:
                         self._prototype_frames[frame.name] = frame
             elif site["type"] == "plate":
@@ -786,9 +786,9 @@ class AutoContinuous(AutoGuide):
         :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
         posterior = handlers.substitute(self._get_posterior, params)()
-        assert isinstance(
-            posterior, dist.TransformedDistribution
-        ), "posterior is not a transformed distribution"
+        assert isinstance(posterior, dist.TransformedDistribution), (
+            "posterior is not a transformed distribution"
+        )
         if len(posterior.transforms) > 0:
             return ComposeTransform(posterior.transforms)
         else:
@@ -1355,9 +1355,9 @@ class AutoSemiDAIS(AutoGuide):
                 if site["type"] == "plate"
             }
         num_plates = len(subsample_plates)
-        assert (
-            num_plates == 1
-        ), f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
+        assert num_plates == 1, (
+            f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
+        )
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
         subsample_axes = {}
@@ -1463,8 +1463,10 @@ class AutoSemiDAIS(AutoGuide):
         if self.global_guide is not None:
             global_latents = self.global_guide(*args, **kwargs)
             rng_key = numpyro.prng_key()
-            with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
-                data=global_latents
+            with (
+                handlers.block(),
+                handlers.seed(rng_seed=rng_key),
+                handlers.substitute(data=global_latents),
             ):
                 global_outputs = self.global_guide.model(*args, **kwargs)
             local_args = (global_outputs,)
@@ -1575,9 +1577,12 @@ class AutoSemiDAIS(AutoGuide):
             if self.local_guide is not None:
                 key = numpyro.prng_key()
                 subsample_guide = partial(_subsample_model, self.local_guide)
-                with handlers.block(), handlers.trace() as tr, handlers.seed(
-                    rng_seed=key
-                ), handlers.substitute(data=local_guide_params):
+                with (
+                    handlers.block(),
+                    handlers.trace() as tr,
+                    handlers.seed(rng_seed=key),
+                    handlers.substitute(data=local_guide_params),
+                ):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         subsample_guide(*local_args, **local_kwargs)

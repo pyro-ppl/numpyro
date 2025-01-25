@@ -20,6 +20,7 @@ from numpyro.util import (
     fori_collect,
     identity,
     is_prng_key,
+    nested_attrgetter,
 )
 
 __all__ = [
@@ -188,27 +189,28 @@ def _sample_fn_nojit_args(state, sampler, args, kwargs):
     return (sampler.sample(state[0], args, kwargs),)
 
 
-def _collect_fn(collect_fields, remove_sites):
-    @cached_by(_collect_fn, collect_fields, remove_sites)
-    def collect(x):
+def _collect_and_postprocess(postprocess_fn, collect_fields, remove_sites):
+    @cached_by(_collect_and_postprocess, postprocess_fn, collect_fields, remove_sites)
+    def collect_and_postprocess(x):
         if collect_fields:
-            fields = attrgetter(*collect_fields)(x[0])
+            fields = nested_attrgetter(*collect_fields)(x[0])
+            fields = [fields] if len(collect_fields) == 1 else list(fields)
+            fields[0] = postprocess_fn(fields[0], *x[1:])
 
             if remove_sites != ():
-                fields = [fields] if len(collect_fields) == 1 else list(fields)
                 assert isinstance(fields[0], dict)
 
                 sample_sites = fields[0].copy()
                 for site in remove_sites:
                     sample_sites.pop(site)
                 fields[0] = sample_sites
-                fields = fields[0] if len(collect_fields) == 1 else fields
 
+            fields = fields[0] if len(collect_fields) == 1 else fields
             return fields
         else:
             return x[0]
 
-    return collect
+    return collect_and_postprocess
 
 
 # XXX: Is there a better hash key that we can use?
@@ -363,6 +365,12 @@ class MCMC(object):
                 stacklevel=find_stack_level(),
             )
         self.chain_method = chain_method
+        if callable(chain_method) and (num_chains > 1) and progress_bar:
+            warnings.warn(
+                "Disabling progress bar as `chain_method` is a callable and `num_chains > 1`.",
+                stacklevel=find_stack_level(),
+            )
+            progress_bar = False
         self.progress_bar = progress_bar
         if "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
@@ -396,19 +404,33 @@ class MCMC(object):
             fns, key = None, None
         if fns is None:
 
-            def laxmap_postprocess_fn(states, args, kwargs):
+            def ensure_vmap(fn, batch_size=None):
+                def wrapper(x):
+                    x_arrays = jax.tree.flatten(x)[0]
+                    if len(x_arrays) > 0:
+                        return vmap(fn)(x)
+                    else:
+                        assert batch_size is not None
+                        return jax.tree.map(
+                            lambda x: jnp.broadcast_to(x, (batch_size,) + jnp.shape(x)),
+                            fn(x),
+                        )
+
+                return wrapper
+
+            def _postprocess_fn(state, args, kwargs):
                 if self.postprocess_fn is None:
                     body_fn = self.sampler.postprocess_fn(args, kwargs)
                 else:
                     body_fn = self.postprocess_fn
                 if self.chain_method == "vectorized" and self.num_chains > 1:
-                    body_fn = vmap(body_fn)
+                    body_fn = ensure_vmap(body_fn, batch_size=self.num_chains)
 
-                return lax.map(body_fn, states)
+                return body_fn(state)
 
             if self._jit_model_args:
                 sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
-                postprocess_fn = jit(laxmap_postprocess_fn)
+                postprocess_fn = _postprocess_fn
             else:
                 sample_fn = partial(
                     _sample_fn_nojit_args,
@@ -416,8 +438,8 @@ class MCMC(object):
                     args=self._args,
                     kwargs=self._kwargs,
                 )
-                postprocess_fn = jit(
-                    partial(laxmap_postprocess_fn, args=self._args, kwargs=self._kwargs)
+                postprocess_fn = partial(
+                    _postprocess_fn, args=self._args, kwargs=self._kwargs
                 )
 
             fns = sample_fn, postprocess_fn
@@ -469,7 +491,9 @@ class MCMC(object):
             upper_idx,
             sample_fn,
             init_val,
-            transform=_collect_fn(collect_fields, remove_sites),
+            transform=_collect_and_postprocess(
+                postprocess_fn, collect_fields, remove_sites
+            ),
             progbar=self.progress_bar,
             return_last_val=True,
             thinning=self.thinning,
@@ -486,18 +510,6 @@ class MCMC(object):
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
-        # Apply constraints if number of samples is non-zero
-        site_values = jax.tree.flatten(states[self._sample_field])[0]
-        # XXX: lax.map still works if some arrays have 0 size
-        # so we only need to filter out the case site_value.shape[0] == 0
-        # (which happens when lower_idx==upper_idx)
-        if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
-            if self._jit_model_args:
-                states[self._sample_field] = postprocess_fn(
-                    states[self._sample_field], args, kwargs
-                )
-            else:
-                states[self._sample_field] = postprocess_fn(states[self._sample_field])
         return states, last_state
 
     def _set_collection_params(
@@ -585,7 +597,10 @@ class MCMC(object):
         :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.mcmc.MCMCKernel.default_fields`)
             from the state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to collect during
             the MCMC run. Exclude sample sites from collection with "~`sampler.sample_field`.`sample_site`".
-            e.g. "~z.a" will prevent site "a" from being collected if you're using the NUTS sampler.
+            e.g. "~z.a" will prevent site "a" from being collected if you're using the NUTS sampler. To
+            collect samples of a site "a" in the unconstrained space, we can specify the variable here, e.g.
+            `extra_fields=("z.a",)`.
+
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
@@ -622,7 +637,8 @@ class MCMC(object):
             during the MCMC run. Note that subfields can be accessed using dots, e.g.
             `"adapt_state.step_size"` can be used to collect step sizes at each step. Exclude sample sites from
             collection with "~`sampler.sample_field`.`sample_site`". e.g. "~z.a" will prevent site "a" from
-            being collected if you're using the NUTS sampler.
+            being collected if you're using the NUTS sampler. To collect samples of a site "a" in the
+            unconstrained space, we can specify the variable here, e.g. `extra_fields=("z.a",)`.
         :type extra_fields: tuple or list of str
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn` provided to the kernel. If the kernel is
@@ -647,7 +663,11 @@ class MCMC(object):
 
         if self._warmup_state is not None:
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
-            init_state = self._warmup_state._replace(rng_key=rng_key)
+
+            if self.sampler.is_ensemble_kernel:
+                init_state = self._warmup_state._replace(rng_key=rng_key[0])
+            else:
+                init_state = self._warmup_state._replace(rng_key=rng_key)
 
         if init_params is not None and self.num_chains > 1:
             prototype_init_val = jax.tree.flatten(init_params)[0][0]

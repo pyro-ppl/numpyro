@@ -25,6 +25,7 @@ from numpyro.infer import (
     TraceGraph_ELBO,
     TraceMeanField_ELBO,
 )
+from numpyro.infer.elbo import _apply_vmap
 from numpyro.primitives import mutable as numpyro_mutable
 from numpyro.util import fori_loop
 
@@ -163,7 +164,20 @@ def test_renyi_create_plates(n, k):
         assert_allclose(atol, 0.0, atol=1e-5)
 
 
-def test_vectorized_particle():
+def test_assign_vectorize_particles_fn():
+    elbo = Trace_ELBO()
+    assert elbo._assign_vectorize_particles_fn(True) == _apply_vmap
+    assert elbo._assign_vectorize_particles_fn(False) == jax.lax.map
+    assert elbo._assign_vectorize_particles_fn(jax.pmap) == jax.pmap
+    assert callable(elbo._assign_vectorize_particles_fn(lambda x: x))
+
+
+@pytest.mark.parametrize(
+    argnames="vectorize_particles",
+    argvalues=[True, False, jax.pmap, lambda x: x],
+    ids=["vmap", "lax", "pmap", "custom"],
+)
+def test_vectorized_particle(vectorize_particles):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
@@ -176,13 +190,16 @@ def test_vectorized_particle():
         beta_q = numpyro.param("beta_q", 1.0, constraint=constraints.positive)
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    vmap_results = SVI(
-        model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=True)
+    results = SVI(
+        model,
+        guide,
+        optim.Adam(0.1),
+        Trace_ELBO(vectorize_particles=vectorize_particles),
     ).run(random.PRNGKey(0), 100, data)
     map_results = SVI(
         model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=False)
     ).run(random.PRNGKey(0), 100, data)
-    assert_allclose(vmap_results.losses, map_results.losses, atol=1e-5)
+    assert_allclose(results.losses, map_results.losses, atol=1e-5)
 
 
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
@@ -219,8 +236,17 @@ def test_beta_bernoulli(elbo, optimizer):
     )
 
 
-@pytest.mark.parametrize("progress_bar", [True, False])
-def test_run(progress_bar):
+@pytest.mark.parametrize(
+    argnames="vectorize_particles",
+    argvalues=[True, False, jax.pmap, lambda x: x],
+    ids=["vmap", "lax", "pmap", "custom"],
+)
+@pytest.mark.parametrize(
+    argnames="progress_bar",
+    argvalues=[True, False],
+    ids=["progress_bar", "no_progress_bar"],
+)
+def test_run(vectorize_particles, progress_bar):
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
@@ -239,7 +265,12 @@ def test_run(progress_bar):
         )
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
+    svi = SVI(
+        model,
+        guide,
+        optim.Adam(0.05),
+        Trace_ELBO(vectorize_particles=vectorize_particles),
+    )
     svi_result = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
     params, losses = svi_result.params, svi_result.losses
     assert losses.shape == (1000,)

@@ -1199,3 +1199,38 @@ def test_remove_sites(kernel_cls, remove_sites):
     samps = mcmc.get_samples()
 
     assert all([site[3:] not in samps for site in remove_sites])
+
+
+def test_extra_fields_include_unconstrained_samples():
+    def model():
+        numpyro.sample("x", dist.HalfNormal(1))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(0), extra_fields=("z.x",))
+    assert_allclose(mcmc.get_samples()["x"], jnp.exp(mcmc.get_extra_fields()["z.x"]))
+
+
+def test_all_deterministic():
+    def model1():
+        numpyro.deterministic("x", 1.0)
+
+    def model2():
+        numpyro.deterministic("x", jnp.array([1.0, 2.0]))
+
+    num_samples = 10
+    shapes = {model1: (), model2: (2,)}
+
+    for model, shape in shapes.items():
+        mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=num_samples)
+        mcmc.run(random.PRNGKey(0))
+        assert mcmc.get_samples()["x"].shape == (num_samples,) + shape
+
+
+def test_empty_summary():
+    def model():
+        pass
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(0))
+
+    mcmc.print_summary()
