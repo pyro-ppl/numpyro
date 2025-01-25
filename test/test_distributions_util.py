@@ -16,6 +16,7 @@ import jax
 from jax import lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
+from jax.test_util import check_grads
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import (
@@ -28,6 +29,7 @@ from numpyro.distributions.util import (
     safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered,
+    log1mexp,
     logdiffexp
 )
 
@@ -81,6 +83,27 @@ def test_categorical_stats(p):
     z = categorical(rng_key, p, (n,))
     _, counts = np.unique(z, return_counts=True)
     assert_allclose(counts / float(n), p, atol=0.01)
+
+
+@pytest.mark.parametrize(
+    "x",
+    [-80.5632, -0.32523, -0.5, -20.53, -8.032]
+)
+def test_log1mexp_grads(x):
+    check_grads(log1mexp, (x,), order=3)
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        (-20., -35.),
+        (-0.32523, -0.34),
+        (20.53, 19.035),
+        (8.032, 7.032)
+    ]
+)
+def test_logdiffexp_grads(a, b):
+    check_grads(logdiffexp, (a, b), order=3, rtol=0.01)
 
 
 @pytest.mark.parametrize(
