@@ -53,6 +53,8 @@ from numpyro.distributions.util import (
 )
 from numpyro.nn import AutoregressiveNN
 
+from .utils import get_python_version_specific_seed
+
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 
@@ -1653,7 +1655,7 @@ def test_gof(jax_dist, sp_dist, params):
     num_samples = 10000
     if "BetaProportion" in jax_dist.__name__:
         num_samples = 20000
-    rng_key = random.PRNGKey(19470715)
+    rng_key = random.PRNGKey(get_python_version_specific_seed(0, 19470715))
     d = jax_dist(*params)
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
     probs = np.exp(d.log_prob(samples))
@@ -1935,7 +1937,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         else 200000
     )
     d_jax = jax_dist(*params)
-    k = random.PRNGKey(19470715)
+    k = random.PRNGKey(get_python_version_specific_seed(0, 19470715))
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
     # XXX: VonMises is already tested below
@@ -2433,7 +2435,7 @@ def test_biject_to(constraint, shape):
         assert transform.codomain.upper_bound == constraint.upper_bound
     if len(shape) < event_dim:
         return
-    rng_key = random.PRNGKey(19470715)
+    rng_key = random.PRNGKey(get_python_version_specific_seed(0, 19470715))
     x = random.normal(rng_key, shape)
     y = transform(x)
 
@@ -2558,7 +2560,7 @@ def test_biject_to(constraint, shape):
 )
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
-    rng_key = random.PRNGKey(20020626)
+    rng_key = random.PRNGKey(get_python_version_specific_seed(0, 20020626))
     x = biject_to(transform.domain)(random.normal(rng_key, shape))
     y = transform(x)
 

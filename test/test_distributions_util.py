@@ -26,6 +26,8 @@ from numpyro.distributions.util import (
     von_mises_centered,
 )
 
+from .utils import get_python_version_specific_seed
+
 
 @pytest.mark.parametrize("x, y", [(0.2, 10.0), (0.6, -10.0)])
 def test_binary_cross_entropy_with_logits(x, y):
@@ -133,7 +135,9 @@ def test_vec_to_tril_matrix(shape, diagonal):
 @pytest.mark.parametrize("dim", [1, 4])
 @pytest.mark.parametrize("coef", [1, -1])
 def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
-    key1, key2 = random.split(random.PRNGKey(19470715))
+    key1, key2 = random.split(
+        random.PRNGKey(get_python_version_specific_seed(0, 19470715))
+    )
     A = random.normal(key1, chol_batch_shape + (dim, dim))
     A = A @ jnp.swapaxes(A, -2, -1) + jnp.eye(dim)
     x = random.normal(key2, vec_batch_shape + (dim,)) * 0.1
