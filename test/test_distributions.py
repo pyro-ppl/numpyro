@@ -15,6 +15,7 @@ import pytest
 import scipy
 from scipy.sparse import csr_matrix
 import scipy.stats as osp
+from utils import get_python_version_specific_seed
 
 import jax
 from jax import grad, lax, vmap
@@ -52,8 +53,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
-
-from .utils import get_python_version_specific_seed
 
 TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 

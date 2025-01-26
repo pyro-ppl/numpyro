@@ -7,6 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 import scipy
+from utils import get_python_version_specific_seed
 
 import jax
 from jax import lax, random, vmap
@@ -25,8 +26,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix,
     von_mises_centered,
 )
-
-from .utils import get_python_version_specific_seed
 
 
 @pytest.mark.parametrize("x, y", [(0.2, 10.0), (0.6, -10.0)])
