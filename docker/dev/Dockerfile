@@ -20,9 +20,9 @@ RUN apt update && \
 ENV PATH=/root/.local/bin:$PATH
 
 # install python packages via pip
-RUN pip3 install jax[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+RUN pip3 install 'jax[cuda]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 # clone the numpyro git repository and run pip install
 RUN git clone https://github.com/pyro-ppl/numpyro.git && \
     cd numpyro && \
-    pip3 install -e .[dev, test]  # contains additional dependencies for NumPyro development
+    pip3 install -e '.[dev, test]'  # contains additional dependencies for NumPyro development

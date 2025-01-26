@@ -14,7 +14,7 @@ format: license FORCE
 	ruff format .
 
 install: FORCE
-	pip install -e .[dev,doc,test,examples]
+	pip install -e '.[dev,doc,test,examples]'
 
 doctest: FORCE
 	JAX_PLATFORM_NAME=cpu $(MAKE) -C docs doctest
