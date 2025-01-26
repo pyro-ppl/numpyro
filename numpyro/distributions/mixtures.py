@@ -359,9 +359,9 @@ class MixtureGeneral(_MixtureBase):
                     "All component distributions must have the same support."
                 )
         else:
-            assert isinstance(support, constraints.Constraint), (
-                "support must be a Constraint object"
-            )
+            assert isinstance(
+                support, constraints.Constraint
+            ), "support must be a Constraint object"
 
         self._mixing_distribution = mixing_distribution
         self._component_distributions = component_distributions

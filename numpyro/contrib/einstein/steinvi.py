@@ -140,9 +140,9 @@ class SteinVI:
             if isinstance(guide.init_loc_fn, partial):
                 init_fn_name = guide.init_loc_fn.func.__name__
                 if init_fn_name == "init_to_uniform":
-                    assert guide.init_loc_fn.keywords.get("radius", None) != 0.0, (
-                        init_loc_error_message
-                    )
+                    assert (
+                        guide.init_loc_fn.keywords.get("radius", None) != 0.0
+                    ), init_loc_error_message
             else:
                 init_fn_name = guide.init_loc_fn.__name__
             assert init_fn_name not in [

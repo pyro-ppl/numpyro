@@ -56,9 +56,9 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
 class _TFPKernelMeta(ABCMeta):
     def __getitem__(cls, kernel_class):
         assert issubclass(kernel_class, tfp.mcmc.TransitionKernel)
-        assert "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args, (
-            f"the first argument of {kernel_class} must be `target_log_prob_fn`"
-        )
+        assert (
+            "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args
+        ), f"the first argument of {kernel_class} must be `target_log_prob_fn`"
 
         _PyroKernel = type(kernel_class.__name__, (TFPKernel,), {})
         _PyroKernel.kernel_class = kernel_class

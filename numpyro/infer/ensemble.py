@@ -289,12 +289,12 @@ class AIES(EnsembleSampler):
                 moves
             )
 
-            assert all([hasattr(move, "__call__") for move in self._moves]), (
-                "Each move must be a callable (one of AIES.DEMove(), or AIES.StretchMove())."
-            )
-            assert jnp.all(self._weights >= 0), (
-                "Each specified move must have probability >= 0"
-            )
+            assert all(
+                [hasattr(move, "__call__") for move in self._moves]
+            ), "Each move must be a callable (one of AIES.DEMove(), or AIES.StretchMove())."
+            assert jnp.all(
+                self._weights >= 0
+            ), "Each specified move must have probability >= 0"
 
         super().__init__(
             model,
@@ -515,9 +515,9 @@ class ESS(EnsembleSampler):
                 "`ESS.GaussianMove()`, `ESS.KDEMove()`, `ESS.RandomMove()`)"
             )
 
-            assert jnp.all(self._weights >= 0), (
-                "Each specified move must have probability >= 0"
-            )
+            assert jnp.all(
+                self._weights >= 0
+            ), "Each specified move must have probability >= 0"
             assert init_mu > 0, "Scale factor should be strictly positive"
 
         self._max_steps = max_steps  # max number of stepping out steps

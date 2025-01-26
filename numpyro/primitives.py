@@ -178,9 +178,9 @@ def sample(
         argument is not intended to be used with MCMC.
     :return: sample from the stochastic `fn`.
     """
-    assert isinstance(sample_shape, tuple), (
-        "sample_shape needs to be a tuple of integers"
-    )
+    assert isinstance(
+        sample_shape, tuple
+    ), "sample_shape needs to be a tuple of integers"
     if not isinstance(fn, numpyro.distributions.Distribution):
         type_error = TypeError(
             "It looks like you tried to use a fn that isn't an instance of "
@@ -280,9 +280,9 @@ def param(
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        assert not callable(init_value), (
-            "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
-        )
+        assert not callable(
+            init_value
+        ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
 
     if callable(init_value):

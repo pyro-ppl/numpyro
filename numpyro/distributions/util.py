@@ -440,13 +440,13 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
     return jnp.where(
         x > -0.6931472,  # approx log(2)
         jnp.log(-jnp.expm1(x)),
-        jnp.log1p(-jnp.exp(x)))
+        jnp.log1p(-jnp.exp(x)),
+    )
 
 
 # custom jvp for log1mexp to handle
 # the gradient when x is near 0.
-log1mexp.defjvps(
-    lambda t, ans, x: -t / jnp.expm1(-x))
+log1mexp.defjvps(lambda t, ans, x: -t / jnp.expm1(-x))
 
 
 def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
@@ -473,9 +473,8 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     return jnp.where(
         (a < jnp.inf) & (a > b),
         a + log1mexp(b - a),
-        jnp.where(a == b,
-                  -jnp.inf,
-                  jnp.nan))
+        jnp.where(a == b, -jnp.inf, jnp.nan),
+    )
 
 
 def clamp_probs(probs):

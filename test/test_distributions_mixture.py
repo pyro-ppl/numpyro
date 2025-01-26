@@ -129,18 +129,18 @@ def _test_mixture(mixing_distribution, component_distribution):
         mixing_distribution=mixing_distribution,
         component_distributions=component_distribution,
     )
-    assert mixture.mixture_size == mixing_distribution.probs.shape[-1], (
-        "Mixture size needs to be the size of the probability vector"
-    )
+    assert (
+        mixture.mixture_size == mixing_distribution.probs.shape[-1]
+    ), "Mixture size needs to be the size of the probability vector"
 
     if isinstance(component_distribution, dist.Distribution):
-        assert mixture.batch_shape == component_distribution.batch_shape[:-1], (
-            "Mixture batch shape needs to be the component batch shape without the mixture dimension."
-        )
+        assert (
+            mixture.batch_shape == component_distribution.batch_shape[:-1]
+        ), "Mixture batch shape needs to be the component batch shape without the mixture dimension."
     else:
-        assert mixture.batch_shape == component_distribution[0].batch_shape, (
-            "Mixture batch shape needs to be the component batch shape."
-        )
+        assert (
+            mixture.batch_shape == component_distribution[0].batch_shape
+        ), "Mixture batch shape needs to be the component batch shape."
     # Test samples
     sample_shape = (11,)
     # Samples from component distribution(s)

@@ -34,9 +34,9 @@ class LeftTruncatedDistribution(Distribution):
 
     def __init__(self, base_dist, low=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
-        assert base_dist.support is constraints.real, (
-            "The base distribution should be univariate and have real support."
-        )
+        assert (
+            base_dist.support is constraints.real
+        ), "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
         self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -117,9 +117,9 @@ class RightTruncatedDistribution(Distribution):
 
     def __init__(self, base_dist, high=0.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
-        assert base_dist.support is constraints.real, (
-            "The base distribution should be univariate and have real support."
-        )
+        assert (
+            base_dist.support is constraints.real
+        ), "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
         self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -188,9 +188,9 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def __init__(self, base_dist, low=0.0, high=1.0, *, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
-        assert base_dist.support is constraints.real, (
-            "The base distribution should be univariate and have real support."
-        )
+        assert (
+            base_dist.support is constraints.real
+        ), "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(
             base_dist.batch_shape, jnp.shape(low), jnp.shape(high)
         )

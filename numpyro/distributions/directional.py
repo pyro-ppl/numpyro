@@ -219,9 +219,9 @@ class SineSkewed(Distribution):
     support = constraints.independent(constraints.circular, 1)
 
     def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
-        assert base_dist.event_shape == skewness.shape[-1:], (
-            "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
-        )
+        assert (
+            base_dist.event_shape == skewness.shape[-1:]
+        ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
 
         batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness.shape[:-1])
         event_shape = skewness.shape[-1:]
