@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numbers import Number
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -134,9 +135,12 @@ def test_vec_to_tril_matrix(shape, diagonal):
 @pytest.mark.parametrize("dim", [1, 4])
 @pytest.mark.parametrize("coef", [1, -1])
 def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
-    key1, key2 = random.split(
-        random.PRNGKey(get_python_version_specific_seed(0, 19470715))
-    )
+    if sys.version_info.minor == 9:  # if python 3.9
+        key1, key2 = random.PRNGKey(0), random.PRNGKey(0)
+    else:
+        key1, key2 = random.split(
+            random.PRNGKey(get_python_version_specific_seed(0, 19470715))
+        )
     A = random.normal(key1, chol_batch_shape + (dim, dim))
     A = A @ jnp.swapaxes(A, -2, -1) + jnp.eye(dim)
     x = random.normal(key2, vec_batch_shape + (dim,)) * 0.1
