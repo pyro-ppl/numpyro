@@ -593,13 +593,13 @@ class GaussianStateSpace(TransformedDistribution):
         *,
         validate_args=None,
     ):
-        assert (
-            isinstance(num_steps, int) and num_steps > 0
-        ), "`num_steps` argument should be an positive integer."
+        assert isinstance(num_steps, int) and num_steps > 0, (
+            "`num_steps` argument should be an positive integer."
+        )
         self.num_steps = num_steps
-        assert (
-            transition_matrix.ndim == 2
-        ), "`transition_matrix` argument should be a square matrix"
+        assert transition_matrix.ndim == 2, (
+            "`transition_matrix` argument should be a square matrix"
+        )
         self.transition_matrix = transition_matrix
         # Expand the covariance/precision/scale matrices to the right number of steps.
         args = {
@@ -662,9 +662,9 @@ class GaussianRandomWalk(Distribution):
     pytree_aux_fields = ("num_steps",)
 
     def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
-        assert (
-            isinstance(num_steps, int) and num_steps > 0
-        ), "`num_steps` argument should be an positive integer."
+        assert isinstance(num_steps, int) and num_steps > 0, (
+            "`num_steps` argument should be an positive integer."
+        )
         self.scale = scale
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
@@ -1763,9 +1763,9 @@ class CAR(Distribution):
             # TODO: look into future jax sparse csr functionality and other developments
             self.adj_matrix = _to_sparse(adj_matrix)
         else:
-            assert not _is_sparse(
-                adj_matrix
-            ), "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            assert not _is_sparse(adj_matrix), (
+                "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            )
             # TODO: look into static jax ndarray representation
             (self.adj_matrix,) = promote_shapes(
                 adj_matrix, shape=batch_shape + adj_matrix.shape[-2:]
@@ -1784,14 +1784,14 @@ class CAR(Distribution):
         )
 
         if self._validate_args and (isinstance(adj_matrix, np.ndarray) or is_sparse):
-            assert (
-                self.adj_matrix.sum(axis=-1) > 0
-            ).all() > 0, "all sites in adjacency matrix must have neighbours"
+            assert (self.adj_matrix.sum(axis=-1) > 0).all() > 0, (
+                "all sites in adjacency matrix must have neighbours"
+            )
 
             if self.is_sparse:
-                assert (
-                    self.adj_matrix != self.adj_matrix.T
-                ).nnz == 0, "adjacency matrix must be symmetric"
+                assert (self.adj_matrix != self.adj_matrix.T).nnz == 0, (
+                    "adjacency matrix must be symmetric"
+                )
             else:
                 assert np.array_equal(
                     self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)

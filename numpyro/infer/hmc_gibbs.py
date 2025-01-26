@@ -89,9 +89,9 @@ class HMCGibbs(MCMCKernel):
             raise ValueError("inner_kernel must be a HMC or NUTS sampler.")
         if not callable(gibbs_fn):
             raise ValueError("gibbs_fn must be a callable")
-        assert (
-            inner_kernel.model is not None
-        ), "HMCGibbs does not support models specified via a potential function."
+        assert inner_kernel.model is not None, (
+            "HMCGibbs does not support models specified via a potential function."
+        )
 
         self.inner_kernel = copy.copy(inner_kernel)
         self.inner_kernel._model = partial(_wrap_model, inner_kernel.model)
@@ -442,9 +442,9 @@ class DiscreteHMCGibbs(HMCGibbs):
             and not site["is_observed"]
             and site["infer"].get("enumerate", "") != "parallel"
         ]
-        assert (
-            self._gibbs_sites
-        ), "Cannot detect any discrete latent variables in the model."
+        assert self._gibbs_sites, (
+            "Cannot detect any discrete latent variables in the model."
+        )
         return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):

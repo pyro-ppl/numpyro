@@ -293,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="gpu", type=str, help='use "cpu" or "gpu".')
 
     args = parser.parse_args()
-    assert all(
-        aa in AMINO_ACIDS for aa in args.amino_acids
-    ), f"{list(filter(lambda aa: aa not in AMINO_ACIDS, args.amino_acids))} are not amino acids."
+    assert all(aa in AMINO_ACIDS for aa in args.amino_acids), (
+        f"{list(filter(lambda aa: aa not in AMINO_ACIDS, args.amino_acids))} are not amino acids."
+    )
     main(args)

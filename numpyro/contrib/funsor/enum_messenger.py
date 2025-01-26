@@ -436,9 +436,9 @@ class BaseEnumMessenger(NamedMessenger):
     """
 
     def __init__(self, fn=None, first_available_dim=None):
-        assert (
-            first_available_dim is None or first_available_dim < 0
-        ), first_available_dim
+        assert first_available_dim is None or first_available_dim < 0, (
+            first_available_dim
+        )
         self.first_available_dim = first_available_dim
         super().__init__(fn)
 
