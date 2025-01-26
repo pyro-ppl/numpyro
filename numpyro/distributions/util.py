@@ -13,6 +13,7 @@ from jax import jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import digamma
+from jax.typing import ArrayLike
 
 from numpyro.util import not_jax_tracer
 
@@ -417,6 +418,63 @@ def logmatmulexp(x, y):
     y_shift = lax.stop_gradient(jnp.amax(y, -2, keepdims=True))
     xy = jnp.log(jnp.matmul(jnp.exp(x - x_shift), jnp.exp(y - y_shift)))
     return xy + x_shift + y_shift
+
+
+@jax.custom_jvp
+def log1mexp(x: ArrayLike) -> ArrayLike:
+    """
+    Numerically stable calculation of the quantity
+    :math:`\\log(1 - \\exp(x))`, following the algorithm
+    of `Mächler 2012`_.
+
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
+
+    Returns ``-jnp.inf`` when ``x == 0`` and ``jnp.nan``
+    when ``x > 0``.
+
+    :param x: A number or array of numbers.
+    :return: The value of :math:`\\log(1 - \\exp(x))`.
+    """
+    return jnp.where(
+        x > -0.6931472,  # approx log(2)
+        jnp.log(-jnp.expm1(x)),
+        jnp.log1p(-jnp.exp(x)),
+    )
+
+
+# Custom jvp for log1mexp to handle the gradient when x is near 0.
+#
+# Inspired by the approach taken here for the function log1mexp(-x):
+# https://github.com/google-research/google-research/blob/14e984cdb8630a7e3d210dff8760fc06d490fc4b/diffusion_distillation/diffusion_distillation/utils.py#L364-L370
+# That code is (c) 2024 The Google Research Authors and licensed under
+# an Apache 2.0 License.
+log1mexp.defjvps(lambda t, ans, x: -t / jnp.expm1(-x))
+
+
+def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
+    """
+    Numerically stable calculation of the
+    quantity :math:`\\log(\\exp(a) - \\exp(b))`,
+    provided :math:`+\\infty > a \\ge b`,
+    following the algorithm of `Mächler 2012`_.
+
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
+
+    Returns ``-jnp.inf`` when ``a == b``,
+    including when ``a == b == -jnp.inf``,
+    since this corresponds to ``jnp.log(0)``.
+    Returns ``jnp.nan`` when ``a < b`` or
+    ``a == jnp.inf``.
+
+    :param a: A number or array of numbers.
+    :param b: A number or array of numbers.
+    :return: The value of :math:`\\log(\\exp(a) - \\exp(b))`.
+    """
+    return jnp.where(
+        (a < jnp.inf) & (a > b),
+        a + log1mexp(b - a),
+        jnp.where(a == b, -jnp.inf, jnp.nan),
+    )
 
 
 def clamp_probs(probs):
