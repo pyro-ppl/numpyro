@@ -446,7 +446,7 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
 # custom jvp for log1mexp to handle
 # the gradient when x is near 0.
 log1mexp.defjvps(
-    lambda tangent, primal_out, x: -tangent / jnp.expm1(-x))
+    lambda t, ans, x: -t / jnp.expm1(-x))
 
 
 def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
