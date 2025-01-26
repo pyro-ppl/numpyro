@@ -430,7 +430,7 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
     .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
 
     # noqa
-    
+
     Returns ``-jnp.inf`` when ``x == 0`` and ``jnp.nan``
     when ``x > 0``.
 

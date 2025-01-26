@@ -4,20 +4,15 @@
 from numbers import Number
 
 import numpy as np
-from numpy.testing import (
-    assert_allclose,
-    assert_array_equal,
-    assert_array_almost_equal)
-
+from numpy.testing import assert_allclose, assert_array_almost_equal, assert_array_equal
 import pytest
 import scipy
 
 import jax
-from jax import lax, random, vmap, grad
+from jax import grad, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 from jax.test_util import check_grads
-
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import (
@@ -26,12 +21,12 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     cholesky_update,
+    log1mexp,
+    logdiffexp,
     multinomial,
     safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered,
-    log1mexp,
-    logdiffexp
 )
 
 
