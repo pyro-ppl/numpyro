@@ -4,14 +4,15 @@
 from numbers import Number
 
 import numpy as np
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_almost_equal, assert_array_equal
 import pytest
 import scipy
 
 import jax
-from jax import lax, random, vmap
+from jax import grad, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
+from jax.test_util import check_grads
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import (
@@ -20,6 +21,8 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     cholesky_update,
+    log1mexp,
+    logdiffexp,
     multinomial,
     safe_normalize,
     vec_to_tril_matrix,
@@ -76,6 +79,156 @@ def test_categorical_stats(p):
     z = categorical(rng_key, p, (n,))
     _, counts = np.unique(z, return_counts=True)
     assert_allclose(counts / float(n), p, atol=0.01)
+
+
+@pytest.mark.parametrize("x", [-80.5632, -0.32523, -0.5, -20.53, -8.032])
+def test_log1mexp_grads(x):
+    check_grads(log1mexp, (x,), order=3)
+
+
+@pytest.mark.parametrize(
+    "x, expected",
+    [
+        (jnp.array([0.01, 0, -jnp.inf]), jnp.array([jnp.nan, -jnp.inf, 0])),
+        (0.001, jnp.nan),
+        (0, -jnp.inf),
+        (-jnp.inf, 0),
+    ],
+)
+def test_log1mexp_bounds_handling(x, expected):
+    """
+    log1mexp(x) should be nan for x > 0.
+
+    log1mexp(x) should be -inf for x == 0.
+
+    log1mexp(-inf) should be 0.
+
+    This should work vectorized and not interfere
+    with other calculations.
+    """
+    assert_array_equal(log1mexp(x), expected)
+
+
+@pytest.mark.parametrize("x", [jnp.array([-0.6, -8.32, -3]), -2.5, -0.01])
+def test_log1mexp_agrees_with_basic(x):
+    """
+    log1mexp should agree with a basic implementation
+    for values where the basic implementation is stable.
+    """
+    assert_array_almost_equal(log1mexp(x), jnp.log(1 - jnp.exp(x)))
+
+
+def test_log1mexp_stable():
+    """
+    log1mexp should be stable at (negative) values of
+    x that very small and very large in absolute
+    value, where the basic implementation is not.
+    """
+
+    def basic(x):
+        return jnp.log(1 - jnp.exp(x))
+
+    # this should perhaps be made finfo-aware
+    assert jnp.isinf(basic(-1e-20))
+    assert not jnp.isinf(log1mexp(-1e-20))
+    assert_array_almost_equal(log1mexp(-1e-20), jnp.log(-jnp.expm1(-1e-20)))
+    assert abs(basic(-50)) < abs(log1mexp(-50))
+    assert_array_almost_equal(log1mexp(-50), jnp.log1p(-jnp.exp(-50)))
+
+
+@pytest.mark.parametrize("x", [-30.0, -2.53, -1e-4, -1e-9, -1e-15, -1e-40])
+def test_log1mexp_grad_stable(x):
+    """
+    Custom JVP for log1mexp should make gradient computation
+    numerically stable, even near zero, where the basic approach
+    can encounter divide-by-zero problems and yield nan.
+    The two approaches should produce almost equal answers elsewhere.
+    """
+
+    def log1mexp_no_custom(x):
+        return jnp.where(
+            x > -0.6931472,  # approx log(2)
+            jnp.log(-jnp.expm1(x)),
+            jnp.log1p(-jnp.exp(x)),
+        )
+
+    grad_custom = grad(log1mexp)(x)
+    grad_no_custom = grad(log1mexp_no_custom)(x)
+
+    assert_array_almost_equal(grad_custom, -1 / jnp.expm1(-x))
+
+    if not jnp.isnan(grad_no_custom):
+        assert_array_almost_equal(grad_custom, grad_no_custom)
+
+
+@pytest.mark.parametrize(
+    "a, b", [(-20.0, -35.0), (-0.32523, -0.34), (20.53, 19.035), (8.032, 7.032)]
+)
+def test_logdiffexp_grads(a, b):
+    check_grads(logdiffexp, (a, b), order=3, rtol=0.01)
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [
+        (
+            jnp.array([jnp.inf, 0, 6.5, 4.99999, -jnp.inf]),
+            jnp.array([5, 0, 6.5, 5, -jnp.inf]),
+            jnp.array([jnp.nan, -jnp.inf, -jnp.inf, jnp.nan, -jnp.inf]),
+        ),
+        (jnp.inf, 0.3532, jnp.nan),
+        (0, 0, -jnp.inf),
+        (-jnp.inf, -jnp.inf, -jnp.inf),
+        (5.6, 5.6, -jnp.inf),
+        (1e34, 1e34 / 0.9999, jnp.nan),
+    ],
+)
+def test_logdiffexp_bounds_handling(a, b, expected):
+    """
+    Test bounds handling for logdiffexp.
+
+    logdiffexp(jnp.inf, anything) should be nan,
+
+    logdiffexp(a, b) for a < b should be nan, even if numbers
+    are very close.
+
+    logdiffexp(a, b) for a == b should be -jnp.inf
+    even if a == b == -jnp.inf (log(0 - 0))
+    """
+    assert_array_equal(logdiffexp(a, b), expected)
+
+
+@pytest.mark.parametrize(
+    "a, b", [(jnp.array([53, 23.532, 8, -1.35]), jnp.array([56, -63.2, 2, -5.32]))]
+)
+def test_logdiffexp_agrees_with_basic(a, b):
+    """
+    logdiffexp should agree with a basic implementation
+    for values at which the basic implementation is stable.
+    """
+    assert_array_almost_equal(logdiffexp(a, b), jnp.log(jnp.exp(a) - jnp.exp(b)))
+
+
+@pytest.mark.parametrize("a, b", [(500, 499), (-499, -500), (500, 500)])
+def test_logdiffexp_stable(a, b):
+    """
+    logdiffexp should be numerically stable at values
+    where the basic implementation is not.
+    """
+
+    def basic(a, b):
+        return jnp.log(jnp.exp(a) - jnp.exp(b))
+
+    if a > 0 or a == b:
+        assert jnp.isnan(basic(a, b))
+    else:
+        assert basic(a, b) == -jnp.inf
+    result = logdiffexp(a, b)
+    assert not jnp.isnan(result)
+    if not a == b:
+        assert result < a
+    else:
+        assert result == -jnp.inf
 
 
 @pytest.mark.parametrize(

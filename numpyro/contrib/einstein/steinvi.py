@@ -32,7 +32,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """Variational inference with Stein mixtures inference.
+    """Variational inference with Stein mixtures inference [1].
 
     **Example:**
 
@@ -95,11 +95,13 @@ class SteinVI:
     :param static_kwargs: Static keyword arguments for the model and guide. These arguments cannot change
         during inference.
 
-    **References:** (MLA style)
+    **References:**
 
-    1. Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
+    1. Rønning, Ola, et al. "ELBOing Stein: Variational Bayes with Stein Mixture Inference."
+        arXiv preprint arXiv:2410.22948 (2024).
+    2. Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
         International Conference on Machine Learning. PMLR, 2019.
-    2. Wang, Dilin, and Qiang Liu. "Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models."
+    3. Wang, Dilin, and Qiang Liu. "Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models."
         International Conference on Machine Learning. PMLR, 2019.
     """  # noqa: E501
 
@@ -585,7 +587,7 @@ class SVGD(SteinVI):
     :param Dict static_kwargs: Static keyword arguments for the model and guide. These arguments cannot
         change during inference.
 
-    **References:** (MLA style)
+    **References:**
 
     1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm."
         Advances in neural information processing systems 29 (2016).
@@ -678,7 +680,7 @@ class ASVGD(SVGD):
     :param Dict static_kwargs: Static keyword arguments for the model and guide. These arguments cannot
         change during inference.
 
-    **References:** (MLA style)
+    **References:**
 
     1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
         Third Symposium on Advances in Approximate Bayesian Inference, 2021.
@@ -712,8 +714,9 @@ class ASVGD(SVGD):
         """Cyclical annealing schedule as in eq. 4 of [1].
 
         **References** (MLA)
-            1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
-                Third Symposium on Advances in Approximate Bayesian Inference, 2021.
+
+        1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
+            Third Symposium on Advances in Approximate Bayesian Inference, 2021.
 
         :param num_steps: The total number of steps. Corresponds to $T$ in eq. 4 of [1].
         :param num_cycles: The total number of cycles. Corresponds to $C$ in eq. 4 of [1].

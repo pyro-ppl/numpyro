@@ -240,13 +240,13 @@ In case of compatibility issues arise during execution of the above command, you
 compatible CPU version of JAX with
 
 ```
-pip install numpyro[cpu]
+pip install 'numpyro[cpu]'
 ```
 
 To use **NumPyro on the GPU**, you need to install CUDA first and then use the following pip command:
 
 ```
-pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install 'numpyro[cuda]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/jax-ml/jax#pip-installation-gpu-cuda).
@@ -265,7 +265,7 @@ You can also install NumPyro from source:
 git clone https://github.com/pyro-ppl/numpyro.git
 cd numpyro
 # install jax/jaxlib first for CUDA support
-pip install -e .[dev]  # contains additional dependencies for NumPyro development
+pip install -e '.[dev]'  # contains additional dependencies for NumPyro development
 ```
 
 You can also install NumPyro with conda:

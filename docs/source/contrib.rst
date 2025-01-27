@@ -43,6 +43,8 @@ The framework currently supports several kernels, including:
 - `RandomFeatureKernel`
 - `MixtureKernel`
 - `GraphicalKernel`
+- `RadialGaussNewtonKernel`
+
 
 SteinVI based examples include:
 
@@ -80,7 +82,7 @@ SteinVI Kernels
 .. autoclass:: numpyro.contrib.einstein.stein_kernels.MixtureKernel
 .. autoclass:: numpyro.contrib.einstein.stein_kernels.GraphicalKernel
 .. autoclass:: numpyro.contrib.einstein.stein_kernels.ProbabilityProductKernel
-
+.. autoclass:: numpyro.contrib.einstein.stein_kernels.RadialGaussNewtonKernel
 
 Stochastic Support
 ~~~~~~~~~~~~~~~~~~

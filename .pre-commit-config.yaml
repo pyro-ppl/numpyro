@@ -35,4 +35,4 @@ repos:
       - id: codespell
         stages: [pre-commit, commit-msg]
         args:
-          [--ignore-words-list, "Teh,aas", --check-filenames, --skip, "*.ipynb"]
+          [--ignore-words-list, "Teh,aas,ans", --check-filenames, --skip, "*.ipynb"]

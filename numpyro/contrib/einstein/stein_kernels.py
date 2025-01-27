@@ -6,9 +6,8 @@ from collections.abc import Callable
 
 import numpy as np
 
-from jax import random
+from jax import grad, numpy as jnp, random, vmap
 from jax.lax import stop_gradient
-import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
@@ -455,6 +454,58 @@ class ProbabilityProductKernel(SteinKernel):
             quad = jnp.exp(-self.scale / 2 * (x_quad + y_quad - cross_quad))
 
             return quad
+
+        return kernel
+
+    @property
+    def mode(self):
+        return self._mode
+
+
+class RadialGaussNewtonKernel(SteinKernel):
+    r"""The Radial Gauss-Newton Kernel [1,2], also called the scaled Hessian kernel, is a scalar kernel defined as
+
+        .. math::
+            k(x,y) = \exp\left(-\frac{1}{2d}(x-y)^T M (x-y)\right),
+
+    where :math:`x,y \in R^d` are particles and :math:`M` is a metric matrix. :math:`M` approximates the expected
+    curvature of the log posterior using Hessian approximations :math:`A(x)`.
+
+    The matrix :math:`M` is computed using :math:`m` particles as follows [2, Eq. 19, p.5]:
+
+        .. math::
+            M= \frac{1}{m} \sum_{i=1}^m A(x_i)
+
+    with the Hessian approximation given by:
+
+        .. math::
+            A(x) = J(x) J(x)^T,
+
+    where :math:`J(x)` is the Jacobian of an ELBO at :math:`x`.
+
+    **References**:
+
+    1. Maken, Fahira Afzal, Fabio Ramos, and Lionel Ott. "Stein Particle Filter for Nonlinear,
+        **Non-Gaussian State Estimation."** IEEE Robotics and Automation Letters 7.2 (2022).
+    2. Detommaso, Gianluca, et al. "A Stein variational Newton method."
+        Advances in Neural Information Processing Systems 31 (2018).
+    """
+
+    def __init__(self):
+        self._mode = "norm"
+
+    def compute(self, rng_key, particles, particle_info, loss_fn):
+        n, d = particles.shape
+
+        Jx = vmap(grad(loss_fn, argnums=1))(
+            random.split(rng_key, n), particles, jnp.arange(n)
+        )
+
+        def kernel(x, y):
+            dist = jnp.dot(stop_gradient(Jx), (x - y)) ** 2
+
+            kernel_res = jnp.exp(-dist.mean() / (2 * d))
+            return kernel_res
 
         return kernel
 

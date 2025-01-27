@@ -12,7 +12,7 @@ To set up local development environment, install NumPyro from source:
 ```sh
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
-pip install -e .[dev,test,doc,examples]  # contains additional dependencies for NumPyro development
+pip install -e '.[dev,test,doc,examples]'  # contains additional dependencies for NumPyro development
 ```
 
 For running `make doctest`, [install pandoc](https://pandoc.org/installing.html).

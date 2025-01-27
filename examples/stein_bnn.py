@@ -4,8 +4,13 @@
 """
 Example: Bayesian Neural Network with SteinVI
 =============================================
+
 We demonstrate how to use SteinVI to predict housing prices using a BNN for the Boston Housing prices dataset
 from the UCI regression benchmarks.
+
+.. image:: ../_static/img/examples/stein_bnn.png
+    :align: center
+    :scale: 60%
 """
 
 import argparse
@@ -119,7 +124,6 @@ def main(args):
 
     rng_key, inf_key = random.split(inf_key)
 
-    # We find that SteinVI benefits from a small radius when inferring BNNs.
     guide = AutoNormal(model)
 
     stein = SteinVI(
