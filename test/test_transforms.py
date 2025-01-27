@@ -300,13 +300,11 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
     ],
 )
 def test_bijective_transforms(transform, shape):
-    if jnp.result_type(float) == jnp.float32:
-        pytest.skip("Test is flaky on float32")
     if isinstance(transform, type):
         pytest.skip()
     # Get a sample from the support of the distribution.
     batch_shape = (13,)
-    unconstrained = random.normal(random.PRNGKey(0), batch_shape + shape)
+    unconstrained = random.normal(random.key(17), batch_shape + shape)
     x1 = biject_to(transform.domain)(unconstrained)
 
     # Transform forward and backward, checking shapes, values, and Jacobian shape.
