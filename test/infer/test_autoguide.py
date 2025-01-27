@@ -1055,13 +1055,7 @@ def test_autoguidelist(auto_classes, Elbo):
     y = a + x @ b + sigma * random.normal(random.PRNGKey(1), (N, 1))
 
     guide = AutoGuideList(model)
-    guide.append(
-        auto_classes[0](
-            numpyro.handlers.block(
-                numpyro.handlers.seed(model, rng_seed=0), expose=["a"]
-            )
-        )
-    )
+    guide.append(auto_classes[0](numpyro.handlers.block(model, expose=["a"])))
     # AutoGuideList does not support AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
     if auto_classes[1] == AutoDAIS:
         with pytest.raises(

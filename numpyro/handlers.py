@@ -310,16 +310,21 @@ class block(Messenger):
         super(block, self).__init__(fn)
 
     def process_message(self, msg: Message) -> None:
-        if not self.hide_fn(msg):
+        if not self.hide_fn(msg) or msg["type"] == "prng_key":
             return
         msg["stop"] = True
 
-        # For specific message types, get a prng key from the stack. These types match
-        # the implementation in `seed` except `prng_key` because it would lead to
-        # infinite recursion. The corresponding message reaches the seed handler unless
-        # messages of `prng_key` type are blocked.
+        # For specific message types, get a prng key from the stack if no key or value
+        # is available yet. These types match the implementation in `seed` except
+        # `prng_key` because it would lead to infinite recursion. The corresponding
+        # message reaches the seed handler because we always let messages of `prng_key`
+        # propagate.
         allowed_types = {"sample", "plate", "control_flow"}
-        if msg["type"] in allowed_types and msg["kwargs"]["rng_key"] is None:
+        if (
+            msg["type"] in allowed_types
+            and msg["value"] is None
+            and msg["kwargs"]["rng_key"] is None
+        ):
             msg["kwargs"]["rng_key"] = numpyro.prng_key()
 
 

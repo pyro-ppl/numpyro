@@ -625,13 +625,7 @@ def test_block_expose():
         ({"expose_types": ["prng_key"]}, set()),
         ({"hide": ["n"]}, {"x", "y", "z", "cluster", "a", "b"}),
         ({"hide": ["cluster", "b"]}, {"x", "y", "z", "n", "a"}),
-        pytest.param(
-            {"expose": ["x", "z"]},
-            {"x", "z"},
-            marks=pytest.mark.xfail(
-                reason="Exposing by name blocks prng_key messages."
-            ),
-        ),
+        ({"expose": ["x", "z"]}, {"x", "z"}),
     ],
 )
 def test_block_seed(block_config: dict, expected_sites: set) -> None:
