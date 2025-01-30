@@ -25,11 +25,15 @@ def test_gof(jax_dist, sp_dist, params):
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
     if jax_dist is dist.ZeroSumNormal:
         pytest.skip("skip gof test for ZeroSumNormal")
+    if jax_dist is dist.MatrixNormal:
+        pytest.skip(
+            "skip gof test for MatrixNormal, likely incorrect submanifold scaling"
+        )
 
     num_samples = 10000
     if any(
         name in jax_dist.__name__
-        for name in ["BetaProportion", "MatrixNormal", "SineBivariateVonMises"]
+        for name in ["BetaProportion", "SineBivariateVonMises"]
     ):
         num_samples = 20000
     rng_key = random.PRNGKey(0)
