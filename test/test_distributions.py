@@ -1327,6 +1327,17 @@ def test_has_rsample(jax_dist, sp_dist, params):
                 transf_dist.rsample(random.PRNGKey(0))
 
 
+@pytest.mark.parametrize(
+    "jax_dist_cls, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_args_attributes(jax_dist_cls, sp_dist, params):
+    jax_dist = jax_dist_cls(*params)
+    for constraint in jax_dist.arg_constraints.values():
+        if jax_dist_cls != dist.Delta:
+            constraint.event_dim
+        constraint.is_discrete
+
+
 @pytest.mark.parametrize("batch_shape", [(), (4,), (3, 2)])
 def test_unit(batch_shape):
     log_factor = random.normal(random.PRNGKey(0), batch_shape)
