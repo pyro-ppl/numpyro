@@ -10,8 +10,8 @@ license: FORCE
 	python scripts/update_headers.py
 
 format: license FORCE
-	ruff check --fix .
 	ruff format .
+	ruff check --fix .
 
 install: FORCE
 	pip install -e '.[dev,doc,test,examples]'

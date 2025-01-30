@@ -2426,7 +2426,10 @@ class StudentT(Distribution):
 
 
 class Uniform(Distribution):
-    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    arg_constraints = {
+        "low": constraints.dependent(is_discrete=False, event_dim=0),
+        "high": constraints.dependent(is_discrete=False, event_dim=0),
+    }
     reparametrized_params = ["low", "high"]
     pytree_data_fields = ("low", "high", "_support")
 
@@ -2727,7 +2730,7 @@ class Wishart(TransformedDistribution):
     """
 
     arg_constraints = {
-        "concentration": constraints.dependent(is_discrete=False),
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
         "scale_matrix": constraints.positive_definite,
         "rate_matrix": constraints.positive_definite,
         "scale_tril": constraints.lower_cholesky,
@@ -2820,7 +2823,7 @@ class WishartCholesky(Distribution):
     """
 
     arg_constraints = {
-        "concentration": constraints.dependent(is_discrete=False),
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
         "scale_matrix": constraints.positive_definite,
         "rate_matrix": constraints.positive_definite,
         "scale_tril": constraints.lower_cholesky,
