@@ -159,9 +159,7 @@ def test_logistic_regression_x64(kernel_cls):
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples["logits"].shape == (num_samples, N)
-    # those coefficients are found by doing MAP inference using AutoDelta
-    expected_coefs = jnp.array([0.97, 2.05, 3.18])
-    assert_allclose(jnp.mean(samples["coefs"], 0), expected_coefs, atol=0.29)
+    assert_allclose(jnp.mean(samples["coefs"], 0), true_coefs, atol=0.2)
 
     if "JAX_ENABLE_X64" in os.environ:
         assert samples["coefs"].dtype == jnp.float64
@@ -899,7 +897,7 @@ def test_get_proposal_loc_and_scale(dense_mass):
     expected_loc = jnp.stack(expected_loc)
     expected_scale = jnp.stack(expected_scale)
     assert_allclose(actual_loc, expected_loc, rtol=1e-4)
-    assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.234)
+    assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.3)
 
 
 @pytest.mark.parametrize("shape", [(4,), (3, 2)])

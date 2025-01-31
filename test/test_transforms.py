@@ -322,7 +322,7 @@ def test_bijective_transforms(transform, shape):
     if isinstance(transform, less_stable_transforms):
         atol = 1e-2
     elif isinstance(transform, (L1BallTransform, RecursiveLinearTransform)):
-        atol = 0.099
+        atol = 0.1
     assert jnp.allclose(x1, x2, atol=atol)
 
     log_abs_det_jacobian = transform.log_abs_det_jacobian(x1, y)

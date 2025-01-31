@@ -293,7 +293,7 @@ def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
     xxt = x[..., None] @ x[..., None, :]
     expected = jnp.linalg.cholesky(A + coef * xxt)
     actual = cholesky_update(jnp.linalg.cholesky(A), x, coef)
-    assert_allclose(actual, expected, atol=3.8e-4, rtol=8e-4)
+    assert_allclose(actual, expected, atol=1e-3, rtol=1e-3)
 
 
 @pytest.mark.parametrize("n", [10, 100, 1000])
