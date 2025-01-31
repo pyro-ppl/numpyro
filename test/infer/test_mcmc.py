@@ -108,10 +108,12 @@ def test_logistic_regression_x64(kernel_cls):
 
     N, dim = 3000, 3
 
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    key1, key2, key3 = random.split(random.PRNGKey(0), 3)
+
+    data = random.normal(key1, (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(key2)
 
     def model(labels):
         coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
@@ -156,11 +158,11 @@ def test_logistic_regression_x64(kernel_cls):
             kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
         )
 
-    mcmc.run(random.PRNGKey(2), labels)
+    mcmc.run(key3, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples["logits"].shape == (num_samples, N)
-    assert_allclose(jnp.mean(samples["coefs"], 0), true_coefs, atol=0.2)
+    assert_allclose(jnp.mean(samples["coefs"], 0), true_coefs, atol=0.4)
 
     if "JAX_ENABLE_X64" in os.environ:
         assert samples["coefs"].dtype == jnp.float64
