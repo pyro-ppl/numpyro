@@ -21,6 +21,7 @@ from numpyro.distributions.transforms import (
     AbsTransform,
     AffineTransform,
     CholeskyTransform,
+    ComplexTransform,
     ComposeTransform,
     CorrCholeskyTransform,
     CorrMatrixCholeskyTransform,
@@ -105,6 +106,7 @@ TRANSFORMS = {
     # unparametrized transforms
     "abs": T(AbsTransform, (), dict()),
     "cholesky": T(CholeskyTransform, (), dict()),
+    "complex": T(ComplexTransform, (), dict()),
     "corr_chol": T(CorrCholeskyTransform, (), dict()),
     "corr_matrix_chol": T(CorrMatrixCholeskyTransform, (), dict()),
     "exp": T(ExpTransform, (), dict()),
@@ -270,6 +272,7 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
     [
         (AffineTransform(3, 2.5), ()),
         (CholeskyTransform(), (10,)),
+        (ComplexTransform(), (2,)),
         (ComposeTransform([SoftplusTransform(), SigmoidTransform()]), ()),
         (CorrCholeskyTransform(), (15,)),
         (CorrMatrixCholeskyTransform(), (15,)),
@@ -359,7 +362,7 @@ def test_batched_recursive_linear_transform():
     "constraint, shape",
     [
         (constraints.circular, (3,)),
-        (constraints.complex, (3,)),
+        (constraints.complex, (3, 2)),
         (constraints.corr_cholesky, (10, 10)),
         (constraints.corr_matrix, (15,)),
         (constraints.greater_than(3), ()),

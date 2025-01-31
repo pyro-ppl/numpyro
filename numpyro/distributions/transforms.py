@@ -30,6 +30,7 @@ __all__ = [
     "AbsTransform",
     "AffineTransform",
     "CholeskyTransform",
+    "ComplexTransform",
     "ComposeTransform",
     "CorrCholeskyTransform",
     "CorrMatrixCholeskyTransform",
@@ -1516,6 +1517,34 @@ class ZeroSumTransform(Transform):
         )
 
 
+class ComplexTransform(ParameterFreeTransform):
+    """
+    Transforms a pair of real numbers to a complex number.
+    """
+
+    domain = constraints.real_vector
+    codomain = constraints.complex
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        assert x.shape[-1] == 2, "Input must have a trailing dimension of size 2."
+        return lax.complex(x[..., 0], x[..., 1])
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        return jnp.stack([y.real, y.imag], axis=-1)
+
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates=None
+    ) -> jnp.ndarray:
+        return jnp.zeros_like(y)
+
+    def forward_shape(self, shape: tuple[int]) -> tuple[int]:
+        assert shape[-1] == 2, "Input must have a trailing dimension of size 2."
+        return shape[:-1]
+
+    def inverse_shape(self, shape: tuple[int]) -> tuple[int]:
+        return shape + (2,)
+
+
 ##########################################################
 # CONSTRAINT_REGISTRY
 ##########################################################
@@ -1649,7 +1678,7 @@ def _transform_to_positive_ordered_vector(constraint):
 
 @biject_to.register(constraints.complex)
 def _transform_to_complex(constraint):
-    return IdentityTransform()
+    return ComplexTransform()
 
 
 @biject_to.register(constraints.real)

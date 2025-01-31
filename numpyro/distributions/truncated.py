@@ -179,8 +179,8 @@ class RightTruncatedDistribution(Distribution):
 
 class TwoSidedTruncatedDistribution(Distribution):
     arg_constraints = {
-        "low": constraints.dependent,
-        "high": constraints.dependent,
+        "low": constraints.dependent(is_discrete=False, event_dim=0),
+        "high": constraints.dependent(is_discrete=False, event_dim=0),
     }
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)

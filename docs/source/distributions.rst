@@ -918,6 +918,14 @@ CholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+ComplexTransform
+^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ComplexTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ComposeTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.ComposeTransform

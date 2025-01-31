@@ -227,12 +227,12 @@ class AutoGuideList(AutoGuide):
         guide = AutoGuideList(my_model)
         guide.append(
             AutoNormal(
-                numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=0), hide=["coefs"])
+                numpyro.handlers.block(model, hide=["coefs"])
             )
         )
         guide.append(
             AutoDelta(
-                numpyro.handlers.block(numpyro.handlers.seed(model, rng_seed=1), expose=["coefs"])
+                numpyro.handlers.block(model, expose=["coefs"])
             )
         )
         svi = SVI(model, guide, optim, Trace_ELBO())
@@ -1403,7 +1403,7 @@ class AutoSemiDAIS(AutoGuide):
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
 
         if self.global_guide is not None:
-            with handlers.block(), handlers.seed(rng_seed=0):
+            with handlers.block():
                 local_args = (self.global_guide.model(*args, **kwargs),)
                 local_kwargs = {}
         else:
@@ -1411,11 +1411,11 @@ class AutoSemiDAIS(AutoGuide):
             local_kwargs = kwargs.copy()
 
         if self.local_guide is not None:
-            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+            with handlers.block(), handlers.trace() as tr:
                 self.local_guide(*local_args, **local_kwargs)
             self.prototype_local_guide_trace = tr
 
-        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+        with handlers.block(), handlers.trace() as tr:
             self.local_model(*local_args, **local_kwargs)
         self.prototype_local_model_trace = tr
 
@@ -1462,12 +1462,7 @@ class AutoSemiDAIS(AutoGuide):
 
         if self.global_guide is not None:
             global_latents = self.global_guide(*args, **kwargs)
-            rng_key = numpyro.prng_key()
-            with (
-                handlers.block(),
-                handlers.seed(rng_seed=rng_key),
-                handlers.substitute(data=global_latents),
-            ):
+            with handlers.block(), handlers.substitute(data=global_latents):
                 global_outputs = self.global_guide.model(*args, **kwargs)
             local_args = (global_outputs,)
             local_kwargs = {}
@@ -1575,12 +1570,10 @@ class AutoSemiDAIS(AutoGuide):
 
             local_kwargs["_subsample_idx"] = {plate_name: idx}
             if self.local_guide is not None:
-                key = numpyro.prng_key()
                 subsample_guide = partial(_subsample_model, self.local_guide)
                 with (
                     handlers.block(),
                     handlers.trace() as tr,
-                    handlers.seed(rng_seed=key),
                     handlers.substitute(data=local_guide_params),
                 ):
                     with warnings.catch_warnings():

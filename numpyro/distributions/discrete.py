@@ -421,7 +421,10 @@ def Categorical(probs=None, logits=None, *, validate_args=None):
 
 
 class DiscreteUniform(Distribution):
-    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    arg_constraints = {
+        "low": constraints.dependent(is_discrete=True, event_dim=0),
+        "high": constraints.dependent(is_discrete=True, event_dim=0),
+    }
     has_enumerate_support = True
     pytree_data_fields = ("low", "high", "_support")
 

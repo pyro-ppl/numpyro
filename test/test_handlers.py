@@ -16,6 +16,7 @@ except ImportError:
 
 import numpyro
 from numpyro import handlers
+from numpyro.contrib import control_flow
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
@@ -616,6 +617,55 @@ def test_block_expose():
                 sigma = numpyro.param("sigma", 1)
                 numpyro.sample("x", dist.Normal(mu, sigma))
     assert "x" in trace and "mu" not in trace and "sigma" in trace
+
+
+@pytest.mark.parametrize(
+    "block_config, expected_sites",
+    [
+        ({"hide": ["y"]}, {"x", "z", "n", "cluster", "a", "b"}),
+        ({"expose_types": ["prng_key"]}, set()),
+        ({"hide": ["n"]}, {"x", "y", "z", "cluster", "a", "b"}),
+        ({"hide": ["cluster", "b"]}, {"x", "y", "z", "n", "a"}),
+        ({"expose": ["x", "z"]}, {"x", "z"}),
+    ],
+)
+def test_block_seed(block_config: dict, expected_sites: set) -> None:
+    def fn():
+        sample = {}
+        sample["x"] = numpyro.sample("x", dist.Normal())
+        sample["y"] = numpyro.sample("y", dist.Normal(sample["x"]))
+        with numpyro.plate("n", 10, subsample_size=7) as sample["idx"]:
+            sample["z"] = numpyro.sample("z", dist.Normal(sample["y"]))
+
+        def true_fun(_):
+            a = numpyro.sample("a", dist.Normal(4.0))
+            b = numpyro.deterministic("b", a - 2.0)
+            return a, b
+
+        def false_fun(_):
+            a = numpyro.sample("a", dist.Normal(0.0))
+            b = numpyro.deterministic("b", a)
+            return a, b
+
+        sample["cluster"] = numpyro.sample("cluster", dist.Normal())
+        sample["a"], sample["b"] = control_flow.cond(
+            sample["cluster"] > 0, true_fun, false_fun, None
+        )
+        return sample
+
+    blocked_seeded = handlers.block(handlers.seed(fn, rng_seed=17), **block_config)
+    with handlers.trace() as trace1:
+        sample1 = blocked_seeded()
+    assert set(trace1) == expected_sites
+
+    seeded_blocked = handlers.seed(handlers.block(fn, **block_config), rng_seed=17)
+    with handlers.trace() as trace2:
+        sample2 = seeded_blocked()
+    assert set(trace2) == expected_sites
+
+    # Verify that the sample values are identical.
+    for key, value in sample1.items():
+        assert jnp.allclose(value, sample2[key])
 
 
 def test_scope():

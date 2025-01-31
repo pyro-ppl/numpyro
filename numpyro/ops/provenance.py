@@ -12,6 +12,11 @@ try:
 except ImportError:
     import jax.linear_util as lu
 
+try:
+    from jax.extend.core.primitives import call_p, closed_call_p
+except ImportError:
+    from jax.core import call_p, closed_call_p
+
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 from jax.interpreters.pxla import xla_pmap_p
 
@@ -96,7 +101,7 @@ def track_deps_call_rule(eqn, provenance_inputs):
     return track_deps_jaxpr(eqn.params["call_jaxpr"], provenance_inputs)
 
 
-track_deps_rules[core.call_p] = track_deps_call_rule
+track_deps_rules[call_p] = track_deps_call_rule
 track_deps_rules[xla_pmap_p] = track_deps_call_rule
 
 
@@ -104,7 +109,7 @@ def track_deps_closed_call_rule(eqn, provenance_inputs):
     return track_deps_jaxpr(eqn.params["call_jaxpr"].jaxpr, provenance_inputs)
 
 
-track_deps_rules[core.closed_call_p] = track_deps_closed_call_rule
+track_deps_rules[closed_call_p] = track_deps_closed_call_rule
 
 
 def track_deps_pjit_rule(eqn, provenance_inputs):
