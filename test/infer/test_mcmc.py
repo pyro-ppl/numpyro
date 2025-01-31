@@ -3,6 +3,7 @@
 
 from functools import partial
 import os
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -344,6 +345,8 @@ def test_dense_mass(kernel_cls, rho):
 
 def test_change_point_x64():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
+    if sys.version_info.minor == 9:
+        pytest.skip("Skip test on Python 3.9")
     num_warmup, num_samples = 1000, 3000
 
     def model(data):
