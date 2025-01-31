@@ -16,7 +16,7 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import AIES, ESS, HMC, MCMC, NUTS, SA, BarkerMH
+from numpyro.infer import AIES, ESS, HMC, MCMC, NUTS, SA, BarkerMH, init_to_value
 from numpyro.infer.hmc import hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
@@ -362,7 +362,9 @@ def test_change_point_x64():
         31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
     # fmt: on
 
-    kernel = NUTS(model=model)
+    kernel = NUTS(
+        model=model, init_strategy=init_to_value(values={"lambda1": 1, "lambda2": 72})
+    )
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.run(random.PRNGKey(4), count_data)
     samples = mcmc.get_samples()
