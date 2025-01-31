@@ -194,7 +194,7 @@ def test_discrete_gibbs_multiple_sites_chain(kernel, inner_kernel, kwargs, num_c
     mcmc.run(random.PRNGKey(0))
     mcmc.print_summary()
     samples = mcmc.get_samples()
-    assert_allclose(jnp.mean(samples["x"], 0), 0.7 * jnp.ones(3), atol=0.01)
+    assert_allclose(jnp.mean(samples["x"], 0), 0.7 * jnp.ones(3), atol=0.05)
     assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
 
 

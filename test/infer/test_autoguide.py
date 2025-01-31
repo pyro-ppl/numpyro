@@ -1236,7 +1236,7 @@ def test_dais_vae(use_global_dais_params):
         model, model, subsample_plate="N", use_global_dais_params=use_global_dais_params
     )
     svi = SVI(model, guide, optax.adam(0.02), Trace_ELBO())
-    svi_results = svi.run(random.PRNGKey(0), 3000)
+    svi_results = svi.run(random.PRNGKey(0), 5000)
     samples = guide.sample_posterior(
         random.PRNGKey(1), svi_results.params, sample_shape=(1000,)
     )

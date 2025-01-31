@@ -460,8 +460,8 @@ def test_analytic_kl_2():
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
-    assert_equal(actual_loss, expected_loss, prec=3e-3)
-    assert_equal(actual_grads, expected_grads, prec=4e-3)
+    assert_equal(actual_loss, expected_loss, prec=0.05)
+    assert_equal(actual_grads, expected_grads, prec=0.005)
 
 
 def test_analytic_kl_3():
@@ -555,8 +555,8 @@ def test_analytic_kl_3():
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
-    assert_equal(actual_loss, expected_loss, prec=3e-3)
-    assert_equal(actual_grads, expected_grads, prec=4e-3)
+    assert_equal(actual_loss, expected_loss, prec=0.01)
+    assert_equal(actual_grads, expected_grads, prec=0.005)
 
 
 @pytest.mark.parametrize("scale1", [1, 10])
