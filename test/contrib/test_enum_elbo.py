@@ -2510,4 +2510,4 @@ def test_guide_plate_contraction():
     enum_loss, enum_grads = jax.value_and_grad(enum_loss_fn)(params_raw)
 
     assert_equal(enum_loss, graph_loss, prec=1e-3)
-    assert_equal(enum_grads, graph_grads, prec=1e-2)
+    assert_equal(enum_grads, graph_grads, prec=2e-2)

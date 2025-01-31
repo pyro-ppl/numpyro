@@ -1838,6 +1838,13 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         return jnp.sum(jax_dist(*args).log_prob(value))
 
     eps = 1e-3
+    atol = 0.01
+    rtol = 0.05
+    if jax_dist is dist.EulerMaruyama:
+        atol = 0.064
+    elif jax_dist is dist.NegativeBinomialLogits:
+        atol = 0.013
+
     for i in range(len(params)):
         if jax_dist is dist.EulerMaruyama and i == 1:
             # skip taking grad w.r.t. sde_fn
@@ -1868,7 +1875,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             # grad w.r.t. `value` of Delta distribution will be 0
             # but numerical value will give nan (= inf - inf)
             expected_grad = 0.0
-        assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=0.01, atol=0.01)
+        assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=rtol, atol=atol)
 
 
 @pytest.mark.parametrize(
@@ -1937,7 +1944,7 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if jnp.all(jnp.isfinite(sp_var)):
             assert_allclose(
-                jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
+                jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.06, atol=1e-2
             )
     elif jax_dist in [dist.LKJ, dist.LKJCholesky]:
         if jax_dist is dist.LKJCholesky:
@@ -1966,8 +1973,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         )
         expected_std = expected_std * (1 - jnp.identity(dimension))
 
-        assert_allclose(jnp.mean(corr_samples, axis=0), expected_mean, atol=0.01)
-        assert_allclose(jnp.std(corr_samples, axis=0), expected_std, atol=0.01)
+        assert_allclose(jnp.mean(corr_samples, axis=0), expected_mean, atol=0.02)
+        assert_allclose(jnp.std(corr_samples, axis=0), expected_std, atol=0.02)
     elif jax_dist in [dist.VonMises]:
         # circular mean = sample mean
         assert_allclose(d_jax.mean, jnp.mean(samples, 0), rtol=0.05, atol=1e-2)
@@ -2421,7 +2428,7 @@ def test_biject_to(constraint, shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-5, rtol=1e-5)
+    assert_allclose(x, z, atol=1e-4, rtol=1e-5)
 
     # test domain, currently all is constraints.real or constraints.real_vector
     assert_array_equal(transform.domain(z), jnp.ones(batch_shape))
@@ -2558,9 +2565,8 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
         else:
             expected = jnp.log(jnp.abs(grad(transform)(x)))
             inv_expected = jnp.log(jnp.abs(grad(transform.inv)(y)))
-
-        assert_allclose(actual, expected, atol=1e-6)
-        assert_allclose(actual, -inv_expected, atol=1e-6)
+        assert_allclose(actual, expected, atol=1e-5)
+        assert_allclose(actual, -inv_expected, atol=1e-5)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])

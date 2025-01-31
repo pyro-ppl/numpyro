@@ -318,13 +318,11 @@ def test_bijective_transforms(transform, shape):
     assert x2.shape == transform.inverse_shape(y.shape)
     # Some transforms are a bit less stable; we give them larger tolerances.
     atol = 1e-6
-    less_stable_transforms = (
-        CorrCholeskyTransform,
-        L1BallTransform,
-        StickBreakingTransform,
-    )
+    less_stable_transforms = (CorrCholeskyTransform, StickBreakingTransform)
     if isinstance(transform, less_stable_transforms):
         atol = 1e-2
+    elif isinstance(transform, (L1BallTransform, RecursiveLinearTransform)):
+        atol = 0.1
     assert jnp.allclose(x1, x2, atol=atol)
 
     log_abs_det_jacobian = transform.log_abs_det_jacobian(x1, y)

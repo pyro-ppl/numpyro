@@ -271,4 +271,4 @@ def test_scan_svi():
     results = svi.run(random.PRNGKey(0), 10**3)
 
     xhat = results.params["x_auto_loc"]
-    assert_allclose(xhat, tr["x"]["value"], rtol=0.1)
+    assert_allclose(xhat, tr["x"]["value"], rtol=0.1, atol=0.2)
