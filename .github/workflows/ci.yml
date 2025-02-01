@@ -49,7 +49,6 @@ jobs:
 
   test-modeling:
 
-    continue-on-error: true
     runs-on: ubuntu-latest
     needs: lint
     strategy:
@@ -74,11 +73,9 @@ jobs:
         pip install -e '.[dev,test]'
         pip freeze
     - name: Test with pytest
-      continue-on-error: true
       run: |
         CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
     - name: Test x64
-      continue-on-error: true
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
     - name: Coveralls
@@ -92,7 +89,6 @@ jobs:
 
   test-inference:
 
-    continue-on-error: true
     runs-on: ubuntu-latest
     needs: lint
     strategy:
@@ -116,28 +112,23 @@ jobs:
         pip install -e '.[dev,test]'
         pip freeze
     - name: Test with pytest
-      continue-on-error: true
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
         pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py --ignore=test/contrib/test_nested_sampling.py
         pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
     - name: Test x64
-      continue-on-error: true
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
     - name: Test chains
-      continue-on-error: true
       run: |
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/infer/test_mcmc.py -k "chain or pmap or vmap"
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/contrib/test_tfp.py -k "chain"
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/contrib/stochastic_support/test_dcc.py
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/infer/test_hmc_gibbs.py -k "chain"
     - name: Test custom prng
-      continue-on-error: true
       run: |
         JAX_ENABLE_CUSTOM_PRNG=1 pytest -vs test/infer/test_mcmc.py
     - name: Test nested sampling
-      continue-on-error: true
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/contrib/test_nested_sampling.py
     - name: Coveralls

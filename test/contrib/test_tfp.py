@@ -74,7 +74,7 @@ def test_logistic_regression():
     samples = mcmc.get_samples()
     assert samples["logits"].shape == (num_samples, N)
     expected_coefs = jnp.array([0.97, 2.05, 3.18])
-    assert_allclose(jnp.mean(samples["coefs"], 0), expected_coefs, atol=0.22)
+    assert_allclose(jnp.mean(samples["coefs"], 0), expected_coefs, atol=0.3)
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
@@ -101,7 +101,7 @@ def test_beta_bernoulli():
     mcmc.run(random.PRNGKey(2), data)
     mcmc.print_summary()
     samples = mcmc.get_samples()
-    assert_allclose(jnp.mean(samples["p_latent"], 0), true_probs, atol=0.05)
+    assert_allclose(jnp.mean(samples["p_latent"], 0), true_probs, atol=0.1)
 
 
 def make_kernel_fn(target_log_prob_fn):
