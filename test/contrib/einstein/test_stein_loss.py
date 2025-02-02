@@ -4,13 +4,14 @@
 from numpy.testing import assert_allclose
 from pytest import fail
 
-from jax import numpy as jnp, random, value_and_grad
+from jax import numpy as jnp, random, value_and_grad, vmap
 from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro.contrib.einstein.stein_loss import SteinLoss
 from numpyro.contrib.einstein.stein_util import batch_ravel_pytree
 import numpyro.distributions as dist
+from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import Trace_ELBO
 
 
@@ -80,7 +81,14 @@ def test_stein_particle_loss():
     xs = jnp.array([-1, 0.5, 3.0])
     num_particles = xs.shape[0]
     particles = {"x": xs}
-    zs = jnp.array([-3.3022664, -1.06049, 0.64527285])  # from inspect
+
+    # Replicate the splitting in SteinLoss
+    base_key = random.split(random.split(random.PRNGKey(0), 1)[0], 2)[0]
+    zs = vmap(
+        lambda key: trace(substitute(seed(guide, key), {"x": -1})).get_trace(2.0)["z"][
+            "value"
+        ]
+    )(random.split(base_key, 3))
 
     flat_particles, unravel_pytree, _ = batch_ravel_pytree(particles, nbatch_dims=1)
 
