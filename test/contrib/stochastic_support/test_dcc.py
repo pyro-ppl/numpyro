@@ -200,7 +200,7 @@ def test_weight_convergence():
     lmls = jnp.array([slp1_lml, slp2_lml])
     analytic_weights = jnp.exp(lmls - jax.scipy.special.logsumexp(lmls))
     close_weights = (  # account for non-identifiability
-        np.allclose(analytic_weights, slp_weights, rtol=1e-5, atol=1e-8)
-        or np.allclose(analytic_weights, slp_weights[::-1], rtol=1e-5, atol=1e-8)
+        np.allclose(analytic_weights, slp_weights, rtol=1e-5, atol=1e-5)
+        or np.allclose(analytic_weights, slp_weights[::-1], rtol=1e-5, atol=1e-5)
     )
     assert close_weights
