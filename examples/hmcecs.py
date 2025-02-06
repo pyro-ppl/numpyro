@@ -139,6 +139,7 @@ def summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtim
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.17.0")
     parser = argparse.ArgumentParser(
         "Hamiltonian Monte Carlo with Energy Conserving Subsampling"
     )

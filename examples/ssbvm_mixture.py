@@ -283,6 +283,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.17.0")
     parser = argparse.ArgumentParser(
         description="Sine-skewed sine (bivariate von mises) mixture model example"
     )
