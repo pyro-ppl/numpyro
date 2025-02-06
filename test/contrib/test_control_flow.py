@@ -272,3 +272,16 @@ def test_scan_svi():
 
     xhat = results.params["x_auto_loc"]
     assert_allclose(xhat, tr["x"]["value"], rtol=0.1, atol=0.2)
+
+
+def test_scan_mvn():
+    def model():
+        def transition(c, a):
+            with numpyro.plate("foo", 5):
+                c2 = numpyro.sample("val", dist.MultivariateNormal(c + a, scale_tril=jnp.eye(2)))
+            return c2, c2
+        scan(transition, jnp.zeros((5, 2)), jnp.ones((4, 5, 2)))
+
+    with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as tr:
+        model()
+    assert tr["val"]["fn"].batch_shape == (4, 5)
