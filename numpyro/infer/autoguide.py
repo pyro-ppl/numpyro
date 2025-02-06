@@ -179,6 +179,10 @@ class AutoGuide(ABC):
                     # raise support errors early for discrete sites
                     with helpful_support_errors(site):
                         biject_to(site["fn"].support)
+                # Do not create plates for observed sites because they may be subsampled
+                # with a different size during prototype setup and training.
+                if site["is_observed"]:
+                    continue
                 for frame in site["cond_indep_stack"]:
                     if frame.name in self._prototype_frames:
                         assert frame == self._prototype_frames[frame.name], (

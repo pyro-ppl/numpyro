@@ -1345,3 +1345,38 @@ def test_autoguide_with_delta_site() -> None:
     # Check delta distributions are fine if observed.
     guide = AutoDiagonalNormal(lambda: model(3.0))
     numpyro.handlers.seed(guide, 9)()
+
+
+@pytest.mark.parametrize(
+    "guide_cls",
+    [
+        AutoBNAFNormal,
+        AutoDAIS,
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoMultivariateNormal,
+        AutoNormal,
+    ],
+)
+def test_subsample(guide_cls) -> None:
+    def model(n: int, x: jnp.ndarray):
+        mu = numpyro.sample("mu", dist.Normal(0, 1))
+        sigma = numpyro.sample("sigma", dist.HalfNormal(1))
+        with numpyro.plate("n", n, subsample_size=x.size):
+            numpyro.sample("x", dist.Normal(mu, sigma), obs=x)
+
+    n = 20
+    x = 5 + jax.random.normal(jax.random.key(1), (20,))
+    subset = x[: n // 2]
+
+    svi = numpyro.infer.SVI(
+        model,
+        guide_cls(model),
+        numpyro.optim.Adam(0.1),
+        numpyro.infer.Trace_ELBO(),
+        n=n,
+    )
+    state = svi.init(jax.random.key(2), x=x)
+    svi.update(state, x=subset)
