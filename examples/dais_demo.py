@@ -160,6 +160,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.17.0")
     parser = argparse.ArgumentParser("Usage example for AutoDAIS guide.")
     parser.add_argument("--num-svi-steps", type=int, default=80 * 1000)
     parser.add_argument("--num-warmup", type=int, default=2000)

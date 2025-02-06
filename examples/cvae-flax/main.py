@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from train_baseline import train_baseline
 from train_cvae import train_cvae
 
+import numpyro
 from numpyro.examples.datasets import MNIST
 
 from models import BaselineNet, Decoder, Encoder, cvae_guide, cvae_model  # isort:skip
@@ -78,6 +79,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.17.0")
     parser = argparse.ArgumentParser(
         description="Conditional Variational Autoencoder on MNIST using Flax"
     )

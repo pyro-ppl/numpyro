@@ -26,6 +26,7 @@ from sklearn.model_selection import train_test_split
 
 from jax import config, nn, numpy as jnp, random
 
+import numpyro
 from numpyro import deterministic, plate, sample, set_platform, subsample
 from numpyro.contrib.einstein import MixtureGuidePredictive, RBFKernel, SteinVI
 from numpyro.distributions import Gamma, Normal
@@ -186,6 +187,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.17.0")
     config.update("jax_debug_nans", True)
 
     parser = argparse.ArgumentParser()
