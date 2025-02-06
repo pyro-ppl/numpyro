@@ -504,12 +504,16 @@ def promote_batch_shape(d: Distribution):
 
 @promote_batch_shape.register
 def _default_promote_batch_shape(d: Distribution):
-    attr_name = list(d.arg_constraints.keys())[0]
-    attr_event_dim = d.arg_constraints[attr_name].event_dim
-    attr = getattr(d, attr_name)
-    resolved_batch_shape = attr.shape[
-        : max(0, attr.ndim - d.event_dim - attr_event_dim)
-    ]
+    attr_batch_shapes = [d.batch_shape]
+    for attr_name, constraint in d.arg_constraints.items():
+        try:
+            attr_event_dim = constraint.event_dim
+        except NotImplementedError:
+            continue
+        attr = getattr(d, attr_name)
+        attr_batch_ndim = max(0, jnp.ndim(attr) - attr_event_dim)
+        attr_batch_shapes.append(jnp.shape(attr)[:attr_batch_ndim])
+    resolved_batch_shape = jnp.broadcast_shapes(*attr_batch_shapes)
     new_self = copy.deepcopy(d)
     new_self._batch_shape = resolved_batch_shape
     return new_self
