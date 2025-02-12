@@ -67,7 +67,7 @@ class _NumPyroOptim(object):
         opt_state = self.init_fn(params)
         return jnp.array(0), opt_state
 
-    def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
+    def update(self, g: _Params, state: _IterOptState, value) -> _IterOptState:
         """
         Gradient update for the optimizer.
 
@@ -76,7 +76,7 @@ class _NumPyroOptim(object):
         :return: new optimizer state after the update.
         """
         i, opt_state = state
-        opt_state = self.update_fn(i, g, opt_state)
+        opt_state = self.update_fn(i, g, opt_state, value=value)
         return i + 1, opt_state
 
     def eval_and_update(
@@ -104,7 +104,7 @@ class _NumPyroOptim(object):
         (out, aux), grads = _value_and_grad(
             fn, x=params, forward_mode_differentiation=forward_mode_differentiation
         )
-        return (out, aux), self.update(grads, state)
+        return (out, aux), self.update(grads, state, value=out)
 
     def eval_and_stable_update(
         self,
@@ -128,7 +128,7 @@ class _NumPyroOptim(object):
         )
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
-            lambda _: (out, self.update(grads, state)),
+            lambda _: (out, self.update(grads, state, value=out)),
             lambda _: (jnp.nan, state),
             None,
         )
@@ -178,11 +178,11 @@ class ClippedAdam(_NumPyroOptim):
         self.clip_norm = clip_norm
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
-    def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
+    def update(self, g: _Params, state: _IterOptState, value) -> _IterOptState:
         i, opt_state = state
         # clip norm
         g = jax.tree.map(lambda g_: jnp.clip(g_, -self.clip_norm, self.clip_norm), g)
-        opt_state = self.update_fn(i, g, opt_state)
+        opt_state = self.update_fn(i, g, opt_state, value=value)
         return i + 1, opt_state
 
 
@@ -346,16 +346,17 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         Optax optimizer.
     """
     import optax
+    transformation = optax.with_extra_args_support(transformation)
 
     def init_fn(params: _Params) -> tuple[_Params, Any]:
         opt_state = transformation.init(params)
         return params, opt_state
 
     def update_fn(
-        step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any]
+        step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any], value
     ) -> tuple[_Params, Any]:
         params, opt_state = state
-        updates, opt_state = transformation.update(grads, opt_state, params)
+        updates, opt_state = transformation.update(grads, opt_state, params, value=value)
         updated_params = optax.apply_updates(params, updates)
         return updated_params, opt_state
 
