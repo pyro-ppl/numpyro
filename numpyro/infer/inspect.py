@@ -132,7 +132,8 @@ def get_dependencies(
     conditionally independent in the prior but conditionally dependent
     in the posterior due to a so-called "collider" variable ``c``. ``a``
     and ``b`` both affect `c``, and so they are conditionally dependent
-    given a value of ``c``::
+    given a value of ``c``. This is called "moralization" in the graphical 
+    model literature.::
 
         def model_2():
             a = numpyro.sample("a", dist.Normal(0, 1))
