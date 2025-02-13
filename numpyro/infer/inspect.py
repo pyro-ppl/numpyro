@@ -132,7 +132,7 @@ def get_dependencies(
     conditionally independent in the prior but conditionally dependent
     in the posterior due to a so-called "collider" variable ``c``. ``a``
     and ``b`` both affect `c``, and so they are conditionally dependent
-    given a value of ``c``. This is called "moralization" in the graphical 
+    given a value of ``c``. This is called "moralization" in the graphical
     model literature.::
 
         def model_2():
