@@ -97,9 +97,9 @@ class AutoGuide(ABC):
         self._prototype_frames = {}
         self._prototype_frame_full_sizes = {}
 
-    def _create_plates(self, *args, **kwargs):
+    def _create_plates(self, *args, **kwargs) -> dict:
         if self.create_plates is None:
-            self.plates = {}
+            plates = {}
         else:
             plates = self.create_plates(*args, **kwargs)
             if isinstance(plates, numpyro.plate):
@@ -107,14 +107,14 @@ class AutoGuide(ABC):
             assert all(isinstance(p, numpyro.plate) for p in plates), (
                 "create_plates() returned a non-plate"
             )
-            self.plates = {p.name: p for p in plates}
+            plates = {p.name: p for p in plates}
         for name, frame in sorted(self._prototype_frames.items()):
-            if name not in self.plates:
+            if name not in plates:
                 full_size = self._prototype_frame_full_sizes[name]
-                self.plates[name] = numpyro.plate(
+                plates[name] = numpyro.plate(
                     name, full_size, dim=frame.dim, subsample_size=frame.size
                 )
-        return self.plates
+        return plates
 
     def __getstate__(self):
         state = self.__dict__.copy()
