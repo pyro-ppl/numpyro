@@ -1,4 +1,4 @@
 contact_links:
   - name: Pyro Discussion Forum
     url: https://forum.pyro.ai/
-    about: For general questions, please use our forum. Issues should be reserved for bug reports and feature requests.
+    about: For general questions about NumPyro, please use the forum instead of GitHub issues.
