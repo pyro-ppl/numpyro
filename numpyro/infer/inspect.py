@@ -128,11 +128,12 @@ def get_dependencies(
             },
         }
 
-    Here is an example where two variables ``a`` and ``b`` start out
-    conditionally independent in the prior, but become conditionally dependent
-    in the posterior do the so-called collider variable ``c`` on which they
-    both depend. This is called "moralization" in the graphical model
-    literature::
+    Here is an example where two variables ``a`` and ``b`` are
+    conditionally independent in the prior but conditionally dependent
+    in the posterior due to a so-called "collider" variable ``c``. ``a``
+    and ``b`` both affect `c``, and so they are conditionally dependent
+    given a value of ``c``. This is called "moralization" in the graphical
+    model literature.::
 
         def model_2():
             a = numpyro.sample("a", dist.Normal(0, 1))
