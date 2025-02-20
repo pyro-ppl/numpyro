@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Optional, Union
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -53,8 +53,11 @@ def _value_and_grad(f, x, forward_mode_differentiation=False) -> tuple:
 class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
         self.init_fn: Callable[[_Params], _IterOptState]
-        self.update_fn: Callable[[ArrayLike, _Params, _OptState], _OptState]
+        self.update_fn: Union[Callable[[ArrayLike, _Params, _OptState], _OptState], Callable[[ArrayLike, _Params, _OptState, ArrayLike], _OptState]]
         self.get_params_fn: Callable[[_OptState], _Params]
+        self.update_with_value: bool = False
+        if "update_with_value" in kwargs:
+            self.update_with_value = kwargs.pop("update_with_value")
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
     def init(self, params: _Params) -> _IterOptState:
@@ -67,7 +70,7 @@ class _NumPyroOptim(object):
         opt_state = self.init_fn(params)
         return jnp.array(0), opt_state
 
-    def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
+    def update(self, g: _Params, state: _IterOptState, value: Optional[ArrayLike] = None) -> _IterOptState:
         """
         Gradient update for the optimizer.
 
@@ -76,7 +79,10 @@ class _NumPyroOptim(object):
         :return: new optimizer state after the update.
         """
         i, opt_state = state
-        opt_state = self.update_fn(i, g, opt_state)
+        if self.update_with_value:
+            opt_state = self.update_fn(i, g, opt_state, value=value)
+        else:
+            opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
     def eval_and_update(
@@ -104,7 +110,7 @@ class _NumPyroOptim(object):
         (out, aux), grads = _value_and_grad(
             fn, x=params, forward_mode_differentiation=forward_mode_differentiation
         )
-        return (out, aux), self.update(grads, state)
+        return (out, aux), self.update(grads, state, value=out)
 
     def eval_and_stable_update(
         self,
@@ -128,7 +134,7 @@ class _NumPyroOptim(object):
         )
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
-            lambda _: (out, self.update(grads, state)),
+            lambda _: (out, self.update(grads, state, value=out)),
             lambda _: (jnp.nan, state),
             None,
         )
@@ -346,16 +352,17 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         Optax optimizer.
     """
     import optax
+    transformation = optax.with_extra_args_support(transformation)
 
     def init_fn(params: _Params) -> tuple[_Params, Any]:
         opt_state = transformation.init(params)
         return params, opt_state
 
     def update_fn(
-        step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any]
+        step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any], value: ArrayLike,
     ) -> tuple[_Params, Any]:
         params, opt_state = state
-        updates, opt_state = transformation.update(grads, opt_state, params)
+        updates, opt_state = transformation.update(grads, opt_state, params, value=value)
         updated_params = optax.apply_updates(params, updates)
         return updated_params, opt_state
 
@@ -363,4 +370,10 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         params, _ = state
         return params
 
-    return _NumPyroOptim(lambda x, y, z: (x, y, z), init_fn, update_fn, get_params_fn)
+    return _NumPyroOptim(
+        lambda x, y, z: (x, y, z),
+        init_fn,
+        update_fn,
+        get_params_fn,
+        update_with_value=True,
+    )
