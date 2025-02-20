@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -70,7 +70,7 @@ class _NumPyroOptim(object):
         opt_state = self.init_fn(params)
         return jnp.array(0), opt_state
 
-    def update(self, g: _Params, state: _IterOptState, **kwargs) -> _IterOptState:
+    def update(self, g: _Params, state: _IterOptState, value: Optional[ArrayLike] = None) -> _IterOptState:
         """
         Gradient update for the optimizer.
 
@@ -80,12 +80,6 @@ class _NumPyroOptim(object):
         """
         i, opt_state = state
         if self.update_with_value:
-            if ["value"] != kwargs.keys():
-                raise ValueError(
-                    "For optimizers that require value, please provide the value "
-                    "as a keyword argument."
-                )
-            value = kwargs.pop("value")
             opt_state = self.update_fn(i, g, opt_state, value=value)
         else:
             opt_state = self.update_fn(i, g, opt_state)
@@ -365,7 +359,7 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         return params, opt_state
 
     def update_fn(
-        step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any], value
+        step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any], value: ArrayLike,
     ) -> tuple[_Params, Any]:
         params, opt_state = state
         updates, opt_state = transformation.update(grads, opt_state, params, value=value)
