@@ -371,9 +371,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         trajectory_length,
     ):
         if potential_fn_gen:
-            nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
+            _, vv_update_fn = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
+        else:
+            vv_update_fn = vv_update
 
         if fixed_num_steps is not None:
             num_steps = fixed_num_steps
@@ -389,7 +390,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         vv_state_new = fori_loop(
             0,
             num_steps,
-            lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
+            lambda i, val: vv_update_fn(step_size, inverse_mass_matrix, val),
             vv_state,
         )
         energy_old = vv_state.potential_energy + kinetic_fn(
@@ -422,12 +423,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         max_treedepth_current,
     ):
         if potential_fn_gen:
-            nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
+            _, vv_update_fn = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
+        else:
+            vv_update_fn = vv_update
 
         binary_tree = build_tree(
-            vv_update,
+            vv_update_fn,
             kinetic_fn,
             vv_state,
             inverse_mass_matrix,
