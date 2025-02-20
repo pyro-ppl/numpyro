@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Union
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -53,8 +53,11 @@ def _value_and_grad(f, x, forward_mode_differentiation=False) -> tuple:
 class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
         self.init_fn: Callable[[_Params], _IterOptState]
-        self.update_fn: Callable[[ArrayLike, _Params, _OptState], _OptState]
+        self.update_fn: Union[Callable[[ArrayLike, _Params, _OptState], _OptState], Callable[[ArrayLike, _Params, _OptState, ArrayLike], _OptState]]
         self.get_params_fn: Callable[[_OptState], _Params]
+        self.update_with_value: bool = False
+        if "update_with_value" in kwargs:
+            self.update_with_value = kwargs.pop("update_with_value")
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
     def init(self, params: _Params) -> _IterOptState:
@@ -67,7 +70,7 @@ class _NumPyroOptim(object):
         opt_state = self.init_fn(params)
         return jnp.array(0), opt_state
 
-    def update(self, g: _Params, state: _IterOptState, value) -> _IterOptState:
+    def update(self, g: _Params, state: _IterOptState, **kwargs) -> _IterOptState:
         """
         Gradient update for the optimizer.
 
@@ -76,7 +79,16 @@ class _NumPyroOptim(object):
         :return: new optimizer state after the update.
         """
         i, opt_state = state
-        opt_state = self.update_fn(i, g, opt_state, value=value)
+        if self.update_with_value:
+            if ["value"] != kwargs.keys():
+                raise ValueError(
+                    "For optimizers that require value, please provide the value "
+                    "as a keyword argument."
+                )
+            value = kwargs.pop("value")
+            opt_state = self.update_fn(i, g, opt_state, value=value)
+        else:
+            opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
     def eval_and_update(
@@ -178,11 +190,11 @@ class ClippedAdam(_NumPyroOptim):
         self.clip_norm = clip_norm
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
-    def update(self, g: _Params, state: _IterOptState, value) -> _IterOptState:
+    def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
         i, opt_state = state
         # clip norm
         g = jax.tree.map(lambda g_: jnp.clip(g_, -self.clip_norm, self.clip_norm), g)
-        opt_state = self.update_fn(i, g, opt_state, value=value)
+        opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
 
@@ -364,4 +376,10 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         params, _ = state
         return params
 
-    return _NumPyroOptim(lambda x, y, z: (x, y, z), init_fn, update_fn, get_params_fn)
+    return _NumPyroOptim(
+        lambda x, y, z: (x, y, z),
+        init_fn,
+        update_fn,
+        get_params_fn,
+        update_with_value=True,
+    )
