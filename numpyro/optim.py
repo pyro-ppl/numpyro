@@ -55,9 +55,7 @@ class _NumPyroOptim(object):
         self.init_fn: Callable[[_Params], _IterOptState]
         self.update_fn: Union[Callable[[ArrayLike, _Params, _OptState], _OptState], Callable[[ArrayLike, _Params, _OptState, ArrayLike], _OptState]]
         self.get_params_fn: Callable[[_OptState], _Params]
-        self.update_with_value: bool = False
-        if "update_with_value" in kwargs:
-            self.update_with_value = kwargs.pop("update_with_value")
+        self.update_with_value: bool = kwargs.pop("update_with_value", False)
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
     def init(self, params: _Params) -> _IterOptState:
@@ -352,7 +350,6 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         Optax optimizer.
     """
     import optax
-    transformation = optax.with_extra_args_support(transformation)
 
     def init_fn(params: _Params) -> tuple[_Params, Any]:
         opt_state = transformation.init(params)
@@ -362,7 +359,7 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:
         step: ArrayLike, grads: ArrayLike, state: tuple[_Params, Any], value: ArrayLike,
     ) -> tuple[_Params, Any]:
         params, opt_state = state
-        updates, opt_state = transformation.update(grads, opt_state, params, value=value)
+        updates, opt_state = optax.with_extra_args_support(transformation).update(grads, opt_state, params, value=value)
         updated_params = optax.apply_updates(params, updates)
         return updated_params, opt_state
 
