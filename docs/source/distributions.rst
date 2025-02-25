@@ -136,6 +136,14 @@ Chi2
     :show-inheritance:
     :member-order: bysource
 
+CirculantNormal
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.CirculantNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Dirichlet
 ^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Dirichlet

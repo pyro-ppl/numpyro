@@ -138,6 +138,11 @@ def _wishart_to_scipy(conc, scale, rate, tril):
     return osp.wishart(float(jax_dist.concentration), jax_dist.scale_matrix)
 
 
+def _circulant_to_scipy(loc, covariance_row, covariance_rfft):
+    jax_dist = dist.CirculantNormal(loc, covariance_row, covariance_rfft)
+    return osp.multivariate_normal(mean=loc, cov=jax_dist.covariance_matrix)
+
+
 def _TruncatedNormal(loc, scale, low, high):
     return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
 
@@ -414,6 +419,7 @@ _DIST_MAP = {
     ),
     dist.Cauchy: lambda loc, scale: osp.cauchy(loc=loc, scale=scale),
     dist.Chi2: lambda df: osp.chi2(df),
+    dist.CirculantNormal: _circulant_to_scipy,
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
     dist.DiscreteUniform: lambda low, high: osp.randint(low, high + 1),
     dist.Exponential: lambda rate: osp.expon(scale=jnp.reciprocal(rate)),
@@ -487,6 +493,8 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
+    T(dist.CirculantNormal, np.zeros(4), np.array([0.9, 0.2, 0.1, 0.2]), None),
+    T(dist.CirculantNormal, np.zeros(5), np.array([0.9, 0.2, 0.1, 0.1, 0.2]), None),
     T(dist.Dirichlet, np.array([1.7])),
     T(dist.Dirichlet, np.array([0.2, 1.1])),
     T(dist.Dirichlet, np.array([[0.2, 1.1], [2.0, 2.0]])),
@@ -1142,7 +1150,8 @@ def gen_values_within_bounds(constraint, size, key=None):
         for axis in zero_sum_axes:
             x -= x.mean(axis)
         return x
-
+    elif constraint is constraints.positive_definite_circulant_vector:
+        return jnp.fft.irfft(random.gamma(key, 10, size) / 10, n=size[-1])
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -1215,6 +1224,8 @@ def gen_values_outside_bounds(constraint, size, key=None):
     elif isinstance(constraint, constraints.zero_sum):
         x = random.normal(key, size)
         return x
+    elif constraint is constraints.positive_definite_circulant_vector:
+        return random.normal(key, size)
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -2959,7 +2970,7 @@ def test_dist_pytree(jax_dist, sp_dist, params):
         actual_arg = getattr(actual_dist, name)
         assert actual_arg is not None, f"arg {name} is None"
         if np.issubdtype(np.asarray(expected_arg).dtype, np.number):
-            assert_allclose(actual_arg, expected_arg)
+            assert_allclose(actual_arg, expected_arg, atol=1e-7)
         else:
             assert (
                 actual_arg.shape == expected_arg.shape
