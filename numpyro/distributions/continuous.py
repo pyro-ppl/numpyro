@@ -33,7 +33,7 @@ from jax.lax import scan
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.linalg import cho_solve, solve_triangular
+from jax.scipy.linalg import cho_solve, solve_triangular, toeplitz
 from jax.scipy.special import (
     betaln,
     digamma,
@@ -59,7 +59,9 @@ from numpyro.distributions.transforms import (
     CholeskyTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
+    PackRealFastFourierCoefficientsTransform,
     PowerTransform,
+    RealFastFourierTransform,
     RecursiveLinearTransform,
     SigmoidTransform,
     ZeroSumTransform,
@@ -3068,3 +3070,100 @@ class Levy(Distribution):
         return jnp.broadcast_to(
             0.5 + 1.5 * jnp.euler_gamma + 0.5 * jnp.log(16 * jnp.pi), self.batch_shape
         ) + jnp.log(self.scale)
+
+
+class CirculantNormal(TransformedDistribution):
+    """
+    Multivariate normal distribution with circulant covariance matrix.
+
+    Args:
+        loc: Mean of the distribution.
+        covariance_row: First row of the circulant covariance matrix.
+        covariance_rfft: Real part of the Fourier transform of :code:`covariance_row`.
+    """
+
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "covariance_row": constraints.positive_definite_circulant_vector,
+        "covariance_rfft": constraints.independent(constraints.positive, 1),
+    }
+    support = constraints.real_vector
+
+    def __init__(
+        self,
+        loc: jnp.ndarray,
+        covariance_row: jnp.ndarray = None,
+        covariance_rfft: jnp.ndarray = None,
+        *,
+        validate_args=None,
+    ) -> None:
+        # We demand a one-dimensional input, because we cannot determine the event shape
+        # if only the covariance_rfft is given.
+        assert jnp.ndim(loc) > 0, "Location parameter must have at least one dimension."
+        n = jnp.shape(loc)[-1]
+        assert_one_of(covariance_row=covariance_row, covariance_rfft=covariance_rfft)
+
+        # Evaluate covariance_rfft if not provided and validate.
+        if covariance_rfft is None:
+            assert covariance_row.shape[-1] == n
+            covariance_rfft = jnp.fft.rfft(covariance_row).real
+            self.covariance_row = covariance_row
+        self.loc = loc
+        self.covariance_rfft = covariance_rfft
+
+        # Construct the base distribution.
+        n_real = n // 2 + 1
+        n_imag = n - n_real
+        assert self.covariance_rfft.shape[-1] == n_real
+        var_rfft = (n * covariance_rfft / 2).at[..., 0].mul(2)
+        if n % 2 == 0:
+            var_rfft = var_rfft.at[..., -1].mul(2)
+        var_rfft = jnp.concatenate([var_rfft, var_rfft[..., 1 : 1 + n_imag]], axis=-1)
+        assert var_rfft.shape[-1] == n
+        base_distribution = Normal(scale=jnp.sqrt(var_rfft)).to_event(1)
+
+        super().__init__(
+            base_distribution,
+            [
+                PackRealFastFourierCoefficientsTransform((n,)),
+                RealFastFourierTransform((n,)).inv,
+                AffineTransform(loc, scale=1.0),
+            ],
+            validate_args=validate_args,
+        )
+
+    @property
+    def mean(self) -> jnp.ndarray:
+        return self.loc
+
+    @lazy_property
+    def covariance_row(self) -> jnp.ndarray:
+        return jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1])
+
+    @lazy_property
+    def covariance_matrix(self) -> jnp.ndarray:
+        if self.batch_shape:
+            # toeplitz flattens the input, and we need to broadcast manually.
+            return vmap(toeplitz, range(len(self.batch_shape)))(self.covariance_row)
+        else:
+            return toeplitz(self.covariance_row)
+
+    @lazy_property
+    def variance(self) -> jnp.ndarray:
+        return jnp.broadcast_to(self.covariance_row[..., 0, None], self.shape())
+
+    @staticmethod
+    def infer_shapes(
+        loc: tuple = (), covariance_row: tuple = None, covariance_rfft: tuple = None
+    ):
+        assert_one_of(covariance_row=covariance_row, covariance_rfft=covariance_rfft)
+        for cov in [covariance_rfft, covariance_row]:
+            if cov is not None:
+                batch_shape = jnp.broadcast_shapes(loc[:-1], cov[:-1])
+                event_shape = loc[-1:]
+                return batch_shape, event_shape
+
+    def entropy(self):
+        (n,) = self.event_shape
+        log_abs_det_jacobian = 2 * jnp.log(2) * ((n - 1) // 2) - jnp.log(n) * n
+        return self.base_dist.entropy() + log_abs_det_jacobian / 2
