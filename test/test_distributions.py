@@ -2765,7 +2765,7 @@ def test_generated_sample_distribution(jax_dist, sp_dist, params, N_sample=100_0
 
     if jax_dist not in [dist.Gumbel]:
         pytest.skip(
-            "{} sampling method taken from upstream, no need to"
+            "{} sampling method taken from upstream, no need to "
             "test generated samples.".format(jax_dist.__name__)
         )
 
