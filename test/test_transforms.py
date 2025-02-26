@@ -82,8 +82,12 @@ TRANSFORMS = {
     "lower_cholesky_affine": T(
         LowerCholeskyAffine, (np.array([1.0, 2.0]), np.eye(2)), dict()
     ),
-    "pack_rfft_odd": T(PackRealFastFourierCoefficientsTransform, (), dict(shape=(7,))),
-    "pack_rfft_even": T(PackRealFastFourierCoefficientsTransform, (), dict(shape=(7,))),
+    "pack_rfft_odd": T(
+        PackRealFastFourierCoefficientsTransform, (), dict(transform_shape=(7,))
+    ),
+    "pack_rfft_even": T(
+        PackRealFastFourierCoefficientsTransform, (), dict(transform_shape=(7,))
+    ),
     "permute": T(PermuteTransform, (np.array([1, 0]),), dict()),
     "power": T(
         PowerTransform,
