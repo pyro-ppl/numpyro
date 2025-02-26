@@ -59,7 +59,9 @@ from numpyro.distributions.transforms import (
     CholeskyTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
+    PackRealFastFourierCoefficientsTransform,
     PowerTransform,
+    RealFastFourierTransform,
     RecursiveLinearTransform,
     SigmoidTransform,
     ZeroSumTransform,
@@ -3070,7 +3072,7 @@ class Levy(Distribution):
         ) + jnp.log(self.scale)
 
 
-class CirculantNormal(Distribution):
+class CirculantNormal(TransformedDistribution):
     """
     Multivariate normal distribution with circulant covariance matrix.
 
@@ -3086,7 +3088,6 @@ class CirculantNormal(Distribution):
         "covariance_rfft": constraints.independent(constraints.positive, 1),
     }
     support = constraints.real_vector
-    pytree_data_fields = ("base_dist", "loc", "covariance_rfft")
 
     def __init__(
         self,
@@ -3098,7 +3099,7 @@ class CirculantNormal(Distribution):
     ) -> None:
         # We demand a one-dimensional input, because we cannot determine the event shape
         # if only the covariance_rfft is given.
-        assert jnp.ndim(loc) > 0, "Location parameter must be at least one-dimensional."
+        assert jnp.ndim(loc) > 0, "Location parameter must have at least one dimension."
         n = jnp.shape(loc)[-1]
         assert_one_of(covariance_row=covariance_row, covariance_rfft=covariance_rfft)
 
@@ -3107,37 +3108,29 @@ class CirculantNormal(Distribution):
             assert covariance_row.shape[-1] == n
             covariance_rfft = jnp.fft.rfft(covariance_row).real
             self.covariance_row = covariance_row
-        assert covariance_rfft.shape[-1] == n // 2 + 1
-
         self.loc = loc
         self.covariance_rfft = covariance_rfft
+
+        # Construct the base distribution.
+        n_real = n // 2 + 1
+        n_imag = n - n_real
+        assert self.covariance_rfft.shape[-1] == n_real
         var_rfft = (n * covariance_rfft / 2).at[..., 0].mul(2)
         if n % 2 == 0:
             var_rfft = var_rfft.at[..., -1].mul(2)
-        self.base_dist = Normal(scale=jnp.sqrt(var_rfft))
+        var_rfft = jnp.concatenate([var_rfft, var_rfft[..., 1 : 1 + n_imag]], axis=-1)
+        assert var_rfft.shape[-1] == n
+        base_distribution = Normal(scale=jnp.sqrt(var_rfft)).to_event(1)
 
-        batch_shape = jnp.broadcast_shapes(loc.shape[:-1], covariance_rfft.shape[:-1])
         super().__init__(
-            batch_shape=batch_shape, event_shape=(n,), validate_args=validate_args
+            base_distribution,
+            [
+                PackRealFastFourierCoefficientsTransform((n,)),
+                RealFastFourierTransform((n,)).inv,
+                AffineTransform(loc, scale=1.0),
+            ],
+            validate_args=validate_args,
         )
-
-    @validate_sample
-    def log_prob(self, value: jnp.ndarray) -> jnp.ndarray:
-        n = value.shape[-1]
-        last_complex = (n + 1) // 2
-        value_rfft = jnp.fft.rfft(value - self.loc)
-        return (
-            self.base_dist.log_prob(value_rfft.real).sum(axis=-1)
-            + self.base_dist.log_prob(value_rfft.imag)[..., 1:last_complex].sum(axis=-1)
-            + n / 2 * jnp.log(n)
-            - jnp.log(2) * ((n - 1) // 2)
-        )
-
-    def sample(self, key, sample_shape=()) -> jnp.ndarray:
-        key1, key2 = random.split(key)
-        z_real = self.base_dist.sample(key1, sample_shape)
-        z_imag = self.base_dist.sample(key2, sample_shape)
-        return jnp.fft.irfft(z_real + 1j * z_imag, n=self.event_shape[-1]) + self.loc
 
     @property
     def mean(self) -> jnp.ndarray:
@@ -3172,10 +3165,5 @@ class CirculantNormal(Distribution):
 
     def entropy(self):
         (n,) = self.event_shape
-        last_complex = (n + 1) // 2
-        half_log_det = jnp.log(self.covariance_rfft[0]) / 2 + jnp.log(
-            self.covariance_rfft[1:last_complex]
-        ).sum(axis=-1)
-        if n % 2 == 0:
-            half_log_det += +jnp.log(self.covariance_rfft[-1]) / 2
-        return n * (jnp.log(2 * np.pi) + 1) / 2 + half_log_det
+        log_abs_det_jacobian = 2 * jnp.log(2) * ((n - 1) // 2) - jnp.log(n) * n
+        return self.base_dist.entropy() + log_abs_det_jacobian / 2
