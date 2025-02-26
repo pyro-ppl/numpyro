@@ -40,6 +40,7 @@ __all__ = [
     "LowerCholeskyTransform",
     "ScaledUnitLowerCholeskyTransform",
     "LowerCholeskyAffine",
+    "PackRealFastFourierCoefficientsTransform",
     "PermuteTransform",
     "PowerTransform",
     "RealFastFourierTransform",
@@ -1341,6 +1342,74 @@ class RealFastFourierTransform(Transform):
             isinstance(other, RealFastFourierTransform)
             and self.transform_ndims == other.transform_ndims
             and self.transform_shape == other.transform_shape
+        )
+
+
+class PackRealFastFourierCoefficientsTransform(Transform):
+    """
+    Transform a real vector to complex coefficients of a real fast Fourier transform.
+
+    :param transform_shape: Shape of the real vector, defaults to the input size.
+    """
+
+    domain = constraints.real_vector
+    codomain = constraints.independent(constraints.complex, 1)
+
+    def __init__(self, transform_shape: tuple = None) -> None:
+        assert transform_shape is None or len(transform_shape) == 1, (
+            "Packing Fourier coefficients is only implemented for vectors."
+        )
+        self.shape = transform_shape
+
+    def tree_flatten(self):
+        return (), ((), {"shape": self.shape})
+
+    def forward_shape(self, shape: tuple) -> tuple:
+        *batch_shape, n = shape
+        assert self.shape is None or self.shape == (n,), (
+            f"`shape` must be `None` or `{self.shape}. Got `{shape}`."
+        )
+        n_rfft = n // 2 + 1
+        return (*batch_shape, n_rfft)
+
+    def inverse_shape(self, shape: tuple) -> tuple:
+        *batch_shape, n_rfft = shape
+        assert self.shape is not None, (
+            "Shape must be specified in `__init__` for inverse transform."
+        )
+        (n,) = self.shape
+        assert n_rfft == n // 2 + 1
+        return (*batch_shape, n)
+
+    def log_abs_det_jacobian(
+        self, x: jnp.ndarray, y: jnp.ndarray, intermediates: None = None
+    ) -> jnp.ndarray:
+        shape = jnp.broadcast_shapes(x.shape[:-1], y.shape[:-1])
+        return jnp.zeros_like(x, shape=shape)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        assert self.shape is None or self.shape == x.shape[-1:]
+        n = x.shape[-1]
+        n_real = n // 2 + 1
+        n_imag = n - n_real
+        complex_dtype = jnp.result_type(x.dtype, jnp.complex64)
+        return (
+            x[..., :n_real]
+            .astype(complex_dtype)
+            .at[..., 1 : 1 + n_imag]
+            .add(1j * x[..., n_real:])
+        )
+
+    def _inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+        (n,) = self.shape
+        n_real = n // 2 + 1
+        n_imag = n - n_real
+        return jnp.concatenate([y.real, y.imag[..., 1 : n_imag + 1]], axis=-1)
+
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, PackRealFastFourierCoefficientsTransform)
+            and self.shape == other.shape
         )
 
 

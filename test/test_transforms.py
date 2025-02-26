@@ -32,6 +32,7 @@ from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     LowerCholeskyTransform,
     OrderedTransform,
+    PackRealFastFourierCoefficientsTransform,
     PermuteTransform,
     PowerTransform,
     RealFastFourierTransform,
@@ -81,6 +82,8 @@ TRANSFORMS = {
     "lower_cholesky_affine": T(
         LowerCholeskyAffine, (np.array([1.0, 2.0]), np.eye(2)), dict()
     ),
+    "pack_rfft_odd": T(PackRealFastFourierCoefficientsTransform, (), dict(shape=(7,))),
+    "pack_rfft_even": T(PackRealFastFourierCoefficientsTransform, (), dict(shape=(7,))),
     "permute": T(PermuteTransform, (np.array([1, 0]),), dict()),
     "power": T(
         PowerTransform,
@@ -285,6 +288,8 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
         (OrderedTransform(), (5,)),
         (PermuteTransform(np.roll(np.arange(7), 2)), (7,)),
         (PowerTransform(2.5), ()),
+        (PackRealFastFourierCoefficientsTransform((7,)), (7,)),
+        (PackRealFastFourierCoefficientsTransform((8,)), (8,)),
         (RealFastFourierTransform(7), (7,)),
         (RealFastFourierTransform((8, 9), 2), (8, 9)),
         (
