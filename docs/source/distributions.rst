@@ -1006,6 +1006,14 @@ OrderedTransform
     :show-inheritance:
     :member-order: bysource
 
+PackRealFastFourierCoefficientsTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.PackRealFastFourierCoefficientsTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 PermuteTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.PermuteTransform
