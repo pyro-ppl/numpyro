@@ -39,6 +39,7 @@ NumPyro documentation
    tutorials/censoring
    tutorials/hsgp_example
    tutorials/other_samplers
+   tutorials/circulant_gp
 
 .. nbgallery::
    :maxdepth: 1
