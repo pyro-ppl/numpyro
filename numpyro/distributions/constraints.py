@@ -650,7 +650,7 @@ class _PositiveDefiniteCirculantVector(_SingletonConstraint):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tol = 10 * jnp.finfo(x.dtype).eps
         rfft = jnp.fft.rfft(x)
-        return (jnp.abs(rfft.imag) < tol) & (rfft.real > tol)
+        return (jnp.abs(rfft.imag) < tol) & (rfft.real > -tol)
 
     def feasible_like(self, prototype):
         return jnp.zeros_like(prototype).at[..., 0].set(1.0)
