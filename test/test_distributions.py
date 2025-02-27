@@ -3191,6 +3191,25 @@ def test_kl_univariate(shape, p_dist, q_dist):
     assert_allclose(actual, expected, rtol=0.05)
 
 
+@pytest.mark.parametrize("shape", [(3, 2, 10), (3, 2, 11), (10,), (11,)], ids=str)
+def test_kl_circulant_normal_consistency(shape: tuple) -> None:
+    key1, key2, key3, key4 = random.split(random.key(9), 4)
+    p = dist.Normal(random.normal(key1, shape), random.gamma(key2, 3, shape)).to_event(
+        1
+    )
+    # covariance_rfft = jnp.exp(-jnp.arange(shape[-1] // 2 + 1))
+    covariance_rfft = random.gamma(key4, 10, shape[:-1] + (shape[-1] // 2 + 1,)) / 10
+    q = dist.CirculantNormal(
+        random.normal(key3, shape), covariance_rfft=covariance_rfft
+    )
+    actual = kl_divergence(p, q)
+    expected = kl_divergence(
+        dist.MultivariateNormal(p.mean, jnp.eye(shape[-1]) * p.variance[..., None]),
+        dist.MultivariateNormal(q.mean, q.covariance_matrix),
+    )
+    assert_allclose(actual, expected, rtol=1e-6)
+
+
 @pytest.mark.parametrize("shape", [(4,), (2, 3)], ids=str)
 def test_kl_dirichlet_dirichlet(shape):
     p = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
