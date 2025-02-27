@@ -3107,7 +3107,8 @@ class CirculantNormal(TransformedDistribution):
         if covariance_rfft is None:
             assert covariance_row.shape[-1] == n
             covariance_rfft = jnp.fft.rfft(covariance_row).real
-            self.covariance_row = covariance_row
+            shape = jnp.broadcast_shapes(loc.shape, covariance_row.shape)
+            self.covariance_row = jnp.broadcast_to(covariance_row, shape)
         self.loc = loc
         self.covariance_rfft = covariance_rfft
 
@@ -3134,17 +3135,22 @@ class CirculantNormal(TransformedDistribution):
 
     @property
     def mean(self) -> jnp.ndarray:
-        return self.loc
+        return jnp.broadcast_to(self.loc, self.shape())
 
     @lazy_property
     def covariance_row(self) -> jnp.ndarray:
-        return jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1])
+        return jnp.broadcast_to(
+            jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1]), self.shape()
+        )
 
     @lazy_property
     def covariance_matrix(self) -> jnp.ndarray:
         if self.batch_shape:
-            # toeplitz flattens the input, and we need to broadcast manually.
-            return vmap(toeplitz, range(len(self.batch_shape)))(self.covariance_row)
+            # `toeplitz` flattens the input, and we need to broadcast manually.
+            (n,) = self.event_shape
+            return vmap(toeplitz)(self.covariance_row.reshape((-1, n))).reshape(
+                self.batch_shape + (n, n)
+            )
         else:
             return toeplitz(self.covariance_row)
 
