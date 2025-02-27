@@ -33,6 +33,7 @@ from jax.scipy.special import betaln, digamma, gammaln
 
 from numpyro.distributions.continuous import (
     Beta,
+    CirculantNormal,
     Dirichlet,
     Gamma,
     Kumaraswamy,
@@ -181,6 +182,27 @@ def kl_divergence(p: MultivariateNormal, q: MultivariateNormal):
     assert _shapes_are_broadcastable(t1.shape, result_batch_shape)
 
     return 0.5 * (tr + t1 - D - log_det_ratio)
+
+
+@dispatch(Independent, CirculantNormal)
+def kl_divergence(p: Independent, q: CirculantNormal):
+    # We can only calculate the KL divergence if the base distribution is normal.
+    if not isinstance(p.base_dist, Normal) or p.reinterpreted_batch_ndims != 1:
+        raise NotImplementedError
+
+    residual = q.mean - p.mean
+    n = residual.shape[-1]
+    log_covariance_rfft = jnp.log(q.covariance_rfft)
+    return (
+        jnp.vecdot(
+            residual, jnp.fft.irfft(jnp.fft.rfft(residual) / q.covariance_rfft, n)
+        )
+        + jnp.fft.irfft(1 / q.covariance_rfft, n)[..., 0] * jnp.sum(p.variance, axis=-1)
+        + log_covariance_rfft.sum(axis=-1)
+        + log_covariance_rfft[..., 1 : (n + 1) // 2].sum(axis=-1)
+        - jnp.log(p.variance).sum(axis=-1)
+        - n
+    ) / 2
 
 
 @dispatch(Beta, Beta)
