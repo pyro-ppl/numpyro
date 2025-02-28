@@ -507,9 +507,7 @@ def nnx_module(
         module_state = numpyro_mutable(name + "$state")
         # Initialize module_state if it's None but module_params is not None
         if module_state is None and module_params is not None:
-            module_state = {}
-            for m in mutable:
-                module_state[m] = {}
+            module_state = {m: {} for m in mutable}
             numpyro_mutable(name + "$state", module_state)
     else:
         module_state = None
@@ -523,7 +521,6 @@ def nnx_module(
 
         # Add any additional RNG keys if needed
         if apply_rng:
-            assert isinstance(apply_rng, list)
             for kind in apply_rng:
                 rng_key, subkey = random.split(rng_key)
                 rngs_dict[kind] = subkey
@@ -535,164 +532,131 @@ def nnx_module(
         if input_shape is not None:
             # Create a dummy input for initialization
             dummy_input = jnp.ones(input_shape)
-        else:
-            dummy_input = None
 
-        try:
-            # Initialize the module with the right arguments
+            # Create module instance
             model = nn_module(*args, rngs=rngs, **kwargs)
 
-            # If we have an input shape, call the model to initialize parameters
-            if input_shape is not None and hasattr(model, "__call__"):
-                if apply_rng and "dropout" in apply_rng:
-                    dropout_rngs = SafeRngs(dropout=rngs_dict["dropout"])
-                    model(dummy_input, rngs=dropout_rngs)
-                else:
-                    model(dummy_input)
+            # Call the model to initialize parameters
+            if apply_rng and "dropout" in apply_rng:
+                dropout_rngs = {"dropout": rngs_dict["dropout"]}
+                model(dummy_input, rngs=dropout_rngs)
+            else:
+                model(dummy_input)
+        else:
+            # Initialize without dummy input
+            model = nn_module(*args, rngs=rngs, **kwargs)
 
-            # Extract parameters manually to avoid using nnx.split
-            param_dict = {}
+        # Extract parameters
+        param_dict = {}
+        for name_attr, var in model.__dict__.items():
+            if isinstance(var, nnx.Param):
+                param_dict[name_attr] = var.value
+            elif hasattr(var, "__dict__"):
+                # Handle nested modules like BatchNorm
+                for sub_name, sub_var in var.__dict__.items():
+                    if isinstance(sub_var, nnx.Param):
+                        param_dict[f"{name_attr}.{sub_name}"] = sub_var.value
 
-            # Try to extract parameters directly from the model's variables
-            # This is a workaround for the "Arrays leaves are not supported" error
+        # Register parameters with NumPyro
+        if param_dict:
+            numpyro.param(module_key, param_dict)
+            module_params = param_dict
+
+        # Handle mutable state if needed
+        if mutable:
+            module_state = {m: {} for m in mutable}
+
+            # Extract mutable state
             for name_attr, var in model.__dict__.items():
-                if isinstance(var, nnx.Param):
-                    param_dict[name_attr] = var.value
-                elif hasattr(var, "__dict__"):
-                    # Handle nested modules like BatchNorm
+                if hasattr(var, "__dict__"):
                     for sub_name, sub_var in var.__dict__.items():
-                        if isinstance(sub_var, nnx.Param):
-                            param_dict[f"{name_attr}.{sub_name}"] = sub_var.value
+                        for m in mutable:
+                            if m in sub_name and not isinstance(sub_var, nnx.Param):
+                                module_state[m][f"{name_attr}.{sub_name}"] = sub_var
 
-            # Register parameters with NumPyro
-            if param_dict:
-                numpyro.param(module_key, param_dict)
-                module_params = param_dict
-
-            # Handle mutable state if needed
-            if mutable:
-                mutable_state = {}
-                for m in mutable:
-                    mutable_state[m] = {}
-
-                # Extract mutable state manually
-                for name_attr, var in model.__dict__.items():
-                    if hasattr(var, "__dict__"):
-                        # Handle nested modules like BatchNorm
-                        for sub_name, sub_var in var.__dict__.items():
-                            for m in mutable:
-                                if m in sub_name and not isinstance(sub_var, nnx.Param):
-                                    mutable_state[m][f"{name_attr}.{sub_name}"] = (
-                                        sub_var
-                                    )
-
-                if any(mutable_state.values()):
-                    numpyro_mutable(name + "$state", mutable_state)
-                    module_state = mutable_state
-
-        except Exception as exc:
-            raise RuntimeError(
-                f"Error initializing NNX module {name}: {str(exc)}"
-            ) from exc
+            if any(module_state.values()):
+                numpyro_mutable(name + "$state", module_state)
 
     # Define the apply function
     def apply_fn(*call_args, **call_kwargs):
-        try:
-            # Get user-provided RNGs or create new ones
-            user_rngs = call_kwargs.pop("rngs", None)
+        # Get user-provided RNGs or create new ones
+        user_rngs = call_kwargs.pop("rngs", None)
+        rng_key = numpyro.prng_key()
 
-            # Create a fresh PRNG key
-            rng_key = numpyro.prng_key()
-
-            # Create Rngs object for this call
-            if user_rngs is not None:
-                if isinstance(user_rngs, dict):
-                    rngs = SafeRngs(**user_rngs)
-                elif isinstance(user_rngs, nnx.Rngs):
-                    # Convert to our safe version
-                    rngs_dict = {}
-                    for key in user_rngs._fields:
-                        rngs_dict[key] = getattr(user_rngs, key)
-                    rngs = SafeRngs(**rngs_dict)
-                else:
-                    rngs = SafeRngs(params=rng_key)
+        # Create Rngs object for this call
+        if user_rngs is not None:
+            if isinstance(user_rngs, dict):
+                rngs = SafeRngs(**user_rngs)
+            elif hasattr(user_rngs, "_fields"):
+                # Convert to our safe version
+                rngs_dict = {key: getattr(user_rngs, key) for key in user_rngs._fields}
+                rngs = SafeRngs(**rngs_dict)
             else:
                 rngs = SafeRngs(params=rng_key)
+        else:
+            rngs = SafeRngs(params=rng_key)
 
-            # Create a new module instance
-            model = nn_module(*args, rngs=rngs, **kwargs)
+        # Create a new module instance
+        model = nn_module(*args, rngs=rngs, **kwargs)
 
-            # Set parameters manually
-            if module_params:
-                for path, value in module_params.items():
+        # Set parameters
+        if module_params:
+            for path, value in module_params.items():
+                if "." in path:
+                    # Handle nested parameters
+                    parent, child = path.split(".", 1)
+                    if hasattr(model, parent):
+                        parent_obj = getattr(model, parent)
+                        if hasattr(parent_obj, child):
+                            if isinstance(getattr(parent_obj, child), nnx.Param):
+                                getattr(parent_obj, child).value = value
+                            else:
+                                setattr(parent_obj, child, value)
+                elif hasattr(model, path):
+                    if isinstance(getattr(model, path), nnx.Param):
+                        getattr(model, path).value = value
+                    else:
+                        setattr(model, path, value)
+
+        # Set mutable state if available
+        if mutable and module_state:
+            for state_type, state_dict in module_state.items():
+                for path, var in state_dict.items():
                     if "." in path:
-                        # Handle nested parameters
                         parent, child = path.split(".", 1)
                         if hasattr(model, parent):
                             parent_obj = getattr(model, parent)
                             if hasattr(parent_obj, child):
-                                # For BatchNorm, we need to handle parameters differently
-                                if isinstance(getattr(parent_obj, child), nnx.Param):
-                                    # If it's a Param object, set its value
-                                    getattr(parent_obj, child).value = value
+                                if hasattr(getattr(parent_obj, child), "value"):
+                                    getattr(parent_obj, child).value = var
                                 else:
-                                    # Otherwise set it directly
-                                    setattr(parent_obj, child, value)
-                    elif hasattr(model, path):
-                        if isinstance(getattr(model, path), nnx.Param):
-                            # If it's a Param object, set its value
-                            getattr(model, path).value = value
-                        else:
-                            # Otherwise set it directly
-                            setattr(model, path, value)
+                                    setattr(parent_obj, child, var)
 
-            # Set mutable state if available
-            if mutable and module_state:
-                for state_type, state_dict in module_state.items():
-                    for path, var in state_dict.items():
-                        if "." in path:
-                            # Handle nested state
-                            parent, child = path.split(".", 1)
-                            if hasattr(model, parent):
-                                parent_obj = getattr(model, parent)
-                                if hasattr(parent_obj, child):
-                                    # For BatchStat, we need to handle state differently
-                                    if hasattr(getattr(parent_obj, child), "value"):
-                                        getattr(parent_obj, child).value = var
-                                    else:
-                                        setattr(parent_obj, child, var)
+        # Call the model with the provided arguments
+        if user_rngs is not None:
+            call_kwargs["rngs"] = rngs
 
-            # Call the model with the provided arguments and pass the RNGs
-            if user_rngs is not None:
-                # Make sure to pass the RNGs to the model
-                call_kwargs["rngs"] = rngs
+        result = model(*call_args, **call_kwargs)
 
-            result = model(*call_args, **call_kwargs)
+        # Update mutable state if needed
+        if mutable and module_state:
+            for state_type in module_state:
+                for path in list(module_state[state_type].keys()):
+                    if "." in path:
+                        parent, child = path.split(".", 1)
+                        if hasattr(model, parent):
+                            parent_obj = getattr(model, parent)
+                            if hasattr(parent_obj, child):
+                                if hasattr(getattr(parent_obj, child), "value"):
+                                    module_state[state_type][path] = getattr(
+                                        parent_obj, child
+                                    ).value
+                                else:
+                                    module_state[state_type][path] = getattr(
+                                        parent_obj, child
+                                    )
 
-            # Update mutable state if needed
-            if mutable and module_state:
-                for state_type in module_state:
-                    for path in list(module_state[state_type].keys()):
-                        if "." in path:
-                            # Handle nested state
-                            parent, child = path.split(".", 1)
-                            if hasattr(model, parent):
-                                parent_obj = getattr(model, parent)
-                                if hasattr(parent_obj, child):
-                                    # For BatchStat, we need to handle state differently
-                                    if hasattr(getattr(parent_obj, child), "value"):
-                                        module_state[state_type][path] = getattr(
-                                            parent_obj, child
-                                        ).value
-                                    else:
-                                        module_state[state_type][path] = getattr(
-                                            parent_obj, child
-                                        )
-
-            return result
-
-        except Exception as exc:
-            raise RuntimeError(f"Error calling NNX module {name}: {str(exc)}") from exc
+        return result
 
     return apply_fn
 
@@ -750,7 +714,18 @@ def random_nnx_module(
             "It can be installed with `pip install git+https://github.com/google/flax.git`."
         ) from e
 
-    # Create a SafeRngs object for initialization
+    # First create a regular nnx_module to get parameter shapes
+    module_instance = nnx_module(
+        name,
+        nn_module,
+        *args,
+        input_shape=input_shape,
+        apply_rng=apply_rng,
+        mutable=mutable,
+        **kwargs,
+    )
+
+    # Create a temporary instance to extract parameter shapes
     rng_key = numpyro.prng_key()
 
     # Create a custom Rngs class that doesn't store JAX arrays directly
@@ -762,22 +737,18 @@ def random_nnx_module(
             return self._rngs.get(key)
 
         def params(self):
-            # Return the actual params key
             return self._rngs.get("params")
-
-    rngs = SafeRngs(params=rng_key)
 
     # Create module instance with proper arguments
     module_kwargs = kwargs.copy()
-    if input_shape is not None:
-        # Remove input_shape from kwargs to avoid duplicate arguments
-        if "input_shape" in module_kwargs:
-            del module_kwargs["input_shape"]
+    if input_shape is not None and "input_shape" in module_kwargs:
+        del module_kwargs["input_shape"]
 
-    # Initialize the module
-    module = nn_module(**module_kwargs, rngs=rngs)
+    # Initialize the module to extract parameter shapes
+    rngs = SafeRngs(params=rng_key)
+    module = nn_module(*args, rngs=rngs, **module_kwargs)
 
-    # Extract parameter shapes from the module
+    # Extract parameter shapes
     param_shapes = {}
     for param_name, param in module.__dict__.items():
         if isinstance(param, nnx.Param):
@@ -786,52 +757,34 @@ def random_nnx_module(
     # Sample parameters with the correct names for MCMC
     sampled_params = {}
 
-    # Sample bias parameter if it exists
-    if "bias" in param_shapes:
-        if isinstance(prior, dict) and "bias" in prior:
-            d = prior["bias"]
+    # The test expects specific parameter names: nn/bias and nn/w
+    for param_name, param_shape in param_shapes.items():
+        if isinstance(prior, dict) and param_name in prior:
+            d = prior[param_name]
         elif callable(prior) and not isinstance(prior, dist.Distribution):
-            d = prior("bias", param_shapes["bias"])
+            d = prior(param_name, param_shape)
         else:
             d = prior
 
-        param_shape = param_shapes["bias"]
         param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
-        # Sample with exact name "nn/bias" as expected by the test
-        sampled_params["bias"] = numpyro.sample(
-            f"{name}/bias", d.expand(param_batch_shape).to_event()
-        )
-
-    # Sample w parameter if it exists
-    if "w" in param_shapes:
-        if isinstance(prior, dict) and "w" in prior:
-            d = prior["w"]
-        elif callable(prior) and not isinstance(prior, dist.Distribution):
-            d = prior("w", param_shapes["w"])
-        else:
-            d = prior
-
-        param_shape = param_shapes["w"]
-        param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
-        # Sample with exact name "nn/w" as expected by the test
-        sampled_params["w"] = numpyro.sample(
-            f"{name}/w", d.expand(param_batch_shape).to_event()
+        # Use the exact parameter name expected by the test
+        sampled_params[param_name] = numpyro.sample(
+            f"{name}/{param_name}", d.expand(param_batch_shape).to_event()
         )
 
     # Create a function that uses the sampled parameters
     def apply_fn(x, *fn_args, **fn_kwargs):
-        # Create a new module instance with the sampled parameters
-        new_module = nn_module(**module_kwargs, rngs=rngs)
+        # Create a new module instance
+        new_module = nn_module(*args, rngs=rngs, **module_kwargs)
 
         # Replace the parameters with our sampled values
         for param_name, param_value in sampled_params.items():
             if hasattr(new_module, param_name) and isinstance(
                 getattr(new_module, param_name), nnx.Param
             ):
-                # Update the parameter value
                 setattr(new_module, param_name, nnx.Param(param_value))
 
         # Apply the module with the sampled parameters
-        return new_module(x)
+        return new_module(x, *fn_args, **fn_kwargs)
 
     return apply_fn
