@@ -738,42 +738,76 @@ def random_nnx_module(
     module = nn_module(*args, rngs=rngs, **module_kwargs)
 
     # Extract parameter shapes and sample parameters
-    sampled_params = {}
+    param_dict = {}
 
-    # Sample parameters with exact names expected by the test
-    for param_name, param in module.__dict__.items():
-        if isinstance(param, nnx.Param):
-            param_shape = jnp.shape(param.value)
+    # Helper function to recursively extract parameters from nested modules
+    def extract_params(module, prefix=""):
+        for param_name, value in module.__dict__.items():
+            if isinstance(value, nnx.Param):
+                full_param_name = f"{prefix}{param_name}" if prefix else param_name
+                param_shape = jnp.shape(value.value)
 
-            # Determine the prior distribution for this parameter
-            if isinstance(prior, dict) and param_name in prior:
-                d = prior[param_name]
-            elif callable(prior) and not isinstance(prior, dist.Distribution):
-                d = prior(param_name, param_shape)
-            else:
-                d = prior
+                # Determine the prior distribution for this parameter
+                if isinstance(prior, dict):
+                    # If the parameter name is in the prior dictionary, use that distribution
+                    if full_param_name in prior:
+                        d = prior[full_param_name]
+                    # Otherwise, use a default Normal distribution
+                    else:
+                        d = dist.Normal(0, 0.1)
+                elif callable(prior) and not isinstance(prior, dist.Distribution):
+                    d = prior(full_param_name, param_shape)
+                else:
+                    d = prior
 
-            # Calculate batch shape and sample parameter
-            param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
-            # Use exact parameter names expected by the test: nn/bias and nn/w
-            sampled_params[param_name] = numpyro.sample(
-                f"{name}/{param_name}", d.expand(param_batch_shape).to_event()
-            )
+                # Calculate batch shape and sample parameter
+                param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
+                # Sample parameter with the correct name format for MCMC
+                param_val = numpyro.sample(
+                    f"{name}/{full_param_name}", d.expand(param_batch_shape).to_event()
+                )
+                param_dict[full_param_name] = param_val
+            elif hasattr(value, "__dict__") and not isinstance(value, type):
+                # Recursively extract parameters from nested modules
+                new_prefix = f"{prefix}{param_name}." if prefix else f"{param_name}."
+                extract_params(value, new_prefix)
+
+    # Extract parameters from the module
+    extract_params(module)
+
+    # Create a single parameter dictionary for MCMC
+    all_params = {}
+    for param_name, param_value in param_dict.items():
+        all_params[param_name] = param_value
+
+    # Register the parameters with numpyro.deterministic to make them available in MCMC samples
+    module_key = f"{name}$params"
+    numpyro.deterministic(module_key, all_params)
 
     # Define the apply function using JAX's functional approach
     def apply_fn(x, *fn_args, **fn_kwargs):
         # Create a new module instance
         new_module = nn_module(*args, rngs=rngs, **module_kwargs)
 
-        # Use JAX's functional approach to set parameters
-        def set_param(module, name, value):
-            if hasattr(module, name) and isinstance(getattr(module, name), nnx.Param):
-                setattr(module, name, nnx.Param(value))
-            return module
+        # Helper function to recursively set parameters in nested modules
+        def set_params(module, params, prefix=""):
+            for param_name, param_value in params.items():
+                if "." in param_name:
+                    # Handle nested parameters
+                    module_name, rest = param_name.split(".", 1)
+                    if hasattr(module, module_name):
+                        submodule = getattr(module, module_name)
+                        if hasattr(submodule, "__dict__"):
+                            set_params(submodule, {rest: param_value})
+                else:
+                    # Set parameter directly
+                    if hasattr(module, param_name) and isinstance(
+                        getattr(module, param_name), nnx.Param
+                    ):
+                        getattr(module, param_name).value = param_value
 
-        # Apply parameters using a functional fold
-        for param_name, param_value in sampled_params.items():
-            new_module = set_param(new_module, param_name, param_value)
+        # Set parameters from the sampled values
+        set_params(new_module, param_dict)
 
         # Apply the module with the sampled parameters
         return new_module(x, *fn_args, **fn_kwargs)
