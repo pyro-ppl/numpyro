@@ -9,6 +9,7 @@ import pytest
 
 import jax
 from jax import random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -17,8 +18,10 @@ from numpyro.contrib.module import (
     _update_params,
     flax_module,
     haiku_module,
+    nnx_module,
     random_flax_module,
     random_haiku_module,
+    random_nnx_module,
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
@@ -195,9 +198,9 @@ def test_random_module_mcmc(backend, init, callable_prior):
         kwargs = {}
 
     if callable_prior:
-        prior = (  # noqa: E731
-            lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
-        )
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == bias_name else dist.Normal()
     else:
         prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
 
@@ -311,3 +314,166 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
     svi.run(random.PRNGKey(100), 10)
+
+
+def nnx_model_by_shape(x, y):
+    from flax import nnx
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            return x @ self.w + self.bias
+
+    # Pass input_shape separately - it will be handled properly by nnx_module
+    nn = nnx_module("nn", Linear, din=100, dout=100, input_shape=(100,))
+    mean = nn(x)
+    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+
+def nnx_model_by_kwargs(x, y):
+    from flax import nnx
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            return x @ self.w + self.bias
+
+    # Directly initialize with dimensions
+    input_dim = x.shape[0]
+    # Don't pass x directly to nnx_module's constructor
+    nn = nnx_module("nn", Linear, din=input_dim, dout=100)
+    mean = nn(x)
+    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+
+@pytest.mark.parametrize("init", ["shape", "kwargs"])
+def test_nnx_module(init):
+    X = np.arange(100).astype(np.float32)
+    Y = 2 * X + 2
+
+    if init == "shape":
+        with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
+            nnx_model_by_shape(X, Y)
+        assert "w" in nnx_tr["nn$params"]["value"]
+        assert "bias" in nnx_tr["nn$params"]["value"]
+        assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
+        assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
+
+    elif init == "kwargs":
+        with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
+            nnx_model_by_kwargs(X, Y)
+        assert "w" in nnx_tr["nn$params"]["value"]
+        assert "bias" in nnx_tr["nn$params"]["value"]
+        assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
+        assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
+
+
+@pytest.mark.parametrize("dropout", [True, False])
+@pytest.mark.parametrize("batchnorm", [True, False])
+def test_nnx_state_dropout_smoke(dropout, batchnorm):
+    from flax import nnx
+
+    class Net(nnx.Module):
+        def __init__(self, *, rngs):
+            self.key = rngs.params()
+            if batchnorm:
+                # Use feature dimension 3 to match the input shape (4, 3)
+                self.bn = nnx.BatchNorm(3, rngs=rngs)
+
+        def __call__(self, x, *, rngs=None):
+            if dropout:
+                assert rngs is not None, "rngs must be provided for dropout"
+                # Apply dropout with the provided key
+                dropout_key = rngs["dropout"]
+                x = nnx.dropout(x, 0.5, rngs={"dropout": dropout_key})
+
+            if batchnorm:
+                x = self.bn(x)
+
+            return x
+
+    def model():
+        apply_rng = ["dropout"] if dropout else None
+        mutable = ["batch_stats"] if batchnorm else None
+
+        # Pass input_shape separately to nnx_module
+        nn = nnx_module(
+            "nn", Net, apply_rng=apply_rng, mutable=mutable, input_shape=(4, 3)
+        )
+
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+
+        if dropout:
+            y = nn(x, rngs={"dropout": numpyro.prng_key()})
+        else:
+            y = nn(x)
+
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    if batchnorm:
+        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+        assert tr["nn$state"]["type"] == "mutable"
+    else:
+        assert set(tr.keys()) == {"nn$params", "x", "y"}
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.parametrize("callable_prior", [True, False])
+def test_random_nnx_module_mcmc(callable_prior):
+    from flax import nnx
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            return x @ self.w + self.bias
+
+    N, dim = 3000, 3
+    num_warmup, num_samples = (1000, 1000)
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    if callable_prior:
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == "bias" else dist.Normal()
+    else:
+        prior = {"bias": dist.Cauchy(), "w": dist.Normal()}
+
+    def model(data, labels):
+        # Pass input_shape separately
+        nn = random_nnx_module("nn", Linear, prior, din=dim, dout=1, input_shape=(dim,))
+        logits = nn(data).squeeze(-1)
+        numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
+
+    kernel = NUTS(model=model)
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
+    )
+    mcmc.run(random.PRNGKey(2), data, labels)
+    mcmc.print_summary()
+    samples = mcmc.get_samples()
+
+    assert set(samples.keys()) == {"nn/bias", "nn/w"}
+    assert_allclose(
+        np.mean(samples["nn/w"].squeeze(-1), 0),
+        true_coefs,
+        atol=0.22,
+    )
