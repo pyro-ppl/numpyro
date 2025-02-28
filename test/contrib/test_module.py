@@ -471,7 +471,11 @@ def test_random_nnx_module_mcmc(callable_prior):
     mcmc.print_summary()
     samples = mcmc.get_samples()
 
-    assert set(samples.keys()) == {"nn/bias", "nn/w"}
+    # Check that we have the expected parameter keys
+    assert "nn/bias" in samples
+    assert "nn/w" in samples
+    # The nn$params key is also expected in the samples
+    assert "nn$params" in samples
     assert_allclose(
         np.mean(samples["nn/w"].squeeze(-1), 0),
         true_coefs,
@@ -615,11 +619,23 @@ def test_nnx_cnn_module():
         # Just check that it runs without errors
         random_model(images, labels)
 
-    # For a more thorough test, we could run MCMC
-    # but that would be too slow for a unit test
-    # kernel = NUTS(model=random_model)
-    # mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    # mcmc.run(random.PRNGKey(2), images, labels)
+    # Test MCMC inference
+    kernel = NUTS(model=random_model)
+    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), images, labels)
+
+    # Check that we can access posterior samples
+    samples = mcmc.get_samples()
+    assert "cnn$params" in samples
+    params = samples["cnn$params"]
+    assert "conv1.kernel" in params
+    assert "conv2.kernel" in params
+    assert "linear1.kernel" in params
+    assert "linear2.kernel" in params
+    assert params["conv1.kernel"].shape[0] == 2  # num_samples
+    assert params["conv2.kernel"].shape[0] == 2
+    assert params["linear1.kernel"].shape[0] == 2
+    assert params["linear2.kernel"].shape[0] == 2
 
 
 def test_nnx_rnn_module():
@@ -748,6 +764,20 @@ def test_nnx_rnn_module():
     with handlers.seed(rng_seed=0):
         # Just check that it runs without errors
         random_model(sequences, targets)
+
+    # Test MCMC inference
+    kernel = NUTS(model=random_model)
+    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), sequences, targets)
+
+    # Check that we can access posterior samples
+    samples = mcmc.get_samples()
+    assert "rnn$params" in samples
+    params = samples["rnn$params"]
+    assert "W_ih" in params
+    assert "W_hh" in params
+    assert params["W_ih"].shape == (2, input_size, 32)  # (num_samples, *param_shape)
+    assert params["W_hh"].shape == (2, 32, 32)
 
 
 def test_nnx_transformer_module():
@@ -923,7 +953,7 @@ def test_nnx_transformer_module():
         )
 
         # Get predictions from the transformer
-        logits = transformer(sequences)
+        logits = transformer(sequences).squeeze(-1)
 
         # Use the mean of sequence outputs for classification
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
@@ -937,8 +967,22 @@ def test_nnx_transformer_module():
         # Just check that it runs without errors
         random_model(sequences, labels)
 
-    # For a more thorough test, we could run MCMC
-    # but that would be too slow for a unit test
-    # kernel = NUTS(model=random_model)
-    # mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    # mcmc.run(random.PRNGKey(2), sequences, labels)
+    # Test MCMC inference
+    kernel = NUTS(model=random_model)
+    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), sequences, labels)
+
+    # Check that we can access posterior samples
+    samples = mcmc.get_samples()
+    assert "transformer$params" in samples
+    params = samples["transformer$params"]
+    assert "query.kernel" in params
+    assert "key.kernel" in params
+    assert "value.kernel" in params
+    assert params["query.kernel"].shape == (
+        2,
+        input_dim,
+        input_dim * 2,
+    )  # (num_samples, *param_shape)
+    assert params["key.kernel"].shape == (2, input_dim, input_dim * 2)
+    assert params["value.kernel"].shape == (2, input_dim, input_dim * 2)
