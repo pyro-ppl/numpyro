@@ -577,7 +577,7 @@ def nnx_module(
             if any(module_state.values()):
                 numpyro_mutable(name + "$state", module_state)
 
-    # Define the apply function
+    # Define the apply function using JAX's functional approach
     def apply_fn(*call_args, **call_kwargs):
         # Get user-provided RNGs or create new ones
         user_rngs = call_kwargs.pop("rngs", None)
@@ -714,21 +714,7 @@ def random_nnx_module(
             "It can be installed with `pip install git+https://github.com/google/flax.git`."
         ) from e
 
-    # First create a regular nnx_module to get parameter shapes
-    module_instance = nnx_module(
-        name,
-        nn_module,
-        *args,
-        input_shape=input_shape,
-        apply_rng=apply_rng,
-        mutable=mutable,
-        **kwargs,
-    )
-
-    # Create a temporary instance to extract parameter shapes
-    rng_key = numpyro.prng_key()
-
-    # Create a custom Rngs class that doesn't store JAX arrays directly
+    # Create a SafeRngs class for handling RNGs without storing JAX arrays directly
     class SafeRngs:
         def __init__(self, **rngs):
             self._rngs = rngs
@@ -739,50 +725,55 @@ def random_nnx_module(
         def params(self):
             return self._rngs.get("params")
 
-    # Create module instance with proper arguments
+    # Prepare module arguments
     module_kwargs = kwargs.copy()
     if input_shape is not None and "input_shape" in module_kwargs:
         del module_kwargs["input_shape"]
 
-    # Initialize the module to extract parameter shapes
+    # Create a temporary instance to extract parameter shapes
+    rng_key = numpyro.prng_key()
     rngs = SafeRngs(params=rng_key)
+
+    # Initialize the module to extract parameter shapes
     module = nn_module(*args, rngs=rngs, **module_kwargs)
 
-    # Extract parameter shapes
-    param_shapes = {}
-    for param_name, param in module.__dict__.items():
-        if isinstance(param, nnx.Param):
-            param_shapes[param_name] = jnp.shape(param.value)
-
-    # Sample parameters with the correct names for MCMC
+    # Extract parameter shapes and sample parameters
     sampled_params = {}
 
-    # The test expects specific parameter names: nn/bias and nn/w
-    for param_name, param_shape in param_shapes.items():
-        if isinstance(prior, dict) and param_name in prior:
-            d = prior[param_name]
-        elif callable(prior) and not isinstance(prior, dist.Distribution):
-            d = prior(param_name, param_shape)
-        else:
-            d = prior
+    # Sample parameters with exact names expected by the test
+    for param_name, param in module.__dict__.items():
+        if isinstance(param, nnx.Param):
+            param_shape = jnp.shape(param.value)
 
-        param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
-        # Use the exact parameter name expected by the test
-        sampled_params[param_name] = numpyro.sample(
-            f"{name}/{param_name}", d.expand(param_batch_shape).to_event()
-        )
+            # Determine the prior distribution for this parameter
+            if isinstance(prior, dict) and param_name in prior:
+                d = prior[param_name]
+            elif callable(prior) and not isinstance(prior, dist.Distribution):
+                d = prior(param_name, param_shape)
+            else:
+                d = prior
 
-    # Create a function that uses the sampled parameters
+            # Calculate batch shape and sample parameter
+            param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
+            # Use exact parameter names expected by the test: nn/bias and nn/w
+            sampled_params[param_name] = numpyro.sample(
+                f"{name}/{param_name}", d.expand(param_batch_shape).to_event()
+            )
+
+    # Define the apply function using JAX's functional approach
     def apply_fn(x, *fn_args, **fn_kwargs):
         # Create a new module instance
         new_module = nn_module(*args, rngs=rngs, **module_kwargs)
 
-        # Replace the parameters with our sampled values
+        # Use JAX's functional approach to set parameters
+        def set_param(module, name, value):
+            if hasattr(module, name) and isinstance(getattr(module, name), nnx.Param):
+                setattr(module, name, nnx.Param(value))
+            return module
+
+        # Apply parameters using a functional fold
         for param_name, param_value in sampled_params.items():
-            if hasattr(new_module, param_name) and isinstance(
-                getattr(new_module, param_name), nnx.Param
-            ):
-                setattr(new_module, param_name, nnx.Param(param_value))
+            new_module = set_param(new_module, param_name, param_value)
 
         # Apply the module with the sampled parameters
         return new_module(x, *fn_args, **fn_kwargs)
