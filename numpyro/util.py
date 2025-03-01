@@ -438,7 +438,7 @@ def soft_vmap(
     # it is better to catch OOM error and reduce chunk_size by half until OOM disappears.
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:
-        pad = chunk_size - (batch_size % chunk_size)
+        pad = chunk_size - batch_size % chunk_size if batch_size % chunk_size else 0
         xs = jax.tree.map(
             lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs
         )
