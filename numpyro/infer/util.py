@@ -1114,12 +1114,16 @@ def log_likelihood(
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
     """
+    # Get rng_key from kwargs or create a default one
+    rng_key = kwargs.pop("rng_key", random.PRNGKey(0))
 
     def single_loglik(samples):
         substituted_model = (
             substitute(model, samples) if isinstance(samples, dict) else model
         )
-        model_trace = trace(substituted_model).get_trace(*args, **kwargs)
+        # Seed the model with the rng_key to ensure proper initialization of modules
+        seeded_model = seed(substituted_model, rng_key)
+        model_trace = trace(seeded_model).get_trace(*args, **kwargs)
         return {
             name: site["fn"].log_prob(site["value"])
             for name, site in model_trace.items()
