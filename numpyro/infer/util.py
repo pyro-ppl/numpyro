@@ -1119,14 +1119,7 @@ def log_likelihood(
         substituted_model = (
             substitute(model, samples) if isinstance(samples, dict) else model
         )
-
-        # Seed the model with the rng_key to ensure proper initialization of modules
-        def seeded_model(*args, **kwargs):
-            rng_seed = numpyro.prng_key() or random.key(0)
-            return seed(substituted_model, rng_seed)(*args, **kwargs)
-
-        model_trace = trace(seeded_model).get_trace(*args, **kwargs)
-
+        model_trace = trace(substituted_model).get_trace(*args, **kwargs)
         return {
             name: site["fn"].log_prob(site["value"])
             for name, site in model_trace.items()
