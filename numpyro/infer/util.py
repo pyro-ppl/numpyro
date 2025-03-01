@@ -1114,7 +1114,6 @@ def log_likelihood(
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
     """
-    # Get rng_key from kwargs or create a default one
     rng_key = kwargs.pop("rng_key", random.PRNGKey(0))
 
     def single_loglik(samples):
