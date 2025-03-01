@@ -85,6 +85,8 @@ def flax_module(
         # feed in dummy data to init params
         args = (jnp.ones(input_shape),) if input_shape is not None else args
         rng_key = numpyro.prng_key()
+        if rng_key is None:
+            rng_key = random.key(0)
         # split rng_key into a dict of rng_kind: rng_key
         rngs = {}
         if apply_rng:
@@ -187,6 +189,8 @@ def haiku_module(name, nn_module, *args, input_shape=None, apply_rng=False, **kw
         args = (jnp.ones(input_shape),) if input_shape is not None else args
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
+        if rng_key is None:
+            rng_key = random.key(0)
         if with_state:
             nn_params, nn_state = nn_module.init(rng_key, *args, **kwargs)
             nn_state = dict(nn_state)
