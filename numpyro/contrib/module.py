@@ -686,7 +686,27 @@ def random_nnx_module(
         If it is a distribution, all parameters will be sampled from the same
         distribution. If it is a dict, it maps parameter names to distributions.
         If it is a callable, it takes parameter name and parameter shape as
-        inputs and returns a distribution.
+        inputs and returns a distribution. For example::
+
+            class Linear(nnx.Module):
+                def __init__(self, din, dout, *, rngs):
+                    self.w = nnx.Param(jnp.zeros((din, dout)))
+                    self.b = nnx.Param(jnp.zeros(dout))
+
+                def __call__(self, x):
+                    return x @ self.w + self.b
+
+            net = random_nnx_module("net",
+                                   Linear,
+                                   prior={"w": dist.Normal(), "b": dist.Cauchy()},
+                                   input_shape=(4,),
+                                   din=4, dout=1)
+
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name.endswith("b") else dist.Normal())
+            prior={"w": dist.Normal(), "b": dist.Cauchy()}
+
     :param args: optional arguments to initialize NNX neural network
         as an alternative to `input_shape`
     :param tuple input_shape: shape of the input taken by the
