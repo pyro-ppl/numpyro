@@ -394,6 +394,31 @@ def test_model_with_mask_false():
         init_to_value,
     ],
 )
+def test_init_to_valid(init_strategy):
+    with handlers.trace() as trace, handlers.seed(rng_seed=3):
+        numpyro.sample("x", dist.ZeroSumNormal(1, (3,)))
+    site = trace["x"]
+    site["value"] = None
+    init = init_strategy(site)
+    assert site["fn"].support(init)
+
+
+@pytest.mark.parametrize(
+    "init_strategy",
+    [
+        init_to_feasible(),
+        init_to_median(num_samples=2),
+        init_to_sample(),
+        init_to_uniform(radius=3),
+        init_to_value(values={"tau": 0.7}),
+        init_to_feasible,
+        init_to_mean,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+        init_to_value,
+    ],
+)
 def test_initialize_model_change_point(init_strategy):
     def model(data):
         alpha = 1 / jnp.mean(data.astype(np.float32))
