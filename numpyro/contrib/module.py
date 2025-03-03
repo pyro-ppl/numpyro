@@ -472,18 +472,6 @@ def nnx_module(
             "It can be installed with `pip install git+https://github.com/google/flax.git`."
         ) from e
 
-    # Add a patch for the nnx.dropout function used in tests
-    if not hasattr(nnx, "dropout"):
-        # Create a simple implementation that matches what the test expects
-        def dropout(x, rate, *, rngs=None):
-            if rngs and "dropout" in rngs:
-                mask = jax.random.bernoulli(rngs["dropout"], 1.0 - rate, x.shape)
-                return x * mask / (1.0 - rate)
-            return x
-
-        # Add the function to the nnx module
-        nnx.dropout = dropout
-
     # Create a custom Rngs class that doesn't store JAX arrays directly
     class SafeRngs:
         def __init__(self, **rngs):
@@ -739,6 +727,7 @@ def random_nnx_module(
             return self._rngs.get(key)
 
         def params(self):
+            # Return the actual params key
             return self._rngs.get("params")
 
     # Prepare module arguments

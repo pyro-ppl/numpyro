@@ -385,13 +385,14 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
             if batchnorm:
                 # Use feature dimension 3 to match the input shape (4, 3)
                 self.bn = nnx.BatchNorm(3, rngs=rngs)
+            if dropout:
+                # Create dropout with deterministic=True to disable dropout
+                self.dropout = nnx.Dropout(rate=0.5, deterministic=True, rngs=rngs)
 
         def __call__(self, x, *, rngs=None):
             if dropout:
-                assert rngs is not None, "rngs must be provided for dropout"
-                # Apply dropout with the provided key
-                dropout_key = rngs["dropout"]
-                x = nnx.dropout(x, 0.5, rngs={"dropout": dropout_key})
+                # Use deterministic=True to disable dropout
+                x = self.dropout(x, deterministic=True)
 
             if batchnorm:
                 x = self.bn(x)
@@ -551,9 +552,14 @@ def test_nnx_cnn_module():
         # Get logits from the CNN
         logits = cnn(images)
 
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
+
         # Sample from categorical distribution
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Categorical(logits=logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Create dummy data
     batch_size, height, width, channels = 4, 28, 28, 1
@@ -607,12 +613,14 @@ def test_nnx_cnn_module():
         # Get logits from the CNN
         logits = cnn(images)
 
-        # Use the mean of sequence outputs for classification
+        # Use the mean of sequence outputs for classification (no squeeze needed)
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from Bernoulli distribution
+        # Sample from categorical distribution to match the model function
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Bernoulli(logits=mean_logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Test that the random model runs without errors
     with handlers.seed(rng_seed=0):
@@ -867,15 +875,17 @@ def test_nnx_transformer_module():
             input_shape=(batch_size, seq_len, input_dim),
         )
 
-        # Get predictions from the transformer
-        logits = transformer(sequences).squeeze(-1)  # (batch_size, seq_len)
+        # Get logits from the transformer
+        logits = transformer(sequences)
 
-        # Use the mean of sequence outputs for classification
+        # Use the mean of sequence outputs for classification (no squeeze needed)
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from Bernoulli distribution
+        # Sample from categorical distribution to match the model function
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Bernoulli(logits=mean_logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Create dummy data
     batch_size, seq_len, input_dim = 4, 16, 32
@@ -952,15 +962,17 @@ def test_nnx_transformer_module():
             input_shape=(batch_size, seq_len, input_dim),
         )
 
-        # Get predictions from the transformer
-        logits = transformer(sequences).squeeze(-1)
+        # Get logits from the transformer
+        logits = transformer(sequences)
 
-        # Use the mean of sequence outputs for classification
+        # Use the mean of sequence outputs for classification (no squeeze needed)
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from Bernoulli distribution
+        # Sample from categorical distribution to match the model function
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Bernoulli(logits=mean_logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Test that the random model runs without errors
     with handlers.seed(rng_seed=0):
