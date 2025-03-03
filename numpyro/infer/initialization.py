@@ -77,6 +77,7 @@ def init_to_mean(site=None):
             sample_shape = site["kwargs"].get("sample_shape")
             if sample_shape:
                 value = jnp.broadcast_to(value, sample_shape + jnp.shape(value))
+            return value
         except (NotImplementedError, ValueError):
             return init_to_median(site)
 
