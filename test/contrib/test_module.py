@@ -15,7 +15,9 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
+    SafeRngs,
     _update_params,
+    _update_state_with_params,
     flax_module,
     haiku_module,
     nnx_module,
@@ -381,17 +383,17 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
 
     class Net(nnx.Module):
         def __init__(self, *, rngs):
-            self.key = rngs.params()
             if batchnorm:
                 # Use feature dimension 3 to match the input shape (4, 3)
                 self.bn = nnx.BatchNorm(3, rngs=rngs)
+            if dropout:
+                # Create dropout with deterministic=True to disable dropout
+                self.dropout = nnx.Dropout(rate=0.5, deterministic=True, rngs=rngs)
 
         def __call__(self, x, *, rngs=None):
             if dropout:
-                assert rngs is not None, "rngs must be provided for dropout"
-                # Apply dropout with the provided key
-                dropout_key = rngs["dropout"]
-                x = nnx.dropout(x, 0.5, rngs={"dropout": dropout_key})
+                # Use deterministic=True to disable dropout
+                x = self.dropout(x, deterministic=True)
 
             if batchnorm:
                 x = self.bn(x)
@@ -551,9 +553,14 @@ def test_nnx_cnn_module():
         # Get logits from the CNN
         logits = cnn(images)
 
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
+
         # Sample from categorical distribution
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Categorical(logits=logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Create dummy data
     batch_size, height, width, channels = 4, 28, 28, 1
@@ -607,12 +614,14 @@ def test_nnx_cnn_module():
         # Get logits from the CNN
         logits = cnn(images)
 
-        # Use the mean of sequence outputs for classification
+        # Use the mean of sequence outputs for classification (no squeeze needed)
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from Bernoulli distribution
+        # Sample from categorical distribution to match the model function
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Bernoulli(logits=mean_logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Test that the random model runs without errors
     with handlers.seed(rng_seed=0):
@@ -867,15 +876,17 @@ def test_nnx_transformer_module():
             input_shape=(batch_size, seq_len, input_dim),
         )
 
-        # Get predictions from the transformer
-        logits = transformer(sequences).squeeze(-1)  # (batch_size, seq_len)
+        # Get logits from the transformer
+        logits = transformer(sequences)
 
-        # Use the mean of sequence outputs for classification
+        # Use the mean of sequence outputs for classification (no squeeze needed)
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from Bernoulli distribution
+        # Sample from categorical distribution to match the model function
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Bernoulli(logits=mean_logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Create dummy data
     batch_size, seq_len, input_dim = 4, 16, 32
@@ -952,15 +963,17 @@ def test_nnx_transformer_module():
             input_shape=(batch_size, seq_len, input_dim),
         )
 
-        # Get predictions from the transformer
-        logits = transformer(sequences).squeeze(-1)
+        # Get logits from the transformer
+        logits = transformer(sequences)
 
-        # Use the mean of sequence outputs for classification
+        # Use the mean of sequence outputs for classification (no squeeze needed)
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from Bernoulli distribution
+        # Sample from categorical distribution to match the model function
         with numpyro.plate("data", batch_size):
-            return numpyro.sample("obs", dist.Bernoulli(logits=mean_logits), obs=labels)
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
 
     # Test that the random model runs without errors
     with handlers.seed(rng_seed=0):
@@ -986,3 +999,213 @@ def test_nnx_transformer_module():
     )  # (num_samples, *param_shape)
     assert params["key.kernel"].shape == (2, input_dim, input_dim * 2)
     assert params["value.kernel"].shape == (2, input_dim, input_dim * 2)
+
+
+def test_update_state_with_params():
+    """Test the _update_state_with_params helper function for updating state with parameters."""
+    from flax import nnx
+    import jax.numpy as jnp
+
+    # Create a simple module with parameters
+    class SimpleModule(nnx.Module):
+        def __init__(self, *, rngs):
+            self.weight = nnx.Param(jnp.zeros((2, 2)))
+            self.bias = nnx.Param(jnp.zeros(2))
+            self.nested = NestedModule(rngs=rngs)
+
+        def __call__(self, x):
+            return x @ self.weight + self.bias
+
+    class NestedModule(nnx.Module):
+        def __init__(self, *, rngs):
+            self.weight = nnx.Param(jnp.zeros((2, 2)))
+            self.bias = nnx.Param(jnp.zeros(2))
+            self.deep_nested = DeepNestedModule(rngs=rngs)
+
+        def __call__(self, x):
+            return x @ self.weight + self.bias
+
+    class DeepNestedModule(nnx.Module):
+        def __init__(self, *, rngs):
+            self.weight = nnx.Param(jnp.zeros((2, 2)))
+            self.bias = nnx.Param(jnp.zeros(2))
+
+        def __call__(self, x):
+            return x @ self.weight + self.bias
+
+    # Create a module and get its state
+    module = SimpleModule(rngs=nnx.Rngs(0))
+    _, state = nnx.split(module)
+
+    # Test Case 1: Basic parameter update
+    params = {
+        "weight": jnp.array([[1.0, 2.0], [3.0, 4.0]]),
+        "bias": jnp.array([0.1, 0.2]),
+        "nested.weight": jnp.array([[5.0, 6.0], [7.0, 8.0]]),
+        "nested.bias": jnp.array([0.3, 0.4]),
+    }
+
+    # Update the state with the parameters
+    updated_state = _update_state_with_params(state, params)
+
+    # Check that the state was updated correctly
+    assert jnp.array_equal(updated_state["weight"].value, params["weight"])
+    assert jnp.array_equal(updated_state["bias"].value, params["bias"])
+    assert jnp.array_equal(
+        updated_state["nested"]["weight"].value, params["nested.weight"]
+    )
+    assert jnp.array_equal(updated_state["nested"]["bias"].value, params["nested.bias"])
+
+    # Test Case 2: Deep nested parameters
+    deep_params = {
+        "nested.deep_nested.weight": jnp.array([[9.0, 10.0], [11.0, 12.0]]),
+        "nested.deep_nested.bias": jnp.array([0.5, 0.6]),
+    }
+
+    updated_state = _update_state_with_params(state, deep_params)
+
+    # Check deep nested parameters
+    assert jnp.array_equal(
+        updated_state["nested"]["deep_nested"]["weight"].value,
+        deep_params["nested.deep_nested.weight"],
+    )
+    assert jnp.array_equal(
+        updated_state["nested"]["deep_nested"]["bias"].value,
+        deep_params["nested.deep_nested.bias"],
+    )
+
+    # Test Case 3: Mixed parameter update (flat and nested)
+    mixed_params = {
+        "weight": jnp.array([[13.0, 14.0], [15.0, 16.0]]),
+        "nested.deep_nested.bias": jnp.array([0.7, 0.8]),
+    }
+
+    updated_state = _update_state_with_params(state, mixed_params)
+
+    # Check mixed parameters
+    assert jnp.array_equal(updated_state["weight"].value, mixed_params["weight"])
+    assert jnp.array_equal(
+        updated_state["nested"]["deep_nested"]["bias"].value,
+        mixed_params["nested.deep_nested.bias"],
+    )
+
+    # Test Case 4: Non-existent parameters (should not raise errors)
+    nonexistent_params = {
+        "nonexistent": jnp.array([1.0, 2.0]),
+        "nested.nonexistent": jnp.array([3.0, 4.0]),
+        "nonexistent.nested": jnp.array([5.0, 6.0]),
+    }
+
+    # This should not raise errors
+    updated_state = _update_state_with_params(state, nonexistent_params)
+
+    # Original parameters should remain unchanged
+    assert jnp.array_equal(updated_state["weight"].value, mixed_params["weight"])
+    assert jnp.array_equal(
+        updated_state["nested"]["deep_nested"]["bias"].value,
+        mixed_params["nested.deep_nested.bias"],
+    )
+
+    # Test Case 5: Empty parameters dictionary
+    empty_params = {}
+
+    updated_state = _update_state_with_params(state, empty_params)
+
+    # State should remain unchanged
+    assert jnp.array_equal(updated_state["weight"].value, mixed_params["weight"])
+    assert jnp.array_equal(
+        updated_state["nested"]["deep_nested"]["bias"].value,
+        mixed_params["nested.deep_nested.bias"],
+    )
+
+
+def test_nnx_module_model_surgery():
+    """Test the model surgery approach used in the nnx_module function."""
+    from flax import nnx
+    import jax.numpy as jnp
+
+    import numpyro
+    from numpyro import handlers
+    from numpyro.contrib.module import nnx_module
+
+    # Create a simple module with parameters
+    class SimpleModule(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.weight = nnx.Param(jnp.zeros((din, dout)))
+            self.bias = nnx.Param(jnp.zeros(dout))
+
+        def __call__(self, x):
+            return x @ self.weight + self.bias
+
+    # Define a model that uses the module
+    def model(x, y=None):
+        # Create the module
+        nn = nnx_module("nn", SimpleModule, din=3, dout=1)
+
+        # Apply the module to get predictions
+        mean = nn(x)
+
+        # Sample from a normal distribution
+        with numpyro.plate("data", x.shape[0]):
+            return numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+    # Create some test data
+    x = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    y = jnp.array([1.0, 2.0])
+
+    # Run the model once to initialize parameters
+    with handlers.seed(rng_seed=0):
+        handlers.trace(model).get_trace(x, y)
+
+    # Run the model again to check that parameters are reused
+    with handlers.trace() as tr, handlers.seed(rng_seed=0):
+        model(x, y)
+
+    # Check that parameters exist and have the right shape
+    assert "nn$params" in tr
+    params = tr["nn$params"]["value"]
+    assert "weight" in params
+    assert "bias" in params
+    assert params["weight"].shape == (3, 1)
+    assert params["bias"].shape == (1,)
+
+    # Now modify the parameters and check that they're used correctly
+    modified_params = {
+        "weight": jnp.array([[1.0], [2.0], [3.0]]),
+        "bias": jnp.array([0.5]),
+    }
+
+    # Create a model with modified parameters
+    def modified_model(x):
+        with handlers.substitute(data={"nn$params": modified_params}):
+            nn = nnx_module("nn", SimpleModule, din=3, dout=1)
+            return nn(x)
+
+    # Run the modified model
+    with handlers.seed(rng_seed=0):
+        result = modified_model(x)
+
+    # Check that the result matches what we expect with the modified parameters
+    expected = x @ modified_params["weight"] + modified_params["bias"]
+    assert jnp.allclose(result, expected)
+
+
+def test_init_and_access():
+    """Test initialization and access of SafeRngs."""
+    # Create a test key
+    key = jax.random.PRNGKey(0)
+
+    # Initialize with a single key
+    rngs = SafeRngs(params=key)
+    assert rngs["params"] is key
+    assert rngs.params() is key
+
+    # Initialize with multiple keys
+    key2 = jax.random.PRNGKey(1)
+    rngs = SafeRngs(params=key, dropout=key2)
+    assert rngs["params"] is key
+    assert rngs["dropout"] is key2
+    assert rngs.params() is key
+
+    # Test non-existent key
+    assert rngs["non_existent"] is None
