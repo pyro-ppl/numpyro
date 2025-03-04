@@ -476,6 +476,46 @@ def test_svi_discrete_latent():
             svi.run(random.PRNGKey(0), 10)
 
 
+@pytest.mark.parametrize("loss_cls", [Trace_ELBO, TraceMeanField_ELBO])
+@pytest.mark.parametrize("sum_sites", [False, True])
+@pytest.mark.parametrize("num_particles", [1, 3])
+@pytest.mark.parametrize(
+    "with_mutable", [False, True], ids=["with_mutable", "without_mutable"]
+)
+def test_elbo_by_site(loss_cls, sum_sites, num_particles, with_mutable):
+    if num_particles > 1 and with_mutable:
+        pytest.skip("Mutable state is currently ignored when num_particles > 1.")
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(-1, 1))
+        numpyro.sample("y", dist.Gamma(3))
+
+        if with_mutable:
+            numpyro_mutable("x1p", x + 1)
+
+        numpyro.sample("z", dist.Normal(x, 2), obs=5)
+
+    def guide():
+        x = numpyro.sample("x", dist.Normal(2, 2))
+        numpyro.sample("y", dist.LogNormal(0.1, 0.4))
+
+        if with_mutable:
+            p = numpyro_mutable("x1p", {"value": None})
+            p["value"] = x + 2
+
+    loss = loss_cls(num_particles=num_particles, sum_sites=sum_sites)
+    key = random.key(9)
+    value = loss.loss(key, {}, model, guide)
+    if sum_sites:
+        assert value.ndim == 0
+    else:
+        assert isinstance(value, dict) and set(value) == {"x", "y", "z"}
+        total = sum(value.values())
+        assert_allclose(
+            total, loss_cls(num_particles).loss(key, {}, model, guide), rtol=1e-6
+        )
+
+
 @pytest.mark.parametrize("stable_update", [True, False])
 @pytest.mark.parametrize("num_particles", [1, 10])
 @pytest.mark.parametrize("elbo", [Trace_ELBO, TraceMeanField_ELBO])
