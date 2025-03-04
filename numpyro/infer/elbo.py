@@ -18,9 +18,9 @@ from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import (
     _without_rsample_stop_gradient,
+    compute_log_probs,
     get_importance_trace,
     is_identically_one,
-    log_density,
 )
 from numpyro.ops.provenance import eval_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
@@ -148,12 +148,19 @@ class Trace_ELBO(ELBO):
         strategy, for example `jax.pmap`.
     :param multi_sample_guide: Whether to make an assumption that the guide proposes
         multiple samples.
+    :param sum_sites: Whether to sum the ELBO contributions from all sites or return the
+        contributions as a dictionary keyed by site.
     """
 
     def __init__(
-        self, num_particles=1, vectorize_particles=True, multi_sample_guide=False
+        self,
+        num_particles: int = 1,
+        vectorize_particles: bool = True,
+        multi_sample_guide: bool = False,
+        sum_sites: bool = True,
     ):
         self.multi_sample_guide = multi_sample_guide
+        self.sum_sites = sum_sites
         super().__init__(
             num_particles=num_particles, vectorize_particles=vectorize_particles
         )
@@ -171,7 +178,7 @@ class Trace_ELBO(ELBO):
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_guide = seed(guide, guide_seed)
-            guide_log_density, guide_trace = log_density(
+            guide_log_probs, guide_trace = compute_log_probs(
                 seeded_guide, args, kwargs, param_map
             )
             mutable_params = {
@@ -187,13 +194,13 @@ class Trace_ELBO(ELBO):
                     if site["type"] == "plate"
                 }
 
-                def get_model_density(key, latent):
+                def compute_model_log_probs(key, latent):
                     with seed(rng_seed=key), substitute(data={**latent, **plates}):
-                        model_log_density, model_trace = log_density(
+                        model_log_probs, model_trace = compute_log_probs(
                             model, args, kwargs, params
                         )
                     _validate_model(model_trace, plate_warning="loose")
-                    return model_log_density
+                    return model_log_probs
 
                 num_guide_samples = None
                 for site in guide_trace.values():
@@ -209,15 +216,14 @@ class Trace_ELBO(ELBO):
                     if (site["type"] == "sample" and site["value"].size > 0)
                     or (site["type"] == "deterministic")
                 }
-                model_log_density = vmap(get_model_density)(seeds, latents)
-                assert model_log_density.ndim == 1
-                model_log_density = model_log_density.sum(0)
-                # log p(z) - log q(z)
-                elbo_particle = (model_log_density - guide_log_density) / seeds.shape[0]
+                model_log_probs = vmap(compute_model_log_probs)(seeds, latents)
+                model_log_probs = jax.tree.map(
+                    lambda x: jnp.sum(x, axis=0), model_log_probs
+                )
             else:
                 seeded_model = seed(model, model_seed)
                 replay_model = replay(seeded_model, guide_trace)
-                model_log_density, model_trace = log_density(
+                model_log_probs, model_trace = compute_log_probs(
                     replay_model, args, kwargs, params
                 )
                 check_model_guide_match(model_trace, guide_trace)
@@ -229,31 +235,43 @@ class Trace_ELBO(ELBO):
                         if site["type"] == "mutable"
                     }
                 )
-                # log p(z) - log q(z)
-                elbo_particle = model_log_density - guide_log_density
+
+            # log p(z) - log q(z). We cannot use jax.tree.map(jnp.subtract, ...) because
+            # there may be observed sites in `model_log_probs` that are not in
+            # `guide_log_probs` and vice versa.
+            union = set(model_log_probs).union(guide_log_probs)
+            elbo_particle = {
+                name: model_log_probs.get(name, 0.0) - guide_log_probs.get(name, 0.0)
+                for name in union
+            }
+            if self.sum_sites:
+                elbo_particle = sum(elbo_particle.values(), start=0.0)
 
             if mutable_params:
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
-                else:
-                    warnings.warn(
-                        "mutable state is currently ignored when num_particles > 1."
-                    )
-                    return elbo_particle, None
-            else:
-                return elbo_particle, None
+                warnings.warn(
+                    "mutable state is currently ignored when num_particles > 1."
+                )
+            return elbo_particle, None
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
         if self.num_particles == 1:
             elbo, mutable_state = single_particle_elbo(rng_key)
-            return {"loss": -elbo, "mutable_state": mutable_state}
+            return {
+                "loss": jax.tree.map(jnp.negative, elbo),
+                "mutable_state": mutable_state,
+            }
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             elbos, mutable_state = self.vectorize_particles_fn(
                 single_particle_elbo, rng_keys
             )
-            return {"loss": -jnp.mean(elbos), "mutable_state": mutable_state}
+            return {
+                "loss": jax.tree.map(lambda x: -jnp.mean(x), elbos),
+                "mutable_state": mutable_state,
+            }
 
 
 def _get_log_prob_sum(site):
@@ -282,17 +300,15 @@ def _check_mean_field_requirement(model_trace, guide_trace):
     ]
     assert set(model_sites) == set(guide_sites)
     if model_sites != guide_sites:
-        (
-            warnings.warn(
-                "Failed to verify mean field restriction on the guide. "
-                "To eliminate this warning, ensure model and guide sites "
-                "occur in the same order.\n"
-                + "Model sites:\n  "
-                + "\n  ".join(model_sites)
-                + "Guide sites:\n  "
-                + "\n  ".join(guide_sites),
-                stacklevel=find_stack_level(),
-            ),
+        warnings.warn(
+            "Failed to verify mean field restriction on the guide. "
+            "To eliminate this warning, ensure model and guide sites "
+            "occur in the same order.\n"
+            + "Model sites:\n  "
+            + "\n  ".join(model_sites)
+            + "\nGuide sites:\n  "
+            + "\n  ".join(guide_sites),
+            stacklevel=find_stack_level(),
         )
 
 
@@ -301,6 +317,15 @@ class TraceMeanField_ELBO(ELBO):
     A trace implementation of ELBO-based SVI. This is currently the only
     ELBO estimator in NumPyro that uses analytic KL divergences when those
     are available.
+
+    :param num_particles: The number of particles/samples used to form the ELBO
+        (gradient) estimators.
+    :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
+        num_particles-many particles in parallel. If False use `jax.lax.map`.
+        Defaults to True. You can also pass a callable to specify a custom vectorization
+        strategy, for example `jax.pmap`.
+    :param sum_sites: Whether to sum the ELBO contributions from all sites or return the
+        contributions as a dictionary keyed by site.
 
     .. warning:: This estimator may give incorrect results if the mean-field
         condition is not satisfied.
@@ -313,6 +338,15 @@ class TraceMeanField_ELBO(ELBO):
         condition is always satisfied if the model and guide have identical
         dependency structures.
     """
+
+    def __init__(
+        self,
+        num_particles: int = 1,
+        vectorize_particles: bool = True,
+        sum_sites: bool = True,
+    ) -> None:
+        self.sum_sites = sum_sites
+        super().__init__(num_particles, vectorize_particles)
 
     def loss_with_mutable_state(
         self, rng_key, param_map, model, guide, *args, **kwargs
@@ -343,50 +377,54 @@ class TraceMeanField_ELBO(ELBO):
             _validate_model(model_trace, plate_warning="loose")
             _check_mean_field_requirement(model_trace, guide_trace)
 
-            elbo_particle = 0
+            elbo_particle = {}
             for name, model_site in model_trace.items():
                 if model_site["type"] == "sample":
                     if model_site["is_observed"]:
-                        elbo_particle = elbo_particle + _get_log_prob_sum(model_site)
+                        elbo_particle[name] = _get_log_prob_sum(model_site)
                     else:
                         guide_site = guide_trace[name]
                         try:
                             kl_qp = kl_divergence(guide_site["fn"], model_site["fn"])
                             kl_qp = scale_and_mask(kl_qp, scale=guide_site["scale"])
-                            elbo_particle = elbo_particle - jnp.sum(kl_qp)
+                            elbo_particle[name] = -jnp.sum(kl_qp)
                         except NotImplementedError:
-                            elbo_particle = (
-                                elbo_particle
-                                + _get_log_prob_sum(model_site)
-                                - _get_log_prob_sum(guide_site)
-                            )
+                            elbo_particle[name] = _get_log_prob_sum(
+                                model_site
+                            ) - _get_log_prob_sum(guide_site)
 
             # handle auxiliary sites in the guide
             for name, site in guide_trace.items():
                 if site["type"] == "sample" and name not in model_trace:
                     assert site["infer"].get("is_auxiliary") or site["is_observed"]
-                    elbo_particle = elbo_particle - _get_log_prob_sum(site)
+                    elbo_particle[name] = -_get_log_prob_sum(site)
+
+            if self.sum_sites:
+                elbo_particle = sum(elbo_particle.values(), start=0.0)
 
             if mutable_params:
                 if self.num_particles == 1:
                     return elbo_particle, mutable_params
-                else:
-                    warnings.warn(
-                        "mutable state is currently ignored when num_particles > 1."
-                    )
-                    return elbo_particle, None
-            else:
-                return elbo_particle, None
+                warnings.warn(
+                    "mutable state is currently ignored when num_particles > 1."
+                )
+            return elbo_particle, None
 
         if self.num_particles == 1:
             elbo, mutable_state = single_particle_elbo(rng_key)
-            return {"loss": -elbo, "mutable_state": mutable_state}
+            return {
+                "loss": jax.tree.map(jnp.negative, elbo),
+                "mutable_state": mutable_state,
+            }
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             elbos, mutable_state = self.vectorize_particles_fn(
                 single_particle_elbo, rng_keys
             )
-            return {"loss": -jnp.mean(elbos), "mutable_state": mutable_state}
+            return {
+                "loss": jax.tree.map(lambda x: -jnp.mean(x), elbos),
+                "mutable_state": mutable_state,
+            }
 
 
 class RenyiELBO(ELBO):
