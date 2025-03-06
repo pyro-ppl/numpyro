@@ -340,9 +340,12 @@ def model_subsample_2():
         model_subsample_2,
     ],
 )
-def test_plate(model):
+def test_trace_jit(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
-    jit_trace = handlers.trace(jit(handlers.seed(model, random.PRNGKey(1)))).get_trace()
+    with jax.check_tracer_leaks(False):
+        jit_trace = handlers.trace(
+            jit(handlers.seed(model, random.PRNGKey(1)))
+        ).get_trace()
     assert "z" in trace
     for name, site in trace.items():
         if site["type"] == "sample":

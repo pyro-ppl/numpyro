@@ -394,6 +394,31 @@ def test_model_with_mask_false():
         init_to_value,
     ],
 )
+def test_init_to_valid(init_strategy):
+    with handlers.trace() as trace, handlers.seed(rng_seed=3):
+        numpyro.sample("x", dist.ZeroSumNormal(1, (3,)))
+    site = trace["x"]
+    site["value"] = None
+    init = init_strategy(site)
+    assert site["fn"].support(init)
+
+
+@pytest.mark.parametrize(
+    "init_strategy",
+    [
+        init_to_feasible(),
+        init_to_median(num_samples=2),
+        init_to_sample(),
+        init_to_uniform(radius=3),
+        init_to_value(values={"tau": 0.7}),
+        init_to_feasible,
+        init_to_mean,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+        init_to_value,
+    ],
+)
 def test_initialize_model_change_point(init_strategy):
     def model(data):
         alpha = 1 / jnp.mean(data.astype(np.float32))
@@ -519,3 +544,44 @@ def test_get_mask_optimization():
     assert "guide-always" in called
     assert "model-sometimes" not in called
     assert "guide-sometimes" not in called
+
+
+def test_log_likelihood_flax_nn():
+    import numpy as np
+
+    import flax.linen as nn
+    from jax import random
+
+    from numpyro.contrib.module import random_flax_module
+
+    # Simulate
+    rng = np.random.default_rng(99)
+    N = 1000
+
+    X = rng.normal(0, 1, size=(N, 1))
+    mu = 1 + X @ np.array([0.5])
+    y = rng.normal(mu, 0.5)
+
+    # Simple linear layer
+    class Linear(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            return nn.Dense(1, use_bias=True, name="Dense")(x)
+
+    def model(X, y=None):
+        sigma = numpyro.sample("sigma", dist.HalfNormal(0.1))
+        priors = {"Dense.bias": dist.Normal(0, 2.5), "Dense.kernel": dist.Normal(0, 1)}
+        mlp = random_flax_module(
+            "mlp", Linear(), prior=priors, input_shape=(X.shape[1],)
+        )
+        with numpyro.plate("data", X.shape[0]):
+            mu = numpyro.deterministic("mu", mlp(X).squeeze(-1))
+            y = numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+
+    # Fit model
+    kernel = NUTS(model, target_accept_prob=0.95)
+    mcmc = MCMC(kernel, num_warmup=100, num_samples=100, num_chains=1)
+    mcmc.run(random.PRNGKey(0), X=X, y=y)
+
+    # run log likelihood
+    numpyro.infer.util.log_likelihood(model, mcmc.get_samples(), X=X, y=y)

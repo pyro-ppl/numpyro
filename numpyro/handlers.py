@@ -800,6 +800,8 @@ class seed(Messenger):
        >>> assert x == y
     """
 
+    stateful = False
+
     def __init__(
         self,
         fn: Optional[Callable] = None,
@@ -834,6 +836,15 @@ class seed(Messenger):
         if self.rng_key is not None:
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg["kwargs"]["rng_key"] = rng_key_sample
+
+    def __call__(self, *args, **kwargs):
+        if self.fn is not None and not self.stateful:
+            cloned_seeded_fn = seed(
+                self.fn, rng_seed=self.rng_key, hide_types=self.hide_types
+            )
+            cloned_seeded_fn.stateful = True
+            return cloned_seeded_fn.__call__(*args, **kwargs)
+        return super().__call__(*args, **kwargs)
 
 
 class substitute(Messenger):

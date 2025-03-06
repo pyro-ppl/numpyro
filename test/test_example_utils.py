@@ -42,7 +42,7 @@ def test_mnist_data_load():
 def test_sp500_data_load():
     _, fetch = load_dataset(SP500, split="train", shuffle=False)
     date, value = fetch()
-    assert jnp.shape(date) == jnp.shape(date) == (2427,)
+    assert jnp.shape(date) == jnp.shape(date) == (2517,)
 
 
 def test_jsb_chorales():
