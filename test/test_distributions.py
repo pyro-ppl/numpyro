@@ -140,7 +140,7 @@ def _wishart_to_scipy(conc, scale, rate, tril):
 
 def _circulant_to_scipy(loc, covariance_row, covariance_rfft):
     jax_dist = dist.CirculantNormal(loc, covariance_row, covariance_rfft)
-    return osp.multivariate_normal(mean=loc, cov=jax_dist.covariance_matrix)
+    return osp.multivariate_normal(mean=jax_dist.mean, cov=jax_dist.covariance_matrix)
 
 
 def _TruncatedNormal(loc, scale, low, high):

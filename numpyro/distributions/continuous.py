@@ -67,6 +67,7 @@ from numpyro.distributions.transforms import (
     ZeroSumTransform,
 )
 from numpyro.distributions.util import (
+    _reshape,
     add_diag,
     assert_one_of,
     betainc,
@@ -3109,24 +3110,36 @@ class CirculantNormal(TransformedDistribution):
         validate_args=None,
     ) -> None:
         # We demand a one-dimensional input, because we cannot determine the event shape
-        # if only the covariance_rfft is given.
+        # if only the `covariance_rfft` is given.
         assert jnp.ndim(loc) > 0, "Location parameter must have at least one dimension."
         n = jnp.shape(loc)[-1]
+        n_rfft = n // 2 + 1
         assert_one_of(covariance_row=covariance_row, covariance_rfft=covariance_rfft)
 
-        # Evaluate covariance_rfft if not provided and validate.
         if covariance_rfft is None:
+            # Evaluate `covariance_rfft` if not provided and validate.
             assert covariance_row.shape[-1] == n
+            loc, covariance_row = promote_shapes(loc, covariance_row)
             covariance_rfft = jnp.fft.rfft(covariance_row).real
-            shape = jnp.broadcast_shapes(loc.shape, covariance_row.shape)
-            self.covariance_row = jnp.broadcast_to(covariance_row, shape)
+            self.covariance_row = covariance_row
+        else:
+            # The `covariance_rfft` and `loc` are not promotable because the trailing
+            # dimension does not match. We manually retrieve the shapes and then
+            # promote.
+            loc_shape, covariance_rfft_shape = promote_shapes(
+                loc[..., 0], covariance_rfft[..., 0], return_shapes=True
+            )
+            loc = _reshape(loc, loc_shape + (n,))
+            covariance_rfft = _reshape(
+                covariance_rfft, covariance_rfft_shape + (n_rfft,)
+            )
+
         self.loc = loc
         self.covariance_rfft = covariance_rfft
 
         # Construct the base distribution.
-        n_real = n // 2 + 1
-        n_imag = n - n_real
-        assert self.covariance_rfft.shape[-1] == n_real
+        n_imag = n - n_rfft
+        assert self.covariance_rfft.shape[-1] == n_rfft
         var_rfft = (n * covariance_rfft / 2).at[..., 0].mul(2)
         if n % 2 == 0:
             var_rfft = var_rfft.at[..., -1].mul(2)
@@ -3150,17 +3163,16 @@ class CirculantNormal(TransformedDistribution):
 
     @lazy_property
     def covariance_row(self) -> jnp.ndarray:
-        return jnp.broadcast_to(
-            jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1]), self.shape()
-        )
+        return jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1])
 
     @lazy_property
     def covariance_matrix(self) -> jnp.ndarray:
-        if self.batch_shape:
+        *leading_shape, n = self.covariance_row.shape
+        if leading_shape:
             # `toeplitz` flattens the input, and we need to broadcast manually.
             (n,) = self.event_shape
             return vmap(toeplitz)(self.covariance_row.reshape((-1, n))).reshape(
-                self.batch_shape + (n, n)
+                (*leading_shape, n, n)
             )
         else:
             return toeplitz(self.covariance_row)
