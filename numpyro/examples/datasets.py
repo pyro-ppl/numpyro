@@ -28,7 +28,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 dset = namedtuple("dset", ["name", "urls"])
 
 BASEBALL = dset(
-    "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
+    "baseball",
+    ["https://github.com/pyro-ppl/datasets/blob/master/EfronMorrisBB.txt?raw=true"],
 )
 
 BOSTON_HOUSING = dset(
@@ -37,7 +38,7 @@ BOSTON_HOUSING = dset(
 )
 
 COVTYPE = dset(
-    "covtype", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip"]
+    "covtype", ["https://github.com/pyro-ppl/datasets/blob/master/covtype.npz?raw=true"]
 )
 
 DIPPER_VOLE = dset(
@@ -48,26 +49,32 @@ DIPPER_VOLE = dset(
 MNIST = dset(
     "mnist",
     [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz",
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz",
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz",
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/train-images-idx3-ubyte.gz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/train-labels-idx1-ubyte.gz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/t10k-images-idx3-ubyte.gz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/t10k-labels-idx1-ubyte.gz?raw=true",
     ],
 )
 
-SP500 = dset("SP500", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv"])
+SP500 = dset(
+    "SP500", ["https://github.com/pyro-ppl/datasets/blob/master/SP500.csv?raw=true"]
+)
 
 UCBADMIT = dset(
-    "ucbadmit", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv"]
+    "ucbadmit",
+    ["https://github.com/pyro-ppl/datasets/blob/master/UCBadmit.csv?raw=true"],
 )
 
 LYNXHARE = dset(
-    "lynxhare", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt"]
+    "lynxhare",
+    ["https://github.com/pyro-ppl/datasets/blob/master/LynxHare.txt?raw=true"],
 )
 
 JSB_CHORALES = dset(
     "jsb_chorales",
-    ["https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle"],
+    [
+        "https://github.com/pyro-ppl/datasets/blob/master/polyphonic/jsb_chorales.pickle?raw=true"
+    ],
 )
 
 HIGGS = dset(
@@ -129,7 +136,7 @@ def _load_boston_housing():
 def _load_covtype():
     _download(COVTYPE)
 
-    file_path = os.path.join(DATA_DIR, "covtype.zip")
+    file_path = os.path.join(DATA_DIR, "covtype.npz")
     data = np.load(file_path)
 
     return {"train": (data["data"], data["target"])}
