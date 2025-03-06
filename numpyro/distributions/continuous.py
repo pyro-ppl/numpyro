@@ -3074,12 +3074,23 @@ class Levy(Distribution):
 
 class CirculantNormal(TransformedDistribution):
     """
-    Multivariate normal distribution with circulant covariance matrix.
+    Multivariate normal distribution with covariance matrix that is positive-definite
+    and circulant [1], i.e., has periodic boundary conditions. Circulant matrices can be
+    diagnolized efficiently using the discrete Fourier transform, allowing the log
+    likelihood to be evaluated in :math:`n \\log n` time for :math:`n` observations [2].
 
     Args:
         loc: Mean of the distribution.
         covariance_row: First row of the circulant covariance matrix.
         covariance_rfft: Real part of the Fourier transform of :code:`covariance_row`.
+
+    **References:**
+
+    1. Wikipedia. (n.d.). Circulant matrix. Retrieved March 6, 2025, from
+       https://en.wikipedia.org/wiki/Circulant_matrix
+    2. Wood, A. T. A., & Chan, G. (1994). Simulation of Stationary Gaussian Processes
+       in :math:`\\left[0, 1\\right]^d`. *Journal of Computational and Graphical
+       Statistics*, 3(4), 409--432. https://doi.org/10.1080/10618600.1994.10474655
     """
 
     arg_constraints = {
