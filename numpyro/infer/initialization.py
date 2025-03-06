@@ -72,8 +72,10 @@ def init_to_mean(site=None):
             )
             return site["value"]
         try:
-            # Try .mean property.
-            value = site["fn"].mean
+            # Try .mean property. We multiply by 1.0 to promote the mean to a floating
+            # point value. This is required to calculate gradients with respect to an
+            # initialized parameter.
+            value = 1.0 * site["fn"].mean
             sample_shape = site["kwargs"].get("sample_shape")
             if sample_shape:
                 value = jnp.broadcast_to(value, sample_shape + jnp.shape(value))
