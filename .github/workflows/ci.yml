@@ -97,7 +97,7 @@ jobs:
         pytest -vs test/infer/test_mcmc.py::test_model_with_multiple_exec_paths
         pytest -vs test/infer/test_svi.py::test_mutable_state
         pytest -vs test/test_distributions.py::test_mean_var -k Gompertz
-        pytest -vs test/test_handlers.py::test_plate
+        pytest -vs test/test_handlers.py::test_trace_jit
         pytest -vs test/test_pickle.py
 
     - name: Coveralls
