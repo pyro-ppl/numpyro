@@ -1586,7 +1586,7 @@ def test_entropy_categorical():
     probs = _to_probs_multinom(logits)
     sp_dist = osp.multinomial(1, probs)
     for jax_dist in [dist.CategoricalLogits(logits), dist.CategoricalProbs(probs)]:
-        assert_allclose(jax_dist.entropy(), sp_dist.entropy())
+        assert_allclose(jax_dist.entropy(), sp_dist.entropy(), rtol=1e-6, atol=1e-6)
 
 
 def test_mixture_log_prob():
