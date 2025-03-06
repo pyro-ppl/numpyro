@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import os
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -519,6 +520,9 @@ def test_elbo_by_site(loss_cls, sum_sites, num_particles, with_mutable):
 @pytest.mark.parametrize("stable_update", [True, False])
 @pytest.mark.parametrize("num_particles", [1, 10])
 @pytest.mark.parametrize("elbo", [Trace_ELBO, TraceMeanField_ELBO])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_mutable_state(stable_update, num_particles, elbo):
     def model():
         x = numpyro.sample("x", dist.Normal(-1, 1))

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import os
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -39,6 +40,9 @@ def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_linear_model_log_sigma(
     kernel_cls, N=100, P=50, sigma=0.11, num_warmup=500, num_samples=500
 ):
@@ -77,6 +81,9 @@ def test_linear_model_log_sigma(
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_linear_model_sigma(
     kernel_cls, N=90, P=40, sigma=0.07, num_warmup=500, num_samples=500
 ):
@@ -113,6 +120,9 @@ def test_linear_model_sigma(
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_gaussian_model(kernel_cls, D=2, num_warmup=5000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
@@ -178,6 +188,9 @@ def test_gaussian_model(kernel_cls, D=2, num_warmup=5000, num_samples=5000):
 )
 @pytest.mark.parametrize("num_chains", [1, 2])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_discrete_gibbs_multiple_sites_chain(kernel, inner_kernel, kwargs, num_chains):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7).expand([3]))
@@ -202,6 +215,9 @@ def test_discrete_gibbs_multiple_sites_chain(kernel, inner_kernel, kwargs, num_c
     "kernel, inner_kernel, kwargs",
     [(MixedHMC, HMC, {"num_discrete_updates": 6}), (DiscreteHMCGibbs, NUTS, {})],
 )
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7), infer={"enumerate": "parallel"})
@@ -224,6 +240,9 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
         (DiscreteHMCGibbs, NUTS, {"modified": False}),
     ],
 )
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
@@ -235,6 +254,9 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_improper_uniform():
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
@@ -251,6 +273,9 @@ def test_improper_uniform():
 @pytest.mark.parametrize(
     "kernel, inner_kernel, kwargs",
     [(MixedHMC, HMC, {"num_discrete_updates": 20}), (DiscreteHMCGibbs, NUTS, {})],
+)
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
 )
 def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     def model(probs, locs):
@@ -271,6 +296,9 @@ def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_enum_subsample_smoke():
     def model(data):
         x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
@@ -284,6 +312,9 @@ def test_enum_subsample_smoke():
     mcmc.run(random.PRNGKey(0), data)
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_enum_subsample_error():
     def model(data):
         x = numpyro.sample("x", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
@@ -302,6 +333,9 @@ def test_enum_subsample_error():
 @pytest.mark.parametrize("num_block", [1, 2, 50])
 @pytest.mark.parametrize("subsample_size", [50, 150])
 @pytest.mark.parametrize("degree", [1, 2])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 200, 200
@@ -332,6 +366,9 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
 
 
 @pytest.mark.parametrize("subsample_size", [5, 10, 15])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_taylor_proxy_norm(subsample_size):
     data_key, tr_key, rng_key = random.split(random.PRNGKey(0), 3)
     ref_params = jnp.array([0.1, 0.5, -0.2])
@@ -405,6 +442,9 @@ def test_taylor_proxy_norm(subsample_size):
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_estimate_likelihood(kernel_cls):
     ref_params = jnp.array([0.1, 0.5, -0.2])
     sigma = 0.1
@@ -440,6 +480,9 @@ def test_estimate_likelihood(kernel_cls):
     assert jnp.var(jnp.exp(-pes - pes_full)) < 1.0
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_hmcecs_multiple_plates():
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 2, 2
@@ -464,6 +507,9 @@ def test_hmcecs_multiple_plates():
     mcmc.run(random.PRNGKey(0), data)
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_callable_chain_method():
     def model():
         x = numpyro.sample("x", dist.Normal(0.0, 2.0))

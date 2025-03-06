@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import pytest
 
 from jax import numpy as jnp, random
@@ -35,6 +37,9 @@ def test_block_update_partitioning(num_blocks):
     assert gibbs_state == new_gibbs_state
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_haiku_compatiable():
     try:
         import haiku as hk  # noqa: F401

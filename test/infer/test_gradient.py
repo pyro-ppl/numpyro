@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 
 import numpy as np
 import pytest
@@ -102,6 +103,9 @@ params_2 = {
         (model_1, guide_1, params_1, jnp.array([-0.5, 2.0])),
         (model_2, guide_2, params_2, jnp.array([0, 1])),
     ],
+)
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
 )
 def test_gradient(model, guide, params, data):
     transform = dist.biject_to(dist.constraints.simplex)
@@ -304,6 +308,9 @@ def kl_model_7_z3(params):
         (kl_model_7_z3, set(["z3"]), True),
     ],
 )
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_analytic_kl_1(model, kl_sites, valid_kl):
     @config_enumerate
     def guide(params):
@@ -367,6 +374,9 @@ def test_analytic_kl_1(model, kl_sites, valid_kl):
             assert_equal(actual_grads, expected_grads, prec=1e-5)
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_analytic_kl_2():
     # Model with a mixture of enumerated, non-reparam, and reparam sites
     def model(params):
@@ -464,6 +474,9 @@ def test_analytic_kl_2():
     assert_equal(actual_grads, expected_grads, prec=0.005)
 
 
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_analytic_kl_3():
     # Model with a mixture of enumerated, non-reparam, and reparam sites
     def model(params):
@@ -563,6 +576,9 @@ def test_analytic_kl_3():
 @pytest.mark.parametrize("scale2", [1, 10])
 @pytest.mark.parametrize("z1_dim", [2, 3])
 @pytest.mark.parametrize("z2_dim", [2, 3])
+@pytest.mark.xfail(
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+)
 def test_analytic_kl_4(z1_dim, z2_dim, scale1, scale2):
     # Test handlers.scale and plate context manager for analytic kl
     @handlers.scale(scale=scale1)
