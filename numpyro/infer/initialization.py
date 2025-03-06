@@ -40,7 +40,13 @@ def init_to_median(site=None, num_samples=15):
             samples = site["fn"](
                 sample_shape=(num_samples,) + sample_shape, rng_key=rng_key
             )
-            return jnp.median(samples, axis=0)
+            from numpyro.infer.util import helpful_support_errors
+
+            with helpful_support_errors(site):
+                transform = biject_to(site["fn"].support)
+            unconstrained = transform.inv(samples)
+            median_unconstrained = jnp.median(unconstrained, axis=0)
+            return transform(median_unconstrained)
         except NotImplementedError:
             return init_to_uniform(site)
 
@@ -66,11 +72,14 @@ def init_to_mean(site=None):
             )
             return site["value"]
         try:
-            # Try .mean property.
-            value = site["fn"].mean
+            # Try .mean property. We multiply by 1.0 to promote the mean to a floating
+            # point value. This is required to calculate gradients with respect to an
+            # initialized parameter.
+            value = 1.0 * site["fn"].mean
             sample_shape = site["kwargs"].get("sample_shape")
             if sample_shape:
                 value = jnp.broadcast_to(value, sample_shape + jnp.shape(value))
+            return value
         except (NotImplementedError, ValueError):
             return init_to_median(site)
 
