@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 import pickle
 
 import numpy as np
@@ -117,9 +116,6 @@ def test_pickle_hmc_enumeration(kernel):
 
 
 @pytest.mark.parametrize("kernel", [DiscreteHMCGibbs, MixedHMC])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_pickle_discrete_hmc(kernel):
     mcmc = MCMC(kernel(HMC(bernoulli_model)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
@@ -129,9 +125,6 @@ def test_pickle_discrete_hmc(kernel):
     )
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_pickle_hmcecs():
     mcmc = MCMC(HMCECS(NUTS(logistic_regression)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
@@ -233,9 +226,6 @@ def bernoulli_regression(data):
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_beta_bernoulli():
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 

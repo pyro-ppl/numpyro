@@ -1,8 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-
 import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
@@ -341,9 +339,6 @@ def model_subsample_2():
         model_subsample_1,
         model_subsample_2,
     ],
-)
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
 )
 def test_trace_jit(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()

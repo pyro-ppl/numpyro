@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
-import os
 
 from numpy.random import RandomState
 from numpy.testing import assert_allclose
@@ -919,9 +918,6 @@ def test_autosemidais_inadmissible_smoke():
         svi.run(random.PRNGKey(0), 10)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_autosldais(
     N=64, subsample_size=48, num_surrogate=32, D=3, num_steps=40000, num_samples=2000
 ):

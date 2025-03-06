@@ -43,9 +43,6 @@ def xfail_param(*args, **kwargs):
 
 @pytest.mark.parametrize("inner_dim", [2])
 @pytest.mark.parametrize("outer_dim", [2])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_plate_plate(outer_dim, inner_dim):
     q = jnp.array([0.75, 0.25])
     p = 0.2693204236205713  # for which kl(Categorical(q), Categorical(p)) = 0.5
@@ -95,9 +92,6 @@ def test_elbo_plate_plate(outer_dim, inner_dim):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_1(scale):
     params = {}
     params["guide_probs_x"] = jnp.array([0.1, 0.9])
@@ -145,9 +139,6 @@ def test_elbo_enumerate_1(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_2(scale):
     params = {}
     params["guide_probs_x"] = jnp.array([0.1, 0.9])
@@ -200,9 +191,6 @@ def test_elbo_enumerate_2(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_3(scale):
     params = {}
     params["guide_probs_x"] = jnp.array([0.1, 0.9])
@@ -256,9 +244,6 @@ def test_elbo_enumerate_3(scale):
 @pytest.mark.parametrize("scale", [1, 10])
 @pytest.mark.parametrize(
     "num_samples,num_masked", [(2, 2), (3, 2)], ids=["batch", "masked"]
-)
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
 )
 def test_elbo_enumerate_plate_1(num_samples, num_masked, scale):
     #              +---------+
@@ -330,9 +315,6 @@ def test_elbo_enumerate_plate_1(num_samples, num_masked, scale):
 @pytest.mark.parametrize("scale", [1, 10])
 @pytest.mark.parametrize(
     "num_samples,num_masked", [(2, 2), (3, 2)], ids=["batch", "masked"]
-)
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
 )
 def test_elbo_enumerate_plate_2(num_samples, num_masked, scale):
     #      +-----------------+
@@ -412,9 +394,6 @@ def test_elbo_enumerate_plate_2(num_samples, num_masked, scale):
 @pytest.mark.parametrize("scale", [1, 10])
 @pytest.mark.parametrize(
     "num_samples,num_masked", [(2, 2), (3, 2)], ids=["batch", "masked"]
-)
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
 )
 def test_elbo_enumerate_plate_3(num_samples, num_masked, scale):
     #  +-----------------------+
@@ -508,9 +487,6 @@ def test_elbo_enumerate_plate_3(num_samples, num_masked, scale):
 @pytest.mark.parametrize(
     "outer_obs,inner_obs", [(False, True), (True, False), (True, True)]
 )
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_4(outer_obs, inner_obs, scale):
     #    a ---> outer_obs
     #      \
@@ -594,9 +570,6 @@ def test_elbo_enumerate_plate_4(outer_obs, inner_obs, scale):
     assert_equal(auto_grad, hand_grad, prec=1e-5)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_5():
     #        Guide   Model
     #                  a
@@ -685,9 +658,6 @@ def test_elbo_enumerate_plate_5():
 
 
 @pytest.mark.parametrize("enumerate1", ["parallel", "sequential"])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_6(enumerate1):
     #     Guide           Model
     #           +-------+
@@ -766,9 +736,6 @@ def test_elbo_enumerate_plate_6(enumerate1):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_7(scale):
     #  Guide    Model
     #    a -----> b
@@ -903,9 +870,6 @@ def test_elbo_enumerate_plate_7(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_1(scale):
     #  +-----------------+
     #  | a ----> b   M=2 |
@@ -987,9 +951,6 @@ def test_elbo_enumerate_plates_1(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_2(scale):
     #  +---------+       +---------+
     #  |     b <---- a ----> c     |
@@ -1059,9 +1020,6 @@ def test_elbo_enumerate_plates_2(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_3(scale):
     #      +--------------------+
     #      |  +----------+      |
@@ -1124,9 +1082,6 @@ def test_elbo_enumerate_plates_3(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_4(scale):
     #      +--------------------+
     #      |       +----------+ |
@@ -1197,9 +1152,6 @@ def test_elbo_enumerate_plates_4(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_5(scale):
     #     a
     #     | \
@@ -1648,9 +1600,6 @@ def test_elbo_enumerate_plates_7(scale):
 @pytest.mark.parametrize("model_scale", [1])
 @pytest.mark.parametrize("outer_vectorized", [False, True])
 @pytest.mark.parametrize("inner_vectorized", [False, True])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_8(
     model_scale, guide_scale, inner_vectorized, outer_vectorized
 ):
@@ -1828,9 +1777,6 @@ def test_elbo_enumerate_plates_8(
             assert_equal(actual_grad, expected_grad, prec=1e-4)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_9():
     #        Model   Guide
     #          a
@@ -1918,9 +1864,6 @@ def test_elbo_enumerate_plate_9():
     assert_equal(expected_grad, actual_grad, prec=1e-5)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_10():
     # Model
     # a -> [ [ bij -> cij ] ]
@@ -2009,9 +1952,6 @@ def test_elbo_enumerate_plate_10():
     assert_equal(expected_grad, actual_grad, prec=1e-5)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_11():
     # Model
     # [ ai -> [ bij -> cij ] ]
@@ -2100,9 +2040,6 @@ def test_elbo_enumerate_plate_11():
     assert_equal(expected_grad, actual_grad, prec=1e-5)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_12():
     # Model
     # a -> [ bi -> [ cij -> dij ] ]
@@ -2211,9 +2148,6 @@ def test_elbo_enumerate_plate_12():
     assert_equal(expected_grad, actual_grad, prec=1e-5)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plate_13():
     # Model
     # a -> [ cj -> [ dij ] ]
@@ -2329,9 +2263,6 @@ def test_elbo_enumerate_plate_13():
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_model_enum_subsample_1(scale):
     # Enumerate: a
     # Subsample: b
@@ -2399,9 +2330,6 @@ def test_model_enum_subsample_1(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_model_enum_subsample_2(scale):
     # Enumerate: a
     # Subsample: b, c
@@ -2477,9 +2405,6 @@ def test_model_enum_subsample_2(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_model_enum_subsample_3(scale):
     # Enumerate: a
     # Subsample: a, b, c
@@ -2554,9 +2479,6 @@ def test_model_enum_subsample_3(scale):
         assert_equal(actual_grads, expected_grads, prec=1e-5)
 
 
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_guide_plate_contraction():
     def model(params):
         with pyro.plate("a_axis", size=2):

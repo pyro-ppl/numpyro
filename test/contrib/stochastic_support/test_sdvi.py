@@ -1,8 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-
 import pytest
 
 from jax import random
@@ -93,9 +91,6 @@ def test_autoguides(auto_class):
     ],
 )
 @pytest.mark.parametrize("num_particles", [1, 4])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbos(elbo_class, num_particles):
     dim = 2
 

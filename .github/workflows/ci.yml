@@ -84,21 +84,16 @@ jobs:
         JAX_CHECK_TRACER_LEAKS: 1
       run: |
         pytest -vs test/contrib/einstein/test_steinvi.py::test_run_smoke -k ASVGD
-        pytest -vs test/contrib/stochastic_support/test_sdvi.py::test_elbos -k TraceEnum
-        pytest -vs test/contrib/test_enum_elbo.py
+        pytest -vs test/contrib/test_enum_elbo.py::test_elbo_enumerate_plates_6
+        pytest -vs test/contrib/test_enum_elbo.py::test_elbo_enumerate_plates_7
         pytest -vs test/contrib/test_esc_proxies.py::test_haiku_compatiable
         pytest -vs test/contrib/test_infer_discrete.py::test_scan_hmm_smoke
-        pytest -vs test/infer/test_autoguide.py::test_autosldais
-        pytest -vs test/infer/test_gradient.py
-        pytest -vs test/infer/test_hmc_gibbs.py
         pytest -vs test/infer/test_mcmc.py::test_chain_inside_jit
         pytest -vs test/infer/test_mcmc.py::test_chain_jit_args_smoke
         pytest -vs test/infer/test_mcmc.py::test_reuse_mcmc_run
         pytest -vs test/infer/test_mcmc.py::test_model_with_multiple_exec_paths
         pytest -vs test/infer/test_svi.py::test_mutable_state
         pytest -vs test/test_distributions.py::test_mean_var -k Gompertz
-        pytest -vs test/test_handlers.py::test_trace_jit
-        pytest -vs test/test_pickle.py
 
     - name: Coveralls
       if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
