@@ -1119,19 +1119,31 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         rng_key = numpyro.prng_key()
 
         with numpyro.handlers.block():
-            (_, self._surrogate_potential_fn, _, _) = initialize_model(
-                rng_key,
-                self.surrogate_model,
-                init_strategy=self.init_loc_fn,
-                dynamic_args=False,
-                model_args=(),
-                model_kwargs={},
+            (_, self._surrogate_potential_fn, _, self._surrogate_prototype_trace) = (
+                initialize_model(
+                    rng_key,
+                    self.surrogate_model,
+                    init_strategy=self.init_loc_fn,
+                    dynamic_args=False,
+                    model_args=(),
+                    model_kwargs={},
+                )
             )
 
     def _sample_latent(self, *args, **kwargs):
+        surrogate_params = {}
+        for name, site in self._surrogate_prototype_trace.items():
+            if site["type"] == "param":
+                surrogate_params[name] = numpyro.param(
+                    name, site["value"], **site["kwargs"]
+                )
+
         def blocked_surrogate_model(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(expose_types=["param"]):
+            with (
+                numpyro.handlers.block(),
+                numpyro.handlers.substitute(data=surrogate_params),
+            ):
                 return -self._surrogate_potential_fn(x_unpack)
 
         eta0 = numpyro.param(
