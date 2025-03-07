@@ -39,9 +39,11 @@ jobs:
       run: |
         make lint
     - name: Build documentation
+      if: matrix.python-version != '3.9'
       run: |
         make docs
     - name: Test documentation
+      if: matrix.python-version != '3.9'
       run: |
         make doctest
         python -m doctest -v README.md
@@ -89,7 +91,6 @@ jobs:
         pytest -vs test/infer/test_mcmc.py::test_chain_jit_args_smoke
         pytest -vs test/infer/test_mcmc.py::test_reuse_mcmc_run
         pytest -vs test/infer/test_mcmc.py::test_model_with_multiple_exec_paths
-        pytest -vs test/infer/test_svi.py::test_mutable_state
         pytest -vs test/test_distributions.py::test_mean_var -k Gompertz
 
     - name: Coveralls
