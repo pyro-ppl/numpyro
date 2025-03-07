@@ -288,7 +288,7 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
         (RealFastFourierTransform(7), (7,)),
         (RealFastFourierTransform((8, 9), 2), (8, 9)),
         (
-            RecursiveLinearTransform(random.normal(random.key(17), (4, 4))),
+            RecursiveLinearTransform(np.random.default_rng(17).normal(size=(4, 4))),
             (7, 4),
         ),
         (ReshapeTransform((5, 2), (10,)), (10,)),

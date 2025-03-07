@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 import pytest
 
 import jax.numpy as jnp
@@ -15,10 +16,13 @@ numpyro.set_host_device_count(2)
 # reused for all smoke-tests
 N, dim = 3000, 3
 
-data = random.normal(random.PRNGKey(0), (N, dim))
-true_coefs = jnp.arange(1.0, dim + 1.0)
-logits = jnp.sum(true_coefs * data, axis=-1)
-labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+data = np.random.default_rng(0).normal(N, dim)
+true_coefs = np.arange(1.0, dim + 1.0)
+logits = np.sum(true_coefs * data, axis=-1)
+
+
+def labels_maker():
+    return dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
 
 def model(labels):
@@ -54,7 +58,7 @@ def test_chain_smoke(kernel_cls, n_chain, method):
     )
 
     with pytest.raises(AssertionError, match="chain_method"):
-        mcmc.run(random.PRNGKey(2), labels)
+        mcmc.run(random.PRNGKey(2), labels_maker())
 
 
 @pytest.mark.parametrize("kernel_cls", [AIES, ESS])
@@ -70,7 +74,7 @@ def test_out_shape_smoke(kernel_cls):
         num_chains=n_chains,
         chain_method="vectorized",
     )
-    mcmc.run(random.PRNGKey(2), labels)
+    mcmc.run(random.PRNGKey(2), labels_maker())
 
     assert mcmc.get_samples(group_by_chain=True)["coefs"].shape[0] == n_chains
 
@@ -94,6 +98,7 @@ def test_multirun(kernel_cls):
         num_chains=n_chains,
         chain_method="vectorized",
     )
+    labels = labels_maker()
     mcmc.run(random.PRNGKey(2), labels)
     mcmc.run(random.PRNGKey(3), labels)
 
@@ -111,5 +116,6 @@ def test_warmup(kernel_cls):
         num_chains=n_chains,
         chain_method="vectorized",
     )
+    labels = labels_maker()
     mcmc.warmup(random.PRNGKey(2), labels)
     mcmc.run(random.PRNGKey(3), labels)

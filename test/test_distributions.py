@@ -500,19 +500,19 @@ CONTINUOUS = [
         dist.EulerMaruyama,
         np.array([0.0, 0.1, 0.2]),
         sde_fn2,
-        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+        dist.Normal(np.array([0.0, 1.0]), 1e-3).to_event(1),
     ),
     T(
         dist.EulerMaruyama,
         np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
         sde_fn2,
-        dist.Normal(jnp.array([0.0, 1.0]), 1e-3).to_event(1),
+        dist.Normal(np.array([0.0, 1.0]), 1e-3).to_event(1),
     ),
     T(
         dist.EulerMaruyama,
         np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
         sde_fn2,
-        dist.Normal(jnp.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1),
+        dist.Normal(np.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1),
     ),
     T(dist.Exponential, 2.0),
     T(dist.Exponential, np.array([4.0, 2.0])),
@@ -726,7 +726,7 @@ CONTINUOUS = [
         dist.MultivariateStudentT,
         np.arange(20, 22, dtype=jnp.float32),
         np.ones(3),
-        np.broadcast_to(jnp.identity(3), (2, 3, 3)),
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
     ),
     T(
         dist.MultivariateStudentT,
@@ -742,8 +742,8 @@ CONTINUOUS = [
     ),
     T(
         dist.LowRankMultivariateNormal,
-        np.arange(6, dtype=jnp.float32).reshape((2, 3)),
-        np.arange(6, dtype=jnp.float32).reshape((3, 2)),
+        np.arange(6, dtype=np.float32).reshape((2, 3)),
+        np.arange(6, dtype=np.float32).reshape((3, 2)),
         np.array([1.0, 2.0, 3.0]),
     ),
     T(dist.Normal, 0.0, 1.0),
@@ -1076,7 +1076,8 @@ def _is_batched_multivariate(jax_dist):
     return len(jax_dist.event_shape) > 0 and len(jax_dist.batch_shape) > 0
 
 
-def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
+def gen_values_within_bounds(constraint, size, key=None):
+    key = random.PRNGKey(11) if key is None else key
     eps = 1e-6
 
     if constraint is constraints.boolean:
@@ -1146,7 +1147,8 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         raise NotImplementedError("{} not implemented.".format(constraint))
 
 
-def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
+def gen_values_outside_bounds(constraint, size, key=None):
+    key = random.PRNGKey(11) if key is None else key
     if constraint is constraints.boolean:
         return random.bernoulli(key, shape=size) - 2
     elif isinstance(constraint, constraints.greater_than):
@@ -1882,7 +1884,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 @pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
+    reason="Expected tracer leak for Gompertz: https://github.com/jax-ml/jax/issues/26972",
 )
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
@@ -2651,10 +2654,10 @@ def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape
 @pytest.mark.parametrize(
     "transformed_dist",
     [
-        dist.TransformedDistribution(
+        lambda: dist.TransformedDistribution(
             dist.Normal(np.array([2.0, 3.0]), 1.0), transforms.ExpTransform()
         ),
-        dist.TransformedDistribution(
+        lambda: dist.TransformedDistribution(
             dist.Exponential(jnp.ones(2)),
             [
                 transforms.PowerTransform(0.7),
@@ -2664,6 +2667,7 @@ def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape
     ],
 )
 def test_transformed_distribution_intermediates(transformed_dist):
+    transformed_dist = transformed_dist()
     sample, intermediates = transformed_dist.sample_with_intermediates(
         random.PRNGKey(1)
     )
@@ -2699,15 +2703,15 @@ def _make_iaf(input_dim, hidden_dims, rng_key):
 @pytest.mark.parametrize(
     "ts",
     [
-        [transforms.PowerTransform(0.7), transforms.AffineTransform(2.0, 3.0)],
-        [transforms.ExpTransform()],
-        [
+        lambda: [transforms.PowerTransform(0.7), transforms.AffineTransform(2.0, 3.0)],
+        lambda: [transforms.ExpTransform()],
+        lambda: [
             transforms.ComposeTransform(
                 [transforms.AffineTransform(-2, 3), transforms.ExpTransform()]
             ),
             transforms.PowerTransform(3.0),
         ],
-        [
+        lambda: [
             _make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(0)),
             transforms.PermuteTransform(jnp.arange(5)[::-1]),
             _make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(1)),
@@ -2715,7 +2719,7 @@ def _make_iaf(input_dim, hidden_dims, rng_key):
     ],
 )
 def test_compose_transform_with_intermediates(ts):
-    transform = transforms.ComposeTransform(ts)
+    transform = transforms.ComposeTransform(ts())
     x = random.normal(random.PRNGKey(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
     logdet = transform.log_abs_det_jacobian(x, y, intermediates)
@@ -2740,14 +2744,13 @@ def test_unpack_transform(x_dim, y_dim):
 
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS)
-def test_generated_sample_distribution(
-    jax_dist, sp_dist, params, N_sample=100_000, key=random.PRNGKey(11)
-):
+def test_generated_sample_distribution(jax_dist, sp_dist, params, N_sample=100_000):
     """On samplers that we do not get directly from JAX, (e.g. we only get
     Gumbel(0,1) but also provide samplers for Gumbel(loc, scale)), also test
     agreement in the empirical distribution of generated samples between our
     samplers and those from SciPy.
     """
+    key = random.PRNGKey(11)
 
     if jax_dist not in [dist.Gumbel]:
         pytest.skip(

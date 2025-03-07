@@ -97,7 +97,8 @@ def test_hmm_smoke(length, temperature):
 )
 @pytest.mark.parametrize("temperature", [0, 1])
 @pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
+    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/1998",
 )
 def test_scan_hmm_smoke(length, temperature):
     # This should match the example in the infer_discrete docstring.

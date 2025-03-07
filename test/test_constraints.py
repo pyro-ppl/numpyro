@@ -3,6 +3,7 @@
 
 from collections import namedtuple
 
+import numpy as np
 import pytest
 
 import jax
@@ -38,7 +39,7 @@ SINGLETON_CONSTRAINTS = {
     "unit_interval": constraints.unit_interval,
 }
 
-_a = jnp.asarray
+_a = np.asarray
 
 
 class T(namedtuple("TestCase", ["constraint_cls", "params", "kwargs"])):
@@ -55,7 +56,7 @@ PARAMETRIZED_CONSTRAINTS = {
     "less_than_eq": T(constraints.less_than_eq, (_a(-1.0),), dict()),
     "independent": T(
         constraints.independent,
-        (constraints.greater_than(jnp.zeros((2,))),),
+        (constraints.greater_than(np.zeros((2,))),),
         dict(reinterpreted_batch_ndims=1),
     ),
     "integer_interval": T(constraints.integer_interval, (_a(-1), _a(1)), dict()),

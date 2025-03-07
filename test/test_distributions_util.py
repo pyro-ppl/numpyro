@@ -89,10 +89,10 @@ def test_log1mexp_grads(x):
 @pytest.mark.parametrize(
     "x, expected",
     [
-        (jnp.array([0.01, 0, -jnp.inf]), jnp.array([jnp.nan, -jnp.inf, 0])),
-        (0.001, jnp.nan),
-        (0, -jnp.inf),
-        (-jnp.inf, 0),
+        (np.array([0.01, 0, -np.inf]), np.array([np.nan, -np.inf, 0])),
+        (0.001, np.nan),
+        (0, -np.inf),
+        (-np.inf, 0),
     ],
 )
 def test_log1mexp_bounds_handling(x, expected):
@@ -109,7 +109,7 @@ def test_log1mexp_bounds_handling(x, expected):
     assert_array_equal(log1mexp(x), expected)
 
 
-@pytest.mark.parametrize("x", [jnp.array([-0.6, -8.32, -3]), -2.5, -0.01])
+@pytest.mark.parametrize("x", [np.array([-0.6, -8.32, -3]), -2.5, -0.01])
 def test_log1mexp_agrees_with_basic(x):
     """
     log1mexp should agree with a basic implementation
@@ -172,15 +172,15 @@ def test_logdiffexp_grads(a, b):
     "a, b, expected",
     [
         (
-            jnp.array([jnp.inf, 0, 6.5, 4.99999, -jnp.inf]),
-            jnp.array([5, 0, 6.5, 5, -jnp.inf]),
-            jnp.array([jnp.nan, -jnp.inf, -jnp.inf, jnp.nan, -jnp.inf]),
+            np.array([np.inf, 0, 6.5, 4.99999, -np.inf]),
+            np.array([5, 0, 6.5, 5, -np.inf]),
+            np.array([np.nan, -np.inf, -np.inf, np.nan, -np.inf]),
         ),
-        (jnp.inf, 0.3532, jnp.nan),
-        (0, 0, -jnp.inf),
-        (-jnp.inf, -jnp.inf, -jnp.inf),
-        (5.6, 5.6, -jnp.inf),
-        (1e34, 1e34 / 0.9999, jnp.nan),
+        (np.inf, 0.3532, np.nan),
+        (0, 0, -np.inf),
+        (-np.inf, -np.inf, -np.inf),
+        (5.6, 5.6, -np.inf),
+        (1e34, 1e34 / 0.9999, np.nan),
     ],
 )
 def test_logdiffexp_bounds_handling(a, b, expected):
@@ -199,7 +199,7 @@ def test_logdiffexp_bounds_handling(a, b, expected):
 
 
 @pytest.mark.parametrize(
-    "a, b", [(jnp.array([53, 23.532, 8, -1.35]), jnp.array([56, -63.2, 2, -5.32]))]
+    "a, b", [(np.array([53, 23.532, 8, -1.35]), np.array([56, -63.2, 2, -5.32]))]
 )
 def test_logdiffexp_agrees_with_basic(a, b):
     """
@@ -343,9 +343,9 @@ def test_add_diag(matrix_shape: tuple, diag_shape: tuple) -> None:
 @pytest.mark.parametrize(
     "my_dist",
     [
-        dist.TruncatedNormal(low=-1.0, high=2.0),
-        dist.TruncatedCauchy(low=-5, high=10),
-        dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
+        lambda: dist.TruncatedNormal(low=-1.0, high=2.0),
+        lambda: dist.TruncatedCauchy(low=-5, high=10),
+        lambda: dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
     ],
 )
 def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
@@ -356,6 +356,7 @@ def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
     Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
     https://github.com/CDCgov/multisignal-epi-inference/issues/282
     """
+    my_dist = my_dist()
     jit_lp = jax.jit(my_dist.log_prob)
     with jax.check_tracer_leaks():
         jit_lp(1.0)
@@ -364,9 +365,10 @@ def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
 @pytest.mark.parametrize(
     "my_dist",
     [
-        dist.TruncatedNormal(low=-1.0, high=2.0),
-        dist.TruncatedCauchy(low=-5, high=10),
-        dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
+        lambda: dist.TruncatedNormal,
+        dict(low=-1.0, high=2.0),
+        lambda: dist.TruncatedCauchy(low=-5, high=10),
+        lambda: dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
     ],
 )
 def test_no_tracer_leak_at_lazy_property_sample(my_dist):
@@ -377,6 +379,7 @@ def test_no_tracer_leak_at_lazy_property_sample(my_dist):
     Reference: https://github.com/pyro-ppl/numpyro/issues/1836, and
     https://github.com/CDCgov/multisignal-epi-inference/issues/282
     """
+    my_dist = my_dist()
     jit_sample = jax.jit(my_dist.sample)
     with jax.check_tracer_leaks():
         jit_sample(jax.random.key(5))
