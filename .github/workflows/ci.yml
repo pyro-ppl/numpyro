@@ -84,7 +84,6 @@ jobs:
         JAX_CHECK_TRACER_LEAKS: 1
       run: |
         pytest -vs test/contrib/einstein/test_steinvi.py::test_run_smoke -k ASVGD
-        pytest -vs test/contrib/test_infer_discrete.py::test_scan_hmm_smoke
         pytest -vs test/infer/test_mcmc.py::test_chain_inside_jit
         pytest -vs test/infer/test_mcmc.py::test_chain_jit_args_smoke
         pytest -vs test/infer/test_mcmc.py::test_reuse_mcmc_run

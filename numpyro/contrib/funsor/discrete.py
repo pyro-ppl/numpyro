@@ -56,14 +56,14 @@ def _sample_posterior(
             model_trace = trace(seed(model, rng_key)).get_trace(*args, **kwargs)
         first_available_dim = -_guess_max_plate_nesting(model_trace) - 1
 
-    with funsor.adjoint.AdjointTape() as tape:
+    with funsor.interpretations.lazy:
         with block(), enum(first_available_dim=first_available_dim):
             log_prob, model_tr, log_measures = _enum_log_density(
                 model, args, kwargs, {}, sum_op, prod_op
             )
 
     with approx:
-        approx_factors = tape.adjoint(sum_op, prod_op, log_prob)
+        approx_factors = funsor.adjoint.adjoint(sum_op, prod_op, log_prob)
 
     # construct a result trace to replay against the model
     sample_tr = model_tr.copy()

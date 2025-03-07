@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -96,10 +95,6 @@ def test_hmm_smoke(length, temperature):
     ],
 )
 @pytest.mark.parametrize("temperature", [0, 1])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
-    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/1998",
-)
 def test_scan_hmm_smoke(length, temperature):
     # This should match the example in the infer_discrete docstring.
     def hmm(data, hidden_dim=10):
