@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import jax
-from jax.api_util import debug_info, flatten_fun, shaped_abstractify
+from jax.api_util import flatten_fun, shaped_abstractify
 from jax.experimental.pjit import pjit_p
 import jax.util as util
 
@@ -20,6 +20,11 @@ try:
     from jax.extend.core.primitives import call_p, closed_call_p
 except ImportError:
     from jax.core import call_p, closed_call_p
+
+try:
+    from jax.api_util import debug_info
+except ImportError:
+    debug_info = None
 
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 from jax.interpreters.pxla import xla_pmap_p
@@ -48,19 +53,29 @@ def eval_provenance(fn, **kwargs):
     """
     # Flatten the function and its arguments
     args, in_tree = jax.tree.flatten(((), kwargs))
-    fn_info = debug_info("eval_provenance fn", fn, (), kwargs)
-    wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn, debug_info=fn_info), in_tree)
+    fn_info = (
+        dict(debug_info=debug_info("eval_provenance fn", fn, (), kwargs))
+        if debug_info is not None
+        else {}
+    )
+    wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn, **fn_info), in_tree)
     # Abstract eval to get output pytree
     avals = util.safe_map(shaped_abstractify, args)
     # XXX: we split out the process of abstract evaluation and provenance tracking
     # for simplicity. In principle, they can be merged so that we only need to walk
     # through the equations once.
 
-    wrapped_info = debug_info(
-        "eval_provenance wrapped", wrapped_fun.call_wrapped, args, {}
+    wrapped_info = (
+        dict(
+            debug_info=debug_info(
+                "eval_provenance wrapped", wrapped_fun.call_wrapped, args, {}
+            )
+        )
+        if debug_info is not None
+        else {}
     )
     jaxpr, avals_out, _ = trace_to_jaxpr_dynamic(
-        lu.wrap_init(wrapped_fun.call_wrapped, {}, debug_info=wrapped_info), avals
+        lu.wrap_init(wrapped_fun.call_wrapped, {}, **wrapped_info), avals
     )
 
     # get provenances of flatten kwargs
