@@ -12,6 +12,7 @@ from numpyro import optim
 
 try:
     import optax
+    import optax.contrib
 
     # the optimizer test is parameterized by different optax optimizers, but we have
     # to define them here to ensure that `optax` is defined. pytest.mark.parameterize
@@ -27,6 +28,15 @@ try:
         # RMSProp with momentum
         (optax.rmsprop, (1e-4,), {"decay": 0.9, "momentum": 0.9}),
         (optax.sgd, (1e-2,), {}),
+        # reduce learning rate on plateau
+        (
+            optax.chain,
+            (
+                optax.adam(1e-2),
+                optax.contrib.reduce_on_plateau(patience=5, accumulation_size=200),
+            ),
+            {},
+        ),
     ]
 except ImportError:
     pytestmark = pytest.mark.skip(reason="optax is not installed")
@@ -41,7 +51,10 @@ def loss(params):
 def step(opt_state, optim):
     params = optim.get_params(opt_state)
     g = grad(loss)(params)
-    return optim.update(g, opt_state)
+    if optim.update_with_value:
+        return optim.update(g, opt_state, value=loss(params))
+    else:
+        return optim.update(g, opt_state)
 
 
 @pytest.mark.parametrize(
@@ -99,7 +112,10 @@ def test_numpyrooptim_no_double_jit(optim_class, args, kwargs):
         nonlocal my_fn_calls
         my_fn_calls += 1
 
-        state = opt.update(g, state)
+        if opt.update_with_value:
+            state = opt.update(g, state, value=0.01)
+        else:
+            state = opt.update(g, state)
         return state
 
     state = my_fn(state, jnp.ones(10) * 1.0)
