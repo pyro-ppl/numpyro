@@ -608,7 +608,8 @@ def test_chain(use_init_params, chain_method):
     "CI" in os.environ, reason="Compiling time the whole sampling process is slow."
 )
 @pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
+    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
 )
 def test_chain_inside_jit(kernel_cls, chain_method):
     # NB: this feature is useful for consensus MC.
@@ -667,7 +668,8 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     "CI" in os.environ, reason="Compiling time the whole sampling process is slow."
 )
 @pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
+    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
 )
 def test_chain_jit_args_smoke(chain_method, compile_args):
     def model(data):
@@ -787,7 +789,8 @@ def test_functional_map(algo, map_fn):
 @pytest.mark.parametrize("jit_args", [False, True])
 @pytest.mark.parametrize("shape", [50, 100])
 @pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
+    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
 )
 def test_reuse_mcmc_run(jit_args, shape):
     y1 = np.random.normal(3, 0.1, (100,))
@@ -810,7 +813,8 @@ def test_reuse_mcmc_run(jit_args, shape):
 
 @pytest.mark.parametrize("jit_args", [False, True])
 @pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
+    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
+    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
 )
 def test_model_with_multiple_exec_paths(jit_args):
     def model(a=None, b=None, z=None):

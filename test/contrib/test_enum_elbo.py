@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
 
 import numpy as np
 import pytest
@@ -1227,9 +1226,6 @@ def test_elbo_enumerate_plates_5(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_6(scale):
     #         +----------+
     #         |      M=2 |
@@ -1251,7 +1247,6 @@ def test_elbo_enumerate_plates_6(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_iplate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1309,7 +1304,6 @@ def test_elbo_enumerate_plates_6(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_plate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1404,9 +1398,6 @@ def test_elbo_enumerate_plates_6(scale):
 
 
 @pytest.mark.parametrize("scale", [1, 10])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_elbo_enumerate_plates_7(scale):
     #         +-------------+
     #         |         N=2 |
@@ -1430,7 +1421,6 @@ def test_elbo_enumerate_plates_7(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_iplate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1496,7 +1486,6 @@ def test_elbo_enumerate_plates_7(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_plate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
