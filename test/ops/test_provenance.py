@@ -6,14 +6,18 @@ import inspect
 import pytest
 
 import jax
-from jax.api_util import flatten_fun_nokwargs
-import jax.core as core
+from jax.api_util import debug_info, flatten_fun_nokwargs
 
 try:
     import jax.extend.linear_util as lu
 except ImportError:
     import jax.linear_util as lu
 import jax.numpy as jnp
+
+try:
+    from jax.extend.core.primitives import closed_call_p
+except ImportError:
+    from jax.core import closed_call_p
 
 from numpyro.ops.provenance import eval_provenance
 
@@ -70,11 +74,18 @@ def test_provenance_pytree_in():
     assert eval_provenance(f, x={"v": 2, "u": 1}, y=1) == ({"x", "y"}, {"x"})
 
 
+def id_fn(x):
+    return x
+
+
 def test_provenance_call():
     def identity(x):
         args, in_tree = jax.tree.flatten((x,))
-        fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(lambda x: x), in_tree)
-        out = core.closed_call_p.bind(fn, *args)
+        fn, out_tree = flatten_fun_nokwargs(
+            lu.wrap_init(id_fn, debug_info=debug_info("identity", id_fn, x, {})),
+            in_tree,
+        )
+        out = closed_call_p.bind(fn, *args)
         return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}
@@ -83,8 +94,11 @@ def test_provenance_call():
 def test_provenance_closed_call():
     def identity(x):
         args, in_tree = jax.tree.flatten((x,))
-        fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(lambda x: x), in_tree)
-        out = core.closed_call_p.bind(fn, *args)
+        fn, out_tree = flatten_fun_nokwargs(
+            lu.wrap_init(id_fn, debug_info=debug_info("identity", id_fn, x, {})),
+            in_tree,
+        )
+        out = closed_call_p.bind(fn, *args)
         return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}

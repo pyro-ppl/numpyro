@@ -195,6 +195,8 @@ def test_logdiffexp_bounds_handling(a, b, expected):
     logdiffexp(a, b) for a == b should be -jnp.inf
     even if a == b == -jnp.inf (log(0 - 0))
     """
+    a = jnp.asarray(a)
+    b = jnp.asarray(b)
     assert_array_equal(logdiffexp(a, b), expected)
 
 
@@ -365,8 +367,7 @@ def test_no_tracer_leak_at_lazy_property_log_prob(my_dist):
 @pytest.mark.parametrize(
     "my_dist",
     [
-        lambda: dist.TruncatedNormal,
-        dict(low=-1.0, high=2.0),
+        lambda: dist.TruncatedNormal(low=-1.0, high=2.0),
         lambda: dist.TruncatedCauchy(low=-5, high=10),
         lambda: dist.TruncatedDistribution(dist.StudentT(3), low=1.5),
     ],
