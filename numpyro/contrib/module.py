@@ -486,9 +486,18 @@ def _create_safe_rngs(user_rngs=None):
 
 
 def _update_state_with_params(state, params_dict):
+    def _set_value_if_compatible(obj, val):
+        "this is needed for compatibility with Python 3.9"
+        if hasattr(obj, "value"):
+            if hasattr(obj.value, "shape") and hasattr(val, "shape"):
+                if obj.value.shape == val.shape:
+                    obj.value = val
+            else:
+                obj.value = val
+
     def _update_nested(s, parts, val, i=0):
         if i == len(parts) - 1 and parts[i] in s:
-            s[parts[i]].value = val
+            _set_value_if_compatible(s[parts[i]], val)
             return
         if parts[i] in s:
             _update_nested(s[parts[i]], parts, val, i + 1)
@@ -497,7 +506,7 @@ def _update_state_with_params(state, params_dict):
         if "." in path:
             _update_nested(state, path.split("."), val)
         elif path in state:
-            state[path].value = val
+            _set_value_if_compatible(state[path], val)
     return state
 
 
@@ -545,39 +554,35 @@ def nnx_module(
     module_state = None if not mutable else numpyro_mutable(name + "$state")
 
     if mutable and module_state is None and module_params is not None:
-        numpyro_mutable(name + "$state", {m: {} for m in mutable})
-        module_state = numpyro_mutable(name + "$state")
+        module_state = numpyro_mutable(name + "$state", {m: {} for m in mutable})
 
     if module_params is None:
         _, state, flat_params, _ = _initialize_nnx_module(
             nn_module, args, kwargs, input_shape, apply_rng
         )
 
-        param_dict = {
-            ".".join(str(p) for p in path): param.value
-            for path, param in flat_params.items()
-        }
-        if param_dict:
+        if flat_params:
+            param_dict = {
+                ".".join(str(p) for p in path): param.value
+                for path, param in flat_params.items()
+            }
             module_params = numpyro.param(module_key, param_dict)
 
         if mutable:
             state_dict = {}
-            for m_type in mutable:
+            for m in mutable:
                 try:
-                    mutable_state, _ = state.split(
-                        nnx.filterlib.PathContains(m_type), ...
-                    )
-                    state_dict[m_type] = {
+                    m_state, _ = state.split(nnx.filterlib.PathContains(m), ...)
+                    state_dict[m] = {
                         ".".join(str(p) for p in path): val.value
-                        for path, val in dict(mutable_state.flat_state()).items()
-                        if m_type in ".".join(str(p) for p in path)
+                        for path, val in dict(m_state.flat_state()).items()
+                        if m in ".".join(str(p) for p in path)
                     }
                 except:  # noqa: E722
                     pass
 
             if any(state_dict.values()):
-                numpyro_mutable(name + "$state", state_dict)
-                module_state = state_dict
+                module_state = numpyro_mutable(name + "$state", state_dict)
 
     def apply_fn(*call_args, **call_kwargs):
         user_rngs = call_kwargs.pop("rngs", None)
@@ -588,8 +593,8 @@ def nnx_module(
             if module_params:
                 state = _update_state_with_params(state, module_params)
             if mutable and module_state:
-                for state_dict in module_state.values():
-                    state = _update_state_with_params(state, state_dict)
+                for s in module_state.values():
+                    state = _update_state_with_params(state, s)
             model = nnx.merge(graph_def, state)
 
         if user_rngs is not None:
@@ -598,15 +603,15 @@ def nnx_module(
 
         if mutable and module_state:
             _, state = nnx.split(model)
-            for m_type in mutable:
-                if m_type not in module_state:
+            for m in mutable:
+                if m not in module_state:
                     continue
                 try:
-                    m_state, _ = state.split(nnx.filterlib.PathContains(m_type), ...)
+                    m_state, _ = state.split(nnx.filterlib.PathContains(m), ...)
                     for p, v in dict(m_state.flat_state()).items():
                         name = ".".join(str(x) for x in p)
-                        if m_type in name and name in module_state[m_type]:
-                            module_state[m_type][name] = v.value
+                        if m in name and name in module_state[m]:
+                            module_state[m][name] = v.value
                 except:  # noqa: E722
                     pass
 

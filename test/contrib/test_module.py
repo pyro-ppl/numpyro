@@ -327,7 +327,10 @@ def nnx_model_by_shape(x, y):
             self.bias = nnx.Param(jnp.zeros((dout,)))
 
         def __call__(self, x):
-            return x @ self.w + self.bias
+            # Handle different Python versions by accessing the value attribute if needed
+            w_val = self.w.value if hasattr(self.w, "value") else self.w
+            bias_val = self.bias.value if hasattr(self.bias, "value") else self.bias
+            return x @ w_val + bias_val
 
     # Pass input_shape separately - it will be handled properly by nnx_module
     nn = nnx_module("nn", Linear, din=100, dout=100, input_shape=(100,))
@@ -344,7 +347,10 @@ def nnx_model_by_kwargs(x, y):
             self.bias = nnx.Param(jnp.zeros((dout,)))
 
         def __call__(self, x):
-            return x @ self.w + self.bias
+            # Handle different Python versions by accessing the value attribute if needed
+            w_val = self.w.value if hasattr(self.w, "value") else self.w
+            bias_val = self.bias.value if hasattr(self.bias, "value") else self.bias
+            return x @ w_val + bias_val
 
     # Directly initialize with dimensions
     input_dim = x.shape[0]
