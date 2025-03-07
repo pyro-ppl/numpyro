@@ -37,7 +37,7 @@ def guide_0(data, params):
         pyro.sample("z", dist.Categorical(probs))
 
 
-params_0 = {"probs": jnp.array([[0.4, 0.6], [0.5, 0.5]])}
+params_0 = {"probs": np.array([[0.4, 0.6], [0.5, 0.5]])}
 
 
 def model_1(data, params):
@@ -57,8 +57,8 @@ def guide_1(data, params):
 
 
 params_1 = {
-    "probs_a": jnp.array([0.5, 0.5]),
-    "probs_b": jnp.array([[[0.5, 0.5], [0.6, 0.4]], [[0.4, 0.6], [0.35, 0.65]]]),
+    "probs_a": np.array([0.5, 0.5]),
+    "probs_b": np.array([[[0.5, 0.5], [0.6, 0.4]], [[0.4, 0.6], [0.35, 0.65]]]),
 }
 
 
@@ -88,19 +88,19 @@ def guide_2(data, params):
 
 
 params_2 = {
-    "probs_a": jnp.array([0.5, 0.5]),
-    "probs_b": jnp.array([[0.4, 0.6], [0.3, 0.7]]),
-    "probs_c": jnp.array([[[0.3, 0.7], [0.8, 0.2]], [[0.2, 0.8], [0.5, 0.5]]]),
-    "probs_d": jnp.array([[[0.2, 0.8], [0.9, 0.1]], [[0.1, 0.9], [0.4, 0.6]]]),
+    "probs_a": np.array([0.5, 0.5]),
+    "probs_b": np.array([[0.4, 0.6], [0.3, 0.7]]),
+    "probs_c": np.array([[[0.3, 0.7], [0.8, 0.2]], [[0.2, 0.8], [0.5, 0.5]]]),
+    "probs_d": np.array([[[0.2, 0.8], [0.9, 0.1]], [[0.1, 0.9], [0.4, 0.6]]]),
 }
 
 
 @pytest.mark.parametrize(
     "model,guide,params,data",
     [
-        (model_0, guide_0, params_0, jnp.array([-0.5, 2.0])),
-        (model_1, guide_1, params_1, jnp.array([-0.5, 2.0])),
-        (model_2, guide_2, params_2, jnp.array([0, 1])),
+        (model_0, guide_0, params_0, np.array([-0.5, 2.0])),
+        (model_1, guide_1, params_1, np.array([-0.5, 2.0])),
+        (model_2, guide_2, params_2, np.array([0, 1])),
     ],
 )
 def test_gradient(model, guide, params, data):

@@ -944,7 +944,7 @@ class GeometricLogits(Distribution):
         logq = -jax.nn.softplus(self.logits)
         logp = -jax.nn.softplus(-self.logits)
         p = jax.scipy.special.expit(self.logits)
-        p_clip = jnp.clip(p, min=jnp.finfo(p).tiny)
+        p_clip = jnp.clip(p, jnp.finfo(p).tiny)
         return -(1 - p) * logq / p_clip - logp
 
 

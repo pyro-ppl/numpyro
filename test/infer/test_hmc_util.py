@@ -125,8 +125,8 @@ def register_model(init_args):
             num_steps=100,
             q_i={"x": 0.0},
             p_i={"x": 1.0},
-            q_f={"x": jnp.sin(1.0)},
-            p_f={"x": jnp.cos(1.0)},
+            q_f={"x": np.sin(1.0)},
+            p_f={"x": np.cos(1.0)},
             m_inv=np.array([1.0]),
             prec=1e-4,
         )

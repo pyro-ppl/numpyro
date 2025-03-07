@@ -19,14 +19,14 @@ from numpyro.infer import HMC, NUTS, SA, BarkerMH
 
 @pytest.mark.parametrize(
     "branch_dist",
-    [dist.Normal(0, 1), dist.Gamma(1, 1)],
+    [lambda: dist.Normal(0, 1), lambda: dist.Gamma(1, 1)],
 )
 @pytest.mark.xfail(raises=RuntimeError)
 def test_continuous_branching(branch_dist):
     rng_key = random.PRNGKey(0)
 
     def model():
-        model1 = numpyro.sample("model1", branch_dist, infer={"branching": True})
+        model1 = numpyro.sample("model1", branch_dist(), infer={"branching": True})
         mean = 1.0 if model1 == 0 else 2.0
         numpyro.sample("obs", dist.Normal(mean, 1.0), obs=0.2)
 

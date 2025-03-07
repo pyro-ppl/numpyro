@@ -52,32 +52,41 @@ def _make_bnaf_args(input_dim, hidden_factors, activation):
 @pytest.mark.parametrize(
     "flow_class, flow_args, input_dim",
     [
-        (InverseAutoregressiveTransform, _make_iaf_args(5, hidden_dims=[10]), 5),
-        (InverseAutoregressiveTransform, _make_iaf_args(7, hidden_dims=[8, 9]), 7),
         (
-            BlockNeuralAutoregressiveTransform,
-            _make_bnaf_args(7, hidden_factors=[4], activation=LeakyTanh()),
+            InverseAutoregressiveTransform,
+            lambda: _make_iaf_args(5, hidden_dims=[10]),
+            5,
+        ),
+        (
+            InverseAutoregressiveTransform,
+            lambda: _make_iaf_args(7, hidden_dims=[8, 9]),
             7,
         ),
         (
             BlockNeuralAutoregressiveTransform,
-            _make_bnaf_args(7, hidden_factors=[2, 3], activation=LeakyTanh()),
+            lambda: _make_bnaf_args(7, hidden_factors=[4], activation=LeakyTanh()),
             7,
         ),
         (
             BlockNeuralAutoregressiveTransform,
-            _make_bnaf_args(7, hidden_factors=[4], activation=Tanh()),
+            lambda: _make_bnaf_args(7, hidden_factors=[2, 3], activation=LeakyTanh()),
             7,
         ),
         (
             BlockNeuralAutoregressiveTransform,
-            _make_bnaf_args(7, hidden_factors=[2, 3], activation=Tanh()),
+            lambda: _make_bnaf_args(7, hidden_factors=[4], activation=Tanh()),
+            7,
+        ),
+        (
+            BlockNeuralAutoregressiveTransform,
+            lambda: _make_bnaf_args(7, hidden_factors=[2, 3], activation=Tanh()),
             7,
         ),
     ],
 )
 @pytest.mark.parametrize("batch_shape", [(), (1,), (4,), (2, 3)])
 def test_flows(flow_class, flow_args, input_dim, batch_shape):
+    flow_args = flow_args()
     transform = flow_class(*flow_args)
     x = random.normal(random.PRNGKey(0), batch_shape + (input_dim,))
 

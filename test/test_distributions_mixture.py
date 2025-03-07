@@ -8,8 +8,6 @@ import jax.numpy as jnp
 
 import numpyro.distributions as dist
 
-rng_key = jax.random.PRNGKey(42)
-
 
 def get_normal(batch_shape):
     """Get parameterized Normal with given batch shape."""
@@ -106,7 +104,7 @@ def test_mixture_with_different_support(batch_shape):
     sample_shape = (11,)
     component_distribution[0]._validate_args = True
     component_distribution[1]._validate_args = True
-    xx = component_distribution[0].sample(rng_key, sample_shape)
+    xx = component_distribution[0].sample(jax.random.key(42), sample_shape)
     log_prob_0 = component_distribution[0].log_prob(xx)
     log_prob_1 = component_distribution[1].log_prob(xx)
     expected_log_prob = jax.scipy.special.logsumexp(
@@ -144,7 +142,7 @@ def _test_mixture(mixing_distribution, component_distribution):
     # Test samples
     sample_shape = (11,)
     # Samples from component distribution(s)
-    component_samples = mixture.component_sample(rng_key, sample_shape)
+    component_samples = mixture.component_sample(jax.random.key(42), sample_shape)
     assert component_samples.shape == (
         *sample_shape,
         *mixture.batch_shape,
@@ -152,7 +150,7 @@ def _test_mixture(mixing_distribution, component_distribution):
         *mixture.event_shape,
     )
     # Samples from mixture
-    samples = mixture.sample(rng_key, sample_shape=sample_shape)
+    samples = mixture.sample(jax.random.key(42), sample_shape=sample_shape)
     assert samples.shape == (*sample_shape, *mixture.batch_shape, *mixture.event_shape)
     # Check log_prob
     lp = mixture.log_prob(samples)
@@ -161,7 +159,7 @@ def _test_mixture(mixing_distribution, component_distribution):
     assert lp.shape == expected_shape
     # Samples with indices
     samples_, [indices] = mixture.sample_with_intermediates(
-        rng_key, sample_shape=sample_shape
+        jax.random.key(42), sample_shape=sample_shape
     )
     assert samples_.shape == samples.shape
     assert indices.shape == (*sample_shape, *mixture.batch_shape)

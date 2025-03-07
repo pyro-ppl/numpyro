@@ -78,6 +78,20 @@ jobs:
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
+    - name: Test tracer leak
+      if: matrix.python-version == '3.10'
+      env:
+        JAX_CHECK_TRACER_LEAKS: 1
+      run: |
+        pytest -vs test/contrib/einstein/test_steinvi.py::test_run_smoke -k ASVGD
+        pytest -vs test/contrib/test_infer_discrete.py::test_scan_hmm_smoke
+        pytest -vs test/infer/test_mcmc.py::test_chain_inside_jit
+        pytest -vs test/infer/test_mcmc.py::test_chain_jit_args_smoke
+        pytest -vs test/infer/test_mcmc.py::test_reuse_mcmc_run
+        pytest -vs test/infer/test_mcmc.py::test_model_with_multiple_exec_paths
+        pytest -vs test/infer/test_svi.py::test_mutable_state
+        pytest -vs test/test_distributions.py::test_mean_var -k Gompertz
+
     - name: Coveralls
       if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
       uses: coverallsapp/github-action@v2
