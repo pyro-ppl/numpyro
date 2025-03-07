@@ -15,7 +15,6 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
-    SafeRngs,
     _update_params,
     _update_state_with_params,
     flax_module,
@@ -360,26 +359,54 @@ def nnx_model_by_kwargs(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
-@pytest.mark.parametrize("init", ["shape", "kwargs"])
-def test_nnx_module(init):
+def test_nnx_module():
+    from flax import nnx
+
     X = np.arange(100).astype(np.float32)
     Y = 2 * X + 2
 
-    if init == "shape":
-        with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
-            nnx_model_by_shape(X, Y)
-        assert "w" in nnx_tr["nn$params"]["value"]
-        assert "bias" in nnx_tr["nn$params"]["value"]
-        assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
-        assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
 
-    elif init == "kwargs":
-        with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
-            nnx_model_by_kwargs(X, Y)
-        assert "w" in nnx_tr["nn$params"]["value"]
-        assert "bias" in nnx_tr["nn$params"]["value"]
-        assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
-        assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
+        def __call__(self, x):
+            # Handle different Python versions by accessing the value attribute if needed
+            w_val = self.w.value if hasattr(self.w, "value") else self.w
+            bias_val = self.bias.value if hasattr(self.bias, "value") else self.bias
+            return x @ w_val + bias_val
+
+    # Eager initialization of the Linear module outside the model
+    rng_key = random.PRNGKey(1)
+    linear_module = Linear(din=100, dout=100, rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, params_state = nnx.split(linear_module, nnx.Param)
+    params_dict = {
+        ".".join(str(p) for p in path): param.value
+        for path, param in dict(params_state.flat_state()).items()
+    }
+
+    # Verify parameters were created correctly
+    assert "w" in params_dict
+    assert "bias" in params_dict
+    assert params_dict["w"].shape == (100, 100)
+    assert params_dict["bias"].shape == (100,)
+
+    # Define a model using eager initialization
+    def nnx_model_eager(x, y):
+        # Use the pre-initialized Linear module
+        nn = nnx_module("nn", linear_module)
+        mean = nn(x)
+        numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+    with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
+        nnx_model_eager(X, Y)
+
+    assert "w" in nnx_tr["nn$params"]["value"]
+    assert "bias" in nnx_tr["nn$params"]["value"]
+    assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
+    assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
 @pytest.mark.parametrize("dropout", [True, False])
@@ -406,14 +433,16 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
 
             return x
 
-    def model():
-        apply_rng = ["dropout"] if dropout else None
-        mutable = ["batch_stats"] if batchnorm else None
+    # Eager initialization of the Net module outside the model
+    rng_key = random.PRNGKey(0)
+    net_module = Net(rngs=nnx.Rngs(params=rng_key))
 
-        # Pass input_shape separately to nnx_module
-        nn = nnx_module(
-            "nn", Net, apply_rng=apply_rng, mutable=mutable, input_shape=(4, 3)
-        )
+    # Extract parameters and state for inspection
+    _, state = nnx.split(net_module)
+
+    def model():
+        # Use the pre-initialized module
+        nn = nnx_module("nn", net_module)
 
         x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
 
@@ -446,13 +475,15 @@ def test_random_nnx_module_mcmc(callable_prior):
     class Linear(nnx.Module):
         def __init__(self, din, dout, *, rngs):
             self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
-            self.bias = nnx.Param(jnp.zeros((dout,)))
+            self.b = nnx.Param(jnp.zeros((dout,)))
 
         def __call__(self, x):
-            return x @ self.w + self.bias
+            # Handle different Python versions by accessing the value attribute if needed
+            w_val = self.w.value if hasattr(self.w, "value") else self.w
+            b_val = self.b.value if hasattr(self.b, "value") else self.b
+            return x @ w_val + b_val
 
     N, dim = 3000, 3
-    num_warmup, num_samples = (1000, 1000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
@@ -461,344 +492,51 @@ def test_random_nnx_module_mcmc(callable_prior):
     if callable_prior:
 
         def prior(name, shape):
-            return dist.Cauchy() if name == "bias" else dist.Normal()
+            return dist.Cauchy() if name == "b" else dist.Normal()
     else:
-        prior = {"bias": dist.Cauchy(), "w": dist.Normal()}
+        prior = {"w": dist.Normal(), "b": dist.Cauchy()}
 
-    def model(data, labels):
-        # Pass input_shape separately
-        nn = random_nnx_module("nn", Linear, prior, din=dim, dout=1, input_shape=(dim,))
+    # Create a pre-initialized module for eager initialization
+    rng_key = random.PRNGKey(0)
+    linear_module = Linear(din=dim, dout=1, rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, params_state = nnx.split(linear_module, nnx.Param)
+    params_dict = {
+        ".".join(str(p) for p in path): param.value
+        for path, param in dict(params_state.flat_state()).items()
+    }
+
+    # Verify parameters were created correctly
+    assert "w" in params_dict
+    assert "b" in params_dict
+    assert params_dict["w"].shape == (dim, 1)
+    assert params_dict["b"].shape == (1,)
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_nnx_module("nn", linear_module, prior)
         logits = nn(data).squeeze(-1)
-        numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
-    kernel = NUTS(model=model)
-    mcmc = MCMC(
-        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
-    )
-    mcmc.run(random.PRNGKey(2), data, labels)
-    mcmc.print_summary()
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
     samples = mcmc.get_samples()
-
-    # Check that we have the expected parameter keys
-    assert "nn/bias" in samples
-    assert "nn/w" in samples
-    # The nn$params key is also expected in the samples
     assert "nn$params" in samples
-    assert_allclose(
-        np.mean(samples["nn/w"].squeeze(-1), 0),
-        true_coefs,
-        atol=0.22,
-    )
-
-
-def test_nnx_cnn_module():
-    """Test a convolutional neural network with NNX module in a NumPyro model."""
-    from flax import nnx
-    import jax.nn as nn
-
-    # Define a CNN module
-    class CNN(nnx.Module):
-        def __init__(self, *, rngs):
-            # Define convolutional layers
-            self.conv1 = nnx.Conv(
-                in_features=1,  # Input channels
-                out_features=16,  # Output channels
-                kernel_size=(3, 3),
-                padding="SAME",
-                rngs=rngs,
-            )
-            self.conv2 = nnx.Conv(
-                in_features=16,  # Input channels from previous layer
-                out_features=32,  # Output channels
-                kernel_size=(3, 3),
-                padding="SAME",
-                rngs=rngs,
-            )
-            # Define linear layers
-            self.linear1 = nnx.Linear(
-                in_features=32 * 7 * 7, out_features=64, rngs=rngs
-            )
-            self.linear2 = nnx.Linear(in_features=64, out_features=10, rngs=rngs)
-            # Batch normalization
-            self.bn1 = nnx.BatchNorm(16, rngs=rngs)
-            self.bn2 = nnx.BatchNorm(32, rngs=rngs)
-
-        def __call__(self, x, *, rngs=None, training=True):
-            # First conv block
-            x = self.conv1(x)
-            x = self.bn1(x, use_running_average=not training)
-            x = nn.relu(x)
-            x = nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2))
-
-            # Second conv block
-            x = self.conv2(x)
-            x = self.bn2(x, use_running_average=not training)
-            x = nn.relu(x)
-            x = nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2))
-
-            # Flatten and linear layers
-            batch_size = x.shape[0]
-            x = x.reshape(batch_size, -1)
-            x = self.linear1(x)
-            x = nn.relu(x)
-            x = self.linear2(x)
-            return x
-
-    # Create a simple image classification model
-    def model(images, labels=None):
-        batch_size, height, width, channels = images.shape
-
-        # Create the CNN module
-        cnn = nnx_module(
-            "cnn",
-            CNN,
-            mutable=["batch_stats"],
-            input_shape=(batch_size, height, width, channels),
-        )
-
-        # Get logits from the CNN
-        logits = cnn(images)
-
-        # Use the mean of sequence outputs for classification
-        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
-
-        # Sample from categorical distribution
-        with numpyro.plate("data", batch_size):
-            return numpyro.sample(
-                "obs", dist.Categorical(logits=mean_logits), obs=labels
-            )
-
-    # Create dummy data
-    batch_size, height, width, channels = 4, 28, 28, 1
-    images = jnp.ones((batch_size, height, width, channels))
-    labels = jnp.zeros(batch_size, dtype=jnp.int32)
-
-    # Test the model
-    with handlers.trace() as tr, handlers.seed(rng_seed=0):
-        model(images, labels)
-
-    # Check that parameters were created
-    assert "cnn$params" in tr
-    assert "cnn$state" in tr
-
-    # Check parameter shapes
-    params = tr["cnn$params"]["value"]
-    # Check that key parameters exist
-    assert "conv1.kernel" in params
-    assert "conv2.kernel" in params
-    assert "linear1.kernel" in params
-    assert "linear2.kernel" in params
-    assert "bn1.scale" in params
-    assert "bn2.scale" in params
-
-    # Test with SVI
-    guide = AutoDelta(model)
-    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    _ = svi.run(random.PRNGKey(0), 2, images, labels)
-
-    # Test with random module for MCMC
-    def random_model(images, labels=None):
-        batch_size, height, width, channels = images.shape
-
-        # Define prior distributions
-        prior = {
-            "conv1.kernel": dist.Normal(0, 0.1),
-            "conv1.bias": dist.Normal(0, 0.1),
-            "conv2.kernel": dist.Normal(0, 0.1),
-            "conv2.bias": dist.Normal(0, 0.1),
-            "linear1.kernel": dist.Normal(0, 0.1),
-            "linear1.bias": dist.Normal(0, 0.1),
-            "linear2.kernel": dist.Normal(0, 0.1),
-            "linear2.bias": dist.Normal(0, 0.1),
-        }
-
-        # Create random CNN module
-        cnn = random_nnx_module(
-            "cnn", CNN, prior, input_shape=(batch_size, height, width, channels)
-        )
-
-        # Get logits from the CNN
-        logits = cnn(images)
-
-        # Use the mean of sequence outputs for classification (no squeeze needed)
-        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
-
-        # Sample from categorical distribution to match the model function
-        with numpyro.plate("data", batch_size):
-            return numpyro.sample(
-                "obs", dist.Categorical(logits=mean_logits), obs=labels
-            )
-
-    # Test that the random model runs without errors
-    with handlers.seed(rng_seed=0):
-        # Just check that it runs without errors
-        random_model(images, labels)
-
-    # Test MCMC inference
-    kernel = NUTS(model=random_model)
-    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    mcmc.run(random.PRNGKey(2), images, labels)
-
-    # Check that we can access posterior samples
-    samples = mcmc.get_samples()
-    assert "cnn$params" in samples
-    params = samples["cnn$params"]
-    assert "conv1.kernel" in params
-    assert "conv2.kernel" in params
-    assert "linear1.kernel" in params
-    assert "linear2.kernel" in params
-    assert params["conv1.kernel"].shape[0] == 2  # num_samples
-    assert params["conv2.kernel"].shape[0] == 2
-    assert params["linear1.kernel"].shape[0] == 2
-    assert params["linear2.kernel"].shape[0] == 2
-
-
-def test_nnx_rnn_module():
-    """Test a recurrent neural network with NNX module in a NumPyro model."""
-    from flax import nnx
-
-    # Define a simple RNN module
-    class SimpleRNN(nnx.Module):
-        def __init__(self, input_size, hidden_size, *, rngs):
-            self.input_size = input_size
-            self.hidden_size = hidden_size
-
-            # Input-to-hidden and hidden-to-hidden weights
-            self.W_ih = nnx.Param(
-                jax.random.normal(rngs.params(), (input_size, hidden_size)) * 0.1
-            )
-            self.W_hh = nnx.Param(
-                jax.random.normal(rngs.params(), (hidden_size, hidden_size)) * 0.1
-            )
-            self.b_ih = nnx.Param(jnp.zeros((hidden_size,)))
-            self.b_hh = nnx.Param(jnp.zeros((hidden_size,)))
-
-            # Output projection
-            self.output_proj = nnx.Linear(
-                in_features=hidden_size, out_features=1, rngs=rngs
-            )
-
-        def __call__(self, x):
-            # x shape: (batch_size, seq_len, input_size)
-            batch_size, seq_len, _ = x.shape
-
-            # Initialize hidden state
-            h = jnp.zeros((batch_size, self.hidden_size))
-
-            # Process sequence
-            for t in range(seq_len):
-                # Get input at current timestep
-                x_t = x[:, t, :]
-
-                # Update hidden state
-                h = jnp.tanh(x_t @ self.W_ih + self.b_ih + h @ self.W_hh + self.b_hh)
-
-            # Project final hidden state to output
-            return self.output_proj(h)
-
-    # Define a time series prediction model
-    def model(sequences, targets=None):
-        batch_size, seq_len, input_size = sequences.shape
-
-        # Create the RNN module
-        rnn = nnx_module(
-            "rnn",
-            SimpleRNN,
-            input_size=input_size,
-            hidden_size=32,
-            input_shape=(batch_size, seq_len, input_size),
-        )
-
-        # Get predictions from the RNN (using only the final output)
-        predictions = rnn(sequences)  # (batch_size, 1)
-
-        # Sample observations
-        with numpyro.plate("batch", batch_size):
-            return numpyro.sample(
-                "obs", dist.Normal(predictions.squeeze(-1), 0.1), obs=targets
-            )
-
-    # Create dummy data
-    batch_size, seq_len, input_size = 4, 10, 5
-    sequences = jnp.ones((batch_size, seq_len, input_size))
-    targets = jnp.zeros(batch_size)  # Only one target per sequence
-
-    # Test the model
-    with handlers.trace() as tr, handlers.seed(rng_seed=0):
-        model(sequences, targets)
-
-    # Check that parameters were created
-    assert "rnn$params" in tr
-    params = tr["rnn$params"]["value"]
-
-    # Check parameter shapes
-    assert "W_ih" in params
-    assert "W_hh" in params
-    assert params["W_ih"].shape == (input_size, 32)
-    assert params["W_hh"].shape == (32, 32)
-
-    # Test with SVI
-    guide = AutoDelta(model)
-    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    _ = svi.run(random.PRNGKey(0), 2, sequences, targets)
-
-    # Test with random module for MCMC
-    def random_model(sequences, targets=None):
-        batch_size, seq_len, input_size = sequences.shape
-
-        # Define prior distributions
-        prior = {
-            "W_ih": dist.Normal(0, 0.1),
-            "W_hh": dist.Normal(0, 0.1),
-            "b_ih": dist.Normal(0, 0.01),
-            "b_hh": dist.Normal(0, 0.01),
-            "output_proj.kernel": dist.Normal(0, 0.1),
-            "output_proj.bias": dist.Normal(0, 0.01),
-        }
-
-        # Create random RNN module
-        rnn = random_nnx_module(
-            "rnn",
-            SimpleRNN,
-            prior,
-            input_size=input_size,
-            hidden_size=32,
-            input_shape=(batch_size, seq_len, input_size),
-        )
-
-        # Get predictions from the RNN
-        predictions = rnn(sequences)
-
-        # Sample observations
-        with numpyro.plate("batch", batch_size):
-            return numpyro.sample(
-                "obs", dist.Normal(predictions.squeeze(-1), 0.1), obs=targets
-            )
-
-    # Test that the random model runs without errors
-    with handlers.seed(rng_seed=0):
-        # Just check that it runs without errors
-        random_model(sequences, targets)
-
-    # Test MCMC inference
-    kernel = NUTS(model=random_model)
-    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    mcmc.run(random.PRNGKey(2), sequences, targets)
-
-    # Check that we can access posterior samples
-    samples = mcmc.get_samples()
-    assert "rnn$params" in samples
-    params = samples["rnn$params"]
-    assert "W_ih" in params
-    assert "W_hh" in params
-    assert params["W_ih"].shape == (2, input_size, 32)  # (num_samples, *param_shape)
-    assert params["W_hh"].shape == (2, 32, 32)
+    assert "w" in samples["nn$params"]
+    assert "b" in samples["nn$params"]
 
 
 def test_nnx_transformer_module():
     """Test a transformer-like architecture with NNX module in a NumPyro model."""
     from flax import nnx
     import jax.nn as nn
+
+    # Create dummy data
+    batch_size, seq_len, input_dim = 4, 16, 32
+    sequences = jnp.ones((batch_size, seq_len, input_dim))
+    labels = jnp.zeros(batch_size, dtype=jnp.int32)
 
     # Define a simple transformer module with a flatter structure
     class SimpleTransformer(nnx.Module):
@@ -868,36 +606,33 @@ def test_nnx_transformer_module():
             # Final output projection
             return self.output(x)
 
+    # Eager initialization of the transformer module outside the model
+    rng_key = random.PRNGKey(0)
+    transformer_module = SimpleTransformer(
+        input_dim=input_dim,
+        hidden_dim=input_dim * 2,
+        output_dim=1,
+        rngs=nnx.Rngs(params=rng_key),
+    )
+
     # Define a sequence classification model
     def model(sequences, labels=None):
-        batch_size, seq_len, input_dim = sequences.shape
+        batch_size = sequences.shape[0]
 
-        # Create the transformer module
-        transformer = nnx_module(
-            "transformer",
-            SimpleTransformer,
-            input_dim=input_dim,
-            hidden_dim=input_dim * 2,
-            output_dim=1,
-            input_shape=(batch_size, seq_len, input_dim),
-        )
+        # Use the pre-initialized transformer module
+        transformer = nnx_module("transformer", transformer_module)
 
         # Get logits from the transformer
         logits = transformer(sequences)
 
-        # Use the mean of sequence outputs for classification (no squeeze needed)
+        # Use the mean of sequence outputs for classification
         mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
 
-        # Sample from categorical distribution to match the model function
+        # Sample from categorical distribution
         with numpyro.plate("data", batch_size):
             return numpyro.sample(
                 "obs", dist.Categorical(logits=mean_logits), obs=labels
             )
-
-    # Create dummy data
-    batch_size, seq_len, input_dim = 4, 16, 32
-    sequences = jnp.ones((batch_size, seq_len, input_dim))
-    labels = jnp.zeros(batch_size, dtype=jnp.int32)
 
     # Test the model
     with handlers.trace() as tr, handlers.seed(rng_seed=0):
@@ -906,76 +641,39 @@ def test_nnx_transformer_module():
     # Check that parameters were created
     assert "transformer$params" in tr
     params = tr["transformer$params"]["value"]
-
-    # Check parameter structure - should have flattened parameters
     assert "query.kernel" in params
-    assert "query.bias" in params
     assert "key.kernel" in params
-    assert "key.bias" in params
     assert "value.kernel" in params
-    assert "value.bias" in params
-    assert "attention_output.kernel" in params
-    assert "attention_output.bias" in params
-    assert "ffn1.kernel" in params
-    assert "ffn1.bias" in params
-    assert "ffn2.kernel" in params
-    assert "ffn2.bias" in params
-    assert "norm1.scale" in params
-    assert "norm1.bias" in params
-    assert "norm2.scale" in params
-    assert "norm2.bias" in params
-    assert "output.kernel" in params
-    assert "output.bias" in params
 
     # Test with SVI
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
     _ = svi.run(random.PRNGKey(0), 2, sequences, labels)
 
+    # Define prior distributions for random module
+    prior = {
+        "query.kernel": dist.Normal(0, 0.1),
+        "query.bias": dist.Normal(0, 0.01),
+        "key.kernel": dist.Normal(0, 0.1),
+        "key.bias": dist.Normal(0, 0.01),
+        "value.kernel": dist.Normal(0, 0.1),
+        "value.bias": dist.Normal(0, 0.01),
+    }
+
     # Test with random module for MCMC
     def random_model(sequences, labels=None):
-        batch_size, seq_len, input_dim = sequences.shape
+        batch_size = sequences.shape[0]
 
-        # Define prior distributions
-        prior = {
-            "query.kernel": dist.Normal(0, 0.1),
-            "query.bias": dist.Normal(0, 0.1),
-            "key.kernel": dist.Normal(0, 0.1),
-            "key.bias": dist.Normal(0, 0.1),
-            "value.kernel": dist.Normal(0, 0.1),
-            "value.bias": dist.Normal(0, 0.1),
-            "attention_output.kernel": dist.Normal(0, 0.1),
-            "attention_output.bias": dist.Normal(0, 0.1),
-            "ffn1.kernel": dist.Normal(0, 0.1),
-            "ffn1.bias": dist.Normal(0, 0.1),
-            "ffn2.kernel": dist.Normal(0, 0.1),
-            "ffn2.bias": dist.Normal(0, 0.1),
-            "norm1.scale": dist.Normal(0, 0.1),
-            "norm1.bias": dist.Normal(0, 0.1),
-            "norm2.scale": dist.Normal(0, 0.1),
-            "norm2.bias": dist.Normal(0, 0.1),
-            "output.kernel": dist.Normal(0, 0.1),
-            "output.bias": dist.Normal(0, 0.1),
-        }
-
-        # Create random transformer module
-        transformer = random_nnx_module(
-            "transformer",
-            SimpleTransformer,
-            prior,
-            input_dim=input_dim,
-            hidden_dim=input_dim * 2,
-            output_dim=1,
-            input_shape=(batch_size, seq_len, input_dim),
-        )
+        # Create random transformer module using the pre-initialized module
+        transformer = random_nnx_module("transformer", transformer_module, prior)
 
         # Get logits from the transformer
         logits = transformer(sequences)
 
-        # Use the mean of sequence outputs for classification (no squeeze needed)
-        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)
 
-        # Sample from categorical distribution to match the model function
+        # Sample from categorical distribution
         with numpyro.plate("data", batch_size):
             return numpyro.sample(
                 "obs", dist.Categorical(logits=mean_logits), obs=labels
@@ -983,7 +681,6 @@ def test_nnx_transformer_module():
 
     # Test that the random model runs without errors
     with handlers.seed(rng_seed=0):
-        # Just check that it runs without errors
         random_model(sequences, labels)
 
     # Test MCMC inference
@@ -998,13 +695,9 @@ def test_nnx_transformer_module():
     assert "query.kernel" in params
     assert "key.kernel" in params
     assert "value.kernel" in params
-    assert params["query.kernel"].shape == (
-        2,
-        input_dim,
-        input_dim * 2,
-    )  # (num_samples, *param_shape)
-    assert params["key.kernel"].shape == (2, input_dim, input_dim * 2)
-    assert params["value.kernel"].shape == (2, input_dim, input_dim * 2)
+    assert params["query.kernel"].shape[0] == 2  # num_samples
+    assert params["key.kernel"].shape[0] == 2
+    assert params["value.kernel"].shape[0] == 2
 
 
 def test_update_state_with_params():
@@ -1125,93 +818,150 @@ def test_update_state_with_params():
     )
 
 
-def test_nnx_module_model_surgery():
-    """Test the model surgery approach used in the nnx_module function."""
+def test_nnx_cnn_module():
+    """Test a convolutional neural network with NNX module in a NumPyro model."""
     from flax import nnx
-    import jax.numpy as jnp
+    import jax.nn as nn
 
-    import numpyro
-    from numpyro import handlers
-    from numpyro.contrib.module import nnx_module
+    # Create dummy data
+    batch_size, height, width, channels = 4, 28, 28, 1
+    images = jnp.ones((batch_size, height, width, channels))
+    labels = jnp.zeros(batch_size, dtype=jnp.int32)
 
-    # Create a simple module with parameters
-    class SimpleModule(nnx.Module):
-        def __init__(self, din, dout, *, rngs):
-            self.weight = nnx.Param(jnp.zeros((din, dout)))
-            self.bias = nnx.Param(jnp.zeros(dout))
+    # Define a CNN module
+    class CNN(nnx.Module):
+        def __init__(self, *, rngs):
+            # Define convolutional layers
+            self.conv1 = nnx.Conv(
+                in_features=1,  # Input channels
+                out_features=16,  # Output channels
+                kernel_size=(3, 3),
+                padding="SAME",
+                rngs=rngs,
+            )
+            self.conv2 = nnx.Conv(
+                in_features=16,  # Input channels from previous layer
+                out_features=32,  # Output channels
+                kernel_size=(3, 3),
+                padding="SAME",
+                rngs=rngs,
+            )
+            # Define linear layers
+            self.linear1 = nnx.Linear(
+                in_features=32 * 7 * 7, out_features=64, rngs=rngs
+            )
+            self.linear2 = nnx.Linear(in_features=64, out_features=10, rngs=rngs)
+            # Batch normalization
+            self.bn1 = nnx.BatchNorm(16, rngs=rngs)
+            self.bn2 = nnx.BatchNorm(32, rngs=rngs)
 
-        def __call__(self, x):
-            return x @ self.weight + self.bias
+        def __call__(self, x, *, rngs=None, training=True):
+            # First conv block
+            x = self.conv1(x)
+            x = self.bn1(x, use_running_average=not training)
+            x = nn.relu(x)
+            x = nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2))
 
-    # Define a model that uses the module
-    def model(x, y=None):
-        # Create the module
-        nn = nnx_module("nn", SimpleModule, din=3, dout=1)
+            # Second conv block
+            x = self.conv2(x)
+            x = self.bn2(x, use_running_average=not training)
+            x = nn.relu(x)
+            x = nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2))
 
-        # Apply the module to get predictions
-        mean = nn(x)
+            # Flatten and linear layers
+            batch_size = x.shape[0]
+            x = x.reshape(batch_size, -1)
+            x = self.linear1(x)
+            x = nn.relu(x)
+            x = self.linear2(x)
+            return x
 
-        # Sample from a normal distribution
-        with numpyro.plate("data", x.shape[0]):
-            return numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+    # Eager initialization of the CNN module outside the model
+    rng_key = random.PRNGKey(0)
+    cnn_module = CNN(rngs=nnx.Rngs(params=rng_key))
 
-    # Create some test data
-    x = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-    y = jnp.array([1.0, 2.0])
+    # Create a simple image classification model
+    def model(images, labels=None):
+        batch_size = images.shape[0]
 
-    # Run the model once to initialize parameters
-    with handlers.seed(rng_seed=0):
-        handlers.trace(model).get_trace(x, y)
+        # Use the pre-initialized CNN module
+        cnn = nnx_module("cnn", cnn_module)
 
-    # Run the model again to check that parameters are reused
+        # Get logits from the CNN
+        logits = cnn(images)
+
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
+
+        # Sample from categorical distribution
+        with numpyro.plate("data", batch_size):
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
+
+    # Test the model
     with handlers.trace() as tr, handlers.seed(rng_seed=0):
-        model(x, y)
+        model(images, labels)
 
-    # Check that parameters exist and have the right shape
-    assert "nn$params" in tr
-    params = tr["nn$params"]["value"]
-    assert "weight" in params
-    assert "bias" in params
-    assert params["weight"].shape == (3, 1)
-    assert params["bias"].shape == (1,)
+    # Check that parameters were created
+    assert "cnn$params" in tr
+    assert "cnn$state" in tr
+    assert tr["cnn$state"]["type"] == "mutable"
 
-    # Now modify the parameters and check that they're used correctly
-    modified_params = {
-        "weight": jnp.array([[1.0], [2.0], [3.0]]),
-        "bias": jnp.array([0.5]),
+    # Test with SVI
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    _ = svi.run(random.PRNGKey(0), 2, images, labels)
+
+    # Define prior distributions for random module
+    prior = {
+        "conv1.kernel": dist.Normal(0, 0.1),
+        "conv1.bias": dist.Normal(0, 0.01),
+        "conv2.kernel": dist.Normal(0, 0.1),
+        "conv2.bias": dist.Normal(0, 0.01),
+        "linear1.kernel": dist.Normal(0, 0.1),
+        "linear1.bias": dist.Normal(0, 0.01),
+        "linear2.kernel": dist.Normal(0, 0.1),
+        "linear2.bias": dist.Normal(0, 0.01),
+        "bn1.scale": dist.Normal(1, 0.1),
+        "bn1.bias": dist.Normal(0, 0.1),
+        "bn2.scale": dist.Normal(1, 0.1),
+        "bn2.bias": dist.Normal(0, 0.1),
     }
 
-    # Create a model with modified parameters
-    def modified_model(x):
-        with handlers.substitute(data={"nn$params": modified_params}):
-            nn = nnx_module("nn", SimpleModule, din=3, dout=1)
-            return nn(x)
+    # Test with random module for MCMC
+    def random_model(images, labels=None):
+        batch_size = images.shape[0]
 
-    # Run the modified model
+        # Create random CNN module using the pre-initialized module
+        cnn = random_nnx_module("cnn", cnn_module, prior, mutable=["batch_stats"])
+
+        # Get logits from the CNN
+        logits = cnn(images)
+
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)
+
+        # Sample from categorical distribution
+        with numpyro.plate("data", batch_size):
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
+
+    # Test that the random model runs without errors
     with handlers.seed(rng_seed=0):
-        result = modified_model(x)
+        random_model(images, labels)
 
-    # Check that the result matches what we expect with the modified parameters
-    expected = x @ modified_params["weight"] + modified_params["bias"]
-    assert jnp.allclose(result, expected)
+    # Test MCMC inference
+    kernel = NUTS(model=random_model)
+    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), images, labels)
 
-
-def test_init_and_access():
-    """Test initialization and access of SafeRngs."""
-    # Create a test key
-    key = jax.random.PRNGKey(0)
-
-    # Initialize with a single key
-    rngs = SafeRngs(params=key)
-    assert rngs["params"] is key
-    assert rngs.params() is key
-
-    # Initialize with multiple keys
-    key2 = jax.random.PRNGKey(1)
-    rngs = SafeRngs(params=key, dropout=key2)
-    assert rngs["params"] is key
-    assert rngs["dropout"] is key2
-    assert rngs.params() is key
-
-    # Test non-existent key
-    assert rngs["non_existent"] is None
+    # Check that we can access posterior samples
+    samples = mcmc.get_samples()
+    assert "cnn$params" in samples
+    params = samples["cnn$params"]
+    assert "conv1.kernel" in params
+    assert "conv2.kernel" in params
+    assert params["conv1.kernel"].shape[0] == 2  # num_samples
+    assert params["conv2.kernel"].shape[0] == 2

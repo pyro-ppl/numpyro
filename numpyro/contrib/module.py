@@ -24,18 +24,6 @@ __all__ = [
 ]
 
 
-# Simple wrapper for RNGs to avoid storing JAX arrays directly
-class SafeRngs:
-    def __init__(self, **rngs):
-        self._rngs = rngs
-
-    def __getitem__(self, key):
-        return self._rngs.get(key)
-
-    def params(self):
-        return self._rngs.get("params")
-
-
 def flax_module(
     name, nn_module, *args, input_shape=None, apply_rng=None, mutable=None, **kwargs
 ):
@@ -449,42 +437,6 @@ def random_haiku_module(
     return nn_new
 
 
-def _initialize_nnx_module(nn_module, args, kwargs, input_shape=None, apply_rng=None):
-    from flax import nnx
-
-    rng_key = numpyro.prng_key()
-    rngs_dict = {"params": rng_key}
-    if apply_rng:
-        rngs_dict.update(
-            {k: random.fold_in(rng_key, i) for i, k in enumerate(apply_rng)}
-        )
-
-    module = nn_module(*args, rngs=SafeRngs(**rngs_dict), **kwargs)
-    if input_shape is not None:
-        module(
-            jnp.ones(input_shape),
-            **(
-                {"rngs": {"dropout": rngs_dict["dropout"]}}
-                if apply_rng and "dropout" in apply_rng
-                else {}
-            ),
-        )
-
-    _, state = nnx.split(module)
-    params_state, _ = state.split(nnx.Param, ...)
-    return module, state, dict(params_state.flat_state()), rngs_dict
-
-
-def _create_safe_rngs(user_rngs=None):
-    if user_rngs is None:
-        return SafeRngs(params=numpyro.prng_key())
-    if isinstance(user_rngs, dict):
-        return SafeRngs(**user_rngs)
-    if hasattr(user_rngs, "_fields"):
-        return SafeRngs(**{k: getattr(user_rngs, k) for k in user_rngs._fields})
-    return SafeRngs(params=numpyro.prng_key())
-
-
 def _update_state_with_params(state, params_dict):
     def _set_value_if_compatible(obj, val):
         "this is needed for compatibility with Python 3.9"
@@ -510,9 +462,7 @@ def _update_state_with_params(state, params_dict):
     return state
 
 
-def nnx_module(
-    name, nn_module, *args, input_shape=None, apply_rng=None, mutable=None, **kwargs
-):
+def nnx_module(name, nn_module, mutable=None):
     """
     Declare a :mod:`~flax.nnx` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -521,21 +471,17 @@ def nnx_module(
     Given a flax NNX ``nn_module``, to evaluate the module, we directly call it.
     In a NumPyro model, the pattern will be::
 
-        net = nnx_module("net", nn_module)
+        # Eager initialization outside the model
+        module = nn_module(...)
+
+        # Inside the model
+        net = nnx_module("net", module)
         y = net(x)
 
     :param str name: name of the module to be registered.
-    :param flax.nnx.Module nn_module: a `flax nnx` Module which follows the NNX API
-    :param args: optional arguments to initialize NNX neural network
-        as an alternative to `input_shape`
-    :param tuple input_shape: shape of the input taken by the
-        neural network.
-    :param list apply_rng: A list to indicate which extra rng _kinds_ are needed for
-        ``nn_module``. Defaults to None, which means no extra rng key is needed.
+    :param flax.nnx.Module nn_module: a pre-initialized `flax nnx` Module instance.
     :param list mutable: A list to indicate mutable states of ``nn_module``. For example,
         if your module has BatchNorm layer, we will need to define ``mutable=["batch_stats"]``.
-    :param kwargs: optional keyword arguments to initialize NNX neural network
-        as an alternative to `input_shape`
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
@@ -551,71 +497,44 @@ def nnx_module(
 
     module_key = name + "$params"
     module_params = numpyro.param(module_key)
-    module_state = None if not mutable else numpyro_mutable(name + "$state")
-
-    if mutable and module_state is None and module_params is not None:
-        module_state = numpyro_mutable(name + "$state", {m: {} for m in mutable})
 
     if module_params is None:
-        _, state, flat_params, _ = _initialize_nnx_module(
-            nn_module, args, kwargs, input_shape, apply_rng
+        graph_def, params_state, other_state = nnx.split(
+            nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
         )
 
-        if flat_params:
-            param_dict = {
-                ".".join(str(p) for p in path): param.value
-                for path, param in flat_params.items()
-            }
-            module_params = numpyro.param(module_key, param_dict)
+        # Convert params to a dictionary for numpyro.param
+        flat_params = dict(params_state.flat_state())
+        params = {
+            ".".join(str(p) for p in path): var.value
+            for path, var in flat_params.items()
+        }
 
-        if mutable:
-            state_dict = {}
-            for m in mutable:
-                try:
-                    m_state, _ = state.split(nnx.filterlib.PathContains(m), ...)
-                    state_dict[m] = {
-                        ".".join(str(p) for p in path): val.value
-                        for path, val in dict(m_state.flat_state()).items()
-                        if m in ".".join(str(p) for p in path)
-                    }
-                except:  # noqa: E722
-                    pass
+        if params:
+            module_params = numpyro.param(module_key, params)
 
-            if any(state_dict.values()):
-                module_state = numpyro_mutable(name + "$state", state_dict)
+        state_dict = {"state": params_state}
+
+        if any(state_dict.values()):
+            _ = numpyro_mutable(name + "$state", state_dict)
 
     def apply_fn(*call_args, **call_kwargs):
         user_rngs = call_kwargs.pop("rngs", None)
-        model = nn_module(*args, rngs=_create_safe_rngs(user_rngs), **kwargs)
 
-        if module_params or (mutable and module_state):
+        model = nn_module
+
+        if module_params:
             graph_def, state = nnx.split(model)
+
             if module_params:
                 state = _update_state_with_params(state, module_params)
-            if mutable and module_state:
-                for s in module_state.values():
-                    state = _update_state_with_params(state, s)
+
             model = nnx.merge(graph_def, state)
 
         if user_rngs is not None:
             call_kwargs["rngs"] = user_rngs
-        result = model(*call_args, **call_kwargs)
 
-        if mutable and module_state:
-            _, state = nnx.split(model)
-            for m in mutable:
-                if m not in module_state:
-                    continue
-                try:
-                    m_state, _ = state.split(nnx.filterlib.PathContains(m), ...)
-                    for p, v in dict(m_state.flat_state()).items():
-                        name = ".".join(str(x) for x in p)
-                        if m in name and name in module_state[m]:
-                            module_state[m][name] = v.value
-                except:  # noqa: E722
-                    pass
-
-        return result
+        return model(*call_args, **call_kwargs)
 
     return apply_fn
 
@@ -624,11 +543,7 @@ def random_nnx_module(
     name,
     nn_module,
     prior,
-    *args,
-    input_shape=None,
-    apply_rng=None,
     mutable=None,
-    **kwargs,
 ):
     """
     A primitive to create a random :mod:`~flax.nnx` style neural network
@@ -636,7 +551,7 @@ def random_nnx_module(
     will be sampled from ``prior``.
 
     :param str name: name of the module to be registered.
-    :param flax.nnx.Module nn_module: a `flax nnx` Module which follows the NNX API
+    :param flax.nnx.Module nn_module: a pre-initialized `flax nnx` Module instance.
     :param prior: a distribution or a dict of distributions or a callable.
         If it is a distribution, all parameters will be sampled from the same
         distribution. If it is a dict, it maps parameter names to distributions.
@@ -651,27 +566,17 @@ def random_nnx_module(
                 def __call__(self, x):
                     return x @ self.w + self.b
 
-            net = random_nnx_module("net",
-                                   Linear,
-                                   prior={"w": dist.Normal(), "b": dist.Cauchy()},
-                                   input_shape=(4,),
-                                   din=4, dout=1)
+            # Eager initialization
+            linear = Linear(din=4, dout=1, rngs=nnx.Rngs(params=random.PRNGKey(0)))
+            net = random_nnx_module("net", linear, prior={"w": dist.Normal(), "b": dist.Cauchy()})
 
         Alternatively, we can use a callable. For example the following are equivalent::
 
             prior=(lambda name, shape: dist.Cauchy() if name.endswith("b") else dist.Normal())
             prior={"w": dist.Normal(), "b": dist.Cauchy()}
 
-    :param args: optional arguments to initialize NNX neural network
-        as an alternative to `input_shape`
-    :param tuple input_shape: shape of the input taken by the
-        neural network.
-    :param list apply_rng: A list to indicate which extra rng _kinds_ are needed for
-        ``nn_module``. Defaults to None, which means no extra rng key is needed.
     :param list mutable: A list to indicate mutable states of ``nn_module``. For example,
         if your module has BatchNorm layer, we will need to define ``mutable=["batch_stats"]``.
-    :param kwargs: optional keyword arguments to initialize NNX neural network
-        as an alternative to `input_shape`
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
@@ -685,11 +590,13 @@ def random_nnx_module(
             "It can be installed with `pip install git+https://github.com/google/flax.git`."
         ) from e
 
-    _, _, flat_params, rngs_dict = _initialize_nnx_module(
-        nn_module, args, kwargs, input_shape, apply_rng
+    # Extract params and state directly from the module in one go
+    graph_def, params_state, _ = nnx.split(
+        nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
     )
-    rngs = SafeRngs(**rngs_dict)
 
+    # Sample parameters from prior
+    flat_params = dict(params_state.flat_state())
     param_dict = {}
     for path, param in flat_params.items():
         param_name = ".".join(str(p) for p in path)
@@ -707,10 +614,9 @@ def random_nnx_module(
     numpyro.deterministic(f"{name}$params", param_dict)
 
     def apply_fn(x, *fn_args, **fn_kwargs):
-        new_module = nn_module(*args, rngs=rngs, **kwargs)
-        graph_def, state = nnx.split(new_module)
-        return nnx.merge(graph_def, _update_state_with_params(state, param_dict))(
-            x, *fn_args, **fn_kwargs
-        )
+        # Create a new model with the sampled parameters
+        graph_def, state = nnx.split(nn_module)
+        model = nnx.merge(graph_def, _update_state_with_params(state, param_dict))
+        return model(x, *fn_args, **fn_kwargs)
 
     return apply_fn
