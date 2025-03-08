@@ -462,7 +462,7 @@ def _update_state_with_params(state, params_dict):
     return state
 
 
-def nnx_module(name, nn_module, mutable=None):
+def nnx_module(name, nn_module):
     """
     Declare a :mod:`~flax.nnx` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -480,8 +480,6 @@ def nnx_module(name, nn_module, mutable=None):
 
     :param str name: name of the module to be registered.
     :param flax.nnx.Module nn_module: a pre-initialized `flax nnx` Module instance.
-    :param list mutable: A list to indicate mutable states of ``nn_module``. For example,
-        if your module has BatchNorm layer, we will need to define ``mutable=["batch_stats"]``.
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
