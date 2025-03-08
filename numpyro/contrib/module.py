@@ -485,7 +485,7 @@ def nnx_module(name, nn_module):
     if any(state_dict.values()):
         _ = numpyro_mutable(name + "$state", state_dict)
 
-    def apply_fn(*call_args, **call_kwargs):
+    def apply_fn(params, *call_args, **call_kwargs):
         model = nn_module
 
         if module_params:
@@ -498,7 +498,7 @@ def nnx_module(name, nn_module):
 
         return model(*call_args, **call_kwargs)
 
-    return apply_fn
+    return partial(apply_fn, module_params)
 
 
 def random_nnx_module(
