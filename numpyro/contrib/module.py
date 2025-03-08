@@ -468,18 +468,17 @@ def nnx_module(name, nn_module):
             "It can be installed with `pip install git+https://github.com/google/flax.git`."
         ) from e
 
-    module_key = name + "$params"
-
-    module_params = numpyro.param(module_key)
-
     graph_def, eager_params_state, eager_other_state = nnx.split(
         nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
     )
 
-    params = nnx.to_pure_dict(eager_params_state)
+    eager_params = nnx.to_pure_dict(eager_params_state)
 
-    if params:
-        module_params = numpyro.param(module_key, params)
+    module_params = None
+    if eager_params:
+        module_params = numpyro.param(name + "$params")
+    if module_params is None:
+        module_params = numpyro.param(name + "$params", eager_params)
 
     state_dict = {"state": eager_params_state}
 
