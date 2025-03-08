@@ -437,31 +437,6 @@ def random_haiku_module(
     return nn_new
 
 
-def _update_state_with_params(state, params_dict):
-    def _set_value_if_compatible(obj, val):
-        "this is needed for compatibility with Python 3.9"
-        if hasattr(obj, "value"):
-            if hasattr(obj.value, "shape") and hasattr(val, "shape"):
-                if obj.value.shape == val.shape:
-                    obj.value = val
-            else:
-                obj.value = val
-
-    def _update_nested(s, parts, val, i=0):
-        if i == len(parts) - 1 and parts[i] in s:
-            _set_value_if_compatible(s[parts[i]], val)
-            return
-        if parts[i] in s:
-            _update_nested(s[parts[i]], parts, val, i + 1)
-
-    for path, val in params_dict.items():
-        if "." in path:
-            _update_nested(state, path.split("."), val)
-        elif path in state:
-            _set_value_if_compatible(state[path], val)
-    return state
-
-
 def nnx_module(name, nn_module):
     """
     Declare a :mod:`~flax.nnx` style neural network inside a
@@ -501,12 +476,7 @@ def nnx_module(name, nn_module):
             nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
         )
 
-        # Convert params to a dictionary for numpyro.param
-        flat_params = dict(params_state.flat_state())
-        params = {
-            ".".join(str(p) for p in path): var.value
-            for path, var in flat_params.items()
-        }
+        params = nnx.to_pure_dict(params_state)
 
         if params:
             module_params = numpyro.param(module_key, params)
@@ -525,7 +495,7 @@ def nnx_module(name, nn_module):
             graph_def, state = nnx.split(model)
 
             if module_params:
-                state = _update_state_with_params(state, module_params)
+                nnx.replace_by_pure_dict(state, module_params)
 
             model = nnx.merge(graph_def, state)
 
@@ -593,28 +563,15 @@ def random_nnx_module(
         nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
     )
 
-    # Sample parameters from prior
-    flat_params = dict(params_state.flat_state())
-    param_dict = {}
-    for path, param in flat_params.items():
-        param_name = ".".join(str(p) for p in path)
-        shape = jnp.shape(param.value)
-        d = prior
-        if isinstance(prior, dict):
-            d = prior.get(param_name, dist.Normal(0, 0.1))
-        elif callable(prior) and not isinstance(prior, dist.Distribution):
-            d = prior(param_name, shape)
-        param_dict[param_name] = numpyro.sample(
-            f"{name}/{param_name}",
-            d.expand(shape[: len(shape) - d.event_dim]).to_event(),
-        )
+    param_dict = nnx.to_pure_dict(params_state)
 
     numpyro.deterministic(f"{name}$params", param_dict)
 
     def apply_fn(x, *fn_args, **fn_kwargs):
         # Create a new model with the sampled parameters
         graph_def, state = nnx.split(nn_module)
-        model = nnx.merge(graph_def, _update_state_with_params(state, param_dict))
+        nnx.replace_by_pure_dict(state, param_dict)
+        model = nnx.merge(graph_def, state)
         return model(x, *fn_args, **fn_kwargs)
 
     return apply_fn

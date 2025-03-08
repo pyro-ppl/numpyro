@@ -16,7 +16,6 @@ from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
     _update_params,
-    _update_state_with_params,
     flax_module,
     haiku_module,
     nnx_module,
@@ -641,9 +640,9 @@ def test_nnx_transformer_module():
     # Check that parameters were created
     assert "transformer$params" in tr
     params = tr["transformer$params"]["value"]
-    assert "query.kernel" in params
-    assert "key.kernel" in params
-    assert "value.kernel" in params
+    assert "kernel" in params["query"]
+    assert "kernel" in params["key"]
+    assert "kernel" in params["value"]
 
     # Test with SVI
     guide = AutoDelta(model)
@@ -692,130 +691,12 @@ def test_nnx_transformer_module():
     samples = mcmc.get_samples()
     assert "transformer$params" in samples
     params = samples["transformer$params"]
-    assert "query.kernel" in params
-    assert "key.kernel" in params
-    assert "value.kernel" in params
-    assert params["query.kernel"].shape[0] == 2  # num_samples
-    assert params["key.kernel"].shape[0] == 2
-    assert params["value.kernel"].shape[0] == 2
-
-
-def test_update_state_with_params():
-    """Test the _update_state_with_params helper function for updating state with parameters."""
-    from flax import nnx
-    import jax.numpy as jnp
-
-    # Create a simple module with parameters
-    class SimpleModule(nnx.Module):
-        def __init__(self, *, rngs):
-            self.weight = nnx.Param(jnp.zeros((2, 2)))
-            self.bias = nnx.Param(jnp.zeros(2))
-            self.nested = NestedModule(rngs=rngs)
-
-        def __call__(self, x):
-            return x @ self.weight + self.bias
-
-    class NestedModule(nnx.Module):
-        def __init__(self, *, rngs):
-            self.weight = nnx.Param(jnp.zeros((2, 2)))
-            self.bias = nnx.Param(jnp.zeros(2))
-            self.deep_nested = DeepNestedModule(rngs=rngs)
-
-        def __call__(self, x):
-            return x @ self.weight + self.bias
-
-    class DeepNestedModule(nnx.Module):
-        def __init__(self, *, rngs):
-            self.weight = nnx.Param(jnp.zeros((2, 2)))
-            self.bias = nnx.Param(jnp.zeros(2))
-
-        def __call__(self, x):
-            return x @ self.weight + self.bias
-
-    # Create a module and get its state
-    module = SimpleModule(rngs=nnx.Rngs(0))
-    _, state = nnx.split(module)
-
-    # Test Case 1: Basic parameter update
-    params = {
-        "weight": jnp.array([[1.0, 2.0], [3.0, 4.0]]),
-        "bias": jnp.array([0.1, 0.2]),
-        "nested.weight": jnp.array([[5.0, 6.0], [7.0, 8.0]]),
-        "nested.bias": jnp.array([0.3, 0.4]),
-    }
-
-    # Update the state with the parameters
-    updated_state = _update_state_with_params(state, params)
-
-    # Check that the state was updated correctly
-    assert jnp.array_equal(updated_state["weight"].value, params["weight"])
-    assert jnp.array_equal(updated_state["bias"].value, params["bias"])
-    assert jnp.array_equal(
-        updated_state["nested"]["weight"].value, params["nested.weight"]
-    )
-    assert jnp.array_equal(updated_state["nested"]["bias"].value, params["nested.bias"])
-
-    # Test Case 2: Deep nested parameters
-    deep_params = {
-        "nested.deep_nested.weight": jnp.array([[9.0, 10.0], [11.0, 12.0]]),
-        "nested.deep_nested.bias": jnp.array([0.5, 0.6]),
-    }
-
-    updated_state = _update_state_with_params(state, deep_params)
-
-    # Check deep nested parameters
-    assert jnp.array_equal(
-        updated_state["nested"]["deep_nested"]["weight"].value,
-        deep_params["nested.deep_nested.weight"],
-    )
-    assert jnp.array_equal(
-        updated_state["nested"]["deep_nested"]["bias"].value,
-        deep_params["nested.deep_nested.bias"],
-    )
-
-    # Test Case 3: Mixed parameter update (flat and nested)
-    mixed_params = {
-        "weight": jnp.array([[13.0, 14.0], [15.0, 16.0]]),
-        "nested.deep_nested.bias": jnp.array([0.7, 0.8]),
-    }
-
-    updated_state = _update_state_with_params(state, mixed_params)
-
-    # Check mixed parameters
-    assert jnp.array_equal(updated_state["weight"].value, mixed_params["weight"])
-    assert jnp.array_equal(
-        updated_state["nested"]["deep_nested"]["bias"].value,
-        mixed_params["nested.deep_nested.bias"],
-    )
-
-    # Test Case 4: Non-existent parameters (should not raise errors)
-    nonexistent_params = {
-        "nonexistent": jnp.array([1.0, 2.0]),
-        "nested.nonexistent": jnp.array([3.0, 4.0]),
-        "nonexistent.nested": jnp.array([5.0, 6.0]),
-    }
-
-    # This should not raise errors
-    updated_state = _update_state_with_params(state, nonexistent_params)
-
-    # Original parameters should remain unchanged
-    assert jnp.array_equal(updated_state["weight"].value, mixed_params["weight"])
-    assert jnp.array_equal(
-        updated_state["nested"]["deep_nested"]["bias"].value,
-        mixed_params["nested.deep_nested.bias"],
-    )
-
-    # Test Case 5: Empty parameters dictionary
-    empty_params = {}
-
-    updated_state = _update_state_with_params(state, empty_params)
-
-    # State should remain unchanged
-    assert jnp.array_equal(updated_state["weight"].value, mixed_params["weight"])
-    assert jnp.array_equal(
-        updated_state["nested"]["deep_nested"]["bias"].value,
-        mixed_params["nested.deep_nested.bias"],
-    )
+    assert "kernel" in params["query"]
+    assert "kernel" in params["key"]
+    assert "kernel" in params["value"]
+    assert params["query"]["kernel"].shape[0] == 2  # num_samples
+    assert params["key"]["kernel"].shape[0] == 2
+    assert params["value"]["kernel"].shape[0] == 2
 
 
 def test_nnx_cnn_module():
@@ -961,7 +842,7 @@ def test_nnx_cnn_module():
     samples = mcmc.get_samples()
     assert "cnn$params" in samples
     params = samples["cnn$params"]
-    assert "conv1.kernel" in params
-    assert "conv2.kernel" in params
-    assert params["conv1.kernel"].shape[0] == 2  # num_samples
-    assert params["conv2.kernel"].shape[0] == 2
+    assert "kernel" in params["conv1"]
+    assert "kernel" in params["conv2"]
+    assert params["conv1"]["kernel"].shape[0] == 2  # num_samples
+    assert params["conv2"]["kernel"].shape[0] == 2
