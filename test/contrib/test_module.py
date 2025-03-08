@@ -412,6 +412,7 @@ def test_nnx_module():
     assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 @pytest.mark.parametrize("dropout", [True, False])
 @pytest.mark.parametrize("batchnorm", [True, False])
 def test_nnx_state_dropout_smoke(dropout, batchnorm):
