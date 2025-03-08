@@ -562,11 +562,11 @@ def random_nnx_module(
 
     numpyro.deterministic(f"{name}$params", param_dict)
 
-    def apply_fn(x, *fn_args, **fn_kwargs):
+    def apply_fn(*fn_args, **fn_kwargs):
         # Create a new model with the sampled parameters
         graph_def, state = nnx.split(nn_module)
         nnx.replace_by_pure_dict(state, param_dict)
         model = nnx.merge(graph_def, state)
-        return model(x, *fn_args, **fn_kwargs)
+        return model(*fn_args, **fn_kwargs)
 
     return apply_fn
