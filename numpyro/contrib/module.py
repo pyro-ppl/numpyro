@@ -481,7 +481,7 @@ def nnx_module(name, nn_module):
         if params:
             module_params = numpyro.param(module_key, params)
 
-        state_dict = {"state": params_state}
+        state_dict = {"state": other_state}
 
         if any(state_dict.values()):
             _ = numpyro_mutable(name + "$state", state_dict)
@@ -496,6 +496,9 @@ def nnx_module(name, nn_module):
 
             if module_params:
                 nnx.replace_by_pure_dict(state, module_params)
+
+            if state_dict:
+                nnx.replace_by_pure_dict(state, state_dict)
 
             model = nnx.merge(graph_def, state)
 

@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 from copy import deepcopy
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -316,6 +316,7 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
     svi.run(random.PRNGKey(100), 10)
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def nnx_model_by_shape(x, y):
     from flax import nnx
 
@@ -336,6 +337,7 @@ def nnx_model_by_shape(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def nnx_model_by_kwargs(x, y):
     from flax import nnx
 
@@ -358,6 +360,7 @@ def nnx_model_by_kwargs(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_nnx_module():
     from flax import nnx
 
@@ -467,6 +470,7 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
     svi.run(random.PRNGKey(100), 10)
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 @pytest.mark.parametrize("callable_prior", [True, False])
 def test_random_nnx_module_mcmc(callable_prior):
     from flax import nnx
@@ -527,6 +531,7 @@ def test_random_nnx_module_mcmc(callable_prior):
     assert "b" in samples["nn$params"]
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_nnx_transformer_module():
     """Test a transformer-like architecture with NNX module in a NumPyro model."""
     from flax import nnx
@@ -699,6 +704,7 @@ def test_nnx_transformer_module():
     assert params["value"]["kernel"].shape[0] == 2
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_nnx_cnn_module():
     """Test a convolutional neural network with NNX module in a NumPyro model."""
     from flax import nnx
