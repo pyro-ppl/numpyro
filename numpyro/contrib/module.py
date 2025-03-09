@@ -472,31 +472,41 @@ def nnx_module(name, nn_module):
         nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
     )
 
-    eager_params = nnx.to_pure_dict(eager_params_state)
+    eager_params_state_dict = nnx.to_pure_dict(eager_params_state)
 
     module_params = None
-    if eager_params:
+    if eager_params_state:
         module_params = numpyro.param(name + "$params")
     if module_params is None:
-        module_params = numpyro.param(name + "$params", eager_params)
+        module_params = numpyro.param(name + "$params", eager_params_state_dict)
 
-    state_dict = {"state": eager_params_state}
+    eager_other_state_dict = nnx.to_pure_dict(eager_other_state)
 
-    if any(state_dict.values()):
-        _ = numpyro_mutable(name + "$state", state_dict)
+    module_other_params = None
+    if eager_other_state:
+        module_other_params = numpyro.param(name + "$state")
+    if module_other_params is None:
+        module_other_params = numpyro.param(name + "$state", eager_other_state_dict)
+
+    state_dict = {"state": eager_other_state}
 
     def apply_fn(params, *call_args, **call_kwargs):
         model = nn_module
 
-        if module_params:
+        if params:
             graph_def, state = nnx.split(model)
 
-            if module_params:
-                nnx.replace_by_pure_dict(state, module_params)
+            if params:
+                nnx.replace_by_pure_dict(state, params)
 
             model = nnx.merge(graph_def, state)
 
-        return model(*call_args, **call_kwargs)
+        model_call = model(*call_args, **call_kwargs)
+
+        _, new_mutable_state = nnx.split(model)
+        state_dict[name] = new_mutable_state
+
+        return model_call
 
     return partial(apply_fn, module_params)
 
