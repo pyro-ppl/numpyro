@@ -386,8 +386,12 @@ def test_nnx_module():
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
-@pytest.mark.parametrize("dropout", [True, False])
-@pytest.mark.parametrize("batchnorm", [True, False])
+@pytest.mark.parametrize(
+    argnames="dropout", argvalues=[True, False], ids=["dropout", "no_dropout"]
+)
+@pytest.mark.parametrize(
+    argnames="batchnorm", argvalues=[True, False], ids=["batchnorm", "no_batchnorm"]
+)
 def test_nnx_state_dropout_smoke(dropout, batchnorm):
     from flax import nnx
 
