@@ -138,6 +138,11 @@ def _wishart_to_scipy(conc, scale, rate, tril):
     return osp.wishart(float(jax_dist.concentration), jax_dist.scale_matrix)
 
 
+def _circulant_to_scipy(loc, covariance_row, covariance_rfft):
+    jax_dist = dist.CirculantNormal(loc, covariance_row, covariance_rfft)
+    return osp.multivariate_normal(mean=jax_dist.mean, cov=jax_dist.covariance_matrix)
+
+
 def _TruncatedNormal(loc, scale, low, high):
     return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high)
 
@@ -414,6 +419,7 @@ _DIST_MAP = {
     ),
     dist.Cauchy: lambda loc, scale: osp.cauchy(loc=loc, scale=scale),
     dist.Chi2: lambda df: osp.chi2(df),
+    dist.CirculantNormal: _circulant_to_scipy,
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
     dist.DiscreteUniform: lambda low, high: osp.randint(low, high + 1),
     dist.Exponential: lambda rate: osp.expon(scale=jnp.reciprocal(rate)),
@@ -487,6 +493,25 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
+    T(dist.CirculantNormal, np.zeros((3, 4)), np.array([0.9, 0.2, 0.1, 0.2]), None),
+    T(
+        dist.CirculantNormal,
+        np.zeros((7, 5)),
+        np.array([0.9, 0.2, 0.1, 0.1, 0.2]),
+        None,
+    ),
+    T(
+        dist.CirculantNormal,
+        np.zeros(4),
+        np.broadcast_to(np.array([0.9, 0.2, 0.1, 0.2]), (3, 4)),
+        None,
+    ),
+    T(
+        dist.CirculantNormal,
+        np.zeros(5),
+        np.broadcast_to(np.array([0.9, 0.2, 0.1, 0.1, 0.2]), (7, 5)),
+        None,
+    ),
     T(dist.Dirichlet, np.array([1.7])),
     T(dist.Dirichlet, np.array([0.2, 1.1])),
     T(dist.Dirichlet, np.array([[0.2, 1.1], [2.0, 2.0]])),
@@ -1142,7 +1167,8 @@ def gen_values_within_bounds(constraint, size, key=None):
         for axis in zero_sum_axes:
             x -= x.mean(axis)
         return x
-
+    elif constraint is constraints.positive_definite_circulant_vector:
+        return jnp.fft.irfft(random.gamma(key, 10, size) / 10, n=size[-1])
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -1215,6 +1241,8 @@ def gen_values_outside_bounds(constraint, size, key=None):
     elif isinstance(constraint, constraints.zero_sum):
         x = random.normal(key, size)
         return x
+    elif constraint is constraints.positive_definite_circulant_vector:
+        return random.normal(key, size)
     else:
         raise NotImplementedError("{} not implemented.".format(constraint))
 
@@ -2754,7 +2782,7 @@ def test_generated_sample_distribution(jax_dist, sp_dist, params, N_sample=100_0
 
     if jax_dist not in [dist.Gumbel]:
         pytest.skip(
-            "{} sampling method taken from upstream, no need to"
+            "{} sampling method taken from upstream, no need to "
             "test generated samples.".format(jax_dist.__name__)
         )
 
@@ -2959,7 +2987,7 @@ def test_dist_pytree(jax_dist, sp_dist, params):
         actual_arg = getattr(actual_dist, name)
         assert actual_arg is not None, f"arg {name} is None"
         if np.issubdtype(np.asarray(expected_arg).dtype, np.number):
-            assert_allclose(actual_arg, expected_arg)
+            assert_allclose(actual_arg, expected_arg, atol=1e-7)
         else:
             assert (
                 actual_arg.shape == expected_arg.shape
@@ -3161,6 +3189,25 @@ def test_kl_univariate(shape, p_dist, q_dist):
     x = p.sample(random.PRNGKey(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(3, 2, 10), (3, 2, 11), (10,), (11,)], ids=str)
+def test_kl_circulant_normal_consistency(shape: tuple) -> None:
+    key1, key2, key3, key4 = random.split(random.key(9), 4)
+    p = dist.Normal(random.normal(key1, shape), random.gamma(key2, 3, shape)).to_event(
+        1
+    )
+    # covariance_rfft = jnp.exp(-jnp.arange(shape[-1] // 2 + 1))
+    covariance_rfft = random.gamma(key4, 10, shape[:-1] + (shape[-1] // 2 + 1,)) / 10
+    q = dist.CirculantNormal(
+        random.normal(key3, shape), covariance_rfft=covariance_rfft
+    )
+    actual = kl_divergence(p, q)
+    expected = kl_divergence(
+        dist.MultivariateNormal(p.mean, jnp.eye(shape[-1]) * p.variance[..., None]),
+        dist.MultivariateNormal(q.mean, q.covariance_matrix),
+    )
+    assert_allclose(actual, expected, rtol=1e-6)
 
 
 @pytest.mark.parametrize("shape", [(4,), (2, 3)], ids=str)

@@ -305,16 +305,28 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
-def promote_shapes(*args, shape=()):
+def promote_shapes(*args, shape=(), return_shapes: bool = False):
+    """
+    Promote the shapes of arrays so they have the same number of dimensions and are
+    broadcastable.
+
+    :param *args: Arrays to promote.
+    :param shape: Leading shape to add to arrays.
+    :param return_shapes: Return the shapes of arrays instead of the shape-promoted
+        arrays.
+    """
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:
-        return args
+        return [jnp.shape(arg) for arg in args] if return_shapes else args
     else:
         shapes = [jnp.shape(arg) for arg in args]
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
+        shapes = [(1,) * (num_dims - len(shape)) + shape for shape in shapes]
+        if return_shapes:
+            return shapes
         return [
-            _reshape(arg, (1,) * (num_dims - len(s)) + s) if len(s) < num_dims else arg
-            for arg, s in zip(args, shapes)
+            _reshape(arg, shape) if jnp.ndim(arg) < len(shape) else arg
+            for arg, shape in zip(args, shapes)
         ]
 
 
