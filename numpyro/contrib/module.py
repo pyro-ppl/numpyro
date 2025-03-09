@@ -486,9 +486,11 @@ def nnx_module(name, nn_module):
     if eager_other_state_dict:
         mutable_holder = numpyro_mutable(name + "$state")
     if mutable_holder is None:
-        numpyro_mutable(name + "$state", {"state": eager_other_state_dict})
+        mutable_holder = numpyro_mutable(
+            name + "$state", {"state": eager_other_state_dict}
+        )
 
-    state_dict = {"state": eager_other_state}
+    mutable_holder["state"] = eager_other_state
 
     def apply_fn(params, *call_args, **call_kwargs):
         model = nn_module
@@ -505,7 +507,7 @@ def nnx_module(name, nn_module):
 
         _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
 
-        state_dict[name] = new_mutable_state
+        mutable_holder["state"] = new_mutable_state
 
         return model_call
 
