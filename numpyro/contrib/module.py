@@ -552,30 +552,17 @@ def random_nnx_module(
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
-    try:
-        from flax import nnx
-    except ImportError as e:
-        raise ImportError(
-            "Looking like you want to use flax.nnx to declare "
-            "nn modules. This is an experimental feature. "
-            "You need to install the latest version of `flax` to use this feature. "
-            "It can be installed with `pip install git+https://github.com/google/flax.git`."
-        ) from e
 
-    # Extract params and state directly from the module in one go
-    graph_def, params_state, _ = nnx.split(
-        nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
-    )
+    nn = nnx_module(name, nn_module)
 
-    param_dict = nnx.to_pure_dict(params_state)
+    apply_fn = nn.func
+    params = nn.args[0]
+    other_args = nn.args[1:]
+    keywords = nn.keywords
 
-    numpyro.deterministic(f"{name}$params", param_dict)
+    new_params = deepcopy(params)
 
-    def apply_fn(*fn_args, **fn_kwargs):
-        # Create a new model with the sampled parameters
-        graph_def, state = nnx.split(nn_module)
-        nnx.replace_by_pure_dict(state, param_dict)
-        model = nnx.merge(graph_def, state)
-        return model(*fn_args, **fn_kwargs)
+    with numpyro.handlers.scope(prefix=name):
+        _update_params(params, new_params, prior)
 
-    return apply_fn
+    return partial(apply_fn, new_params, *other_args, **keywords)
