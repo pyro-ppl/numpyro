@@ -490,8 +490,6 @@ def nnx_module(name, nn_module):
             name + "$state", {"state": eager_other_state_dict}
         )
 
-    mutable_holder["state"] = eager_other_state
-
     def apply_fn(params, *call_args, **call_kwargs):
         model = nn_module
 
