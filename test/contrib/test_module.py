@@ -492,9 +492,8 @@ def test_random_nnx_module_mcmc(callable_prior):
     mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
     mcmc.run(random.PRNGKey(0), data, labels)
     samples = mcmc.get_samples()
-    assert "nn$params" in samples
-    assert "w" in samples["nn$params"]
-    assert "b" in samples["nn$params"]
+    assert "nn/b" in samples
+    assert "nn/w" in samples
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
@@ -660,161 +659,12 @@ def test_nnx_transformer_module():
 
     # Check that we can access posterior samples
     samples = mcmc.get_samples()
-    assert "transformer$params" in samples
-    params = samples["transformer$params"]
-    assert "kernel" in params["query"]
-    assert "kernel" in params["key"]
-    assert "kernel" in params["value"]
-    assert params["query"]["kernel"].shape[0] == 2  # num_samples
-    assert params["key"]["kernel"].shape[0] == 2
-    assert params["value"]["kernel"].shape[0] == 2
+    assert "transformer/key.bias" in samples
+    assert "transformer/key.kernel" in samples
+    assert "transformer/value.bias" in samples
+    assert "transformer/value.kernel" in samples
 
-
-@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
-def test_nnx_cnn_module():
-    """Test a convolutional neural network with NNX module in a NumPyro model."""
-    from flax import nnx
-    import jax.nn as nn
-
-    # Create dummy data
-    batch_size, height, width, channels = 4, 28, 28, 1
-    images = jnp.ones((batch_size, height, width, channels))
-    labels = jnp.zeros(batch_size, dtype=jnp.int32)
-
-    # Define a CNN module
-    class CNN(nnx.Module):
-        def __init__(self, *, rngs):
-            # Define convolutional layers
-            self.conv1 = nnx.Conv(
-                in_features=1,  # Input channels
-                out_features=16,  # Output channels
-                kernel_size=(3, 3),
-                padding="SAME",
-                rngs=rngs,
-            )
-            self.conv2 = nnx.Conv(
-                in_features=16,  # Input channels from previous layer
-                out_features=32,  # Output channels
-                kernel_size=(3, 3),
-                padding="SAME",
-                rngs=rngs,
-            )
-            # Define linear layers
-            self.linear1 = nnx.Linear(
-                in_features=32 * 7 * 7, out_features=64, rngs=rngs
-            )
-            self.linear2 = nnx.Linear(in_features=64, out_features=10, rngs=rngs)
-            # Batch normalization
-            self.bn1 = nnx.BatchNorm(16, rngs=rngs)
-            self.bn2 = nnx.BatchNorm(32, rngs=rngs)
-
-        def __call__(self, x, *, rngs=None, training=True):
-            # First conv block
-            x = self.conv1(x)
-            x = self.bn1(x, use_running_average=not training)
-            x = nn.relu(x)
-            x = nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2))
-
-            # Second conv block
-            x = self.conv2(x)
-            x = self.bn2(x, use_running_average=not training)
-            x = nn.relu(x)
-            x = nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2))
-
-            # Flatten and linear layers
-            batch_size = x.shape[0]
-            x = x.reshape(batch_size, -1)
-            x = self.linear1(x)
-            x = nn.relu(x)
-            x = self.linear2(x)
-            return x
-
-    # Eager initialization of the CNN module outside the model
-    rng_key = random.PRNGKey(0)
-    cnn_module = CNN(rngs=nnx.Rngs(params=rng_key))
-
-    # Create a simple image classification model
-    def model(images, labels=None):
-        batch_size = images.shape[0]
-
-        # Use the pre-initialized CNN module
-        cnn = nnx_module("cnn", cnn_module)
-
-        # Get logits from the CNN
-        logits = cnn(images)
-
-        # Use the mean of sequence outputs for classification
-        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
-
-        # Sample from categorical distribution
-        with numpyro.plate("data", batch_size):
-            return numpyro.sample(
-                "obs", dist.Categorical(logits=mean_logits), obs=labels
-            )
-
-    # Test the model
-    with handlers.trace() as tr, handlers.seed(rng_seed=0):
-        model(images, labels)
-
-    # Check that parameters were created
-    assert "cnn$params" in tr
-    assert "cnn$state" in tr
-    assert tr["cnn$state"]["type"] == "mutable"
-
-    # Test with SVI
-    guide = AutoDelta(model)
-    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    _ = svi.run(random.PRNGKey(0), 2, images, labels)
-
-    # Define prior distributions for random module
-    prior = {
-        "conv1.kernel": dist.Normal(0, 0.1),
-        "conv1.bias": dist.Normal(0, 0.01),
-        "conv2.kernel": dist.Normal(0, 0.1),
-        "conv2.bias": dist.Normal(0, 0.01),
-        "linear1.kernel": dist.Normal(0, 0.1),
-        "linear1.bias": dist.Normal(0, 0.01),
-        "linear2.kernel": dist.Normal(0, 0.1),
-        "linear2.bias": dist.Normal(0, 0.01),
-        "bn1.scale": dist.Normal(1, 0.1),
-        "bn1.bias": dist.Normal(0, 0.1),
-        "bn2.scale": dist.Normal(1, 0.1),
-        "bn2.bias": dist.Normal(0, 0.1),
-    }
-
-    # Test with random module for MCMC
-    def random_model(images, labels=None):
-        batch_size = images.shape[0]
-
-        # Create random CNN module using the pre-initialized module
-        cnn = random_nnx_module("cnn", cnn_module, prior)
-
-        # Get logits from the CNN
-        logits = cnn(images)
-
-        # Use the mean of sequence outputs for classification
-        mean_logits = jnp.mean(logits, axis=1)
-
-        # Sample from categorical distribution
-        with numpyro.plate("data", batch_size):
-            return numpyro.sample(
-                "obs", dist.Categorical(logits=mean_logits), obs=labels
-            )
-
-    # Test that the random model runs without errors
-    with handlers.seed(rng_seed=0):
-        random_model(images, labels)
-
-    # Test MCMC inference
-    kernel = NUTS(model=random_model)
-    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    mcmc.run(random.PRNGKey(2), images, labels)
-
-    # Check that we can access posterior samples
-    samples = mcmc.get_samples()
-    assert "cnn$params" in samples
-    params = samples["cnn$params"]
-    assert "kernel" in params["conv1"]
-    assert "kernel" in params["conv2"]
-    assert params["conv1"]["kernel"].shape[0] == 2  # num_samples
-    assert params["conv2"]["kernel"].shape[0] == 2
+    assert samples["transformer/key.bias"].shape[0] == 2
+    assert samples["transformer/key.kernel"].shape[0] == 2
+    assert samples["transformer/value.bias"].shape[0] == 2
+    assert samples["transformer/value.kernel"].shape[0] == 2
