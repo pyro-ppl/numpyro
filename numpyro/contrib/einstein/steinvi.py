@@ -736,6 +736,11 @@ class ASVGD(SVGD):
         guide_kwargs={},
         **static_kwargs,
     ):
+        assert num_cycles > 0, f"The number of cycles must be >0. Got {num_cycles}."
+        assert transition_speed > 0, (
+            f"The transtion speed must be >0. Got {transition_speed}."
+        )
+
         self.num_cycles = num_cycles
         self.transition_speed = transition_speed
 
@@ -764,16 +769,26 @@ class ASVGD(SVGD):
         :param num_cycles: The total number of cycles. Corresponds to $C$ in eq. 4 of [1].
         :param trans_speed: Speed of transition between two phases. Corresponds to $p$ in eq. 4 of [1].
         """
-        norm = num_steps + 1 / num_cycles
+        norm = (num_steps + 1) / num_cycles
         cycle_len = num_steps // num_cycles
-        last_start = (num_cycles - 1) * cycle_len
 
+        # Safegaurd against num_cycles=1, which would cause division by zero
+        last_start = (num_cycles - 1) * cycle_len
         last_cycle = step_count // last_start
+
         return (1 - last_cycle) * (
             ((step_count % cycle_len) + 1) / norm
         ) ** trans_speed + last_cycle
 
     def init(self, rng_key, num_steps, *args, **kwargs):
+        """Register random variable transformations, constraints and determine initialize positions of the particles.
+
+        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param args: Positional arguments to the model and guide.
+        :param num_steps: Totat number of steps in the optimization.
+        :param kwargs: Keyword arguments to the model and guide.
+        :return: Initial :data:`ASVGDState`.
+        """
         # Sets initial loss temperature to 1, the temperature is adjusted by calls to `self.update``.
         steinvi_state = super().init(rng_key, *args, **kwargs)
         return ASVGDState(
@@ -790,7 +805,7 @@ class ASVGD(SVGD):
     def update(self, state: ASVGDState, *args, **kwargs) -> ASVGDState:
         step_count, num_steps, num_cycles, transition_speed, steinvi_state = state
 
-        # Compute the current loss temperature
+        # Compute the loss temperature
         loss_temperature = ASVGD._cyclical_annealing(
             step_count, num_steps, num_cycles, transition_speed
         )
@@ -804,7 +819,7 @@ class ASVGD(SVGD):
         new_steinvi_state, loss_val = super().update(steinvi_state, *args, **kwargs)
 
         new_asvgd_state = ASVGDState(
-            state.step_count + 1,
+            step_count + 1,
             state.num_steps,
             state.num_cycles,
             state.transition_speed,
@@ -853,3 +868,41 @@ class ASVGD(SVGD):
             return f"Stein force {loss:.2f}."
 
         return step, diagnostic, collect, extract, info_init
+
+    def run(
+        self,
+        rng_key,
+        num_steps,
+        *args,
+        progress_bar=True,
+        init_state=None,
+        **kwargs,
+    ):
+        """Run ASVGD inference.
+
+        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param int num_steps: Number of steps to optimize.
+        :param *args: Positional arguments to the model and guide.
+        :param bool progress_bar: Use a progress bar. Default is `True`.
+            Inference is faster with `False`.
+        :param SteinVIState init_state: Initial state of inference.
+            Default is ``None``, which will initialize using init before running inference.
+        :param **kwargs: Keyword arguments to the model and guide.
+        """
+        step, diagnostic, collect, extract, init_info = self.setup_run(
+            rng_key, num_steps, args, init_state, kwargs
+        )
+
+        auxiliaries, last_res = fori_collect(
+            0,
+            num_steps,
+            step,
+            init_info,
+            progbar=progress_bar,
+            transform=collect,
+            return_last_val=True,
+            diagnostics_fn=diagnostic if progress_bar else None,
+        )
+
+        state = extract(last_res)
+        return SteinVIRunResult(self.get_params(state), state, auxiliaries)

@@ -126,7 +126,14 @@ def regression():
 def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()
     if method == "ASVGD":
-        stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+        stein = ASVGD(
+            model,
+            Adam(1e-1),
+            kernel,
+            num_stein_particles=1,
+            num_cycles=1,
+            transition_speed=1,
+        )
     if method == "SVGD":
         stein = SVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
     if method == "SteinVI":
