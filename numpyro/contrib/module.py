@@ -496,17 +496,18 @@ def nnx_module(name, nn_module):
         if params:
             nnx.replace_by_pure_dict(params_state, params)
 
-        other_state = eager_other_state
+        mutable_state = eager_other_state
         if mutable_holder:
-            nnx.replace_by_pure_dict(other_state, mutable_holder["state"])
+            nnx.replace_by_pure_dict(mutable_state, mutable_holder["state"])
 
-        model = nnx.merge(graph_def, params_state, other_state)
+        model = nnx.merge(graph_def, params_state, mutable_state)
 
         model_call = model(*call_args, **call_kwargs)
 
-        # _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
+        _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
 
-        # mutable_holder["state"] = new_mutable_state
+        if mutable_holder:
+            mutable_holder["state"] = new_mutable_state
 
         return model_call
 
