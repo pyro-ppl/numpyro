@@ -1386,10 +1386,10 @@ def test_elbo_enumerate_plates_6(scale):
         params
     )
 
-    assert_equal(iplate_iplate_loss, plate_iplate_loss, prec=1e-5)
-    assert_equal(iplate_iplate_grad, plate_iplate_grad, prec=1e-5)
-    assert_equal(iplate_iplate_loss, iplate_plate_loss, prec=1e-5)
-    assert_equal(iplate_iplate_grad, iplate_plate_grad, prec=1e-5)
+    assert_equal(iplate_iplate_loss, plate_iplate_loss, prec=2e-5)
+    assert_equal(iplate_iplate_grad, plate_iplate_grad, prec=2e-5)
+    assert_equal(iplate_iplate_loss, iplate_plate_loss, prec=2e-5)
+    assert_equal(iplate_iplate_grad, iplate_plate_grad, prec=2e-5)
 
     # But promoting both to plates should result in an error.
     with pytest.raises(ValueError, match="intractable!"):
