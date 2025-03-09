@@ -428,11 +428,8 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
     with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
         model()
 
-    if batchnorm or dropout:
-        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
-        assert tr["nn$state"]["type"] == "mutable"
-    else:
-        assert set(tr.keys()) == {"nn$params", "x", "y"}
+    assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+    assert tr["nn$state"]["type"] == "mutable"
 
     # test svi
     guide = AutoDelta(model)
@@ -790,7 +787,7 @@ def test_nnx_cnn_module():
         batch_size = images.shape[0]
 
         # Create random CNN module using the pre-initialized module
-        cnn = random_nnx_module("cnn", cnn_module, prior, mutable=["batch_stats"])
+        cnn = random_nnx_module("cnn", cnn_module, prior)
 
         # Get logits from the CNN
         logits = cnn(images)

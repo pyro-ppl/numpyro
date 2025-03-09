@@ -469,7 +469,7 @@ def nnx_module(name, nn_module):
         ) from e
 
     graph_def, eager_params_state, eager_other_state = nnx.split(
-        nn_module, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
+        nn_module, nnx.Param, nnx.Not(nnx.Param)
     )
 
     eager_params_state_dict = nnx.to_pure_dict(eager_params_state)
@@ -482,11 +482,11 @@ def nnx_module(name, nn_module):
 
     eager_other_state_dict = nnx.to_pure_dict(eager_other_state)
 
-    module_other_params = None
-    if eager_other_state:
-        module_other_params = numpyro.param(name + "$state")
-    if module_other_params is None:
-        module_other_params = numpyro.param(name + "$state", eager_other_state_dict)
+    mutable_holder = None
+    if eager_other_state_dict:
+        mutable_holder = numpyro_mutable(name + "$state")
+    if mutable_holder is None:
+        numpyro_mutable(name + "$state", {"state": eager_other_state_dict})
 
     state_dict = {"state": eager_other_state}
 
@@ -503,9 +503,7 @@ def nnx_module(name, nn_module):
 
         model_call = model(*call_args, **call_kwargs)
 
-        _, new_mutable_state = nnx.split(
-            model, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
-        )
+        _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
 
         state_dict[name] = new_mutable_state
 
