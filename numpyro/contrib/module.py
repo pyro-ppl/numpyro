@@ -495,16 +495,13 @@ def nnx_module(name, nn_module):
     def apply_fn(params, *call_args, **call_kwargs):
         model = nn_module
 
-        params_state = eager_params_state
-
         if params:
-            nnx.replace_by_pure_dict(params_state, params)
+            graph_def, state = nnx.split(model)
 
-        other_state = eager_other_state
-        if mutable_holder:
-            nnx.replace_by_pure_dict(other_state, mutable_holder["state"])
+            if params:
+                nnx.replace_by_pure_dict(state, params)
 
-        model = nnx.merge(graph_def, params_state, other_state)
+            model = nnx.merge(graph_def, state)
 
         model_call = model(*call_args, **call_kwargs)
 
