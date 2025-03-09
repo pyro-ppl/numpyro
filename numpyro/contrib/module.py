@@ -503,7 +503,10 @@ def nnx_module(name, nn_module):
 
         model_call = model(*call_args, **call_kwargs)
 
-        _, new_mutable_state = nnx.split(model)
+        _, new_mutable_state = nnx.split(
+            model, nnx.Param, nnx.filterlib.to_predicate(nnx.Not(nnx.Param))
+        )
+
         state_dict[name] = new_mutable_state
 
         return model_call
