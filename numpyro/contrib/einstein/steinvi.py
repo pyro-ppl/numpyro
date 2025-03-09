@@ -773,7 +773,7 @@ class ASVGD(SVGD):
         cycle_len = num_steps // num_cycles
 
         # Safegaurd against num_cycles=1, which would cause division by zero
-        last_start = (num_cycles - 1) * cycle_len
+        last_start = jnp.maximum((num_cycles - 1) * cycle_len, 1.0)
         last_cycle = step_count // last_start
 
         return (1 - last_cycle) * (

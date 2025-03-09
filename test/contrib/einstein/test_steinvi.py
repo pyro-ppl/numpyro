@@ -3,7 +3,6 @@
 
 from collections import namedtuple
 from functools import partial
-import os
 import string
 
 import numpy as np
@@ -120,9 +119,6 @@ def regression():
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
 @pytest.mark.parametrize("method", ("ASVGD", "SVGD", "SteinVI"))
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1", reason="Expected tracer leak"
-)
 def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()
     if method == "ASVGD":
