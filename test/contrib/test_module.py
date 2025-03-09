@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from copy import deepcopy
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -9,6 +10,7 @@ import pytest
 
 import jax
 from jax import random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -17,8 +19,10 @@ from numpyro.contrib.module import (
     _update_params,
     flax_module,
     haiku_module,
+    nnx_module,
     random_flax_module,
     random_haiku_module,
+    random_nnx_module,
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
@@ -195,9 +199,9 @@ def test_random_module_mcmc(backend, init, callable_prior):
         kwargs = {}
 
     if callable_prior:
-        prior = (  # noqa: E731
-            lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
-        )
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == bias_name else dist.Normal()
     else:
         prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
 
@@ -311,3 +315,360 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
     svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def nnx_model_by_shape(x, y):
+    from flax import nnx
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            # Handle different Python versions by accessing the value attribute if needed
+            w_val = self.w.value if hasattr(self.w, "value") else self.w
+            bias_val = self.bias.value if hasattr(self.bias, "value") else self.bias
+            return x @ w_val + bias_val
+
+    # Pass input_shape separately - it will be handled properly by nnx_module
+    nn = nnx_module("nn", Linear, din=100, dout=100, input_shape=(100,))
+    mean = nn(x)
+    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_nnx_module():
+    from flax import nnx
+
+    X = np.arange(100).astype(np.float32)
+    Y = 2 * X + 2
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            w_val = self.w.value
+            bias_val = self.bias.value
+            return x @ w_val + bias_val
+
+    # Eager initialization of the Linear module outside the model
+    rng_key = random.PRNGKey(1)
+    linear_module = Linear(din=100, dout=100, rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, params_state = nnx.split(linear_module, nnx.Param)
+    params_dict = nnx.to_pure_dict(params_state)
+
+    # Verify parameters were created correctly
+    assert "w" in params_dict
+    assert "bias" in params_dict
+    assert params_dict["w"].shape == (100, 100)
+    assert params_dict["bias"].shape == (100,)
+
+    # Define a model using eager initialization
+    def nnx_model_eager(x, y):
+        # Use the pre-initialized Linear module
+        nn = nnx_module("nn", linear_module)
+        mean = nn(x)
+        numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+    with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
+        nnx_model_eager(X, Y)
+
+    assert "w" in nnx_tr["nn$params"]["value"]
+    assert "bias" in nnx_tr["nn$params"]["value"]
+    assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
+    assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="dropout", argvalues=[True, False], ids=["dropout", "no_dropout"]
+)
+@pytest.mark.parametrize(
+    argnames="batchnorm", argvalues=[True, False], ids=["batchnorm", "no_batchnorm"]
+)
+def test_nnx_state_dropout_smoke(dropout, batchnorm):
+    from flax import nnx
+
+    class Net(nnx.Module):
+        def __init__(self, *, rngs):
+            if batchnorm:
+                # Use feature dimension 3 to match the input shape (4, 3)
+                self.bn = nnx.BatchNorm(3, rngs=rngs)
+            if dropout:
+                # Create dropout with deterministic=True to disable dropout
+                self.dropout = nnx.Dropout(rate=0.5, deterministic=True, rngs=rngs)
+
+        def __call__(self, x, *, rngs=None):
+            if dropout:
+                # Use deterministic=True to disable dropout
+                x = self.dropout(x, deterministic=True)
+
+            if batchnorm:
+                x = self.bn(x)
+
+            return x
+
+    # Eager initialization of the Net module outside the model
+    rng_key = random.PRNGKey(0)
+    net_module = Net(rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, state = nnx.split(net_module)
+
+    def model():
+        # Use the pre-initialized module
+        nn = nnx_module("nn", net_module)
+
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        y = nn(x)
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+    assert tr["nn$state"]["type"] == "mutable"
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize("callable_prior", [True, False])
+def test_random_nnx_module_mcmc(callable_prior):
+    from flax import nnx
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.b = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            w_val = self.w.value
+            b_val = self.b.value
+            return x @ w_val + b_val
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    if callable_prior:
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == "b" else dist.Normal()
+    else:
+        prior = {"w": dist.Normal(), "b": dist.Cauchy()}
+
+    # Create a pre-initialized module for eager initialization
+    rng_key = random.PRNGKey(0)
+    linear_module = Linear(din=dim, dout=1, rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, params_state = nnx.split(linear_module, nnx.Param)
+    params_dict = {
+        ".".join(str(p) for p in path): param.value
+        for path, param in dict(params_state.flat_state()).items()
+    }
+
+    # Verify parameters were created correctly
+    assert "w" in params_dict
+    assert "b" in params_dict
+    assert params_dict["w"].shape == (dim, 1)
+    assert params_dict["b"].shape == (1,)
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_nnx_module("nn", linear_module, prior)
+        logits = nn(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+    assert "nn/b" in samples
+    assert "nn/w" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_nnx_transformer_module():
+    """Test a transformer-like architecture with NNX module in a NumPyro model."""
+    from flax import nnx
+    import jax.nn as nn
+
+    # Create dummy data
+    batch_size, seq_len, input_dim = 4, 16, 32
+    sequences = jnp.ones((batch_size, seq_len, input_dim))
+    labels = jnp.zeros(batch_size, dtype=jnp.int32)
+
+    # Define a simple transformer module with a flatter structure
+    class SimpleTransformer(nnx.Module):
+        def __init__(self, input_dim, hidden_dim, output_dim, *, rngs):
+            # Linear projections for attention
+            self.query = nnx.Linear(
+                in_features=input_dim, out_features=hidden_dim, rngs=rngs
+            )
+            self.key = nnx.Linear(
+                in_features=input_dim, out_features=hidden_dim, rngs=rngs
+            )
+            self.value = nnx.Linear(
+                in_features=input_dim, out_features=hidden_dim, rngs=rngs
+            )
+
+            # Output projections
+            self.attention_output = nnx.Linear(
+                in_features=hidden_dim, out_features=input_dim, rngs=rngs
+            )
+            self.ffn1 = nnx.Linear(
+                in_features=input_dim, out_features=hidden_dim, rngs=rngs
+            )
+            self.ffn2 = nnx.Linear(
+                in_features=hidden_dim, out_features=input_dim, rngs=rngs
+            )
+
+            # Layer normalization
+            self.norm1 = nnx.LayerNorm(input_dim, rngs=rngs)
+            self.norm2 = nnx.LayerNorm(input_dim, rngs=rngs)
+
+            # Final output projection
+            self.output = nnx.Linear(
+                in_features=input_dim, out_features=output_dim, rngs=rngs
+            )
+
+            # Store dimensions
+            self.input_dim = input_dim
+            self.hidden_dim = hidden_dim
+
+        def __call__(self, x):
+            batch_size, seq_len, _ = x.shape
+
+            # Self-attention block
+            residual = x
+            x_norm = self.norm1(x)
+
+            # Compute query, key, value
+            q = self.query(x_norm)
+            k = self.key(x_norm)
+            v = self.value(x_norm)
+
+            # Simple attention mechanism
+            attention_scores = jnp.matmul(q, jnp.transpose(k, (0, 2, 1))) / jnp.sqrt(
+                self.hidden_dim
+            )
+            attention_weights = nn.softmax(attention_scores, axis=-1)
+            attention_output = jnp.matmul(attention_weights, v)
+
+            # Apply output projection and residual connection
+            x = residual + self.attention_output(attention_output)
+
+            # Feed-forward block
+            residual = x
+            x_norm = self.norm2(x)
+            x = residual + self.ffn2(nn.gelu(self.ffn1(x_norm)))
+
+            # Final output projection
+            return self.output(x)
+
+    # Eager initialization of the transformer module outside the model
+    rng_key = random.PRNGKey(0)
+    transformer_module = SimpleTransformer(
+        input_dim=input_dim,
+        hidden_dim=input_dim * 2,
+        output_dim=1,
+        rngs=nnx.Rngs(params=rng_key),
+    )
+
+    # Define a sequence classification model
+    def model(sequences, labels=None):
+        batch_size = sequences.shape[0]
+
+        # Use the pre-initialized transformer module
+        transformer = nnx_module("transformer", transformer_module)
+
+        # Get logits from the transformer
+        logits = transformer(sequences)
+
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)  # (batch_size,)
+
+        # Sample from categorical distribution
+        with numpyro.plate("data", batch_size):
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
+
+    # Test the model
+    with handlers.trace() as tr, handlers.seed(rng_seed=0):
+        model(sequences, labels)
+
+    # Check that parameters were created
+    assert "transformer$params" in tr
+    params = tr["transformer$params"]["value"]
+    assert "kernel" in params["query"]
+    assert "kernel" in params["key"]
+    assert "kernel" in params["value"]
+
+    # Test with SVI
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    _ = svi.run(random.PRNGKey(0), 2, sequences, labels)
+
+    # Define prior distributions for random module
+    prior = {
+        "query.kernel": dist.Normal(0, 0.1),
+        "query.bias": dist.Normal(0, 0.01),
+        "key.kernel": dist.Normal(0, 0.1),
+        "key.bias": dist.Normal(0, 0.01),
+        "value.kernel": dist.Normal(0, 0.1),
+        "value.bias": dist.Normal(0, 0.01),
+    }
+
+    # Test with random module for MCMC
+    def random_model(sequences, labels=None):
+        batch_size = sequences.shape[0]
+
+        # Create random transformer module using the pre-initialized module
+        transformer = random_nnx_module("transformer", transformer_module, prior)
+
+        # Get logits from the transformer
+        logits = transformer(sequences)
+
+        # Use the mean of sequence outputs for classification
+        mean_logits = jnp.mean(logits, axis=1)
+
+        # Sample from categorical distribution
+        with numpyro.plate("data", batch_size):
+            return numpyro.sample(
+                "obs", dist.Categorical(logits=mean_logits), obs=labels
+            )
+
+    # Test that the random model runs without errors
+    with handlers.seed(rng_seed=0):
+        random_model(sequences, labels)
+
+    # Test MCMC inference
+    kernel = NUTS(model=random_model)
+    mcmc = MCMC(kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), sequences, labels)
+
+    # Check that we can access posterior samples
+    samples = mcmc.get_samples()
+    assert "transformer/key.bias" in samples
+    assert "transformer/key.kernel" in samples
+    assert "transformer/value.bias" in samples
+    assert "transformer/value.kernel" in samples
+
+    assert samples["transformer/key.bias"].shape[0] == 2
+    assert samples["transformer/key.kernel"].shape[0] == 2
+    assert samples["transformer/value.bias"].shape[0] == 2
+    assert samples["transformer/value.kernel"].shape[0] == 2
