@@ -339,29 +339,6 @@ def nnx_model_by_shape(x, y):
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
-def nnx_model_by_kwargs(x, y):
-    from flax import nnx
-
-    class Linear(nnx.Module):
-        def __init__(self, din, dout, *, rngs):
-            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
-            self.bias = nnx.Param(jnp.zeros((dout,)))
-
-        def __call__(self, x):
-            # Handle different Python versions by accessing the value attribute if needed
-            w_val = self.w.value if hasattr(self.w, "value") else self.w
-            bias_val = self.bias.value if hasattr(self.bias, "value") else self.bias
-            return x @ w_val + bias_val
-
-    # Directly initialize with dimensions
-    input_dim = x.shape[0]
-    # Don't pass x directly to nnx_module's constructor
-    nn = nnx_module("nn", Linear, din=input_dim, dout=100)
-    mean = nn(x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
-
-
-@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_nnx_module():
     from flax import nnx
 
@@ -374,9 +351,8 @@ def test_nnx_module():
             self.bias = nnx.Param(jnp.zeros((dout,)))
 
         def __call__(self, x):
-            # Handle different Python versions by accessing the value attribute if needed
-            w_val = self.w.value if hasattr(self.w, "value") else self.w
-            bias_val = self.bias.value if hasattr(self.bias, "value") else self.bias
+            w_val = self.w.value
+            bias_val = self.bias.value
             return x @ w_val + bias_val
 
     # Eager initialization of the Linear module outside the model
@@ -385,10 +361,7 @@ def test_nnx_module():
 
     # Extract parameters and state for inspection
     _, params_state = nnx.split(linear_module, nnx.Param)
-    params_dict = {
-        ".".join(str(p) for p in path): param.value
-        for path, param in dict(params_state.flat_state()).items()
-    }
+    params_dict = nnx.to_pure_dict(params_state)
 
     # Verify parameters were created correctly
     assert "w" in params_dict
@@ -449,18 +422,13 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
         nn = nnx_module("nn", net_module)
 
         x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
-
-        if dropout:
-            y = nn(x, rngs={"dropout": numpyro.prng_key()})
-        else:
-            y = nn(x)
-
+        y = nn(x)
         numpyro.deterministic("y", y)
 
     with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
         model()
 
-    if batchnorm:
+    if batchnorm or dropout:
         assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
         assert tr["nn$state"]["type"] == "mutable"
     else:
@@ -483,9 +451,8 @@ def test_random_nnx_module_mcmc(callable_prior):
             self.b = nnx.Param(jnp.zeros((dout,)))
 
         def __call__(self, x):
-            # Handle different Python versions by accessing the value attribute if needed
-            w_val = self.w.value if hasattr(self.w, "value") else self.w
-            b_val = self.b.value if hasattr(self.b, "value") else self.b
+            w_val = self.w.value
+            b_val = self.b.value
             return x @ w_val + b_val
 
     N, dim = 3000, 3
