@@ -491,8 +491,6 @@ def nnx_module(name, nn_module):
         )
 
     def apply_fn(params, *call_args, **call_kwargs):
-        model = nn_module
-
         params_state = eager_params_state
 
         if params:
@@ -506,9 +504,9 @@ def nnx_module(name, nn_module):
 
         model_call = model(*call_args, **call_kwargs)
 
-        _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
+        # _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
 
-        mutable_holder["state"] = new_mutable_state
+        # mutable_holder["state"] = new_mutable_state
 
         return model_call
 
