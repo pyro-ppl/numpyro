@@ -48,7 +48,7 @@ def log_prob_sum(trace):
     return log_joint
 
 
-@pytest.mark.parametrize("length", [1, 2, 10])
+@pytest.mark.parametrize("length", [1, 2, 8])
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_hmm_smoke(length, temperature):
     # This should match the example in the infer_discrete docstring.

@@ -59,7 +59,7 @@ def _sample_posterior(
     with funsor.interpretations.lazy:
         with block(), enum(first_available_dim=first_available_dim):
             log_prob, model_tr, log_measures = _enum_log_density(
-                model, args, kwargs, {}, sum_op, prod_op
+                model, args, kwargs, {}, sum_op, prod_op, apply_optimizer=False
             )
 
     with approx:
