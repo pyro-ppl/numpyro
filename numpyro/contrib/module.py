@@ -518,7 +518,6 @@ def random_nnx_module(
     name,
     nn_module,
     prior,
-    mutable=None,
 ):
     """
     A primitive to create a random :mod:`~flax.nnx` style neural network
@@ -550,8 +549,6 @@ def random_nnx_module(
             prior=(lambda name, shape: dist.Cauchy() if name.endswith("b") else dist.Normal())
             prior={"w": dist.Normal(), "b": dist.Cauchy()}
 
-    :param list mutable: A list to indicate mutable states of ``nn_module``. For example,
-        if your module has BatchNorm layer, we will need to define ``mutable=["batch_stats"]``.
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
