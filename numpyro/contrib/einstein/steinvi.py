@@ -471,7 +471,7 @@ class SteinVI:
         return SteinVIState(
             optim_state, rng_key, state.loss_temperature, state.repulsion_temperature
         ), loss_val
-    
+
     def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
         if init_state is None:
             state = self.init(rng_key, *args, **kwargs)
@@ -553,7 +553,13 @@ class SteinVI:
         _, _, rng_key_eval = random.split(state.rng_key, num=3)
         params = self.optim.get_params(state.optim_state)
         normed_stein_force, _ = self._svgd_loss_and_grads(
-            rng_key_eval, params, state.loss_temperature, state.repulsion_temperature, *args, **kwargs, **self.static_kwargs
+            rng_key_eval,
+            params,
+            state.loss_temperature,
+            state.repulsion_temperature,
+            *args,
+            **kwargs,
+            **self.static_kwargs,
         )
         return normed_stein_force
 
@@ -771,12 +777,13 @@ class ASVGD(SVGD):
         # Sets initial loss temperature to 1, the temperature is adjusted by calls to `self.update``.
         steinvi_state = super().init(rng_key, *args, **kwargs)
         return ASVGDState(
-            step_count=0.,
+            step_count=0.0,
             num_steps=float(num_steps),
             num_cycles=float(self.num_cycles),
             transition_speed=float(self.transition_speed),
             steinvi_state=steinvi_state,
         )
+
     def get_params(self, state: ASVGDState):
         return super().get_params(state.steinvi_state)
 
@@ -846,40 +853,3 @@ class ASVGD(SVGD):
             return f"Stein force {loss:.2f}."
 
         return step, diagnostic, collect, extract, info_init
-
-    # def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
-    #     cyc_fn = ASVGD._cyclical_annealing(num_steps, self.num_cycles, self.trans_speed)
-
-    #     (
-    #         istep,
-    #         idiag,
-    #         icol,
-    #         iext,
-    #         iinit,
-    #     ) = super().setup_run(
-    #         rng_key,
-    #         num_steps,
-    #         args,
-    #         init_state,
-    #         kwargs,
-    #     )
-
-    #     def step(info):
-    #         t, iinfo = info[0], info[-1]
-    #         self.loss_temperature = cyc_fn(t) / float(self.num_stein_particles)
-    #         return (t + 1, istep(iinfo))
-
-    #     def diagnostic(info):
-    #         _, iinfo = info
-    #         return idiag(iinfo)
-
-    #     def collect(info):
-    #         _, iinfo = info
-    #         return icol(iinfo)
-
-    #     def extract_state(info):
-    #         _, iinfo = info
-    #         return iext(iinfo)
-
-    #     info_init = (0, iinit)
-    #     return step, diagnostic, collect, extract_state, info_init
