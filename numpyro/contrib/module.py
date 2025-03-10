@@ -507,7 +507,7 @@ def nnx_module(name, nn_module):
         _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
 
         if mutable_holder:
-            mutable_holder["state"] = new_mutable_state
+            mutable_holder["state"] = nnx.to_pure_dict(new_mutable_state)
 
         return model_call
 
