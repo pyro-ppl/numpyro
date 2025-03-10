@@ -47,6 +47,7 @@ __all__ = [
     "nonnegative_integer",
     "positive",
     "positive_definite",
+    "positive_definite_circulant_vector",
     "positive_semidefinite",
     "positive_integer",
     "real",
@@ -642,6 +643,19 @@ class _PositiveDefinite(_SingletonConstraint):
         )
 
 
+class _PositiveDefiniteCirculantVector(_SingletonConstraint):
+    event_dim = 1
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tol = 10 * jnp.finfo(x.dtype).eps
+        rfft = jnp.fft.rfft(x)
+        return (jnp.abs(rfft.imag) < tol) & (rfft.real > -tol)
+
+    def feasible_like(self, prototype):
+        return jnp.zeros_like(prototype).at[..., 0].set(1.0)
+
+
 class _PositiveSemiDefinite(_SingletonConstraint):
     event_dim = 2
 
@@ -792,6 +806,7 @@ nonnegative_integer = _IntegerNonnegative()
 ordered_vector = _OrderedVector()
 positive = _Positive()
 positive_definite = _PositiveDefinite()
+positive_definite_circulant_vector = _PositiveDefiniteCirculantVector()
 positive_semidefinite = _PositiveSemiDefinite()
 positive_integer = _IntegerPositive()
 positive_ordered_vector = _PositiveOrderedVector()
