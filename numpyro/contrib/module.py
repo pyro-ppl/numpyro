@@ -19,6 +19,8 @@ __all__ = [
     "haiku_module",
     "random_flax_module",
     "random_haiku_module",
+    "nnx_module",
+    "random_nnx_module",
 ]
 
 
@@ -433,3 +435,134 @@ def random_haiku_module(
         _update_params(params, new_params, prior)
     nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
     return nn_new
+
+
+def nnx_module(name, nn_module):
+    """
+    Declare a :mod:`~flax.nnx` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
+
+    Given a flax NNX ``nn_module``, to evaluate the module, we directly call it.
+    In a NumPyro model, the pattern will be::
+
+        # Eager initialization outside the model
+        module = nn_module(...)
+
+        # Inside the model
+        net = nnx_module("net", module)
+        y = net(x)
+
+    :param str name: name of the module to be registered.
+    :param flax.nnx.Module nn_module: a pre-initialized `flax nnx` Module instance.
+    :return: a callable that takes an array as an input and returns
+        the neural network transformed output array.
+    """
+    try:
+        from flax import nnx
+    except ImportError as e:
+        raise ImportError(
+            "Looking like you want to use flax.nnx to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install the latest version of `flax` to use this feature. "
+            "It can be installed with `pip install git+https://github.com/google/flax.git`."
+        ) from e
+
+    graph_def, eager_params_state, eager_other_state = nnx.split(
+        nn_module, nnx.Param, nnx.Not(nnx.Param)
+    )
+
+    eager_params_state_dict = nnx.to_pure_dict(eager_params_state)
+
+    module_params = None
+    if eager_params_state:
+        module_params = numpyro.param(name + "$params")
+    if module_params is None:
+        module_params = numpyro.param(name + "$params", eager_params_state_dict)
+
+    eager_other_state_dict = nnx.to_pure_dict(eager_other_state)
+
+    mutable_holder = None
+    if eager_other_state_dict:
+        mutable_holder = numpyro_mutable(name + "$state")
+    if mutable_holder is None:
+        mutable_holder = numpyro_mutable(
+            name + "$state", {"state": eager_other_state_dict}
+        )
+
+    def apply_fn(params, *call_args, **call_kwargs):
+        params_state = eager_params_state
+
+        if params:
+            nnx.replace_by_pure_dict(params_state, params)
+
+        mutable_state = eager_other_state
+        if mutable_holder:
+            nnx.replace_by_pure_dict(mutable_state, mutable_holder["state"])
+
+        model = nnx.merge(graph_def, params_state, mutable_state)
+
+        model_call = model(*call_args, **call_kwargs)
+
+        if mutable_holder:
+            _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
+            new_mutable_state = jax.lax.stop_gradient(new_mutable_state)
+            mutable_holder["state"] = nnx.to_pure_dict(new_mutable_state)
+
+        return model_call
+
+    return partial(apply_fn, module_params)
+
+
+def random_nnx_module(
+    name,
+    nn_module,
+    prior,
+):
+    """
+    A primitive to create a random :mod:`~flax.nnx` style neural network
+    which can be used in MCMC samplers. The parameters of the neural network
+    will be sampled from ``prior``.
+
+    :param str name: name of the module to be registered.
+    :param flax.nnx.Module nn_module: a pre-initialized `flax nnx` Module instance.
+    :param prior: a distribution or a dict of distributions or a callable.
+        If it is a distribution, all parameters will be sampled from the same
+        distribution. If it is a dict, it maps parameter names to distributions.
+        If it is a callable, it takes parameter name and parameter shape as
+        inputs and returns a distribution. For example::
+
+            class Linear(nnx.Module):
+                def __init__(self, din, dout, *, rngs):
+                    self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+                    self.b = nnx.Param(jnp.zeros((dout,)))
+
+                def __call__(self, x):
+                    return x @ self.w + self.b
+
+            # Eager initialization
+            linear = Linear(din=4, dout=1, rngs=nnx.Rngs(params=random.PRNGKey(0)))
+            net = random_nnx_module("net", linear, prior={"w": dist.Normal(), "b": dist.Cauchy()})
+
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name.endswith("b") else dist.Normal())
+            prior={"w": dist.Normal(), "b": dist.Cauchy()}
+
+    :return: a callable that takes an array as an input and returns
+        the neural network transformed output array.
+    """
+
+    nn = nnx_module(name, nn_module)
+
+    apply_fn = nn.func
+    params = nn.args[0]
+    other_args = nn.args[1:]
+    keywords = nn.keywords
+
+    new_params = deepcopy(params)
+
+    with numpyro.handlers.scope(prefix=name):
+        _update_params(params, new_params, prior)
+
+    return partial(apply_fn, new_params, *other_args, **keywords)
