@@ -467,7 +467,7 @@ class SteinVI:
             **kwargs,
             **self.static_kwargs,
         )
-        optim_state = self.optim.update(grads, optim_state)
+        optim_state = self.optim.update(grads, optim_state, value=loss_val)
         return SteinVIState(
             optim_state, rng_key, state.loss_temperature, state.repulsion_temperature
         ), loss_val
