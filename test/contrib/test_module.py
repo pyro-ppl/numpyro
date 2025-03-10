@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from copy import deepcopy
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -9,6 +10,7 @@ import pytest
 
 import jax
 from jax import random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -17,8 +19,10 @@ from numpyro.contrib.module import (
     _update_params,
     flax_module,
     haiku_module,
+    nnx_module,
     random_flax_module,
     random_haiku_module,
+    random_nnx_module,
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
@@ -195,9 +199,9 @@ def test_random_module_mcmc(backend, init, callable_prior):
         kwargs = {}
 
     if callable_prior:
-        prior = (  # noqa: E731
-            lambda name, shape: dist.Cauchy() if name == bias_name else dist.Normal()
-        )
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == bias_name else dist.Normal()
     else:
         prior = {bias_name: dist.Cauchy(), weight_name: dist.Normal()}
 
@@ -311,3 +315,162 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
     svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_nnx_module():
+    from flax import nnx
+
+    X = np.arange(100).astype(np.float32)
+    Y = 2 * X + 2
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.bias = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            w_val = self.w.value
+            bias_val = self.bias.value
+            return x @ w_val + bias_val
+
+    # Eager initialization of the Linear module outside the model
+    rng_key = random.PRNGKey(1)
+    linear_module = Linear(din=100, dout=100, rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, params_state = nnx.split(linear_module, nnx.Param)
+    params_dict = nnx.to_pure_dict(params_state)
+
+    # Verify parameters were created correctly
+    assert "w" in params_dict
+    assert "bias" in params_dict
+    assert params_dict["w"].shape == (100, 100)
+    assert params_dict["bias"].shape == (100,)
+
+    # Define a model using eager initialization
+    def nnx_model_eager(x, y):
+        # Use the pre-initialized Linear module
+        nn = nnx_module("nn", linear_module)
+        mean = nn(x)
+        numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+    with handlers.trace() as nnx_tr, handlers.seed(rng_seed=1):
+        nnx_model_eager(X, Y)
+
+    assert "w" in nnx_tr["nn$params"]["value"]
+    assert "bias" in nnx_tr["nn$params"]["value"]
+    assert nnx_tr["nn$params"]["value"]["w"].shape == (100, 100)
+    assert nnx_tr["nn$params"]["value"]["bias"].shape == (100,)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="dropout", argvalues=[True, False], ids=["dropout", "no_dropout"]
+)
+@pytest.mark.parametrize(
+    argnames="batchnorm", argvalues=[True, False], ids=["batchnorm", "no_batchnorm"]
+)
+def test_nnx_state_dropout_smoke(dropout, batchnorm):
+    from flax import nnx
+
+    class Net(nnx.Module):
+        def __init__(self, *, rngs):
+            if batchnorm:
+                # Use feature dimension 3 to match the input shape (4, 3)
+                self.bn = nnx.BatchNorm(3, rngs=rngs)
+            if dropout:
+                # Create dropout with deterministic=True to disable dropout
+                self.dropout = nnx.Dropout(rate=0.5, deterministic=True, rngs=rngs)
+
+        def __call__(self, x, *, rngs=None):
+            if dropout:
+                # Use deterministic=True to disable dropout
+                x = self.dropout(x, deterministic=True)
+
+            if batchnorm:
+                x = self.bn(x)
+
+            return x
+
+    # Eager initialization of the Net module outside the model
+    rng_key = random.PRNGKey(0)
+    net_module = Net(rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, state = nnx.split(net_module)
+
+    def model():
+        # Use the pre-initialized module
+        nn = nnx_module("nn", net_module)
+
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        y = nn(x)
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+    assert tr["nn$state"]["type"] == "mutable"
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize("callable_prior", [True, False])
+def test_random_nnx_module_mcmc(callable_prior):
+    from flax import nnx
+
+    class Linear(nnx.Module):
+        def __init__(self, din, dout, *, rngs):
+            self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
+            self.b = nnx.Param(jnp.zeros((dout,)))
+
+        def __call__(self, x):
+            w_val = self.w
+            b_val = self.b
+            return x @ w_val + b_val
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    if callable_prior:
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == "b" else dist.Normal()
+    else:
+        prior = {"w": dist.Normal(), "b": dist.Cauchy()}
+
+    # Create a pre-initialized module for eager initialization
+    rng_key = random.PRNGKey(0)
+    linear_module = Linear(din=dim, dout=1, rngs=nnx.Rngs(params=rng_key))
+
+    # Extract parameters and state for inspection
+    _, params_state = nnx.split(linear_module, nnx.Param)
+    params_dict = nnx.to_pure_dict(params_state)
+
+    # Verify parameters were created correctly
+    assert "w" in params_dict
+    assert "b" in params_dict
+    assert params_dict["w"].shape == (dim, 1)
+    assert params_dict["b"].shape == (1,)
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_nnx_module("nn", linear_module, prior)
+        logits = nn(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+    assert "nn/b" in samples
+    assert "nn/w" in samples
