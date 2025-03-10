@@ -446,7 +446,7 @@ class SteinVI:
         loss_val, grads = self._svgd_loss_and_grads(
             rng_key_step, params, *args, **kwargs, **self.static_kwargs
         )
-        optim_state = self.optim.update(grads, optim_state)
+        optim_state = self.optim.update(grads, optim_state, value=loss_val)
         return SteinVIState(optim_state, rng_key), loss_val
 
     def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
