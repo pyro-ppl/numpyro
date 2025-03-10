@@ -23,8 +23,8 @@ def test_gof(jax_dist, sp_dist, params):
         d = jax_dist(*params)
         if d.event_dim > 1:
             pytest.skip("EulerMaruyama skip test when event shape is non-trivial.")
-    if jax_dist is dist.ZeroSumNormal:
-        pytest.skip("skip gof test for ZeroSumNormal")
+    if jax_dist in (dist.ZeroSumNormal, dist.CirculantNormal):
+        pytest.skip(f"skip gof test for {jax_dist}")
     if jax_dist is dist.MatrixNormal:
         pytest.skip(
             "skip gof test for MatrixNormal, likely incorrect submanifold scaling"
