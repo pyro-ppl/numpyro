@@ -51,6 +51,10 @@ haiku_module
 ------------
 .. autofunction:: numpyro.contrib.module.haiku_module
 
+nnx_module
+----------
+.. autofunction:: numpyro.contrib.module.nnx_module
+
 random_flax_module
 ------------------
 .. autofunction:: numpyro.contrib.module.random_flax_module
@@ -58,6 +62,10 @@ random_flax_module
 random_haiku_module
 -------------------
 .. autofunction:: numpyro.contrib.module.random_haiku_module
+
+random_nnx_module
+-----------------
+.. autofunction:: numpyro.contrib.module.random_nnx_module
 
 scan
 ----
