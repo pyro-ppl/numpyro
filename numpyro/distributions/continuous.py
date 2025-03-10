@@ -3074,24 +3074,40 @@ class Levy(Distribution):
 
 
 class CirculantNormal(TransformedDistribution):
-    """
-    Multivariate normal distribution with covariance matrix that is positive-definite
-    and circulant [1], i.e., has periodic boundary conditions. Circulant matrices can be
-    diagnolized efficiently using the discrete Fourier transform, allowing the log
-    likelihood to be evaluated in :math:`n \\log n` time for :math:`n` observations [2].
+    r"""
+    Multivariate normal distribution with covariance matrix :math:`\mathbf{C}` that is
+    positive-definite and circulant [1], i.e., has periodic boundary conditions. The
+    density of a sample :math:`\mathbf{x}\in\mathbb{R}^n` is the standard multivariate
+    normal density
 
-    Args:
-        loc: Mean of the distribution.
-        covariance_row: First row of the circulant covariance matrix.
-        covariance_rfft: Real part of the Fourier transform of :code:`covariance_row`.
+    .. math::
+
+        p\left(\mathbf{x}\mid\boldsymbol{\mu},\mathbf{C}\right) =
+        \frac{\left(\mathrm{det}\,\mathbf{C}\right)^{-1/2}}{\left(2\pi\right)^{n / 2}}
+        \exp\left(-\frac{1}{2}\left(\mathbf{x}-\boldsymbol{\mu}\right)^\intercal
+        \mathbf{C}^{-1}\left(\mathbf{x}-\boldsymbol{\mu}\right)\right),
+
+    where :math:`\mathrm{det}` denotes the determinant and :math:`^\intercal` the
+    transpose. Circulant matrices can be diagnolized efficiently using the discrete
+    Fourier transform [1], allowing the log likelihood to be evaluated in
+    :math:`n \log n` time for :math:`n` observations [2].
+
+    :param loc: Mean of the distribution :math:`\boldsymbol{\mu}`.
+    :param covariance_row: First row of the circulant covariance matrix
+        :math:`\boldsymbol{C}`. Because of periodic boundary conditions, the covariance
+        matrix is fully determined by its first row (see
+        :func:`jax.scipy.linalg.toeplitz` for further details).
+    :param covariance_rfft: Real part of the real fast Fourier transform of
+        :code:`covariance_row`, the first row of the circulant covariance matrix
+        :math:`\boldsymbol{C}`.
 
     **References:**
 
     1. Wikipedia. (n.d.). Circulant matrix. Retrieved March 6, 2025, from
        https://en.wikipedia.org/wiki/Circulant_matrix
-    2. Wood, A. T. A., & Chan, G. (1994). Simulation of Stationary Gaussian Processes
-       in :math:`\\left[0, 1\\right]^d`. *Journal of Computational and Graphical
-       Statistics*, 3(4), 409--432. https://doi.org/10.1080/10618600.1994.10474655
+    2. Wood, A. T. A., & Chan, G. (1994). Simulation of Stationary Gaussian Processes in
+       :math:`\left[0, 1\right]^d`. *Journal of Computational and Graphical Statistics*,
+       3(4), 409--432. https://doi.org/10.1080/10618600.1994.10474655
     """
 
     arg_constraints = {
