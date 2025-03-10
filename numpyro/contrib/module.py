@@ -504,9 +504,8 @@ def nnx_module(name, nn_module):
 
         model_call = model(*call_args, **call_kwargs)
 
-        _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
-
         if mutable_holder:
+            _, _, new_mutable_state = nnx.split(model, nnx.Param, nnx.Not(nnx.Param))
             new_mutable_state = jax.lax.stop_gradient(new_mutable_state)
             mutable_holder["state"] = nnx.to_pure_dict(new_mutable_state)
 
