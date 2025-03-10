@@ -51,7 +51,7 @@ def _make_loss_fn(
     def loss_fn(params):
         params = constrain_fn(params)
         if mutable_state is not None:
-            params.update(mutable_state)
+            params.update(jax.lax.stop_gradient(mutable_state))
             result = elbo.loss_with_mutable_state(
                 rng_key, params, model, guide, *args, **kwargs, **static_kwargs
             )

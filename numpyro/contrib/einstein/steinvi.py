@@ -23,7 +23,10 @@ from numpyro.infer.autoguide import AutoDelta, AutoGuide
 from numpyro.infer.util import transform_fn
 from numpyro.util import fori_collect
 
-SteinVIState = namedtuple("SteinVIState", ["optim_state", "rng_key"])
+SteinVIState = namedtuple(
+    "SteinVIState",
+    ["optim_state", "rng_key", "loss_temperature", "repulsion_temperature"],
+)
 SteinVIRunResult = namedtuple("SteinRunResult", ["params", "state", "losses"])
 
 
@@ -231,7 +234,15 @@ class SteinVI:
 
         return vmap(local_trace)(random.split(particle_seed, self.num_stein_particles))
 
-    def _svgd_loss_and_grads(self, rng_key, unconstr_params, *args, **kwargs):
+    def _svgd_loss_and_grads(
+        self,
+        rng_key,
+        unconstr_params,
+        loss_temperature,
+        repulsion_temperature,
+        *args,
+        **kwargs,
+    ):
         # Separate model and guide parameters, since only guide parameters are updated using Stein
         # Split parameters into model and guide components - only unflagged guide parameters are
         # optimized via Stein forces.
@@ -262,7 +273,7 @@ class SteinVI:
             ctparticle, _ = ravel_pytree(ctparams)
             return ctparticle
 
-        model = handlers.scale(self._inference_model, self.loss_temperature)
+        model = handlers.scale(self._inference_model, loss_temperature)
 
         def stein_loss_fn(key, particle, particle_idx):
             return self.stein_loss.particle_loss(
@@ -312,10 +323,9 @@ class SteinVI:
         # Third term of eq. 9 from https://arxiv.org/pdf/2410.22948.
         repulsive_force = vmap(
             lambda y: jnp.mean(
-                vmap(
-                    lambda x: self.repulsion_temperature
-                    * self._kernel_grad(kernel, x, y)
-                )(stein_particles),
+                vmap(lambda x: repulsion_temperature * self._kernel_grad(kernel, x, y))(
+                    stein_particles
+                ),
                 axis=0,
             )
         )(stein_particles)
@@ -420,7 +430,12 @@ class SteinVI:
         )
 
         self.kernel_fn.init(kernel_seed, stein_particles.shape)
-        return SteinVIState(self.optim.init(params), rng_key)
+        return SteinVIState(
+            self.optim.init(params),
+            rng_key,
+            self.loss_temperature,
+            self.repulsion_temperature,
+        )
 
     def get_params(self, state: SteinVIState):
         """Gets values at `param` sites of the `model` and `guide`.
@@ -444,16 +459,28 @@ class SteinVI:
         params = self.optim.get_params(state.optim_state)
         optim_state = state.optim_state
         loss_val, grads = self._svgd_loss_and_grads(
-            rng_key_step, params, *args, **kwargs, **self.static_kwargs
+            rng_key_step,
+            params,
+            state.loss_temperature,
+            state.repulsion_temperature,
+            *args,
+            **kwargs,
+            **self.static_kwargs,
         )
         optim_state = self.optim.update(grads, optim_state, value=loss_val)
-        return SteinVIState(optim_state, rng_key), loss_val
+        return SteinVIState(
+            optim_state, rng_key, state.loss_temperature, state.repulsion_temperature
+        ), loss_val
 
     def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
         if init_state is None:
             state = self.init(rng_key, *args, **kwargs)
         else:
+            assert isinstance(init_state, ASVGDState), (
+                "The init_state much be an instance of ASVGDState"
+            )
             state = init_state
+
         loss = self.evaluate(state, *args, **kwargs)
 
         info_init = (state, loss)
@@ -526,7 +553,13 @@ class SteinVI:
         _, _, rng_key_eval = random.split(state.rng_key, num=3)
         params = self.optim.get_params(state.optim_state)
         normed_stein_force, _ = self._svgd_loss_and_grads(
-            rng_key_eval, params, *args, **kwargs, **self.static_kwargs
+            rng_key_eval,
+            params,
+            state.loss_temperature,
+            state.repulsion_temperature,
+            *args,
+            **kwargs,
+            **self.static_kwargs,
         )
         return normed_stein_force
 
@@ -620,6 +653,12 @@ class SVGD(SteinVI):
         )
 
 
+ASVGDState = namedtuple(
+    "ASVGDState",
+    ["step_count", "num_steps", "num_cycles", "transition_speed", "steinvi_state"],
+)
+
+
 class ASVGD(SVGD):
     """Annealing Stein variational gradient descent [1].
 
@@ -693,12 +732,17 @@ class ASVGD(SVGD):
         kernel_fn,
         num_stein_particles=10,
         num_cycles=10,
-        trans_speed=10,
+        transition_speed=10,
         guide_kwargs={},
         **static_kwargs,
     ):
+        assert num_cycles > 0, f"The number of cycles must be >0. Got {num_cycles}."
+        assert transition_speed > 0, (
+            f"The transtion speed must be >0. Got {transition_speed}."
+        )
+
         self.num_cycles = num_cycles
-        self.trans_speed = trans_speed
+        self.transition_speed = transition_speed
 
         super().__init__(
             model,
@@ -710,7 +754,9 @@ class ASVGD(SVGD):
         )
 
     @staticmethod
-    def _cyclical_annealing(num_steps: int, num_cycles: int, trans_speed: int):
+    def _cyclical_annealing(
+        step_count: int, num_steps: int, num_cycles: int, trans_speed: int
+    ):
         """Cyclical annealing schedule as in eq. 4 of [1].
 
         **References** (MLA)
@@ -718,55 +764,145 @@ class ASVGD(SVGD):
         1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
             Third Symposium on Advances in Approximate Bayesian Inference, 2021.
 
+        :param step_count: The current number of steps taken.
         :param num_steps: The total number of steps. Corresponds to $T$ in eq. 4 of [1].
         :param num_cycles: The total number of cycles. Corresponds to $C$ in eq. 4 of [1].
         :param trans_speed: Speed of transition between two phases. Corresponds to $p$ in eq. 4 of [1].
         """
-        norm = float(num_steps + 1) / float(num_cycles)
+        norm = (num_steps + 1) / num_cycles
         cycle_len = num_steps // num_cycles
-        last_start = (num_cycles - 1) * cycle_len
 
-        def cycle_fn(t):
-            last_cycle = t // last_start
-            return (1 - last_cycle) * (
-                ((t % cycle_len) + 1) / norm
-            ) ** trans_speed + last_cycle
+        # Safegaurd against num_cycles=1, which would cause division by zero
+        last_start = jnp.maximum((num_cycles - 1) * cycle_len, 1.0)
+        last_cycle = step_count // last_start
 
-        return cycle_fn
+        return (1 - last_cycle) * (
+            ((step_count % cycle_len) + 1) / norm
+        ) ** trans_speed + last_cycle
 
-    def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
-        cyc_fn = ASVGD._cyclical_annealing(num_steps, self.num_cycles, self.trans_speed)
+    def init(self, rng_key, num_steps, *args, **kwargs):
+        """Register random variable transformations, constraints and determine initialize positions of the particles.
 
-        (
-            istep,
-            idiag,
-            icol,
-            iext,
-            iinit,
-        ) = super().setup_run(
-            rng_key,
-            num_steps,
-            args,
-            init_state,
-            kwargs,
+        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param args: Positional arguments to the model and guide.
+        :param num_steps: Totat number of steps in the optimization.
+        :param kwargs: Keyword arguments to the model and guide.
+        :return: Initial :data:`ASVGDState`.
+        """
+        # Sets initial loss temperature to 1, the temperature is adjusted by calls to `self.update``.
+        steinvi_state = super().init(rng_key, *args, **kwargs)
+        return ASVGDState(
+            step_count=0.0,
+            num_steps=float(num_steps),
+            num_cycles=float(self.num_cycles),
+            transition_speed=float(self.transition_speed),
+            steinvi_state=steinvi_state,
         )
 
-        def step(info):
-            t, iinfo = info[0], info[-1]
-            self.loss_temperature = cyc_fn(t) / float(self.num_stein_particles)
-            return (t + 1, istep(iinfo))
+    def get_params(self, state: ASVGDState):
+        return super().get_params(state.steinvi_state)
 
-        def diagnostic(info):
-            _, iinfo = info
-            return idiag(iinfo)
+    def update(self, state: ASVGDState, *args, **kwargs) -> ASVGDState:
+        step_count, num_steps, num_cycles, transition_speed, steinvi_state = state
+
+        # Compute the loss temperature
+        loss_temperature = ASVGD._cyclical_annealing(
+            step_count, num_steps, num_cycles, transition_speed
+        )
+
+        steinvi_state = SteinVIState(
+            rng_key=steinvi_state.rng_key,
+            optim_state=steinvi_state.optim_state,
+            loss_temperature=loss_temperature,
+            repulsion_temperature=steinvi_state.repulsion_temperature,
+        )
+        new_steinvi_state, loss_val = super().update(steinvi_state, *args, **kwargs)
+
+        new_asvgd_state = ASVGDState(
+            step_count + 1,
+            state.num_steps,
+            state.num_cycles,
+            state.transition_speed,
+            steinvi_state=new_steinvi_state,
+        )
+        return new_asvgd_state, loss_val
+
+    def evaluate(self, state: ASVGDState, *args, **kwargs):
+        """Take a single step of Stein (possibly on a batch / minibatch of data).
+
+        :param ASVGDState state: Current state of inference.
+        :param args: Positional arguments to the model and guide.
+        :param kwargs: Keyword arguments to the model and guide.
+        :return: Normed Stein force.
+        """
+
+        return super().evaluate(state.steinvi_state, *args, **kwargs)
+
+    def setup_run(self, rng_key, num_steps, args, init_state, kwargs):
+        if init_state is None:
+            state = self.init(rng_key, num_steps, *args, **kwargs)
+        else:
+            assert isinstance(init_state, ASVGDState), (
+                "The init_state much be an instance of ASVGDState"
+            )
+            state = init_state
+
+        loss = self.evaluate(state, *args, **kwargs)
+
+        info_init = (state, loss)
+
+        def step(info):
+            state, loss = info
+            return self.update(state, *args, **kwargs)  # uses closure!
 
         def collect(info):
-            _, iinfo = info
-            return icol(iinfo)
+            _, loss = info
+            return loss
 
-        def extract_state(info):
-            _, iinfo = info
-            return iext(iinfo)
+        def extract(info):
+            state, _ = info
+            return state
 
-        info_init = (0, iinit)
-        return step, diagnostic, collect, extract_state, info_init
+        def diagnostic(info):
+            _, loss = info
+            return f"Stein force {loss:.2f}."
+
+        return step, diagnostic, collect, extract, info_init
+
+    def run(
+        self,
+        rng_key,
+        num_steps,
+        *args,
+        progress_bar=True,
+        init_state=None,
+        **kwargs,
+    ):
+        """Run ASVGD inference.
+
+        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param int num_steps: Number of steps to optimize.
+        :param *args: Positional arguments to the model and guide.
+        :param bool progress_bar: Use a progress bar. Default is `True`.
+            Inference is faster with `False`.
+        :param SteinVIState init_state: Initial state of inference.
+            Default is ``None``, which will initialize using init before running inference.
+        :param **kwargs: Keyword arguments to the model and guide.
+        """
+        step, diagnostic, collect, extract, init_info = self.setup_run(
+            rng_key, num_steps, args, init_state, kwargs
+        )
+
+        auxiliaries, last_res = fori_collect(
+            0,
+            num_steps,
+            step,
+            init_info,
+            progbar=progress_bar,
+            transform=collect,
+            return_last_val=True,
+            diagnostics_fn=diagnostic if progress_bar else None,
+        )
+
+        state = extract(last_res)
+        return SteinVIRunResult(self.get_params(state), state, auxiliaries)

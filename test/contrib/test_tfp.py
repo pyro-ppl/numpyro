@@ -179,7 +179,7 @@ def test_mcmc_kernels(kernel, kwargs):
         (
             "ReplicaExchangeMC",
             dict(
-                inverse_temperatures=0.5 ** jnp.arange(4), make_kernel_fn=make_kernel_fn
+                inverse_temperatures=0.5 ** np.arange(4), make_kernel_fn=make_kernel_fn
             ),
         ),
     ],

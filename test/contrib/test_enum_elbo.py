@@ -1247,7 +1247,6 @@ def test_elbo_enumerate_plates_6(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_iplate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1305,7 +1304,6 @@ def test_elbo_enumerate_plates_6(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_plate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1423,7 +1421,6 @@ def test_elbo_enumerate_plates_7(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_iplate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1489,7 +1486,6 @@ def test_elbo_enumerate_plates_7(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_plate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex

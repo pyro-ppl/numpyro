@@ -122,7 +122,14 @@ def regression():
 def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()
     if method == "ASVGD":
-        stein = ASVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+        stein = ASVGD(
+            model,
+            Adam(1e-1),
+            kernel,
+            num_stein_particles=1,
+            num_cycles=1,
+            transition_speed=1,
+        )
     if method == "SVGD":
         stein = SVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
     if method == "SteinVI":
@@ -245,7 +252,7 @@ def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
     latent_dim = 3
 
     def model(obs):
-        a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
+        a = numpyro.sample("a", Normal(0.2, 1).expand((latent_dim,)).to_event(1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
     obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
@@ -280,7 +287,12 @@ def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
             assert init_value.shape == expected_shape
             if "auto_loc" in name or name == "b":
                 assert np.all(init_value != np.zeros(expected_shape))
-                assert np.unique(init_value).shape == init_value.reshape(-1).shape
+                # Check that all values are unique except when `init_to_mean` is used
+                # because all initial values will be equal to the mean.
+                assert (
+                    np.unique(init_value).shape == init_value.reshape(-1).shape
+                    or init_loc_fn is init_to_mean
+                )
             elif "scale" in name:
                 assert_allclose(init_value[init_value != 0.0], 0.1, rtol=1e-6)
 

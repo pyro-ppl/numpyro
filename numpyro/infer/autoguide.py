@@ -97,9 +97,9 @@ class AutoGuide(ABC):
         self._prototype_frames = {}
         self._prototype_frame_full_sizes = {}
 
-    def _create_plates(self, *args, **kwargs):
+    def _create_plates(self, *args, **kwargs) -> dict:
         if self.create_plates is None:
-            self.plates = {}
+            plates = {}
         else:
             plates = self.create_plates(*args, **kwargs)
             if isinstance(plates, numpyro.plate):
@@ -107,14 +107,14 @@ class AutoGuide(ABC):
             assert all(isinstance(p, numpyro.plate) for p in plates), (
                 "create_plates() returned a non-plate"
             )
-            self.plates = {p.name: p for p in plates}
+            plates = {p.name: p for p in plates}
         for name, frame in sorted(self._prototype_frames.items()):
-            if name not in self.plates:
+            if name not in plates:
                 full_size = self._prototype_frame_full_sizes[name]
-                self.plates[name] = numpyro.plate(
+                plates[name] = numpyro.plate(
                     name, full_size, dim=frame.dim, subsample_size=frame.size
                 )
-        return self.plates
+        return plates
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -132,7 +132,7 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sample_posterior(self, rng_key, params, *, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
@@ -141,7 +141,9 @@ class AutoGuide(ABC):
         :param dict params: Current parameters of model and autoguide.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
             method from :class:`~numpyro.infer.svi.SVI`.
+        :param args: Arguments to be provided to the model / guide.
         :param tuple sample_shape: sample shape of each latent site, defaults to ().
+        :param kwargs: Keyword arguments to be provided to the model / guide.
         :return: a dict containing samples drawn the this guide.
         :rtype: dict
         """
@@ -317,18 +319,11 @@ class AutoGuideList(AutoGuide):
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         result = {}
         for part in self._guides:
-            # TODO: remove this when sample_posterior() signatures are consistent
-            # we know part is not AutoDAIS, AutoSemiDAIS, or AutoSurrogateLikelihoodDAIS
-            if isinstance(part, numpyro.infer.autoguide.AutoDelta):
-                result.update(
-                    part.sample_posterior(
-                        rng_key, params, *args, sample_shape=sample_shape, **kwargs
-                    )
+            result.update(
+                part.sample_posterior(
+                    rng_key, params, *args, sample_shape=sample_shape, **kwargs
                 )
-            else:
-                result.update(
-                    part.sample_posterior(rng_key, params, sample_shape=sample_shape)
-                )
+            )
         return result
 
     def median(self, params):
@@ -469,7 +464,7 @@ class AutoNormal(AutoGuide):
         else:
             return self._postprocess_fn(latent_samples)
 
-    def sample_posterior(self, rng_key, params, *, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
         with handlers.seed(rng_seed=rng_key):
@@ -810,7 +805,7 @@ class AutoContinuous(AutoGuide):
         transform = self.get_transform(params)
         return dist.TransformedDistribution(base_dist, transform)
 
-    def sample_posterior(self, rng_key, params, *, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         latent_sample = handlers.substitute(
             handlers.seed(self._sample_latent, rng_key), params
         )(sample_shape=sample_shape)
@@ -999,7 +994,7 @@ class AutoDAIS(AutoContinuous):
 
         return z
 
-    def sample_posterior(self, rng_key, params, *, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         def _single_sample(_rng_key):
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
@@ -1124,19 +1119,31 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         rng_key = numpyro.prng_key()
 
         with numpyro.handlers.block():
-            (_, self._surrogate_potential_fn, _, _) = initialize_model(
-                rng_key,
-                self.surrogate_model,
-                init_strategy=self.init_loc_fn,
-                dynamic_args=False,
-                model_args=(),
-                model_kwargs={},
+            (_, self._surrogate_potential_fn, _, self._surrogate_prototype_trace) = (
+                initialize_model(
+                    rng_key,
+                    self.surrogate_model,
+                    init_strategy=self.init_loc_fn,
+                    dynamic_args=False,
+                    model_args=(),
+                    model_kwargs={},
+                )
             )
 
     def _sample_latent(self, *args, **kwargs):
+        surrogate_params = {}
+        for name, site in self._surrogate_prototype_trace.items():
+            if site["type"] == "param":
+                surrogate_params[name] = numpyro.param(
+                    name, site["value"], **site["kwargs"]
+                )
+
         def blocked_surrogate_model(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(expose_types=["param"]):
+            with (
+                numpyro.handlers.block(),
+                numpyro.handlers.substitute(data=surrogate_params),
+            ):
                 return -self._surrogate_potential_fn(x_unpack)
 
         eta0 = numpyro.param(
@@ -2175,7 +2182,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         transform = self.get_transform(params)
         return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
 
-    def sample_posterior(self, rng_key, params, *, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         latent_sample = self.get_posterior(params).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
