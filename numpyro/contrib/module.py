@@ -635,6 +635,12 @@ def random_eqx_module(name, nn_module, prior, *args, **kwargs):
     which can be used in MCMC samplers. The parameters of the neural network
     will be sampled from ``prior``.
 
+    For supplying a prior dictionary, the dictionary keys are based on their jax key path. In equinox,
+    the key path may often start with a '.' as the first character - this is ignored in the keypath
+    here. To see the jax key paths for all of the leaves in your pytree model, you can run:
+
+        key_paths = [jtu.keystr(path) for path, _ in jtu.tree_leaves_with_path(model_instance)]
+
     :param str name: name of the module to be registered.
     :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
     :param prior: a distribution or a dict of distributions or a callable.
@@ -674,14 +680,35 @@ def random_eqx_module(name, nn_module, prior, *args, **kwargs):
     other_args = nn.args[1:]
 
     with numpyro.handlers.scope(prefix=name):
-        update_func = partial(_update_tree_params, priors=prior)
-        new_params = jtu.tree_map_with_path(update_func, params)
+        new_params = update_tree_params(params, prior=prior)
 
     nn_new = partial(apply_fn, new_params, *other_args, **nn.keywords)
     return nn_new
 
 
-def _update_tree_params(path, leaf, priors):
+def update_tree_params(params, prior):
+    """Updates relevant Pytree leaves with priors
+
+    For supplying a prior dictionary, the dictionary keys are based on their jax key path. In equinox,
+    the key path may often start with a '.' as the first character - this is ignored in the keypath
+    here. To see the jax key paths for all of the leaves in your pytree model, you can run:
+
+        key_paths = [jtu.keystr(path) for path, _ in jtu.tree_leaves_with_path(model_instance)]
+    """
+    update_func = partial(_update_tree_params, prior=prior)
+    new_params = jtu.tree_map_with_path(update_func, params)
+    return new_params
+
+
+def _update_tree_params(path, leaf, prior):
+    """A leaf specific function that updates the leaf with a prior if applicable. Meant to be used
+    with :func:`~jax.tree_util.tree_map_with_path`.
+
+    **example**
+        update_func = partial(_update_tree_params, prior=prior)
+        new_params = jtu.tree_map_with_path(update_func, params)
+    """
+
     def _get_path_name(path):
         path_pieces = []
         for path_elem in path:
@@ -696,13 +723,13 @@ def _update_tree_params(path, leaf, priors):
     name = _get_path_name(path)
     param_shape = leaf.shape
 
-    if isinstance(priors, dict):  # prior={"bias": dist.Cauchy()}
-        d = priors.get(name)
+    if isinstance(prior, dict):  # prior={"bias": dist.Cauchy()}
+        d = prior.get(name)
     # prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
-    elif callable(priors) and not isinstance(priors, dist.Distribution):
-        d = priors(name, param_shape)
+    elif callable(prior) and not isinstance(prior, dist.Distribution):
+        d = prior(name, param_shape)
     else:  # prior = dist.Normal(0,1)
-        d = priors
+        d = prior
 
     if d is None:
         return leaf
