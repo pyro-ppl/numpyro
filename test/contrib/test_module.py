@@ -529,6 +529,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
 
             if batchnorm:
                 x, state = self.bn(x, state)
+                return x, state
 
             return x
 

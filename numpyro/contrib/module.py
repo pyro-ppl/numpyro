@@ -577,8 +577,11 @@ def eqx_module(name, nn_module, *args, **kwargs):
     Given an equinox ``nn_module``, to evaluate the module, we directly call it.
     In a NumPyro model, the pattern will be::
 
+        # Eager initialization outside the model
+        module = nn_module(...)
+
         # Inside the model
-        net = eqx_module("net", nn_module, *init_args, **init_kwargs)
+        net = eqx_module("net", module)
         y = net(x)
 
     :param str name: name of the module to be registered.
@@ -609,22 +612,26 @@ def eqx_module(name, nn_module, *args, **kwargs):
 
     params, static = eqx.partition(nn_module, filter_spec=eqx.is_inexact_array)
 
-    def apply_fn(params, *call_args, **call_kwargs):
+    def apply_fn(params, x):
         params = numpyro.param(name + "$params", lambda _: params)
         nn_module = eqx.combine(params, static)
 
-        mutable_state = state
         if stateful:
-            mutable_state = eqx.tree_at(
-                lambda x: x, mutable_state, mutable_holder["state"]
+            mutable_holder["state"] = eqx.tree_at(
+                lambda x: x, state, mutable_holder["state"]
             )
-            mutable_holder["state"] = jax.lax.stop_gradient(mutable_state)
-            model_call = jax.vmap(
-                partial(nn_module, state=mutable_holder["state"]), axis_name="batch"
+            model = jax.vmap(
+                nn_module,
+                axis_name="batch",
+                in_axes=(0, None),
+                out_axes=(0, None),
+                # in_axes=None,
             )
+            model_call, new_mutable_state = model(x, mutable_holder["state"])
+            mutable_holder["state"] = jax.lax.stop_gradient(new_mutable_state)
         else:
-            model_call = jax.vmap(nn_module)
-        return model_call(*call_args, **call_kwargs)
+            model_call = jax.vmap(nn_module)(x)
+        return model_call
 
     return partial(apply_fn, params)
 
