@@ -385,10 +385,8 @@ def random_flax_module(
     )
     params = nn.args[0]
     new_params = deepcopy(params)
-
     with numpyro.handlers.scope(prefix=name):
         _update_params(params, new_params, prior)
-
     nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
     return nn_new
 
