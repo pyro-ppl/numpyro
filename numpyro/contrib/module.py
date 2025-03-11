@@ -612,7 +612,7 @@ def eqx_module(name, nn_module, *args, **kwargs):
 
     params, static = eqx.partition(nn_module, filter_spec=eqx.is_inexact_array)
 
-    def apply_fn(params, x):
+    def apply_fn(params, *call_args, **call_kwargs):
         params = numpyro.param(name + "$params", lambda _: params)
         nn_module = eqx.combine(params, static)
 
@@ -621,16 +621,15 @@ def eqx_module(name, nn_module, *args, **kwargs):
                 lambda x: x, state, mutable_holder["state"]
             )
             model = jax.vmap(
-                nn_module,
+                partial(nn_module, state=mutable_holder["state"]),
                 axis_name="batch",
-                in_axes=(0, None),
-                out_axes=(0, None),
-                # in_axes=None,
             )
-            model_call, new_mutable_state = model(x, mutable_holder["state"])
-            mutable_holder["state"] = jax.lax.stop_gradient(new_mutable_state)
+            model_call, new_mutable_state = model(*call_args, **call_kwargs)
+            # undo the broadcasting from vmap
+            unmapped_state = jtu.tree_map(lambda x: x[0], new_mutable_state)
+            mutable_holder["state"] = jax.lax.stop_gradient(unmapped_state)
         else:
-            model_call = jax.vmap(nn_module)(x)
+            model_call = jax.vmap(nn_module)(*call_args, **call_kwargs)
         return model_call
 
     return partial(apply_fn, params)
