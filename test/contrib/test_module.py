@@ -3,6 +3,7 @@
 
 from copy import deepcopy
 import sys
+from typing import Optional
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -17,9 +18,11 @@ from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
     _update_params,
+    eqx_module,
     flax_module,
     haiku_module,
     nnx_module,
+    random_eqx_module,
     random_flax_module,
     random_haiku_module,
     random_nnx_module,
@@ -474,3 +477,110 @@ def test_random_nnx_module_mcmc(callable_prior):
     samples = mcmc.get_samples()
     assert "nn/b" in samples
     assert "nn/w" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_eqx_module():
+    import equinox as eqx
+
+    X = np.arange(100).astype(np.float32)[None]
+    Y = 2 * X + 2
+
+    # Define a model using eager initialization
+    def eqx_model(x, y):
+        # Use the pre-initialized Linear module
+        nn = eqx_module("nn", eqx.nn.Linear, in_features=100, out_features=100)
+        mean = nn(x)
+        numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+    with handlers.trace() as eqx_tr, handlers.seed(rng_seed=1):
+        eqx_model(X, Y)
+
+    assert hasattr(eqx_tr["nn$params"]["value"], "weight")
+    assert hasattr(eqx_tr["nn$params"]["value"], "bias")
+    assert eqx_tr["nn$params"]["value"].weight.shape == (100, 100)
+    assert eqx_tr["nn$params"]["value"].bias.shape == (100,)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="dropout", argvalues=[True, False], ids=["dropout", "no_dropout"]
+)
+@pytest.mark.parametrize(
+    argnames="batchnorm", argvalues=[True, False], ids=["batchnorm", "no_batchnorm"]
+)
+def test_eqx_state_dropout_smoke(dropout, batchnorm):
+    import equinox as eqx
+
+    class Net(eqx.Module):
+        bn: Optional[eqx.nn.BatchNorm]
+        dropout: Optional[eqx.nn.Dropout]
+
+        def __init__(self, key):
+            # Use feature dimension 3 to match the input shape (4, 3)
+            self.bn = eqx.nn.BatchNorm(3, axis_name="batch") if batchnorm else None
+            # Create dropout with inference=True to disable dropout
+            self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
+
+        def __call__(self, x, state=None):
+            if dropout:
+                # Use deterministic=True to disable dropout
+                x = self.dropout(x, inference=True)
+
+            if batchnorm:
+                x, state = self.bn(x, state)
+
+            return x
+
+    def model():
+        # Use the pre-initialized module
+        nn = eqx_module("nn", Net)
+
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        y = nn(x)
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+    assert tr["nn$state"]["type"] == "mutable"
+
+    # test svi
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize("callable_prior", [True, False])
+def test_random_eqx_module_mcmc(callable_prior):
+    import equinox as eqx
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    if callable_prior:
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == "bias" else dist.Normal()
+    else:
+        prior = {"weight": dist.Normal(), "bias": dist.Cauchy()}
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_eqx_module(
+            "nn", eqx.nn.Linear, in_features=dim, out_features=1, prior=prior
+        )
+        logits = nn(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+    assert "nn/bias" in samples
+    assert "nn/weight" in samples

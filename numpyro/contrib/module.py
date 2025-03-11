@@ -385,8 +385,10 @@ def random_flax_module(
     )
     params = nn.args[0]
     new_params = deepcopy(params)
+
     with numpyro.handlers.scope(prefix=name):
         _update_params(params, new_params, prior)
+
     nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
     return nn_new
 
@@ -566,3 +568,148 @@ def random_nnx_module(
         _update_params(params, new_params, prior)
 
     return partial(apply_fn, new_params, *other_args, **keywords)
+
+
+def eqx_module(name, nn_module, *args, **kwargs):
+    """
+    Declare an :mod:`equinox` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
+
+    Given an equinox ``nn_module``, to evaluate the module, we directly call it.
+    In a NumPyro model, the pattern will be::
+
+        # Inside the model
+        net = eqx_module("net", nn_module, *init_args, **init_kwargs)
+        y = net(x)
+
+    :param str name: name of the module to be registered.
+    :param eqx.Module nn_module: a pre-initialized `flax nnx` Module instance.
+    :return: a callable that takes an array as an input and returns
+        the neural network transformed output array.
+    """
+    try:
+        import equinox as eqx
+    except ImportError as e:
+        raise ImportError(
+            "Looking like you want to use equinox to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install the latest version of `equinox` to use this feature. "
+            "It can be installed with `pip install git+https://github.com/patrick-kidger/equinox.git`."
+        ) from e
+
+    rng_key = numpyro.prng_key()
+    nn_module, state = eqx.nn.make_with_state(nn_module)(key=rng_key, *args, **kwargs)  # noqa: E1111
+    stateful = jax.tree_leaves(state)
+
+    mutable_holder = None
+    if stateful:
+        mutable_holder = numpyro_mutable(name + "$state")
+
+    if mutable_holder is None:
+        mutable_holder = numpyro_mutable(name + "$state", {"state": state})
+
+    params, static = eqx.partition(nn_module, filter_spec=eqx.is_inexact_array)
+
+    def apply_fn(params, *call_args, **call_kwargs):
+        params = numpyro.param(name + "$params", lambda _: params)
+        nn_module = eqx.combine(params, static)
+
+        mutable_state = state
+        if stateful:
+            mutable_state = eqx.tree_at(
+                lambda x: x, mutable_state, mutable_holder["state"]
+            )
+            mutable_holder["state"] = jax.lax.stop_gradient(mutable_state)
+            model_call = jax.vmap(
+                partial(nn_module, state=mutable_holder["state"]), axis_name="batch"
+            )
+        else:
+            model_call = jax.vmap(nn_module)
+        return model_call(*call_args, **call_kwargs)
+
+    return partial(apply_fn, params)
+
+
+def random_eqx_module(name, nn_module, prior, *args, **kwargs):
+    """
+    A primitive to create a random :mod:`equinox` style neural network
+    which can be used in MCMC samplers. The parameters of the neural network
+    will be sampled from ``prior``.
+
+    :param str name: name of the module to be registered.
+    :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
+    :param prior: a distribution or a dict of distributions or a callable.
+        If it is a distribution, all parameters will be sampled from the same
+        distribution. If it is a dict, it maps parameter names to distributions.
+        If it is a callable, it takes parameter name and parameter shape as
+        inputs and returns a distribution. For example::
+
+            class Linear(eqx.Module):
+                weight: jax.Array
+                bias: jax.Array
+
+                def __init__(self, in_size, out_size, key):
+                    wkey, bkey = jax.random.split(key)
+                    self.weight = jax.random.normal(wkey, (out_size, in_size))
+                    self.bias = jax.random.normal(bkey, (out_size,))
+
+                def __call__(self, x):
+                    return self.weight @ x + self.bias
+
+            nn_priors = {"weight": dist.Normal(), "bias": dist.Cauchy()}
+            net = random_equinox_module("net", Linear, in_size=3, out_size=1, prior=nn_priors)
+
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name == 'bias' else dist.Normal())
+            prior={"weight": dist.Normal(), "bias": dist.Cauchy()}
+
+    :return: a callable that takes an array as an input and returns
+        the neural network transformed output array.
+    """
+
+    nn = eqx_module(name, nn_module, *args, **kwargs)
+
+    apply_fn = nn.func
+    params = nn.args[0]
+    other_args = nn.args[1:]
+
+    with numpyro.handlers.scope(prefix=name):
+        update_func = partial(_update_tree_params, priors=prior)
+        new_params = jax.tree_util.tree_map_with_path(update_func, params)
+
+    nn_new = partial(apply_fn, new_params, *other_args, **nn.keywords)
+    return nn_new
+
+
+def _update_tree_params(path, leaf, priors):
+    def _get_path_name(path):
+        path_pieces = []
+        for path_elem in path:
+            if isinstance(path_elem, jax.tree_util.GetAttrKey):
+                path_pieces.append(path_elem.name)
+            elif isinstance(path_elem, jax.tree_util.SequenceKey):
+                path_pieces.append(str(path_elem.idx))
+            else:
+                raise ValueError(f"Unsupported path type {type(path_elem)}")
+        return ".".join(path_pieces)
+
+    name = _get_path_name(path)
+    param_shape = leaf.shape
+
+    if isinstance(priors, dict):  # ie prior={"bias": dist.Cauchy()}
+        d = priors.get(name)
+    # ie prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
+    elif callable(priors) and not isinstance(priors, dist.Distribution):
+        d = priors(name, param_shape)
+    else:  # ie prior = dist.Normal(0,1)
+        d = priors
+
+    if d is None:
+        return leaf
+
+    param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
+    # XXX: here we set all dimensions of prior to event dimensions.
+    new_param = numpyro.sample(name, d.expand(param_batch_shape).to_event())
+    return new_param
