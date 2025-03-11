@@ -8,7 +8,7 @@ from functools import partial
 import jax
 from jax import random
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node
+import jax.tree_util as jtu
 
 import numpyro
 import numpyro.distributions as dist
@@ -221,7 +221,7 @@ def haiku_module(name, nn_module, *args, input_shape=None, apply_rng=False, **kw
 # so that the optimizer can skip optimize this parameter, while
 # it still provides shape information for priors
 ParamShape = namedtuple("ParamShape", ["shape"])
-register_pytree_node(
+jtu.register_pytree_node(
     ParamShape, lambda x: ((None,), x.shape), lambda shape, x: ParamShape(shape)
 )
 
@@ -675,7 +675,7 @@ def random_eqx_module(name, nn_module, prior, *args, **kwargs):
 
     with numpyro.handlers.scope(prefix=name):
         update_func = partial(_update_tree_params, priors=prior)
-        new_params = jax.tree_util.tree_map_with_path(update_func, params)
+        new_params = jtu.tree_map_with_path(update_func, params)
 
     nn_new = partial(apply_fn, new_params, *other_args, **nn.keywords)
     return nn_new
@@ -685,9 +685,9 @@ def _update_tree_params(path, leaf, priors):
     def _get_path_name(path):
         path_pieces = []
         for path_elem in path:
-            if isinstance(path_elem, jax.tree_util.GetAttrKey):
+            if isinstance(path_elem, jtu.GetAttrKey):
                 path_pieces.append(path_elem.name)
-            elif isinstance(path_elem, jax.tree_util.SequenceKey):
+            elif isinstance(path_elem, jtu.SequenceKey):
                 path_pieces.append(str(path_elem.idx))
             else:
                 raise ValueError(f"Unsupported path type {type(path_elem)}")
@@ -696,12 +696,12 @@ def _update_tree_params(path, leaf, priors):
     name = _get_path_name(path)
     param_shape = leaf.shape
 
-    if isinstance(priors, dict):  # ie prior={"bias": dist.Cauchy()}
+    if isinstance(priors, dict):  # prior={"bias": dist.Cauchy()}
         d = priors.get(name)
-    # ie prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
+    # prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
     elif callable(priors) and not isinstance(priors, dist.Distribution):
         d = priors(name, param_shape)
-    else:  # ie prior = dist.Normal(0,1)
+    else:  # prior = dist.Normal(0,1)
         d = priors
 
     if d is None:
