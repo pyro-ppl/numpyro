@@ -16,6 +16,7 @@ import zipfile
 import numpy as np
 
 from jax import lax
+import jax.numpy as jnp
 
 from numpyro.util import find_stack_level
 
@@ -26,6 +27,11 @@ else:
 os.makedirs(DATA_DIR, exist_ok=True)
 
 dset = namedtuple("dset", ["name", "urls"])
+
+BART = dset(
+    "bart",
+    ["https://github.com/pyro-ppl/datasets/blob/master/bart_full.pkl.bz2?raw=true"],
+)
 
 BASEBALL = dset(
     "baseball",
@@ -103,6 +109,26 @@ def _download(dset):
             print("Downloading - {}.".format(url))
             urlretrieve(url, out_path)
             print("Download complete.")
+
+
+def load_bart_od():
+    import bz2
+
+    import torch
+
+    _download(BART)
+
+    filename = os.path.join(DATA_DIR, "bart_full.pkl.bz2")
+    pkl_file = filename.rsplit(".", 1)[0]
+
+    if not os.path.exists(pkl_file):
+        with bz2.BZ2File(filename) as src, open(filename[:-4], "wb") as dst:
+            dst.write(src.read())
+
+    if os.path.exists(pkl_file):
+        dataset_dict = torch.load(pkl_file, weights_only=False)
+        dataset_dict["counts"] = jnp.array(dataset_dict["counts"])
+        return dataset_dict
 
 
 def _load_baseball():
