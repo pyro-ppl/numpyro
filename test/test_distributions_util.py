@@ -180,7 +180,9 @@ def test_logdiffexp_grads(a, b):
         (0, 0, -np.inf),
         (-np.inf, -np.inf, -np.inf),
         (5.6, 5.6, -np.inf),
+        (1e34, 1e34, -np.inf),
         (1e34, 1e34 / 0.9999, np.nan),
+        (np.inf, np.inf, np.nan),
     ],
 )
 def test_logdiffexp_bounds_handling(a, b, expected):
@@ -188,12 +190,13 @@ def test_logdiffexp_bounds_handling(a, b, expected):
     Test bounds handling for logdiffexp.
 
     logdiffexp(jnp.inf, anything) should be nan,
+    including logdiffexp(jnp.inf, jnp.inf).
 
     logdiffexp(a, b) for a < b should be nan, even if numbers
     are very close.
 
     logdiffexp(a, b) for a == b should be -jnp.inf
-    even if a == b == -jnp.inf (log(0 - 0))
+    even if a == b == -jnp.inf (log(0 - 0)).
     """
     a = jnp.asarray(a)
     b = jnp.asarray(b)
