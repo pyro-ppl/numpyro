@@ -738,7 +738,7 @@ class ASVGD(SVGD):
     ):
         assert num_cycles > 0, f"The number of cycles must be >0. Got {num_cycles}."
         assert transition_speed > 0, (
-            f"The transtion speed must be >0. Got {transition_speed}."
+            f"The transition speed must be >0. Got {transition_speed}."
         )
 
         self.num_cycles = num_cycles
@@ -785,7 +785,7 @@ class ASVGD(SVGD):
 
         :param jax.random.PRNGKey rng_key: Random number generator seed.
         :param args: Positional arguments to the model and guide.
-        :param num_steps: Totat number of steps in the optimization.
+        :param num_steps: Total number of steps in the optimization.
         :param kwargs: Keyword arguments to the model and guide.
         :return: Initial :data:`ASVGDState`.
         """

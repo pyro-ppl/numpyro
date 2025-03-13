@@ -448,7 +448,7 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
     :return: The value of :math:`\\log(1 - \\exp(x))`.
     """
     return jnp.where(
-        x > -0.6931472,  # approx log(2)
+        x > -0.6931472,  # approx -log(2)
         jnp.log(-jnp.expm1(x)),
         jnp.log1p(-jnp.exp(x)),
     )
@@ -485,7 +485,7 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     return jnp.where(
         (a < jnp.inf) & (a > b),
         a + log1mexp(b - a),
-        jnp.where(a == b, -jnp.inf, jnp.nan),
+        jnp.where((a < jnp.inf) & (a == b), -jnp.inf, jnp.nan),
     )
 
 
