@@ -187,7 +187,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.17.0")
+    assert numpyro.__version__.startswith("0.18.0")
     config.update("jax_debug_nans", True)
 
     parser = argparse.ArgumentParser()
