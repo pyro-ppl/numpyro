@@ -120,7 +120,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.17.0")
+    assert numpyro.__version__.startswith("0.18.0")
 
     parser = argparse.ArgumentParser(description="Nested sampler for Gaussian shells")
     parser.add_argument("-n", "--num-samples", nargs="?", default=10000, type=int)

@@ -348,7 +348,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.17.0")
+    assert numpyro.__version__.startswith("0.18.0")
     parser = argparse.ArgumentParser(
         description="CJS capture-recapture model for ecological data"
     )
