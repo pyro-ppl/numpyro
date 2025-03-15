@@ -16,7 +16,6 @@ import zipfile
 import numpy as np
 
 from jax import lax
-import jax.numpy as jnp
 
 from numpyro.util import find_stack_level
 
@@ -30,7 +29,12 @@ dset = namedtuple("dset", ["name", "urls"])
 
 BART = dset(
     "bart",
-    ["https://github.com/pyro-ppl/datasets/blob/master/bart_full.pkl.bz2?raw=true"],
+    [
+        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_0.npz?raw=true",
+        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_1.npz?raw=true",
+        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_2.npz?raw=true",
+        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_3.npz?raw=true",
+    ],
 )
 
 BASEBALL = dset(
@@ -112,23 +116,16 @@ def _download(dset):
 
 
 def load_bart_od():
-    import bz2
-
-    import torch
-
     _download(BART)
 
-    filename = os.path.join(DATA_DIR, "bart_full.pkl.bz2")
-    pkl_file = filename.rsplit(".", 1)[0]
-
-    if not os.path.exists(pkl_file):
-        with bz2.BZ2File(filename) as src, open(filename[:-4], "wb") as dst:
-            dst.write(src.read())
-
-    if os.path.exists(pkl_file):
-        dataset_dict = torch.load(pkl_file, weights_only=False)
-        dataset_dict["counts"] = jnp.array(dataset_dict["counts"])
-        return dataset_dict
+    filenames = [os.path.join(DATA_DIR, f"bart_{i}.npz") for i in range(4)]
+    datasets = [np.load(filename, allow_pickle=True) for filename in filenames]
+    counts = np.vstack([dataset["counts"] for dataset in datasets])
+    return {
+        "stations": datasets[0]["stations"],
+        "start_date": datasets[0]["start_date"],
+        "counts": counts,
+    }
 
 
 def _load_baseball():
