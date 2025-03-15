@@ -30,10 +30,10 @@ dset = namedtuple("dset", ["name", "urls"])
 BART = dset(
     "bart",
     [
-        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_0.npz?raw=true",
-        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_1.npz?raw=true",
-        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_2.npz?raw=true",
-        "https://github.com/juanitorduz/datasets/blob/add_bart_parts/bart/bart_3.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_0.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_1.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_2.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_3.npz?raw=true",
     ],
 )
 
