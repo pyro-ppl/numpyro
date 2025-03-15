@@ -86,6 +86,7 @@ NumPyro documentation
    examples/cvae
    tutorials/tbip
    examples/var2
+   tutorials/hierarchical_forecasting
 
 .. nbgallery::
    :maxdepth: 1

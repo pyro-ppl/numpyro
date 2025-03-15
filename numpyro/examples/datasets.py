@@ -27,6 +27,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 dset = namedtuple("dset", ["name", "urls"])
 
+BART = dset(
+    "bart",
+    [
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_0.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_1.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_2.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_3.npz?raw=true",
+    ],
+)
+
 BASEBALL = dset(
     "baseball",
     ["https://github.com/pyro-ppl/datasets/blob/master/EfronMorrisBB.txt?raw=true"],
@@ -103,6 +113,19 @@ def _download(dset):
             print("Downloading - {}.".format(url))
             urlretrieve(url, out_path)
             print("Download complete.")
+
+
+def load_bart_od():
+    _download(BART)
+
+    filenames = [os.path.join(DATA_DIR, f"bart_{i}.npz") for i in range(4)]
+    datasets = [np.load(filename, allow_pickle=True) for filename in filenames]
+    counts = np.vstack([dataset["counts"] for dataset in datasets])
+    return {
+        "stations": datasets[0]["stations"],
+        "start_date": datasets[0]["start_date"],
+        "counts": counts,
+    }
 
 
 def _load_baseball():
