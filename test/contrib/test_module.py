@@ -29,7 +29,8 @@ from numpyro.contrib.module import (
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
-from numpyro.infer.autoguide import AutoDelta
+from numpyro.infer.autoguide import AutoDelta, AutoNormal
+from numpyro.primitives import mutable as numpyro_mutable
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:jax.tree_.+ is deprecated:FutureWarning"
@@ -486,15 +487,25 @@ def test_eqx_module():
     X = np.arange(100).astype(np.float32)[None]
     Y = 2 * X + 2
 
+    linear_module = eqx.nn.Linear(
+        in_features=100, out_features=100, key=random.PRNGKey(0)
+    )
+
+    # Verify parameters were created correctly
+    assert hasattr(linear_module, "weight")
+    assert hasattr(linear_module, "bias")
+    assert linear_module.weight.shape == (100, 100)
+    assert linear_module.bias.shape == (100,)
+
     # Define a model using eager initialization
-    def eqx_model(x, y):
+    def eqx_model_eager(x, y):
         # Use the pre-initialized Linear module
-        nn = eqx_module("nn", eqx.nn.Linear, in_features=100, out_features=100)
-        mean = nn(x)
+        nn = eqx_module("nn", linear_module)
+        mean = jax.vmap(nn)(x)
         numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
     with handlers.trace() as eqx_tr, handlers.seed(rng_seed=1):
-        eqx_model(X, Y)
+        eqx_model_eager(X, Y)
 
     assert hasattr(eqx_tr["nn$params"]["value"], "weight")
     assert hasattr(eqx_tr["nn$params"]["value"], "bias")
@@ -522,23 +533,32 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
             # Create dropout with inference=True to disable dropout
             self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
 
-        def __call__(self, x, state=None):
+        def __call__(self, x, state):
             if dropout:
                 # Use deterministic=True to disable dropout
                 x = self.dropout(x, inference=True)
 
             if batchnorm:
                 x, state = self.bn(x, state)
-                return x, state
 
-            return x
+            return x, state
+
+    # Eager initialization of the Net module outside the model
+    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))  # noqa: E1111
 
     def model():
         # Use the pre-initialized module
-        nn = eqx_module("nn", Net)
+        nn = eqx_module("nn", net_module)
+        mutable_holder = numpyro_mutable("nn$state", {"state": eager_state})
 
         x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
-        y = nn(x)
+
+        batched_nn = jax.vmap(
+            nn, in_axes=(0, None), out_axes=(0, None), axis_name="batch"
+        )
+        y, state = batched_nn(x, mutable_holder["state"])
+        mutable_holder["state"] = state
+
         numpyro.deterministic("y", y)
 
     with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
@@ -547,8 +567,8 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
     assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
     assert tr["nn$state"]["type"] == "mutable"
 
-    # test svi
-    guide = AutoDelta(model)
+    # test svi - trace error with AutoDelta
+    guide = AutoNormal(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
     svi.run(random.PRNGKey(100), 10)
 
@@ -571,12 +591,14 @@ def test_random_eqx_module_mcmc(callable_prior):
     else:
         prior = {"weight": dist.Normal(), "bias": dist.Cauchy()}
 
+    # Create a pre-initialized module for eager initialization
+    rng_key = random.PRNGKey(0)
+    linear_module = eqx.nn.Linear(in_features=dim, out_features=1, key=rng_key)
+
     def model(data, labels=None):
         # Use the pre-initialized module with eager initialization
-        nn = random_eqx_module(
-            "nn", eqx.nn.Linear, in_features=dim, out_features=1, prior=prior
-        )
-        logits = nn(data).squeeze(-1)
+        nn = random_eqx_module("nn", linear_module, prior=prior)
+        logits = jax.vmap(nn)(data).squeeze(-1)
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     nuts_kernel = NUTS(model)

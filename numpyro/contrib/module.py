@@ -568,7 +568,7 @@ def random_nnx_module(
     return partial(apply_fn, new_params, *other_args, **keywords)
 
 
-def eqx_module(name, nn_module, *args, **kwargs):
+def eqx_module(name, nn_module):
     """
     Declare an :mod:`equinox` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -585,7 +585,7 @@ def eqx_module(name, nn_module, *args, **kwargs):
         y = net(x)
 
     :param str name: name of the module to be registered.
-    :param eqx.Module nn_module: a pre-initialized `flax nnx` Module instance.
+    :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
@@ -599,43 +599,13 @@ def eqx_module(name, nn_module, *args, **kwargs):
             "It can be installed with `pip install git+https://github.com/patrick-kidger/equinox.git`."
         ) from e
 
-    rng_key = numpyro.prng_key()
-    nn_module, state = eqx.nn.make_with_state(nn_module)(key=rng_key, *args, **kwargs)  # noqa: E1111
-    stateful = jax.tree_leaves(state)
-
-    mutable_holder = None
-    if stateful:
-        mutable_holder = numpyro_mutable(name + "$state")
-
-    if mutable_holder is None:
-        mutable_holder = numpyro_mutable(name + "$state", {"state": state})
-
     params, static = eqx.partition(nn_module, filter_spec=eqx.is_inexact_array)
-
-    def apply_fn(params, *call_args, **call_kwargs):
-        params = numpyro.param(name + "$params", lambda _: params)
-        nn_module = eqx.combine(params, static)
-
-        if stateful:
-            mutable_holder["state"] = eqx.tree_at(
-                lambda x: x, state, mutable_holder["state"]
-            )
-            model = jax.vmap(
-                partial(nn_module, state=mutable_holder["state"]),
-                axis_name="batch",
-            )
-            model_call, new_mutable_state = model(*call_args, **call_kwargs)
-            # undo the broadcasting from vmap
-            unmapped_state = jtu.tree_map(lambda x: x[0], new_mutable_state)
-            mutable_holder["state"] = jax.lax.stop_gradient(unmapped_state)
-        else:
-            model_call = jax.vmap(nn_module)(*call_args, **call_kwargs)
-        return model_call
-
-    return partial(apply_fn, params)
+    params = numpyro.param(name + "$params", lambda _: params)
+    nn_module = eqx.combine(params, static)
+    return nn_module
 
 
-def random_eqx_module(name, nn_module, prior, *args, **kwargs):
+def random_eqx_module(name, nn_module, prior):
     """
     A primitive to create a random :mod:`equinox` style neural network
     which can be used in MCMC samplers. The parameters of the neural network
@@ -678,18 +648,22 @@ def random_eqx_module(name, nn_module, prior, *args, **kwargs):
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
+    try:
+        import equinox as eqx
+    except ImportError as e:
+        raise ImportError(
+            "Looking like you want to use equinox to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install the latest version of `equinox` to use this feature. "
+            "It can be installed with `pip install git+https://github.com/patrick-kidger/equinox.git`."
+        ) from e
 
-    nn = eqx_module(name, nn_module, *args, **kwargs)
-
-    apply_fn = nn.func
-    params = nn.args[0]
-    other_args = nn.args[1:]
-
+    nn = eqx_module(name, nn_module)
+    params, static = eqx.partition(nn, filter_spec=eqx.is_inexact_array)
     with numpyro.handlers.scope(prefix=name):
         new_params = update_tree_params(params, prior=prior)
 
-    nn_new = partial(apply_fn, new_params, *other_args, **nn.keywords)
-    return nn_new
+    return eqx.combine(new_params, static)
 
 
 def update_tree_params(params, prior):
