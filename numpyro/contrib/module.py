@@ -582,7 +582,19 @@ def eqx_module(name, nn_module):
 
         # Inside the model
         net = eqx_module("net", module)
-        y = net(x)
+        y = jax.vmap(net)(x)
+
+    In the case of stateful computation, the pattern is the following::
+
+        # Eager initialization outside the model
+        module, eager_state = eqx.nn.make_with_state(nn_module)(...)
+
+        # Inside the model
+        net = eqx_module("net", module)
+        mutable_holder = numpyro_mutable("net$state", {"state": eager_state})
+        batched_net = jax.vmap(net, in_axes=(0,None), out_axes=(0,None), axis_name='batch')
+        y, state = batched_net(x, mutable_holder['state'])
+        mutable_holder['state'] = state
 
     :param str name: name of the module to be registered.
     :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
@@ -637,8 +649,10 @@ def random_eqx_module(name, nn_module, prior):
                 def __call__(self, x):
                     return self.weight @ x + self.bias
 
+            # Eager initialization
+            linear = Linear(in_features=3, out_features=1, key=random.PRNGKey(0))
             nn_priors = {"weight": dist.Normal(), "bias": dist.Cauchy()}
-            net = random_equinox_module("net", Linear, in_size=3, out_size=1, prior=nn_priors)
+            net = random_eqx_module("net", linear, prior=nn_priors)
 
         Alternatively, we can use a callable. For example the following are equivalent::
 
