@@ -29,7 +29,7 @@ from numpyro.contrib.module import (
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
-from numpyro.infer.autoguide import AutoDelta, AutoNormal
+from numpyro.infer.autoguide import AutoDelta
 from numpyro.primitives import mutable as numpyro_mutable
 
 pytestmark = pytest.mark.filterwarnings(
@@ -568,7 +568,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
     assert tr["nn$state"]["type"] == "mutable"
 
     # test svi - trace error with AutoDelta
-    guide = AutoNormal(model)
+    guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
     svi.run(random.PRNGKey(100), 10)
 
