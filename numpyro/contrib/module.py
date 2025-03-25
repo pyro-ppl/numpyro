@@ -594,7 +594,7 @@ def eqx_module(name, nn_module):
         mutable_holder = numpyro_mutable("net$state", {"state": eager_state})
         batched_net = jax.vmap(net, in_axes=(0,None), out_axes=(0,None), axis_name='batch')
         y, state = batched_net(x, mutable_holder['state'])
-        mutable_holder['state'] = state
+        mutable_holder['state'] = jax.lax.stop_gradient(state)
 
     :param str name: name of the module to be registered.
     :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
