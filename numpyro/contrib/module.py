@@ -674,61 +674,26 @@ def random_eqx_module(name, nn_module, prior):
 
     nn = eqx_module(name, nn_module)
     params, static = eqx.partition(nn, filter_spec=eqx.is_inexact_array)
+    params_dict = eqx_to_dict(params)
+    new_params = deepcopy(params_dict)
     with numpyro.handlers.scope(prefix=name):
-        new_params = update_tree_params(params, prior=prior)
+        _update_params(params_dict, new_params, prior)
 
-    return eqx.combine(new_params, static)
-
-
-def update_tree_params(params, prior):
-    """Updates relevant Pytree leaves with priors
-
-    For supplying a prior dictionary, the dictionary keys are based on their jax key path. In equinox,
-    the key path may often start with a '.' as the first character - this is ignored in the keypath
-    here. To see the jax key paths for all of the leaves in your pytree model, you can run:
-
-        key_paths = [jtu.keystr(path) for path, _ in jtu.tree_leaves_with_path(model_instance)]
-    """
-    update_func = partial(_update_tree_params, prior=prior)
-    new_params = jtu.tree_map_with_path(update_func, params)
-    return new_params
+    return eqx.combine(eqx_from_dict(new_params, tree=params), static)
 
 
-def _update_tree_params(path, leaf, prior):
-    """A leaf specific function that updates the leaf with a prior if applicable. Meant to be used
-    with :func:`~jax.tree_util.tree_map_with_path`.
+def eqx_to_dict(tree):
+    out = {}
 
-    **example**
-        update_func = partial(_update_tree_params, prior=prior)
-        new_params = jtu.tree_map_with_path(update_func, params)
-    """
+    def to_dict_impl(path, leaf):
+        out[jtu.keystr(path)[1:]] = leaf
 
-    def _get_path_name(path):
-        path_pieces = []
-        for path_elem in path:
-            if isinstance(path_elem, jtu.GetAttrKey):
-                path_pieces.append(path_elem.name)
-            elif isinstance(path_elem, jtu.SequenceKey):
-                path_pieces.append(str(path_elem.idx))
-            else:
-                raise ValueError(f"Unsupported path type {type(path_elem)}")
-        return ".".join(path_pieces)
+    jax.tree.map_with_path(to_dict_impl, tree)
+    return out
 
-    name = _get_path_name(path)
-    param_shape = leaf.shape
 
-    if isinstance(prior, dict):  # prior={"bias": dist.Cauchy()}
-        d = prior.get(name)
-    # prior=(lambda name, shape: dist.Cauchy() if name == "bias" else dist.Normal())
-    elif callable(prior) and not isinstance(prior, dist.Distribution):
-        d = prior(name, param_shape)
-    else:  # prior = dist.Normal(0,1)
-        d = prior
+def eqx_from_dict(data: dict, tree):
+    def from_dict_impl(path, _):
+        return data[jtu.keystr(path)[1:]]
 
-    if d is None:
-        return leaf
-
-    param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
-    # XXX: here we set all dimensions of prior to event dimensions.
-    new_param = numpyro.sample(name, d.expand(param_batch_shape).to_event())
-    return new_param
+    return jax.tree.map_with_path(from_dict_impl, tree)
