@@ -545,26 +545,25 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
 
     # Eager initialization of the Net module outside the model
     net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))  # noqa: E1111
+    x = dist.Normal(0, 1).expand([4, 3]).to_event(2).sample(random.PRNGKey(0))
 
     def model():
         # Use the pre-initialized module
         nn = eqx_module("nn", net_module)
         mutable_holder = numpyro_mutable("nn$state", {"state": eager_state})
 
-        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
-
         batched_nn = jax.vmap(
             nn, in_axes=(0, None), out_axes=(0, None), axis_name="batch"
         )
-        y, state = batched_nn(x, mutable_holder["state"])
-        mutable_holder["state"] = state
+        y, new_state = batched_nn(x, mutable_holder["state"])
+        mutable_holder["state"] = new_state
 
         numpyro.deterministic("y", y)
 
     with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
         model()
 
-    assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+    assert set(tr.keys()) == {"nn$params", "nn$state", "y"}
     assert tr["nn$state"]["type"] == "mutable"
 
     # test svi - trace error with AutoDelta
