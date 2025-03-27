@@ -44,7 +44,7 @@ module
 .. autofunction:: numpyro.primitives.module
 
 mutable
-------
+-------
 .. autofunction:: numpyro.primitives.mutable
 
 flax_module
