@@ -557,7 +557,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
             nn, in_axes=(0, None), out_axes=(0, None), axis_name="batch"
         )
         y, state = batched_nn(x, mutable_holder["state"])
-        mutable_holder["state"] = jax.lax.stop_gradient(state)
+        mutable_holder["state"] = state
 
         numpyro.deterministic("y", y)
 

@@ -55,7 +55,7 @@ def _make_loss_fn(
             result = elbo.loss_with_mutable_state(
                 rng_key, params, model, guide, *args, **kwargs, **static_kwargs
             )
-            return result["loss"], result["mutable_state"]
+            return result["loss"], jax.lax.stop_gradient(result["mutable_state"])
         else:
             return (
                 elbo.loss(
