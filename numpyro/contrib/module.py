@@ -593,8 +593,8 @@ def eqx_module(name, nn_module):
         net = eqx_module("net", module)
         mutable_holder = numpyro_mutable("net$state", {"state": eager_state})
         batched_net = jax.vmap(net, in_axes=(0,None), out_axes=(0,None), axis_name='batch')
-        y, state = batched_net(x, mutable_holder['state'])
-        mutable_holder['state'] = jax.lax.stop_gradient(state)
+        y, new_state = batched_net(x, mutable_holder['state'])
+        mutable_holder['state'] = new_state
 
     :param str name: name of the module to be registered.
     :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
@@ -623,11 +623,10 @@ def random_eqx_module(name, nn_module, prior):
     which can be used in MCMC samplers. The parameters of the neural network
     will be sampled from ``prior``.
 
-    For supplying a prior dictionary, the dictionary keys are based on their jax key path. In equinox,
-    the key path may often start with a '.' as the first character - this is ignored in the keypath
-    here. To see the jax key paths for all of the leaves in your pytree model, you can run:
+    For supplying a prior dictionary, the dictionary keys are based on their jax key path.
+    To see the jax key paths for all of the leaves in your pytree model, you can run:
 
-        key_paths = [jtu.keystr(path) for path, _ in jtu.tree_leaves_with_path(model_instance)]
+        key_paths = [jtu.keystr(path)[1:] for path, _ in jtu.tree_leaves_with_path(model_instance)]
 
     :param str name: name of the module to be registered.
     :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
