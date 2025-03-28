@@ -8,7 +8,7 @@ from functools import partial
 import jax
 from jax import random
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node
+import jax.tree_util as jtu
 
 import numpyro
 import numpyro.distributions as dist
@@ -221,7 +221,7 @@ def haiku_module(name, nn_module, *args, input_shape=None, apply_rng=False, **kw
 # so that the optimizer can skip optimize this parameter, while
 # it still provides shape information for priors
 ParamShape = namedtuple("ParamShape", ["shape"])
-register_pytree_node(
+jtu.register_pytree_node(
     ParamShape, lambda x: ((None,), x.shape), lambda shape, x: ParamShape(shape)
 )
 
@@ -566,3 +566,133 @@ def random_nnx_module(
         _update_params(params, new_params, prior)
 
     return partial(apply_fn, new_params, *other_args, **keywords)
+
+
+def eqx_module(name, nn_module):
+    """
+    Declare an :mod:`equinox` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
+
+    Given an equinox ``nn_module``, to evaluate the module, we directly call it.
+    In a NumPyro model, the pattern will be::
+
+        # Eager initialization outside the model
+        module = nn_module(...)
+
+        # Inside the model
+        net = eqx_module("net", module)
+        y = jax.vmap(net)(x)
+
+    In the case of stateful computation, the pattern is the following::
+
+        # Eager initialization outside the model
+        module, eager_state = eqx.nn.make_with_state(nn_module)(...)
+
+        # Inside the model
+        net = eqx_module("net", module)
+        mutable_holder = numpyro_mutable("net$state", {"state": eager_state})
+        batched_net = jax.vmap(net, in_axes=(0,None), out_axes=(0,None), axis_name='batch')
+        y, new_state = batched_net(x, mutable_holder['state'])
+        mutable_holder['state'] = new_state
+
+    :param str name: name of the module to be registered.
+    :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
+    :return: a callable that takes an array as an input and returns
+        the neural network transformed output array.
+    """
+    try:
+        import equinox as eqx
+    except ImportError as e:
+        raise ImportError(
+            "Looking like you want to use equinox to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install the latest version of `equinox` to use this feature. "
+            "It can be installed with `pip install git+https://github.com/patrick-kidger/equinox.git`."
+        ) from e
+
+    params, static = eqx.partition(nn_module, filter_spec=eqx.is_inexact_array)
+    params = numpyro.param(name + "$params", lambda _: params)
+    nn_module = eqx.combine(params, static)
+    return nn_module
+
+
+def random_eqx_module(name, nn_module, prior):
+    """
+    A primitive to create a random :mod:`equinox` style neural network
+    which can be used in MCMC samplers. The parameters of the neural network
+    will be sampled from ``prior``.
+
+    For supplying a prior dictionary, the dictionary keys are based on their jax key path.
+    To see the jax key paths for all of the leaves in your pytree model, you can run:
+
+        key_paths = [jtu.keystr(path)[1:] for path, _ in jtu.tree_leaves_with_path(model_instance)]
+
+    :param str name: name of the module to be registered.
+    :param eqx.Module nn_module: a pre-initialized `equinox` Module instance.
+    :param prior: a distribution or a dict of distributions or a callable.
+        If it is a distribution, all parameters will be sampled from the same
+        distribution. If it is a dict, it maps parameter names to distributions.
+        If it is a callable, it takes parameter name and parameter shape as
+        inputs and returns a distribution. For example::
+
+            class Linear(eqx.Module):
+                weight: jax.Array
+                bias: jax.Array
+
+                def __init__(self, in_size, out_size, key):
+                    wkey, bkey = jax.random.split(key)
+                    self.weight = jax.random.normal(wkey, (out_size, in_size))
+                    self.bias = jax.random.normal(bkey, (out_size,))
+
+                def __call__(self, x):
+                    return self.weight @ x + self.bias
+
+            # Eager initialization
+            linear = Linear(in_features=3, out_features=1, key=random.PRNGKey(0))
+            nn_priors = {"weight": dist.Normal(), "bias": dist.Cauchy()}
+            net = random_eqx_module("net", linear, prior=nn_priors)
+
+        Alternatively, we can use a callable. For example the following are equivalent::
+
+            prior=(lambda name, shape: dist.Cauchy() if name == 'bias' else dist.Normal())
+            prior={"weight": dist.Normal(), "bias": dist.Cauchy()}
+
+    :return: a callable that takes an array as an input and returns
+        the neural network transformed output array.
+    """
+    try:
+        import equinox as eqx
+    except ImportError as e:
+        raise ImportError(
+            "Looking like you want to use equinox to declare "
+            "nn modules. This is an experimental feature. "
+            "You need to install the latest version of `equinox` to use this feature. "
+            "It can be installed with `pip install git+https://github.com/patrick-kidger/equinox.git`."
+        ) from e
+
+    nn = eqx_module(name, nn_module)
+    params, static = eqx.partition(nn, filter_spec=eqx.is_inexact_array)
+    params_dict = eqx_to_dict(params)
+    new_params = deepcopy(params_dict)
+    with numpyro.handlers.scope(prefix=name):
+        _update_params(params_dict, new_params, prior)
+
+    return eqx.combine(eqx_from_dict(new_params, tree=params), static)
+
+
+def eqx_to_dict(tree):
+    out = {}
+
+    def to_dict_impl(path, leaf):
+        out[jtu.keystr(path)[1:]] = leaf
+
+    jax.tree.map_with_path(to_dict_impl, tree)
+    return out
+
+
+def eqx_from_dict(data: dict, tree):
+    def from_dict_impl(path, _):
+        return data[jtu.keystr(path)[1:]]
+
+    return jax.tree.map_with_path(from_dict_impl, tree)

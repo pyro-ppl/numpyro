@@ -59,6 +59,7 @@ setup(
         ],
         "dev": [
             "dm-haiku",
+            "equinox",
             "flax",
             "funsor>=0.4.1",
             "graphviz",
