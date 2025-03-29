@@ -5,7 +5,7 @@ from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
 from types import TracebackType
-from typing import Any, Callable, Generator, Optional, Union, cast
+from typing import Any, Callable, Generator, List, Optional, Tuple, Union, cast
 import warnings
 
 import jax
@@ -24,6 +24,7 @@ _PYRO_STACK: list = []
 
 
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
+DepStackFrame = namedtuple("DepStackFrame", ["name", "dim", "size"])
 
 
 def default_process_message(msg: Message) -> None:
@@ -647,6 +648,105 @@ def plate_stack(
             plate_i = plate("{}_{}".format(prefix, i), size, dim=rightmost_dim - i)
             stack.enter_context(plate_i)
         yield
+
+
+class label_event_dim(numpyro.plate):
+    """This labels event dimensions, modeled after numpyro.plate. Unlike numpyro.plate, it will not
+    change the shape of any sites within its context.
+
+    Labelled event dims can be found in `dep_stack` in the model trace.
+
+    **example**
+
+        with label_event_dim("groups", n_groups):
+            alpha = numpyro.sample("alpha", dist.ZeroSumNormal(1, event_shape=(n_groups,)))
+    """
+
+    def __init__(
+        self,
+        name: str,
+        size: int,
+        subsample_size: Optional[int] = None,
+        dim: Optional[int] = None,
+    ) -> None:
+        self.name = name
+        self.size = size
+        if dim is not None and dim >= 0:
+            raise ValueError("dim arg must be negative.")
+        self.dim, self._indices = self._subsample(
+            self.name, self.size, subsample_size, dim
+        )
+        self.subsample_size = self._indices.shape[0]
+
+    # We'll try only adding our pseudoplate to the CondIndepStack without doing anything else
+    def process_message(self, msg: Message) -> None:
+        if msg["type"] not in ("param", "sample", "plate", "deterministic"):
+            if msg["type"] == "control_flow":
+                raise NotImplementedError(
+                    "Cannot use control flow primitive under a `plate` primitive."
+                    " Please move those `plate` statements into the control flow"
+                    " body function. See `scan` documentation for more information."
+                )
+            return
+
+        if (
+            "block_plates" in msg.get("infer", {})
+            and self.name in msg["infer"]["block_plates"]
+        ):
+            return
+
+        frame = DepStackFrame(self.name, self.dim, self.subsample_size)
+        msg["dep_stack"] = msg.get("dep_stack", []) + [frame]
+
+        if msg["type"] == "deterministic":
+            return
+
+    def _get_event_shape(self, dep_stack: List[DepStackFrame]) -> Tuple[int, ...]:
+        n_dims = max(-f.dim for f in dep_stack)
+        event_shape = [1] * n_dims
+        for f in dep_stack:
+            event_shape[f.dim] = f.size
+        return tuple(event_shape)
+
+    # We need to make sure dims get arranged properly when there are multiple plates
+    @staticmethod
+    def _subsample(name, size, subsample_size, dim):
+        msg = {
+            "type": "plate",
+            "fn": _subsample_fn,
+            "name": name,
+            "args": (size, subsample_size),
+            "kwargs": {"rng_key": None},
+            "value": (
+                None
+                if (subsample_size is not None and size != subsample_size)
+                else jnp.arange(size)
+            ),
+            "scale": 1.0,
+            "cond_indep_stack": [],
+            "dep_stack": [],
+        }
+        apply_stack(msg)
+        subsample = msg["value"]
+        subsample_size = msg["args"][1]
+        if subsample_size is not None and subsample_size != subsample.shape[0]:
+            warnings.warn(
+                "subsample_size does not match len(subsample), {} vs {}.".format(
+                    subsample_size, len(subsample)
+                )
+                + " Did you accidentally use different subsample_size in the model and guide?",
+                stacklevel=find_stack_level(),
+            )
+        dep_stack = msg["dep_stack"]
+        occupied_dims = {f.dim for f in dep_stack}
+        if dim is None:
+            new_dim = -1
+            while new_dim in occupied_dims:
+                new_dim -= 1
+            dim = new_dim
+        else:
+            assert dim not in occupied_dims
+        return dim, subsample
 
 
 def factor(name: str, log_factor: ArrayLike) -> None:
