@@ -650,7 +650,7 @@ def plate_stack(
         yield
 
 
-class label_event_dim(numpyro.plate):
+class label_event_dim(plate):
     """This labels event dimensions, modeled after numpyro.plate. Unlike numpyro.plate, it will not
     change the shape of any sites within its context.
 
