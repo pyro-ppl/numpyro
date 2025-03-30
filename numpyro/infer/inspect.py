@@ -707,21 +707,14 @@ def get_site_dims(
     # We use eval_shape to avoid any array computation.
     trace = jax.eval_shape(get_trace).trace
 
-    named_dims = {
-        name: {
-            "batch_dims": [frame.name for frame in site["cond_indep_stack"]],
-            "event_dims": [frame.name for frame in site.get("dep_stack", [])],
-        }
-        for name, site in trace.items()
-        if site["type"] in ["sample", "deterministic"]
-        and len(
-            [
-                frame.name
-                for frame in site["cond_indep_stack"] + site.get("dep_stack", [])
-            ]
-        )
-        > 0
-    }
+    named_dims = {}
+
+    for name, site in trace.items():
+        batch_dims = [frame.name for frame in site["cond_indep_stack"]]
+        event_dims = [frame.name for frame in site.get("dep_stack", [])]
+        if site["type"] in ["sample", "deterministic"] and (batch_dims or event_dims):
+            named_dims[name] = {"batch_dims": batch_dims, "event_dims": event_dims}
+
     return named_dims
 
 
