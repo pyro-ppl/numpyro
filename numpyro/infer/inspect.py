@@ -297,18 +297,16 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
 
+    def _get_dist_name(fn):
+        if isinstance(
+            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution),
+        ):
+            return _get_dist_name(fn.base_dist)
+        return type(fn).__name__
+
     def get_trace():
         # We use `init_to_sample` to get around ImproperUniform distribution,
         # which does not have `sample` method.
-
-        def _get_dist_name(fn):
-            if isinstance(
-                fn,
-                (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution),
-            ):
-                return _get_dist_name(fn.base_dist)
-            return type(fn).__name__
-
         subs_model = handlers.substitute(
             handlers.seed(model, 0),
             substitute_fn=init_to_sample,
@@ -317,7 +315,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         # Work around an issue where jax.eval_shape does not work
         # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
         # Here we will remove `fn` and store its name in the trace.
-        for _, site in trace.items():
+        for name, site in trace.items():
             if site["type"] == "sample":
                 site["fn_name"] = _get_dist_name(site.pop("fn"))
             elif site["type"] == "deterministic":
