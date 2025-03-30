@@ -121,6 +121,10 @@ get_model_relations
 ^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.inspect.get_model_relations
 
+get_site_dims
+^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.inspect.get_site_dims
+
 Visualization Utilities
 =======================
 

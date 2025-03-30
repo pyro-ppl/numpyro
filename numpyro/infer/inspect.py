@@ -5,7 +5,7 @@ from collections.abc import Callable
 from functools import partial
 import itertools
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 import jax
 
@@ -297,16 +297,18 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
 
-    def _get_dist_name(fn):
-        if isinstance(
-            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
-        ):
-            return _get_dist_name(fn.base_dist)
-        return type(fn).__name__
-
     def get_trace():
         # We use `init_to_sample` to get around ImproperUniform distribution,
         # which does not have `sample` method.
+
+        def _get_dist_name(fn):
+            if isinstance(
+                fn,
+                (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution),
+            ):
+                return _get_dist_name(fn.base_dist)
+            return type(fn).__name__
+
         subs_model = handlers.substitute(
             handlers.seed(model, 0),
             substitute_fn=init_to_sample,
@@ -315,7 +317,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
         # Work around an issue where jax.eval_shape does not work
         # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
         # Here we will remove `fn` and store its name in the trace.
-        for name, site in trace.items():
+        for _, site in trace.items():
             if site["type"] == "sample":
                 site["fn_name"] = _get_dist_name(site.pop("fn"))
             elif site["type"] == "deterministic":
@@ -643,6 +645,86 @@ def render_model(
         )
 
     return graph
+
+
+def get_site_dims(
+    model, model_args=None, model_kwargs=None
+) -> Dict[str, Dict[str, List[str]]]:
+    """Infers named dimensions based on plates and label_event_dim's for sample and deterministic
+    sites. This returns a nested dictionary, where each site has a dictionary containing a list of
+    batch_dims and event_dims
+
+    For example for the model::
+
+        def model(X, z, y):
+            n_groups = len(np.unique(z))
+            m = numpyro.sample('m', dist.Normal(0, 1))
+            sd = numpyro.sample('sd', dist.LogNormal(m, 1))
+            with numpyro.label_event_dim("groups", n_groups):
+                gamma = numpyro.sample("gamma", dist.ZeroSumNormal(1, event_shape=(n_groups,)))
+
+            with numpyro.plate('N', len(X)):
+                mu = numpyro.deterministic("mu", m + gamma[z])
+                numpyro.sample('obs', dist.Normal(m, sd), obs=y)
+
+    the site dims are::
+
+        {'gamma': {'batch_dims': [], 'event_dims': ["groups"]},
+         'mu': {'batch_dims': ["N"], 'event_dims': []},
+         'obs': {'batch_dims': ["N"], 'event_dims': []}}
+
+    :param callable model: A model to inspect.
+    :param model_args: Optional tuple of model args.
+    :param model_kwargs: Optional dict of model kwargs.
+    :rtype: dict
+    """
+    model_args = model_args or ()
+    model_kwargs = model_kwargs or {}
+
+    def _get_dist_name(fn):
+        if isinstance(
+            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
+        ):
+            return _get_dist_name(fn.base_dist)
+        return type(fn).__name__
+
+    def get_trace():
+        # We use `init_to_sample` to get around ImproperUniform distribution,
+        # which does not have `sample` method.
+        subs_model = handlers.substitute(
+            handlers.seed(model, 0),
+            substitute_fn=init_to_sample,
+        )
+        trace = handlers.trace(subs_model).get_trace(*model_args, **model_kwargs)
+        # Work around an issue where jax.eval_shape does not work
+        # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
+        # Here we will remove `fn` and store its name in the trace.
+        for name, site in trace.items():
+            if site["type"] == "sample":
+                site["fn_name"] = _get_dist_name(site.pop("fn"))
+            elif site["type"] == "deterministic":
+                site["fn_name"] = "Deterministic"
+        return PytreeTrace(trace)
+
+    # We use eval_shape to avoid any array computation.
+    trace = jax.eval_shape(get_trace).trace
+
+    named_dims = {
+        name: {
+            "batch_dims": [frame.name for frame in site["cond_indep_stack"]],
+            "event_dims": [frame.name for frame in site.get("dep_stack", [])],
+        }
+        for name, site in trace.items()
+        if site["type"] in ["sample", "deterministic"]
+        and len(
+            [
+                frame.name
+                for frame in site["cond_indep_stack"] + site.get("dep_stack", [])
+            ]
+        )
+        > 0
+    }
+    return named_dims
 
 
 __all__ = [

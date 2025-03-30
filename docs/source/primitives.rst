@@ -19,6 +19,10 @@ plate_stack
 -----------
 .. autofunction:: numpyro.primitives.plate_stack
 
+label_event_dim
+---------------
+.. autofunction:: numpyro.primitives.label_event_dim
+
 subsample
 ---------
 .. autofunction:: numpyro.primitives.subsample

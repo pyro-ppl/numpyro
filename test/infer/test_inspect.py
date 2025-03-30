@@ -1,14 +1,19 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import numpy as np
 
 import jax
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.infer.inspect import get_dependencies
+from numpyro.infer.initialization import init_to_sample
+from numpyro.infer.inspect import get_dependencies, get_site_dims
+from numpyro.ops.pytree import PytreeTrace
 
 
 class NonreparameterizedNormal(dist.Normal):
@@ -434,3 +439,104 @@ def test_nested_plate_collider():
         },
     }
     assert actual == expected
+
+
+def test_label_event_dim():
+    def get_trace(model):
+        # We use `init_to_sample` to get around ImproperUniform distribution,
+        # which does not have `sample` method.
+
+        def _get_dist_name(fn):
+            if isinstance(
+                fn,
+                (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution),
+            ):
+                return _get_dist_name(fn.base_dist)
+            return type(fn).__name__
+
+        subs_model = handlers.substitute(
+            handlers.seed(model, 0),
+            substitute_fn=init_to_sample,
+        )
+        trace = handlers.trace(subs_model).get_trace()
+        # Work around an issue where jax.eval_shape does not work
+        # for distribution output (e.g. the function `lambda: dist.Normal(0, 1)`)
+        # Here we will remove `fn` and store its name in the trace.
+        for _, site in trace.items():
+            if site["type"] == "sample":
+                site["fn_name"] = _get_dist_name(site.pop("fn"))
+            elif site["type"] == "deterministic":
+                site["fn_name"] = "Deterministic"
+        return PytreeTrace(trace)
+
+    def model1():
+        with numpyro.label_event_dim("dim1", 10):
+            param = numpyro.sample("param", dist.ZeroSumNormal(1, event_shape=(10,)))
+            _ = numpyro.deterministic("transformed_param", param + 1)
+
+    def model2():
+        with numpyro.label_event_dim("dim2", 5), numpyro.label_event_dim("dim1", 10):
+            numpyro.sample("param", dist.ZeroSumNormal(1, event_shape=(10, 5)))
+
+    def model3():
+        with numpyro.plate("dim1", 5), numpyro.label_event_dim("dim2", 10):
+            numpyro.sample("param", dist.ZeroSumNormal(1, event_shape=(10,)))
+
+    # expected dims, dim names
+    expected_results = [
+        ([-1], ["dim1"]),
+        ([-2, -1], ["dim1", "dim2"]),
+        ([-1], ["dim2"]),
+    ]
+    for model, (exp_dims, exp_names) in zip([model1, model2, model3], expected_results):
+        trace = jax.eval_shape(partial(get_trace, model)).trace
+        sites = {
+            name: site
+            for name, site in trace.items()
+            if site["type"] in ["sample", "deterministic"]
+        }
+        for _, metadata in sites.items():
+            # make sure the new event dim stack is present
+            assert (
+                "dep_stack" in metadata.keys() and "cond_indep_stack" in metadata.keys()
+            )
+
+            # make sure the dims are as expected
+            assert exp_dims == [plate.dim for plate in metadata["dep_stack"]]
+
+            # make sure the dim names are as expected
+            assert exp_names == [plate.name for plate in metadata["dep_stack"]]
+
+
+def test_get_site_dims():
+    def model1():
+        with numpyro.label_event_dim("dim1", 10):
+            param = numpyro.sample("param", dist.ZeroSumNormal(1, event_shape=(10,)))
+            _ = numpyro.deterministic("transformed_param", param + 1)
+        with numpyro.plate("obs_idx", 3):
+            _ = numpyro.sample(
+                "obs", dist.Normal(0, 1), obs=jnp.array([-1.0, 0.0, 1.0])
+            )
+
+    def model2():
+        _ = numpyro.sample("unplated_param", dist.Normal(0, 1))
+        with numpyro.label_event_dim("dim2", 5), numpyro.label_event_dim("dim1", 10):
+            numpyro.sample("param", dist.ZeroSumNormal(1, event_shape=(10, 5)))
+
+    def model3():
+        with numpyro.plate("dim1", 5), numpyro.label_event_dim("dim2", 10):
+            numpyro.sample("param", dist.ZeroSumNormal(1, event_shape=(10,)))
+
+    expected_results = [
+        {
+            "param": {"batch_dims": [], "event_dims": ["dim1"]},
+            "transformed_param": {"batch_dims": [], "event_dims": ["dim1"]},
+            "obs": {"batch_dims": ["obs_idx"], "event_dims": []},
+        },
+        {"param": {"batch_dims": [], "event_dims": ["dim1", "dim2"]}},
+        {"param": {"batch_dims": ["dim1"], "event_dims": ["dim2"]}},
+    ]
+
+    for model, expected in zip([model1, model2, model3], expected_results):
+        site_dims = get_site_dims(model)
+        assert site_dims == expected
