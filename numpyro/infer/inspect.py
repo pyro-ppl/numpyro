@@ -299,7 +299,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
 
     def _get_dist_name(fn):
         if isinstance(
-            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution),
+            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
         ):
             return _get_dist_name(fn.base_dist)
         return type(fn).__name__
