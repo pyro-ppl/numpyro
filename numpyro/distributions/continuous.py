@@ -25,6 +25,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+
+from typing import Optional
+
 import numpy as np
 
 from jax import lax, vmap
@@ -3212,3 +3215,104 @@ class CirculantNormal(TransformedDistribution):
         (n,) = self.event_shape
         log_abs_det_jacobian = 2 * jnp.log(2) * ((n - 1) // 2) - jnp.log(n) * n
         return self.base_dist.entropy() + log_abs_det_jacobian / 2
+
+
+class Dagum(Distribution):
+    arg_constraints = {
+        "p": constraints.positive,
+        "a": constraints.positive,
+        "b": constraints.positive,
+    }
+    support = constraints.positive
+
+    def __init__(
+        self,
+        p: ArrayLike,
+        a: ArrayLike,
+        b: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""The Dagum distribution (or Mielke Beta-Kappa distribution) is a continuous
+        probability distribution defined over positive real numbers. If :math:`p`,
+        :math:`a` and :math:`b` are shape values, then Dagum distribution is defined as,
+
+        .. math::
+
+            f(x\mid p,a,b):=\frac{ap}{x}
+            \left(\frac{(x/b)^{ap}}{\left((x/b)^{a}+1\right)^{p+1}}\right)
+
+        :param p: shape parameter :math:`p>0`.
+        :param a: shape parameter :math:`a>0`.
+        :param b: scale parameter :math:`b>0`.
+
+        **References:**
+
+        1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
+           https://en.wikipedia.org/wiki/Dagum_distribution
+        """
+        self.p, self.a, self.b = promote_shapes(p, a, b)
+        batch_shape = lax.broadcast_shapes(jnp.shape(p), jnp.shape(a), jnp.shape(b))
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        a_ln_x_m_ln_b = xlogy(self.a, value) - xlogy(self.a, self.b)
+        return (
+            jnp.log(self.a)
+            + jnp.log(self.p)
+            - jnp.log(value)
+            + self.p * a_ln_x_m_ln_b
+            - (self.p + 1.0) * nn.softplus(a_ln_x_m_ln_b)
+        )
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        return jnp.exp(
+            -self.p * nn.softplus(xlogy(self.a, self.b) - xlogy(self.a, value))
+        )
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        q_root_p = jnp.power(q, -jnp.reciprocal(self.p))
+        return self.b * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.a))
+
+    def sample(self, key, sample_shape: tuple[int, ...] = ()) -> jnp.ndarray:
+        assert is_prng_key(key)
+        return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
+
+    @property
+    def mean(self) -> ArrayLike:
+        safe_a = jnp.where(self.a > 1.0, self.a, 2.0)
+        return jnp.where(
+            self.a > 1.0,
+            self.b
+            * jnp.exp(
+                gammaln(1.0 - 1.0 / safe_a)
+                + gammaln(self.p + 1.0 / safe_a)
+                - gammaln(self.p)
+            ),
+            jnp.inf,
+        )
+
+    @property
+    def variance(self) -> ArrayLike:
+        safe_a = jnp.where(self.a > 2.0, self.a, 3.0)
+        return jnp.where(
+            self.a > 2.0,
+            jnp.square(self.b)
+            * (
+                jnp.exp(
+                    gammaln(1.0 - 2.0 / safe_a)
+                    + gammaln(self.p + 2.0 / safe_a)
+                    - gammaln(self.p)
+                )
+                - jnp.exp(
+                    2.0
+                    * (
+                        gammaln(1.0 - 1.0 / safe_a)
+                        + gammaln(self.p + 1.0 / safe_a)
+                        - gammaln(self.p)
+                    )
+                )
+            ),
+            jnp.inf,
+        )
