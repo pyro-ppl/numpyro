@@ -3224,6 +3224,7 @@ class Dagum(Distribution):
         "b": constraints.positive,
     }
     support = constraints.positive
+    reparametrized_params = ["p", "a", "b"]
 
     def __init__(
         self,
