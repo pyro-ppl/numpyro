@@ -959,6 +959,10 @@ CONTINUOUS = [
     T(dist.Levy, 0.0, 1.0),
     T(dist.Levy, 0.0, np.array([1.0, 2.0, 10.0])),
     T(dist.Levy, np.array([1.0, 2.0, 10.0]), np.pi),
+    T(dist.Dagum, 1.0, 1.0, 1.0),
+    T(dist.Dagum, 3.0, 4.0, 5.0),
+    T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
+    T(dist.Dagum, 2.0, 3.0, np.array([5.0, 2.0, 10.0])),
 ]
 
 DIRECTIONAL = [
@@ -1390,10 +1394,10 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     }.get(jax_dist.__name__, [])
 
     if (
-        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        jax_dist in [dist.DoublyTruncatedPowerLaw, dist.Dagum]
         and jnp.result_type(float) == jnp.float32
     ):
-        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
+        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     dist_args = [
         p
@@ -1856,10 +1860,10 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("no param for ImproperUniform to test for log_prob gradient")
     if (
-        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        jax_dist in [dist.DoublyTruncatedPowerLaw, dist.Dagum]
         and jnp.result_type(float) == jnp.float32
     ):
-        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
+        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     rng_key = random.PRNGKey(0)
     value = jax_dist(*params).sample(rng_key)
