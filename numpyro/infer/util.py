@@ -668,12 +668,12 @@ def initialize_model(
         Defaults to True.
     :return: a namedtupe `ModelInfo` which contains the fields
         (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
-        `param_info` is a namedtuple `ParamInfo` containing values from the prior
-        used to initiate MCMC, their corresponding potential energy, and their gradients;
-        `postprocess_fn` is a callable that uses inverse transforms
-        to convert unconstrained HMC samples to constrained values that
-        lie within the site's support, in addition to returning values
-        at `deterministic` sites in the model.
+        `param_info` is a namedtuple `ParamInfo` containing *unconstrained* values from
+        the prior used to initiate MCMC, their corresponding potential energy, and their
+        gradients; `postprocess_fn` is a callable that uses inverse transforms to
+        convert unconstrained HMC samples to constrained values that lie within the
+        site's support, in addition to returning values at `deterministic` sites in the
+        model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
     substituted_model = substitute(
