@@ -339,6 +339,28 @@ class AutoGuideList(AutoGuide):
         return result
 
 
+def _maybe_constrain_dist_for_site(
+    site: dict, base_distribution: dist.Distribution
+) -> dist.Distribution:
+    support = site["fn"].support
+
+    # Short-circuit if the support is real and return the base distribution with the
+    # correct number of event dimensions.
+    base_support = support
+    while isinstance(base_support, constraints.independent):
+        base_support = base_support.base_constraint
+    if base_support is constraints.real:
+        if support.event_dim:
+            return base_distribution.to_event(support.event_dim)
+        else:
+            return base_distribution
+
+    # Transform the distribution to the support of the site.
+    with helpful_support_errors(site):
+        transform = biject_to(support)
+    return dist.TransformedDistribution(base_distribution, transform)
+
+
 class AutoNormal(AutoGuide):
     """
     This implementation of :class:`AutoGuide` uses Normal distributions
@@ -431,18 +453,11 @@ class AutoNormal(AutoGuide):
                     constraint=self.scale_constraint,
                     event_dim=event_dim,
                 )
-
-                site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
-                if site["fn"].support is constraints.real or (
-                    isinstance(site["fn"].support, constraints.independent)
-                    and site["fn"].support.base_constraint is constraints.real
-                ):
-                    result[name] = numpyro.sample(name, site_fn)
-                else:
-                    with helpful_support_errors(site):
-                        transform = biject_to(site["fn"].support)
-                    guide_dist = dist.TransformedDistribution(site_fn, transform)
-                    result[name] = numpyro.sample(name, guide_dist)
+                unconstrained_dist = dist.Normal(site_loc, site_scale)
+                constrained_dist = _maybe_constrain_dist_for_site(
+                    site, unconstrained_dist
+                )
+                result[name] = numpyro.sample(name, constrained_dist)
 
         return result
 
@@ -528,12 +543,6 @@ class AutoDelta(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        with numpyro.handlers.block():
-            self._init_locs = {
-                k: v
-                for k, v in self._postprocess_fn(self._init_locs).items()
-                if k in self._init_locs
-            }
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue
@@ -561,26 +570,22 @@ class AutoDelta(AutoGuide):
             if site["type"] != "sample" or site["is_observed"]:
                 continue
 
-            event_dim = self._event_dims[name]
             init_loc = self._init_locs[name]
             with ExitStack() as stack:
                 for frame in site["cond_indep_stack"]:
                     stack.enter_context(plates[frame.name])
 
-                site_loc = numpyro.param(
-                    "{}_{}_loc".format(name, self.prefix),
-                    init_loc,
-                    constraint=site["fn"].support,
-                    event_dim=event_dim,
+                site_loc = numpyro.param(f"{name}_{self.prefix}_loc", init_loc)
+                unconstrained_dist = dist.Delta(site_loc)
+                constrained_dist = _maybe_constrain_dist_for_site(
+                    site, unconstrained_dist
                 )
-
-                site_fn = dist.Delta(site_loc).to_event(event_dim)
-                result[name] = numpyro.sample(name, site_fn)
+                result[name] = numpyro.sample(name, constrained_dist)
 
         return result
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
-        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        locs = self.median(params)
         latent_samples = {
             k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
         }
@@ -600,7 +605,11 @@ class AutoDelta(AutoGuide):
             return {**latent_samples, **deterministic_samples}
 
     def median(self, params):
-        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        locs = {}
+        for name in self._init_locs:
+            unconstrained = params[f"{name}_{self.prefix}_loc"]
+            transform = biject_to(self.prototype_trace[name]["fn"].support)
+            locs[name] = transform(unconstrained)
         return locs
 
 
@@ -708,26 +717,11 @@ class AutoContinuous(AutoGuide):
 
         # unpack continuous latent samples
         result = {}
-
         for name, unconstrained_value in self._unpack_latent(latent).items():
             site = self.prototype_trace[name]
-            with helpful_support_errors(site):
-                transform = biject_to(site["fn"].support)
-            value = transform(unconstrained_value)
-            event_ndim = site["fn"].event_dim
-            if numpyro.get_mask() is False:
-                log_density = 0.0
-            else:
-                log_density = -transform.log_abs_det_jacobian(
-                    unconstrained_value, value
-                )
-                log_density = sum_rightmost(
-                    log_density, jnp.ndim(log_density) - jnp.ndim(value) + event_ndim
-                )
-            delta_dist = dist.Delta(
-                value, log_density=log_density, event_dim=event_ndim
-            )
-            result[name] = numpyro.sample(name, delta_dist)
+            unconstrained_dist = dist.Delta(unconstrained_value)
+            constrained_dist = _maybe_constrain_dist_for_site(site, unconstrained_dist)
+            result[name] = numpyro.sample(name, constrained_dist)
 
         return result
 
