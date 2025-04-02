@@ -547,7 +547,11 @@ class AutoDelta(AutoGuide):
             if site["type"] != "sample" or site["is_observed"]:
                 continue
 
-            event_dim = site["fn"].event_dim
+            event_dim = (
+                site["fn"].event_dim
+                + jnp.ndim(self._init_locs[name])
+                - jnp.ndim(site["value"])
+            )
             self._event_dims[name] = event_dim
 
             # If subsampling, repeat init_value to full size.
@@ -571,11 +575,14 @@ class AutoDelta(AutoGuide):
                 continue
 
             init_loc = self._init_locs[name]
+            event_dim = self._event_dims[name]
             with ExitStack() as stack:
                 for frame in site["cond_indep_stack"]:
                     stack.enter_context(plates[frame.name])
 
-                site_loc = numpyro.param(f"{name}_{self.prefix}_loc", init_loc)
+                site_loc = numpyro.param(
+                    f"{name}_{self.prefix}_loc", init_loc, event_dim=event_dim
+                )
                 unconstrained_dist = dist.Delta(site_loc)
                 constrained_dist = _maybe_constrain_dist_for_site(
                     site, unconstrained_dist

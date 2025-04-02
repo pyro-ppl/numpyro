@@ -484,7 +484,7 @@ def test_module():
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(1000))
 
 
-@pytest.mark.parametrize("auto_class", [AutoNormal])
+@pytest.mark.parametrize("auto_class", [AutoNormal, AutoDelta])
 def test_subsample_guide(auto_class):
     # The model adapted from tutorial/source/easyguide.ipynb
     def model(batch, subsample, full_size):
