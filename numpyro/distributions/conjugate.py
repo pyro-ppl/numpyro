@@ -107,6 +107,7 @@ class DirichletMultinomial(Distribution):
     :param numpy.ndarray concentration: concentration parameter (alpha) for the
         Dirichlet distribution.
     :param numpy.ndarray total_count: number of Categorical trials.
+    :param int total_count_max: the maximum number of trials, i.e. `max(total_count)`
     """
 
     arg_constraints = {
@@ -116,7 +117,9 @@ class DirichletMultinomial(Distribution):
     pytree_data_fields = ("concentration", "_dirichlet")
     pytree_aux_fields = ("total_count",)
 
-    def __init__(self, concentration, total_count=1, *, validate_args=None):
+    def __init__(
+        self, concentration, total_count=1, *, total_count_max=None, validate_args=None
+    ):
         if jnp.ndim(concentration) < 1:
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."
@@ -128,6 +131,7 @@ class DirichletMultinomial(Distribution):
         concentration_shape = batch_shape + jnp.shape(concentration)[-1:]
         (self.concentration,) = promote_shapes(concentration, shape=concentration_shape)
         (self.total_count,) = promote_shapes(total_count, shape=batch_shape)
+        self.total_count_max = total_count_max
         concentration = jnp.broadcast_to(self.concentration, concentration_shape)
         self._dirichlet = Dirichlet(concentration)
         super().__init__(
@@ -140,9 +144,11 @@ class DirichletMultinomial(Distribution):
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
-        return MultinomialProbs(total_count=self.total_count, probs=probs).sample(
-            key_multinom
-        )
+        return MultinomialProbs(
+            total_count=self.total_count,
+            probs=probs,
+            total_count_max=self.total_count_max,
+        ).sample(key_multinom)
 
     @validate_sample
     def log_prob(self, value):
