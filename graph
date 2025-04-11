@@ -1,0 +1,3 @@
+digraph {
+	x [label=x fillcolor=white shape=ellipse style=filled]
+}

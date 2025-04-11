@@ -115,7 +115,7 @@ class DirichletMultinomial(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("concentration", "_dirichlet")
-    pytree_aux_fields = ("total_count",)
+    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self, concentration, total_count=1, *, total_count_max=None, validate_args=None
