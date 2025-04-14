@@ -49,7 +49,13 @@ EXAMPLES = [
     "hsgp.py --num-samples 10 --num-warmup 10 --num-chains 2",
     "minipyro.py",
     "mortality.py --num-samples 10 --num-warmup 10 --num-chains 2",
-    "neutra.py --num-samples 100 --num-warmup 100",
+    pytest.param(
+        "neutra.py --num-samples 100 --num-warmup 100",
+        marks=pytest.mark.skipif(
+            "CI" in os.environ,
+            reason="This example fails on the CI runner with message 'died with <Signals.SIGSEGV: 11>.'",
+        ),
+    ),
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
     pytest.param(
         "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
