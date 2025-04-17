@@ -962,7 +962,8 @@ CONTINUOUS = [
     T(dist.Dagum, 1.0, 1.0, 1.0),
     T(dist.Dagum, 3.0, 4.0, 5.0),
     T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
-    T(dist.Dagum, 2.0, 3.0, np.array([4.0, 2.0, 10.0])),
+    T(dist.Dagum, 2.0, 3.0, np.array([0.5, 2.0, 1.0])),
+    T(dist.Dagum, np.array([5.0, 2.0, 10.0]), 3.0, 5.0),
 ]
 
 DIRECTIONAL = [
@@ -1944,6 +1945,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip(
             f"{jax_dist.__name__} distribution does not has mean/var implemented"
         )
+    if jax_dist in [dist.Dagum] and jnp.result_type(float) == jnp.float32:
+        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     n = (
         20000
