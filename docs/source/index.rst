@@ -87,6 +87,7 @@ NumPyro documentation
    tutorials/tbip
    examples/var2
    tutorials/hierarchical_forecasting
+   tutorials/bayesian_cuped
 
 .. nbgallery::
    :maxdepth: 1
