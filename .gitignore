@@ -19,7 +19,6 @@ build
 
 # data files
 *.pdf
-*.png
 numpyro/examples/.data
 examples/.results
 examples/*.pdf
