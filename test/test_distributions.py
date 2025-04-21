@@ -3423,6 +3423,23 @@ def test_multinomial_abstract_total_count():
     assert_allclose(x, y, rtol=1e-6)
 
 
+def test_dirichlet_multinomial_abstract_total_count():
+    probs = jnp.array([0.2, 0.5, 0.3])
+    key = random.PRNGKey(0)
+
+    def f(x):
+        total_count = x.sum(-1)
+        return dist.DirichletMultinomial(
+            concentration=probs,
+            total_count=total_count,
+            total_count_max=10,  # fails on 0.18.0
+        ).sample(key)
+
+    x = dist.DirichletMultinomial(concentration=probs, total_count=10).sample(key)
+    y = jax.jit(f)(x)
+    assert_allclose(x, y, rtol=1e-6)
+
+
 def test_normal_log_cdf():
     # test if log_cdf method agrees with jax.scipy.stats.norm.logcdf
     # and if exp(log_cdf) agrees with cdf
