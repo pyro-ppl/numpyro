@@ -35,7 +35,7 @@ def test_block_update_partitioning(num_blocks):
     assert gibbs_state == new_gibbs_state
 
 
-def test_haiku_compatiable():
+def test_haiku_compatible():
     try:
         import haiku as hk  # noqa: F401
 
