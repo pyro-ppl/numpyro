@@ -107,9 +107,6 @@ def test_flax_module():
     assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
-@pytest.mark.xfail(
-    reason="Haiku module is deprecated and not supported on JAX >= 0.6.0"
-)
 def test_haiku_module():
     W = np.arange(100).astype(np.float32)
     X = np.arange(100).astype(np.float32)
@@ -180,7 +177,6 @@ def test_random_module_mcmc(backend, init, callable_prior):
         random_module = random_flax_module
         kwargs_name = "inputs"
     elif backend == "haiku":
-        pytest.skip("Haiku module is deprecated and not supported on JAX >= 0.6.0")
         import haiku as hk
 
         linear_module = hk.transform(lambda x: hk.Linear(1)(x))
@@ -236,9 +232,6 @@ def test_random_module_mcmc(backend, init, callable_prior):
     )
 
 
-@pytest.mark.xfail(
-    reason="Haiku module is deprecated and not supported on JAX >= 0.6.0"
-)
 @pytest.mark.parametrize("dropout", [True, False])
 @pytest.mark.parametrize("batchnorm", [True, False])
 def test_haiku_state_dropout_smoke(dropout, batchnorm):

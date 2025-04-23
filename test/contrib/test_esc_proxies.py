@@ -35,9 +35,6 @@ def test_block_update_partitioning(num_blocks):
     assert gibbs_state == new_gibbs_state
 
 
-@pytest.mark.xfail(
-    reason="Haiku module is deprecated and not supported on JAX >= 0.6.0"
-)
 def test_haiku_compatiable():
     try:
         import haiku as hk  # noqa: F401
