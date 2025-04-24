@@ -703,7 +703,6 @@ def test_random_eqx_module_mcmc_sequence_params():
     mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
     mcmc.run(random.PRNGKey(0), data, labels)
     samples = mcmc.get_samples()
-    print(samples.keys())
 
     # check both layers have parameters in the samples
     assert "nn/layers[0].bias" in samples
