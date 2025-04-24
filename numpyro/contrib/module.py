@@ -231,7 +231,7 @@ def _update_params(params, new_params, prior, prefix=""):
     A helper to recursively set prior to new_params.
     """
     for name, item in params.items():
-        flatten_name = ".".join([prefix, name]) if prefix else name
+        flatten_name = ".".join([str(prefix), str(name)]) if prefix else str(name)
         if isinstance(item, dict):
             assert not isinstance(prior, dict) or flatten_name not in prior
             new_item = new_params[name]
