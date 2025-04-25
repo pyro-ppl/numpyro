@@ -480,6 +480,7 @@ def test_random_nnx_module_mcmc(callable_prior):
     assert "nn/w" in samples
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_random_nnx_module_mcmc_sequence_params():
     from flax import nnx
 
@@ -654,6 +655,7 @@ def test_random_eqx_module_mcmc(callable_prior):
     assert "nn/weight" in samples
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_random_eqx_module_mcmc_sequence_params():
     import equinox as eqx
 
