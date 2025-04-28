@@ -62,7 +62,7 @@ setup(
             "dm-haiku<0.0.14; python_version < '3.10'",
             "equinox",
             "flax",
-            "funsor>=0.4.1",
+            "funsor>=0.4.6",
             "graphviz",
             "jaxns==2.6.3",
             "matplotlib",
