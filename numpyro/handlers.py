@@ -132,6 +132,8 @@ __all__ = [
     "do",
 ]
 
+TraceT = OrderedDict[str, Message]
+
 
 class trace(Messenger):
     """
@@ -163,9 +165,9 @@ class trace(Messenger):
                       'value': Array(-0.20584235, dtype=float32)})])
     """
 
-    def __enter__(self) -> OrderedDict[str, Message]:  # type: ignore [override]
+    def __enter__(self) -> TraceT:  # type: ignore [override]
         super(trace, self).__enter__()
-        self.trace: OrderedDict[str, Message] = OrderedDict()
+        self.trace: TraceT = OrderedDict()
         return self.trace
 
     def postprocess_message(self, msg: Message) -> None:
@@ -180,7 +182,7 @@ class trace(Messenger):
         )
         self.trace[msg["name"]] = msg.copy()
 
-    def get_trace(self, *args, **kwargs) -> OrderedDict[str, Message]:
+    def get_trace(self, *args, **kwargs) -> TraceT:
         """
         Run the wrapped callable and return the recorded trace.
 
@@ -225,7 +227,7 @@ class replay(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        trace: Optional[OrderedDict[str, Message]] = None,
+        trace: Optional[TraceT] = None,
     ) -> None:
         assert trace is not None
         self.trace = trace
@@ -357,7 +359,7 @@ class collapse(trace):
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
 
-    def __enter__(self) -> OrderedDict[str, Message]:  # type: ignore [override]
+    def __enter__(self) -> TraceT:  # type: ignore [override]
         self.preserved_plates = frozenset(
             h.name for h in _PYRO_STACK if isinstance(h, plate)
         )

@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, defaultdict
+from collections.abc import Callable
 from functools import partial
 from operator import itemgetter
+from typing import Any, Generic, ParamSpec, TypedDict, TypeVar
 import warnings
 
 import jax
@@ -15,7 +17,7 @@ from jax.scipy.special import logsumexp
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
-from numpyro.handlers import replay, seed, substitute, trace
+from numpyro.handlers import TraceT, replay, seed, substitute, trace
 from numpyro.infer.util import (
     _without_rsample_stop_gradient,
     compute_log_probs,
@@ -25,12 +27,25 @@ from numpyro.infer.util import (
 from numpyro.ops.provenance import eval_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
+T = TypeVar("T")
+mapT = Callable[[Callable, T], T]
 
-def _apply_vmap(fn, keys):
+P = ParamSpec("P")
+ModelT = Callable[P, Any]
+
+MutableStateT = dict[str, Any]
+
+
+class LossWithMutableState(TypedDict):
+    loss: dict[str, jax.Array]
+    mutable_state: MutableStateT | None
+
+
+def _apply_vmap(fn: Callable, keys: T) -> T:
     return vmap(fn)(keys)
 
 
-class ELBO:
+class ELBO(Generic[P]):
     """
     Base class for all ELBO objectives.
 
@@ -51,14 +66,14 @@ class ELBO:
     """
     can_infer_discrete = False
 
-    def __init__(self, num_particles=1, vectorize_particles=True):
+    def __init__(self, num_particles: int = 1, vectorize_particles: bool | mapT = True):
         self.num_particles = num_particles
         self.vectorize_particles = vectorize_particles
         self.vectorize_particles_fn = self._assign_vectorize_particles_fn(
             vectorize_particles
         )
 
-    def _assign_vectorize_particles_fn(self, vectorize_particles):
+    def _assign_vectorize_particles_fn(self, vectorize_particles: bool | mapT) -> mapT:
         """Assigns a vectorization function to self.vectorize_particles_fn."""
         if callable(vectorize_particles):
             return vectorize_particles
@@ -73,12 +88,12 @@ class ELBO:
 
     def loss(
         self,
-        rng_key,
-        param_map,
-        model,
-        guide,
-        *args,
-        **kwargs,
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ):
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
@@ -99,7 +114,13 @@ class ELBO:
         )["loss"]
 
     def loss_with_mutable_state(
-        self, rng_key, param_map, model, guide, *args, **kwargs
+        self,
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ):
         """
         Like :meth:`loss` but also update and return the mutable state, which stores the
@@ -119,7 +140,7 @@ class ELBO:
         raise NotImplementedError("This ELBO objective does not support mutable state.")
 
 
-class Trace_ELBO(ELBO):
+class Trace_ELBO(ELBO, Generic[P]):
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
     along the lines of references [1] and [2]. There are no restrictions on the
@@ -167,14 +188,16 @@ class Trace_ELBO(ELBO):
 
     def loss_with_mutable_state(
         self,
-        rng_key,
-        param_map,
-        model,
-        guide,
-        *args,
-        **kwargs,
-    ):
-        def single_particle_elbo(rng_key):
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LossWithMutableState:
+        def single_particle_elbo(
+            rng_key: jax.Array,
+        ) -> tuple[jax.Array | dict[str, jax.Array], MutableStateT | None]:
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_guide = seed(guide, guide_seed)
@@ -194,7 +217,9 @@ class Trace_ELBO(ELBO):
                     if site["type"] == "plate"
                 }
 
-                def compute_model_log_probs(key, latent):
+                def compute_model_log_probs(
+                    key: jax.Array, latent: dict[str, jax.Array]
+                ) -> dict[str, jax.Array]:
                     with seed(rng_seed=key), substitute(data={**latent, **plates}):
                         model_log_probs, model_trace = compute_log_probs(
                             model, args, kwargs, params
@@ -240,12 +265,16 @@ class Trace_ELBO(ELBO):
             # there may be observed sites in `model_log_probs` that are not in
             # `guide_log_probs` and vice versa.
             union = set(model_log_probs).union(guide_log_probs)
-            elbo_particle = {
-                name: model_log_probs.get(name, 0.0) - guide_log_probs.get(name, 0.0)
+            _elbo_particle = {
+                name: model_log_probs.get(name, jnp.array(0.0))
+                - guide_log_probs.get(name, jnp.array(0.0))
                 for name in union
             }
+            elbo_particle: jax.Array | dict[str, jax.Array]
             if self.sum_sites:
-                elbo_particle = sum(elbo_particle.values(), start=0.0)
+                elbo_particle = sum(_elbo_particle.values(), start=jnp.array(0.0))
+            else:
+                elbo_particle = _elbo_particle
 
             if mutable_params:
                 if self.num_particles == 1:
@@ -274,7 +303,7 @@ class Trace_ELBO(ELBO):
             }
 
 
-def _get_log_prob_sum(site):
+def _get_log_prob_sum(site: dict[str, Any]) -> jax.Array:
     if site["intermediates"]:
         log_prob = site["fn"].log_prob(site["value"], site["intermediates"])
     else:
@@ -283,7 +312,7 @@ def _get_log_prob_sum(site):
     return jnp.sum(log_prob)
 
 
-def _check_mean_field_requirement(model_trace, guide_trace):
+def _check_mean_field_requirement(model_trace: TraceT, guide_trace: TraceT) -> None:
     """
     Checks that the guide and model sample sites are ordered identically.
     This is sufficient but not necessary for correctness.
