@@ -1,10 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+# TODO add ruff ANN checks
+
 from collections import OrderedDict, defaultdict
 from collections.abc import Callable
 from functools import partial
-from operator import itemgetter
 from typing import Any, Generic, ParamSpec, TypedDict, TypeVar
 import warnings
 
@@ -17,7 +18,15 @@ from jax.scipy.special import logsumexp
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
-from numpyro.handlers import TraceT, replay, seed, substitute, trace
+from numpyro.handlers import (
+    CondIndepStackFrame,
+    Message,
+    TraceT,
+    replay,
+    seed,
+    substitute,
+    trace,
+)
 from numpyro.infer.util import (
     _without_rsample_stop_gradient,
     compute_log_probs,
@@ -34,6 +43,7 @@ P = ParamSpec("P")
 ModelT = Callable[P, Any]
 
 MutableStateT = dict[str, Any]
+ParticleT = jax.Array | dict[str, jax.Array]
 
 
 class LossWithMutableState(TypedDict):
@@ -197,7 +207,7 @@ class Trace_ELBO(ELBO, Generic[P]):
     ) -> LossWithMutableState:
         def single_particle_elbo(
             rng_key: jax.Array,
-        ) -> tuple[jax.Array | dict[str, jax.Array], MutableStateT | None]:
+        ) -> tuple[ParticleT, MutableStateT | None]:
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_guide = seed(guide, guide_seed)
@@ -270,7 +280,7 @@ class Trace_ELBO(ELBO, Generic[P]):
                 - guide_log_probs.get(name, jnp.array(0.0))
                 for name in union
             }
-            elbo_particle: jax.Array | dict[str, jax.Array]
+            elbo_particle: ParticleT
             if self.sum_sites:
                 elbo_particle = sum(_elbo_particle.values(), start=jnp.array(0.0))
             else:
@@ -341,7 +351,7 @@ def _check_mean_field_requirement(model_trace: TraceT, guide_trace: TraceT) -> N
         )
 
 
-class TraceMeanField_ELBO(ELBO):
+class TraceMeanField_ELBO(ELBO, Generic[P]):
     """
     A trace implementation of ELBO-based SVI. This is currently the only
     ELBO estimator in NumPyro that uses analytic KL divergences when those
@@ -378,9 +388,17 @@ class TraceMeanField_ELBO(ELBO):
         super().__init__(num_particles, vectorize_particles)
 
     def loss_with_mutable_state(
-        self, rng_key, param_map, model, guide, *args, **kwargs
-    ):
-        def single_particle_elbo(rng_key):
+        self,
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LossWithMutableState:
+        def single_particle_elbo(
+            rng_key: jax.Array,
+        ) -> tuple[ParticleT, MutableStateT | None]:
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
@@ -406,19 +424,19 @@ class TraceMeanField_ELBO(ELBO):
             _validate_model(model_trace, plate_warning="loose")
             _check_mean_field_requirement(model_trace, guide_trace)
 
-            elbo_particle = {}
+            _elbo_particle = {}
             for name, model_site in model_trace.items():
                 if model_site["type"] == "sample":
                     if model_site["is_observed"]:
-                        elbo_particle[name] = _get_log_prob_sum(model_site)
+                        _elbo_particle[name] = _get_log_prob_sum(model_site)
                     else:
                         guide_site = guide_trace[name]
                         try:
                             kl_qp = kl_divergence(guide_site["fn"], model_site["fn"])
                             kl_qp = scale_and_mask(kl_qp, scale=guide_site["scale"])
-                            elbo_particle[name] = -jnp.sum(kl_qp)
+                            _elbo_particle[name] = -jnp.sum(kl_qp)
                         except NotImplementedError:
-                            elbo_particle[name] = _get_log_prob_sum(
+                            _elbo_particle[name] = _get_log_prob_sum(
                                 model_site
                             ) - _get_log_prob_sum(guide_site)
 
@@ -426,10 +444,13 @@ class TraceMeanField_ELBO(ELBO):
             for name, site in guide_trace.items():
                 if site["type"] == "sample" and name not in model_trace:
                     assert site["infer"].get("is_auxiliary") or site["is_observed"]
-                    elbo_particle[name] = -_get_log_prob_sum(site)
+                    _elbo_particle[name] = -_get_log_prob_sum(site)
 
+            elbo_particle: ParticleT
             if self.sum_sites:
-                elbo_particle = sum(elbo_particle.values(), start=0.0)
+                elbo_particle = sum(_elbo_particle.values(), start=jnp.array(0.0))
+            else:
+                elbo_particle = _elbo_particle
 
             if mutable_params:
                 if self.num_particles == 1:
@@ -456,7 +477,7 @@ class TraceMeanField_ELBO(ELBO):
             }
 
 
-class RenyiELBO(ELBO):
+class RenyiELBO(ELBO, Generic[P]):
     r"""
     An implementation of Renyi's :math:`\alpha`-divergence
     variational inference following reference [1].
@@ -504,7 +525,7 @@ class RenyiELBO(ELBO):
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
 
-    def __init__(self, alpha=0, num_particles=2):
+    def __init__(self, alpha: float = 0, num_particles: int = 2):
         if alpha == 1:
             raise ValueError(
                 "The order alpha should not be equal to 1. Please use ELBO class"
@@ -513,7 +534,15 @@ class RenyiELBO(ELBO):
         self.alpha = alpha
         super().__init__(num_particles=num_particles)
 
-    def _single_particle_elbo(self, model, guide, param_map, args, kwargs, rng_key):
+    def _single_particle_elbo(
+        self,
+        model: ModelT,
+        guide: ModelT,
+        param_map: dict[str, jax.Array],
+        args: tuple[Any],
+        kwargs: dict[str, Any],
+        rng_key: jax.Array,
+    ) -> tuple[jax.Array, float]:
         model_seed, guide_seed = random.split(rng_key)
         seeded_model = seed(model, model_seed)
         seeded_guide = seed(guide, guide_seed)
@@ -556,12 +585,12 @@ class RenyiELBO(ELBO):
 
         log_densities = {}
         for trace_type, tr in {"guide": guide_trace, "model": model_trace}.items():
-            log_densities[trace_type] = 0.0
+            log_densities[trace_type] = jnp.array(0.0)
             for site in tr.values():
                 if site["type"] != "sample":
                     continue
                 log_prob = site["log_prob"]
-                squeeze_axes = ()
+                squeeze_axes: tuple[int, ...] = ()
                 for dim in range(log_prob.ndim):
                     neg_dim = dim - log_prob.ndim
                     if neg_dim in indep_plate_dims:
@@ -579,7 +608,15 @@ class RenyiELBO(ELBO):
         # We will apply such scale after getting those Renyi elbos.
         return elbo / indep_plate_scale, indep_plate_scale
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+    def loss(
+        self,
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> jax.Array:
         plate_key, rng_key = random.split(rng_key)
         model = seed(
             model, plate_key, hide_types=["sample", "prng_key", "control_flow"]
@@ -587,8 +624,14 @@ class RenyiELBO(ELBO):
         guide = seed(
             guide, plate_key, hide_types=["sample", "prng_key", "control_flow"]
         )
+        # would like to use P.args and P.kwargs, but doesn't play nice with partialing out rng_key
         single_particle_elbo = partial(
-            self._single_particle_elbo, model, guide, param_map, args, kwargs
+            self._single_particle_elbo,
+            model,
+            guide,
+            param_map,
+            args,  # type: ignore
+            kwargs,  # type: ignore
         )
 
         rng_keys = random.split(rng_key, self.num_particles)
@@ -610,7 +653,7 @@ class RenyiELBO(ELBO):
         return loss.sum() * common_plate_scale[0]
 
 
-def _get_plate_stacks(trace):
+def _get_plate_stacks(trace: TraceT) -> dict[str, list[CondIndepStackFrame]]:
     """
     This builds a dict mapping site name to a set of plate stacks. Each
     plate stack is a list of :class:`CondIndepStackFrame`s corresponding to
@@ -639,11 +682,11 @@ class MultiFrameTensor(dict):
         summed = downstream_cost.sum_to(target_site["cond_indep_stack"])
     """
 
-    def __init__(self, *items):
+    def __init__(self, *items: tuple[list[CondIndepStackFrame], jax.Array]) -> None:
         super().__init__()
         self.add(*items)
 
-    def add(self, *items):
+    def add(self, *items: tuple[list[CondIndepStackFrame], jax.Array]) -> None:
         """
         Add a collection of (cond_indep_stack, tensor) pairs. Keys are
         ``cond_indep_stack``s, i.e. tuples of :class:`CondIndepStackFrame`s.
@@ -657,7 +700,7 @@ class MultiFrameTensor(dict):
             else:
                 self[frames] = value
 
-    def sum_to(self, target_frames):
+    def sum_to(self, target_frames: list[CondIndepStackFrame]) -> jax.Array:
         total = None
         for frames, value in self.items():
             for f in frames:
@@ -666,7 +709,7 @@ class MultiFrameTensor(dict):
             while jnp.shape(value) and jnp.shape(value)[0] == 1:
                 value = value.squeeze(0)
             total = value if total is None else total + value
-        return 0.0 if total is None else total
+        return jnp.array(0.0) if total is None else total
 
     def __repr__(self):
         return "%s(%s)" % (
@@ -675,117 +718,16 @@ class MultiFrameTensor(dict):
         )
 
 
-def _identify_dense_edges(trace):
-    succ = {}
-    for name, node in trace.items():
-        if node["type"] == "sample":
-            succ[name] = set()
-    for name, node in trace.items():
-        if node["type"] == "sample":
-            for past_name, past_node in trace.items():
-                if past_node["type"] == "sample":
-                    if past_name == name:
-                        break
-                    # XXX: different from Pyro, we always add edge past_name -> name
-                    succ[past_name].add(name)
-    return succ
+# removed in https://github.com/pyro-ppl/numpyro/commit/28e38d85618621cca3796e02da680fabffb8e2a8
 
 
-def _topological_sort(succ, reverse=False):
-    """
-    Return a list of nodes (site names) in topologically sorted order.
-    """
-
-    def dfs(site, visited):
-        if site in visited:
-            return
-        for s in succ[site]:
-            for node in dfs(s, visited):
-                yield node
-        visited.add(site)
-        yield site
-
-    visited = set()
-    top_sorted = []
-    for s in succ:
-        for node in dfs(s, visited):
-            top_sorted.append(node)
-    return top_sorted if reverse else list(reversed(top_sorted))
-
-
-def _compute_downstream_costs(model_trace, guide_trace, non_reparam_nodes):
-    model_successors = _identify_dense_edges(model_trace)
-    guide_successors = _identify_dense_edges(guide_trace)
-    # recursively compute downstream cost nodes for all sample sites in model and guide
-    # (even though ultimately just need for non-reparameterizable sample sites)
-    # 1. downstream costs used for rao-blackwellization
-    # 2. model observe sites (as well as terms that arise from the model and guide having different
-    # dependency structures) are taken care of via 'children_in_model' below
-    topo_sort_guide_nodes = _topological_sort(guide_successors, reverse=True)
-    topo_sort_guide_nodes = [
-        x for x in topo_sort_guide_nodes if guide_trace[x]["type"] == "sample"
-    ]
-    ordered_guide_nodes_dict = {n: i for i, n in enumerate(topo_sort_guide_nodes)}
-
-    downstream_guide_cost_nodes = {}
-    downstream_costs = {}
-    stacks = _get_plate_stacks(model_trace)
-
-    for node in topo_sort_guide_nodes:
-        downstream_costs[node] = MultiFrameTensor(
-            (
-                stacks[node],
-                model_trace[node]["log_prob"] - guide_trace[node]["log_prob"],
-            )
-        )
-        nodes_included_in_sum = set([node])
-        downstream_guide_cost_nodes[node] = set([node])
-        # make more efficient by ordering children appropriately (higher children first)
-        children = [(k, -ordered_guide_nodes_dict[k]) for k in guide_successors[node]]
-        sorted_children = sorted(children, key=itemgetter(1))
-        for child, _ in sorted_children:
-            child_cost_nodes = downstream_guide_cost_nodes[child]
-            downstream_guide_cost_nodes[node].update(child_cost_nodes)
-            if nodes_included_in_sum.isdisjoint(child_cost_nodes):  # avoid duplicates
-                downstream_costs[node].add(*downstream_costs[child].items())
-                # XXX nodes_included_in_sum logic could be more fine-grained, possibly leading
-                # to speed-ups in case there are many duplicates
-                nodes_included_in_sum.update(child_cost_nodes)
-        missing_downstream_costs = (
-            downstream_guide_cost_nodes[node] - nodes_included_in_sum
-        )
-        # include terms we missed because we had to avoid duplicates
-        for missing_node in missing_downstream_costs:
-            downstream_costs[node].add(
-                (
-                    stacks[missing_node],
-                    model_trace[missing_node]["log_prob"]
-                    - guide_trace[missing_node]["log_prob"],
-                )
-            )
-
-    # finish assembling complete downstream costs
-    # (the above computation may be missing terms from model)
-    for site in non_reparam_nodes:
-        children_in_model = set()
-        for node in downstream_guide_cost_nodes[site]:
-            children_in_model.update(model_successors[node])
-        # remove terms accounted for above
-        children_in_model.difference_update(downstream_guide_cost_nodes[site])
-        for child in children_in_model:
-            assert model_trace[child]["type"] == "sample"
-            downstream_costs[site].add((stacks[child], model_trace[child]["log_prob"]))
-            downstream_guide_cost_nodes[site].update([child])
-
-    for k in non_reparam_nodes:
-        downstream_costs[k] = downstream_costs[k].sum_to(
-            guide_trace[k]["cond_indep_stack"]
-        )
-
-    return downstream_costs, downstream_guide_cost_nodes
-
-
-def get_importance_log_probs(model, guide, args, kwargs, params):
+def get_importance_log_probs(
+    model: ModelT,
+    guide: ModelT,
+    args: tuple[Any],
+    kwargs: dict[str, Any],
+    params: dict[str, jax.Array],
+) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
     """
     Returns log probabilities at each site for the guide and the model that is run against it.
     """
@@ -803,14 +745,24 @@ def get_importance_log_probs(model, guide, args, kwargs, params):
     return model_log_probs, guide_log_probs
 
 
-def _substitute_nonreparam(data, msg):
+def _substitute_nonreparam(
+    data: dict[str, jax.Array], msg: Message
+) -> jax.Array | None:
     if msg["name"] in data and not msg["fn"].has_rsample:
         value = msg["fn"](*msg["args"], **msg["kwargs"])
         value = 0 * value + data[msg["name"]]
         return value
+    else:
+        return None
 
 
-def _get_latents(model, guide, args, kwargs, params):
+def _get_latents(
+    model: ModelT,
+    guide: ModelT,
+    args: tuple[Any],
+    kwargs: dict[str, Any],
+    params: dict[str, jax.Array],
+) -> dict[str, jax.Array]:
     model = seed(substitute(model, data=params), rng_seed=0)
     guide = seed(substitute(guide, data=params), rng_seed=0)
     guide_tr = trace(guide).get_trace(*args, **kwargs)
@@ -823,7 +775,14 @@ def _get_latents(model, guide, args, kwargs, params):
     }
 
 
-def get_nonreparam_deps(model, guide, args, kwargs, param_map, latents=None):
+def get_nonreparam_deps(
+    model: ModelT,
+    guide: ModelT,
+    args: tuple[Any],
+    kwargs: dict[str, Any],
+    param_map: dict[str, jax.Array],
+    latents: dict[str, jax.Array] | None = None,
+):
     """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
     if latents is None:
         latents = eval_shape(
@@ -840,7 +799,7 @@ def get_nonreparam_deps(model, guide, args, kwargs, param_map, latents=None):
     return model_deps, guide_deps
 
 
-class TraceGraph_ELBO(ELBO):
+class TraceGraph_ELBO(ELBO, Generic[P]):
     """
     A TraceGraph implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
@@ -862,12 +821,22 @@ class TraceGraph_ELBO(ELBO):
 
     can_infer_discrete = True
 
-    def __init__(self, num_particles=1, vectorize_particles=True):
+    def __init__(
+        self, num_particles: int = 1, vectorize_particles: bool = True
+    ) -> None:
         super().__init__(
             num_particles=num_particles, vectorize_particles=vectorize_particles
         )
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+    def loss(
+        self,
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: tuple[Any],
+        **kwargs: dict[str, Any],
+    ) -> jax.Array:
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 

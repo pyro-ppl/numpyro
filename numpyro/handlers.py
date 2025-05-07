@@ -806,9 +806,9 @@ class seed(Messenger):
 
     def __init__(
         self,
-        fn: Optional[Callable] = None,
-        rng_seed: Optional[Array] = None,
-        hide_types: Optional[list[str]] = None,
+        fn: Callable | None = None,
+        rng_seed: Array | int | None = None,
+        hide_types: list[str] | None = None,
     ) -> None:
         if rng_seed is not None:
             if not is_prng_key(rng_seed) and (
