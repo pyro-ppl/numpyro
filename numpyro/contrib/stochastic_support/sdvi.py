@@ -5,7 +5,6 @@ from typing import Any, Callable, OrderedDict as OrderedDictType
 
 import jax
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 from numpyro.contrib.stochastic_support.dcc import (
     RunInferenceResult,
@@ -98,7 +97,7 @@ class SDVI(StochasticSupportInference):
 
     def _run_inference(
         self,
-        rng_key: ArrayLike,
+        rng_key: jax.Array,
         branching_trace: OrderedDictType,
         *args: Any,
         **kwargs: Any,
@@ -120,7 +119,7 @@ class SDVI(StochasticSupportInference):
 
     def _combine_inferences(  # type: ignore[override]
         self,
-        rng_key: ArrayLike,
+        rng_key: jax.Array,
         guides: dict[str, tuple[AutoGuide, dict[str, Any]]],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,

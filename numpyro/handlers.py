@@ -91,6 +91,8 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    -874.89813
 """
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from types import TracebackType
 from typing import Callable, Optional, Union
@@ -103,12 +105,12 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 import numpyro
+from numpyro._typing import Message, TraceT
 from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
     DistributionLike,
-    Message,
     Messenger,
     apply_stack,
     plate,
@@ -131,8 +133,6 @@ __all__ = [
     "trace",
     "do",
 ]
-
-TraceT = OrderedDict[str, Message]
 
 
 class trace(Messenger):
@@ -453,7 +453,7 @@ class condition(Messenger):
             raise ValueError("Only one of `data` or `condition_fn` should be provided.")
         super(condition, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if (msg["type"] != "sample") or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
@@ -467,6 +467,7 @@ class condition(Messenger):
         if self.data is not None:
             value = self.data.get(msg["name"])
         else:
+            assert self.condition_fn is not None
             value = self.condition_fn(msg)
 
         if value is not None:

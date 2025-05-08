@@ -18,10 +18,11 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
+from numpyro._typing import TraceT
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
-from numpyro.handlers import TraceT, condition, replay, seed, substitute, trace
+from numpyro.handlers import condition, replay, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.primitives import Messenger
 from numpyro.util import (

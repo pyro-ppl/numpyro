@@ -1,12 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-# TODO add ruff ANN checks
+from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
 from collections.abc import Callable
 from functools import partial
-from typing import Any, Generic, ParamSpec, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypedDict, TypeVar
 import warnings
 
 import jax
@@ -15,13 +15,12 @@ from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
+from numpyro._typing import Message, ModelT, P, TraceT
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import (
     CondIndepStackFrame,
-    Message,
-    TraceT,
     replay,
     seed,
     substitute,
@@ -36,18 +35,15 @@ from numpyro.infer.util import (
 from numpyro.ops.provenance import eval_provenance
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
-T = TypeVar("T")
-mapT = Callable[[Callable, T], T]
-
-P = ParamSpec("P")
-ModelT = Callable[P, Any]
-
-MutableStateT = dict[str, Any]
-ParticleT = jax.Array | dict[str, jax.Array]
+if TYPE_CHECKING:
+    T = TypeVar("T")
+    mapT = Callable[[Callable, T], T]
+    MutableStateT = dict[str, Any]
+    ParticleT = jax.Array | dict[str, jax.Array]
 
 
 class LossWithMutableState(TypedDict):
-    loss: dict[str, jax.Array]
+    loss: jax.Array
     mutable_state: MutableStateT | None
 
 
@@ -104,7 +100,7 @@ class ELBO(Generic[P]):
         guide: ModelT,
         *args: P.args,
         **kwargs: P.kwargs,
-    ):
+    ) -> jax.Array:
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
@@ -131,7 +127,7 @@ class ELBO(Generic[P]):
         guide: ModelT,
         *args: P.args,
         **kwargs: P.kwargs,
-    ):
+    ) -> LossWithMutableState:
         """
         Like :meth:`loss` but also update and return the mutable state, which stores the
         values at :func:`~numpyro.mutable` sites.
@@ -525,7 +521,7 @@ class RenyiELBO(ELBO, Generic[P]):
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
 
-    def __init__(self, alpha: float = 0, num_particles: int = 2):
+    def __init__(self, alpha: float = 0, num_particles: int = 2) -> None:
         if alpha == 1:
             raise ValueError(
                 "The order alpha should not be equal to 1. Please use ELBO class"
@@ -718,9 +714,6 @@ class MultiFrameTensor(dict):
         )
 
 
-# removed in https://github.com/pyro-ppl/numpyro/commit/28e38d85618621cca3796e02da680fabffb8e2a8
-
-
 def get_importance_log_probs(
     model: ModelT,
     guide: ModelT,
@@ -778,18 +771,20 @@ def _get_latents(
 def get_nonreparam_deps(
     model: ModelT,
     guide: ModelT,
-    args: tuple[Any],
+    args: tuple[Any, ...],
     kwargs: dict[str, Any],
     param_map: dict[str, jax.Array],
     latents: dict[str, jax.Array] | None = None,
-):
+) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
     """Find dependencies on non-reparameterizable sample sites for each cost term in the model and the guide."""
     if latents is None:
         latents = eval_shape(
             partial(_get_latents, model, guide, args, kwargs, param_map)
         )
 
-    def fn(**latents):
+    def fn(
+        **latents: jax.Array,
+    ) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
         subs_fn = partial(_substitute_nonreparam, latents)
         subs_model = substitute(seed(model, rng_seed=0), substitute_fn=subs_fn)
         subs_guide = substitute(seed(guide, rng_seed=0), substitute_fn=subs_fn)
@@ -834,8 +829,8 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
         param_map: dict[str, jax.Array],
         model: ModelT,
         guide: ModelT,
-        *args: tuple[Any],
-        **kwargs: dict[str, Any],
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> jax.Array:
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
@@ -852,7 +847,7 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
 
-        def single_particle_elbo(rng_key):
+        def single_particle_elbo(rng_key: jax.Array) -> jax.Array:
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
@@ -870,9 +865,11 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
                 model, guide, args, kwargs, param_map, latents=latents
             )
 
-            elbo = 0.0
+            elbo = jnp.array(0.0)
             # mapping from non-reparameterizable sample sites to cost terms influenced by each of them
-            downstream_costs = defaultdict(lambda: MultiFrameTensor())
+            downstream_costs: dict[str, MultiFrameTensor] = defaultdict(
+                lambda: MultiFrameTensor()
+            )
             for name, site in model_trace.items():
                 if site["type"] == "sample":
                     elbo = elbo + jnp.sum(site["log_prob"])
@@ -893,9 +890,9 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
                             (site["cond_indep_stack"], -site["log_prob"])
                         )
 
-            for node, downstream_cost in downstream_costs.items():
+            for node, cost in downstream_costs.items():
                 guide_site = guide_trace[node]
-                downstream_cost = downstream_cost.sum_to(guide_site["cond_indep_stack"])
+                downstream_cost = cost.sum_to(guide_site["cond_indep_stack"])
                 surrogate = jnp.sum(
                     guide_site["log_prob"] * stop_gradient(downstream_cost)
                 )
@@ -915,8 +912,15 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
 
 
 def get_importance_trace_enum(
-    model, guide, args, kwargs, params, max_plate_nesting, model_deps, guide_desc
-):
+    model: ModelT,
+    guide: ModelT,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    params: dict[str, jax.Array],
+    max_plate_nesting: int,
+    model_deps: dict[str, frozenset[str]],
+    guide_desc: dict[str, frozenset[str]],
+) -> tuple[TraceT, TraceT, frozenset[str]]:
     """
     (EXPERIMENTAL) Returns traces from the enumerated guide and the enumerated model that is run against it.
     The returned traces also store the log probability at each site and the log measure for measure vars.
@@ -941,7 +945,7 @@ def get_importance_trace_enum(
         model = substitute(replay(model, guide_trace), data=params)
         model_trace = _trace(model).get_trace(*args, **kwargs)
 
-    sum_vars = frozenset()
+    sum_vars: frozenset[str] = frozenset()
     for is_model, tr in zip((True, False), (model_trace, guide_trace)):
         for name, site in tr.items():
             if site["type"] == "sample":
@@ -1015,9 +1019,13 @@ def get_importance_trace_enum(
     return model_trace, guide_trace, sum_vars
 
 
-def _partition(model_sum_deps, sum_vars):
+def _partition(
+    model_sum_deps: dict[str, frozenset[str]], sum_vars: frozenset[str]
+) -> list[tuple[frozenset[str], frozenset[str]]]:
     # Construct a bipartite graph between model_sum_deps and the sum_vars
-    neighbors = OrderedDict([(t, []) for t in model_sum_deps.keys()])
+    neighbors: OrderedDict[str, list[str]] = OrderedDict(
+        [(t, []) for t in model_sum_deps.keys()]
+    )
     for key, deps in model_sum_deps.items():
         for dim in deps:
             if dim in sum_vars:
@@ -1047,7 +1055,13 @@ def _partition(model_sum_deps, sum_vars):
     return components
 
 
-def guess_max_plate_nesting(model, guide, args, kwargs, param_map):
+def guess_max_plate_nesting(
+    model: ModelT,
+    guide: ModelT,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    param_map: dict[str, jax.Array],
+) -> int:
     """Guess maximum plate nesting by performing jax shape inference."""
     model_shapes, guide_shapes = eval_shape(
         partial(
@@ -1068,7 +1082,7 @@ def guess_max_plate_nesting(model, guide, args, kwargs, param_map):
     return max_plate_nesting
 
 
-class TraceEnum_ELBO(ELBO):
+class TraceEnum_ELBO(ELBO, Generic[P]):
     """
     (EXPERIMENTAL) A TraceEnum implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
@@ -1102,17 +1116,26 @@ class TraceEnum_ELBO(ELBO):
 
     def __init__(
         self,
-        num_particles=1,
-        max_plate_nesting=float("inf"),
-        vectorize_particles=True,
-    ):
+        num_particles: int = 1,
+        # float("inf") serves as a sentinel to use guess_max_plate_nesting
+        max_plate_nesting: int = float("inf"),  # type: ignore
+        vectorize_particles: bool = True,
+    ) -> None:
         self.max_plate_nesting = max_plate_nesting
         super().__init__(
             num_particles=num_particles, vectorize_particles=vectorize_particles
         )
 
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        def single_particle_elbo(rng_key):
+    def loss(
+        self,
+        rng_key: jax.Array,
+        param_map: dict[str, jax.Array],
+        model: ModelT,
+        guide: ModelT,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> jax.Array:
+        def single_particle_elbo(rng_key: jax.Array) -> jax.Array:
             import funsor
             from numpyro.contrib.funsor import to_data
 
@@ -1128,11 +1151,11 @@ class TraceEnum_ELBO(ELBO):
                 )
 
             # get dependencies on nonreparametrizable variables
-            model_deps, guide_deps = get_nonreparam_deps(
+            _model_deps, guide_deps = get_nonreparam_deps(
                 model, guide, args, kwargs, param_map
             )
             # get descendants of variables in the guide
-            guide_desc = defaultdict(frozenset)
+            guide_desc: dict[str, frozenset[str]] = defaultdict(frozenset)
             for name, deps in guide_deps.items():
                 for d in deps:
                     if name != d:
@@ -1147,7 +1170,7 @@ class TraceEnum_ELBO(ELBO):
                 kwargs,
                 param_map,
                 self.max_plate_nesting,
-                model_deps,
+                _model_deps,
                 guide_desc,
             )
 
@@ -1155,12 +1178,12 @@ class TraceEnum_ELBO(ELBO):
             # check_model_guide_match(model_trace, guide_trace)
             _validate_model(model_trace, plate_warning="strict")
 
-            model_vars = frozenset(model_deps)
-            model_sum_deps = {
-                k: v & sum_vars for k, v in model_deps.items() if k not in sum_vars
+            model_vars = frozenset(_model_deps)
+            model_sum_deps: dict[str, frozenset[str]] = {
+                k: v & sum_vars for k, v in _model_deps.items() if k not in sum_vars
             }
-            model_deps = {
-                k: v - sum_vars for k, v in model_deps.items() if k not in sum_vars
+            model_deps: dict[str, frozenset[str]] = {
+                k: v - sum_vars for k, v in _model_deps.items() if k not in sum_vars
             }
 
             # gather cost terms
@@ -1248,7 +1271,7 @@ class TraceEnum_ELBO(ELBO):
                 cost_terms.append((cost, scale, deps))
 
             # compute elbo
-            elbo = 0.0
+            elbo = jnp.array(0.0)
             for cost, scale, deps in cost_terms:
                 if deps:
                     dice_factors = tuple(
