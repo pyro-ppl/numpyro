@@ -105,7 +105,7 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 import numpyro
-from numpyro._typing import Message, TraceT
+from numpyro._typing import MessageT, TraceT
 from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
@@ -170,7 +170,7 @@ class trace(Messenger):
         self.trace: TraceT = OrderedDict()
         return self.trace
 
-    def postprocess_message(self, msg: Message) -> None:
+    def postprocess_message(self, msg: MessageT) -> None:
         if "name" not in msg:
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
@@ -233,7 +233,7 @@ class replay(Messenger):
         self.trace = trace
         super(replay, self).__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
             name = msg["name"]
             guide_msg = self.trace[name]
@@ -311,7 +311,7 @@ class block(Messenger):
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if not self.hide_fn(msg) or msg["type"] == "prng_key":
             return
         msg["stop"] = True
@@ -349,7 +349,7 @@ class collapse(trace):
             collapse._coerce = CoerceDistributionToFunsor("jax")
         super().__init__(*args, **kwargs)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         from funsor.terms import Funsor
 
         if msg["type"] == "sample":
@@ -453,7 +453,7 @@ class condition(Messenger):
             raise ValueError("Only one of `data` or `condition_fn` should be provided.")
         super(condition, self).__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if (msg["type"] != "sample") or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
@@ -493,7 +493,7 @@ class infer_config(Messenger):
         super().__init__(fn)
         self.config_fn = config_fn
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] in ("sample",) and self.config_fn is not None:
             msg["infer"].update(self.config_fn(msg))
 
@@ -531,7 +531,7 @@ class lift(Messenger):
     ) -> None:
         super().__init__(fn)
         self.prior = prior
-        self._samples_cache: dict[str, Message] = {}
+        self._samples_cache: dict[str, MessageT] = {}
 
     def __enter__(self) -> None:
         self._samples_cache = {}
@@ -541,7 +541,7 @@ class lift(Messenger):
         self._samples_cache = {}
         return super().__exit__(*args, **kwargs)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] != "param":
             return
 
@@ -590,7 +590,7 @@ class mask(Messenger):
         self.mask = mask
         super().__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] != "sample":
             if msg["type"] == "inspect":
                 msg["mask"] = (
@@ -634,7 +634,7 @@ class reparam(Messenger):
         self.config = config
         super().__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] != "sample":
             return
 
@@ -685,7 +685,7 @@ class scale(Messenger):
         self.scale = scale
         super().__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] not in ("param", "sample", "plate"):
             return
 
@@ -739,7 +739,7 @@ class scope(Messenger):
         self.hide_types = [] if hide_types is None else hide_types
         super().__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg.get("name") and msg["type"] not in self.hide_types:
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
 
@@ -828,7 +828,7 @@ class seed(Messenger):
         self.hide_types = [] if hide_types is None else hide_types
         super(seed, self).__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] in self.hide_types:
             return
         if msg["type"] not in ["sample", "prng_key", "plate", "control_flow"]:
@@ -904,7 +904,7 @@ class substitute(Messenger):
             )
         super(substitute, self).__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if (
             msg["type"] not in ("sample", "param", "mutable", "plate", "deterministic")
         ) or msg.get("_control_flow_done", False):
@@ -981,7 +981,7 @@ class do(Messenger):
         self._intervener_id = str(id(self))
         super(do, self).__init__(fn)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] != "sample":
             return
         if (

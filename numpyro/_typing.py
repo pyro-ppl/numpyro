@@ -3,12 +3,12 @@
 
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeAlias
 
 from typing_extensions import ParamSpec
 
 P = ParamSpec("P")
-ModelT = Callable[P, Any]
+ModelT: TypeAlias = Callable[P, Any]
 
-Message = dict[str, Any]
-TraceT = OrderedDict[str, Message]
+MessageT: TypeAlias = dict[str, Any]
+TraceT: TypeAlias = OrderedDict[str, MessageT]

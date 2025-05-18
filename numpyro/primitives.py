@@ -14,7 +14,7 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 import numpyro
-from numpyro._typing import Message
+from numpyro._typing import MessageT
 from numpyro.distributions.distribution import DistributionLike
 from numpyro.util import find_stack_level, identity
 
@@ -24,7 +24,7 @@ _PYRO_STACK: list = []
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def default_process_message(msg: Message) -> None:
+def default_process_message(msg: MessageT) -> None:
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -34,7 +34,7 @@ def default_process_message(msg: Message) -> None:
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
 
-def apply_stack(msg: Message) -> Message:
+def apply_stack(msg: MessageT) -> MessageT:
     """
     Execute the effect stack at a single site according to the following scheme:
 
@@ -101,11 +101,11 @@ class Messenger(object):
                 for _ in range(loc, len(_PYRO_STACK)):
                     _PYRO_STACK.pop()
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         """To be implemented by subclasses."""
         pass
 
-    def postprocess_message(self, msg: Message) -> None:
+    def postprocess_message(self, msg: MessageT) -> None:
         """To be implemented by subclasses."""
         pass
 
@@ -324,7 +324,7 @@ def deterministic(name: str, value: ArrayLike) -> ArrayLike:
     if not _PYRO_STACK:
         return value
 
-    initial_msg: Message = {
+    initial_msg: MessageT = {
         "type": "deterministic",
         "name": name,
         "value": value,
@@ -562,7 +562,7 @@ class plate(Messenger):
             batch_shape[f.dim] = f.size
         return tuple(batch_shape)
 
-    def process_message(self, msg: Message) -> None:
+    def process_message(self, msg: MessageT) -> None:
         if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
@@ -602,7 +602,7 @@ class plate(Messenger):
                 self.size / self.subsample_size if self.subsample_size else 1
             )
 
-    def postprocess_message(self, msg: Message) -> None:
+    def postprocess_message(self, msg: MessageT) -> None:
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:

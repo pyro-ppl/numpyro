@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import OrderedDict, defaultdict
 from collections.abc import Callable
 from functools import partial
-from typing import TYPE_CHECKING, Any, Generic, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, TypeAlias, TypedDict, TypeVar
 import warnings
 
 import jax
@@ -15,7 +15,7 @@ from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
-from numpyro._typing import Message, ModelT, P, TraceT
+from numpyro._typing import MessageT, ModelT, P, TraceT
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
@@ -37,9 +37,9 @@ from numpyro.util import _validate_model, check_model_guide_match, find_stack_le
 
 if TYPE_CHECKING:
     T = TypeVar("T")
-    mapT = Callable[[Callable, T], T]
-    MutableStateT = dict[str, Any]
-    ParticleT = jax.Array | dict[str, jax.Array]
+    mapT: TypeAlias = Callable[[Callable, T], T]
+    MutableStateT: TypeAlias = dict[str, Any]
+    ParticleT: TypeAlias = jax.Array | dict[str, jax.Array]
 
 
 class LossWithMutableState(TypedDict):
@@ -51,7 +51,7 @@ def _apply_vmap(fn: Callable, keys: T) -> T:
     return vmap(fn)(keys)
 
 
-class ELBO(Generic[P]):
+class ELBO:
     """
     Base class for all ELBO objectives.
 
@@ -96,8 +96,8 @@ class ELBO(Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> jax.Array:
@@ -123,8 +123,8 @@ class ELBO(Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LossWithMutableState:
@@ -146,7 +146,7 @@ class ELBO(Generic[P]):
         raise NotImplementedError("This ELBO objective does not support mutable state.")
 
 
-class Trace_ELBO(ELBO, Generic[P]):
+class Trace_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
     along the lines of references [1] and [2]. There are no restrictions on the
@@ -196,8 +196,8 @@ class Trace_ELBO(ELBO, Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LossWithMutableState:
@@ -347,7 +347,7 @@ def _check_mean_field_requirement(model_trace: TraceT, guide_trace: TraceT) -> N
         )
 
 
-class TraceMeanField_ELBO(ELBO, Generic[P]):
+class TraceMeanField_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. This is currently the only
     ELBO estimator in NumPyro that uses analytic KL divergences when those
@@ -387,8 +387,8 @@ class TraceMeanField_ELBO(ELBO, Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LossWithMutableState:
@@ -473,7 +473,7 @@ class TraceMeanField_ELBO(ELBO, Generic[P]):
             }
 
 
-class RenyiELBO(ELBO, Generic[P]):
+class RenyiELBO(ELBO):
     r"""
     An implementation of Renyi's :math:`\alpha`-divergence
     variational inference following reference [1].
@@ -532,8 +532,8 @@ class RenyiELBO(ELBO, Generic[P]):
 
     def _single_particle_elbo(
         self,
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         param_map: dict[str, jax.Array],
         args: tuple[Any],
         kwargs: dict[str, Any],
@@ -608,8 +608,8 @@ class RenyiELBO(ELBO, Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> jax.Array:
@@ -739,7 +739,7 @@ def get_importance_log_probs(
 
 
 def _substitute_nonreparam(
-    data: dict[str, jax.Array], msg: Message
+    data: dict[str, jax.Array], msg: MessageT
 ) -> jax.Array | None:
     if msg["name"] in data and not msg["fn"].has_rsample:
         value = msg["fn"](*msg["args"], **msg["kwargs"])
@@ -769,8 +769,8 @@ def _get_latents(
 
 
 def get_nonreparam_deps(
-    model: ModelT,
-    guide: ModelT,
+    model: ModelT[P],
+    guide: ModelT[P],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     param_map: dict[str, jax.Array],
@@ -794,7 +794,7 @@ def get_nonreparam_deps(
     return model_deps, guide_deps
 
 
-class TraceGraph_ELBO(ELBO, Generic[P]):
+class TraceGraph_ELBO(ELBO):
     """
     A TraceGraph implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
@@ -827,8 +827,8 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> jax.Array:
@@ -912,8 +912,8 @@ class TraceGraph_ELBO(ELBO, Generic[P]):
 
 
 def get_importance_trace_enum(
-    model: ModelT,
-    guide: ModelT,
+    model: ModelT[P],
+    guide: ModelT[P],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     params: dict[str, jax.Array],
@@ -1056,8 +1056,8 @@ def _partition(
 
 
 def guess_max_plate_nesting(
-    model: ModelT,
-    guide: ModelT,
+    model: ModelT[P],
+    guide: ModelT[P],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     param_map: dict[str, jax.Array],
@@ -1082,7 +1082,7 @@ def guess_max_plate_nesting(
     return max_plate_nesting
 
 
-class TraceEnum_ELBO(ELBO, Generic[P]):
+class TraceEnum_ELBO(ELBO):
     """
     (EXPERIMENTAL) A TraceEnum implementation of ELBO-based SVI. The gradient estimator
     is constructed along the lines of reference [1] specialized to the case
@@ -1130,8 +1130,8 @@ class TraceEnum_ELBO(ELBO, Generic[P]):
         self,
         rng_key: jax.Array,
         param_map: dict[str, jax.Array],
-        model: ModelT,
-        guide: ModelT,
+        model: ModelT[P],
+        guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> jax.Array:
