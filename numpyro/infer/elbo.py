@@ -39,11 +39,11 @@ if TYPE_CHECKING:
     T = TypeVar("T")
     mapT: TypeAlias = Callable[[Callable, T], T]
     MutableStateT: TypeAlias = dict[str, Any]
-    ParticleT: TypeAlias = jax.Array | dict[str, jax.Array]
+    LossT: TypeAlias = jax.Array | dict[str, jax.Array]
 
 
 class LossWithMutableState(TypedDict):
-    loss: jax.Array
+    loss: LossT
     mutable_state: MutableStateT | None
 
 
@@ -100,7 +100,7 @@ class ELBO:
         guide: ModelT[P],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> jax.Array:
+    ) -> LossT:
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
@@ -203,7 +203,7 @@ class Trace_ELBO(ELBO):
     ) -> LossWithMutableState:
         def single_particle_elbo(
             rng_key: jax.Array,
-        ) -> tuple[ParticleT, MutableStateT | None]:
+        ) -> tuple[LossT, MutableStateT | None]:
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_guide = seed(guide, guide_seed)
@@ -276,7 +276,7 @@ class Trace_ELBO(ELBO):
                 - guide_log_probs.get(name, jnp.array(0.0))
                 for name in union
             }
-            elbo_particle: ParticleT
+            elbo_particle: LossT
             if self.sum_sites:
                 elbo_particle = sum(_elbo_particle.values(), start=jnp.array(0.0))
             else:
@@ -394,7 +394,7 @@ class TraceMeanField_ELBO(ELBO):
     ) -> LossWithMutableState:
         def single_particle_elbo(
             rng_key: jax.Array,
-        ) -> tuple[ParticleT, MutableStateT | None]:
+        ) -> tuple[LossT, MutableStateT | None]:
             params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
@@ -442,7 +442,7 @@ class TraceMeanField_ELBO(ELBO):
                     assert site["infer"].get("is_auxiliary") or site["is_observed"]
                     _elbo_particle[name] = -_get_log_prob_sum(site)
 
-            elbo_particle: ParticleT
+            elbo_particle: LossT
             if self.sum_sites:
                 elbo_particle = sum(_elbo_particle.values(), start=jnp.array(0.0))
             else:
