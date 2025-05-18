@@ -3,9 +3,9 @@
 
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, TypeAlias
+from typing import Any
 
-from typing_extensions import ParamSpec
+from typing_extensions import ParamSpec, TypeAlias
 
 P = ParamSpec("P")
 ModelT: TypeAlias = Callable[P, Any]

@@ -6,8 +6,10 @@ from __future__ import annotations
 from collections import OrderedDict, defaultdict
 from collections.abc import Callable
 from functools import partial
-from typing import TYPE_CHECKING, Any, TypeAlias, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, TypedDict, TypeVar
 import warnings
+
+from typing_extensions import TypeAlias
 
 import jax
 from jax import eval_shape, random, vmap
