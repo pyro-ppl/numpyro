@@ -15,7 +15,7 @@ def patch_dependency(target: str, root_module: ModuleType) -> Callable:
     old_fn = getattr(module, name)
     old_fn = getattr(old_fn, "_pyro_unpatched", old_fn)  # ensure patching is idempotent
 
-    def decorator(new_fn):
+    def decorator(new_fn):  # noqa: ANN001, ANN202
         new_fn.__name__ = name
         new_fn._pyro_unpatched = old_fn
         setattr(module, name, new_fn)
