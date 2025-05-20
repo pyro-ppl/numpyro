@@ -10,5 +10,5 @@ from typing_extensions import ParamSpec, TypeAlias
 P = ParamSpec("P")
 ModelT: TypeAlias = Callable[P, Any]
 
-MessageT: TypeAlias = dict[str, Any]
-TraceT: TypeAlias = OrderedDict[str, MessageT]
+Message: TypeAlias = dict[str, Any]
+TraceT: TypeAlias = OrderedDict[str, Message]

@@ -112,7 +112,6 @@ doctest_optionflags = [
 ]
 
 [tool.mypy]
-python_version = 3.12
 ignore_errors = true
 ignore_missing_imports = true
 plugins = ["numpy.typing.mypy_plugin"]

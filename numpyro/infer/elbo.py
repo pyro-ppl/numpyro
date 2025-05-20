@@ -17,7 +17,7 @@ from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
-from numpyro._typing import MessageT, ModelT, P, TraceT
+from numpyro._typing import Message, ModelT, P, TraceT
 from numpyro.distributions import ExpandedDistribution, MaskedDistribution
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
@@ -741,7 +741,7 @@ def get_importance_log_probs(
 
 
 def _substitute_nonreparam(
-    data: dict[str, jax.Array], msg: MessageT
+    data: dict[str, jax.Array], msg: Message
 ) -> jax.Array | None:
     if msg["name"] in data and not msg["fn"].has_rsample:
         value = msg["fn"](*msg["args"], **msg["kwargs"])
