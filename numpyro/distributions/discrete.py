@@ -104,6 +104,13 @@ class BernoulliProbs(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
+    def cdf(self, value):
+        return ((1 - self.probs) * jnp.heaviside(value, 1)
+                + self.probs * jnp.heaviside(value - 1, 1))
+
+    def icdf(self, q):
+        return jnp.heaviside(q - (1 - self.probs), 1)
+
     def enumerate_support(self, expand=True):
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
