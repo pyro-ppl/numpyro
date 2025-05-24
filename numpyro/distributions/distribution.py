@@ -30,16 +30,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Protocol,
-    Tuple,
-    runtime_checkable,
-)
+from typing import Any, Callable, Optional
 import warnings
 
 from jaxtyping import Array, ArrayLike, PRNGKeyArray
@@ -57,6 +48,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     validate_sample,
 )
+from numpyro.typing import DistributionLike, TransformLike
 from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints
@@ -141,13 +133,13 @@ class Distribution(metaclass=DistributionMeta):
        (4,)
     """
 
-    arg_constraints: Dict[str, Any] = {}
+    arg_constraints: dict[str, Any] = {}
     support = None
     has_enumerate_support: bool = False
-    reparametrized_params: List[str] = []
+    reparametrized_params: list[str] = []
     _validate_args: bool = False
-    pytree_data_fields: Tuple = ()
-    pytree_aux_fields: Tuple = ("_batch_shape", "_event_shape")
+    pytree_data_fields: tuple = ()
+    pytree_aux_fields: tuple = ("_batch_shape", "_event_shape")
 
     # register Distribution as a pytree
     # ref: https://github.com/jax-ml/jax/issues/2916
@@ -175,7 +167,7 @@ class Distribution(metaclass=DistributionMeta):
         return tuple(all_pytree_data_fields)
 
     @classmethod
-    def gather_pytree_aux_fields(cls) -> Tuple:
+    def gather_pytree_aux_fields(cls) -> tuple:
         bases = inspect.getmro(cls)
 
         all_pytree_aux_fields = ("_validate_args",)
@@ -241,8 +233,8 @@ class Distribution(metaclass=DistributionMeta):
 
     def __init__(
         self,
-        batch_shape: Tuple[int, ...] = (),
-        event_shape: Tuple[int, ...] = (),
+        batch_shape: tuple[int, ...] = (),
+        event_shape: tuple[int, ...] = (),
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -254,7 +246,7 @@ class Distribution(metaclass=DistributionMeta):
             self.validate_args(strict=False)
         super(Distribution, self).__init__()
 
-    def get_args(self) -> Dict:
+    def get_args(self) -> dict:
         """
         Get arguments of the distribution.
         """
@@ -288,23 +280,23 @@ class Distribution(metaclass=DistributionMeta):
                 raise RuntimeError("Cannot validate arguments inside jitted code.")
 
     @property
-    def batch_shape(self) -> Tuple[int, ...]:
+    def batch_shape(self) -> tuple[int, ...]:
         """
         Returns the shape over which the distribution parameters are batched.
 
         :return: batch shape of the distribution.
-        :rtype: Tuple[int, ...]
+        :rtype: tuple[int, ...]
         """
         return self._batch_shape
 
     @property
-    def event_shape(self) -> Tuple[int, ...]:
+    def event_shape(self) -> tuple[int, ...]:
         """
         Returns the shape of a single sample from the distribution without
         batching.
 
         :return: event shape of the distribution.
-        :rtype: Tuple[int, ...]
+        :rtype: tuple[int, ...]
         """
         return self._event_shape
 
@@ -321,14 +313,14 @@ class Distribution(metaclass=DistributionMeta):
         return set(self.reparametrized_params) == set(self.arg_constraints)
 
     def rsample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
         raise NotImplementedError
 
-    def shape(self, sample_shape: Tuple[int, ...] = ()) -> Tuple[int, ...]:
+    def shape(self, sample_shape: tuple[int, ...] = ()) -> tuple[int, ...]:
         """
         The tensor shape of samples from this distribution.
 
@@ -344,7 +336,7 @@ class Distribution(metaclass=DistributionMeta):
         return sample_shape + self.batch_shape + self.event_shape
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
@@ -360,7 +352,7 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     def sample_with_intermediates(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         Same as ``sample`` except that any intermediate computations are
@@ -447,7 +439,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def expand(self, batch_shape: Tuple[int, ...]) -> "Distribution":
+    def expand(self, batch_shape: tuple[int, ...]) -> "Distribution":
         """
         Returns a new :class:`ExpandedDistribution` instance with batch
         dimensions expanded to `batch_shape`.
@@ -461,7 +453,7 @@ class Distribution(metaclass=DistributionMeta):
             return self
         return ExpandedDistribution(self, batch_shape)
 
-    def expand_by(self, sample_shape: Tuple[int, ...]) -> "Distribution":
+    def expand_by(self, sample_shape: tuple[int, ...]) -> "Distribution":
         """
         Expands a distribution by adding ``sample_shape`` to the left side of
         its :attr:`~numpyro.distributions.distribution.Distribution.batch_shape`.
@@ -596,67 +588,6 @@ class Distribution(metaclass=DistributionMeta):
         )
 
 
-@runtime_checkable
-class DistributionLike(Protocol):
-    """A protocol for typing distributions.
-
-    Used to type object of type numpyro.distributions.Distribution, funsor.Funsor
-    or tensorflow_probability.distributions.Distribution.
-    """
-
-    arg_constraints: Dict[str, Any] = ...
-    support: constraints.Constraint = ...
-    has_enumerate_support: bool = ...
-    reparametrized_params: List[str] = ...
-    _validate_args: bool = ...
-    pytree_data_fields: Tuple = ...
-    pytree_aux_fields: Tuple = ...
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return super().__call__(*args, **kwargs)
-
-    @property
-    def batch_shape(self) -> Tuple[int, ...]: ...
-
-    @property
-    def event_shape(self) -> Tuple[int, ...]: ...
-
-    @property
-    def event_dim(self) -> int: ...
-
-    @property
-    def has_rsample(self) -> bool: ...
-
-    def rsample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
-    ) -> ArrayLike: ...
-
-    def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
-    ) -> ArrayLike: ...
-
-    def log_prob(self, value: ArrayLike) -> ArrayLike: ...
-
-    @property
-    def mean(self) -> ArrayLike: ...
-
-    @property
-    def variance(self) -> ArrayLike: ...
-
-    def entropy(self) -> ArrayLike: ...
-
-    def cdf(self, value: ArrayLike) -> ArrayLike: ...
-
-    def icdf(self, q: ArrayLike) -> ArrayLike: ...
-
-    def enumerate_support(self, expand: bool = True) -> ArrayLike: ...
-
-    def shape(self, sample_shape: Tuple[int, ...] = ()) -> Tuple[int, ...]: ...
-
-    @property
-    def is_discrete(self) -> bool: ...
-
-
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
     pytree_data_fields = ("base_dist",)
@@ -666,7 +597,7 @@ class ExpandedDistribution(Distribution):
     )
 
     def __init__(
-        self, base_dist: Distribution, batch_shape: Tuple[int, ...] = ()
+        self, base_dist: Distribution, batch_shape: tuple[int, ...] = ()
     ) -> None:
         if isinstance(base_dist, ExpandedDistribution):
             batch_shape, _, _ = self._broadcast_shape(
@@ -688,8 +619,8 @@ class ExpandedDistribution(Distribution):
 
     @staticmethod
     def _broadcast_shape(
-        existing_shape: Tuple[int, ...], new_shape: Tuple[int, ...]
-    ) -> Tuple[Tuple[int, ...], OrderedDict, OrderedDict]:
+        existing_shape: tuple[int, ...], new_shape: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], OrderedDict, OrderedDict]:
         if len(new_shape) < len(existing_shape):
             raise ValueError(
                 "Cannot broadcast distribution of shape {} to shape {}".format(
@@ -729,11 +660,11 @@ class ExpandedDistribution(Distribution):
     def _sample(
         self,
         sample_fn: Callable[
-            [PRNGKeyArray, Tuple[int, ...]], Tuple[ArrayLike, List[ArrayLike]]
+            [PRNGKeyArray, tuple[int, ...]], tuple[ArrayLike, list[ArrayLike]]
         ],
         key: PRNGKeyArray,
-        sample_shape: Tuple[int, ...] = (),
-    ) -> Tuple[ArrayLike, List[ArrayLike]]:
+        sample_shape: tuple[int, ...] = (),
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
@@ -769,7 +700,7 @@ class ExpandedDistribution(Distribution):
         samples = reshape_sample(samples)
         return samples, intermediates
 
-    def rsample(self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()):
+    def rsample(self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()):
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
@@ -781,12 +712,12 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.support
 
     def sample_with_intermediates(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
-    ) -> Tuple[ArrayLike, List[ArrayLike]]:
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.sample_with_intermediates(key, sample_shape)[0]
 
@@ -881,8 +812,8 @@ class ImproperUniform(Distribution):
     def __init__(
         self,
         support: constraints.Constraint,
-        batch_shape: Tuple[int, ...],
-        event_shape: Tuple[int, ...],
+        batch_shape: tuple[int, ...],
+        event_shape: tuple[int, ...],
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -967,7 +898,7 @@ class Independent(Distribution):
         return self.base_dist.has_enumerate_support
 
     @property
-    def reparametrized_params(self) -> List[str]:
+    def reparametrized_params(self) -> list[str]:
         return self.base_dist.reparametrized_params
 
     @property
@@ -982,11 +913,11 @@ class Independent(Distribution):
     def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
-    def rsample(self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()):
+    def rsample(self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()):
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
@@ -1045,7 +976,7 @@ class MaskedDistribution(Distribution):
     def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
-    def rsample(self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()):
+    def rsample(self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()):
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
@@ -1053,7 +984,7 @@ class MaskedDistribution(Distribution):
         return self.base_dist.support
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
@@ -1134,7 +1065,7 @@ class TransformedDistribution(Distribution):
     def __init__(
         self,
         base_distribution: DistributionLike,
-        transforms: List[Transform],
+        transforms: list[TransformLike],
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -1193,7 +1124,7 @@ class TransformedDistribution(Distribution):
     def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
-    def rsample(self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()):
+    def rsample(self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()):
         x = self.base_dist.rsample(key, sample_shape=sample_shape)
         for transform in self.transforms:
             x = transform(x)
@@ -1212,7 +1143,7 @@ class TransformedDistribution(Distribution):
             )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
         for transform in self.transforms:
@@ -1220,7 +1151,7 @@ class TransformedDistribution(Distribution):
         return x
 
     def sample_with_intermediates(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ):
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
         intermediates = []
@@ -1343,7 +1274,7 @@ class Delta(Distribution):
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         if not sample_shape:
             return self.v
@@ -1388,7 +1319,7 @@ class Unit(Distribution):
             batch_shape, event_shape, validate_args=validate_args
         )
 
-    def sample(self, key: Optional[PRNGKeyArray], sample_shape: Tuple[int, ...] = ()):
+    def sample(self, key: Optional[PRNGKeyArray], sample_shape: tuple[int, ...] = ()):
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
 
     def log_prob(self, value: ArrayLike) -> ArrayLike:

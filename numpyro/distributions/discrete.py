@@ -26,7 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from typing import Optional, Tuple
+from typing import Optional
 
 from jaxtyping import Array, ArrayLike, PRNGKeyArray
 import numpy as np
@@ -84,7 +84,7 @@ class BernoulliProbs(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         samples = random.bernoulli(
@@ -134,7 +134,7 @@ class BernoulliLogits(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         samples = random.bernoulli(
@@ -203,7 +203,7 @@ class BinomialProbs(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return binomial(
@@ -283,7 +283,7 @@ class BinomialLogits(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return binomial(
@@ -351,7 +351,7 @@ class CategoricalProbs(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
@@ -406,7 +406,7 @@ class CategoricalLogits(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return random.categorical(
@@ -484,7 +484,7 @@ class DiscreteUniform(Distribution):
         return self._support
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         shape = sample_shape + self.batch_shape
         return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
@@ -609,7 +609,7 @@ class MultinomialProbs(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return multinomial(
@@ -646,7 +646,7 @@ class MultinomialProbs(Distribution):
     @staticmethod
     def infer_shapes(
         probs: Array, total_count: int
-    ) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
         event_shape = probs[-1:]
         return batch_shape, event_shape
@@ -685,7 +685,7 @@ class MultinomialLogits(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return multinomial(
@@ -726,7 +726,7 @@ class MultinomialLogits(Distribution):
     @staticmethod
     def infer_shapes(
         logits: Array, total_count: int
-    ) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
         event_shape = logits[-1:]
         return batch_shape, event_shape
@@ -796,7 +796,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
@@ -867,7 +867,7 @@ class ZeroInflatedProbs(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_bern, key_base = random.split(key)
@@ -984,7 +984,7 @@ class GeometricProbs(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         probs = self.probs
@@ -1031,7 +1031,7 @@ class GeometricLogits(Distribution):
         return _to_probs_bernoulli(self.logits)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: Tuple[int, ...] = ()
+        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         logits = self.logits
