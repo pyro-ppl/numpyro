@@ -489,7 +489,7 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     )
 
 
-def clamp_probs(probs):
+def clamp_probs(probs: ArrayLike) -> ArrayLike:
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
 
