@@ -7,9 +7,9 @@ from jaxtyping import ArrayLike
 from jax import lax
 import jax.numpy as jnp
 
+from numpyro._typing import TransformLike
 from numpyro.distributions.constraints import real_vector
 from numpyro.distributions.transforms import Transform
-from numpyro.typing import TransformLike
 from numpyro.util import fori_loop
 
 

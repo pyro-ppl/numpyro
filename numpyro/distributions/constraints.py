@@ -73,7 +73,7 @@ import jax.numpy
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 
-from numpyro.typing import ConstraintLike
+from numpyro._typing import ConstraintLike
 
 
 class Constraint(object):

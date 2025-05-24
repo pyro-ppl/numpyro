@@ -17,6 +17,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
 
+from numpyro._typing import TransformLike
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
     add_diag,
@@ -25,7 +26,6 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.typing import TransformLike
 from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [

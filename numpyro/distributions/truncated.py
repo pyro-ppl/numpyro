@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
 
+from numpyro._typing import ConstraintLike
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import (
     Cauchy,
@@ -28,7 +29,6 @@ from numpyro.distributions.util import (
     promote_shapes,
     validate_sample,
 )
-from numpyro.typing import ConstraintLike
 from numpyro.util import is_prng_key
 
 

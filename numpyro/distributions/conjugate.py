@@ -10,6 +10,7 @@ from jax import lax, nn, random
 import jax.numpy as jnp
 from jax.scipy.special import betainc, betaln, gammaln
 
+from numpyro._typing import ConstraintLike
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
 from numpyro.distributions.discrete import (
@@ -20,7 +21,6 @@ from numpyro.distributions.discrete import (
 )
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
-from numpyro.typing import ConstraintLike
 from numpyro.util import is_prng_key
 
 

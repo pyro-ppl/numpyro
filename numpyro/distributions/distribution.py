@@ -41,6 +41,7 @@ from jax import lax, tree_util
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
+from numpyro._typing import DistributionLike, TransformLike
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
     lazy_property,
@@ -48,7 +49,6 @@ from numpyro.distributions.util import (
     sum_rightmost,
     validate_sample,
 )
-from numpyro.typing import DistributionLike, TransformLike
 from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints

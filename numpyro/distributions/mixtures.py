@@ -10,10 +10,10 @@ import jax
 from jax import lax
 import jax.numpy as jnp
 
+from numpyro._typing import ConstraintLike, DistributionLike
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
 from numpyro.distributions.util import validate_sample
-from numpyro.typing import ConstraintLike, DistributionLike
 from numpyro.util import is_prng_key
 
 
