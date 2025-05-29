@@ -80,7 +80,7 @@ class AutoGuide(ABC):
     :param str prefix: a prefix that will be prefixed to all param internal sites
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param callable create_plates: An optional function inputing the same
+    :param callable create_plates: An optional function inputting the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
@@ -359,7 +359,7 @@ class AutoNormal(AutoGuide):
         See :ref:`init_strategy` section for available functions.
     :param float init_scale: Initial scale for the standard deviation of each
         (unconstrained transformed) latent variable.
-    :param callable create_plates: An optional function inputing the same
+    :param callable create_plates: An optional function inputting the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
@@ -512,7 +512,7 @@ class AutoDelta(AutoGuide):
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param callable create_plates: An optional function inputing the same
+    :param callable create_plates: An optional function inputting the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
@@ -1384,7 +1384,7 @@ class AutoSemiDAIS(AutoGuide):
                         break
         if len(local_vars) == 0:
             raise RuntimeError(
-                "There are no local variables in the `{plate_name}` plate."
+                f"There are no local variables in the `{plate_name}` plate."
                 " AutoSemiDAIS is appropriate for models with local variables."
             )
 
