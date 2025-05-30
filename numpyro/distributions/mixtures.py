@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from typing import Optional
+from typing import Optional, Union
 
 from jaxtyping import Array, ArrayLike, PRNGKeyArray
 
@@ -18,8 +18,8 @@ from numpyro.util import is_prng_key
 
 
 def Mixture(
-    mixing_distribution: CategoricalProbs | CategoricalLogits,
-    component_distributions: list[DistributionLike] | DistributionLike,
+    mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
+    component_distributions: Union[list[DistributionLike], DistributionLike],
     *,
     validate_args: Optional[bool] = None,
 ):
@@ -87,7 +87,7 @@ class _MixtureBase(Distribution):
         return self._mixture_size
 
     @property
-    def mixing_distribution(self) -> CategoricalProbs | CategoricalLogits:
+    def mixing_distribution(self) -> Union[CategoricalProbs, CategoricalLogits]:
         """The ``Categorical`` distribution over components"""
         return self._mixing_distribution
 
@@ -213,7 +213,7 @@ class MixtureSameFamily(_MixtureBase):
 
     def __init__(
         self,
-        mixing_distribution: CategoricalProbs | CategoricalLogits,
+        mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
         component_distribution: DistributionLike,
         *,
         validate_args: Optional[bool] = None,
@@ -346,7 +346,7 @@ class MixtureGeneral(_MixtureBase):
 
     def __init__(
         self,
-        mixing_distribution: CategoricalProbs | CategoricalLogits,
+        mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
         component_distributions: list[DistributionLike],
         *,
         support: Optional[ConstraintLike] = None,

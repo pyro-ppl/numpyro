@@ -26,7 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from typing import Optional
+from typing import Optional, Union
 
 from jaxtyping import Array, ArrayLike, PRNGKeyArray
 import numpy as np
@@ -174,7 +174,7 @@ def Bernoulli(
     logits: Optional[ArrayLike] = None,
     *,
     validate_args: Optional[bool] = None,
-) -> BernoulliProbs | BernoulliLogits:
+) -> Union[BernoulliProbs, BernoulliLogits]:
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BernoulliProbs(probs, validate_args=validate_args)
@@ -330,7 +330,7 @@ def Binomial(
     logits: Optional[ArrayLike] = None,
     *,
     validate_args: Optional[bool] = None,
-) -> BinomialProbs | BinomialLogits:
+) -> Union[BinomialProbs, BinomialLogits]:
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BinomialProbs(probs, total_count, validate_args=validate_args)
@@ -739,7 +739,7 @@ def Multinomial(
     *,
     total_count_max: Optional[int] = None,
     validate_args: Optional[bool] = None,
-) -> MultinomialProbs | MultinomialLogits:
+) -> Union[MultinomialProbs, MultinomialLogits]:
     """Multinomial distribution.
 
     :param total_count: number of trials. If this is a JAX array,
@@ -933,7 +933,7 @@ def ZeroInflatedDistribution(
     gate: Optional[ArrayLike] = None,
     gate_logits: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
-) -> ZeroInflatedProbs | ZeroInflatedLogits:
+) -> Union[ZeroInflatedProbs, ZeroInflatedLogits]:
     """
     Generic Zero Inflated distribution.
 
@@ -1065,7 +1065,7 @@ def Geometric(
     logits: Optional[ArrayLike] = None,
     *,
     validate_args: Optional[bool] = None,
-) -> GeometricProbs | GeometricLogits:
+) -> Union[GeometricProbs, GeometricLogits]:
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return GeometricProbs(probs, validate_args=validate_args)

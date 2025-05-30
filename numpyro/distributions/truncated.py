@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from typing import Optional
+from typing import Optional, Union
 
 from jaxtyping import ArrayLike, PRNGKeyArray
 
@@ -40,7 +40,7 @@ class LeftTruncatedDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT,
+        base_dist: Union[Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT],
         low: ArrayLike = 0.0,
         *,
         validate_args: Optional[bool] = None,
@@ -50,9 +50,9 @@ class LeftTruncatedDistribution(Distribution):
             "The base distribution should be univariate and have real support."
         )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
-        self.base_dist: (
-            Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT
-        ) = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
+        self.base_dist: Union[
+            Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
+        ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.low,) = promote_shapes(low, shape=batch_shape)
         self._support = constraints.greater_than(low)
         super().__init__(batch_shape, validate_args=validate_args)
@@ -131,7 +131,7 @@ class RightTruncatedDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT,
+        base_dist: Union[Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT],
         high: ArrayLike = 0.0,
         *,
         validate_args: Optional[bool] = None,
@@ -141,9 +141,9 @@ class RightTruncatedDistribution(Distribution):
             "The base distribution should be univariate and have real support."
         )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
-        self.base_dist: (
-            Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT
-        ) = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
+        self.base_dist: Union[
+            Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
+        ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.high,) = promote_shapes(high, shape=batch_shape)
         self._support = constraints.less_than(high)
         super().__init__(batch_shape, validate_args=validate_args)
@@ -210,7 +210,7 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT,
+        base_dist: Union[Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT],
         low: ArrayLike = 0.0,
         high: ArrayLike = 1.0,
         *,
@@ -223,9 +223,9 @@ class TwoSidedTruncatedDistribution(Distribution):
         batch_shape = lax.broadcast_shapes(
             base_dist.batch_shape, jnp.shape(low), jnp.shape(high)
         )
-        self.base_dist: (
-            Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT
-        ) = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
+        self.base_dist: Union[
+            Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
+        ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.low,) = promote_shapes(low, shape=batch_shape)
         (self.high,) = promote_shapes(high, shape=batch_shape)
         self._support = constraints.interval(low, high)
@@ -329,7 +329,7 @@ class TwoSidedTruncatedDistribution(Distribution):
 
 
 def TruncatedDistribution(
-    base_dist: Cauchy | Laplace | Logistic | Normal | SoftLaplace | StudentT,
+    base_dist: Union[Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT],
     low: Optional[ArrayLike] = None,
     high: Optional[ArrayLike] = None,
     *,

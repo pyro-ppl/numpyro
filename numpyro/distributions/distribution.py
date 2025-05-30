@@ -30,7 +30,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 import warnings
 
 from jaxtyping import Array, ArrayLike, PRNGKeyArray
@@ -953,7 +953,7 @@ class MaskedDistribution(Distribution):
     pytree_data_fields = ("base_dist", "_mask")
     pytree_aux_fields = ("_mask",)
 
-    def __init__(self, base_dist: DistributionLike, mask: bool | Array):
+    def __init__(self, base_dist: DistributionLike, mask: Union[bool, Array]):
         if isinstance(mask, bool):
             self._mask = mask
         else:
