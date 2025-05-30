@@ -226,7 +226,7 @@ class Distribution(metaclass=DistributionMeta):
         return d
 
     @staticmethod
-    def set_default_validate_args(value: bool | Any) -> None:
+    def set_default_validate_args(value: bool) -> None:
         if value not in [True, False]:
             raise ValueError
         Distribution._validate_args = value
