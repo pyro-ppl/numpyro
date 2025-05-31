@@ -1,17 +1,21 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from collections import namedtuple
 import functools
 import math
 from math import pi
 import operator
+from typing import Optional
 
-from jax import lax
+import jax
+from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy import special
 from jax.scipy.special import erf, i0e, i1e, logsumexp
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -26,11 +30,11 @@ from numpyro.distributions.util import (
 from numpyro.util import is_prng_key, while_loop
 
 
-def _numel(shape):
+def _numel(shape: tuple[int, ...]) -> int:
     return functools.reduce(operator.mul, shape, 1)
 
 
-def log_I1(orders: int, value, terms=250):
+def log_I1(orders: int, value: ArrayLike, terms: int = 250) -> Array:
     r"""Compute first n log modified bessel function of first kind
     .. math ::
         \log(I_v(z)) = v*\log(z/2) + \log(\sum_{k=0}^\inf \exp\left[2*k*\log(z/2) - \sum_kk^k log(kk)
@@ -99,7 +103,13 @@ class VonMises(Distribution):
     reparametrized_params = ["loc"]
     support = constraints.circular
 
-    def __init__(self, loc, concentration, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike,
+        concentration: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
         """von Mises distribution for sampling directions.
 
         :param loc: center of distribution
@@ -113,7 +123,9 @@ class VonMises(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         """Generate sample from von Mises distribution
 
         :param key: random number generator key
@@ -130,20 +142,20 @@ class VonMises(Distribution):
         return samples
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         return -(
             jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
         ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
         return jnp.broadcast_to(
             (self.loc + jnp.pi) % (2.0 * jnp.pi) - jnp.pi, self.batch_shape
         )
 
     @property
-    def variance(self):
+    def variance(self) -> ArrayLike:
         """Computes circular variance of distribution"""
         return jnp.broadcast_to(
             1.0 - i1e(self.concentration) / i0e(self.concentration), self.batch_shape
@@ -218,7 +230,13 @@ class SineSkewed(Distribution):
 
     support = constraints.independent(constraints.circular, 1)
 
-    def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
+    def __init__(
+        self,
+        base_dist: Distribution,
+        skewness: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
         assert base_dist.event_shape == skewness.shape[-1:], (
             "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
         )
@@ -229,7 +247,7 @@ class SineSkewed(Distribution):
         self.base_dist = base_dist.expand(batch_shape)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         args_string = ", ".join(
             [
                 "{}: {}".format(
@@ -249,7 +267,9 @@ class SineSkewed(Distribution):
             + ")"
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         base_key, skew_key = random.split(key)
         bd = self.base_dist
         ys = bd.sample(base_key, sample_shape)
@@ -265,7 +285,7 @@ class SineSkewed(Distribution):
         ) - jnp.pi
         return samples
 
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         if self._validate_args:
             self._validate_sample(value)
         if self.base_dist._validate_args:
@@ -280,7 +300,7 @@ class SineSkewed(Distribution):
         return self.base_dist.log_prob(value) + skew_prob
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """Mean of the base distribution"""
         return self.base_dist.mean
 
@@ -347,13 +367,14 @@ class SineBivariateVonMises(Distribution):
 
     def __init__(
         self,
-        phi_loc,
-        psi_loc,
-        phi_concentration,
-        psi_concentration,
-        correlation=None,
-        weighted_correlation=None,
-        validate_args=None,
+        phi_loc: ArrayLike,
+        psi_loc: ArrayLike,
+        phi_concentration: ArrayLike,
+        psi_concentration: ArrayLike,
+        correlation: Optional[ArrayLike] = None,
+        weighted_correlation: Optional[ArrayLike] = None,
+        *,
+        validate_args: Optional[bool] = None,
     ):
         assert_one_of(
             correlation=correlation, weighted_correlation=weighted_correlation
@@ -395,7 +416,7 @@ class SineBivariateVonMises(Distribution):
         self.correlation = jnp.broadcast_to(self.correlation, batch_shape)
 
     @lazy_property
-    def norm_const(self):
+    def norm_const(self) -> Array:
         corr = jnp.reshape(self.correlation, (1, -1))
         conc = jnp.stack(
             (self.phi_concentration, self.psi_concentration), axis=-1
@@ -415,7 +436,7 @@ class SineBivariateVonMises(Distribution):
         return norm_const.reshape(jnp.shape(self.phi_loc))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         indv = self.phi_concentration * jnp.cos(
             value[..., 0] - self.phi_loc
         ) + self.psi_concentration * jnp.cos(value[..., 1] - self.psi_loc)
@@ -426,7 +447,9 @@ class SineBivariateVonMises(Distribution):
         )
         return indv + corr - self.norm_const
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         """
         ** References: **
             1. A New Unified Approach for the Simulation of a Wide Class of Directional Distributions
@@ -480,7 +503,7 @@ class SineBivariateVonMises(Distribution):
 
     @staticmethod
     def _phi_marginal(shape, rng_key, conc, corr, eig, b0, eigmin, phi_den):
-        def update_fn(curr):
+        def update_fn(curr: PhiMarginalState) -> PhiMarginalState:
             i, done, phi, key = curr
             phi_key, key = random.split(key)
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
@@ -490,14 +513,14 @@ class SineBivariateVonMises(Distribution):
                 x, axis=1, keepdims=True
             )  # Angular Central Gaussian distribution
 
-            lf = (
+            lf: ArrayLike = (
                 conc[0] * (x[:, 0] - 1)
                 + eigmin
                 + log_I1(0, jnp.sqrt(conc[1] ** 2 + (corr * x[:, 1]) ** 2)).squeeze(0)
                 - phi_den
             )
 
-            lg_inv = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
+            lg_inv: ArrayLike = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
             assert lg_inv.shape == lf.shape
 
             accepted = random.uniform(accept_key, lf.shape) < jnp.exp(lf + lg_inv)
@@ -506,7 +529,7 @@ class SineBivariateVonMises(Distribution):
             phi = jnp.where(accepted, x, phi)
             return PhiMarginalState(i + 1, done | accepted, phi, key)
 
-        def cond_fn(curr):
+        def cond_fn(curr: PhiMarginalState) -> Array:
             return jnp.bitwise_and(
                 curr.i < SineBivariateVonMises.max_sample_iter,
                 jnp.logical_not(jnp.all(curr.done)),
@@ -527,14 +550,14 @@ class SineBivariateVonMises(Distribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """Computes circular mean of distribution. Note: same as location when mapped to support [-pi, pi]"""
         mean = (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
             2.0 * jnp.pi
         ) - jnp.pi
         return jnp.broadcast_to(mean, (*self.batch_shape, 2))
 
-    def _bfind(self, eig):
+    def _bfind(self, eig: Array) -> Array:
         b = eig.shape[0] / 2 * jnp.ones(self.batch_shape, dtype=eig.dtype)
         g1 = jnp.sum(1 / (b + 2 * eig) ** 2, axis=0)
         g2 = jnp.sum(-2 / (b + 2 * eig) ** 3, axis=0)
@@ -571,7 +594,7 @@ class ProjectedNormal(Distribution):
     reparametrized_params = ["concentration"]
     support = constraints.sphere
 
-    def __init__(self, concentration, *, validate_args=None):
+    def __init__(self, concentration: Array, *, validate_args: Optional[bool] = None):
         assert jnp.ndim(concentration) >= 1
         self.concentration = concentration
         batch_shape = concentration.shape[:-1]
@@ -579,7 +602,7 @@ class ProjectedNormal(Distribution):
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         """
         Note this is the mean in the sense of a centroid in the submanifold
         that minimizes expected squared geodesic distance.
@@ -590,12 +613,14 @@ class ProjectedNormal(Distribution):
     def mode(self):
         return safe_normalize(self.concentration)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
         return safe_normalize(self.concentration + eps)
 
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         if self._validate_args:
             event_shape = value.shape[-1:]
             if event_shape != self.event_shape:
@@ -644,7 +669,7 @@ def _projected_normal_log_prob_2(concentration, value):
 
 
 def _projected_normal_log_prob_3(concentration, value):
-    def _dot(x, y):
+    def _dot(x: Array, y: Array) -> ArrayLike:
         return (x[..., None, :] @ y[..., None])[..., 0, 0]
 
     # We integrate along a ray, factorizing the integrand as a product of:
