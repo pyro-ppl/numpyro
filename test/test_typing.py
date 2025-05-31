@@ -4,10 +4,10 @@
 
 from typing import Any
 
-from jaxtyping import ArrayLike, PRNGKeyArray
-
+import jax
 import jax.numpy as jnp
 from jax.random import PRNGKey
+from jax.typing import ArrayLike
 
 from numpyro._typing import ConstraintLike, DistributionLike
 import numpyro.distributions as dist
@@ -59,7 +59,7 @@ class ValidDistributionLike:
         return jnp.array(0.0)
 
     def rsample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.sample(key, sample_shape)
 

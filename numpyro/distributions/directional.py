@@ -9,13 +9,13 @@ from math import pi
 import operator
 from typing import Optional
 
-from jaxtyping import Array, ArrayLike, PRNGKeyArray
-
-from jax import lax
+import jax
+from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy import special
 from jax.scipy.special import erf, i0e, i1e, logsumexp
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -124,7 +124,7 @@ class VonMises(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """Generate sample from von Mises distribution
 
@@ -268,7 +268,7 @@ class SineSkewed(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         base_key, skew_key = random.split(key)
         bd = self.base_dist
@@ -448,7 +448,7 @@ class SineBivariateVonMises(Distribution):
         return indv + corr - self.norm_const
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         ** References: **
@@ -614,7 +614,7 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)

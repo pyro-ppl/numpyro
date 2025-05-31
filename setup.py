@@ -38,7 +38,6 @@ setup(
         "multipledispatch",
         "numpy",
         "tqdm",
-        "jaxtyping",  # for type hinting
     ],
     extras_require={
         "doc": [

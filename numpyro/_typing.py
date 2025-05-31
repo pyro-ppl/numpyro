@@ -6,8 +6,10 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
-from jaxtyping import ArrayLike, PRNGKeyArray
 from typing_extensions import ParamSpec, TypeAlias
+
+import jax
+from jax.typing import ArrayLike
 
 P = ParamSpec("P")
 ModelT: TypeAlias = Callable[P, Any]
@@ -46,10 +48,10 @@ class DistributionLike(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
     def rsample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike: ...
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike: ...
     def log_prob(self, value: ArrayLike) -> ArrayLike: ...
     def cdf(self, value: ArrayLike) -> ArrayLike: ...

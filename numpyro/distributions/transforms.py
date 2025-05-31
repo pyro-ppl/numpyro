@@ -6,16 +6,16 @@ from typing import Optional, Sequence, Tuple
 import warnings
 import weakref
 
-from jaxtyping import Array, ArrayLike
 import numpy as np
 
 import jax
-from jax import lax, vmap
+from jax import Array, lax, vmap
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
+from jax.typing import ArrayLike
 
 from numpyro._typing import TransformLike
 from numpyro.distributions import constraints

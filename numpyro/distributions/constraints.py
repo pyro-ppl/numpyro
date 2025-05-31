@@ -66,12 +66,12 @@ __all__ = [
 import math
 from typing import Optional
 
-from jaxtyping import ArrayLike
 import numpy as np
 
 import jax.numpy
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
+from jax.typing import ArrayLike
 
 from numpyro._typing import ConstraintLike
 

@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from jaxtyping import ArrayLike
-
 from jax import lax
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 from numpyro._typing import TransformLike
 from numpyro.distributions.constraints import real_vector

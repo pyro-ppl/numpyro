@@ -4,9 +4,9 @@
 
 from typing import Optional
 
-from jaxtyping import Array, ArrayLike, PRNGKeyArray
-
-from jax import lax, numpy as jnp
+import jax
+from jax import Array, lax, numpy as jnp
+from jax.typing import ArrayLike
 
 from numpyro._typing import ConstraintLike, DistributionLike
 import numpyro.distributions.constraints as constraints
@@ -67,7 +67,7 @@ class GaussianCopula(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
 

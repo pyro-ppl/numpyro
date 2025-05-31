@@ -4,11 +4,11 @@
 
 from typing import Optional
 
-from jaxtyping import ArrayLike, PRNGKeyArray
-
+import jax
 from jax import lax, nn, random
 import jax.numpy as jnp
 from jax.scipy.special import betainc, betaln, gammaln
+from jax.typing import ArrayLike
 
 from numpyro._typing import ConstraintLike
 from numpyro.distributions import constraints
@@ -72,7 +72,7 @@ class BetaBinomial(Distribution):
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
@@ -159,7 +159,7 @@ class DirichletMultinomial(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
@@ -234,7 +234,7 @@ class GammaPoisson(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_gamma, key_poisson = random.split(key)

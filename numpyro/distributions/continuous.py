@@ -28,10 +28,10 @@
 
 from typing import Callable, Literal, Optional
 
-from jaxtyping import Array, ArrayLike, PRNGKeyArray
 import numpy as np
 
-from jax import lax, vmap
+import jax
+from jax import Array, lax, vmap
 from jax.experimental.sparse import BCOO
 from jax.lax import scan
 import jax.nn as nn
@@ -53,6 +53,7 @@ from jax.scipy.special import (
     xlogy,
 )
 from jax.scipy.stats import norm as jax_norm
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
@@ -136,7 +137,7 @@ class AsymmetricLaplace(Distribution):
         return z - jnp.log(self.left_scale + self.right_scale)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         shape = (2,) + sample_shape + self.batch_shape + self.event_shape
@@ -208,7 +209,7 @@ class Beta(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return self._dirichlet.sample(key, sample_shape)[..., 0]
@@ -229,7 +230,7 @@ class Beta(Distribution):
     def cdf(self, value: ArrayLike) -> ArrayLike:
         return betainc(self.concentration1, self.concentration0, value)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return betaincinv(self.concentration1, self.concentration0, q)
 
     def entropy(self) -> ArrayLike:
@@ -261,7 +262,7 @@ class Cauchy(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
@@ -287,7 +288,7 @@ class Cauchy(Distribution):
         scaled = (value - self.loc) / self.scale
         return jnp.arctan(scaled) / jnp.pi + 0.5
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
 
     def entropy(self) -> ArrayLike:
@@ -320,7 +321,7 @@ class Dirichlet(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape
@@ -409,7 +410,7 @@ class EulerMaruyama(Distribution):
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         batch_shape = sample_shape + self.batch_shape
@@ -518,7 +519,7 @@ class Exponential(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return (
@@ -540,7 +541,7 @@ class Exponential(Distribution):
     def cdf(self, value: ArrayLike) -> ArrayLike:
         return -jnp.expm1(-self.rate * value)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return -jnp.log1p(-q) / self.rate
 
     def entropy(self) -> ArrayLike:
@@ -569,7 +570,7 @@ class Gamma(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -597,7 +598,7 @@ class Gamma(Distribution):
     def cdf(self, x):
         return gammainc(self.concentration, self.rate * x)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return gammaincinv(self.concentration, q) / self.rate
 
     def entropy(self) -> ArrayLike:
@@ -745,7 +746,7 @@ class GaussianRandomWalk(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -790,7 +791,7 @@ class HalfCauchy(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return jnp.abs(self._cauchy.sample(key, sample_shape))
@@ -802,7 +803,7 @@ class HalfCauchy(Distribution):
     def cdf(self, value: ArrayLike) -> ArrayLike:
         return self._cauchy.cdf(value) * 2 - 1
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return self._cauchy.icdf((q + 1) / 2)
 
     @property
@@ -833,7 +834,7 @@ class HalfNormal(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return jnp.abs(self._normal.sample(key, sample_shape))
@@ -845,7 +846,7 @@ class HalfNormal(Distribution):
     def cdf(self, value: ArrayLike) -> ArrayLike:
         return self._normal.cdf(value) * 2 - 1
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return self._normal.icdf((q + 1) / 2)
 
     @property
@@ -943,7 +944,7 @@ class Gompertz(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         random_shape = sample_shape + self.batch_shape + self.event_shape
@@ -963,7 +964,7 @@ class Gompertz(Distribution):
     def cdf(self, value: ArrayLike) -> ArrayLike:
         return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return jnp.log1p(-jnp.log1p(-q) / self.concentration) / self.rate
 
     @property
@@ -991,7 +992,7 @@ class Gumbel(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         standard_gumbel_sample = random.gumbel(
@@ -1017,7 +1018,7 @@ class Gumbel(Distribution):
     def cdf(self, value: ArrayLike) -> ArrayLike:
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
@@ -1051,7 +1052,7 @@ class Kumaraswamy(Distribution):
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         finfo = jnp.finfo(jnp.result_type(float))
@@ -1103,7 +1104,7 @@ class Laplace(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         eps = random.laplace(
@@ -1129,7 +1130,7 @@ class Laplace(Distribution):
         scaled = (value - self.loc) / self.scale
         return 0.5 - 0.5 * jnp.sign(scaled) * jnp.expm1(-jnp.abs(scaled))
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
 
@@ -1323,7 +1324,7 @@ class LKJCholesky(Distribution):
             validate_args=validate_args,
         )
 
-    def _cvine(self, key: PRNGKeyArray, size):
+    def _cvine(self, key: jax.dtypes.prng_key, size):
         # C-vine method first uses beta_dist to generate partial correlations,
         # then apply signed stick breaking to transform to cholesky factor.
         # Here is an attempt to prove that using signed stick breaking to
@@ -1344,7 +1345,7 @@ class LKJCholesky(Distribution):
         partial_correlation = 2 * beta_sample - 1  # scale to domain to (-1, 1)
         return signed_stick_breaking_tril(partial_correlation)
 
-    def _onion(self, key: PRNGKeyArray, size):
+    def _onion(self, key: jax.dtypes.prng_key, size):
         key_beta, key_normal = random.split(key)
         # Now we generate w term in Algorithm 3.2 of [1].
         beta_sample = self._beta.sample(key_beta, size)
@@ -1371,7 +1372,7 @@ class LKJCholesky(Distribution):
         return add_diag(cholesky, diag)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         if self.sample_method == "onion":
@@ -1472,7 +1473,7 @@ class Logistic(Distribution):
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         z = random.logistic(
@@ -1499,7 +1500,7 @@ class Logistic(Distribution):
         scaled = (value - self.loc) / self.scale
         return expit(scaled)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return self.loc + self.scale * logit(q)
 
     def entropy(self) -> ArrayLike:
@@ -1655,7 +1656,7 @@ class MatrixNormal(Distribution):
         return jnp.broadcast_to(self.loc, self.shape())
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1788,7 +1789,7 @@ class MultivariateNormal(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         eps = random.normal(
@@ -1968,7 +1969,7 @@ class CAR(Distribution):
                 ), "adjacency matrix must be symmetric"
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         # TODO: look into a sparse sampling method
         mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
@@ -2109,7 +2110,7 @@ class MultivariateStudentT(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_normal, key_chi2 = random.split(key)
@@ -2321,7 +2322,7 @@ class LowRankMultivariateNormal(Distribution):
         return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_W, key_D = random.split(key)
@@ -2380,7 +2381,7 @@ class Normal(Distribution):
         )
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         eps = random.normal(
@@ -2401,7 +2402,7 @@ class Normal(Distribution):
     def log_cdf(self, value: ArrayLike) -> ArrayLike:
         return jax_norm.logcdf(value, loc=self.loc, scale=self.scale)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         return self.loc + self.scale * ndtri(q)
 
     @property
@@ -2528,7 +2529,7 @@ class SoftLaplace(Distribution):
         return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
@@ -2583,7 +2584,7 @@ class StudentT(Distribution):
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_normal, key_chi2 = random.split(key)
@@ -2634,7 +2635,7 @@ class StudentT(Distribution):
             - jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> ArrayLike:
         beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
         scaled_squared = self.df * (1 / beta_value - 1)
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
@@ -2675,7 +2676,7 @@ class Uniform(Distribution):
         return self._support
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         shape = sample_shape + self.batch_shape
         return random.uniform(key, shape=shape, minval=self.low, maxval=self.high)
@@ -2732,7 +2733,7 @@ class Weibull(Distribution):
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         return random.weibull_min(
@@ -2860,7 +2861,7 @@ class AsymmetricLaplaceQuantile(Distribution):
         return self._ald.log_prob(value)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self._ald.sample(key, sample_shape=sample_shape)
 
@@ -3176,7 +3177,7 @@ class WishartCholesky(Distribution):
         return cho_solve((self.scale_tril, True), identity)
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         # Sample using the Bartlett decomposition

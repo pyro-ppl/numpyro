@@ -4,11 +4,10 @@
 
 from typing import Optional, Union
 
-from jaxtyping import Array, ArrayLike, PRNGKeyArray
-
 import jax
-from jax import lax
+from jax import Array, lax
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 from numpyro._typing import ConstraintLike, DistributionLike
 from numpyro.distributions import Distribution, constraints
@@ -74,7 +73,7 @@ class _MixtureBase(Distribution):
         raise NotImplementedError
 
     def component_sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         raise NotImplementedError
 
@@ -92,7 +91,7 @@ class _MixtureBase(Distribution):
         return self._mixing_distribution
 
     @property
-    def mixture_dim(self):
+    def mixture_dim(self) -> int:
         return -self.event_dim - 1
 
     @property
@@ -126,7 +125,7 @@ class _MixtureBase(Distribution):
         return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
 
     def sample_with_intermediates(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> tuple[ArrayLike, list[ArrayLike]]:
         """
         A version of ``sample`` that also returns the sampled component indices
@@ -158,7 +157,7 @@ class _MixtureBase(Distribution):
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
     def sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
@@ -275,7 +274,7 @@ class MixtureSameFamily(_MixtureBase):
         )
 
     def component_sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.component_distribution.expand(
             sample_shape + self.batch_shape + (self.mixture_size,)
@@ -448,7 +447,7 @@ class MixtureGeneral(_MixtureBase):
         )
 
     def component_sample(
-        self, key: PRNGKeyArray, sample_shape: tuple[int, ...] = ()
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         keys = jax.random.split(key, self.mixture_size)
         samples = []
