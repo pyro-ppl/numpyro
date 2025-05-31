@@ -1941,12 +1941,14 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
-    if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
+    if jax_dist in [
+        dist.LowerTruncatedPowerLaw,
+        dist.DoublyTruncatedPowerLaw,
+        dist.Dagum,
+    ]:
         pytest.skip(
             f"{jax_dist.__name__} distribution does not has mean/var implemented"
         )
-    if jax_dist in [dist.Dagum] and jnp.result_type(float) == jnp.float32:
-        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     n = (
         20000
