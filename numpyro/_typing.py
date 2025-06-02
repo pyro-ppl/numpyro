@@ -78,6 +78,10 @@ class DistributionT(Protocol):
     def is_discrete(self) -> bool: ...
 
 
+# To avoid breaking changes for user code that uses `DistributionLike`
+DistributionLike = DistributionT
+
+
 @runtime_checkable
 class TransformT(Protocol):
     domain = ConstraintT
