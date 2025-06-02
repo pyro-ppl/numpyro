@@ -17,7 +17,7 @@ from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import TransformLike
+from numpyro._typing import TransformT
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
     add_diag,
@@ -74,7 +74,7 @@ class Transform(object):
         register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
     @property
-    def inv(self) -> TransformLike:
+    def inv(self) -> TransformT:
         inv = None
         if self._inv is not None:
             inv = self._inv()
@@ -148,12 +148,12 @@ class ParameterFreeTransform(Transform):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return isinstance(other, type(self))
 
 
 class _InverseTransform(Transform):
-    def __init__(self, transform: TransformLike) -> None:
+    def __init__(self, transform: TransformT) -> None:
         super().__init__()
         self._inv = transform
 
@@ -170,7 +170,7 @@ class _InverseTransform(Transform):
         return self._inv.sign
 
     @property
-    def inv(self) -> TransformLike:
+    def inv(self) -> TransformT:
         return self._inv
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
@@ -191,7 +191,7 @@ class _InverseTransform(Transform):
     def tree_flatten(self):
         return (self._inv,), (("_inv",), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, _InverseTransform):
             return False
         return self._inv == other._inv
@@ -201,7 +201,7 @@ class AbsTransform(ParameterFreeTransform):
     domain = constraints.real
     codomain = constraints.positive
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return isinstance(other, AbsTransform)
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
@@ -288,7 +288,7 @@ class AffineTransform(Transform):
     def tree_flatten(self):
         return (self.loc, self.scale, self.domain), (("loc", "scale", "domain"), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, AffineTransform):
             return False
         return (
@@ -317,7 +317,7 @@ def _get_compose_transform_output_event_dim(parts):
 
 
 class ComposeTransform(Transform):
-    def __init__(self, parts: Sequence[TransformLike]) -> None:
+    def __init__(self, parts: Sequence[TransformT]) -> None:
         self.parts = parts
 
     @property
@@ -414,7 +414,7 @@ class ComposeTransform(Transform):
     def tree_flatten(self):
         return (self.parts,), (("parts",), {})
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, ComposeTransform):
             return False
         return jnp.logical_and(*(p1 == p2 for p1, p2 in zip(self.parts, other.parts)))
@@ -599,7 +599,7 @@ class ExpTransform(Transform):
     def tree_flatten(self):
         return (self.domain,), (("domain",), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, ExpTransform):
             return False
         return self.domain == other.domain
@@ -628,7 +628,7 @@ class IndependentTransform(Transform):
     """
 
     def __init__(
-        self, base_transform: TransformLike, reinterpreted_batch_ndims: int
+        self, base_transform: TransformT, reinterpreted_batch_ndims: int
     ) -> None:
         assert isinstance(base_transform, Transform)
         assert isinstance(reinterpreted_batch_ndims, int)
@@ -683,7 +683,7 @@ class IndependentTransform(Transform):
             dict(),
         )
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, IndependentTransform):
             return False
         return (self.base_transform == other.base_transform) & (
@@ -808,7 +808,7 @@ class LowerCholeskyAffine(Transform):
     def tree_flatten(self):
         return (self.loc, self.scale_tril), (("loc", "scale_tril"), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, LowerCholeskyAffine):
             return False
         return jnp.array_equal(self.loc, other.loc) & jnp.array_equal(
@@ -954,7 +954,7 @@ class PermuteTransform(Transform):
     def tree_flatten(self):
         return (self.permutation,), (("permutation",), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, PermuteTransform):
             return False
         return jnp.array_equal(self.permutation, other.permutation)
@@ -987,7 +987,7 @@ class PowerTransform(Transform):
     def tree_flatten(self):
         return (self.exponent,), (("exponent",), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, PowerTransform):
             return False
         return jnp.array_equal(self.exponent, other.exponent)
@@ -1071,7 +1071,7 @@ class SimplexToOrderedTransform(Transform):
     def tree_flatten(self):
         return (self.anchor_point,), (("anchor_point",), dict())
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, SimplexToOrderedTransform):
             return False
         return jnp.array_equal(self.anchor_point, other.anchor_point)
@@ -1252,7 +1252,7 @@ class UnpackTransform(Transform):
         # XXX: what if unpack_fn is a parametrized callable pytree?
         return (), ((), {"unpack_fn": self.unpack_fn, "pack_fn": self.pack_fn})
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return (
             isinstance(other, UnpackTransform)
             and (self.unpack_fn is other.unpack_fn)
@@ -1324,7 +1324,7 @@ class ReshapeTransform(Transform):
         }
         return (), ((), aux_data)
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return (
             isinstance(other, ReshapeTransform)
             and self._forward_shape == other._forward_shape
@@ -1412,7 +1412,7 @@ class RealFastFourierTransform(Transform):
     def codomain(self) -> constraints.Constraint:
         return constraints.independent(constraints.complex, self.transform_ndims)
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return (
             isinstance(other, RealFastFourierTransform)
             and self.transform_ndims == other.transform_ndims
@@ -1571,7 +1571,7 @@ class RecursiveLinearTransform(Transform):
     def tree_flatten(self):
         return (self.transition_matrix,), (("transition_matrix",), {})
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, RecursiveLinearTransform):
             return False
         return jnp.array_equal(self.transition_matrix, other.transition_matrix)
@@ -1654,7 +1654,7 @@ class ZeroSumTransform(Transform):
         aux_data = {"transform_ndims": self.transform_ndims}
         return (), ((), aux_data)
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return (
             isinstance(other, ZeroSumTransform)
             and self.transform_ndims == other.transform_ndims

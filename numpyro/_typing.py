@@ -19,7 +19,7 @@ TraceT: TypeAlias = OrderedDict[str, Message]
 
 
 @runtime_checkable
-class ConstraintLike(Protocol):
+class ConstraintT(Protocol):
     is_discrete: bool = ...
     event_dim: int = ...
 
@@ -30,15 +30,15 @@ class ConstraintLike(Protocol):
 
 
 @runtime_checkable
-class DistributionLike(Protocol):
+class DistributionT(Protocol):
     """A protocol for typing distributions.
 
     Used to type object of type numpyro.distributions.Distribution, funsor.Funsor
     or tensorflow_probability.distributions.Distribution.
     """
 
-    arg_constraints: dict[str, ConstraintLike] = ...
-    support: ConstraintLike = ...
+    arg_constraints: dict[str, ConstraintT] = ...
+    support: ConstraintT = ...
     has_enumerate_support: bool = ...
     reparametrized_params: list[str] = ...
     _validate_args: bool = ...
@@ -79,10 +79,10 @@ class DistributionLike(Protocol):
 
 
 @runtime_checkable
-class TransformLike(Protocol):
-    domain = ConstraintLike
-    codomain = ConstraintLike
-    _inv: "TransformLike" = None
+class TransformT(Protocol):
+    domain = ConstraintT
+    codomain = ConstraintT
+    _inv: "TransformT" = None
 
     def __call__(self, x: ArrayLike) -> ArrayLike: ...
     def _inverse(self, y: ArrayLike) -> ArrayLike: ...
@@ -94,6 +94,6 @@ class TransformLike(Protocol):
     def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]: ...
 
     @property
-    def inv(self) -> "TransformLike": ...
+    def inv(self) -> "TransformT": ...
     @property
     def sign(self) -> ArrayLike: ...

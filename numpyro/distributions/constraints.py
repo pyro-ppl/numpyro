@@ -73,7 +73,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintLike
+from numpyro._typing import ConstraintT
 
 
 class Constraint(object):
@@ -242,7 +242,7 @@ class _Dependent(Constraint):
             event_dim = self._event_dim
         return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         return (
             type(self) is type(other)
             and self._is_discrete == other._is_discrete
@@ -301,7 +301,7 @@ class _GreaterThan(Constraint):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _GreaterThan):
             return False
         return jnp.array_equal(self.lower_bound, other.lower_bound)
@@ -311,7 +311,7 @@ class _GreaterThanEq(_GreaterThan):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return x >= self.lower_bound
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _GreaterThanEq):
             return False
         return jnp.array_equal(self.lower_bound, other.lower_bound)
@@ -385,7 +385,7 @@ class _IndependentConstraint(Constraint):
             {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
         )
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _IndependentConstraint):
             return False
 
@@ -422,7 +422,7 @@ class _LessThan(Constraint):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _LessThan):
             return False
         return jnp.array_equal(self.upper_bound, other.upper_bound)
@@ -432,7 +432,7 @@ class _LessThanEq(_LessThan):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return x <= self.upper_bound
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _LessThanEq):
             return False
         return jnp.array_equal(self.upper_bound, other.upper_bound)
@@ -464,7 +464,7 @@ class _IntegerInterval(Constraint):
             dict(),
         )
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _IntegerInterval):
             return False
 
@@ -493,7 +493,7 @@ class _IntegerGreaterThan(Constraint):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _IntegerGreaterThan):
             return False
         return jnp.array_equal(self.lower_bound, other.lower_bound)
@@ -529,7 +529,7 @@ class _Interval(Constraint):
             (self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype)
         )
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _Interval):
             return False
         return jnp.array_equal(self.lower_bound, other.lower_bound) & jnp.array_equal(
@@ -603,7 +603,7 @@ class _Multinomial(Constraint):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _Multinomial):
             return False
         return jnp.array_equal(self.upper_bound, other.upper_bound)
@@ -782,7 +782,7 @@ class _ZeroSum(Constraint):
             zerosum_true = zerosum_true & jnp.allclose(x.sum(dim), 0, atol=tol)
         return zerosum_true
 
-    def __eq__(self, other: ConstraintLike) -> bool:
+    def __eq__(self, other: ConstraintT) -> bool:
         return type(self) is type(other) and self.event_dim == other.event_dim
 
     def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
@@ -795,40 +795,40 @@ class _ZeroSum(Constraint):
 # TODO: Make types consistent
 # See https://github.com/pytorch/pytorch/issues/50616
 
-boolean: ConstraintLike = _Boolean()
-circular: ConstraintLike = _Circular()
-complex: ConstraintLike = _Complex()
-corr_cholesky: ConstraintLike = _CorrCholesky()
-corr_matrix: ConstraintLike = _CorrMatrix()
-dependent: ConstraintLike = _Dependent()
-greater_than: ConstraintLike = _GreaterThan
-greater_than_eq: ConstraintLike = _GreaterThanEq
-less_than: ConstraintLike = _LessThan
-less_than_eq: ConstraintLike = _LessThanEq
-independent: ConstraintLike = _IndependentConstraint
-integer_interval: ConstraintLike = _IntegerInterval
-integer_greater_than: ConstraintLike = _IntegerGreaterThan
-interval: ConstraintLike = _Interval
-l1_ball: ConstraintLike = _L1Ball()
-lower_cholesky: ConstraintLike = _LowerCholesky()
-scaled_unit_lower_cholesky: ConstraintLike = _ScaledUnitLowerCholesky()
-multinomial: ConstraintLike = _Multinomial
-nonnegative: ConstraintLike = _Nonnegative()
-nonnegative_integer: ConstraintLike = _IntegerNonnegative()
-ordered_vector: ConstraintLike = _OrderedVector()
-positive: ConstraintLike = _Positive()
-positive_definite: ConstraintLike = _PositiveDefinite()
-positive_definite_circulant_vector: ConstraintLike = _PositiveDefiniteCirculantVector()
-positive_semidefinite: ConstraintLike = _PositiveSemiDefinite()
-positive_integer: ConstraintLike = _IntegerPositive()
-positive_ordered_vector: ConstraintLike = _PositiveOrderedVector()
-real: ConstraintLike = _Real()
-real_vector: ConstraintLike = _RealVector()
-real_matrix: ConstraintLike = _RealMatrix()
-simplex: ConstraintLike = _Simplex()
-softplus_lower_cholesky: ConstraintLike = _SoftplusLowerCholesky()
-softplus_positive: ConstraintLike = _SoftplusPositive()
-sphere: ConstraintLike = _Sphere()
-unit_interval: ConstraintLike = _UnitInterval()
-open_interval: ConstraintLike = _OpenInterval
-zero_sum: ConstraintLike = _ZeroSum
+boolean: ConstraintT = _Boolean()
+circular: ConstraintT = _Circular()
+complex: ConstraintT = _Complex()
+corr_cholesky: ConstraintT = _CorrCholesky()
+corr_matrix: ConstraintT = _CorrMatrix()
+dependent: ConstraintT = _Dependent()
+greater_than: ConstraintT = _GreaterThan
+greater_than_eq: ConstraintT = _GreaterThanEq
+less_than: ConstraintT = _LessThan
+less_than_eq: ConstraintT = _LessThanEq
+independent: ConstraintT = _IndependentConstraint
+integer_interval: ConstraintT = _IntegerInterval
+integer_greater_than: ConstraintT = _IntegerGreaterThan
+interval: ConstraintT = _Interval
+l1_ball: ConstraintT = _L1Ball()
+lower_cholesky: ConstraintT = _LowerCholesky()
+scaled_unit_lower_cholesky: ConstraintT = _ScaledUnitLowerCholesky()
+multinomial: ConstraintT = _Multinomial
+nonnegative: ConstraintT = _Nonnegative()
+nonnegative_integer: ConstraintT = _IntegerNonnegative()
+ordered_vector: ConstraintT = _OrderedVector()
+positive: ConstraintT = _Positive()
+positive_definite: ConstraintT = _PositiveDefinite()
+positive_definite_circulant_vector: ConstraintT = _PositiveDefiniteCirculantVector()
+positive_semidefinite: ConstraintT = _PositiveSemiDefinite()
+positive_integer: ConstraintT = _IntegerPositive()
+positive_ordered_vector: ConstraintT = _PositiveOrderedVector()
+real: ConstraintT = _Real()
+real_vector: ConstraintT = _RealVector()
+real_matrix: ConstraintT = _RealMatrix()
+simplex: ConstraintT = _Simplex()
+softplus_lower_cholesky: ConstraintT = _SoftplusLowerCholesky()
+softplus_positive: ConstraintT = _SoftplusPositive()
+sphere: ConstraintT = _Sphere()
+unit_interval: ConstraintT = _UnitInterval()
+open_interval: ConstraintT = _OpenInterval
+zero_sum: ConstraintT = _ZeroSum

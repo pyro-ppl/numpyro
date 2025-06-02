@@ -6,7 +6,7 @@ from jax import lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import TransformLike
+from numpyro._typing import TransformT
 from numpyro.distributions.constraints import real_vector
 from numpyro.distributions.transforms import Transform
 from numpyro.util import fori_loop
@@ -109,7 +109,7 @@ class InverseAutoregressiveTransform(Transform):
             {"arn": self.arn},
         )
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, InverseAutoregressiveTransform):
             return False
         return (
@@ -170,7 +170,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
     def tree_flatten(self):
         return (), ((), {"bn_arn": self.bn_arn})
 
-    def __eq__(self, other: TransformLike) -> bool:
+    def __eq__(self, other: TransformT) -> bool:
         return (
             isinstance(other, BlockNeuralAutoregressiveTransform)
             and self.bn_arn is other.bn_arn

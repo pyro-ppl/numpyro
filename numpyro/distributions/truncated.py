@@ -11,7 +11,7 @@ import jax.random as random
 from jax.scipy.special import logsumexp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintLike
+from numpyro._typing import ConstraintT
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import (
     Cauchy,
@@ -57,7 +57,7 @@ class LeftTruncatedDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintLike:
+    def support(self) -> ConstraintT:
         return self._support
 
     @lazy_property
@@ -148,7 +148,7 @@ class RightTruncatedDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintLike:
+    def support(self) -> ConstraintT:
         return self._support
 
     @lazy_property
@@ -231,7 +231,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintLike:
+    def support(self) -> ConstraintT:
         return self._support
 
     @lazy_property
@@ -480,7 +480,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintLike:
+    def support(self) -> ConstraintT:
         return self._support
 
     @validate_sample
@@ -955,7 +955,7 @@ class LowerTruncatedPowerLaw(Distribution):
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintLike:
+    def support(self) -> ConstraintT:
         return self._support
 
     @validate_sample

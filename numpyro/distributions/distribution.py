@@ -41,7 +41,7 @@ import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 from jax.typing import ArrayLike
 
-from numpyro._typing import DistributionLike, TransformLike
+from numpyro._typing import DistributionT, TransformT
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
     lazy_property,
@@ -865,7 +865,7 @@ class Independent(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionLike,
+        base_dist: DistributionT,
         reinterpreted_batch_ndims: int,
         *,
         validate_args: Optional[bool] = None,
@@ -953,7 +953,7 @@ class MaskedDistribution(Distribution):
     pytree_data_fields = ("base_dist", "_mask")
     pytree_aux_fields = ("_mask",)
 
-    def __init__(self, base_dist: DistributionLike, mask: Union[bool, Array]):
+    def __init__(self, base_dist: DistributionT, mask: Union[bool, Array]):
         if isinstance(mask, bool):
             self._mask = mask
         else:
@@ -1064,8 +1064,8 @@ class TransformedDistribution(Distribution):
 
     def __init__(
         self,
-        base_distribution: DistributionLike,
-        transforms: list[TransformLike],
+        base_distribution: DistributionT,
+        transforms: list[TransformT],
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -1225,7 +1225,7 @@ class FoldedDistribution(TransformedDistribution):
     support = constraints.positive
 
     def __init__(
-        self, base_dist: DistributionLike, *, validate_args: Optional[bool] = None
+        self, base_dist: DistributionT, *, validate_args: Optional[bool] = None
     ):
         if base_dist.event_shape:
             raise ValueError("Only univariate distributions can be folded.")

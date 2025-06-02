@@ -8,7 +8,7 @@ import jax
 from jax import Array, lax, numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintLike, DistributionLike
+from numpyro._typing import ConstraintT, DistributionT
 import numpyro.distributions.constraints as constraints
 from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
@@ -39,7 +39,7 @@ class GaussianCopula(Distribution):
 
     def __init__(
         self,
-        marginal_dist: DistributionLike,
+        marginal_dist: DistributionT,
         correlation_matrix: Optional[Array] = None,
         correlation_cholesky: Optional[Array] = None,
         *,
@@ -100,7 +100,7 @@ class GaussianCopula(Distribution):
         return jnp.broadcast_to(self.marginal_dist.variance, self.shape())
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
-    def support(self) -> ConstraintLike:
+    def support(self) -> ConstraintT:
         return constraints.independent(self.marginal_dist.support, 1)
 
     @lazy_property

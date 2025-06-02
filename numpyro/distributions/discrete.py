@@ -39,7 +39,7 @@ from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlo
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints, transforms
-from numpyro.distributions.distribution import Distribution, DistributionLike
+from numpyro.distributions.distribution import Distribution, DistributionT
 from numpyro.distributions.util import (
     assert_one_of,
     binary_cross_entropy_with_logits,
@@ -845,7 +845,7 @@ class ZeroInflatedProbs(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionLike,
+        base_dist: DistributionT,
         gate: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -908,7 +908,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 
     def __init__(
         self,
-        base_dist: DistributionLike,
+        base_dist: DistributionT,
         gate_logits: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -928,7 +928,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 
 
 def ZeroInflatedDistribution(
-    base_dist: DistributionLike,
+    base_dist: DistributionT,
     *,
     gate: Optional[ArrayLike] = None,
     gate_logits: Optional[ArrayLike] = None,
