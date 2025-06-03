@@ -3285,12 +3285,8 @@ class Dagum(Distribution):
         safe_a = jnp.where(self.a > 1.0, self.a, 2.0)
         return jnp.where(
             self.a > 1.0,
-            self.b
-            * jnp.exp(
-                gammaln(1.0 - 1.0 / safe_a)
-                + gammaln(self.p + 1.0 / safe_a)
-                - gammaln(self.p)
-            ),
+            (self.b * self.p)
+            * jnp.exp(betaln(1.0 - 1.0 / safe_a, self.p + 1.0 / safe_a)),
             jnp.inf,
         )
 
@@ -3299,21 +3295,8 @@ class Dagum(Distribution):
         safe_a = jnp.where(self.a > 2.0, self.a, 3.0)
         return jnp.where(
             self.a > 2.0,
-            jnp.square(self.b)
-            * (
-                jnp.exp(
-                    gammaln(1.0 - 2.0 / safe_a)
-                    + gammaln(self.p + 2.0 / safe_a)
-                    - gammaln(self.p)
-                )
-                - jnp.exp(
-                    2.0
-                    * (
-                        gammaln(1.0 - 1.0 / safe_a)
-                        + gammaln(self.p + 1.0 / safe_a)
-                        - gammaln(self.p)
-                    )
-                )
-            ),
+            (jnp.square(self.b) * self.p)
+            * jnp.exp(betaln(1.0 - 2.0 / safe_a, self.p + 2.0 / safe_a))
+            - jnp.square(self.mean),
             jnp.inf,
         )
