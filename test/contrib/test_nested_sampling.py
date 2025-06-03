@@ -7,7 +7,6 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-import jax
 from jax import random
 import jax.numpy as jnp
 
@@ -29,13 +28,6 @@ pytestmark = [
     pytest.mark.skipif(
         not os.environ.get("JAX_ENABLE_X64"),
         reason="test suite for jaxns requires double precision",
-    ),
-    pytest.mark.xfail(
-        # TODO: temporarily disable this test,
-        # remove when https://github.com/Joshuaalbert/jaxns/issues/221 is fixed.
-        jax.__version__ >= "0.6.0",
-        reason="Temporarily disabled due to incompatibility with jax>=0.6.0 and jaxns",
-        strict=True,
     ),
 ]
 
