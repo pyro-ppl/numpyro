@@ -313,7 +313,7 @@ class Distribution(metaclass=DistributionMeta):
         return set(self.reparametrized_params) == set(self.arg_constraints)
 
     def rsample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
@@ -336,7 +336,7 @@ class Distribution(metaclass=DistributionMeta):
         return sample_shape + self.batch_shape + self.event_shape
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
@@ -352,7 +352,7 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     def sample_with_intermediates(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         Same as ``sample`` except that any intermediate computations are
@@ -660,9 +660,10 @@ class ExpandedDistribution(Distribution):
     def _sample(
         self,
         sample_fn: Callable[
-            [jax.dtypes.prng_key, tuple[int, ...]], tuple[ArrayLike, list[ArrayLike]]
+            [Optional[jax.dtypes.prng_key], tuple[int, ...]],
+            tuple[ArrayLike, list[ArrayLike]],
         ],
-        key: jax.dtypes.prng_key,
+        key: Optional[jax.dtypes.prng_key],
         sample_shape: tuple[int, ...] = (),
     ) -> tuple[ArrayLike, list[ArrayLike]]:
         interstitial_sizes = tuple(self._interstitial_sizes.values())
@@ -700,7 +701,9 @@ class ExpandedDistribution(Distribution):
         samples = reshape_sample(samples)
         return samples, intermediates
 
-    def rsample(self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()):
+    def rsample(
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+    ):
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
@@ -712,12 +715,12 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.support
 
     def sample_with_intermediates(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> tuple[ArrayLike, list[ArrayLike]]:
         return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.sample_with_intermediates(key, sample_shape)[0]
 
@@ -913,11 +916,13 @@ class Independent(Distribution):
     def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
-    def rsample(self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()):
+    def rsample(
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+    ):
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
@@ -976,7 +981,9 @@ class MaskedDistribution(Distribution):
     def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
-    def rsample(self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()):
+    def rsample(
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+    ):
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
@@ -984,7 +991,7 @@ class MaskedDistribution(Distribution):
         return self.base_dist.support
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
@@ -1124,7 +1131,9 @@ class TransformedDistribution(Distribution):
     def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
-    def rsample(self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()):
+    def rsample(
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+    ):
         x = self.base_dist.rsample(key, sample_shape=sample_shape)
         for transform in self.transforms:
             x = transform(x)
@@ -1143,7 +1152,7 @@ class TransformedDistribution(Distribution):
             )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
         for transform in self.transforms:
@@ -1151,7 +1160,7 @@ class TransformedDistribution(Distribution):
         return x
 
     def sample_with_intermediates(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ):
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
         intermediates = []
@@ -1274,7 +1283,7 @@ class Delta(Distribution):
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         if not sample_shape:
             return self.v
