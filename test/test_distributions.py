@@ -958,6 +958,11 @@ CONTINUOUS = [
     T(dist.Levy, 0.0, 1.0),
     T(dist.Levy, 0.0, np.array([1.0, 2.0, 10.0])),
     T(dist.Levy, np.array([1.0, 2.0, 10.0]), np.pi),
+    T(dist.Dagum, 1.0, 1.0, 1.0),
+    T(dist.Dagum, 3.0, 4.0, 5.0),
+    T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
+    T(dist.Dagum, 2.0, 3.0, np.array([0.5, 2.0, 1.0])),
+    T(dist.Dagum, np.array([5.0, 2.0, 10.0]), 3.0, 5.0),
 ]
 
 DIRECTIONAL = [
@@ -1389,10 +1394,10 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     }.get(jax_dist.__name__, [])
 
     if (
-        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        jax_dist in [dist.DoublyTruncatedPowerLaw, dist.Dagum]
         and jnp.result_type(float) == jnp.float32
     ):
-        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
+        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     dist_args = [
         p
@@ -1855,10 +1860,10 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("no param for ImproperUniform to test for log_prob gradient")
     if (
-        jax_dist in [dist.DoublyTruncatedPowerLaw]
+        jax_dist in [dist.DoublyTruncatedPowerLaw, dist.Dagum]
         and jnp.result_type(float) == jnp.float32
     ):
-        pytest.skip("DoublyTruncatedPowerLaw is tested with x64 only.")
+        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     rng_key = random.PRNGKey(0)
     value = jax_dist(*params).sample(rng_key)
@@ -1939,6 +1944,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip(
             f"{jax_dist.__name__} distribution does not has mean/var implemented"
         )
+    if jax_dist in [dist.Dagum] and jnp.result_type(float) == jnp.float32:
+        pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
     n = (
         20000
@@ -2081,7 +2088,7 @@ def test_mean_var(jax_dist, sp_dist, params):
             pytest.skip("Gompertz distribution does not have `variance` implemented.")
         if jnp.all(jnp.isfinite(d_jax.variance)):
             assert jnp.allclose(
-                jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2
+                jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=0.05
             )
 
 

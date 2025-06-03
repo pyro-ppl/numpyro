@@ -3487,3 +3487,94 @@ class CirculantNormal(TransformedDistribution):
         (n,) = self.event_shape
         log_abs_det_jacobian = 2 * jnp.log(2) * ((n - 1) // 2) - jnp.log(n) * n
         return self.base_dist.entropy() + log_abs_det_jacobian / 2
+
+
+class Dagum(Distribution):
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "sharpness": constraints.positive,
+        "scale": constraints.positive,
+    }
+    support = constraints.positive
+    reparametrized_params = ["concentration", "sharpness", "scale"]
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        sharpness: ArrayLike,
+        scale: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""The Dagum distribution (or Mielke Beta-Kappa distribution) is a continuous
+        probability distribution defined over positive real numbers. If :math:`p`,
+        :math:`a` and :math:`b` are concentration, sharpness and scale values respectively,
+        then Dagum distribution is defined as,
+
+        .. math::
+
+            f(x\mid p,a,b):=\frac{ap}{x}
+            \left(\frac{(x/b)^{ap}}{\left((x/b)^{a}+1\right)^{p+1}}\right)
+
+        **References:**
+
+        1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
+           https://en.wikipedia.org/wiki/Dagum_distribution
+        """
+        self.concentration, self.sharpness, self.scale = promote_shapes(
+            concentration, sharpness, scale
+        )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration), jnp.shape(sharpness), jnp.shape(scale)
+        )
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        a_ln_x_m_ln_b = xlogy(self.sharpness, value) - xlogy(self.sharpness, self.scale)
+        return (
+            jnp.log(self.sharpness)
+            + jnp.log(self.concentration)
+            - jnp.log(value)
+            + self.concentration * a_ln_x_m_ln_b
+            - (self.concentration + 1.0) * nn.softplus(a_ln_x_m_ln_b)
+        )
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        return jnp.exp(
+            -self.concentration
+            * nn.softplus(
+                xlogy(self.sharpness, self.scale) - xlogy(self.sharpness, value)
+            )
+        )
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
+        return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
+
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> jnp.ndarray:
+        assert is_prng_key(key)
+        return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
+
+    @property
+    def mean(self) -> ArrayLike:
+        safe_a = jnp.where(self.sharpness > 1.0, self.sharpness, 2.0)
+        return jnp.where(
+            self.sharpness > 1.0,
+            (self.scale * self.concentration)
+            * jnp.exp(betaln(1.0 - 1.0 / safe_a, self.concentration + 1.0 / safe_a)),
+            jnp.inf,
+        )
+
+    @property
+    def variance(self) -> ArrayLike:
+        safe_a = jnp.where(self.sharpness > 2.0, self.sharpness, 3.0)
+        return jnp.where(
+            self.sharpness > 2.0,
+            (jnp.square(self.scale) * self.concentration)
+            * jnp.exp(betaln(1.0 - 2.0 / safe_a, self.concentration + 2.0 / safe_a))
+            - jnp.square(self.mean),
+            jnp.inf,
+        )
