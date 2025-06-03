@@ -107,9 +107,6 @@ def test_flax_module():
     assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
-@pytest.mark.xfail(
-    reason="Haiku module is deprecated and not supported on JAX >= 0.6.0"
-)
 def test_haiku_module():
     W = np.arange(100).astype(np.float32)
     X = np.arange(100).astype(np.float32)
@@ -180,7 +177,6 @@ def test_random_module_mcmc(backend, init, callable_prior):
         random_module = random_flax_module
         kwargs_name = "inputs"
     elif backend == "haiku":
-        pytest.skip("Haiku module is deprecated and not supported on JAX >= 0.6.0")
         import haiku as hk
 
         linear_module = hk.transform(lambda x: hk.Linear(1)(x))
@@ -236,9 +232,6 @@ def test_random_module_mcmc(backend, init, callable_prior):
     )
 
 
-@pytest.mark.xfail(
-    reason="Haiku module is deprecated and not supported on JAX >= 0.6.0"
-)
 @pytest.mark.parametrize("dropout", [True, False])
 @pytest.mark.parametrize("batchnorm", [True, False])
 def test_haiku_state_dropout_smoke(dropout, batchnorm):
@@ -488,6 +481,53 @@ def test_random_nnx_module_mcmc(callable_prior):
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_random_nnx_module_mcmc_sequence_params():
+    from flax import nnx
+
+    class MLP(nnx.Module):
+        def __init__(self, din, dout, hidden_layers, *, rngs, activation=jax.nn.relu):
+            self.activation = activation
+            self.layers = []
+            layer_dims = [din] + hidden_layers + [dout]
+            for in_dim, out_dim in zip(layer_dims[:-1], layer_dims[1:]):
+                self.layers.append(nnx.Linear(in_dim, out_dim, rngs=rngs))
+
+        def __call__(self, x):
+            for layer in self.layers[:-1]:
+                x = self.activation(layer(x))
+            return self.layers[-1](x)
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    rng_key = random.PRNGKey(0)
+    nn_module = MLP(
+        din=dim, dout=1, hidden_layers=[8, 8], rngs=nnx.Rngs(params=rng_key)
+    )
+
+    def prior(name, shape):
+        return dist.Cauchy() if name == "bias" else dist.Normal()
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_nnx_module("nn", nn_module, prior=prior)
+        logits = nn(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+
+    # check both layers have parameters in the samples
+    assert "nn/layers.0.bias" in samples
+    assert "nn/layers.1.bias" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_eqx_module():
     import equinox as eqx
 
@@ -613,3 +653,59 @@ def test_random_eqx_module_mcmc(callable_prior):
     samples = mcmc.get_samples()
     assert "nn/bias" in samples
     assert "nn/weight" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_random_eqx_module_mcmc_sequence_params():
+    import equinox as eqx
+
+    class MLP(eqx.Module):
+        layers: list
+
+        def __init__(
+            self,
+            in_size: int,
+            out_size: int,
+            hidden_layers: list[int],
+            key: jax.random.PRNGKey,
+        ):
+            keys = jax.random.split(key, len(hidden_layers))
+            self.layers = []
+
+            # Create all linear layers
+            self.layers = []
+            layer_dims = [in_size] + list(hidden_layers) + [out_size]
+            for i, (in_dim, out_dim) in enumerate(zip(layer_dims[:-1], layer_dims[1:])):
+                self.layers.append(eqx.nn.Linear(in_dim, out_dim, key=keys[i]))
+
+        def __call__(self, x):
+            for layer in self.layers[:-1]:
+                x = jax.nn.relu(layer(x))
+            return self.layers[-1](x)  # Final layer, no activation
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    rng_key = random.PRNGKey(0)
+    nn_module = MLP(in_size=dim, out_size=1, hidden_layers=[8, 8], key=rng_key)
+
+    def prior(name, shape):
+        return dist.Cauchy() if name == "bias" else dist.Normal()
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_eqx_module("nn", nn_module, prior=prior)
+        logits = jax.vmap(nn)(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+
+    # check both layers have parameters in the samples
+    assert "nn/layers[0].bias" in samples
+    assert "nn/layers[1].bias" in samples

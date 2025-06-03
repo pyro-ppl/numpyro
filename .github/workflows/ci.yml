@@ -36,6 +36,7 @@ jobs:
         pip install -r docs/requirements.txt
         pip freeze
     - name: Lint with mypy and ruff
+      if: matrix.python-version != '3.9'
       run: |
         make lint
     - name: Build documentation

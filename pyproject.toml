@@ -36,8 +36,13 @@ indent-width = 4
 extend-include = ["*.ipynb"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
-ignore = ["E203"]
+select = ["ANN", "E", "F", "I", "W"]
+ignore = [
+    "ANN002",  # missing args type annotation
+    "ANN003",  # missing kwargs type annotation
+    "ANN204",  # missing type annotation for __call__
+    "E203",
+]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
@@ -61,6 +66,9 @@ skip-magic-trailing-comma = false
 
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+"!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py}" = ["ANN"]  # require type annotations in typed modules
 
 [tool.ruff.lint.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
@@ -116,6 +124,7 @@ module = [
     "numpyro.contrib.stochastic_support.*",
     "numpyro.diagnostics.*",
     "numpyro.handlers.*",
+    "numpyro.infer.elbo.*",
     "numpyro.optim.*",
     "numpyro.primitives.*",
     "numpyro.patch.*",

@@ -5,7 +5,7 @@ from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
 from types import TracebackType
-from typing import Any, Callable, Generator, Optional, Union, cast
+from typing import Callable, Generator, Optional, Union, cast
 import warnings
 
 import jax
@@ -14,11 +14,9 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 import numpyro
+from numpyro._typing import Message
 from numpyro.distributions.distribution import DistributionLike
 from numpyro.util import find_stack_level, identity
-
-# Type aliases
-Message = dict[str, Any]
 
 _PYRO_STACK: list = []
 
@@ -79,7 +77,7 @@ class Messenger(object):
         if fn is not None:
             functools.update_wrapper(self, fn, updated=[])
 
-    def __enter__(self) -> None:
+    def __enter__(self):
         _PYRO_STACK.append(self)
 
     def __exit__(
@@ -125,7 +123,7 @@ def _masked_observe(
     name: str,
     fn: DistributionLike,
     obs: Optional[ArrayLike],
-    obs_mask,
+    obs_mask,  # noqa: ANN001
     **kwargs,
 ) -> ArrayLike:
     # Split into two auxiliary sample sites.
@@ -252,7 +250,9 @@ def sample(
 
 
 def param(
-    name: str, init_value: Optional[Union[ArrayLike, Callable]] = None, **kwargs
+    name: str,
+    init_value: Optional[Union[ArrayLike, Callable]] = None,
+    **kwargs,
 ) -> Optional[ArrayLike]:
     """
     Annotate the given site as an optimizable parameter for use with
@@ -287,7 +287,7 @@ def param(
 
     if callable(init_value):
 
-        def fn(init_fn: Callable, *args, **kwargs):
+        def fn(init_fn: Callable, *args, **kwargs) -> ArrayLike:
             return init_fn(prng_key())
 
     else:
@@ -440,7 +440,9 @@ def module(name: str, nn: tuple, input_shape: Optional[tuple] = None) -> Callabl
     return functools.partial(nn_apply, nn_params)
 
 
-def _subsample_fn(size: int, subsample_size: int, rng_key: Optional[ArrayLike] = None):
+def _subsample_fn(
+    size: int, subsample_size: int, rng_key: Optional[ArrayLike] = None
+) -> ArrayLike:
     if rng_key is None:
         raise ValueError(
             "Missing random key to generate subsample indices."
@@ -451,7 +453,7 @@ def _subsample_fn(size: int, subsample_size: int, rng_key: Optional[ArrayLike] =
         # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
         rng_keys = random.split(rng_key, subsample_size)
 
-        def body_fn(val, idx):
+        def body_fn(val, idx):  # noqa: ANN001, ANN202, ANN205
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
@@ -509,7 +511,7 @@ class plate(Messenger):
 
     # XXX: different from Pyro, this method returns dim and indices
     @staticmethod
-    def _subsample(name, size, subsample_size, dim):
+    def _subsample(name, size, subsample_size, dim):  # noqa: ANN001, ANN205
         msg = {
             "type": "plate",
             "fn": _subsample_fn,

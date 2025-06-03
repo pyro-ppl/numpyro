@@ -58,12 +58,13 @@ setup(
             "scipy>=1.9",
         ],
         "dev": [
-            "dm-haiku",
+            "dm-haiku>=0.0.14; python_version >= '3.10'",
+            "dm-haiku<0.0.14; python_version < '3.10'",
             "equinox",
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==2.6.3",
+            "jaxns>=2.6.3,<=2.6.8",
             "matplotlib",
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency

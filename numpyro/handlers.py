@@ -91,6 +91,8 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    -874.89813
 """
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from types import TracebackType
 from typing import Callable, Optional, Union
@@ -103,12 +105,12 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 import numpyro
+from numpyro._typing import Message, TraceT
 from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
     DistributionLike,
-    Message,
     Messenger,
     apply_stack,
     plate,
@@ -163,9 +165,9 @@ class trace(Messenger):
                       'value': Array(-0.20584235, dtype=float32)})])
     """
 
-    def __enter__(self) -> OrderedDict[str, Message]:  # type: ignore [override]
+    def __enter__(self) -> TraceT:  # type: ignore [override]
         super(trace, self).__enter__()
-        self.trace: OrderedDict[str, Message] = OrderedDict()
+        self.trace: TraceT = OrderedDict()
         return self.trace
 
     def postprocess_message(self, msg: Message) -> None:
@@ -180,7 +182,7 @@ class trace(Messenger):
         )
         self.trace[msg["name"]] = msg.copy()
 
-    def get_trace(self, *args, **kwargs) -> OrderedDict[str, Message]:
+    def get_trace(self, *args, **kwargs) -> TraceT:
         """
         Run the wrapped callable and return the recorded trace.
 
@@ -225,7 +227,7 @@ class replay(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        trace: Optional[OrderedDict[str, Message]] = None,
+        trace: Optional[TraceT] = None,
     ) -> None:
         assert trace is not None
         self.trace = trace
@@ -357,7 +359,7 @@ class collapse(trace):
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
 
-    def __enter__(self) -> OrderedDict[str, Message]:  # type: ignore [override]
+    def __enter__(self) -> TraceT:  # type: ignore [override]
         self.preserved_plates = frozenset(
             h.name for h in _PYRO_STACK if isinstance(h, plate)
         )
@@ -451,7 +453,7 @@ class condition(Messenger):
             raise ValueError("Only one of `data` or `condition_fn` should be provided.")
         super(condition, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if (msg["type"] != "sample") or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
@@ -465,6 +467,7 @@ class condition(Messenger):
         if self.data is not None:
             value = self.data.get(msg["name"])
         else:
+            assert self.condition_fn is not None
             value = self.condition_fn(msg)
 
         if value is not None:
@@ -804,9 +807,9 @@ class seed(Messenger):
 
     def __init__(
         self,
-        fn: Optional[Callable] = None,
-        rng_seed: Optional[Array] = None,
-        hide_types: Optional[list[str]] = None,
+        fn: Callable | None = None,
+        rng_seed: Array | int | None = None,
+        hide_types: list[str] | None = None,
     ) -> None:
         if rng_seed is not None:
             if not is_prng_key(rng_seed) and (

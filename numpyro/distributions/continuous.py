@@ -1451,8 +1451,8 @@ class MatrixNormal(Distribution):
     If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
 
     :param array_like loc: Location of the distribution.
-    :param array_like scale_tril_row: Lower cholesky of rows correlation matrix.
-    :param array_like scale_tril_column: Lower cholesky of columns correlation matrix.
+    :param array_like scale_tril_row: Lower cholesky of rows covariance matrix.
+    :param array_like scale_tril_column: Lower cholesky of columns covariance matrix.
 
     **References**
 
