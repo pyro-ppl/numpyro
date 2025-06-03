@@ -110,7 +110,7 @@ from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
-    DistributionLike,
+    DistributionT,
     Messenger,
     apply_stack,
     plate,
@@ -527,7 +527,7 @@ class lift(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        prior: Optional[Union[DistributionLike, dict[str, DistributionLike]]] = None,
+        prior: Optional[Union[DistributionT, dict[str, DistributionT]]] = None,
     ) -> None:
         super().__init__(fn)
         self.prior = prior
