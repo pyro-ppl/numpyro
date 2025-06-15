@@ -1540,29 +1540,61 @@ class RecursiveLinearTransform(Transform):
     domain = constraints.real_matrix
     codomain = constraints.real_matrix
 
-    def __init__(self, transition_matrix: Array) -> None:
+    def __init__(self, transition_matrix: Array, initial_value: Array = None) -> None:
         self.transition_matrix = transition_matrix
+
+        batch_shape, event_shape = (
+            transition_matrix.shape[:-2],
+            transition_matrix.shape[-1:],
+        )
+
+        if initial_value is None:
+            initial_value = jnp.zeros(event_shape)
+
+        self.initial_value = jnp.broadcast_to(initial_value, batch_shape + event_shape)
 
     def __call__(self, x: Array) -> Array:
         # Move the time axis to the first position so we can scan over it.
+        sample_shape = x.shape[:-2]
         x = jnp.moveaxis(x, -2, 0)
 
         def f(y, x):
             y = jnp.einsum("...ij,...j->...i", self.transition_matrix, y) + x
             return y, y
 
-        _, y = lax.scan(f, jnp.zeros_like(x, shape=x.shape[1:]), x)
+        shape = jnp.broadcast_shapes(
+            sample_shape,
+            self.transition_matrix.shape[:-2],
+            self.initial_value.shape[:-1],
+        )
+        initial_value = jnp.broadcast_to(
+            self.initial_value, shape + self.initial_value.shape[-1:]
+        )
+
+        _, y = lax.scan(f, initial_value, x)
         return jnp.moveaxis(y, 0, -2)
 
     def _inverse(self, y: Array) -> Array:
         # Move the time axis to the first position so we can scan over it in reverse.
+        sample_shape = y.shape[:-2]
         y = jnp.moveaxis(y, -2, 0)
 
         def f(y, prev):
             x = y - jnp.einsum("...ij,...j->...i", self.transition_matrix, prev)
             return prev, x
 
-        _, x = lax.scan(f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(0), reverse=True)
+        shape = jnp.broadcast_shapes(
+            sample_shape,
+            self.transition_matrix.shape[:-2],
+            self.initial_value.shape[:-1],
+        )
+        initial_value = jnp.broadcast_to(
+            self.initial_value, shape + self.initial_value.shape[-1:]
+        )
+
+        _, x = lax.scan(
+            f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(initial_value), reverse=True
+        )
         return jnp.moveaxis(x, 0, -2)
 
     def log_abs_det_jacobian(self, x: Array, y: Array, intermediates=None):
