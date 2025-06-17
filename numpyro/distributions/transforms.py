@@ -1601,7 +1601,10 @@ class RecursiveLinearTransform(Transform):
         return jnp.zeros_like(x, shape=x.shape[:-2])
 
     def tree_flatten(self):
-        return (self.transition_matrix,), (("transition_matrix",), {})
+        return (self.transition_matrix, self.initial_value), (
+            ("transition_matrix", "initial_value"),
+            {},
+        )
 
     def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, RecursiveLinearTransform):
