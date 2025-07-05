@@ -1570,7 +1570,9 @@ class RecursiveLinearTransform(Transform):
             return y, y
 
         shape = jnp.broadcast_shapes(sample_shape, self.initial_value.shape[:-1])
-        initial_value = jnp.broadcast_to(self.initial_value, shape + self.initial_value.shape[-1:])
+        initial_value = jnp.broadcast_to(
+            self.initial_value, shape + self.initial_value.shape[-1:]
+        )
 
         _, y = lax.scan(f, initial_value, x)
         return jnp.moveaxis(y, 0, -2)
@@ -1585,7 +1587,9 @@ class RecursiveLinearTransform(Transform):
             return prev, x
 
         shape = jnp.broadcast_shapes(sample_shape, self.initial_value.shape[:-1])
-        initial_value = jnp.broadcast_to(self.initial_value, shape + self.initial_value.shape[-1:])
+        initial_value = jnp.broadcast_to(
+            self.initial_value, shape + self.initial_value.shape[-1:]
+        )
 
         _, x = lax.scan(
             f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(initial_value), reverse=True
