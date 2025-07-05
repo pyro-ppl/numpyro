@@ -1541,9 +1541,7 @@ class RecursiveLinearTransform(Transform):
     codomain = constraints.real_matrix
 
     def __init__(self, transition_matrix: Array, initial_value: Array = None) -> None:
-        self.transition_matrix = transition_matrix
-
-        batch_shape, event_shape = (
+        transition_batch_shape, event_shape = (
             transition_matrix.shape[:-2],
             transition_matrix.shape[-1:],
         )
@@ -1551,7 +1549,13 @@ class RecursiveLinearTransform(Transform):
         if initial_value is None:
             initial_value = jnp.zeros(event_shape)
 
+        iv_batch_shape = initial_value.shape[:-1]
+        batch_shape = jnp.broadcast_shapes(
+            transition_batch_shape, iv_batch_shape
+        )
+
         self.initial_value = jnp.broadcast_to(initial_value, batch_shape + event_shape)
+        self.transition_matrix = jnp.broadcast_to(transition_matrix, batch_shape + 2 * event_shape)
 
     def __call__(self, x: Array) -> Array:
         # Move the time axis to the first position so we can scan over it.
