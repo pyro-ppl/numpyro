@@ -1550,12 +1550,12 @@ class RecursiveLinearTransform(Transform):
             initial_value = jnp.zeros(event_shape)
 
         iv_batch_shape = initial_value.shape[:-1]
-        batch_shape = jnp.broadcast_shapes(
-            transition_batch_shape, iv_batch_shape
-        )
+        batch_shape = jnp.broadcast_shapes(transition_batch_shape, iv_batch_shape)
 
         self.initial_value = jnp.broadcast_to(initial_value, batch_shape + event_shape)
-        self.transition_matrix = jnp.broadcast_to(transition_matrix, batch_shape + 2 * event_shape)
+        self.transition_matrix = jnp.broadcast_to(
+            transition_matrix, batch_shape + 2 * event_shape
+        )
 
     def __call__(self, x: Array) -> Array:
         # Move the time axis to the first position so we can scan over it.
