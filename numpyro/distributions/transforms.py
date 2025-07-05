@@ -1549,6 +1549,11 @@ class RecursiveLinearTransform(Transform):
         if initial_value is None:
             initial_value = jnp.zeros(event_shape)
 
+        assert event_shape == initial_value.shape[-1:], (
+            f"Event shape of initial value must be the same as transition matrix, got {event_shape} and"
+            f" {initial_value.shape[-1:]}."
+        )
+
         iv_batch_shape = initial_value.shape[:-1]
         batch_shape = jnp.broadcast_shapes(transition_batch_shape, iv_batch_shape)
 
