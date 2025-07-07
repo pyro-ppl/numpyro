@@ -1541,24 +1541,27 @@ class RecursiveLinearTransform(Transform):
     codomain = constraints.real_matrix
 
     def __init__(self, transition_matrix: Array, initial_value: Array = None) -> None:
-        transition_batch_shape, event_shape = (
-            transition_matrix.shape[:-2],
-            transition_matrix.shape[-1:],
-        )
+        event_shape = transition_matrix.shape[-1:]
 
         if initial_value is None:
-            initial_value = jnp.zeros(event_shape)
+            initial_value = np.zeros(event_shape)
 
         assert event_shape == initial_value.shape[-1:], (
             f"Event shape of initial value must be the same as transition matrix, got {event_shape} and"
             f" {initial_value.shape[-1:]}."
         )
 
-        iv_batch_shape = initial_value.shape[:-1]
-        batch_shape = jnp.broadcast_shapes(transition_batch_shape, iv_batch_shape)
-
-        self.initial_value = jnp.broadcast_to(initial_value, batch_shape + event_shape)
+        self.initial_value = initial_value
         self.transition_matrix = transition_matrix
+
+    def _get_initial_value(self, sample_shape) -> Array:
+        iv_batch_shape, event_shape = self.initial_value.shape[:-1], self.initial_value.shape[-1:]
+        transition_batch_shape = self.transition_matrix.shape[:-2]
+
+        batch_shape = jnp.broadcast_shapes(transition_batch_shape, iv_batch_shape)
+        final_shape = jnp.broadcast_shapes(sample_shape, batch_shape)
+
+        return jnp.broadcast_to(self.initial_value, final_shape + event_shape)
 
     def __call__(self, x: Array) -> Array:
         # Move the time axis to the first position so we can scan over it.
@@ -1569,10 +1572,7 @@ class RecursiveLinearTransform(Transform):
             y = jnp.einsum("...ij,...j->...i", self.transition_matrix, y) + x
             return y, y
 
-        shape = jnp.broadcast_shapes(sample_shape, self.initial_value.shape[:-1])
-        initial_value = jnp.broadcast_to(
-            self.initial_value, shape + self.initial_value.shape[-1:]
-        )
+        initial_value = self._get_initial_value(sample_shape)
 
         _, y = lax.scan(f, initial_value, x)
         return jnp.moveaxis(y, 0, -2)
@@ -1586,10 +1586,7 @@ class RecursiveLinearTransform(Transform):
             x = y - jnp.einsum("...ij,...j->...i", self.transition_matrix, prev)
             return prev, x
 
-        shape = jnp.broadcast_shapes(sample_shape, self.initial_value.shape[:-1])
-        initial_value = jnp.broadcast_to(
-            self.initial_value, shape + self.initial_value.shape[-1:]
-        )
+        initial_value = self._get_initial_value(sample_shape)
 
         _, x = lax.scan(
             f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(initial_value), reverse=True
