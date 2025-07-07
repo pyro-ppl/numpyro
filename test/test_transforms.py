@@ -363,16 +363,10 @@ def test_bijective_transforms(transform, shape):
         )
 
 
-@pytest.mark.parametrize("use_initial_value", [False, True])
-def test_batched_recursive_linear_transform(use_initial_value):
+@pytest.mark.parametrize("initial_value", [None, np.random.default_rng(17).normal(size=(3,))])
+def test_batched_recursive_linear_transform(initial_value):
     batch_shape = (4, 17)
     x = random.normal(random.key(8), batch_shape + (10, 3))
-
-    if not use_initial_value:
-        initial_value = None
-    else:
-        initial_value = random.normal(random.key(9), (3,))
-
     # Get a batch of matrices with eigenvalues that don't blow up the sequence.
     A = CorrCholeskyTransform()(random.normal(random.key(7), batch_shape + (3,)))
     transform = RecursiveLinearTransform(A, initial_value=initial_value)
