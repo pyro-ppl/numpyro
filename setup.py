@@ -60,7 +60,7 @@ setup(
         "dev": [
             "dm-haiku>=0.0.14; python_version >= '3.10'",
             "dm-haiku<0.0.14; python_version < '3.10'",
-            "equinox",
+            "equinox>=0.13,<1.0",
             "flax",
             "funsor>=0.4.1",
             "graphviz",

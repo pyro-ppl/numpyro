@@ -576,7 +576,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
 
         def __init__(self, key):
             # Use feature dimension 3 to match the input shape (4, 3)
-            self.bn = eqx.nn.BatchNorm(3, axis_name="batch") if batchnorm else None
+            self.bn = eqx.nn.BatchNorm(3, axis_name="batch", mode="batch") if batchnorm else None
             # Create dropout with inference=True to disable dropout
             self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
 
