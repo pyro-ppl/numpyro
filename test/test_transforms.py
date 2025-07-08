@@ -363,7 +363,9 @@ def test_bijective_transforms(transform, shape):
         )
 
 
-@pytest.mark.parametrize("initial_value", [None, np.random.default_rng(17).normal(size=(3,))])
+@pytest.mark.parametrize(
+    "initial_value", [None, np.random.default_rng(17).normal(size=(3,))]
+)
 def test_batched_recursive_linear_transform(initial_value):
     batch_shape = (4, 17)
     x = random.normal(random.key(8), batch_shape + (10, 3))
