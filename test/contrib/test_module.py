@@ -93,8 +93,8 @@ def flax_model_by_kwargs(x, y):
 
 
 def make_batchnorm():
-    from equinox import __version__
     import equinox as eqx
+    from equinox import __version__
 
     if __version__ >= "0.13":
         return eqx.nn.BatchNorm(3, axis_name="batch", mode="batch")
@@ -586,10 +586,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
 
         def __init__(self, key):
             # Use feature dimension 3 to match the input shape (4, 3)
-            self.bn = (make_batchnorm()
-                if batchnorm
-                else None
-            )
+            self.bn = make_batchnorm() if batchnorm else None
             # Create dropout with inference=True to disable dropout
             self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
 
