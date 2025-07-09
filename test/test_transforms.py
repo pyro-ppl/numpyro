@@ -300,6 +300,13 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
             RecursiveLinearTransform(np.random.default_rng(17).normal(size=(4, 4))),
             (7, 4),
         ),
+        (
+            RecursiveLinearTransform(
+                np.random.default_rng(17).normal(size=(4, 4)),
+                initial_value=np.random.default_rng(18).normal(size=(4,)),
+            ),
+            (7, 4),
+        ),
         (ReshapeTransform((5, 2), (10,)), (10,)),
         (ReshapeTransform((15,), (3, 5)), (3, 5)),
         (ScaledUnitLowerCholeskyTransform(), (6,)),
@@ -356,12 +363,15 @@ def test_bijective_transforms(transform, shape):
         )
 
 
-def test_batched_recursive_linear_transform():
+@pytest.mark.parametrize(
+    "initial_value", [None, np.random.default_rng(17).normal(size=(3,))]
+)
+def test_batched_recursive_linear_transform(initial_value):
     batch_shape = (4, 17)
     x = random.normal(random.key(8), batch_shape + (10, 3))
     # Get a batch of matrices with eigenvalues that don't blow up the sequence.
     A = CorrCholeskyTransform()(random.normal(random.key(7), batch_shape + (3,)))
-    transform = RecursiveLinearTransform(A)
+    transform = RecursiveLinearTransform(A, initial_value=initial_value)
     y = transform(x)
     assert y.shape == x.shape
     assert jnp.allclose(x, transform.inv(y), atol=1e-6)

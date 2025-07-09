@@ -1540,36 +1540,71 @@ class RecursiveLinearTransform(Transform):
     domain = constraints.real_matrix
     codomain = constraints.real_matrix
 
-    def __init__(self, transition_matrix: Array) -> None:
+    def __init__(self, transition_matrix: Array, initial_value: Array = None) -> None:
+        event_shape = transition_matrix.shape[-1:]
+
+        if initial_value is None:
+            initial_value = np.zeros(event_shape)
+
+        assert event_shape == initial_value.shape[-1:], (
+            f"Event shape of initial value must be the same as transition matrix, got {event_shape} and"
+            f" {initial_value.shape[-1:]}."
+        )
+
+        self.initial_value = initial_value
         self.transition_matrix = transition_matrix
+
+    def _get_initial_value(self, sample_shape) -> Array:
+        iv_batch_shape, event_shape = (
+            self.initial_value.shape[:-1],
+            self.initial_value.shape[-1:],
+        )
+        transition_batch_shape = self.transition_matrix.shape[:-2]
+
+        batch_shape = jnp.broadcast_shapes(
+            sample_shape, transition_batch_shape, iv_batch_shape
+        )
+
+        return jnp.broadcast_to(self.initial_value, batch_shape + event_shape)
 
     def __call__(self, x: Array) -> Array:
         # Move the time axis to the first position so we can scan over it.
+        sample_shape = x.shape[:-2]
         x = jnp.moveaxis(x, -2, 0)
 
         def f(y, x):
             y = jnp.einsum("...ij,...j->...i", self.transition_matrix, y) + x
             return y, y
 
-        _, y = lax.scan(f, jnp.zeros_like(x, shape=x.shape[1:]), x)
+        initial_value = self._get_initial_value(sample_shape)
+
+        _, y = lax.scan(f, initial_value, x)
         return jnp.moveaxis(y, 0, -2)
 
     def _inverse(self, y: Array) -> Array:
         # Move the time axis to the first position so we can scan over it in reverse.
+        sample_shape = y.shape[:-2]
         y = jnp.moveaxis(y, -2, 0)
 
         def f(y, prev):
             x = y - jnp.einsum("...ij,...j->...i", self.transition_matrix, prev)
             return prev, x
 
-        _, x = lax.scan(f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(0), reverse=True)
+        initial_value = self._get_initial_value(sample_shape)
+
+        _, x = lax.scan(
+            f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(initial_value), reverse=True
+        )
         return jnp.moveaxis(x, 0, -2)
 
     def log_abs_det_jacobian(self, x: Array, y: Array, intermediates=None):
         return jnp.zeros_like(x, shape=x.shape[:-2])
 
     def tree_flatten(self):
-        return (self.transition_matrix,), (("transition_matrix",), {})
+        return (self.transition_matrix, self.initial_value), (
+            ("transition_matrix", "initial_value"),
+            {},
+        )
 
     def __eq__(self, other: TransformT) -> bool:
         if not isinstance(other, RecursiveLinearTransform):

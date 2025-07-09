@@ -92,6 +92,16 @@ def flax_model_by_kwargs(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
+def make_batchnorm():
+    import equinox as eqx
+    from equinox import __version__
+
+    if __version__ >= "0.13":
+        return eqx.nn.BatchNorm(3, axis_name="batch", mode="batch")
+
+    return eqx.nn.BatchNorm(3, axis_name="batch")
+
+
 def test_flax_module():
     X = np.arange(100).astype(np.float32)
     Y = 2 * X + 2
@@ -576,7 +586,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
 
         def __init__(self, key):
             # Use feature dimension 3 to match the input shape (4, 3)
-            self.bn = eqx.nn.BatchNorm(3, axis_name="batch") if batchnorm else None
+            self.bn = make_batchnorm() if batchnorm else None
             # Create dropout with inference=True to disable dropout
             self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
 
