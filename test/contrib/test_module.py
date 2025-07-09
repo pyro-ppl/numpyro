@@ -576,7 +576,11 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
 
         def __init__(self, key):
             # Use feature dimension 3 to match the input shape (4, 3)
-            self.bn = eqx.nn.BatchNorm(3, axis_name="batch", mode="batch") if batchnorm else None
+            self.bn = (
+                eqx.nn.BatchNorm(3, axis_name="batch", mode="batch")
+                if batchnorm
+                else None
+            )
             # Create dropout with inference=True to disable dropout
             self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
 
@@ -591,7 +595,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
             return x, state
 
     # Eager initialization of the Net module outside the model
-    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))  # noqa: E1111
+    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))
     x = dist.Normal(0, 1).expand([4, 3]).to_event(2).sample(random.PRNGKey(0))
 
     def model():
