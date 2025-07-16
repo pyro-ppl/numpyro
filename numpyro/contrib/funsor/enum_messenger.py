@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict, namedtuple
+from collections import namedtuple
 from contextlib import ExitStack  # python 3
 from enum import Enum
 
@@ -71,8 +71,8 @@ class DimStack:
     def __init__(self):
         self._stack = [
             StackFrame(
-                name_to_dim=OrderedDict(),
-                dim_to_name=OrderedDict(),
+                name_to_dim={},
+                dim_to_name={},
                 parents=(),
                 iter_parents=(),
                 keep=False,
@@ -238,7 +238,7 @@ class NamedMessenger(DimStackCleanupMessenger):
 
     @staticmethod
     def _get_name_to_dim(batch_names, name_to_dim=None, dim_type=DimType.LOCAL):
-        name_to_dim = OrderedDict() if name_to_dim is None else name_to_dim.copy()
+        name_to_dim = {} if name_to_dim is None else name_to_dim.copy()
 
         # interpret all names/dims as requests since we only run this function once
         for name in batch_names:
@@ -256,7 +256,7 @@ class NamedMessenger(DimStackCleanupMessenger):
     @classmethod  # only depends on the global _DIM_STACK state, not self
     def _pyro_to_data(cls, msg):
         (funsor_value,) = msg["args"]
-        name_to_dim = msg["kwargs"].setdefault("name_to_dim", OrderedDict())
+        name_to_dim = msg["kwargs"].setdefault("name_to_dim", {})
         dim_type = msg["kwargs"].setdefault("dim_type", DimType.LOCAL)
 
         batch_names = tuple(funsor_value.inputs.keys())
@@ -270,7 +270,7 @@ class NamedMessenger(DimStackCleanupMessenger):
 
     @staticmethod
     def _get_dim_to_name(batch_shape, dim_to_name=None, dim_type=DimType.LOCAL):
-        dim_to_name = OrderedDict() if dim_to_name is None else dim_to_name.copy()
+        dim_to_name = {} if dim_to_name is None else dim_to_name.copy()
         batch_dim = len(batch_shape)
 
         # interpret all names/dims as requests since we only run this function once
@@ -296,7 +296,7 @@ class NamedMessenger(DimStackCleanupMessenger):
         else:
             raw_value = msg["args"][0]
             output = msg["kwargs"].setdefault("output", None)
-        dim_to_name = msg["kwargs"].setdefault("dim_to_name", OrderedDict())
+        dim_to_name = msg["kwargs"].setdefault("dim_to_name", {})
         dim_type = msg["kwargs"].setdefault("dim_type", DimType.LOCAL)
 
         event_dim = len(output.shape) if output else 0
@@ -359,7 +359,7 @@ class LocalNamedMessenger(NamedMessenger):
             saved_frame = self._saved_frames.pop()
             name_to_dim, dim_to_name = saved_frame.name_to_dim, saved_frame.dim_to_name
         else:
-            name_to_dim, dim_to_name = OrderedDict(), OrderedDict()
+            name_to_dim, dim_to_name = {}, {}
 
         frame = StackFrame(
             name_to_dim=name_to_dim,
@@ -436,7 +436,7 @@ class BaseEnumMessenger(NamedMessenger):
     """
 
     def __init__(self, fn=None, first_available_dim=None):
-        assert first_available_dim is None or first_available_dim < 0, (
+        assert first_available_dim is None or first_available_dim < 0), (
             first_available_dim
         )
         self.first_available_dim = first_available_dim
@@ -490,18 +490,14 @@ class plate(GlobalNamedMessenger):
         self.subsample_size = indices.shape[0]
         self._indices = funsor.Tensor(
             indices,
-            OrderedDict([(self.name, funsor.Bint[self.subsample_size])]),
+            {self.name: funsor.Bint[self.subsample_size]},
             self.subsample_size,
         )
         super(plate, self).__init__(None)
 
     def __enter__(self):
         super().__enter__()  # do this first to take care of globals recycling
-        name_to_dim = (
-            OrderedDict([(self.name, self.dim)])
-            if self.dim is not None
-            else OrderedDict()
-        )
+        name_to_dim = {self.name: self.dim} if self.dim is not None else {}
         indices = to_data(
             self._indices, name_to_dim=name_to_dim, dim_type=DimType.VISIBLE
         )
@@ -594,9 +590,7 @@ class enum(BaseEnumMessenger):
 
         size = msg["fn"].enumerate_support(expand=False).shape[0]
         raw_value = jnp.arange(0, size)
-        funsor_value = funsor.Tensor(
-            raw_value, OrderedDict([(msg["name"], funsor.Bint[size])]), size
-        )
+        funsor_value = funsor.Tensor(raw_value, {msg["name"]: funsor.Bint[size]}, size)
 
         msg["value"] = to_data(funsor_value)
         msg["done"] = True
@@ -661,7 +655,7 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
     :param x: An object.
     :param funsor.domains.Domain output: An optional output hint to uniquely
         convert a data to a Funsor (e.g. when `x` is a string).
-    :param OrderedDict dim_to_name: An optional mapping from negative
+    :param dict dim_to_name: An optional mapping from negative
         batch dimensions to name strings.
     :param int dim_type: Either 0, 1, or 2. This optional argument indicates
         a dimension should be treated as 'local', 'global', or 'visible',
@@ -669,7 +663,7 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
     :return: A Funsor equivalent to `x`.
     :rtype: funsor.terms.Funsor
     """
-    dim_to_name = OrderedDict() if dim_to_name is None else dim_to_name
+    dim_to_name = {} if dim_to_name is None else dim_to_name
 
     initial_msg = {
         "type": "to_funsor",
@@ -691,14 +685,14 @@ def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
     A primitive to extract a python object from a :class:`~funsor.terms.Funsor`.
 
     :param ~funsor.terms.Funsor x: A funsor object
-    :param OrderedDict name_to_dim: An optional inputs hint which maps
+    :param dict name_to_dim: An optional inputs hint which maps
         dimension names from `x` to dimension positions of the returned value.
     :param int dim_type: Either 0, 1, or 2. This optional argument indicates
         a dimension should be treated as 'local', 'global', or 'visible',
         which can be used to interact with the global :class:`DimStack`.
     :return: A non-funsor equivalent to `x`.
     """
-    name_to_dim = OrderedDict() if name_to_dim is None else name_to_dim
+    name_to_dim = {} if name_to_dim is None else name_to_dim
 
     initial_msg = {
         "type": "to_data",

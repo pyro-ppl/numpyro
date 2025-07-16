@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from contextlib import contextmanager
 import functools
 import re
@@ -221,7 +221,7 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
 
             dim_to_name = site["infer"]["dim_to_name"]
 
-            if all(dim == 1 for dim in log_prob.shape) and dim_to_name == OrderedDict():
+            if all(dim == 1 for dim in log_prob.shape) and dim_to_name == {}:
                 log_prob = log_prob.squeeze()
 
             log_prob_factor = funsor.to_funsor(

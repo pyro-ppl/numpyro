@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
@@ -15,7 +14,7 @@ P = ParamSpec("P")
 ModelT: TypeAlias = Callable[P, Any]
 
 Message: TypeAlias = dict[str, Any]
-TraceT: TypeAlias = OrderedDict[str, Message]
+TraceT: TypeAlias = dict[str, Message]
 
 
 @runtime_checkable

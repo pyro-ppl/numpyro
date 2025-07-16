@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 import functools
 
 from jax import random
@@ -35,7 +35,7 @@ def _get_support_value_contraction(funsor_dist, name, **kwargs):
 @_get_support_value.register(funsor.delta.Delta)
 def _get_support_value_delta(funsor_dist, name, **kwargs):
     assert name in funsor_dist.fresh
-    return OrderedDict(funsor_dist.terms)[name][0]
+    return dict(funsor_dist.terms)[name][0]
 
 
 def _sample_posterior(
