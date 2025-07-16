@@ -518,6 +518,7 @@ def random_nnx_module(
     name,
     nn_module,
     prior,
+    scope_divider="/",
 ):
     """
     A primitive to create a random :mod:`~flax.nnx` style neural network
@@ -549,6 +550,8 @@ def random_nnx_module(
             prior=(lambda name, shape: dist.Cauchy() if name.endswith("b") else dist.Normal())
             prior={"w": dist.Normal(), "b": dist.Cauchy()}
 
+    :param str scope_divider: the divider to use for the nnx name in the scope effect handler. Defaults to "/".
+
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
@@ -562,7 +565,7 @@ def random_nnx_module(
 
     new_params = deepcopy(params)
 
-    with numpyro.handlers.scope(prefix=name):
+    with numpyro.handlers.scope(prefix=name, divider=scope_divider):
         _update_params(params, new_params, prior)
 
     return partial(apply_fn, new_params, *other_args, **keywords)
@@ -617,7 +620,7 @@ def eqx_module(name, nn_module):
     return nn_module
 
 
-def random_eqx_module(name, nn_module, prior):
+def random_eqx_module(name, nn_module, prior, scope_divider="/"):
     """
     A primitive to create a random :mod:`equinox` style neural network
     which can be used in MCMC samplers. The parameters of the neural network
@@ -658,6 +661,8 @@ def random_eqx_module(name, nn_module, prior):
             prior=(lambda name, shape: dist.Cauchy() if name == 'bias' else dist.Normal())
             prior={"weight": dist.Normal(), "bias": dist.Cauchy()}
 
+    :param str scope_divider: the divider to use for the nnx name in the scope effect handler. Defaults to "/".
+
     :return: a callable that takes an array as an input and returns
         the neural network transformed output array.
     """
@@ -675,7 +680,7 @@ def random_eqx_module(name, nn_module, prior):
     params, static = eqx.partition(nn, filter_spec=eqx.is_inexact_array)
     params_dict = eqx_to_dict(params)
     new_params = deepcopy(params_dict)
-    with numpyro.handlers.scope(prefix=name):
+    with numpyro.handlers.scope(prefix=name, divider=scope_divider):
         _update_params(params_dict, new_params, prior)
 
     return eqx.combine(eqx_from_dict(new_params, tree=params), static)
