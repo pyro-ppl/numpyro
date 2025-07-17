@@ -9,7 +9,7 @@ from jax import Array, lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
+from numpyro._typing import ConstraintT, DistributionT, PRNGKeyT
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
 from numpyro.distributions.util import validate_sample
@@ -62,22 +62,22 @@ class _MixtureBase(Distribution):
     """
 
     @property
-    def component_mean(self) -> ArrayLike:
+    def component_mean(self) -> Array:
         raise NotImplementedError
 
     @property
-    def component_variance(self) -> ArrayLike:
+    def component_variance(self) -> Array:
         raise NotImplementedError
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def component_log_probs(self, value: Array) -> Array:
         raise NotImplementedError
 
     def component_sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         raise NotImplementedError
 
-    def component_cdf(self, samples: ArrayLike) -> ArrayLike:
+    def component_cdf(self, samples: Array) -> Array:
         raise NotImplementedError
 
     @property
@@ -112,7 +112,7 @@ class _MixtureBase(Distribution):
         var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
         return mean_cond_var + var_cond_mean
 
-    def cdf(self, samples: ArrayLike) -> ArrayLike:
+    def cdf(self, samples: Array) -> Array:
         """The cumulative distribution function
 
         :param value: samples from this distribution.
@@ -125,8 +125,8 @@ class _MixtureBase(Distribution):
         return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
 
     def sample_with_intermediates(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> tuple[ArrayLike, list[ArrayLike]]:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> tuple[Array, list[Array]]:
         """
         A version of ``sample`` that also returns the sampled component indices
 
@@ -142,7 +142,7 @@ class _MixtureBase(Distribution):
         samples = self.component_sample(key_comp, sample_shape=sample_shape)
 
         # Sample selection indices from the categorical (shape will be sample_shape)
-        indices: ArrayLike = self.mixing_distribution.expand(
+        indices: Array = self.mixing_distribution.expand(
             sample_shape + self.batch_shape
         ).sample(key_ind)
         n_expand = self.event_dim + 1
@@ -157,12 +157,12 @@ class _MixtureBase(Distribution):
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
     @validate_sample
-    def log_prob(self, value: ArrayLike, intermediates=None) -> ArrayLike:
+    def log_prob(self, value: Array, intermediates=None) -> Array:
         del intermediates
         sum_log_probs = self.component_log_probs(value)
         safe_sum_log_probs = jnp.where(
@@ -261,26 +261,26 @@ class MixtureSameFamily(_MixtureBase):
         return self.component_distribution.is_discrete
 
     @property
-    def component_mean(self) -> ArrayLike:
+    def component_mean(self) -> Array:
         return self.component_distribution.mean
 
     @property
-    def component_variance(self) -> ArrayLike:
+    def component_variance(self) -> Array:
         return self.component_distribution.variance
 
-    def component_cdf(self, samples: ArrayLike) -> ArrayLike:
+    def component_cdf(self, samples: Array) -> Array:
         return self.component_distribution.cdf(
             jnp.expand_dims(samples, axis=self.mixture_dim)
         )
 
     def component_sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         return self.component_distribution.expand(
             sample_shape + self.batch_shape + (self.mixture_size,)
         ).sample(key)
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def component_log_probs(self, value: Array) -> Array:
         value = jnp.expand_dims(value, self.mixture_dim)
         component_log_probs = self.component_distribution.log_prob(value)
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
@@ -429,33 +429,33 @@ class MixtureGeneral(_MixtureBase):
         return self.component_distributions[0].is_discrete
 
     @property
-    def component_mean(self) -> ArrayLike:
+    def component_mean(self) -> Array:
         return jnp.stack(
             [d.mean for d in self.component_distributions], axis=self.mixture_dim
         )
 
     @property
-    def component_variance(self) -> ArrayLike:
+    def component_variance(self) -> Array:
         return jnp.stack(
             [d.variance for d in self.component_distributions], axis=self.mixture_dim
         )
 
-    def component_cdf(self, samples: ArrayLike) -> Array:
+    def component_cdf(self, samples: Array) -> Array:
         return jnp.stack(
             [d.cdf(samples) for d in self.component_distributions],
             axis=self.mixture_dim,
         )
 
     def component_sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         keys = jax.random.split(key, self.mixture_size)
         samples = []
         for k, d in zip(keys, self.component_distributions):
             samples.append(d.expand(sample_shape + self.batch_shape).sample(k))
         return jnp.stack(samples, axis=self.mixture_dim)
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def component_log_probs(self, value: Array) -> Array:
         component_log_probs = []
         for d in self.component_distributions:
             log_prob = d.log_prob(value)

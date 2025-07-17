@@ -12,13 +12,12 @@ from collections.abc import Callable
 from typing import Any, Literal, Optional, Protocol
 
 import jax
-from jax import jacfwd, lax, value_and_grad
+from jax import Array, jacfwd, lax, value_and_grad
 from jax.example_libraries import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.optimize import minimize
 from jax.tree_util import register_pytree_node
-from jax.typing import ArrayLike
 
 __all__ = [
     "Adam",
@@ -34,7 +33,7 @@ __all__ = [
 
 _Params = Any
 _OptState = Any
-_IterOptState = tuple[ArrayLike, _OptState]
+_IterOptState = tuple[Array, _OptState]
 
 
 def _value_and_grad(f, x, forward_mode_differentiation: bool = False) -> tuple:  # noqa: ANN001
@@ -55,7 +54,7 @@ class UpdateExtraArgsFn(Protocol):
 
     def __call__(
         self,
-        arr: ArrayLike,
+        arr: Array,
         params: _Params,
         state: _OptState,
         **extra_args,
@@ -85,7 +84,7 @@ class _NumPyroOptim(object):
         return jnp.array(0), opt_state
 
     def update(
-        self, g: _Params, state: _IterOptState, value: Optional[ArrayLike] = None
+        self, g: _Params, state: _IterOptState, value: Optional[Array] = None
     ) -> _IterOptState:
         """
         Gradient update for the optimizer.
@@ -202,7 +201,7 @@ class ClippedAdam(_NumPyroOptim):
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
     def update(
-        self, g: _Params, state: _IterOptState, value: Optional[ArrayLike] = None
+        self, g: _Params, state: _IterOptState, value: Optional[Array] = None
     ) -> _IterOptState:
         i, opt_state = state
         # clip norm
@@ -255,8 +254,8 @@ class SM3(_NumPyroOptim):
 # When arbitrary pytree is supported in JAX, we can just simply use
 # identity functions for `init_fn` and `get_params`.
 class _MinimizeState(namedtuple("_MinimizeState", ["flat_params", "unravel_fn"])):
-    flat_params: ArrayLike
-    unravel_fn: Callable[[ArrayLike], _Params]
+    flat_params: Array
+    unravel_fn: Callable[[Array], _Params]
 
 
 register_pytree_node(
@@ -276,7 +275,7 @@ def _minimize_wrapper() -> tuple[
         return _MinimizeState(flat_params, unravel_fn)
 
     def update_fn(
-        i: ArrayLike, grad_tree: ArrayLike, opt_state: _MinimizeState
+        i: Array, grad_tree: Array, opt_state: _MinimizeState
     ) -> _MinimizeState:
         # we don't use update_fn in Minimize, so let it do nothing
         return opt_state
@@ -378,10 +377,10 @@ def optax_to_numpyro(transformation) -> _NumPyroOptim:  # noqa: ANN001
         return params, opt_state
 
     def update_fn(
-        step: ArrayLike,
-        grads: ArrayLike,
+        step: Array,
+        grads: Array,
         state: tuple[_Params, Any],
-        value: ArrayLike,
+        value: Array,
     ) -> tuple[_Params, Any]:
         params, opt_state = state
         updates, opt_state = optax.with_extra_args_support(transformation).update(

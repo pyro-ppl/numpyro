@@ -4,11 +4,10 @@
 
 from typing import Optional
 
-import jax
 from jax import Array, lax, numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
+from numpyro._typing import ConstraintT, DistributionT, PRNGKeyT
 import numpyro.distributions.constraints as constraints
 from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
@@ -67,8 +66,8 @@ class GaussianCopula(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
 
         shape = sample_shape + self.batch_shape
@@ -77,7 +76,7 @@ class GaussianCopula(Distribution):
         return self.marginal_dist.icdf(cdf)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
@@ -124,8 +123,8 @@ class GaussianCopulaBeta(GaussianCopula):
 
     def __init__(
         self,
-        concentration1: ArrayLike,
-        concentration0: ArrayLike,
+        concentration1: Array,
+        concentration0: Array,
         correlation_matrix: Optional[Array] = None,
         correlation_cholesky: Optional[Array] = None,
         *,
