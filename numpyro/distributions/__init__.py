@@ -8,6 +8,7 @@ from numpyro.distributions.conjugate import (
     NegativeBinomial2,
     NegativeBinomialLogits,
     NegativeBinomialProbs,
+    BetaNegativeBinomial,
     ZeroInflatedNegativeBinomial2,
 )
 from numpyro.distributions.continuous import (
@@ -125,6 +126,7 @@ __all__ = [
     "Beta",
     "BetaBinomial",
     "BetaProportion",
+    "BetaNegativeBinomial",
     "Binomial",
     "BinomialLogits",
     "BinomialProbs",
