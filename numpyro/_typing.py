@@ -104,8 +104,8 @@ DistributionLike = DistributionT
 
 @runtime_checkable
 class TransformT(Protocol):
-    domain = ConstraintT
-    codomain = ConstraintT
+    domain: ConstraintT = ...
+    codomain: ConstraintT = ...
     _inv: Optional["TransformT"] = None
 
     def __call__(self, x: Array) -> Array: ...
