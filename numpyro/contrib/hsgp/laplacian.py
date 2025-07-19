@@ -11,7 +11,6 @@ import numpy as np
 
 from jax import Array
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 
 def eigenindices(m: list[int] | int, dim: int) -> Array:
@@ -76,7 +75,7 @@ def eigenindices(m: list[int] | int, dim: int) -> Array:
 
 
 def sqrt_eigenvalues(
-    ell: ArrayLike | list[int | float], m: list[int] | int, dim: int
+    ell: Array | list[int | float], m: list[int] | int, dim: int
 ) -> Array:
     """
     The first :math:`m^\\star \\times D` square root of eigenvalues of the laplacian operator in
@@ -101,7 +100,7 @@ def sqrt_eigenvalues(
     return S * jnp.pi / 2 / ell_  # dim x prod(m) array of eigenvalues
 
 
-def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -> Array:
+def eigenfunctions(x: Array, ell: float | list[float], m: int | list[int]) -> Array:
     """
     The first :math:`m^\\star` eigenfunctions of the laplacian operator in
     :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
@@ -137,7 +136,7 @@ def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -
         1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
            Stat Comput 30, 419-446 (2020)
 
-    :param ArrayLike x: The points at which to evaluate the eigenfunctions.
+    :param Array x: The points at which to evaluate the eigenfunctions.
         If `x` is 1D the problem is assumed unidimensional.
         Otherwise, the dimension of the input space is inferred as the last dimension of `x`.
         Other dimensions are treated as batch dimensions.
@@ -162,11 +161,11 @@ def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -
     )
 
 
-def eigenfunctions_periodic(x: ArrayLike, w0: float, m: int) -> tuple[Array, Array]:
+def eigenfunctions_periodic(x: Array, w0: float, m: int) -> tuple[Array, Array]:
     """
     Basis functions for the approximation of the periodic kernel.
 
-    :param ArrayLike x: The points at which to evaluate the eigenfunctions.
+    :param Array x: The points at which to evaluate the eigenfunctions.
     :param float w0: The frequency of the periodic kernel.
     :param int m: The number of eigenfunctions to compute.
 
@@ -188,13 +187,13 @@ def eigenfunctions_periodic(x: ArrayLike, w0: float, m: int) -> tuple[Array, Arr
     return cosines, sines
 
 
-def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> Array:
+def _convert_ell(ell: float | int | list[float | int] | Array, dim: int) -> Array:
     """
     Process the half-length of the approximation interval and return a `D \\times 1` array.
 
     If `ell` is a scalar, it is converted to a list of length dim, then transformed into an Array.
 
-    :param float | int | list[float | int] | ArrayLike ell: The length of the interval in each dimension divided by 2.
+    :param float | int | list[float | int] | Array ell: The length of the interval in each dimension divided by 2.
         If a float or int, the same length is used in each dimension.
     :param int dim: The dimension of the space.
 

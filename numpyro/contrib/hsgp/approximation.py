@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from jax import Array
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 import numpyro
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
@@ -62,7 +61,7 @@ def linear_approximation(
 
 
 def hsgp_squared_exponential(
-    x: ArrayLike,
+    x: Array,
     alpha: float,
     length: float,
     ell: float | int | list[float | int],
@@ -84,7 +83,7 @@ def hsgp_squared_exponential(
         2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayLike x: input data
+    :param Array x: input data
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
     :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
@@ -110,7 +109,7 @@ def hsgp_squared_exponential(
 
 
 def hsgp_matern(
-    x: ArrayLike,
+    x: Array,
     nu: float,
     alpha: float,
     length: float,
@@ -133,7 +132,7 @@ def hsgp_matern(
         2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayLike x: input data
+    :param Array x: input data
     :param float nu: smoothness parameter
     :param float alpha: amplitude of the squared exponential kernel
     :param float length: length scale of the squared exponential kernel
@@ -160,7 +159,7 @@ def hsgp_matern(
 
 
 def hsgp_periodic_non_centered(
-    x: ArrayLike, alpha: float, length: float, w0: float, m: int
+    x: Array, alpha: float, length: float, w0: float, m: int
 ) -> Array:
     """
     Low rank approximation for the periodic squared exponential kernel in the non-centered parametrization.
@@ -172,7 +171,7 @@ def hsgp_periodic_non_centered(
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param ArrayLike x: input data
+    :param Array x: input data
     :param float alpha: amplitude
     :param float length: length scale
     :param float w0: frequency of the periodic kernel
