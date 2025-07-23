@@ -3,8 +3,11 @@
 
 import jax
 from jax.api_util import flatten_fun, shaped_abstractify
-from jax.experimental.pjit import pjit_p
 
+try:
+    from jax.experimental.pjit import pjit_p
+except ImportError:
+    from jax.extend.core.primitives import jit_p as pjit_p
 try:
     import jax.extend.linear_util as lu
 except ImportError:
