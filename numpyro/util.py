@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict
 from contextlib import contextmanager
 from functools import partial
 import inspect
@@ -174,7 +173,7 @@ def identity(x, *args, **kwargs):
 def cached_by(outer_fn, *keys):
     # Restrict cache size to prevent ref cycles.
     max_size = 8
-    outer_fn._cache = getattr(outer_fn, "_cache", OrderedDict())
+    outer_fn._cache = getattr(outer_fn, "_cache", {})
 
     def _wrapped(fn):
         fn_cache = outer_fn._cache

@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from collections import OrderedDict, namedtuple
-from typing import Any, Callable, OrderedDict as OrderedDictType, Union
+from collections import defaultdict
+from typing import Any, Callable, Union
 
 import jax
 from jax import random
@@ -61,7 +61,7 @@ class StochasticSupportInference(ABC):
 
     def _find_slps(
         self, rng_key: jax.Array, *args: Any, **kwargs: Any
-    ) -> dict[str, OrderedDictType]:
+    ) -> dict[str, dict]:
         """
         Discover the straight-line programs (SLPs) in the model by sampling from the prior.
         This implementation assumes that all branching is done via discrete sampling sites
@@ -80,11 +80,11 @@ class StochasticSupportInference(ABC):
 
         return branching_traces
 
-    def _get_branching_trace(self, tr: dict[str, Any]) -> OrderedDictType:
+    def _get_branching_trace(self, tr: dict[str, Any]) -> dict:
         """
         Extract the sites from the trace that are annotated with `infer={"branching": True}`.
         """
-        branching_trace = OrderedDict()
+        branching_trace = {}
         for site in tr.values():
             if (
                 site["type"] == "sample"
@@ -109,7 +109,7 @@ class StochasticSupportInference(ABC):
     def _run_inference(
         self,
         rng_key: jax.Array,
-        branching_trace: OrderedDictType,
+        branching_trace: dict,
         *args: Any,
         **kwargs: Any,
     ) -> RunInferenceResult:
@@ -120,7 +120,7 @@ class StochasticSupportInference(ABC):
         self,
         rng_key: jax.Array,
         inferences: dict[str, Any],
-        branching_traces: dict[str, OrderedDictType],
+        branching_traces: dict[str, dict],
         *args: Any,
         **kwargs: Any,
     ) -> Union[DCCResult, SDVIResult]:
@@ -139,7 +139,7 @@ class StochasticSupportInference(ABC):
         rng_key, subkey = random.split(rng_key)
         branching_traces = self._find_slps(subkey, *args, **kwargs)
 
-        inferences = dict()
+        inferences = {}
         for key, bt in branching_traces.items():
             rng_key, subkey = random.split(rng_key)
             inferences[key] = self._run_inference(subkey, bt, *args, **kwargs)
@@ -209,7 +209,7 @@ class DCC(StochasticSupportInference):
     def _run_inference(
         self,
         rng_key: jax.Array,
-        branching_trace: OrderedDictType,
+        branching_trace: dict,
         *args: Any,
         **kwargs: Any,
     ) -> RunInferenceResult:
@@ -227,7 +227,7 @@ class DCC(StochasticSupportInference):
         self,
         rng_key: jax.Array,
         samples: dict[str, Any],
-        branching_traces: dict[str, OrderedDictType],
+        branching_traces: dict[str, dict],
         *args: Any,
         **kwargs: Any,
     ) -> DCCResult:
