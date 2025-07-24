@@ -38,6 +38,7 @@ setup(
         "multipledispatch",
         "numpy",
         "tqdm",
+        "typing_extensions; python_version < '3.10'",
     ],
     extras_require={
         "doc": [

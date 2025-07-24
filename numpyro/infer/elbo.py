@@ -9,7 +9,10 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, TypedDict, TypeVar
 import warnings
 
-from typing_extensions import TypeAlias
+try:
+    from typing import TypeAlias
+except ImportError:
+    from typing_extensions import TypeAlias
 
 import jax
 from jax import eval_shape, random, vmap
