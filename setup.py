@@ -71,7 +71,7 @@ setup(
             "pytest-cov",
             "pyyaml",  # flax dependency
             "requests",  # pylab dependency
-            "tensorflow_probability>=0.18.0",
+            "tfp-nightly",
         ],
         "examples": [
             "arviz",
