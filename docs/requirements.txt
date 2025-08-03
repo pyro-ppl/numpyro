@@ -18,5 +18,5 @@ readthedocs-sphinx-search>=0.3.2
 sphinx>=5
 sphinx-gallery
 sphinx_rtd_theme
-tensorflow_probability
+tfp-nightly
 tqdm
