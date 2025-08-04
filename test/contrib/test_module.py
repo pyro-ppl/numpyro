@@ -408,8 +408,7 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
             return x
 
     # Eager initialization of the Net module outside the model
-    rng_key = random.PRNGKey(0)
-    net_module = Net(rngs=nnx.Rngs(params=rng_key))
+    net_module = Net(rngs=nnx.Rngs(params=0, dropout=1))
 
     # Extract parameters and state for inspection
     _, state = nnx.split(net_module)
