@@ -6,7 +6,10 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
-from typing_extensions import ParamSpec, TypeAlias
+try:
+    from typing import ParamSpec, TypeAlias
+except ImportError:
+    from typing_extensions import ParamSpec, TypeAlias
 
 import jax
 from jax.typing import ArrayLike
