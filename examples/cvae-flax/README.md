@@ -8,4 +8,4 @@ We use Optax' `multi_transform` to apply different gradient transformations to t
 
 Running `main.py` trains the model(s) and plots a figure in the end comparing the baseline prediction with the CVAE prediction like this one:
 
-![CVAE prediction](https://github.com/pyro-ppl/numpyro/tree/master/docs/source/_static/img/examples/cvae.png)
+![CVAE prediction](https://github.com/pyro-ppl/numpyro/blob/master/docs/source/_static/img/examples/cvae.png)

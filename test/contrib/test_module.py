@@ -3,6 +3,7 @@
 
 from copy import deepcopy
 import sys
+from typing import Optional
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -17,9 +18,11 @@ from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
     _update_params,
+    eqx_module,
     flax_module,
     haiku_module,
     nnx_module,
+    random_eqx_module,
     random_flax_module,
     random_haiku_module,
     random_nnx_module,
@@ -27,6 +30,7 @@ from numpyro.contrib.module import (
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDelta
+from numpyro.primitives import mutable as numpyro_mutable
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:jax.tree_.+ is deprecated:FutureWarning"
@@ -86,6 +90,16 @@ def flax_model_by_kwargs(x, y):
     nn = flax_module("nn", linear_module, inputs=x)
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+
+def make_batchnorm():
+    import equinox as eqx
+    from equinox import __version__
+
+    if __version__ >= "0.13":
+        return eqx.nn.BatchNorm(3, axis_name="batch", mode="batch")
+
+    return eqx.nn.BatchNorm(3, axis_name="batch")
 
 
 def test_flax_module():
@@ -394,8 +408,7 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
             return x
 
     # Eager initialization of the Net module outside the model
-    rng_key = random.PRNGKey(0)
-    net_module = Net(rngs=nnx.Rngs(params=rng_key))
+    net_module = Net(rngs=nnx.Rngs(params=0, dropout=1))
 
     # Extract parameters and state for inspection
     _, state = nnx.split(net_module)
@@ -421,8 +434,17 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
-@pytest.mark.parametrize("callable_prior", [True, False])
-def test_random_nnx_module_mcmc(callable_prior):
+@pytest.mark.parametrize(
+    argnames="callable_prior",
+    argvalues=[True, False],
+    ids=["callable_prior", "dict_prior"],
+)
+@pytest.mark.parametrize(
+    argnames="scope_divider",
+    argvalues=["/", "|"],
+    ids=["scope_divider=/", "scope_divider=|"],
+)
+def test_random_nnx_module_mcmc(callable_prior, scope_divider: str):
     from flax import nnx
 
     class Linear(nnx.Module):
@@ -464,7 +486,7 @@ def test_random_nnx_module_mcmc(callable_prior):
 
     def model(data, labels=None):
         # Use the pre-initialized module with eager initialization
-        nn = random_nnx_module("nn", linear_module, prior)
+        nn = random_nnx_module("nn", linear_module, prior, scope_divider=scope_divider)
         logits = nn(data).squeeze(-1)
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
@@ -472,5 +494,261 @@ def test_random_nnx_module_mcmc(callable_prior):
     mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
     mcmc.run(random.PRNGKey(0), data, labels)
     samples = mcmc.get_samples()
-    assert "nn/b" in samples
-    assert "nn/w" in samples
+    assert f"nn{scope_divider}b" in samples
+    assert f"nn{scope_divider}w" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="scope_divider",
+    argvalues=["/", "|"],
+    ids=["scope_divider=/", "scope_divider=|"],
+)
+def test_random_nnx_module_mcmc_sequence_params(scope_divider: str):
+    from flax import nnx
+
+    class MLP(nnx.Module):
+        def __init__(self, din, dout, hidden_layers, *, rngs, activation=jax.nn.relu):
+            self.activation = activation
+            self.layers = []
+            layer_dims = [din] + hidden_layers + [dout]
+            for in_dim, out_dim in zip(layer_dims[:-1], layer_dims[1:]):
+                self.layers.append(nnx.Linear(in_dim, out_dim, rngs=rngs))
+
+        def __call__(self, x):
+            for layer in self.layers[:-1]:
+                x = self.activation(layer(x))
+            return self.layers[-1](x)
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    rng_key = random.PRNGKey(0)
+    nn_module = MLP(
+        din=dim, dout=1, hidden_layers=[8, 8], rngs=nnx.Rngs(params=rng_key)
+    )
+
+    def prior(name, shape):
+        return dist.Cauchy() if name == "bias" else dist.Normal()
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_nnx_module(
+            "nn", nn_module, prior=prior, scope_divider=scope_divider
+        )
+        logits = nn(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+
+    # check both layers have parameters in the samples
+    assert f"nn{scope_divider}layers.0.bias" in samples
+    assert f"nn{scope_divider}layers.1.bias" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+def test_eqx_module():
+    import equinox as eqx
+
+    X = np.arange(100).astype(np.float32)[None]
+    Y = 2 * X + 2
+
+    linear_module = eqx.nn.Linear(
+        in_features=100, out_features=100, key=random.PRNGKey(0)
+    )
+
+    # Verify parameters were created correctly
+    assert hasattr(linear_module, "weight")
+    assert hasattr(linear_module, "bias")
+    assert linear_module.weight.shape == (100, 100)
+    assert linear_module.bias.shape == (100,)
+
+    # Define a model using eager initialization
+    def eqx_model_eager(x, y):
+        # Use the pre-initialized Linear module
+        nn = eqx_module("nn", linear_module)
+        mean = jax.vmap(nn)(x)
+        numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
+
+    with handlers.trace() as eqx_tr, handlers.seed(rng_seed=1):
+        eqx_model_eager(X, Y)
+
+    assert hasattr(eqx_tr["nn$params"]["value"], "weight")
+    assert hasattr(eqx_tr["nn$params"]["value"], "bias")
+    assert eqx_tr["nn$params"]["value"].weight.shape == (100, 100)
+    assert eqx_tr["nn$params"]["value"].bias.shape == (100,)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="dropout", argvalues=[True, False], ids=["dropout", "no_dropout"]
+)
+@pytest.mark.parametrize(
+    argnames="batchnorm", argvalues=[True, False], ids=["batchnorm", "no_batchnorm"]
+)
+def test_eqx_state_dropout_smoke(dropout, batchnorm):
+    import equinox as eqx
+
+    class Net(eqx.Module):
+        bn: Optional[eqx.nn.BatchNorm]
+        dropout: Optional[eqx.nn.Dropout]
+
+        def __init__(self, key):
+            # Use feature dimension 3 to match the input shape (4, 3)
+            self.bn = make_batchnorm() if batchnorm else None
+            # Create dropout with inference=True to disable dropout
+            self.dropout = eqx.nn.Dropout(p=0.5, inference=True) if dropout else None
+
+        def __call__(self, x, state):
+            if dropout:
+                # Use deterministic=True to disable dropout
+                x = self.dropout(x, inference=True)
+
+            if batchnorm:
+                x, state = self.bn(x, state)
+
+            return x, state
+
+    # Eager initialization of the Net module outside the model
+    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))  # noqa: E1111
+    x = dist.Normal(0, 1).expand([4, 3]).to_event(2).sample(random.PRNGKey(0))
+
+    def model():
+        # Use the pre-initialized module
+        nn = eqx_module("nn", net_module)
+        mutable_holder = numpyro_mutable("nn$state", {"state": eager_state})
+
+        batched_nn = jax.vmap(
+            nn, in_axes=(0, None), out_axes=(0, None), axis_name="batch"
+        )
+        y, new_state = batched_nn(x, mutable_holder["state"])
+        mutable_holder["state"] = new_state
+
+        numpyro.deterministic("y", y)
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    assert set(tr.keys()) == {"nn$params", "nn$state", "y"}
+    assert tr["nn$state"]["type"] == "mutable"
+
+    # test svi - trace error with AutoDelta
+    guide = AutoDelta(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    svi.run(random.PRNGKey(100), 10)
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="scope_divider",
+    argvalues=["/", "|"],
+    ids=["scope_divider=/", "scope_divider=|"],
+)
+@pytest.mark.parametrize(
+    argnames="callable_prior",
+    argvalues=[True, False],
+    ids=["callable_prior", "dict_prior"],
+)
+def test_random_eqx_module_mcmc(callable_prior, scope_divider: str):
+    import equinox as eqx
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    if callable_prior:
+
+        def prior(name, shape):
+            return dist.Cauchy() if name == "bias" else dist.Normal()
+    else:
+        prior = {"weight": dist.Normal(), "bias": dist.Cauchy()}
+
+    # Create a pre-initialized module for eager initialization
+    rng_key = random.PRNGKey(0)
+    linear_module = eqx.nn.Linear(in_features=dim, out_features=1, key=rng_key)
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_eqx_module(
+            "nn", linear_module, prior=prior, scope_divider=scope_divider
+        )
+        logits = jax.vmap(nn)(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+    assert f"nn{scope_divider}bias" in samples
+    assert f"nn{scope_divider}weight" in samples
+
+
+@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
+@pytest.mark.parametrize(
+    argnames="scope_divider",
+    argvalues=["/", "|"],
+    ids=["scope_divider=/", "scope_divider=|"],
+)
+def test_random_eqx_module_mcmc_sequence_params(scope_divider: str):
+    import equinox as eqx
+
+    class MLP(eqx.Module):
+        layers: list
+
+        def __init__(
+            self,
+            in_size: int,
+            out_size: int,
+            hidden_layers: list[int],
+            key: jax.random.PRNGKey,
+        ):
+            keys = jax.random.split(key, len(hidden_layers))
+            self.layers = []
+
+            # Create all linear layers
+            self.layers = []
+            layer_dims = [in_size] + list(hidden_layers) + [out_size]
+            for i, (in_dim, out_dim) in enumerate(zip(layer_dims[:-1], layer_dims[1:])):
+                self.layers.append(eqx.nn.Linear(in_dim, out_dim, key=keys[i]))
+
+        def __call__(self, x):
+            for layer in self.layers[:-1]:
+                x = jax.nn.relu(layer(x))
+            return self.layers[-1](x)  # Final layer, no activation
+
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1.0, dim + 1.0)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    rng_key = random.PRNGKey(0)
+    nn_module = MLP(in_size=dim, out_size=1, hidden_layers=[8, 8], key=rng_key)
+
+    def prior(name, shape):
+        return dist.Cauchy() if name == "bias" else dist.Normal()
+
+    def model(data, labels=None):
+        # Use the pre-initialized module with eager initialization
+        nn = random_eqx_module(
+            "nn", nn_module, prior=prior, scope_divider=scope_divider
+        )
+        logits = jax.vmap(nn)(data).squeeze(-1)
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
+
+    nuts_kernel = NUTS(model)
+    mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), data, labels)
+    samples = mcmc.get_samples()
+
+    # check both layers have parameters in the samples
+    assert f"nn{scope_divider}layers[0].bias" in samples
+    assert f"nn{scope_divider}layers[1].bias" in samples

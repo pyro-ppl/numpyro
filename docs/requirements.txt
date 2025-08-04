@@ -4,7 +4,8 @@ funsor
 ipython
 jax
 jaxlib
-jaxns==2.6.3
+jaxns==2.6.9;python_version>="3.10"
+jaxns==2.6.3;python_version<"3.10"
 Jinja2
 matplotlib
 multipledispatch
@@ -18,5 +19,5 @@ readthedocs-sphinx-search>=0.3.2
 sphinx>=5
 sphinx-gallery
 sphinx_rtd_theme
-tensorflow_probability
+tfp-nightly
 tqdm

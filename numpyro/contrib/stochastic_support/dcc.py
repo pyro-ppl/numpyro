@@ -8,7 +8,6 @@ from typing import Any, Callable, OrderedDict as OrderedDictType, Union
 import jax
 from jax import random
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
@@ -61,7 +60,7 @@ class StochasticSupportInference(ABC):
         self.max_slps: int = max_slps
 
     def _find_slps(
-        self, rng_key: ArrayLike, *args: Any, **kwargs: Any
+        self, rng_key: jax.Array, *args: Any, **kwargs: Any
     ) -> dict[str, OrderedDictType]:
         """
         Discover the straight-line programs (SLPs) in the model by sampling from the prior.
@@ -109,7 +108,7 @@ class StochasticSupportInference(ABC):
     @abstractmethod
     def _run_inference(
         self,
-        rng_key: ArrayLike,
+        rng_key: jax.Array,
         branching_trace: OrderedDictType,
         *args: Any,
         **kwargs: Any,
@@ -119,7 +118,7 @@ class StochasticSupportInference(ABC):
     @abstractmethod
     def _combine_inferences(
         self,
-        rng_key: ArrayLike,
+        rng_key: jax.Array,
         inferences: dict[str, Any],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
@@ -128,7 +127,7 @@ class StochasticSupportInference(ABC):
         raise NotImplementedError
 
     def run(
-        self, rng_key: ArrayLike, *args: Any, **kwargs: Any
+        self, rng_key: jax.Array, *args: Any, **kwargs: Any
     ) -> Union[DCCResult, SDVIResult]:
         """
         Run inference on each SLP separately and combine the results.
@@ -209,7 +208,7 @@ class DCC(StochasticSupportInference):
 
     def _run_inference(
         self,
-        rng_key: ArrayLike,
+        rng_key: jax.Array,
         branching_trace: OrderedDictType,
         *args: Any,
         **kwargs: Any,
@@ -226,7 +225,7 @@ class DCC(StochasticSupportInference):
 
     def _combine_inferences(  # type: ignore[override]
         self,
-        rng_key: ArrayLike,
+        rng_key: jax.Array,
         samples: dict[str, Any],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
@@ -244,7 +243,7 @@ class DCC(StochasticSupportInference):
         """
 
         def log_weight(
-            rng_key: ArrayLike,
+            rng_key: jax.Array,
             i: int,
             slp_model: Callable,
             slp_samples: dict[str, Any],

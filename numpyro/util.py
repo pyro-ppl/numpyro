@@ -151,7 +151,7 @@ def fori_loop(lower, upper, body_fun, init_val):
         return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
-def is_prng_key(key: jax.Array) -> bool:
+def is_prng_key(key: Any) -> bool:
     try:
         if jax.dtypes.issubdtype(key.dtype, jax.dtypes.prng_key):
             return key.shape == ()

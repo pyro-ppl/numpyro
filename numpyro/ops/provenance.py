@@ -3,9 +3,11 @@
 
 import jax
 from jax.api_util import flatten_fun, shaped_abstractify
-from jax.experimental.pjit import pjit_p
-import jax.util as util
 
+try:
+    from jax.experimental.pjit import pjit_p
+except ImportError:
+    from jax.extend.core.primitives import jit_p as pjit_p
 try:
     import jax.extend.linear_util as lu
 except ImportError:
@@ -28,6 +30,15 @@ except ImportError:
 
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 from jax.interpreters.pxla import xla_pmap_p
+
+
+# Adapted from definition in jax v0.5.0
+def _safe_map(f, *args):
+    args = list(map(list, args))
+    n = len(args[0])
+    for arg in args[1:]:
+        assert len(arg) == n, f"length mismatch: {list(map(len, args))}"
+    return list(map(f, *args))
 
 
 def eval_provenance(fn, **kwargs):
@@ -60,7 +71,7 @@ def eval_provenance(fn, **kwargs):
     )
     wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn, **fn_info), in_tree)
     # Abstract eval to get output pytree
-    avals = util.safe_map(shaped_abstractify, args)
+    avals = _safe_map(shaped_abstractify, args)
     # XXX: we split out the process of abstract evaluation and provenance tracking
     # for simplicity. In principle, they can be merged so that we only need to walk
     # through the equations once.
@@ -102,14 +113,14 @@ def track_deps_jaxpr(jaxpr, provenance_inputs):
             return
         env[v] = read(v) | p
 
-    util.safe_map(write, jaxpr.invars, provenance_inputs)
+    _safe_map(write, jaxpr.invars, provenance_inputs)
     for eqn in jaxpr.eqns:
-        provenance_inputs = util.safe_map(read, eqn.invars)
+        provenance_inputs = _safe_map(read, eqn.invars)
         rule = track_deps_rules.get(eqn.primitive, _default_track_deps_rules)
         provenance_outputs = rule(eqn, provenance_inputs)
-        util.safe_map(write, eqn.outvars, provenance_outputs)
+        _safe_map(write, eqn.outvars, provenance_outputs)
 
-    return util.safe_map(read, jaxpr.outvars)
+    return _safe_map(read, jaxpr.outvars)
 
 
 track_deps_rules = {}

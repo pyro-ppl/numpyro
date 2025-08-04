@@ -1,8 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from jax import lax, numpy as jnp
 
+from typing import Optional
+
+import jax
+from jax import Array, lax, numpy as jnp
+from jax.typing import ArrayLike
+
+from numpyro._typing import ConstraintT, DistributionT
 import numpyro.distributions.constraints as constraints
 from numpyro.distributions.continuous import Beta, MultivariateNormal, Normal
 from numpyro.distributions.distribution import Distribution
@@ -33,11 +39,11 @@ class GaussianCopula(Distribution):
 
     def __init__(
         self,
-        marginal_dist,
-        correlation_matrix=None,
-        correlation_cholesky=None,
+        marginal_dist: DistributionT,
+        correlation_matrix: Optional[Array] = None,
+        correlation_cholesky: Optional[Array] = None,
         *,
-        validate_args=None,
+        validate_args: Optional[bool] = None,
     ):
         if len(marginal_dist.event_shape) > 0:
             raise ValueError("`marginal_dist` needs to be a univariate distribution.")
@@ -60,7 +66,9 @@ class GaussianCopula(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         assert is_prng_key(key)
 
         shape = sample_shape + self.batch_shape
@@ -69,7 +77,7 @@ class GaussianCopula(Distribution):
         return self.marginal_dist.icdf(cdf)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
@@ -84,23 +92,23 @@ class GaussianCopula(Distribution):
         return copula_lp + marginal_lps.sum(axis=-1)
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
 
     @property
-    def variance(self):
+    def variance(self) -> ArrayLike:
         return jnp.broadcast_to(self.marginal_dist.variance, self.shape())
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
-    def support(self):
+    def support(self) -> ConstraintT:
         return constraints.independent(self.marginal_dist.support, 1)
 
     @lazy_property
-    def correlation_matrix(self):
+    def correlation_matrix(self) -> Array:
         return self.base_dist.covariance_matrix
 
     @lazy_property
-    def correlation_cholesky(self):
+    def correlation_cholesky(self) -> Array:
         return self.base_dist.scale_tril
 
 
@@ -116,12 +124,12 @@ class GaussianCopulaBeta(GaussianCopula):
 
     def __init__(
         self,
-        concentration1,
-        concentration0,
-        correlation_matrix=None,
-        correlation_cholesky=None,
+        concentration1: ArrayLike,
+        concentration0: ArrayLike,
+        correlation_matrix: Optional[Array] = None,
+        correlation_cholesky: Optional[Array] = None,
         *,
-        validate_args=False,
+        validate_args: bool = False,
     ):
         # set initially to allow argument validation
         self.concentration1, self.concentration0 = concentration1, concentration0

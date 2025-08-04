@@ -18,6 +18,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
+from numpyro._typing import TraceT
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -61,7 +62,7 @@ def compute_log_probs(
     model_kwargs: dict,
     params: dict,
     sum_log_prob: bool = True,
-):
+) -> tuple[dict[str, jax.Array], TraceT]:
     """
     (EXPERIMENTAL INTERFACE) Computes log of density for each site of the model given
     latent values ``params``.

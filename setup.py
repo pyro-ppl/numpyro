@@ -38,6 +38,7 @@ setup(
         "multipledispatch",
         "numpy",
         "tqdm",
+        "typing_extensions; python_version < '3.10'",
     ],
     extras_require={
         "doc": [
@@ -58,18 +59,20 @@ setup(
             "scipy>=1.9",
         ],
         "dev": [
-            "dm-haiku",
+            "dm-haiku>=0.0.14; python_version >= '3.10'",
+            "dm-haiku<0.0.14; python_version < '3.10'",
+            "equinox",
             "flax",
             "funsor>=0.4.1",
             "graphviz",
-            "jaxns==2.6.3",
+            "jaxns>=2.6.3,<=2.6.9",
             "matplotlib",
             "optax>=0.0.6",
             "pylab-sdk",  # jaxns dependency
             "pytest-cov",
             "pyyaml",  # flax dependency
             "requests",  # pylab dependency
-            "tensorflow_probability>=0.18.0",
+            "tfp-nightly",
         ],
         "examples": [
             "arviz",

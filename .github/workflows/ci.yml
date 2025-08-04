@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9","3.10","3.12"]
+        python-version: ["3.9","3.10","3.13"]
 
     steps:
     - uses: actions/checkout@v2
@@ -36,6 +36,7 @@ jobs:
         pip install -r docs/requirements.txt
         pip freeze
     - name: Lint with mypy and ruff
+      if: matrix.python-version != '3.9'
       run: |
         make lint
     - name: Build documentation
@@ -55,7 +56,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: ["3.9", "3.10"]
+        python-version: ["3.9", "3.13"]
 
     steps:
     - uses: actions/checkout@v2
@@ -79,9 +80,9 @@ jobs:
         CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
     - name: Test x64
       run: |
-        JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k powerLaw
+        JAX_ENABLE_X64=1 pytest -vs test/test_distributions.py -k "powerLaw or Dagum"
     - name: Test tracer leak
-      if: matrix.python-version == '3.10'
+      if: matrix.python-version == '3.13'
       env:
         JAX_CHECK_TRACER_LEAKS: 1
       run: |
@@ -92,7 +93,7 @@ jobs:
         pytest -vs test/test_distributions.py::test_mean_var -k Gompertz
 
     - name: Coveralls
-      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.13'
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -106,7 +107,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: ["3.9", "3.10"]
+        python-version: ["3.9", "3.13"]
 
     steps:
     - uses: actions/checkout@v2
@@ -145,7 +146,7 @@ jobs:
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/contrib/test_nested_sampling.py
     - name: Coveralls
-      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.13'
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -159,7 +160,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.13"]
 
     steps:
     - uses: actions/checkout@v2
@@ -179,7 +180,7 @@ jobs:
       run: |
         CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example
     - name: Coveralls
-      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.10'
+      if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.13'
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}

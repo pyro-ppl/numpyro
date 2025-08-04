@@ -144,6 +144,14 @@ CirculantNormal
     :show-inheritance:
     :member-order: bysource
 
+Dagum
+^^^^^
+.. autoclass:: numpyro.distributions.continuous.Dagum
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Dirichlet
 ^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Dirichlet

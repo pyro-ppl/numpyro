@@ -9,7 +9,7 @@ suited for working with NumPyro inference algorithms.
 
 from collections import namedtuple
 from collections.abc import Callable
-from typing import Any, Optional, Protocol
+from typing import Any, Literal, Optional, Protocol
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -37,10 +37,10 @@ _OptState = Any
 _IterOptState = tuple[ArrayLike, _OptState]
 
 
-def _value_and_grad(f, x, forward_mode_differentiation=False) -> tuple:
+def _value_and_grad(f, x, forward_mode_differentiation: bool = False) -> tuple:  # noqa: ANN001
     if forward_mode_differentiation:
 
-        def _wrapper(x):
+        def _wrapper(x):  # noqa: ANN001, ANN202
             out, aux = f(x)
             return out, (out, aux)
 
@@ -58,7 +58,7 @@ class UpdateExtraArgsFn(Protocol):
         arr: ArrayLike,
         params: _Params,
         state: _OptState,
-        **extra_args: Any,
+        **extra_args,
     ) -> _OptState:
         """
         Based on https://github.com/google-deepmind/optax/blob/2e66ce897e83b4901d37dcbb477a7432497848d6/optax/_src/base.py#L110-L147,
@@ -168,8 +168,8 @@ class _NumPyroOptim(object):
         return self.get_params_fn(opt_state)
 
 
-def _add_doc(fn) -> Callable[[Any], Any]:
-    def _wrapped(cls):
+def _add_doc(fn) -> Callable[[Any], Any]:  # noqa: ANN001
+    def _wrapped(cls):  # noqa: ANN001, ANN202
         cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.example_libraries.optimizers.{}`".format(
             fn.__name__
         )
@@ -328,7 +328,8 @@ class Minimize(_NumPyroOptim):
         >>> assert_allclose(quantiles["b"], 3., atol=1e-3)
     """
 
-    def __init__(self, method="BFGS", **kwargs) -> None:
+    def __init__(self, method: Literal["BFGS"] = "BFGS", **kwargs) -> None:
+        # only BFGS is supported, see https://docs.jax.dev/en/latest/_autosummary/jax.scipy.optimize.minimize.html
         super().__init__(_minimize_wrapper)
         self._method = method
         self._kwargs = kwargs
@@ -341,7 +342,7 @@ class Minimize(_NumPyroOptim):
     ) -> tuple[tuple[Any, None], _IterOptState]:
         i, (flat_params, unravel_fn) = state
 
-        def loss_fn(x):
+        def loss_fn(x):  # noqa: ANN001, ANN202
             x = unravel_fn(x)
             out, aux = fn(x)
             if aux is not None:
@@ -358,7 +359,7 @@ class Minimize(_NumPyroOptim):
         return (out, None), state
 
 
-def optax_to_numpyro(transformation) -> _NumPyroOptim:
+def optax_to_numpyro(transformation) -> _NumPyroOptim:  # noqa: ANN001
     """
     This function produces a ``numpyro.optim._NumPyroOptim`` instance from an
     ``optax.GradientTransformation`` so that it can be used with

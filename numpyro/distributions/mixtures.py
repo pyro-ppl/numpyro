@@ -1,17 +1,27 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import jax
-from jax import lax
-import jax.numpy as jnp
 
+from typing import Optional, Union
+
+import jax
+from jax import Array, lax
+import jax.numpy as jnp
+from jax.typing import ArrayLike
+
+from numpyro._typing import ConstraintT, DistributionT
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
 from numpyro.distributions.util import validate_sample
 from numpyro.util import is_prng_key
 
 
-def Mixture(mixing_distribution, component_distributions, *, validate_args=None):
+def Mixture(
+    mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
+    component_distributions: Union[list[DistributionT], DistributionT],
+    *,
+    validate_args: Optional[bool] = None,
+):
     """
     A marginalized finite mixture of component distributions
 
@@ -52,45 +62,47 @@ class _MixtureBase(Distribution):
     """
 
     @property
-    def component_mean(self):
+    def component_mean(self) -> ArrayLike:
         raise NotImplementedError
 
     @property
-    def component_variance(self):
+    def component_variance(self) -> ArrayLike:
         raise NotImplementedError
 
-    def component_log_probs(self, value):
+    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
         raise NotImplementedError
 
-    def component_sample(self, key, sample_shape=()):
+    def component_sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         raise NotImplementedError
 
-    def component_cdf(self, samples):
+    def component_cdf(self, samples: ArrayLike) -> ArrayLike:
         raise NotImplementedError
 
     @property
-    def mixture_size(self):
+    def mixture_size(self) -> int:
         """The number of components in the mixture"""
         return self._mixture_size
 
     @property
-    def mixing_distribution(self):
+    def mixing_distribution(self) -> Union[CategoricalProbs, CategoricalLogits]:
         """The ``Categorical`` distribution over components"""
         return self._mixing_distribution
 
     @property
-    def mixture_dim(self):
+    def mixture_dim(self) -> int:
         return -self.event_dim - 1
 
     @property
-    def mean(self):
+    def mean(self) -> ArrayLike:
         probs = self.mixing_distribution.probs
         probs = probs.reshape(probs.shape + (1,) * self.event_dim)
         weighted_component_means = probs * self.component_mean
         return jnp.sum(weighted_component_means, axis=self.mixture_dim)
 
     @property
-    def variance(self):
+    def variance(self) -> ArrayLike:
         probs = self.mixing_distribution.probs
         probs = probs.reshape(probs.shape + (1,) * self.event_dim)
         mean_cond_var = jnp.sum(probs * self.component_variance, axis=self.mixture_dim)
@@ -100,7 +112,7 @@ class _MixtureBase(Distribution):
         var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
         return mean_cond_var + var_cond_mean
 
-    def cdf(self, samples):
+    def cdf(self, samples: ArrayLike) -> ArrayLike:
         """The cumulative distribution function
 
         :param value: samples from this distribution.
@@ -112,7 +124,9 @@ class _MixtureBase(Distribution):
         cdf_components = self.component_cdf(samples)
         return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
 
-    def sample_with_intermediates(self, key, sample_shape=()):
+    def sample_with_intermediates(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         """
         A version of ``sample`` that also returns the sampled component indices
 
@@ -128,7 +142,7 @@ class _MixtureBase(Distribution):
         samples = self.component_sample(key_comp, sample_shape=sample_shape)
 
         # Sample selection indices from the categorical (shape will be sample_shape)
-        indices = self.mixing_distribution.expand(
+        indices: ArrayLike = self.mixing_distribution.expand(
             sample_shape + self.batch_shape
         ).sample(key_ind)
         n_expand = self.event_dim + 1
@@ -142,17 +156,23 @@ class _MixtureBase(Distribution):
         # Final sample shape (*sample_shape, *batch_shape, *event_shape)
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
     @validate_sample
-    def log_prob(self, value, intermediates=None):
+    def log_prob(self, value: ArrayLike, intermediates=None) -> ArrayLike:
         del intermediates
         sum_log_probs = self.component_log_probs(value)
         safe_sum_log_probs = jnp.where(
             jnp.isneginf(sum_log_probs), -jnp.inf, sum_log_probs
         )
-        return jax.nn.logsumexp(safe_sum_log_probs, axis=-1)
+        return jax.nn.logsumexp(
+            safe_sum_log_probs,
+            where=~jnp.isneginf(sum_log_probs),  # for numerical stability
+            axis=-1,
+        )
 
 
 class MixtureSameFamily(_MixtureBase):
@@ -191,7 +211,11 @@ class MixtureSameFamily(_MixtureBase):
     pytree_aux_fields = ("_mixture_size",)
 
     def __init__(
-        self, mixing_distribution, component_distribution, *, validate_args=None
+        self,
+        mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
+        component_distribution: DistributionT,
+        *,
+        validate_args: Optional[bool] = None,
     ):
         _check_mixing_distribution(mixing_distribution)
         mixture_size = mixing_distribution.probs.shape[-1]
@@ -219,7 +243,7 @@ class MixtureSameFamily(_MixtureBase):
         )
 
     @property
-    def component_distribution(self):
+    def component_distribution(self) -> DistributionT:
         """
         Return the vectorized distribution of components being mixed.
 
@@ -229,32 +253,34 @@ class MixtureSameFamily(_MixtureBase):
         return self._component_distribution
 
     @constraints.dependent_property
-    def support(self):
+    def support(self) -> ConstraintT:
         return self.component_distribution.support
 
     @property
-    def is_discrete(self):
+    def is_discrete(self) -> bool:
         return self.component_distribution.is_discrete
 
     @property
-    def component_mean(self):
+    def component_mean(self) -> ArrayLike:
         return self.component_distribution.mean
 
     @property
-    def component_variance(self):
+    def component_variance(self) -> ArrayLike:
         return self.component_distribution.variance
 
-    def component_cdf(self, samples):
+    def component_cdf(self, samples: ArrayLike) -> ArrayLike:
         return self.component_distribution.cdf(
             jnp.expand_dims(samples, axis=self.mixture_dim)
         )
 
-    def component_sample(self, key, sample_shape=()):
+    def component_sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         return self.component_distribution.expand(
             sample_shape + self.batch_shape + (self.mixture_size,)
         ).sample(key)
 
-    def component_log_probs(self, value):
+    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
         value = jnp.expand_dims(value, self.mixture_dim)
         component_log_probs = self.component_distribution.log_prob(value)
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
@@ -319,11 +345,11 @@ class MixtureGeneral(_MixtureBase):
 
     def __init__(
         self,
-        mixing_distribution,
-        component_distributions,
+        mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
+        component_distributions: list[DistributionT],
         *,
-        support=None,
-        validate_args=None,
+        support: Optional[ConstraintT] = None,
+        validate_args: Optional[bool] = None,
     ):
         _check_mixing_distribution(mixing_distribution)
 
@@ -384,7 +410,7 @@ class MixtureGeneral(_MixtureBase):
         )
 
     @property
-    def component_distributions(self):
+    def component_distributions(self) -> list[DistributionT]:
         """The list of component distributions in the mixture
 
         :return: The list of component distributions
@@ -393,41 +419,43 @@ class MixtureGeneral(_MixtureBase):
         return self._component_distributions
 
     @constraints.dependent_property
-    def support(self):
+    def support(self) -> ConstraintT:
         if self._support is not None:
             return self._support
         return self.component_distributions[0].support
 
     @property
-    def is_discrete(self):
+    def is_discrete(self) -> bool:
         return self.component_distributions[0].is_discrete
 
     @property
-    def component_mean(self):
+    def component_mean(self) -> ArrayLike:
         return jnp.stack(
             [d.mean for d in self.component_distributions], axis=self.mixture_dim
         )
 
     @property
-    def component_variance(self):
+    def component_variance(self) -> ArrayLike:
         return jnp.stack(
             [d.variance for d in self.component_distributions], axis=self.mixture_dim
         )
 
-    def component_cdf(self, samples):
+    def component_cdf(self, samples: ArrayLike) -> Array:
         return jnp.stack(
             [d.cdf(samples) for d in self.component_distributions],
             axis=self.mixture_dim,
         )
 
-    def component_sample(self, key, sample_shape=()):
+    def component_sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         keys = jax.random.split(key, self.mixture_size)
         samples = []
         for k, d in zip(keys, self.component_distributions):
             samples.append(d.expand(sample_shape + self.batch_shape).sample(k))
         return jnp.stack(samples, axis=self.mixture_dim)
 
-    def component_log_probs(self, value):
+    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
         component_log_probs = []
         for d in self.component_distributions:
             log_prob = d.log_prob(value)
@@ -439,7 +467,7 @@ class MixtureGeneral(_MixtureBase):
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
-def _check_mixing_distribution(mixing_distribution):
+def _check_mixing_distribution(mixing_distribution: DistributionT) -> None:
     if not isinstance(mixing_distribution, (CategoricalLogits, CategoricalProbs)):
         raise ValueError(
             "The mixing distribution must be a numpyro.distributions.Categorical. "
