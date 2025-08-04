@@ -3226,9 +3226,9 @@ class WishartCholesky(Distribution):
     @staticmethod
     def infer_shapes(
         concentration: tuple[int, ...] = (),
-        scale_matrix: Optional[Array] = None,
-        rate_matrix: Optional[Array] = None,
-        scale_tril: Optional[Array] = None,
+        scale_matrix: Optional[tuple[int, ...]] = None,
+        rate_matrix: Optional[tuple[int, ...]] = None,
+        scale_tril: Optional[tuple[int, ...]] = None,
     ):
         assert_one_of(
             scale_matrix=scale_matrix,
