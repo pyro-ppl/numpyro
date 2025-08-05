@@ -26,7 +26,6 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
@@ -620,7 +619,7 @@ class ExpandedDistribution(Distribution):
     @staticmethod
     def _broadcast_shape(
         existing_shape: tuple[int, ...], new_shape: tuple[int, ...]
-    ) -> tuple[tuple[int, ...], OrderedDict, OrderedDict]:
+    ) -> tuple[tuple[int, ...], dict, dict]:
         if len(new_shape) < len(existing_shape):
             raise ValueError(
                 "Cannot broadcast distribution of shape {} to shape {}".format(
@@ -645,8 +644,8 @@ class ExpandedDistribution(Distribution):
                 )
         return (
             tuple(reversed(reversed_shape)),
-            OrderedDict(reversed(expanded_sizes)),
-            OrderedDict(interstitial_sizes),
+            dict(reversed(expanded_sizes)),
+            dict(interstitial_sizes),
         )
 
     @property
