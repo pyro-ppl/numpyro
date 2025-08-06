@@ -484,8 +484,6 @@ def nnx_module(name, nn_module):
 
     mutable_holder = None
     if eager_other_state_dict:
-        mutable_holder = numpyro_mutable(name + "$state")
-    if mutable_holder is None:
         mutable_holder = numpyro_mutable(
             name + "$state", {"state": eager_other_state_dict}
         )
