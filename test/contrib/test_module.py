@@ -424,8 +424,12 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
     with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
         model()
 
-    assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
-    assert tr["nn$state"]["type"] == "mutable"
+    key_set = {"nn$params", "x", "y"}
+    if batchnorm or dropout:
+        key_set.add("nn$state")
+    assert set(tr.keys()) == key_set
+    if batchnorm or dropout:
+        assert tr["nn$state"]["type"] == "mutable"
 
     # test svi
     guide = AutoDelta(model)
