@@ -7,9 +7,11 @@ from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 try:
-    from typing import ParamSpec, TypeAlias
+    from typing import ParamSpec, TypeAlias, Union
 except ImportError:
-    from typing_extensions import ParamSpec, TypeAlias
+    from typing_extensions import ParamSpec, TypeAlias, Union
+
+import numpy as np
 
 import jax
 from jax.typing import ArrayLike
@@ -19,6 +21,9 @@ ModelT: TypeAlias = Callable[P, Any]
 
 Message: TypeAlias = dict[str, Any]
 TraceT: TypeAlias = OrderedDict[str, Message]
+
+# ArrayLike type has StaticScalar, StrictArrayT has everything except StaticScalars
+StrictArrayT: TypeAlias = Union[np.ndarray, jax.Array]
 
 
 @runtime_checkable
@@ -87,20 +92,20 @@ DistributionLike = DistributionT
 
 @runtime_checkable
 class TransformT(Protocol):
-    domain = ConstraintT
-    codomain = ConstraintT
+    domain: ConstraintT = ...
+    codomain: ConstraintT = ...
     _inv: "TransformT" = None
 
-    def __call__(self, x: ArrayLike) -> ArrayLike: ...
-    def _inverse(self, y: ArrayLike) -> ArrayLike: ...
+    def __call__(self, x: jax.Array) -> jax.Array: ...
+    def _inverse(self, y: jax.Array) -> jax.Array: ...
     def log_abs_det_jacobian(
-        self, x: ArrayLike, y: ArrayLike, intermediates=None
-    ) -> ArrayLike: ...
-    def call_with_intermediates(self, x: ArrayLike) -> tuple[ArrayLike, None]: ...
+        self, x: jax.Array, y: jax.Array, intermediates=None
+    ) -> jax.Array: ...
+    def call_with_intermediates(self, x: jax.Array) -> tuple[jax.Array, None]: ...
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]: ...
     def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]: ...
 
     @property
     def inv(self) -> "TransformT": ...
     @property
-    def sign(self) -> ArrayLike: ...
+    def sign(self) -> jax.Array: ...
