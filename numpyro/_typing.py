@@ -4,12 +4,12 @@
 
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, Union, runtime_checkable
 
 try:
-    from typing import ParamSpec, TypeAlias, Union
+    from typing import ParamSpec, TypeAlias
 except ImportError:
-    from typing_extensions import ParamSpec, TypeAlias, Union
+    from typing_extensions import ParamSpec, TypeAlias
 
 import numpy as np
 
@@ -23,7 +23,7 @@ Message: TypeAlias = dict[str, Any]
 TraceT: TypeAlias = OrderedDict[str, Message]
 
 # ArrayLike type has StaticScalar, StrictArrayT has everything except StaticScalars
-StrictArrayT: TypeAlias = Union[np.ndarray, jax.Array]
+StrictArrayT = Union[np.ndarray, jax.Array]
 
 
 @runtime_checkable
@@ -94,18 +94,28 @@ DistributionLike = DistributionT
 class TransformT(Protocol):
     domain: ConstraintT = ...
     codomain: ConstraintT = ...
-    _inv: "TransformT" = None
+    _inv: Optional["TransformT"] = ...
 
-    def __call__(self, x: jax.Array) -> jax.Array: ...
-    def _inverse(self, y: jax.Array) -> jax.Array: ...
+    def __call__(self, x: Union[jax.Array, Any]) -> Union[jax.Array, Any]: ...
+    def _inverse(self, y: Union[jax.Array, Any]) -> Union[jax.Array, Any]: ...
     def log_abs_det_jacobian(
-        self, x: jax.Array, y: jax.Array, intermediates=None
-    ) -> jax.Array: ...
-    def call_with_intermediates(self, x: jax.Array) -> tuple[jax.Array, None]: ...
+        self,
+        x: Union[jax.Array, Any],
+        y: Union[jax.Array, Any],
+        intermediates: Optional[Any] = None,
+    ) -> Union[jax.Array, Any]: ...
+    def call_with_intermediates(
+        self, x: Union[jax.Array, Optional[Any]]
+    ) -> tuple[Union[jax.Array, Any], Any]: ...
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]: ...
     def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]: ...
 
     @property
     def inv(self) -> "TransformT": ...
     @property
-    def sign(self) -> jax.Array: ...
+    def sign(self) -> Union[ArrayLike, Any]: ...
+
+
+class UnusedParam(object):
+    def __repr__(self):
+        return "UnusedParam"
