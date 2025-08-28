@@ -194,7 +194,9 @@ def compute_markov_factors(
     return markov_factors
 
 
-def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
+def _enum_log_density(
+    model, model_args, model_kwargs, params, sum_op, prod_op, apply_optimizer=True
+):
     """Helper function to compute elbo and extract its components from execution traces."""
     model = substitute(model, data=params)
     with plate_to_enum_plate():
@@ -286,6 +288,8 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
             eliminate=sum_vars | prod_vars,
             plates=prod_vars,
         )
+    if not apply_optimizer:
+        return lazy_result, model_trace, log_measures
     result = funsor.optimizer.apply_optimizer(lazy_result)
     if len(result.inputs) > 0:
         raise ValueError(
