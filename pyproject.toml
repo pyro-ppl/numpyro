@@ -38,9 +38,9 @@ extend-include = ["*.ipynb"]
 [tool.ruff.lint]
 select = ["ANN", "E", "F", "I", "W"]
 ignore = [
-    "ANN002",  # missing args type annotation
-    "ANN003",  # missing kwargs type annotation
-    "ANN204",  # missing type annotation for __call__
+    "ANN002", # missing args type annotation
+    "ANN003", # missing kwargs type annotation
+    "ANN204", # missing type annotation for __call__
     "E203",
 ]
 
@@ -68,7 +68,9 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.lint.per-file-ignores]
-"!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py}" = ["ANN"]  # require type annotations in typed modules
+"!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py}" = [
+    "ANN",
+] # require type annotations in typed modules
 
 [tool.ruff.lint.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
@@ -129,5 +131,6 @@ module = [
     "numpyro.primitives.*",
     "numpyro.patch.*",
     "numpyro.util.*",
+    "numpyro.distributions.transforms",
 ]
 ignore_errors = false
