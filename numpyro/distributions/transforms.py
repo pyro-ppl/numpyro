@@ -3,7 +3,7 @@
 
 
 import math
-from typing import Any, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Tuple, Union, cast
 import warnings
 import weakref
 
@@ -76,13 +76,12 @@ class Transform(object):
 
     @property
     def inv(self: TransformT) -> TransformT:
-        # TODO: can not understand the implementation (type wise)
         inv = None
         if self._inv is not None:
-            inv = self._inv()
+            inv = self._inv
         if inv is None:
-            inv: TransformT = _InverseTransform(self)
-            self._inv: TransformT = weakref.ref(inv)
+            inv = cast(TransformT, _InverseTransform(self))
+            self._inv = cast(TransformT, weakref.ref(inv))
         return inv
 
     def __call__(self, x: Union[Array, Any]) -> Union[Array, Any]:
@@ -1547,7 +1546,7 @@ class PackRealFastFourierCoefficientsTransform(Transform):
         n_imag = n - n_real
         complex_dtype = jnp.result_type(x.dtype, jnp.complex64)
         return (
-            x[..., :n_real]
+            jnp.asarray(x)[..., :n_real]
             .astype(complex_dtype)
             .at[..., 1 : 1 + n_imag]
             .add(1j * x[..., n_real:])
