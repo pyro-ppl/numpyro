@@ -116,7 +116,6 @@ doctest_optionflags = [
 [tool.mypy]
 ignore_errors = true
 ignore_missing_imports = true
-plugins = ["numpy.typing.mypy_plugin"]
 
 [[tool.mypy.overrides]]
 module = [
