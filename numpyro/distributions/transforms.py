@@ -68,7 +68,7 @@ def _clipped_expit(x: ArrayLike) -> ArrayLike:
 class Transform(object):
     domain = constraints.real
     codomain = constraints.real
-    _inv: Optional[TransformT] = None
+    _inv: Optional[Union[TransformT, weakref.ReferenceType]] = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -77,8 +77,8 @@ class Transform(object):
     @property
     def inv(self: TransformT) -> TransformT:
         inv = None
-        if self._inv is not None:
-            inv = self._inv
+        if (self._inv is not None) and isinstance(self._inv, weakref.ReferenceType):
+            inv = self._inv()
         if inv is None:
             inv = cast(TransformT, _InverseTransform(self))
             self._inv = cast(TransformT, weakref.ref(inv))
