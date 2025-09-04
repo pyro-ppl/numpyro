@@ -498,7 +498,7 @@ def nnx_module(name, nn_module):
         if mutable_holder:
             nnx.replace_by_pure_dict(mutable_state, mutable_holder["state"])
 
-        model = nnx.merge(graph_def, params_state, mutable_state)
+        model = nnx.merge(graph_def, params_state, mutable_state, copy=True)
 
         model_call = model(*call_args, **call_kwargs)
 
