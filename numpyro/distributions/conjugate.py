@@ -4,13 +4,12 @@
 
 from typing import Optional
 
-import jax
-from jax import lax, nn, random
+from jax import Array, lax, nn, random
 import jax.numpy as jnp
 from jax.scipy.special import betainc, betaln, gammaln
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT
+from numpyro._typing import ConstraintT, PRNGKeyT
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
 from numpyro.distributions.discrete import (
@@ -54,8 +53,8 @@ class BetaBinomial(Distribution):
 
     def __init__(
         self,
-        concentration1: ArrayLike,
-        concentration0: ArrayLike,
+        concentration1: Array,
+        concentration0: Array,
         total_count: int = 1,
         *,
         validate_args: Optional[bool] = None,
@@ -72,8 +71,8 @@ class BetaBinomial(Distribution):
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -82,7 +81,7 @@ class BetaBinomial(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         return (
             -_log_beta_1(self.total_count - value + 1, value)
             + betaln(
@@ -132,7 +131,7 @@ class DirichletMultinomial(Distribution):
 
     def __init__(
         self,
-        concentration: ArrayLike,
+        concentration: Array,
         total_count: int = 1,
         *,
         total_count_max: Optional[int] = None,
@@ -159,8 +158,8 @@ class DirichletMultinomial(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
@@ -171,7 +170,7 @@ class DirichletMultinomial(Distribution):
         ).sample(key_multinom)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         alpha = self.concentration
         return _log_beta_1(alpha.sum(-1), value.sum(-1)) - _log_beta_1(
             alpha, value
@@ -195,7 +194,7 @@ class DirichletMultinomial(Distribution):
 
     @staticmethod
     def infer_shapes(
-        concentration: ArrayLike, total_count=()
+        concentration: Array, total_count=()
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(concentration[:-1], total_count)
         event_shape = concentration[-1:]
@@ -222,8 +221,8 @@ class GammaPoisson(Distribution):
 
     def __init__(
         self,
-        concentration: ArrayLike,
-        rate: ArrayLike = 1.0,
+        concentration: Array,
+        rate: Array = 1.0,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -234,15 +233,15 @@ class GammaPoisson(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
         key_gamma, key_poisson = random.split(key)
         rate = self._gamma.sample(key_gamma, sample_shape)
         return Poisson(rate).sample(key_poisson)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         post_value = self.concentration + value
         return (
             -betaln(self.concentration, value + 1)
@@ -259,15 +258,15 @@ class GammaPoisson(Distribution):
     def variance(self) -> ArrayLike:
         return self.concentration / jnp.square(self.rate) * (1 + self.rate)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: Array) -> Array:
         bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
         return bt
 
 
 def NegativeBinomial(
     total_count: int,
-    probs: Optional[ArrayLike] = None,
-    logits: Optional[ArrayLike] = None,
+    probs: Optional[Array] = None,
+    logits: Optional[Array] = None,
     *,
     validate_args: Optional[bool] = None,
 ):
@@ -289,7 +288,7 @@ class NegativeBinomialProbs(GammaPoisson):
     def __init__(
         self,
         total_count: int,
-        probs: ArrayLike,
+        probs: Array,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -309,7 +308,7 @@ class NegativeBinomialLogits(GammaPoisson):
     def __init__(
         self,
         total_count: int,
-        logits: ArrayLike,
+        logits: Array,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -319,7 +318,7 @@ class NegativeBinomialLogits(GammaPoisson):
         super().__init__(concentration, rate, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         return -(
             self.total_count * nn.softplus(self.logits)
             + value * nn.softplus(-self.logits)
@@ -341,8 +340,8 @@ class NegativeBinomial2(GammaPoisson):
 
     def __init__(
         self,
-        mean: ArrayLike,
-        concentration: ArrayLike,
+        mean: Array,
+        concentration: Array,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -351,11 +350,11 @@ class NegativeBinomial2(GammaPoisson):
 
 
 def ZeroInflatedNegativeBinomial2(
-    mean: ArrayLike,
-    concentration: ArrayLike,
+    mean: Array,
+    concentration: Array,
     *,
-    gate: Optional[ArrayLike] = None,
-    gate_logits: Optional[ArrayLike] = None,
+    gate: Optional[Array] = None,
+    gate_logits: Optional[Array] = None,
     validate_args: Optional[bool] = None,
 ):
     return ZeroInflatedDistribution(

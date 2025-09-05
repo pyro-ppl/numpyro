@@ -13,7 +13,6 @@ from sklearn.gaussian_process.kernels import RBF, ExpSineSquared, Matern
 
 from jax import Array, random
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 import numpyro
 from numpyro.contrib.hsgp.approximation import (
@@ -32,7 +31,7 @@ from numpyro.handlers import scope, seed, trace
 
 
 def generate_synthetic_one_dim_data(
-    rng_key: ArrayLike, start: float, stop: float, num: int, scale: float
+    rng_key: Array, start: float, stop: float, num: int, scale: float
 ) -> tuple[Array, Array]:
     x = jnp.linspace(start=start, stop=stop, num=num)
     y = jnp.sin(4 * jnp.pi * x) + jnp.sin(7 * jnp.pi * x)
@@ -53,7 +52,7 @@ def synthetic_one_dim_data() -> tuple[Array, Array]:
 
 
 def generate_synthetic_two_dim_data(
-    rng_key: ArrayLike, start: float, stop: float, num: int, scale: float
+    rng_key: Array, start: float, stop: float, num: int, scale: float
 ) -> tuple[Array, Array]:
     x = random.uniform(rng_key, shape=(num, 2), minval=start, maxval=stop)
     y = jnp.sin(4 * jnp.pi * x[:, 0]) + jnp.sin(7 * jnp.pi * x[:, 1])
@@ -117,9 +116,9 @@ def synthetic_two_dim_data() -> tuple[Array, Array]:
     ],
 )
 def test_kernel_approx_squared_exponential(
-    x1: ArrayLike,
-    x2: ArrayLike,
-    length: Union[float, ArrayLike],
+    x1: Array,
+    x2: Array,
+    length: Union[float, Array],
     ell: float,
     xfail: bool,
 ):
@@ -201,7 +200,7 @@ def test_kernel_approx_squared_exponential(
     ],
 )
 def test_kernel_approx_squared_matern(
-    x1: ArrayLike, x2: ArrayLike, nu: float, length: ArrayLike, ell: float
+    x1: Array, x2: Array, nu: float, length: Array, ell: float
 ):
     """ensure that the approximation of the matern kernel is accurate,
     matching the exact kernel implementation from sklearn.
@@ -243,8 +242,8 @@ def test_kernel_approx_squared_matern(
     ],
 )
 def test_kernel_approx_periodic(
-    x1: ArrayLike,
-    x2: ArrayLike,
+    x1: Array,
+    x2: Array,
     w0: float,
     length: float,
 ):
@@ -281,7 +280,7 @@ def test_kernel_approx_periodic(
     ids=["non_centered", "centered", "non_centered-large-domain", "non_centered-2d"],
 )
 def test_approximation_squared_exponential(
-    x: ArrayLike,
+    x: Array,
     alpha: float,
     length: float,
     ell: Union[int, float, list[Union[int, float]]],
@@ -332,7 +331,7 @@ def test_approximation_squared_exponential(
     ids=["non_centered", "centered", "non_centered-large-domain", "non_centered-2d"],
 )
 def test_approximation_matern(
-    x: ArrayLike,
+    x: Array,
     nu: float,
     alpha: float,
     length: float,
