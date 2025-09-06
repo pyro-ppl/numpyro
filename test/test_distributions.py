@@ -1605,7 +1605,13 @@ def test_entropy_samples(jax_dist, sp_dist, params):
     samples = jax_dist.sample(jax.random.key(8), (1000,))
     neg_log_probs = -jax_dist.log_prob(samples)
     mean = neg_log_probs.mean(axis=0)
-    stderr = neg_log_probs.std(axis=0) / jnp.sqrt(neg_log_probs.shape[-1] - 1)
+    neg_log_probs_std = neg_log_probs.std(axis=0)
+    safe_neg_log_probs_std = jnp.where(
+        jnp.equal(neg_log_probs_std, 0.0),
+        jnp.finfo(jnp.result_type(float)).tiny,
+        neg_log_probs_std,
+    )
+    stderr = safe_neg_log_probs_std / jnp.sqrt(neg_log_probs.shape[-1] - 1)
     z = (actual - mean) / stderr
 
     # Check the z-score is small or that all values are close. This happens, for
