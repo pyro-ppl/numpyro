@@ -26,6 +26,10 @@ TraceT: TypeAlias = OrderedDict[str, Message]
 StrictArrayT = Union[np.ndarray, jax.Array]
 
 
+PyTree: TypeAlias = Any
+"""A generic type for a pytree, i.e. a nested structure of lists, tuples, dicts, and arrays."""
+
+
 @runtime_checkable
 class ConstraintT(Protocol):
     is_discrete: bool = ...
@@ -102,7 +106,7 @@ class TransformT(Protocol):
         self,
         x: Union[jax.Array, Any],
         y: Union[jax.Array, Any],
-        intermediates: Optional[Any] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> Union[jax.Array, Any]: ...
     def call_with_intermediates(
         self, x: Union[jax.Array, Optional[Any]]
@@ -114,8 +118,3 @@ class TransformT(Protocol):
     def inv(self) -> "TransformT": ...
     @property
     def sign(self) -> Union[ArrayLike, Any]: ...
-
-
-class UnusedParam(object):
-    def __repr__(self):
-        return "UnusedParam"

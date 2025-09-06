@@ -18,7 +18,7 @@ from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, StrictArrayT, TransformT, UnusedParam
+from numpyro._typing import ConstraintT, PyTree, StrictArrayT, TransformT
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
     add_diag,
@@ -94,7 +94,7 @@ class Transform(object):
         self,
         x: Union[Array, Any],
         y: Union[Array, Any],
-        intermediates: Optional[Any] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> Union[Array, Any]:
         raise NotImplementedError
 
@@ -184,7 +184,7 @@ class _InverseTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # NB: we don't use intermediates for inverse transform
         return -self._inv.log_abs_det_jacobian(y, x, None)
@@ -280,8 +280,8 @@ class AffineTransform(Transform):
     def log_abs_det_jacobian(
         self,
         x: ArrayLike,
-        y: Union[ArrayLike, UnusedParam],
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: ArrayLike,
+        intermediates: Optional[PyTree] = None,
     ) -> ArrayLike:
         return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
 
@@ -375,7 +375,7 @@ class ComposeTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Optional[Any] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         if intermediates is not None:
             if len(intermediates) != len(self.parts):
@@ -473,7 +473,7 @@ class CholeskyTransform(ParameterFreeTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
         n = jnp.shape(x)[-1]
@@ -536,7 +536,7 @@ class CorrCholeskyTransform(ParameterFreeTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # NB: because domain and codomain are two spaces with different dimensions, determinant of
         # Jacobian is not well-defined. Here we return `log_abs_det_jacobian` of `x` and the
@@ -572,7 +572,7 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # NB: see derivation in LKJCholesky implementation
         n = jnp.shape(x)[-1]
@@ -614,8 +614,8 @@ class ExpTransform(Transform):
     def log_abs_det_jacobian(
         self,
         x: ArrayLike,
-        y: Union[ArrayLike, UnusedParam],
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: ArrayLike,
+        intermediates: Optional[PyTree] = None,
     ) -> ArrayLike:
         return x
 
@@ -640,8 +640,8 @@ class IdentityTransform(ParameterFreeTransform):
     def log_abs_det_jacobian(
         self,
         x: StrictArrayT,
-        y: Union[StrictArrayT, UnusedParam] = UnusedParam(),
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: StrictArrayT,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.zeros_like(x)
 
@@ -685,7 +685,7 @@ class IndependentTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Optional[Any] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         result = self.base_transform.log_abs_det_jacobian(
             x, y, intermediates=intermediates
@@ -755,7 +755,7 @@ class L1BallTransform(ParameterFreeTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # compute stick-breaking logdet
         #   t1 -> t1
@@ -822,8 +822,8 @@ class LowerCholeskyAffine(Transform):
     def log_abs_det_jacobian(
         self,
         x: StrictArrayT,
-        y: Union[StrictArrayT, UnusedParam],
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: StrictArrayT,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.broadcast_to(
             jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
@@ -878,7 +878,7 @@ class LowerCholeskyTransform(ParameterFreeTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
@@ -922,7 +922,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         diag = x[..., -n:]
@@ -966,7 +966,7 @@ class OrderedTransform(ParameterFreeTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.sum(x[..., 1:], -1)
 
@@ -994,7 +994,7 @@ class PermuteTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.full(jnp.shape(x)[:-1], 0.0)
 
@@ -1024,7 +1024,7 @@ class PowerTransform(Transform):
         self,
         x: ArrayLike,
         y: ArrayLike,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> ArrayLike:
         return jnp.log(jnp.abs(self.exponent * y / x))
 
@@ -1060,8 +1060,8 @@ class SigmoidTransform(ParameterFreeTransform):
     def log_abs_det_jacobian(
         self,
         x: ArrayLike,
-        y: Union[ArrayLike, UnusedParam],
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: ArrayLike,
+        intermediates: Optional[PyTree] = None,
     ) -> ArrayLike:
         return -softplus(x) - softplus(-x)  # type: ignore[operator]
 
@@ -1115,9 +1115,9 @@ class SimplexToOrderedTransform(Transform):
 
     def log_abs_det_jacobian(
         self,
-        x: Union[StrictArrayT, UnusedParam],
+        x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
         # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
@@ -1162,8 +1162,8 @@ class SoftplusTransform(ParameterFreeTransform):
     def log_abs_det_jacobian(
         self,
         x: ArrayLike,
-        y: Union[ArrayLike, UnusedParam],
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: ArrayLike,
+        intermediates: Optional[PyTree] = None,
     ) -> ArrayLike:
         return -softplus(-x)  # type: ignore[operator]
 
@@ -1192,8 +1192,8 @@ class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
     def log_abs_det_jacobian(
         self,
         x: StrictArrayT,
-        y: Union[StrictArrayT, UnusedParam] = UnusedParam(),
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: StrictArrayT,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # the jacobian is diagonal, so logdet is the sum of diagonal
         # `softplus` transform
@@ -1238,7 +1238,7 @@ class StickBreakingTransform(ParameterFreeTransform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - sigmoid(x)))
@@ -1306,7 +1306,7 @@ class UnpackTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.zeros(jnp.shape(x)[:-1])
 
@@ -1384,7 +1384,7 @@ class ReshapeTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.zeros_like(x, shape=x.shape[: x.ndim - len(self._inverse_shape)])
 
@@ -1459,7 +1459,7 @@ class RealFastFourierTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         batch_shape = jnp.broadcast_shapes(
             x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
@@ -1534,7 +1534,7 @@ class PackRealFastFourierCoefficientsTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> Array:
         shape = jnp.broadcast_shapes(x.shape[:-1], y.shape[:-1])
         return jnp.zeros_like(x, shape=shape)
@@ -1681,8 +1681,8 @@ class RecursiveLinearTransform(Transform):
     def log_abs_det_jacobian(
         self,
         x: StrictArrayT,
-        y: Union[StrictArrayT, UnusedParam] = UnusedParam(),
-        intermediates: Union[Any, None, UnusedParam] = None,
+        y: StrictArrayT,
+        intermediates: Optional[PyTree] = None,
     ) -> StrictArrayT:
         return jnp.zeros_like(x, shape=x.shape[:-2])
 
@@ -1757,7 +1757,7 @@ class ZeroSumTransform(Transform):
         self,
         x: StrictArrayT,
         y: StrictArrayT,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> jnp.ndarray:
         shape = jnp.broadcast_shapes(
             x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
@@ -1802,9 +1802,9 @@ class ComplexTransform(ParameterFreeTransform):
 
     def log_abs_det_jacobian(
         self,
-        x: Union[ArrayLike, UnusedParam],
+        x: ArrayLike,
         y: ArrayLike,
-        intermediates: Union[Any, None, UnusedParam] = None,
+        intermediates: Optional[PyTree] = None,
     ) -> Array:
         return jnp.zeros_like(y)
 
