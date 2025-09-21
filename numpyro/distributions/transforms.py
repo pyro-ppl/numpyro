@@ -476,7 +476,7 @@ class CholeskyTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
         n = jnp.shape(x)[-1]
         order = -jnp.arange(n, 0, -1)
@@ -539,7 +539,7 @@ class CorrCholeskyTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # NB: because domain and codomain are two spaces with different dimensions, determinant of
         # Jacobian is not well-defined. Here we return `log_abs_det_jacobian` of `x` and the
         # flatten lower triangular part of `y`.
@@ -575,7 +575,7 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # NB: see derivation in LKJCholesky implementation
         n = jnp.shape(x)[-1]
         order = -jnp.arange(n - 1, -1, -1)
@@ -644,7 +644,7 @@ class IdentityTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.zeros_like(x)
 
 
@@ -688,7 +688,7 @@ class IndependentTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         result = self.base_transform.log_abs_det_jacobian(
             x, y, intermediates=intermediates
         )
@@ -758,7 +758,7 @@ class L1BallTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # compute stick-breaking logdet
         #   t1 -> t1
         #   t2 -> t2 * (1 - abs(t1))
@@ -826,7 +826,7 @@ class LowerCholeskyAffine(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.broadcast_to(
             jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
             jnp.shape(x)[:-1],
@@ -881,7 +881,7 @@ class LowerCholeskyTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
@@ -925,7 +925,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         diag = x[..., -n:]
         diag_softplus = jnp.diagonal(y, axis1=-2, axis2=-1)
@@ -969,7 +969,7 @@ class OrderedTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.sum(x[..., 1:], -1)
 
 
@@ -997,7 +997,7 @@ class PermuteTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.full(jnp.shape(x)[:-1], 0.0)
 
     def tree_flatten(self):
@@ -1120,7 +1120,7 @@ class SimplexToOrderedTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
         # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
         J_logdet = (softplus(y) + softplus(-y)).sum(-1)
@@ -1196,7 +1196,7 @@ class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # the jacobian is diagonal, so logdet is the sum of diagonal
         # `softplus` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
@@ -1241,7 +1241,7 @@ class StickBreakingTransform(ParameterFreeTransform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - sigmoid(x)))
         #          = Product(y * sigmoid(x) * exp(-x))
@@ -1309,7 +1309,7 @@ class UnpackTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.zeros(jnp.shape(x)[:-1])
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
@@ -1387,7 +1387,7 @@ class ReshapeTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.zeros_like(x, shape=x.shape[: x.ndim - len(self._inverse_shape)])
 
     def tree_flatten(self):
@@ -1462,7 +1462,7 @@ class RealFastFourierTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         batch_shape = jnp.broadcast_shapes(
             x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
         )
@@ -1685,7 +1685,7 @@ class RecursiveLinearTransform(Transform):
         x: NonScalarArray,
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
-    ) -> NonScalarArray:
+    ) -> NumLike:
         return jnp.zeros_like(x, shape=x.shape[:-2])
 
     def tree_flatten(self):
