@@ -404,8 +404,8 @@ class ComposeTransform(Transform):
         result = result + sum_rightmost(logdet, input_event_dim - part.domain.event_dim)
         return result
 
-    def call_with_intermediates(self, x: NumLike) -> Tuple[NumLike, PyTree]:
-        intermediates = []
+    def call_with_intermediates(self, x: NumLike) -> Tuple[NumLike, Optional[PyTree]]:
+        intermediates: list[Optional[PyTree]] = []
         for part in self.parts[:-1]:
             x, inter = part.call_with_intermediates(x)
             intermediates.append([x, inter])
@@ -697,9 +697,7 @@ class IndependentTransform(Transform):
             raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
         return sum_rightmost(result, self.reinterpreted_batch_ndims)
 
-    def call_with_intermediates(
-        self, x: ArrayLike
-    ) -> Tuple[ArrayLike, Optional[ArrayLike]]:
+    def call_with_intermediates(self, x: NumLike) -> Tuple[NumLike, Optional[PyTree]]:
         return self.base_transform.call_with_intermediates(x)
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
