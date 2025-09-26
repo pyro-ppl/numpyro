@@ -90,6 +90,20 @@ class LeftTruncatedDistribution(Distribution):
         )
         return jnp.where(q < 0, jnp.nan, ppf)
 
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        # For left truncated distribution: CDF(x) = (F(x) - F(low)) / (1 - F(low))
+        # where F is the base distribution CDF
+        base_cdf_value = self.base_dist.cdf(value)
+        base_cdf_low = self.base_dist.cdf(self.low)
+
+        # Handle the case where value < low (should be 0)
+        # and value >= low (should be the truncated CDF)
+        truncated_cdf = (base_cdf_value - base_cdf_low) / (1.0 - base_cdf_low)
+
+        # Clamp to [0, 1] and handle values below the truncation point
+        result = jnp.where(value < self.low, 0.0, jnp.clip(truncated_cdf, 0.0, 1.0))
+        return result
+
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
         sign = jnp.where(self.base_dist.loc >= self.low, 1.0, -1.0)
@@ -168,6 +182,20 @@ class RightTruncatedDistribution(Distribution):
     def icdf(self, q: ArrayLike) -> ArrayLike:
         ppf = self.base_dist.icdf(q * self._cdf_at_high)
         return jnp.where(q > 1, jnp.nan, ppf)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        # For right truncated distribution: CDF(x) = F(x) / F(high)
+        # where F is the base distribution CDF
+        base_cdf_value = self.base_dist.cdf(value)
+        base_cdf_high = self._cdf_at_high
+
+        # Handle the case where value > high (should be 1)
+        # and value <= high (should be the truncated CDF)
+        truncated_cdf = base_cdf_value / base_cdf_high
+
+        # Clamp to [0, 1] and handle values above the truncation point
+        result = jnp.where(value > self.high, 1.0, jnp.clip(truncated_cdf, 0.0, 1.0))
+        return result
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
@@ -289,6 +317,27 @@ class TwoSidedTruncatedDistribution(Distribution):
             clamp_probs((1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high)
         )
         return jnp.where(jnp.logical_or(q < 0, q > 1), jnp.nan, ppf)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        # For two-sided truncated distribution: CDF(x) = (F(x) - F(low)) / (F(high) - F(low))
+        # where F is the base distribution CDF
+        base_cdf_value = self.base_dist.cdf(value)
+        base_cdf_low = self.base_dist.cdf(self.low)
+        base_cdf_high = self.base_dist.cdf(self.high)
+
+        # Calculate the normalization constant (F(high) - F(low))
+        normalization = base_cdf_high - base_cdf_low
+
+        # Calculate the truncated CDF
+        truncated_cdf = (base_cdf_value - base_cdf_low) / normalization
+
+        # Handle values outside the truncation interval
+        result = jnp.where(
+            value < self.low,
+            0.0,
+            jnp.where(value > self.high, 1.0, jnp.clip(truncated_cdf, 0.0, 1.0)),
+        )
+        return result
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
