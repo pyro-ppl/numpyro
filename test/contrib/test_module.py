@@ -514,7 +514,7 @@ def test_random_nnx_module_mcmc_sequence_params(scope_divider: str):
     class MLP(nnx.Module):
         def __init__(self, din, dout, hidden_layers, *, rngs, activation=jax.nn.relu):
             self.activation = activation
-            self.layers = []
+            self.layers = nnx.List([])
             layer_dims = [din] + hidden_layers + [dout]
             for in_dim, out_dim in zip(layer_dims[:-1], layer_dims[1:]):
                 self.layers.append(nnx.Linear(in_dim, out_dim, rngs=rngs))
