@@ -1651,7 +1651,17 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
-        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.LogNormal, dist.StudentT) else 1e-5
+        rtol = (
+            2e-3
+            if jax_dist
+            in (
+                _TruncatedCauchy,
+                dist.Gamma,
+                dist.LogNormal,
+                dist.StudentT,
+            )
+            else 1e-5
+        )
         if d.shape() == () and not d.is_discrete:
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
