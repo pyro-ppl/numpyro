@@ -39,6 +39,15 @@ from numpyro.infer.util import (
 import numpyro.optim as optim
 
 
+@pytest.fixture(params=["old", "new"])
+def rng_key(request):
+    rng_type = request.param
+    if rng_type == "old":
+        return random.PRNGKey(0)
+    else:
+        return random.key(0)
+
+
 def beta_bernoulli():
     N = 800
     true_probs = jnp.array([0.2, 0.7])
@@ -92,17 +101,22 @@ def categorical_probs():
 
 
 @pytest.mark.parametrize("parallel", [True, False])
-def test_predictive(parallel):
+def test_predictive(parallel, rng_key):
     model, data, true_probs = beta_bernoulli()
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
-    mcmc.run(random.PRNGKey(0), data)
+
+    rng_key = rng_key
+    rng_key, rng_subkey = random.split(rng_key)
+    mcmc.run(rng_subkey, data)
     samples = mcmc.get_samples()
     predictive = Predictive(model, samples, parallel=parallel)
-    predictive_samples = predictive(random.PRNGKey(1))
+    rng_key, rng_subkey = random.split(rng_key)
+    predictive_samples = predictive(rng_subkey)
     assert predictive_samples.keys() == {"beta_sq", "obs"}
 
     predictive.return_sites = ["beta", "beta_sq", "obs"]
-    predictive_samples = predictive(random.PRNGKey(1))
+    rng_key, rng_subkey = random.split(rng_key)
+    predictive_samples = predictive(rng_subkey)
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
     assert predictive_samples["beta_sq"].shape == (100,) + true_probs.shape
