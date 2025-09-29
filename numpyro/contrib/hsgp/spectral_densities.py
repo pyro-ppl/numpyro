@@ -10,7 +10,6 @@ from __future__ import annotations
 from jax import Array, vmap
 import jax.numpy as jnp
 from jax.scipy import special
-from jax.typing import ArrayLike
 
 from numpyro.contrib.hsgp.laplacian import sqrt_eigenvalues
 
@@ -20,7 +19,7 @@ def align_param(dim, param):
 
 
 def spectral_density_squared_exponential(
-    dim: int, w: ArrayLike, alpha: float, length: float | ArrayLike
+    dim: int, w: Array, alpha: float, length: float | Array
 ) -> Array:
     """
     Spectral density of the squared exponential kernel.
@@ -41,7 +40,7 @@ def spectral_density_squared_exponential(
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param int dim: dimension
-    :param ArrayLike w: frequency
+    :param Array w: frequency
     :param float alpha: amplitude
     :param float length: length scale
     :return: spectral density value
@@ -54,7 +53,7 @@ def spectral_density_squared_exponential(
 
 
 def spectral_density_matern(
-    dim: int, nu: float, w: ArrayLike, alpha: float, length: float | ArrayLike
+    dim: int, nu: float, w: Array, alpha: float, length: float | Array
 ) -> float:
     """
     Spectral density of the Matérn kernel.
@@ -77,7 +76,7 @@ def spectral_density_matern(
 
     :param int dim: dimension
     :param float nu: smoothness
-    :param ArrayLike w: frequency
+    :param Array w: frequency
     :param float alpha: amplitude
     :param float length: length scale
     :return: spectral density value

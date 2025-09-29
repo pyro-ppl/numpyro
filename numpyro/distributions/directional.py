@@ -9,7 +9,6 @@ from math import pi
 import operator
 from typing import Optional
 
-import jax
 from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
@@ -17,6 +16,7 @@ from jax.scipy import special
 from jax.scipy.special import erf, i0e, i1e, logsumexp
 from jax.typing import ArrayLike
 
+from numpyro._typing import PRNGKeyT
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
@@ -34,7 +34,7 @@ def _numel(shape: tuple[int, ...]) -> int:
     return functools.reduce(operator.mul, shape, 1)
 
 
-def log_I1(orders: int, value: ArrayLike, terms: int = 250) -> Array:
+def log_I1(orders: int, value: Array, terms: int = 250) -> Array:
     r"""Compute first n log modified bessel function of first kind
     .. math ::
         \log(I_v(z)) = v*\log(z/2) + \log(\sum_{k=0}^\inf \exp\left[2*k*\log(z/2) - \sum_kk^k log(kk)
@@ -105,8 +105,8 @@ class VonMises(Distribution):
 
     def __init__(
         self,
-        loc: ArrayLike,
-        concentration: ArrayLike,
+        loc: Array,
+        concentration: Array,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -124,8 +124,8 @@ class VonMises(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         """Generate sample from von Mises distribution
 
         :param key: random number generator key
@@ -142,7 +142,7 @@ class VonMises(Distribution):
         return samples
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         return -(
             jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
         ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
@@ -233,7 +233,7 @@ class SineSkewed(Distribution):
     def __init__(
         self,
         base_dist: Distribution,
-        skewness: ArrayLike,
+        skewness: Array,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -268,8 +268,8 @@ class SineSkewed(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         base_key, skew_key = random.split(key)
         bd = self.base_dist
         ys = bd.sample(base_key, sample_shape)
@@ -285,7 +285,7 @@ class SineSkewed(Distribution):
         ) - jnp.pi
         return samples
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         if self._validate_args:
             self._validate_sample(value)
         if self.base_dist._validate_args:
@@ -367,12 +367,12 @@ class SineBivariateVonMises(Distribution):
 
     def __init__(
         self,
-        phi_loc: ArrayLike,
-        psi_loc: ArrayLike,
-        phi_concentration: ArrayLike,
-        psi_concentration: ArrayLike,
-        correlation: Optional[ArrayLike] = None,
-        weighted_correlation: Optional[ArrayLike] = None,
+        phi_loc: Array,
+        psi_loc: Array,
+        phi_concentration: Array,
+        psi_concentration: Array,
+        correlation: Optional[Array] = None,
+        weighted_correlation: Optional[Array] = None,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -436,7 +436,7 @@ class SineBivariateVonMises(Distribution):
         return norm_const.reshape(jnp.shape(self.phi_loc))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         indv = self.phi_concentration * jnp.cos(
             value[..., 0] - self.phi_loc
         ) + self.psi_concentration * jnp.cos(value[..., 1] - self.psi_loc)
@@ -448,8 +448,8 @@ class SineBivariateVonMises(Distribution):
         return indv + corr - self.norm_const
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         """
         ** References: **
             1. A New Unified Approach for the Simulation of a Wide Class of Directional Distributions
@@ -513,14 +513,14 @@ class SineBivariateVonMises(Distribution):
                 x, axis=1, keepdims=True
             )  # Angular Central Gaussian distribution
 
-            lf: ArrayLike = (
+            lf: Array = (
                 conc[0] * (x[:, 0] - 1)
                 + eigmin
                 + log_I1(0, jnp.sqrt(conc[1] ** 2 + (corr * x[:, 1]) ** 2)).squeeze(0)
                 - phi_den
             )
 
-            lg_inv: ArrayLike = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
+            lg_inv: Array = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
             assert lg_inv.shape == lf.shape
 
             accepted = random.uniform(accept_key, lf.shape) < jnp.exp(lf + lg_inv)
@@ -614,13 +614,13 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
         return safe_normalize(self.concentration + eps)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: Array) -> Array:
         if self._validate_args:
             event_shape = value.shape[-1:]
             if event_shape != self.event_shape:
@@ -669,7 +669,7 @@ def _projected_normal_log_prob_2(concentration, value):
 
 
 def _projected_normal_log_prob_3(concentration, value):
-    def _dot(x: Array, y: Array) -> ArrayLike:
+    def _dot(x: Array, y: Array) -> Array:
         return (x[..., None, :] @ y[..., None])[..., 0, 0]
 
     # We integrate along a ray, factorizing the integrand as a product of:

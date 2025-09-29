@@ -102,7 +102,6 @@ import numpy as np
 
 from jax import Array, random
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 import numpyro
 from numpyro._typing import Message, TraceT
@@ -444,7 +443,7 @@ class condition(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        data: Optional[dict[str, ArrayLike]] = None,
+        data: Optional[dict[str, Array]] = None,
         condition_fn: Optional[Callable] = None,
     ) -> None:
         self.condition_fn = condition_fn
@@ -583,7 +582,7 @@ class mask(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        mask: Optional[ArrayLike] = True,
+        mask: Optional[Array] = True,
     ) -> None:
         if jnp.result_type(mask) != "bool":
             raise ValueError("`mask` should be a bool array.")
@@ -677,7 +676,7 @@ class scale(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        scale: ArrayLike = 1.0,
+        scale: Array = 1.0,
     ) -> None:
         if not_jax_tracer(scale):
             if np.any(np.less_equal(scale, 0)):
@@ -975,7 +974,7 @@ class do(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        data: Optional[dict[str, ArrayLike]] = None,
+        data: Optional[dict[str, Array]] = None,
     ) -> None:
         self.data = data
         self._intervener_id = str(id(self))
