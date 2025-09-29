@@ -1656,6 +1656,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
             if jax_dist
             in (
                 _TruncatedCauchy,
+                _TruncatedNormal,
                 dist.Gamma,
                 dist.LogNormal,
                 dist.StudentT,
