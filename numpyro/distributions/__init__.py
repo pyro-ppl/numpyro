@@ -1,6 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from numpyro.distributions.censored import (
+    LeftCensoredDistribution,
+    RightCensoredDistribution,
+)
 from numpyro.distributions.conjugate import (
     BetaBinomial,
     DirichletMultinomial,
@@ -194,6 +198,8 @@ __all__ = [
     "RelaxedBernoulli",
     "RelaxedBernoulliLogits",
     "RightTruncatedDistribution",
+    "LeftCensoredDistribution",
+    "RightCensoredDistribution",
     "SineBivariateVonMises",
     "SineSkewed",
     "SoftLaplace",
