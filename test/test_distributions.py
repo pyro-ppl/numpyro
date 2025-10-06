@@ -517,8 +517,14 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
-    T(_RightCensoredWeibull, 1.0, 1.0, np.array([0.0, 1.0])),
-    T(_LeftCensoredHalfNormal, 1.0, np.array([0.0, 1.0])),
+    T(_RightCensoredWeibull, 1.0, 1.0, 0.0),
+    T(_RightCensoredWeibull, 1.0, 1.0, 1.0),
+    T(_LeftCensoredHalfNormal, 1.0, 0.0),
+    T(_LeftCensoredHalfNormal, 1.0, 1.0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 0.0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 1.0),
+    T(_RightCensoredNormal, 0.0, 1.0, 0.0),
+    T(_RightCensoredNormal, 0.0, 1.0, 1.0),
     T(dist.CirculantNormal, np.zeros((3, 4)), np.array([0.9, 0.2, 0.1, 0.2]), None),
     T(
         dist.CirculantNormal,
@@ -990,16 +996,6 @@ CONTINUOUS = [
     T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
     T(dist.Dagum, 2.0, 3.0, np.array([0.5, 2.0, 1.0])),
     T(dist.Dagum, np.array([5.0, 2.0, 10.0]), 3.0, 5.0),
-]
-CONTINUOUS = [
-    T(_RightCensoredWeibull, 1.0, 1.0, 0.0),
-    T(_RightCensoredWeibull, 1.0, 1.0, 1.0),
-    T(_LeftCensoredHalfNormal, 1.0, 0.0),
-    T(_LeftCensoredHalfNormal, 1.0, 1.0),
-    T(_LeftCensoredNormal, 0.0, 1.0, 0.0),
-    T(_LeftCensoredNormal, 0.0, 1.0, 1.0),
-    T(_RightCensoredNormal, 0.0, 1.0, 0.0),
-    T(_RightCensoredNormal, 0.0, 1.0, 1.0),
 ]
 
 DIRECTIONAL = [

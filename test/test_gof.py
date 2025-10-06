@@ -29,6 +29,10 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.skip(
             "skip gof test for MatrixNormal, likely incorrect submanifold scaling"
         )
+    if "Censored" in jax_dist.__name__:
+        pytest.skip(
+            "skip gof test for censored distribution as log_prob for censored observations is cdf instead of density"
+        )
 
     num_samples = 10000
     if any(
