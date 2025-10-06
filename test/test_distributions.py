@@ -1052,7 +1052,6 @@ DIRECTIONAL = [
     T(SineSkewedVonMises, np.array([0.342355])),
     T(SineSkewedVonMisesBatched, np.array([[0.342355, -0.0001], [0.91, 0.09]])),
 ]
-DIRECTIONAL = []
 
 DISCRETE = [
     T(dist.BetaBinomial, 2.0, 5.0, 10),
@@ -1124,7 +1123,6 @@ DISCRETE = [
         np.array([2.0, -3.0, 5.0]),
     ),
 ]
-DISCRETE = []
 
 BASE = [
     T(lambda *args: dist.Normal(*args).to_event(2), np.arange(24).reshape(3, 4, 2)),
@@ -1484,34 +1482,34 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02, atol=0.03)
 
 
-# @pytest.mark.parametrize(
-#     "jax_dist, params",
-#     [
-#         (dist.Gamma, (1.0,)),
-#         (dist.Gamma, (0.1,)),
-#         (dist.Gamma, (10.0,)),
-#         (dist.Chi2, (1.0,)),
-#         (dist.Chi2, (0.1,)),
-#         (dist.Chi2, (10.0,)),
-#         (dist.Beta, (1.0, 1.0)),
-#         (dist.StudentT, (5.0, 2.0, 4.0)),
-#     ],
-# )
-# def test_pathwise_gradient(jax_dist, params):
-#     rng_key = random.PRNGKey(0)
-#     N = 1000000
-#
-#     def f(params):
-#         z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
-#         return (z + z**2).mean(0)
-#
-#     def g(params):
-#         d = jax_dist(*params)
-#         return d.mean + d.variance + d.mean**2
-#
-#     actual_grad = grad(f)(params)
-#     expected_grad = grad(g)(params)
-#     assert_allclose(actual_grad, expected_grad, rtol=0.005)
+@pytest.mark.parametrize(
+    "jax_dist, params",
+    [
+        (dist.Gamma, (1.0,)),
+        (dist.Gamma, (0.1,)),
+        (dist.Gamma, (10.0,)),
+        (dist.Chi2, (1.0,)),
+        (dist.Chi2, (0.1,)),
+        (dist.Chi2, (10.0,)),
+        (dist.Beta, (1.0, 1.0)),
+        (dist.StudentT, (5.0, 2.0, 4.0)),
+    ],
+)
+def test_pathwise_gradient(jax_dist, params):
+    rng_key = random.PRNGKey(0)
+    N = 1000000
+
+    def f(params):
+        z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
+        return (z + z**2).mean(0)
+
+    def g(params):
+        d = jax_dist(*params)
+        return d.mean + d.variance + d.mean**2
+
+    actual_grad = grad(f)(params)
+    expected_grad = grad(g)(params)
+    assert_allclose(actual_grad, expected_grad, rtol=0.005)
 
 
 @pytest.mark.parametrize(
@@ -1686,7 +1684,18 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
-        rtol = 2e-3 if jax_dist in (dist.Gamma, dist.LogNormal, dist.StudentT) else 1e-5
+        rtol = (
+            2e-3
+            if jax_dist
+            in (
+                _TruncatedCauchy,
+                _TruncatedNormal,
+                dist.Gamma,
+                dist.LogNormal,
+                dist.StudentT,
+            )
+            else 1e-5
+        )
         if d.shape() == () and not d.is_discrete:
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
@@ -3598,6 +3607,236 @@ def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
     assert log_prob.shape == (sample_size, batch_size)
 
 
+@pytest.mark.parametrize(
+    "base_dist_class, base_params",
+    [
+        (dist.Normal, (0.0, 1.0)),
+        (dist.Normal, (2.0, 0.5)),
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.Laplace, (0.0, 1.0)),
+        (dist.Logistic, (0.0, 1.0)),
+        (dist.StudentT, (2.0, 0.0, 1.0)),
+    ],
+)
+@pytest.mark.parametrize("low", [-2.0, -1.0, 0.0])
+def test_left_truncated_cdf(base_dist_class, base_params, low):
+    """Test CDF for left truncated distributions."""
+    base_dist = base_dist_class(*base_params)
+    truncated_dist = dist.LeftTruncatedDistribution(base_dist, low)
+
+    # Test points
+    test_values = jnp.array([low - 1.0, low, low + 0.5, low + 1.0, low + 2.0])
+
+    # Compute CDF
+    cdf_values = truncated_dist.cdf(test_values)
+
+    # Basic properties
+    assert cdf_values.shape == test_values.shape
+    assert jnp.all(cdf_values >= 0.0)
+    assert jnp.all(cdf_values <= 1.0)
+
+    # Values below truncation point should have CDF = 0
+    assert_allclose(cdf_values[0], 0.0, atol=1e-6)
+
+    # CDF should be monotonically increasing
+    assert jnp.all(jnp.diff(cdf_values[1:]) >= -1e-6)  # Allow small numerical errors
+
+    # Test consistency with icdf (inverse CDF)
+    quantiles = jnp.array([0.1, 0.3, 0.5, 0.7, 0.9])
+    icdf_values = truncated_dist.icdf(quantiles)
+    recovered_quantiles = truncated_dist.cdf(icdf_values)
+    assert_allclose(recovered_quantiles, quantiles, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "base_dist_class, base_params",
+    [
+        (dist.Normal, (0.0, 1.0)),
+        (dist.Normal, (-1.0, 2.0)),
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.Laplace, (0.0, 1.0)),
+        (dist.Logistic, (0.0, 1.0)),
+        (dist.StudentT, (2.0, 0.0, 1.0)),
+    ],
+)
+@pytest.mark.parametrize("high", [0.0, 1.0, 2.0])
+def test_right_truncated_cdf(base_dist_class, base_params, high):
+    """Test CDF for right truncated distributions."""
+    base_dist = base_dist_class(*base_params)
+    truncated_dist = dist.RightTruncatedDistribution(base_dist, high)
+
+    # Test points
+    test_values = jnp.array([high - 2.0, high - 1.0, high - 0.5, high, high + 1.0])
+
+    # Compute CDF
+    cdf_values = truncated_dist.cdf(test_values)
+
+    # Basic properties
+    assert cdf_values.shape == test_values.shape
+    assert jnp.all(cdf_values >= 0.0)
+    assert jnp.all(cdf_values <= 1.0)
+
+    # Values above truncation point should have CDF = 1
+    assert_allclose(cdf_values[-1], 1.0, atol=1e-6)
+
+    # CDF should be monotonically increasing
+    assert jnp.all(jnp.diff(cdf_values[:-1]) >= -1e-6)  # Allow small numerical errors
+
+    # Test consistency with icdf (inverse CDF)
+    quantiles = jnp.array([0.1, 0.3, 0.5, 0.7, 0.9])
+    icdf_values = truncated_dist.icdf(quantiles)
+    recovered_quantiles = truncated_dist.cdf(icdf_values)
+    assert_allclose(recovered_quantiles, quantiles, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "base_dist_class, base_params",
+    [
+        (dist.Normal, (0.0, 1.0)),
+        (dist.Normal, (1.0, 0.8)),
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.Laplace, (0.0, 1.0)),
+        (dist.Logistic, (0.0, 1.0)),
+        (dist.StudentT, (2.0, 0.0, 1.0)),
+    ],
+)
+@pytest.mark.parametrize("low, high", [(-2.0, 2.0), (-1.0, 1.0), (0.0, 3.0)])
+def test_two_sided_truncated_cdf(base_dist_class, base_params, low, high):
+    """Test CDF for two-sided truncated distributions."""
+    base_dist = base_dist_class(*base_params)
+    truncated_dist = dist.TwoSidedTruncatedDistribution(base_dist, low, high)
+
+    # Test points
+    test_values = jnp.array([low - 1.0, low, (low + high) / 2, high, high + 1.0])
+
+    # Compute CDF
+    cdf_values = truncated_dist.cdf(test_values)
+
+    # Basic properties
+    assert cdf_values.shape == test_values.shape
+    assert jnp.all(cdf_values >= 0.0)
+    assert jnp.all(cdf_values <= 1.0)
+
+    # Values below truncation point should have CDF = 0
+    assert_allclose(cdf_values[0], 0.0, atol=1e-6)
+
+    # Values above truncation point should have CDF = 1
+    assert_allclose(cdf_values[-1], 1.0, atol=1e-6)
+
+    # CDF should be monotonically increasing
+    assert jnp.all(jnp.diff(cdf_values[1:-1]) >= -1e-6)  # Allow small numerical errors
+
+    # Test consistency with icdf (inverse CDF)
+    quantiles = jnp.array([0.1, 0.3, 0.5, 0.7, 0.9])
+    icdf_values = truncated_dist.icdf(quantiles)
+    recovered_quantiles = truncated_dist.cdf(icdf_values)
+    assert_allclose(recovered_quantiles, quantiles, atol=1e-5)
+
+
+@pytest.mark.parametrize("loc, scale", [(0.0, 1.0), (2.0, 0.5), (-1.0, 2.0)])
+@pytest.mark.parametrize(
+    "low, high", [(-2.0, 2.0), (-1.0, 1.0), (0.0, 3.0), (None, 2.0), (-2.0, None)]
+)
+def test_truncated_normal_cdf_scipy_consistency(loc, scale, low, high):
+    """Test consistency with scipy truncated normal CDF."""
+    from jax.scipy.stats import truncnorm as jax_truncnorm
+
+    # Create truncated normal distribution
+    if low is None and high is None:
+        pytest.skip("Cannot test when both bounds are None")
+
+    if low is None:
+        truncated_dist = dist.RightTruncatedDistribution(dist.Normal(loc, scale), high)
+        a = -jnp.inf
+        b = (high - loc) / scale
+    elif high is None:
+        truncated_dist = dist.LeftTruncatedDistribution(dist.Normal(loc, scale), low)
+        a = (low - loc) / scale
+        b = jnp.inf
+    else:
+        truncated_dist = dist.TwoSidedTruncatedDistribution(
+            dist.Normal(loc, scale), low, high
+        )
+        a = (low - loc) / scale
+        b = (high - loc) / scale
+
+    # Test values within the truncation range
+    if low is None:
+        test_values = jnp.linspace(high - 3 * scale, high - 0.1 * scale, 10)
+    elif high is None:
+        test_values = jnp.linspace(low + 0.1 * scale, low + 3 * scale, 10)
+    else:
+        test_values = jnp.linspace(
+            low + 0.1 * (high - low), high - 0.1 * (high - low), 10
+        )
+
+    # Compare CDFs
+    numpyro_cdf = truncated_dist.cdf(test_values)
+    jax_cdf = jax_truncnorm.cdf(test_values, a=a, b=b, loc=loc, scale=scale)
+
+    assert_allclose(numpyro_cdf, jax_cdf, rtol=1e-5, atol=1e-6)
+
+
+def test_truncated_cdf_edge_cases():
+    """Test edge cases for truncated distribution CDFs."""
+    base_dist = dist.Normal(0.0, 1.0)
+
+    # Test with extreme truncation points
+    left_truncated = dist.LeftTruncatedDistribution(base_dist, 5.0)  # Far in the tail
+    right_truncated = dist.RightTruncatedDistribution(
+        base_dist, -5.0
+    )  # Far in the tail
+    two_sided = dist.TwoSidedTruncatedDistribution(base_dist, -0.1, 0.1)  # Very narrow
+
+    # Test that CDFs are well-behaved
+    test_values = jnp.array([-10.0, 0.0, 10.0])
+
+    left_cdf = left_truncated.cdf(test_values)
+    assert jnp.all(jnp.isfinite(left_cdf))
+    assert jnp.all(left_cdf >= 0.0) and jnp.all(left_cdf <= 1.0)
+
+    right_cdf = right_truncated.cdf(test_values)
+    assert jnp.all(jnp.isfinite(right_cdf))
+    assert jnp.all(right_cdf >= 0.0) and jnp.all(right_cdf <= 1.0)
+
+    two_sided_cdf = two_sided.cdf(test_values)
+    assert jnp.all(jnp.isfinite(two_sided_cdf))
+    assert jnp.all(two_sided_cdf >= 0.0) and jnp.all(two_sided_cdf <= 1.0)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (3,)])
+def test_truncated_cdf_batch_shapes(batch_shape):
+    """Test that CDF works correctly with batch shapes."""
+    if batch_shape == ():
+        loc = 0.0
+        scale = 1.0
+        low = -1.0
+        high = 1.0
+    else:
+        loc = jnp.zeros(batch_shape)
+        scale = jnp.ones(batch_shape)
+        low = -jnp.ones(batch_shape)
+        high = jnp.ones(batch_shape)
+
+    base_dist = dist.Normal(loc, scale)
+    truncated_dist = dist.TwoSidedTruncatedDistribution(base_dist, low, high)
+
+    # Test with single value
+    value = 0.0
+    cdf_value = truncated_dist.cdf(value)
+    assert cdf_value.shape == batch_shape
+
+    # Test with multiple values - these should broadcast properly
+    if batch_shape == ():
+        values = jnp.array([-2.0, 0.0, 2.0])
+        cdf_values = truncated_dist.cdf(values)
+        expected_shape = values.shape
+        assert cdf_values.shape == expected_shape
+    else:
+        # For batched case, test with single values to avoid broadcasting issues
+        for value in [-2.0, 0.0, 2.0]:
+            cdf_value = truncated_dist.cdf(value)
+            assert cdf_value.shape == batch_shape
 def test_gaussian_random_walk_linear_recursive_equivalence():
     dist1 = dist.GaussianRandomWalk(3.7, 15)
     dist2 = dist.TransformedDistribution(
