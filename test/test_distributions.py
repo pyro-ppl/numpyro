@@ -32,6 +32,10 @@ from numpyro.distributions import (
     transforms,
 )
 from numpyro.distributions.batch_util import vmap_over
+from numpyro.distributions.censored import (
+    LeftCensoredDistribution,
+    RightCensoredDistribution,
+)
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.transforms import (
@@ -148,6 +152,27 @@ def _TruncatedNormal(loc, scale, low, high):
 
 def _TruncatedCauchy(loc, scale, low, high):
     return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
+
+
+def _LeftCensoredHalfNormal(scale, censored):
+    base_dist = dist.HalfNormal(scale)
+    return LeftCensoredDistribution(base_dist, censored)
+
+
+def _RightCensoredWeibull(scale, concentration, censored):
+    base_dist = dist.Weibull(scale, concentration)
+    return RightCensoredDistribution(base_dist, censored)
+
+
+def _LeftCensoredNormal(loc, scale, censored):
+    base_dist = dist.Normal(loc, scale)
+    return LeftCensoredDistribution(base_dist, censored)
+
+
+def _RightCensoredNormal(loc, scale, censored):
+    base_dist = dist.Normal(loc, scale)
+    return RightCensoredDistribution(base_dist, censored)
+
 
 
 _TruncatedNormal.arg_constraints = {}
@@ -492,6 +517,14 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
+    T(_RightCensoredWeibull, 1.0, 1.0, 0.0),
+    T(_RightCensoredWeibull, 1.0, 1.0, 1.0),
+    T(_LeftCensoredHalfNormal, 1.0, 0.0),
+    T(_LeftCensoredHalfNormal, 1.0, 1.0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 0.0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 1.0),
+    T(_RightCensoredNormal, 0.0, 1.0, 0.0),
+    T(_RightCensoredNormal, 0.0, 1.0, 1.0),
     T(dist.CirculantNormal, np.zeros((3, 4)), np.array([0.9, 0.2, 0.1, 0.2]), None),
     T(
         dist.CirculantNormal,
@@ -1944,6 +1977,15 @@ def test_mean_var(jax_dist, sp_dist, params):
         dist.TwoSidedTruncatedDistribution,
     ):
         pytest.skip("Truncated distributions do not has mean/var implemented")
+    if jax_dist in (
+        _LeftCensoredHalfNormal,
+        _RightCensoredWeibull,
+        _LeftCensoredNormal,
+        _RightCensoredNormal,
+        dist.LeftCensoredDistribution,
+        dist.RightCensoredDistribution,
+    ):
+        pytest.skip("Censored distributions do not have mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
     if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
@@ -2106,6 +2148,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     if jax_dist in (
         _TruncatedNormal,
         _TruncatedCauchy,
+        _LeftCensoredHalfNormal,
+        _RightCensoredWeibull,
+        _LeftCensoredNormal,
+        _RightCensoredNormal,
         _GaussianMixture,
         _Gaussian2DMixture,
         _GeneralMixture,
@@ -3247,6 +3293,14 @@ def _get_vmappable_dist_init_params(jax_dist):
         return [2, 3]
     elif jax_dist.__name__ == ("_TruncatedNormal"):
         return [2, 3]
+    elif jax_dist.__name__ == ("_LeftCensoredHalfNormal"):
+        return [1]
+    elif jax_dist.__name__ == ("_RightCensoredWeibull"):
+        return [2]
+    elif jax_dist.__name__ == ("_LeftCensoredNormal"):
+        return [2]
+    elif jax_dist.__name__ == ("_RightCensoredNormal"):
+        return [2]
     elif issubclass(jax_dist, dist.Distribution):
         init_parameters = list(inspect.signature(jax_dist.__init__).parameters.keys())[
             1:
