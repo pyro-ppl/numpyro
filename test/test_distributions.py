@@ -174,7 +174,6 @@ def _RightCensoredNormal(loc, scale, censored):
     return RightCensoredDistribution(base_dist, censored)
 
 
-
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
