@@ -3898,3 +3898,126 @@ def test_truncated_cdf_batch_shapes(batch_shape):
         for value in [-2.0, 0.0, 2.0]:
             cdf_value = truncated_dist.cdf(value)
             assert cdf_value.shape == batch_shape
+
+
+param_cens_dist = pytest.mark.parametrize(
+    "base_dist_class, base_params",
+    [
+        (dist.Normal, (0.0, 1.0)),
+        (dist.Normal, (2.0, 0.5)),
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.Laplace, (0.0, 1.0)),
+        (dist.Logistic, (0.0, 1.0)),
+        (dist.StudentT, (2.0, 0.0, 1.0)),
+        (dist.HalfNormal, (1.0,)),
+        (dist.Poisson, (1.0,)),
+        (dist.GammaPoisson, (1, 1)),
+    ],
+)
+param_censored = pytest.mark.parametrize("censored", [0.0, 1.0])
+
+
+@param_cens_dist
+@param_censored
+def test_left_censored_logprob(base_dist_class, base_params, censored):
+    """Test log_prob for left censored distributions."""
+    base_dist = base_dist_class(*base_params)
+    censored_dist = dist.LeftCensoredDistribution(base_dist, censored)
+
+    # Test points
+    test_values = base_dist.support.feasible_like(jnp.zeros((1,)))
+
+    # Compute log_prob
+    logp_values = censored_dist.log_prob(test_values)
+
+    # Basic properties
+    assert logp_values.shape == test_values.shape
+    assert jnp.all(jnp.isfinite(logp_values))
+
+    # for noncensored values, log_prob should match base distribution
+    base_logp_values = base_dist.log_prob(test_values)
+    # for censored values, log_prob should be log CDF of base distribution
+    minval = 1e-10
+    cdf_values = jnp.log(jnp.clip(base_dist.cdf(jnp.array(test_values)), minval, 1.0))
+    base_diff = jnp.where(
+        censored, logp_values - cdf_values, logp_values - base_logp_values
+    )
+    assert jnp.abs(base_diff).max() < 1e-6
+
+
+@param_cens_dist
+@param_censored
+def test_right_censored_logprob(base_dist_class, base_params, censored):
+    """Test log_prob for right censored distributions."""
+    base_dist = base_dist_class(*base_params)
+    censored_dist = dist.RightCensoredDistribution(base_dist, censored)
+
+    # Test points
+    test_values = base_dist.support.feasible_like(jnp.zeros((1,)))
+
+    # Compute log_prob
+    logp_values = censored_dist.log_prob(test_values)
+
+    # Basic properties
+    assert logp_values.shape == test_values.shape
+    assert jnp.all(jnp.isfinite(logp_values))
+
+    # for noncensored values, log_prob should match base distribution
+    base_logp_values = base_dist.log_prob(test_values)
+    # for censored values, log_prob should be log 1 - CDF of base distribution
+    logS_values = jnp.log1p(-base_dist.cdf(test_values))
+    base_diff = jnp.where(
+        censored, logp_values - logS_values, logp_values - base_logp_values
+    )
+    assert jnp.abs(base_diff).max() < 1e-6
+
+
+def test_censored_logprob_edge_cases():
+    """Test edge cases for censored distributions."""
+    base_dist = dist.Normal(0.0, 1.0)
+
+    # Test with extreme censored points
+    left_censored = dist.LeftCensoredDistribution(base_dist, 1)
+    right_censored = dist.RightCensoredDistribution(base_dist, 1)
+
+    # Test that logprobs are well-behaved on extreme values
+    test_values = jnp.array([-10.0, 0.0, 10.0])
+
+    left_logprob = left_censored.log_prob(test_values)
+    assert jnp.all(jnp.isfinite(left_logprob))
+
+    right_logprob = right_censored.log_prob(test_values)
+    assert jnp.all(jnp.isfinite(right_logprob))
+
+
+@pytest.mark.parametrize("batch_shape", [(), (3,)])
+def test_censored_logprob_batch_shapes(batch_shape):
+    """Test that log_prob works correctly with batch shapes."""
+    if batch_shape == ():
+        loc = 0.0
+        scale = 1.0
+        censored = 1.0
+    else:
+        loc = jnp.zeros(batch_shape)
+        scale = jnp.ones(batch_shape)
+        censored = jnp.ones(batch_shape)
+
+    base_dist = dist.Normal(loc, scale)
+    censored_dist = dist.RightCensoredDistribution(base_dist, censored)
+
+    # Test with single value
+    value = 0.0
+    logp_value = censored_dist.log_prob(value)
+    assert logp_value.shape == batch_shape
+
+    # Test with multiple values - these should broadcast properly
+    if batch_shape == ():
+        values = jnp.array([-2.0, 0.0, 2.0])
+        logp_values = censored_dist.log_prob(values)
+        expected_shape = values.shape
+        assert logp_values.shape == expected_shape
+    else:
+        # For batched case, test with single values to avoid broadcasting issues
+        for value in [-2.0, 0.0, 2.0]:
+            logp_value = censored_dist.log_prob(value)
+            assert logp_value.shape == batch_shape

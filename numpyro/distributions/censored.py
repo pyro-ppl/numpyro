@@ -105,8 +105,7 @@ class LeftCensoredDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        minval = 1e-10
-        # minval = jnp.finfo(value).tiny
+        minval = 1e-12
 
         def logF(x):
             # log(F(x)) with stability
@@ -206,9 +205,11 @@ class RightCensoredDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        minval = 1e-7
+
         def logS(x):
             # log(1 - F(x)) with stability
-            return jnp.log1p(-self.base_dist.cdf(x))
+            return jnp.log1p(-jnp.clip(self.base_dist.cdf(x), 0.0, 1 - minval))
 
         return jnp.where(
             self.censored,
