@@ -882,7 +882,10 @@ def _predictive(
     rng_key = rng_key.reshape(batch_shape + key_shape)
     chunk_size = num_samples if parallel else 1
     return soft_vmap(
-        single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size
+        single_prediction,
+        (jax.random.key_data(rng_key), posterior_samples),
+        len(batch_shape),
+        chunk_size,
     )
 
 
