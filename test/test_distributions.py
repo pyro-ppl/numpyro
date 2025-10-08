@@ -174,6 +174,16 @@ def _RightCensoredNormal(loc, scale, censored):
     return RightCensoredDistribution(base_dist, censored)
 
 
+def _LeftCensoredPoisson(rate, censored):
+    base_dist = dist.Poisson(rate)
+    return LeftCensoredDistribution(base_dist, censored)
+
+
+def _RightCensoredPoisson(rate, censored):
+    base_dist = dist.Poisson(rate)
+    return RightCensoredDistribution(base_dist, censored)
+
+
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
@@ -516,14 +526,10 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
-    T(_RightCensoredWeibull, 1.0, 1.0, 0.0),
-    T(_RightCensoredWeibull, 1.0, 1.0, 1.0),
-    T(_LeftCensoredHalfNormal, 1.0, 0.0),
-    T(_LeftCensoredHalfNormal, 1.0, 1.0),
-    T(_LeftCensoredNormal, 0.0, 1.0, 0.0),
-    T(_LeftCensoredNormal, 0.0, 1.0, 1.0),
-    T(_RightCensoredNormal, 0.0, 1.0, 0.0),
-    T(_RightCensoredNormal, 0.0, 1.0, 1.0),
+    T(_RightCensoredWeibull, 1.0, 1.0, np.array([0, 1])),
+    T(_LeftCensoredHalfNormal, 1.0, np.array([0, 1])),
+    T(_LeftCensoredNormal, 0.0, 1.0, np.array([0, 1])),
+    T(_RightCensoredNormal, 0.0, 1.0, np.array([0, 1])),
     T(dist.CirculantNormal, np.zeros((3, 4)), np.array([0.9, 0.2, 0.1, 0.2]), None),
     T(
         dist.CirculantNormal,
@@ -1082,6 +1088,8 @@ DISCRETE = [
     T(dist.GeometricProbs, 0.2),
     T(dist.GeometricProbs, np.array([0.2, 0.7])),
     T(dist.GeometricLogits, np.array([-1.0, 3.0])),
+    T(_LeftCensoredPoisson, 1.0, np.array([0, 1])),
+    T(_RightCensoredPoisson, 1.0, np.array([0, 1])),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1.0, 3.0]), np.array([[5], [8]])),
