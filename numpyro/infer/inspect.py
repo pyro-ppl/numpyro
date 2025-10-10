@@ -320,6 +320,9 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
                 site["fn_name"] = _get_dist_name(site.pop("fn"))
             elif site["type"] == "deterministic":
                 site["fn_name"] = "Deterministic"
+            elif site["type"] == "param":
+                # Remove lambda functions from param args to avoid jax.eval_shape issues
+                site.pop("args", None)
         return PytreeTrace(trace)
 
     # We use eval_shape to avoid any array computation.
