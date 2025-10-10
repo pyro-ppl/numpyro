@@ -526,10 +526,14 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
-    T(_RightCensoredWeibull, 1.0, 1.0, np.array([0, 1])),
-    T(_LeftCensoredHalfNormal, 1.0, np.array([0, 1])),
-    T(_LeftCensoredNormal, 0.0, 1.0, np.array([0, 1])),
-    T(_RightCensoredNormal, 0.0, 1.0, np.array([0, 1])),
+    T(_RightCensoredWeibull, 1.0, 1.0, 0),
+    T(_RightCensoredWeibull, 1.0, 1.0, 1),
+    T(_LeftCensoredHalfNormal, 1.0, 0),
+    T(_LeftCensoredHalfNormal, 1.0, 1),
+    T(_LeftCensoredNormal, 0.0, 1.0, 0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 1),
+    T(_RightCensoredNormal, 0.0, 1.0, 0),
+    T(_RightCensoredNormal, 0.0, 1.0, 1),
     T(dist.CirculantNormal, np.zeros((3, 4)), np.array([0.9, 0.2, 0.1, 0.2]), None),
     T(
         dist.CirculantNormal,
@@ -1088,8 +1092,10 @@ DISCRETE = [
     T(dist.GeometricProbs, 0.2),
     T(dist.GeometricProbs, np.array([0.2, 0.7])),
     T(dist.GeometricLogits, np.array([-1.0, 3.0])),
-    T(_LeftCensoredPoisson, 1.0, np.array([0, 1])),
-    T(_RightCensoredPoisson, 1.0, np.array([0, 1])),
+    T(_LeftCensoredPoisson, 1.0, 0),
+    T(_LeftCensoredPoisson, 1.0, 1),
+    T(_RightCensoredPoisson, 1.0, 0),
+    T(_RightCensoredPoisson, 1.0, 1),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1.0, 3.0]), np.array([[5], [8]])),
@@ -2000,6 +2006,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         _RightCensoredWeibull,
         _LeftCensoredNormal,
         _RightCensoredNormal,
+        _LeftCensoredPoisson,
+        _RightCensoredPoisson,
         dist.LeftCensoredDistribution,
         dist.RightCensoredDistribution,
     ):
@@ -2170,6 +2178,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         _RightCensoredWeibull,
         _LeftCensoredNormal,
         _RightCensoredNormal,
+        _LeftCensoredPoisson,
+        _RightCensoredPoisson,
         _GaussianMixture,
         _Gaussian2DMixture,
         _GeneralMixture,
@@ -3319,6 +3329,10 @@ def _get_vmappable_dist_init_params(jax_dist):
         return [2]
     elif jax_dist.__name__ == ("_RightCensoredNormal"):
         return [2]
+    elif jax_dist.__name__ == ("_LeftCensoredPoisson"):
+        return [1]
+    elif jax_dist.__name__ == ("_RightCensoredPoisson"):
+        return [1]
     elif issubclass(jax_dist, dist.Distribution):
         init_parameters = list(inspect.signature(jax_dist.__init__).parameters.keys())[
             1:

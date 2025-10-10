@@ -72,7 +72,6 @@ class LeftCensoredDistribution(Distribution):
     """
 
     arg_constraints = {"censored": constraints.boolean}
-    reparametrized_params = ["censored"]
     pytree_data_fields = ("base_dist", "censored", "_support")
 
     def __init__(
@@ -172,7 +171,6 @@ class RightCensoredDistribution(Distribution):
     """
 
     arg_constraints = {"censored": constraints.boolean}
-    reparametrized_params = ["censored"]
     pytree_data_fields = ("base_dist", "censored", "_support")
 
     def __init__(
