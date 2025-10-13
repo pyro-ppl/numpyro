@@ -25,7 +25,8 @@ and has more features supported.
 
 **References:**
 
-    1. *Stochastic Volatility Model*, https://docs.pymc.io/notebooks/stochastic_volatility.html
+    1. *Stochastic Volatility Model*,
+       https://www.pymc.io/projects/examples/en/latest/time_series/stochastic_volatility.html
     2. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*,
        https://arxiv.org/pdf/1111.4246.pdf
     3. Pyro forum discussion, https://forum.pyro.ai/t/problems-transforming-a-pymc3-model-to-pyro-mcmc/208/14
