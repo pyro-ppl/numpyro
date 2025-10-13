@@ -40,7 +40,7 @@ it is better to disable progress bar to avoid dispatching overhead.
 **References:**
 
     1. Carpenter B. (2016), `"Hierarchical Partial Pooling for Repeated Binary Trials"
-       <http://mc-stan.org/users/documentation/case-studies/pool-binary-trials.html/>`_.
+       <https://mc-stan.org/learn-stan/case-studies/pool-binary-trials.html>`_.
     2. Efron B., Morris C. (1975), "Data analysis using Stein's estimator and its
        generalizations", J. Amer. Statist. Assoc., 70, 311-319.
     3. Neal, R. (2012), "MCMC using Hamiltonian Dynamics",
