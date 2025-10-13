@@ -3959,7 +3959,8 @@ def test_left_censored_logprob(base_dist_class, base_params, censored):
     # for noncensored values, log_prob should match base distribution
     base_logp_values = base_dist.log_prob(test_values)
     # for censored values, log_prob should be log CDF of base distribution
-    minval = 1e-10
+    dtype = jnp.result_type(test_values, float)
+    minval = jnp.sqrt(jnp.finfo(dtype).eps)
     cdf_values = jnp.log(jnp.clip(base_dist.cdf(jnp.array(test_values)), minval, 1.0))
     base_diff = jnp.where(
         censored, logp_values - cdf_values, logp_values - base_logp_values
@@ -4043,3 +4044,83 @@ def test_censored_logprob_batch_shapes(batch_shape):
         for value in [-2.0, 0.0, 2.0]:
             logp_value = censored_dist.log_prob(value)
             assert logp_value.shape == batch_shape
+
+
+def test_censored_broadcasting():
+    # loc: (3,), censored: (2, 1) -> batch_shape: (2, 3)
+    base_dist = dist.Normal(jnp.array([0.0, 1.0, 2.0]), 1.0)
+    censored = jnp.array([[0], [1]])
+    dist_obj = dist.LeftCensoredDistribution(base_dist, censored)
+    assert dist_obj.batch_shape == (2, 3)
+
+    # loc: (2, 1), censored: (3,) -> batch_shape: (2, 3)
+    base_dist = dist.Normal(jnp.array([[0], [1]]), 1.0)
+    censored = jnp.array([0.0, 1.0, 2.0])
+    dist_obj = dist.LeftCensoredDistribution(base_dist, censored)
+    assert dist_obj.batch_shape == (2, 3)
+
+
+def test_censored_gradient():
+    def loss_loc_left(loc):
+        base_dist = dist.Normal(loc, 1.0)
+        censored_dist = dist.LeftCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_loc_left)
+    grad = grad_fn(0.0)
+    assert jnp.isfinite(grad)
+
+    def loss_scale_left(scale):
+        base_dist = dist.Normal(0.0, scale)
+        censored_dist = dist.LeftCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_scale_left)
+    grad = grad_fn(1.0)
+    assert jnp.isfinite(grad)
+
+    def loss_loc_right(loc):
+        base_dist = dist.Normal(loc, 1.0)
+        censored_dist = dist.RightCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_loc_right)
+    grad = grad_fn(0.0)
+    assert jnp.isfinite(grad)
+
+    def loss_scale_right(scale):
+        base_dist = dist.Normal(0.0, scale)
+        censored_dist = dist.RightCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_scale_right)
+    grad = grad_fn(1.0)
+    assert jnp.isfinite(grad)
+
+
+def test_censored_sample_validity():
+    rng_key = random.PRNGKey(0)
+    sample_shape = (1000,)
+
+    base_dist = dist.Normal(0.0, 1.0)
+    base_samples = base_dist.sample(rng_key, sample_shape)
+
+    # Samples should match base distribution when censored = 0 or 1
+    uncensored_dist = dist.RightCensoredDistribution(base_dist, censored=0)
+    uncensored_samples = uncensored_dist.sample(rng_key, sample_shape)
+
+    assert all(jnp.abs(base_samples - uncensored_samples) < 1e-6)
+
+    censored_dist = dist.RightCensoredDistribution(base_dist, censored=1)
+    censored_samples = censored_dist.sample(rng_key, sample_shape)
+    # Samples should match base distribution when censored=0
+
+    assert all(jnp.abs(base_samples - censored_samples) < 1e-6)

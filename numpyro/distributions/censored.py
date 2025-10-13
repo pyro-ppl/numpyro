@@ -82,7 +82,22 @@ class LeftCensoredDistribution(Distribution):
         validate_args: Optional[bool] = None,
     ):
         # test if base_dist has an implemented cdf method
-        assert hasattr(base_dist, "cdf")
+        if not hasattr(base_dist, "cdf"):
+            raise TypeError(
+                f"{type(base_dist).__name__} does not have a 'cdf' method. "
+                "Censored distributions require a base distribution with an "
+                "implemented cumulative distribution function."
+            )
+
+        # Optionally test that cdf actually works (in validate_args mode)
+        if validate_args:
+            try:
+                test_val = base_dist.support.feasible_like(jnp.array(0.0))
+                _ = base_dist.cdf(test_val)
+            except (NotImplementedError, AttributeError) as e:
+                raise TypeError(
+                    f"{type(base_dist).__name__}.cdf() is not properly implemented."
+                ) from e
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -94,7 +109,7 @@ class LeftCensoredDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
@@ -104,15 +119,16 @@ class LeftCensoredDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        minval = 1e-12
+        dtype = jnp.result_type(value, float)
+        minval = 100.0 * jnp.finfo(dtype).tiny
 
-        def logF(x):
+        def log_cdf_censored(x):
             # log(F(x)) with stability
             return jnp.log(jnp.clip(self.base_dist.cdf(x), minval, 1.0))
 
         return jnp.where(
             self.censored,
-            logF(value),  # left-censored observations: log F(t)
+            log_cdf_censored(value),  # left-censored observations: log F(t)
             self.base_dist.log_prob(value),  # observed values: log f(t)
         )
 
@@ -181,7 +197,22 @@ class RightCensoredDistribution(Distribution):
         validate_args: Optional[bool] = None,
     ):
         # test if base_dist has an implemented cdf method
-        assert hasattr(base_dist, "cdf")
+        if not hasattr(base_dist, "cdf"):
+            raise TypeError(
+                f"{type(base_dist).__name__} does not have a 'cdf' method. "
+                "Censored distributions require a base distribution with an "
+                "implemented cumulative distribution function."
+            )
+
+        # Optionally test that cdf actually works (in validate_args mode)
+        if validate_args:
+            try:
+                test_val = base_dist.support.feasible_like(jnp.array(0.0))
+                _ = base_dist.cdf(test_val)
+            except (NotImplementedError, AttributeError) as e:
+                raise TypeError(
+                    f"{type(base_dist).__name__}.cdf() is not properly implemented."
+                ) from e
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -193,7 +224,7 @@ class RightCensoredDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
@@ -203,14 +234,16 @@ class RightCensoredDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        minval = 1e-7
+        dtype = jnp.result_type(value, float)
+        eps = jnp.finfo(dtype).eps
 
-        def logS(x):
+        def log_survival_censored(x):
             # log(1 - F(x)) with stability
-            return jnp.log1p(-jnp.clip(self.base_dist.cdf(x), 0.0, 1 - minval))
+            Fx = jnp.clip(self.base_dist.cdf(x), 0.0, 1 - eps)
+            return jnp.log1p(-Fx)
 
         return jnp.where(
             self.censored,
-            logS(value),  # censored observations: log S(t)
+            log_survival_censored(value),  # censored observations: log S(t)
             self.base_dist.log_prob(value),  # observed values: log f(t)
         )
