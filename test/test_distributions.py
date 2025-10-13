@@ -3960,7 +3960,7 @@ def test_left_censored_logprob(base_dist_class, base_params, censored):
     base_logp_values = base_dist.log_prob(test_values)
     # for censored values, log_prob should be log CDF of base distribution
     dtype = jnp.result_type(test_values, float)
-    minval = jnp.sqrt(jnp.finfo(dtype).eps)
+    minval = 100.0 * jnp.finfo(dtype).tiny
     cdf_values = jnp.log(jnp.clip(base_dist.cdf(jnp.array(test_values)), minval, 1.0))
     base_diff = jnp.where(
         censored, logp_values - cdf_values, logp_values - base_logp_values
