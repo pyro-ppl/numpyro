@@ -70,9 +70,6 @@ class LeftCensoredDistribution(Distribution):
             >>> base = dist.LogNormal(0., 1.)
             >>> surv_dist = dist.LeftCensoredDistribution(base, censored=jnp.array([0, 1, 1]))
             >>> loglik = surv_dist.log_prob(jnp.array([2., 4., 6.]))
-            # loglik[0] uses density at 2
-            # loglik[1] uses CDF at 4
-            # loglik[2] uses CDF at 6
     """
 
     arg_constraints = {"censored": constraints.boolean}
@@ -189,9 +186,6 @@ class RightCensoredDistribution(Distribution):
             >>> base = dist.Exponential(rate=0.1)
             >>> surv_dist = dist.RightCensoredDistribution(base, censored=jnp.array([0, 1, 0]))
             >>> loglik = surv_dist.log_prob(jnp.array([5., 8., 10.]))
-            # loglik[0] uses density at 5
-            # loglik[1] uses survival at 8
-            # loglik[2] uses density at 10
     """
 
     arg_constraints = {"censored": constraints.boolean}
