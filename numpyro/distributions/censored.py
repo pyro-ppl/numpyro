@@ -19,56 +19,58 @@ from numpyro.distributions.util import (
 
 
 class LeftCensoredDistribution(Distribution):
-    r"""
+    """
     Distribution wrapper for left-censored outcomes.
 
     This distribution augments a base distribution with left-censoring,
     so that the likelihood contribution depends on the censoring indicator.
 
-    Parameters
-    ----------
-    base_dist : numpyro.distributions.Distribution
-        Parametric distribution for the *uncensored* values
-        (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
-        This distribution must implement a `cdf` method.
-    censored : array-like of {0,1}
-        Censoring indicator per observation:
-        - 0 → value is observed exactly
-        - 1 → observation is left-censored at the reported value
-        (true value occurred *on or before* the reported value)
+    :param base_dist: Parametric distribution for the *uncensored* values
+            (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
+            This distribution must implement a ``cdf`` method.
+    :type base_dist: numpyro.distributions.Distribution
+    :param censored: Censoring indicator per observation:
+            0 → value is observed exactly
+            1 → observation is left-censored at the reported value
+            (true value occurred *on or before* the reported value)
+    :type censored: array-like of {0,1}
 
-    Notes
-    -----
-    - The `log_prob(value)` method expects `value` to be the observed upper bound
-      for each observation. The contribution to the log-likelihood is:
+    .. note::
+            The ``log_prob(value)`` method expects ``value`` to be the observed upper bound
+            for each observation. The contribution to the log-likelihood is:
 
-        log f(value)    if censored == 0
-        log F(value)    if censored == 1
+                    log f(value)    if censored == 0
+                    log F(value)    if censored == 1
 
-    where f is the density and F the cumulative distribution function of `base_dist`.
+            where f is the density and F the cumulative distribution function of ``base_dist``.
 
-    - This is commonly used in survival analysis, where event times are positive,
-      but the approach is more general and can be applied to any distribution
-      with a cumulative distribution function, regardless of support.
+            This is commonly used in survival analysis, where event times are positive,
+            but the approach is more general and can be applied to any distribution
+            with a cumulative distribution function, regardless of support.
 
-    - In R's **survival** package notation, this corresponds to
-    `Surv(time, event, type = "left")`.
+            In R's ``survival`` package notation, this corresponds to
+            ``Surv(time, event, type = 'left')``.
 
-        Example:
-        `Surv(time = c(2, 4, 6), event = c(0, 1, 0), type="left")`
-        means:
-        * subject 1 had an event exactly at t=2
-        * subject 2 had an event before or at t=4 (left-censored)
-        * subject 3 had an event exactly at t=6
+            Example:
 
-    Examples
-    --------
-    >>> base = dist.LogNormal(0., 1.)
-    >>> surv_dist = LeftCensoredDistribution(base, censored=jnp.array([0, 1, 1]))
-    >>> loglik = surv_dist.log_prob(jnp.array([2., 4., 6.]))
-    # loglik[0] uses density at 2
-    # loglik[1] uses CDF at 4
-    # loglik[2] uses CDF at 6
+                    Surv(time = c(2, 4, 6), event = c(0, 1, 0), type='left')
+
+            means:
+
+                    subject 1 had an event exactly at t=2
+                    subject 2 had an event before or at t=4 (left-censored)
+                    subject 3 had an event exactly at t=6
+
+    **Example:**
+
+    .. doctest::
+
+            >>> base = dist.LogNormal(0., 1.)
+            >>> surv_dist = LeftCensoredDistribution(base, censored=jnp.array([0, 1, 1]))
+            >>> loglik = surv_dist.log_prob(jnp.array([2., 4., 6.]))
+            # loglik[0] uses density at 2
+            # loglik[1] uses CDF at 4
+            # loglik[2] uses CDF at 6
     """
 
     arg_constraints = {"censored": constraints.boolean}
@@ -99,7 +101,7 @@ class LeftCensoredDistribution(Distribution):
                     f"{type(base_dist).__name__}.cdf() is not properly implemented."
                 ) from e
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
-        self.base_dist: DistributionT = jax.tree.map(
+        self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         self.censored = jnp.array(
@@ -134,56 +136,58 @@ class LeftCensoredDistribution(Distribution):
 
 
 class RightCensoredDistribution(Distribution):
-    r"""
+    """
     Distribution wrapper for right-censored outcomes.
 
     This distribution augments a base distribution with right-censoring,
     so that the likelihood contribution depends on the censoring indicator.
 
-    Parameters
-    ----------
-    base_dist : numpyro.distributions.Distribution
-        Parametric distribution for the *uncensored* values
-        (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
-        This distribution must implement a `cdf` method.
-    censored : array-like of {0,1}
-        Censoring indicator per observation:
-        - 0 → value is observed exactly
-        - 1 → observation is right-censored at the reported value
-        (true value occurred *on or after* the reported value)
+    :param base_dist: Parametric distribution for the *uncensored* values
+            (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
+            This distribution must implement a ``cdf`` method.
+    :type base_dist: numpyro.distributions.Distribution
+    :param censored: Censoring indicator per observation:
+            0 → value is observed exactly
+            1 → observation is right-censored at the reported value
+            (true value occurred *on or after* the reported value)
+    :type censored: array-like of {0,1}
 
-    Notes
-    -----
-    - The `log_prob(value)` method expects `value` to be the observed lower bound
-      for each observation. The contribution to the log-likelihood is:
+    .. note::
+            The ``log_prob(value)`` method expects ``value`` to be the observed lower bound
+            for each observation. The contribution to the log-likelihood is:
 
-        log f(value)    if censored == 0
-        log (1 - F(value))    if censored == 1
+                    log f(value)    if censored == 0
+                    log (1 - F(value))    if censored == 1
 
-    where f is the density and F the cumulative distribution function of `base_dist`.
+            where f is the density and F the cumulative distribution function of ``base_dist``.
 
-    - This is commonly used in survival analysis, where event times are positive,
-      but the approach is more general and can be applied to any distribution
-      with a cumulative distribution function, regardless of support.
+            This is commonly used in survival analysis, where event times are positive,
+            but the approach is more general and can be applied to any distribution
+            with a cumulative distribution function, regardless of support.
 
-    - In R's **survival** package notation, this corresponds to
-      `Surv(time, event)` with `type = "right"`.
+            In R's ``survival`` package notation, this corresponds to
+            ``Surv(time, event, type = 'right')``.
 
-        Example:
-        `Surv(time = c(5, 8, 10), event = c(1, 0, 1))`
-        means:
-          * subject 1 had an event at t=5
-          * subject 2 was censored at t=8
-          * subject 3 had an event at t=10
+            Example:
 
-    Examples
-    --------
-    >>> base = dist.Exponential(rate=0.1)
-    >>> surv_dist = RightCensoredDistribution(base, censored=jnp.array([0, 1, 0]))
-    >>> loglik = surv_dist.log_prob(jnp.array([5., 8., 10.]))
-    # loglik[0] uses density at 5
-    # loglik[1] uses survival at 8
-    # loglik[2] uses density at 10
+                    Surv(time = c(5, 8, 10), event = c(1, 0, 1))
+
+            means:
+
+                    subject 1 had an event at t=5
+                    subject 2 was censored at t=8
+                    subject 3 had an event at t=10
+
+    **Example:**
+
+    .. doctest::
+
+            >>> base = dist.Exponential(rate=0.1)
+            >>> surv_dist = RightCensoredDistribution(base, censored=jnp.array([0, 1, 0]))
+            >>> loglik = surv_dist.log_prob(jnp.array([5., 8., 10.]))
+            # loglik[0] uses density at 5
+            # loglik[1] uses survival at 8
+            # loglik[2] uses density at 10
     """
 
     arg_constraints = {"censored": constraints.boolean}
@@ -214,7 +218,7 @@ class RightCensoredDistribution(Distribution):
                     f"{type(base_dist).__name__}.cdf() is not properly implemented."
                 ) from e
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
-        self.base_dist: DistributionT = jax.tree.map(
+        self.base_dist = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         self.censored = jnp.array(
