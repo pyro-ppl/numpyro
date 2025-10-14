@@ -65,8 +65,9 @@ class LeftCensoredDistribution(Distribution):
 
     .. doctest::
 
+            >>> from numpyro import distributions as dist
             >>> base = dist.LogNormal(0., 1.)
-            >>> surv_dist = LeftCensoredDistribution(base, censored=jnp.array([0, 1, 1]))
+            >>> surv_dist = dist.LeftCensoredDistribution(base, censored=jnp.array([0, 1, 1]))
             >>> loglik = surv_dist.log_prob(jnp.array([2., 4., 6.]))
             # loglik[0] uses density at 2
             # loglik[1] uses CDF at 4
@@ -182,8 +183,9 @@ class RightCensoredDistribution(Distribution):
 
     .. doctest::
 
+            >>> from numpyro import distributions as dist
             >>> base = dist.Exponential(rate=0.1)
-            >>> surv_dist = RightCensoredDistribution(base, censored=jnp.array([0, 1, 0]))
+            >>> surv_dist = dist.RightCensoredDistribution(base, censored=jnp.array([0, 1, 0]))
             >>> loglik = surv_dist.log_prob(jnp.array([5., 8., 10.]))
             # loglik[0] uses density at 5
             # loglik[1] uses survival at 8
