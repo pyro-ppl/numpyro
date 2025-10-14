@@ -65,6 +65,7 @@ class LeftCensoredDistribution(Distribution):
 
     .. doctest::
 
+            >>> from jax import numpy as jnp
             >>> from numpyro import distributions as dist
             >>> base = dist.LogNormal(0., 1.)
             >>> surv_dist = dist.LeftCensoredDistribution(base, censored=jnp.array([0, 1, 1]))
@@ -183,6 +184,7 @@ class RightCensoredDistribution(Distribution):
 
     .. doctest::
 
+            >>> from jax import numpy as jnp
             >>> from numpyro import distributions as dist
             >>> base = dist.Exponential(rate=0.1)
             >>> surv_dist = dist.RightCensoredDistribution(base, censored=jnp.array([0, 1, 0]))
