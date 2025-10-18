@@ -3,7 +3,7 @@
 
 
 import math
-from typing import Any, Optional, Sequence, Tuple, Union, cast
+from typing import Generic, Optional, Sequence, Tuple, TypeVar, Union, cast
 import warnings
 import weakref
 
@@ -65,10 +65,23 @@ def _clipped_expit(x: NumLike) -> NumLike:
     return jnp.clip(expit(x), finfo.tiny, 1.0 - finfo.eps)
 
 
-class Transform(object):
-    domain = constraints.real
-    codomain = constraints.real
+NumLikeT = TypeVar("NumLikeT", bound=NumLike)
+
+
+class Transform(Generic[NumLikeT]):
     _inv: Optional[Union[TransformT, weakref.ReferenceType]] = None
+
+    @property
+    def domain(self) -> ConstraintT:
+        if hasattr(self, "_domain"):
+            return self._domain
+        return constraints.real
+
+    @property
+    def codomain(self) -> ConstraintT:
+        if hasattr(self, "_codomain"):
+            return self._codomain
+        return constraints.real
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -76,31 +89,28 @@ class Transform(object):
 
     @property
     def inv(self: TransformT) -> TransformT:
-        inv = None
-        if (self._inv is not None) and isinstance(self._inv, weakref.ReferenceType):
+        if (self._inv is not None) and isinstance(self._inv, weakref.ref):
             inv = self._inv()
-        if inv is None:
-            inv = cast(TransformT, _InverseTransform(self))
-            self._inv = cast(TransformT, weakref.ref(inv))
-        return inv
+        else:
+            inv = _InverseTransform(self)
+            self._inv = weakref.ref(inv)
+        return cast(TransformT, inv)
 
-    def __call__(self, x: Union[NonScalarArray, Any]) -> Union[NonScalarArray, Any]:
-        raise NotImplementedError
+    def __call__(self, x: NumLikeT) -> NumLike:
+        raise NotImplementedError()
 
-    def _inverse(self, y: Union[NonScalarArray, Any]) -> Union[NonScalarArray, Any]:
-        raise NotImplementedError
+    def _inverse(self, y: NumLikeT) -> NumLike:
+        raise NotImplementedError()
 
     def log_abs_det_jacobian(
         self,
-        x: Union[NonScalarArray, Any],
-        y: Union[NonScalarArray, Any],
+        x: NumLikeT,
+        y: NumLikeT,
         intermediates: Optional[PyTree] = None,
-    ) -> Union[NonScalarArray, Any]:
-        raise NotImplementedError
+    ) -> NumLike:
+        raise NotImplementedError()
 
-    def call_with_intermediates(
-        self, x: Union[NonScalarArray, Any]
-    ) -> Tuple[Union[NonScalarArray, Any], Optional[PyTree]]:
+    def call_with_intermediates(self, x: NumLikeT) -> Tuple[NumLike, Optional[PyTree]]:
         return self(x), None
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
@@ -148,7 +158,7 @@ class Transform(object):
         return self
 
 
-class ParameterFreeTransform(Transform):
+class ParameterFreeTransform(Transform[NumLikeT]):
     def tree_flatten(self):
         return (), ((), dict())
 
@@ -156,17 +166,17 @@ class ParameterFreeTransform(Transform):
         return isinstance(other, type(self))
 
 
-class _InverseTransform(Transform):
+class _InverseTransform(Transform[NumLike]):
     def __init__(self, transform: TransformT) -> None:
         super().__init__()
         self._inv: TransformT = transform
 
     @property
-    def domain(self) -> ConstraintT:  # type: ignore[override]
+    def domain(self) -> ConstraintT:
         return self._inv.codomain
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
+    def codomain(self) -> ConstraintT:
         return self._inv.domain
 
     @property
@@ -204,17 +214,17 @@ class _InverseTransform(Transform):
         return self._inv == other._inv
 
 
-class AbsTransform(ParameterFreeTransform):
+class AbsTransform(ParameterFreeTransform[NumLike]):
     domain = constraints.real
     codomain = constraints.positive
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, AbsTransform)
 
-    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+    def __call__(self, x: NumLike) -> NumLike:
         return jnp.abs(x)
 
-    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+    def _inverse(self, y: NumLike) -> NumLike:
         warnings.warn(
             "AbsTransform is not a bijective transform."
             " The inverse of `y` will be `y`.",
@@ -223,7 +233,7 @@ class AbsTransform(ParameterFreeTransform):
         return y
 
 
-class AffineTransform(Transform):
+class AffineTransform(Transform[NumLike]):
     """
     .. note:: When `scale` is a JAX tracer, we always assume that `scale > 0`
         when calculating `codomain`.
@@ -231,16 +241,16 @@ class AffineTransform(Transform):
 
     def __init__(
         self,
-        loc: ArrayLike,
-        scale: ArrayLike,
+        loc: NumLike,
+        scale: NumLike,
         domain: ConstraintT = constraints.real,
     ):
         self.loc = loc
         self.scale = scale
-        self.domain = domain
+        self._domain = domain
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
+    def codomain(self) -> ConstraintT:
         if self.domain is constraints.real:
             return constraints.real
         elif isinstance(self.domain, constraints.greater_than):
@@ -251,20 +261,20 @@ class AffineTransform(Transform):
                 return constraints.greater_than(self(self.domain.lower_bound))
         elif isinstance(self.domain, constraints.less_than):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.greater_than(self(self.domain.upper_bound))  # type: ignore[arg-type]
+                return constraints.greater_than(self(self.domain.upper_bound))
             # we suppose scale > 0 for any tracer
             else:
-                return constraints.less_than(self(self.domain.upper_bound))  # type: ignore[arg-type]
+                return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.interval(  # type: ignore[arg-type]
-                    self(self.domain.upper_bound),  # type: ignore[arg-type]
-                    self(self.domain.lower_bound),  # type: ignore[arg-type]
+                return constraints.interval(
+                    self(self.domain.upper_bound),
+                    self(self.domain.lower_bound),
                 )
             else:
-                return constraints.interval(  # type: ignore[arg-type]
-                    self(self.domain.lower_bound),  # type: ignore[arg-type]
-                    self(self.domain.upper_bound),  # type: ignore[arg-type]
+                return constraints.interval(
+                    self(self.domain.lower_bound),
+                    self(self.domain.upper_bound),
                 )
         else:
             raise NotImplementedError
@@ -274,7 +284,7 @@ class AffineTransform(Transform):
         return jnp.sign(self.scale)
 
     def __call__(self, x: NumLike) -> NumLike:
-        return self.loc + self.scale * x
+        return self.loc + jnp.multiply(self.scale, x)
 
     def _inverse(self, y: NumLike) -> NumLike:
         return (y - self.loc) / self.scale
@@ -298,15 +308,18 @@ class AffineTransform(Transform):
         )
 
     def tree_flatten(self):
-        return (self.loc, self.scale, self.domain), (("loc", "scale", "domain"), dict())
+        return (self.loc, self.scale, self.domain), (
+            ("loc", "scale", "_domain"),
+            dict(),
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AffineTransform):
             return False
         return (
-            jnp.array_equal(self.loc, other.loc)  # type: ignore[return-value]
-            & jnp.array_equal(self.scale, other.scale)  # type: ignore[return-value]
-            & (self.domain == other.domain)  # type: ignore[return-value]
+            (self.loc is other.loc)
+            and (self.scale is other.scale)
+            and (self.domain == other.domain)
         )
 
 
@@ -328,33 +341,39 @@ def _get_compose_transform_output_event_dim(parts):
     return output_event_dim
 
 
-class ComposeTransform(Transform):
+class ComposeTransform(Transform[NumLike]):
     def __init__(self, parts: Sequence[TransformT]) -> None:
         self.parts = parts
 
     @property
-    def domain(self) -> ConstraintT:  # type: ignore[override]
+    def domain(self) -> ConstraintT:
         input_event_dim = _get_compose_transform_input_event_dim(self.parts)
         first_input_event_dim = self.parts[0].domain.event_dim
         assert input_event_dim >= first_input_event_dim
         if input_event_dim == first_input_event_dim:
             return self.parts[0].domain
         else:
-            return constraints.independent(  # type: ignore[return-value]
-                self.parts[0].domain, input_event_dim - first_input_event_dim
+            return cast(
+                ConstraintT,
+                constraints.independent(
+                    self.parts[0].domain, input_event_dim - first_input_event_dim
+                ),
             )
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
+    def codomain(self) -> ConstraintT:
         output_event_dim = _get_compose_transform_output_event_dim(self.parts)
         last_output_event_dim = self.parts[-1].codomain.event_dim
         assert output_event_dim >= last_output_event_dim
         if output_event_dim == last_output_event_dim:
             return self.parts[-1].codomain
         else:
-            return constraints.independent(
-                self.parts[-1].codomain, output_event_dim - last_output_event_dim
-            )  # type: ignore[return-value]
+            return cast(
+                ConstraintT,
+                constraints.independent(
+                    self.parts[-1].codomain, output_event_dim - last_output_event_dim
+                ),
+            )
 
     @property
     def sign(self) -> NumLike:
@@ -430,7 +449,7 @@ class ComposeTransform(Transform):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ComposeTransform):
             return False
-        return jnp.logical_and(*(p1 == p2 for p1, p2 in zip(self.parts, other.parts)))  # type: ignore[return-value]
+        return all(p1 == p2 for p1, p2 in zip(self.parts, other.parts))
 
 
 def _matrix_forward_shape(shape: tuple[int, ...], offset: int = 0) -> tuple[int, ...]:
@@ -456,7 +475,7 @@ def _matrix_inverse_shape(shape: tuple[int, ...], offset: int = 0) -> tuple[int,
     return shape[:-2] + (N,)
 
 
-class CholeskyTransform(ParameterFreeTransform):
+class CholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     positive definite matrix.
@@ -485,7 +504,7 @@ class CholeskyTransform(ParameterFreeTransform):
         )
 
 
-class CorrCholeskyTransform(ParameterFreeTransform):
+class CorrCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
     Transforms a unconstrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
@@ -582,16 +601,16 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
         return jnp.sum(order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1)
 
 
-class ExpTransform(Transform):
+class ExpTransform(Transform[NumLike]):
     sign = 1
 
     # TODO: refine domain/codomain logic through setters, especially when
     # transforms for inverses are supported
     def __init__(self, domain: ConstraintT = constraints.real):
-        self.domain = domain
+        self._domain = domain
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
+    def codomain(self) -> ConstraintT:
         if self.domain is constraints.ordered_vector:
             return constraints.positive_ordered_vector
         elif self.domain is constraints.real:
@@ -599,9 +618,9 @@ class ExpTransform(Transform):
         elif isinstance(self.domain, constraints.greater_than):
             return constraints.greater_than(self.__call__(self.domain.lower_bound))
         elif isinstance(self.domain, constraints.interval):
-            return constraints.interval(  # type: ignore[arg-type]
-                self.__call__(self.domain.lower_bound),  # type: ignore[arg-type]
-                self.__call__(self.domain.upper_bound),  # type: ignore[arg-type]
+            return constraints.interval(
+                self.__call__(self.domain.lower_bound),
+                self.__call__(self.domain.upper_bound),
             )
         else:
             raise NotImplementedError
@@ -630,25 +649,25 @@ class ExpTransform(Transform):
         return self.domain == other.domain
 
 
-class IdentityTransform(ParameterFreeTransform):
+class IdentityTransform(ParameterFreeTransform[NumLike]):
     sign = 1
 
-    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+    def __call__(self, x: NumLike) -> NumLike:
         return x
 
-    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+    def _inverse(self, y: NumLike) -> NumLike:
         return y
 
     def log_abs_det_jacobian(
         self,
-        x: NonScalarArray,
-        y: NonScalarArray,
+        x: NumLike,
+        y: NumLike,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
         return jnp.zeros_like(x)
 
 
-class IndependentTransform(Transform):
+class IndependentTransform(Transform[NumLike]):
     """
     Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many
     dims in :meth:`check`, so that an event is valid only if all its
@@ -656,7 +675,7 @@ class IndependentTransform(Transform):
     """
 
     def __init__(
-        self, base_transform: Transform, reinterpreted_batch_ndims: int
+        self, base_transform: TransformT, reinterpreted_batch_ndims: int
     ) -> None:
         assert isinstance(base_transform, Transform)
         assert isinstance(reinterpreted_batch_ndims, int)
@@ -666,27 +685,33 @@ class IndependentTransform(Transform):
         super().__init__()
 
     @property
-    def domain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(
-            self.base_transform.domain, self.reinterpreted_batch_ndims
-        )  # type: ignore[return-value]
+    def domain(self) -> ConstraintT:
+        return cast(
+            ConstraintT,
+            constraints.independent(
+                self.base_transform.domain, self.reinterpreted_batch_ndims
+            ),
+        )
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(
-            self.base_transform.codomain, self.reinterpreted_batch_ndims
-        )  # type: ignore[return-value]
+    def codomain(self) -> ConstraintT:
+        return cast(
+            ConstraintT,
+            constraints.independent(
+                self.base_transform.codomain, self.reinterpreted_batch_ndims
+            ),
+        )
 
-    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+    def __call__(self, x: NumLike) -> NumLike:
         return self.base_transform(x)
 
-    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+    def _inverse(self, y: NumLike) -> NumLike:
         return self.base_transform._inverse(y)
 
     def log_abs_det_jacobian(
         self,
-        x: NonScalarArray,
-        y: NonScalarArray,
+        x: NumLike,
+        y: NumLike,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
         result = self.base_transform.log_abs_det_jacobian(
@@ -717,10 +742,10 @@ class IndependentTransform(Transform):
             return False
         return (self.base_transform == other.base_transform) & (
             self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
-        )  # type: ignore[return-value]
+        )
 
 
-class L1BallTransform(ParameterFreeTransform):
+class L1BallTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
     Transforms a unconstrained real vector :math:`x` into the unit L1 ball.
     """
@@ -773,7 +798,7 @@ class L1BallTransform(ParameterFreeTransform):
         return stick_breaking_logdet + tanh_logdet
 
 
-class LowerCholeskyAffine(Transform):
+class LowerCholeskyAffine(Transform[NonScalarArray]):
     r"""
     Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
 
@@ -846,12 +871,10 @@ class LowerCholeskyAffine(Transform):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LowerCholeskyAffine):
             return False
-        return jnp.array_equal(self.loc, other.loc) & jnp.array_equal(
-            self.scale_tril, other.scale_tril
-        )  # type: ignore[return-value]
+        return (self.loc is other.loc) and (self.scale_tril is other.scale_tril)
 
 
-class LowerCholeskyTransform(ParameterFreeTransform):
+class LowerCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transform a real vector to a lower triangular cholesky
     factor, where the strictly lower triangular submatrix is
@@ -911,7 +934,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = softplus(x[..., -n:])
-        return add_diag(z, 1) * diag[..., None]  # type: ignore[arg-type]
+        return add_diag(z, jnp.array(1)) * diag[..., None]
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
@@ -930,7 +953,7 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
         return (jnp.log(diag_softplus) * jnp.arange(n) - softplus(-diag)).sum(-1)
 
 
-class OrderedTransform(ParameterFreeTransform):
+class OrderedTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transform a real vector to an ordered vector.
 
@@ -971,7 +994,7 @@ class OrderedTransform(ParameterFreeTransform):
         return jnp.sum(x[..., 1:], -1)
 
 
-class PermuteTransform(Transform):
+class PermuteTransform(Transform[NonScalarArray]):
     domain = constraints.real_vector
     codomain = constraints.real_vector
 
@@ -1004,14 +1027,14 @@ class PermuteTransform(Transform):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PermuteTransform):
             return False
-        return jnp.array_equal(self.permutation, other.permutation)  # type: ignore[return-value]
+        return self.permutation is other.permutation
 
 
-class PowerTransform(Transform):
+class PowerTransform(Transform[NumLike]):
     domain = constraints.positive
     codomain = constraints.positive
 
-    def __init__(self, exponent: ArrayLike) -> None:
+    def __init__(self, exponent: NumLike) -> None:
         self.exponent = exponent
 
     def __call__(self, x: NumLike) -> NumLike:
@@ -1026,7 +1049,7 @@ class PowerTransform(Transform):
         y: NumLike,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
-        return jnp.log(jnp.abs(self.exponent * y / x))
+        return jnp.log(jnp.abs(jnp.multiply(self.exponent, y) / x))
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
@@ -1040,14 +1063,14 @@ class PowerTransform(Transform):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PowerTransform):
             return False
-        return jnp.array_equal(self.exponent, other.exponent)  # type: ignore[return-value]
+        return self.exponent is other.exponent
 
     @property
     def sign(self) -> NumLike:
         return jnp.sign(self.exponent)
 
 
-class SigmoidTransform(ParameterFreeTransform):
+class SigmoidTransform(ParameterFreeTransform[NumLike]):
     codomain = constraints.unit_interval
     sign = 1
 
@@ -1063,10 +1086,10 @@ class SigmoidTransform(ParameterFreeTransform):
         y: NumLike,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
-        return -softplus(x) - softplus(-x)  # type: ignore[operator]
+        return -softplus(x) - softplus(-x)
 
 
-class SimplexToOrderedTransform(Transform):
+class SimplexToOrderedTransform(Transform[NonScalarArray]):
     """
     Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
     Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
@@ -1130,7 +1153,7 @@ class SimplexToOrderedTransform(Transform):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, SimplexToOrderedTransform):
             return False
-        return jnp.array_equal(self.anchor_point, other.anchor_point)  # type: ignore[return-value]
+        return self.anchor_point is other.anchor_point
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return shape[:-1] + (shape[-1] - 1,)
@@ -1139,11 +1162,11 @@ class SimplexToOrderedTransform(Transform):
         return shape[:-1] + (shape[-1] + 1,)
 
 
-def _softplus_inv(y: ArrayLike) -> NumLike:
-    return jnp.log(-jnp.expm1(-y)) + y  # type: ignore[operator]
+def _softplus_inv(y: NumLike) -> NumLike:
+    return jnp.log(-jnp.expm1(-y)) + y
 
 
-class SoftplusTransform(ParameterFreeTransform):
+class SoftplusTransform(ParameterFreeTransform[NumLike]):
     r"""
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
@@ -1165,10 +1188,10 @@ class SoftplusTransform(ParameterFreeTransform):
         y: NumLike,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
-        return -softplus(-x)  # type: ignore[operator]
+        return -softplus(-x)
 
 
-class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
+class SoftplusLowerCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transform from unconstrained vector to lower-triangular matrices with
     nonnegative diagonal entries. This is useful for parameterizing positive
@@ -1207,7 +1230,7 @@ class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
         return _matrix_inverse_shape(shape)
 
 
-class StickBreakingTransform(ParameterFreeTransform):
+class StickBreakingTransform(ParameterFreeTransform[NonScalarArray]):
     domain = constraints.real_vector
     codomain = constraints.simplex
 
@@ -1257,7 +1280,7 @@ class StickBreakingTransform(ParameterFreeTransform):
         return shape[:-1] + (shape[-1] - 1,)
 
 
-class UnpackTransform(Transform):
+class UnpackTransform(Transform[NonScalarArray]):
     """
     Transforms a contiguous array to a pytree of subarrays.
 
@@ -1337,7 +1360,7 @@ def _get_target_shape(
     return shape[:batch_ndims] + forward_shape
 
 
-class ReshapeTransform(Transform):
+class ReshapeTransform(Transform[NonScalarArray]):
     """
     Reshape a sample, leaving batch dimensions unchanged.
 
@@ -1361,12 +1384,18 @@ class ReshapeTransform(Transform):
         self._inverse_shape = inverse_shape
 
     @property
-    def domain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(constraints.real, len(self._inverse_shape))  # type: ignore[return-value]
+    def domain(self) -> ConstraintT:
+        return cast(
+            ConstraintT,
+            constraints.independent(constraints.real, len(self._inverse_shape)),
+        )
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(constraints.real, len(self._forward_shape))  # type: ignore[return-value]
+    def codomain(self) -> ConstraintT:
+        return cast(
+            ConstraintT,
+            constraints.independent(constraints.real, len(self._forward_shape)),
+        )
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
@@ -1412,7 +1441,7 @@ def _normalize_rfft_shape(
     return input_shape[: len(input_shape) - len(shape)] + shape
 
 
-class RealFastFourierTransform(Transform):
+class RealFastFourierTransform(Transform[NonScalarArray]):
     """
     N-dimensional discrete fast Fourier transform for real input.
 
@@ -1479,12 +1508,17 @@ class RealFastFourierTransform(Transform):
         return (), ((), aux_data)
 
     @property
-    def domain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(constraints.real, self.transform_ndims)  # type: ignore[return-value]
+    def domain(self) -> ConstraintT:
+        return cast(
+            ConstraintT, constraints.independent(constraints.real, self.transform_ndims)
+        )
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(constraints.complex, self.transform_ndims)  # type: ignore[return-value]
+    def codomain(self) -> ConstraintT:
+        return cast(
+            ConstraintT,
+            constraints.independent(constraints.complex, self.transform_ndims),
+        )
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -1494,7 +1528,7 @@ class RealFastFourierTransform(Transform):
         )
 
 
-class PackRealFastFourierCoefficientsTransform(Transform):
+class PackRealFastFourierCoefficientsTransform(Transform[NonScalarArray]):
     """
     Transform a real vector to complex coefficients of a real fast Fourier transform.
 
@@ -1502,13 +1536,13 @@ class PackRealFastFourierCoefficientsTransform(Transform):
     """
 
     domain = constraints.real_vector
-    codomain = constraints.independent(constraints.complex, 1)  # type: ignore[assignment]
+    codomain = cast(ConstraintT, constraints.independent(constraints.complex, 1))
 
     def __init__(self, transform_shape: Optional[tuple[int, ...]] = None) -> None:
         assert transform_shape is None or len(transform_shape) == 1, (
             "Packing Fourier coefficients is only implemented for vectors."
         )
-        self.shape: tuple[int, ...] = transform_shape  # type: ignore[assignment]
+        self.shape: Optional[tuple[int, ...]] = transform_shape
 
     def tree_flatten(self):
         return (), ((), {"shape": self.shape})
@@ -1553,6 +1587,9 @@ class PackRealFastFourierCoefficientsTransform(Transform):
         )
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        assert self.shape is not None, (
+            "Shape must be specified in `__init__` for inverse transform."
+        )
         (n,) = self.shape
         n_real = n // 2 + 1
         n_imag = n - n_real
@@ -1565,7 +1602,7 @@ class PackRealFastFourierCoefficientsTransform(Transform):
         )
 
 
-class RecursiveLinearTransform(Transform):
+class RecursiveLinearTransform(Transform[NonScalarArray]):
     """
     Apply a linear transformation recursively such that
     :math:`y_t = A y_{t - 1} + x_t` for :math:`t > 0`, where :math:`x_t` and :math:`y_t`
@@ -1695,10 +1732,12 @@ class RecursiveLinearTransform(Transform):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, RecursiveLinearTransform):
             return False
-        return jnp.array_equal(self.transition_matrix, other.transition_matrix)  # type: ignore[return-value]
+        return (self.transition_matrix is other.transition_matrix) and (
+            self.initial_value is other.initial_value
+        )
 
 
-class ZeroSumTransform(Transform):
+class ZeroSumTransform(Transform[NonScalarArray]):
     """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
 
     :param transform_ndims: Number of trailing dimensions to transform.
@@ -1713,12 +1752,14 @@ class ZeroSumTransform(Transform):
         self.transform_ndims = transform_ndims
 
     @property
-    def domain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.independent(constraints.real, self.transform_ndims)  # type: ignore[return-value]
+    def domain(self) -> ConstraintT:
+        return cast(
+            ConstraintT, constraints.independent(constraints.real, self.transform_ndims)
+        )
 
     @property
-    def codomain(self) -> ConstraintT:  # type: ignore[override]
-        return constraints.zero_sum(self.transform_ndims)  # type: ignore[return-value]
+    def codomain(self) -> ConstraintT:
+        return cast(ConstraintT, constraints.zero_sum(self.transform_ndims))
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:
         zero_sum_axes = tuple(range(-self.transform_ndims, 0))
@@ -1785,7 +1826,7 @@ class ZeroSumTransform(Transform):
         )
 
 
-class ComplexTransform(ParameterFreeTransform):
+class ComplexTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transforms a pair of real numbers to a complex number.
     """
