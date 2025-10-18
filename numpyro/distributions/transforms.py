@@ -73,14 +73,10 @@ class Transform(Generic[NumLikeT]):
 
     @property
     def domain(self) -> ConstraintT:
-        if hasattr(self, "_domain"):
-            return self._domain
         return constraints.real
 
     @property
     def codomain(self) -> ConstraintT:
-        if hasattr(self, "_codomain"):
-            return self._codomain
         return constraints.real
 
     def __init_subclass__(cls, **kwargs):
@@ -103,10 +99,7 @@ class Transform(Generic[NumLikeT]):
         raise NotImplementedError()
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLikeT,
-        y: NumLikeT,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLikeT, y: NumLikeT, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         raise NotImplementedError()
 
@@ -191,10 +184,7 @@ class _InverseTransform(Transform[NumLike]):
         return self._inv._inverse(x)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         # NB: we don't use intermediates for inverse transform
         return -self._inv.log_abs_det_jacobian(y, x, None)
@@ -240,14 +230,15 @@ class AffineTransform(Transform[NumLike]):
     """
 
     def __init__(
-        self,
-        loc: NumLike,
-        scale: NumLike,
-        domain: ConstraintT = constraints.real,
+        self, loc: NumLike, scale: NumLike, domain: ConstraintT = constraints.real
     ):
         self.loc = loc
         self.scale = scale
         self._domain = domain
+
+    @property
+    def domain(self) -> ConstraintT:
+        return self._domain
 
     @property
     def codomain(self) -> ConstraintT:
@@ -268,13 +259,11 @@ class AffineTransform(Transform[NumLike]):
         elif isinstance(self.domain, constraints.interval):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
                 return constraints.interval(
-                    self(self.domain.upper_bound),
-                    self(self.domain.lower_bound),
+                    self(self.domain.upper_bound), self(self.domain.lower_bound)
                 )
             else:
                 return constraints.interval(
-                    self(self.domain.lower_bound),
-                    self(self.domain.upper_bound),
+                    self(self.domain.lower_bound), self(self.domain.upper_bound)
                 )
         else:
             raise NotImplementedError
@@ -290,10 +279,7 @@ class AffineTransform(Transform[NumLike]):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
 
@@ -393,10 +379,7 @@ class ComposeTransform(Transform[NumLike]):
         return y
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         if intermediates is not None:
             if len(intermediates) != len(self.parts):
@@ -610,6 +593,10 @@ class ExpTransform(Transform[NumLike]):
         self._domain = domain
 
     @property
+    def domain(self) -> ConstraintT:
+        return self._domain
+
+    @property
     def codomain(self) -> ConstraintT:
         if self.domain is constraints.ordered_vector:
             return constraints.positive_ordered_vector
@@ -633,15 +620,12 @@ class ExpTransform(Transform[NumLike]):
         return jnp.log(y)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         return x
 
     def tree_flatten(self):
-        return (self.domain,), (("domain",), dict())
+        return (self.domain,), (("_domain",), dict())
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ExpTransform):
@@ -659,10 +643,7 @@ class IdentityTransform(ParameterFreeTransform[NumLike]):
         return y
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         return jnp.zeros_like(x)
 
@@ -709,10 +690,7 @@ class IndependentTransform(Transform[NumLike]):
         return self.base_transform._inverse(y)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         result = self.base_transform.log_abs_det_jacobian(
             x, y, intermediates=intermediates
@@ -1044,10 +1022,7 @@ class PowerTransform(Transform[NumLike]):
         return jnp.power(y, 1 / self.exponent)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         return jnp.log(jnp.abs(jnp.multiply(self.exponent, y) / x))
 
@@ -1081,10 +1056,7 @@ class SigmoidTransform(ParameterFreeTransform[NumLike]):
         return logit(y)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         return -softplus(x) - softplus(-x)
 
@@ -1183,10 +1155,7 @@ class SoftplusTransform(ParameterFreeTransform[NumLike]):
         return _softplus_inv(y)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
         return -softplus(-x)
 
@@ -1842,10 +1811,7 @@ class ComplexTransform(ParameterFreeTransform[NonScalarArray]):
         return jnp.stack([y.real, y.imag], axis=-1)
 
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> Array:
         return jnp.zeros_like(y)
 

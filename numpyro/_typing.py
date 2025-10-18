@@ -120,10 +120,7 @@ class TransformT(Protocol):
     def __call__(self, x: NumLike) -> NumLike: ...
     def _inverse(self, y: NumLike) -> NumLike: ...
     def log_abs_det_jacobian(
-        self,
-        x: NumLike,
-        y: NumLike,
-        intermediates: Optional[PyTree] = None,
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike: ...
     def call_with_intermediates(
         self, x: NumLike
