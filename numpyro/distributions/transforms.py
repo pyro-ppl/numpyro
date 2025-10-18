@@ -1811,7 +1811,10 @@ class ComplexTransform(ParameterFreeTransform[NonScalarArray]):
         return jnp.stack([y.real, y.imag], axis=-1)
 
     def log_abs_det_jacobian(
-        self, x: NonScalarArray, y: NonScalarArray, intermediates: Optional[PyTree] = None
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
     ) -> NonScalarArray:
         return jnp.zeros_like(y)
 
