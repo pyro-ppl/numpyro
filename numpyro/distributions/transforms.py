@@ -1807,12 +1807,12 @@ class ComplexTransform(ParameterFreeTransform[NonScalarArray]):
         assert x.shape[-1] == 2, "Input must have a trailing dimension of size 2."
         return lax.complex(x[..., 0], x[..., 1])
 
-    def _inverse(self, y: ArrayLike) -> Array:
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         return jnp.stack([y.real, y.imag], axis=-1)
 
     def log_abs_det_jacobian(
-        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
-    ) -> Array:
+        self, x: NonScalarArray, y: NonScalarArray, intermediates: Optional[PyTree] = None
+    ) -> NonScalarArray:
         return jnp.zeros_like(y)
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
