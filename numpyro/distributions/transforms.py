@@ -69,7 +69,7 @@ NumLikeT = TypeVar("NumLikeT", bound=NumLike)
 
 
 class Transform(Generic[NumLikeT]):
-    _inv: Optional[Union[TransformT, weakref.ReferenceType]] = None
+    _inv: Optional[Union[TransformT, weakref.ref]] = None
 
     @property
     def domain(self) -> ConstraintT:
@@ -85,9 +85,10 @@ class Transform(Generic[NumLikeT]):
 
     @property
     def inv(self: TransformT) -> TransformT:
+        inv = None
         if (self._inv is not None) and isinstance(self._inv, weakref.ref):
             inv = self._inv()
-        else:
+        if inv is None:
             inv = _InverseTransform(self)
             self._inv = weakref.ref(inv)
         return cast(TransformT, inv)
@@ -160,7 +161,7 @@ class ParameterFreeTransform(Transform[NumLikeT]):
 
 
 class _InverseTransform(Transform[NumLike]):
-    def __init__(self, transform: TransformT) -> None:
+    def __init__(self, transform: TransformT):
         super().__init__()
         self._inv: TransformT = transform
 
