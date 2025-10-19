@@ -4124,3 +4124,22 @@ def test_censored_sample_validity():
     # Samples should match base distribution when censored=0
 
     assert all(jnp.abs(base_samples - censored_samples) < 1e-6)
+
+
+def test_censored_sample_shape():
+    # Check sample shapes also when broadcasting
+    rng_key = random.PRNGKey(0)
+    base_dist = dist.Normal(jnp.zeros((3, 1)))
+    censored_dist = dist.LeftCensoredDistribution(
+        base_dist, jnp.array([0.0, 1.0]).reshape((1, 2))
+    )
+    sample_shape = (10, 4)
+    expected_shape = sample_shape + (3, 2)
+    samples = censored_dist.sample(rng_key, sample_shape)
+    assert samples.shape == expected_shape
+
+    censored_dist = dist.RightCensoredDistribution(
+        base_dist, jnp.array([0.0, 1.0]).reshape((1, 2))
+    )
+    samples = censored_dist.sample(rng_key, sample_shape)
+    assert samples.shape == expected_shape
