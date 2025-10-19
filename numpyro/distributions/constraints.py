@@ -304,7 +304,7 @@ class _GreaterThan(Constraint):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _GreaterThan):
             return False
-        return self.lower_bound is other.lower_bound
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
 
 
 class _GreaterThanEq(_GreaterThan):
@@ -314,7 +314,7 @@ class _GreaterThanEq(_GreaterThan):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _GreaterThanEq):
             return False
-        return self.lower_bound is other.lower_bound
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
 
 
 class _Positive(_SingletonConstraint, _GreaterThan):
@@ -429,7 +429,7 @@ class _LessThan(Constraint):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _LessThan):
             return False
-        return self.upper_bound is other.upper_bound
+        return jnp.array_equal(self.upper_bound, other.upper_bound)
 
 
 class _LessThanEq(_LessThan):
@@ -439,7 +439,7 @@ class _LessThanEq(_LessThan):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _LessThanEq):
             return False
-        return self.upper_bound is other.upper_bound
+        return jnp.array_equal(self.upper_bound, other.upper_bound)
 
 
 class _IntegerInterval(Constraint):
@@ -472,8 +472,8 @@ class _IntegerInterval(Constraint):
         if not isinstance(other, _IntegerInterval):
             return False
 
-        return (self.lower_bound is other.lower_bound) and (
-            self.upper_bound is other.upper_bound
+        return jnp.array_equal(self.lower_bound, other.lower_bound) & jnp.array_equal(
+            self.upper_bound, other.upper_bound
         )
 
 
@@ -500,7 +500,7 @@ class _IntegerGreaterThan(Constraint):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _IntegerGreaterThan):
             return False
-        return self.lower_bound is other.lower_bound
+        return jnp.array_equal(self.lower_bound, other.lower_bound)
 
 
 class _IntegerPositive(_SingletonConstraint, _IntegerGreaterThan):
@@ -536,8 +536,8 @@ class _Interval(Constraint):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _Interval):
             return False
-        return (self.lower_bound is other.lower_bound) and (
-            self.upper_bound is other.upper_bound
+        return jnp.array_equal(self.lower_bound, other.lower_bound) & jnp.array_equal(
+            self.upper_bound, other.upper_bound
         )
 
     def tree_flatten(self):
@@ -610,7 +610,7 @@ class _Multinomial(Constraint):
     def __eq__(self, other: ConstraintT) -> bool:
         if not isinstance(other, _Multinomial):
             return False
-        return self.upper_bound is other.upper_bound
+        return jnp.array_equal(self.upper_bound, other.upper_bound)
 
 
 class _L1Ball(_SingletonConstraint):
