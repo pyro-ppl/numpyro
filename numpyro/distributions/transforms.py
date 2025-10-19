@@ -303,11 +303,12 @@ class AffineTransform(Transform[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AffineTransform):
             return False
-        return (
+        is_equal = (
             jnp.array_equal(self.loc, other.loc)
             & jnp.array_equal(self.scale, other.scale)
             & (self.domain == other.domain)
-        )  # type: ignore[return-value]
+        )
+        return is_equal  # type: ignore[return-value]
 
 
 def _get_compose_transform_input_event_dim(parts):
