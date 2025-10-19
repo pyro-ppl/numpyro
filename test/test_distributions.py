@@ -32,6 +32,10 @@ from numpyro.distributions import (
     transforms,
 )
 from numpyro.distributions.batch_util import vmap_over
+from numpyro.distributions.censored import (
+    LeftCensoredDistribution,
+    RightCensoredDistribution,
+)
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.transforms import (
@@ -148,6 +152,36 @@ def _TruncatedNormal(loc, scale, low, high):
 
 def _TruncatedCauchy(loc, scale, low, high):
     return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
+
+
+def _LeftCensoredHalfNormal(scale, censored):
+    base_dist = dist.HalfNormal(scale)
+    return LeftCensoredDistribution(base_dist, censored)
+
+
+def _RightCensoredWeibull(scale, concentration, censored):
+    base_dist = dist.Weibull(scale, concentration)
+    return RightCensoredDistribution(base_dist, censored)
+
+
+def _LeftCensoredNormal(loc, scale, censored):
+    base_dist = dist.Normal(loc, scale)
+    return LeftCensoredDistribution(base_dist, censored)
+
+
+def _RightCensoredNormal(loc, scale, censored):
+    base_dist = dist.Normal(loc, scale)
+    return RightCensoredDistribution(base_dist, censored)
+
+
+def _LeftCensoredPoisson(rate, censored):
+    base_dist = dist.Poisson(rate)
+    return LeftCensoredDistribution(base_dist, censored)
+
+
+def _RightCensoredPoisson(rate, censored):
+    base_dist = dist.Poisson(rate)
+    return RightCensoredDistribution(base_dist, censored)
 
 
 _TruncatedNormal.arg_constraints = {}
@@ -492,6 +526,14 @@ CONTINUOUS = [
     T(dist.Cauchy, 0.0, 1.0),
     T(dist.Cauchy, 0.0, np.array([1.0, 2.0])),
     T(dist.Cauchy, np.array([0.0, 1.0]), np.array([[1.0], [2.0]])),
+    T(_RightCensoredWeibull, 1.0, 1.0, 0),
+    T(_RightCensoredWeibull, 1.0, 1.0, 1),
+    T(_LeftCensoredHalfNormal, 1.0, 0),
+    T(_LeftCensoredHalfNormal, 1.0, 1),
+    T(_LeftCensoredNormal, 0.0, 1.0, 0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 1),
+    T(_RightCensoredNormal, 0.0, 1.0, 0),
+    T(_RightCensoredNormal, 0.0, 1.0, 1),
     T(dist.CirculantNormal, np.zeros((3, 4)), np.array([0.9, 0.2, 0.1, 0.2]), None),
     T(
         dist.CirculantNormal,
@@ -1050,6 +1092,10 @@ DISCRETE = [
     T(dist.GeometricProbs, 0.2),
     T(dist.GeometricProbs, np.array([0.2, 0.7])),
     T(dist.GeometricLogits, np.array([-1.0, 3.0])),
+    T(_LeftCensoredPoisson, 1.0, 0),
+    T(_LeftCensoredPoisson, 1.0, 1),
+    T(_RightCensoredPoisson, 1.0, 0),
+    T(_RightCensoredPoisson, 1.0, 1),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1.0, 3.0]), np.array([[5], [8]])),
@@ -1955,6 +2001,17 @@ def test_mean_var(jax_dist, sp_dist, params):
         dist.TwoSidedTruncatedDistribution,
     ):
         pytest.skip("Truncated distributions do not has mean/var implemented")
+    if jax_dist in (
+        _LeftCensoredHalfNormal,
+        _RightCensoredWeibull,
+        _LeftCensoredNormal,
+        _RightCensoredNormal,
+        _LeftCensoredPoisson,
+        _RightCensoredPoisson,
+        dist.LeftCensoredDistribution,
+        dist.RightCensoredDistribution,
+    ):
+        pytest.skip("Censored distributions do not have mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
     if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
@@ -2117,6 +2174,12 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     if jax_dist in (
         _TruncatedNormal,
         _TruncatedCauchy,
+        _LeftCensoredHalfNormal,
+        _RightCensoredWeibull,
+        _LeftCensoredNormal,
+        _RightCensoredNormal,
+        _LeftCensoredPoisson,
+        _RightCensoredPoisson,
         _GaussianMixture,
         _Gaussian2DMixture,
         _GeneralMixture,
@@ -3258,6 +3321,18 @@ def _get_vmappable_dist_init_params(jax_dist):
         return [2, 3]
     elif jax_dist.__name__ == ("_TruncatedNormal"):
         return [2, 3]
+    elif jax_dist.__name__ == ("_LeftCensoredHalfNormal"):
+        return [1]
+    elif jax_dist.__name__ == ("_RightCensoredWeibull"):
+        return [2]
+    elif jax_dist.__name__ == ("_LeftCensoredNormal"):
+        return [2]
+    elif jax_dist.__name__ == ("_RightCensoredNormal"):
+        return [2]
+    elif jax_dist.__name__ == ("_LeftCensoredPoisson"):
+        return [1]
+    elif jax_dist.__name__ == ("_RightCensoredPoisson"):
+        return [1]
     elif issubclass(jax_dist, dist.Distribution):
         init_parameters = list(inspect.signature(jax_dist.__init__).parameters.keys())[
             1:
@@ -3845,3 +3920,226 @@ def test_truncated_cdf_batch_shapes(batch_shape):
         for value in [-2.0, 0.0, 2.0]:
             cdf_value = truncated_dist.cdf(value)
             assert cdf_value.shape == batch_shape
+
+
+param_cens_dist = pytest.mark.parametrize(
+    "base_dist_class, base_params",
+    [
+        (dist.Normal, (0.0, 1.0)),
+        (dist.Normal, (2.0, 0.5)),
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.Laplace, (0.0, 1.0)),
+        (dist.Logistic, (0.0, 1.0)),
+        (dist.StudentT, (2.0, 0.0, 1.0)),
+        (dist.HalfNormal, (1.0,)),
+        (dist.Poisson, (1.0,)),
+        (dist.GammaPoisson, (1, 1)),
+    ],
+)
+param_censored = pytest.mark.parametrize("censored", [0.0, 1.0])
+
+
+@param_cens_dist
+@param_censored
+def test_left_censored_logprob(base_dist_class, base_params, censored):
+    """Test log_prob for left censored distributions."""
+    base_dist = base_dist_class(*base_params)
+    censored_dist = dist.LeftCensoredDistribution(base_dist, censored)
+
+    # Test points
+    test_values = base_dist.support.feasible_like(jnp.zeros((1,)))
+
+    # Compute log_prob
+    logp_values = censored_dist.log_prob(test_values)
+
+    # Basic properties
+    assert logp_values.shape == test_values.shape
+    assert jnp.all(jnp.isfinite(logp_values))
+
+    # for noncensored values, log_prob should match base distribution
+    base_logp_values = base_dist.log_prob(test_values)
+    # for censored values, log_prob should be log CDF of base distribution
+    dtype = jnp.result_type(test_values, float)
+    minval = 100.0 * jnp.finfo(dtype).tiny
+    cdf_values = jnp.log(jnp.clip(base_dist.cdf(jnp.array(test_values)), minval, 1.0))
+    base_diff = jnp.where(
+        censored, logp_values - cdf_values, logp_values - base_logp_values
+    )
+    assert jnp.abs(base_diff).max() < 1e-6
+
+
+@param_cens_dist
+@param_censored
+def test_right_censored_logprob(base_dist_class, base_params, censored):
+    """Test log_prob for right censored distributions."""
+    base_dist = base_dist_class(*base_params)
+    censored_dist = dist.RightCensoredDistribution(base_dist, censored)
+
+    # Test points
+    test_values = base_dist.support.feasible_like(jnp.zeros((1,)))
+
+    # Compute log_prob
+    logp_values = censored_dist.log_prob(test_values)
+
+    # Basic properties
+    assert logp_values.shape == test_values.shape
+    assert jnp.all(jnp.isfinite(logp_values))
+
+    # for noncensored values, log_prob should match base distribution
+    base_logp_values = base_dist.log_prob(test_values)
+    # for censored values, log_prob should be log 1 - CDF of base distribution
+    logS_values = jnp.log1p(-base_dist.cdf(test_values))
+    base_diff = jnp.where(
+        censored, logp_values - logS_values, logp_values - base_logp_values
+    )
+    assert jnp.abs(base_diff).max() < 1e-6
+
+
+def test_censored_logprob_edge_cases():
+    """Test edge cases for censored distributions."""
+    base_dist = dist.Normal(0.0, 1.0)
+
+    # Test with extreme censored points
+    left_censored = dist.LeftCensoredDistribution(base_dist, 1)
+    right_censored = dist.RightCensoredDistribution(base_dist, 1)
+
+    # Test that logprobs are well-behaved on extreme values
+    test_values = jnp.array([-10.0, 0.0, 10.0])
+
+    left_logprob = left_censored.log_prob(test_values)
+    assert jnp.all(jnp.isfinite(left_logprob))
+
+    right_logprob = right_censored.log_prob(test_values)
+    assert jnp.all(jnp.isfinite(right_logprob))
+
+
+@pytest.mark.parametrize("batch_shape", [(), (3,)])
+def test_censored_logprob_batch_shapes(batch_shape):
+    """Test that log_prob works correctly with batch shapes."""
+    if batch_shape == ():
+        loc = 0.0
+        scale = 1.0
+        censored = 1.0
+    else:
+        loc = jnp.zeros(batch_shape)
+        scale = jnp.ones(batch_shape)
+        censored = jnp.ones(batch_shape)
+
+    base_dist = dist.Normal(loc, scale)
+    censored_dist = dist.RightCensoredDistribution(base_dist, censored)
+
+    # Test with single value
+    value = 0.0
+    logp_value = censored_dist.log_prob(value)
+    assert logp_value.shape == batch_shape
+
+    # Test with multiple values - these should broadcast properly
+    if batch_shape == ():
+        values = jnp.array([-2.0, 0.0, 2.0])
+        logp_values = censored_dist.log_prob(values)
+        expected_shape = values.shape
+        assert logp_values.shape == expected_shape
+    else:
+        # For batched case, test with single values to avoid broadcasting issues
+        for value in [-2.0, 0.0, 2.0]:
+            logp_value = censored_dist.log_prob(value)
+            assert logp_value.shape == batch_shape
+
+
+def test_censored_broadcasting():
+    # loc: (3,), censored: (2, 1) -> batch_shape: (2, 3)
+    base_dist = dist.Normal(jnp.array([0.0, 1.0, 2.0]), 1.0)
+    censored = jnp.array([[0], [1]])
+    dist_obj = dist.LeftCensoredDistribution(base_dist, censored)
+    assert dist_obj.batch_shape == (2, 3)
+
+    # loc: (2, 1), censored: (3,) -> batch_shape: (2, 3)
+    base_dist = dist.Normal(jnp.array([[0], [1]]), 1.0)
+    censored = jnp.array([0.0, 1.0, 2.0])
+    dist_obj = dist.LeftCensoredDistribution(base_dist, censored)
+    assert dist_obj.batch_shape == (2, 3)
+
+
+def test_censored_gradient():
+    def loss_loc_left(loc):
+        base_dist = dist.Normal(loc, 1.0)
+        censored_dist = dist.LeftCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_loc_left)
+    grad = grad_fn(0.0)
+    assert jnp.isfinite(grad)
+
+    def loss_scale_left(scale):
+        base_dist = dist.Normal(0.0, scale)
+        censored_dist = dist.LeftCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_scale_left)
+    grad = grad_fn(1.0)
+    assert jnp.isfinite(grad)
+
+    def loss_loc_right(loc):
+        base_dist = dist.Normal(loc, 1.0)
+        censored_dist = dist.RightCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_loc_right)
+    grad = grad_fn(0.0)
+    assert jnp.isfinite(grad)
+
+    def loss_scale_right(scale):
+        base_dist = dist.Normal(0.0, scale)
+        censored_dist = dist.RightCensoredDistribution(
+            base_dist, jnp.array([[0.0], [1.0]])
+        )
+        return censored_dist.log_prob(jnp.array([-1.0, 0.0, 1.0])).sum()
+
+    grad_fn = jax.grad(loss_scale_right)
+    grad = grad_fn(1.0)
+    assert jnp.isfinite(grad)
+
+
+def test_censored_sample_validity():
+    rng_key = random.PRNGKey(0)
+    sample_shape = (1000,)
+
+    base_dist = dist.Normal(0.0, 1.0)
+    base_samples = base_dist.sample(rng_key, sample_shape)
+
+    # Samples should match base distribution when censored = 0 or 1
+    uncensored_dist = dist.RightCensoredDistribution(base_dist, censored=0)
+    uncensored_samples = uncensored_dist.sample(rng_key, sample_shape)
+
+    assert all(jnp.abs(base_samples - uncensored_samples) < 1e-6)
+
+    censored_dist = dist.RightCensoredDistribution(base_dist, censored=1)
+    censored_samples = censored_dist.sample(rng_key, sample_shape)
+    # Samples should match base distribution when censored=0
+
+    assert all(jnp.abs(base_samples - censored_samples) < 1e-6)
+
+
+def test_censored_sample_shape():
+    # Check sample shapes also when broadcasting
+    rng_key = random.PRNGKey(0)
+    base_dist = dist.Normal(jnp.zeros((3, 1)))
+    censored_dist = dist.LeftCensoredDistribution(
+        base_dist, jnp.array([0.0, 1.0]).reshape((1, 2))
+    )
+    sample_shape = (10, 4)
+    expected_shape = sample_shape + (3, 2)
+    samples = censored_dist.sample(rng_key, sample_shape)
+    assert samples.shape == expected_shape
+
+    censored_dist = dist.RightCensoredDistribution(
+        base_dist, jnp.array([0.0, 1.0]).reshape((1, 2))
+    )
+    samples = censored_dist.sample(rng_key, sample_shape)
+    assert samples.shape == expected_shape

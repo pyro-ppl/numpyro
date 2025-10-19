@@ -762,6 +762,25 @@ TwoSidedTruncatedDistribution
     :show-inheritance:
     :member-order: bysource
 
+Censored Distributions
+-----------------------
+
+LeftCensoredDistribution
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.censored.LeftCensoredDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RightCensoredDistribution
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.censored.RightCensoredDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 TensorFlow Distributions
 ------------------------
