@@ -11,7 +11,6 @@ import warnings
 import jax
 from jax import Array, lax, random
 import jax.numpy as jnp
-from jax.typing import ArrayLike
 
 import numpyro
 from numpyro._typing import Message
@@ -122,10 +121,10 @@ class Messenger(object):
 def _masked_observe(
     name: str,
     fn: DistributionT,
-    obs: Optional[ArrayLike],
+    obs: Optional[Array],
     obs_mask,  # noqa: ANN001
     **kwargs,
-) -> ArrayLike:
+) -> Array:
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
@@ -142,12 +141,12 @@ def _masked_observe(
 def sample(
     name: str,
     fn: DistributionT,
-    obs: Optional[ArrayLike] = None,
-    rng_key: Optional[ArrayLike] = None,
+    obs: Optional[Array] = None,
+    rng_key: Optional[Array] = None,
     sample_shape: tuple[int, ...] = (),
     infer: Optional[dict] = None,
-    obs_mask: Optional[ArrayLike] = None,
-) -> ArrayLike:
+    obs_mask: Optional[Array] = None,
+) -> Array:
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -251,9 +250,9 @@ def sample(
 
 def param(
     name: str,
-    init_value: Optional[Union[ArrayLike, Callable]] = None,
+    init_value: Optional[Union[Array, Callable]] = None,
     **kwargs,
-) -> Optional[ArrayLike]:
+) -> Optional[Array]:
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
@@ -287,7 +286,7 @@ def param(
 
     if callable(init_value):
 
-        def fn(init_fn: Callable, *args, **kwargs) -> ArrayLike:
+        def fn(init_fn: Callable, *args, **kwargs) -> Array:
             return init_fn(prng_key())
 
     else:
@@ -310,7 +309,7 @@ def param(
     return msg["value"]
 
 
-def deterministic(name: str, value: ArrayLike) -> ArrayLike:
+def deterministic(name: str, value: Array) -> Array:
     """
     Used to designate deterministic sites in the model. Note that most effect
     handlers will not operate on deterministic sites (except
@@ -336,9 +335,7 @@ def deterministic(name: str, value: ArrayLike) -> ArrayLike:
     return msg["value"]
 
 
-def mutable(
-    name: str, init_value: Optional[ArrayLike] = None
-) -> Union[ArrayLike, None]:
+def mutable(name: str, init_value: Optional[Array] = None) -> Union[Array, None]:
     """
     This primitive is used to store a mutable value that can be changed
     during model execution::
@@ -394,7 +391,7 @@ def _inspect() -> dict:
     return msg
 
 
-def get_mask() -> Union[ArrayLike, None]:
+def get_mask() -> Union[Array, None]:
     """
     Records the effects of enclosing ``handlers.mask`` handlers.
     This is useful for avoiding expensive ``numpyro.factor()`` computations during
@@ -441,8 +438,8 @@ def module(name: str, nn: tuple, input_shape: Optional[tuple] = None) -> Callabl
 
 
 def _subsample_fn(
-    size: int, subsample_size: int, rng_key: Optional[ArrayLike] = None
-) -> ArrayLike:
+    size: int, subsample_size: int, rng_key: Optional[Array] = None
+) -> Array:
     if rng_key is None:
         raise ValueError(
             "Missing random key to generate subsample indices."
@@ -651,7 +648,7 @@ def plate_stack(
         yield
 
 
-def factor(name: str, log_factor: ArrayLike) -> None:
+def factor(name: str, log_factor: Array) -> None:
     """
     Factor statement to add arbitrary log probability factor to a
     probabilistic model.
@@ -690,7 +687,7 @@ def prng_key() -> Union[Array, None]:
     return msg["value"]
 
 
-def subsample(data: ArrayLike, event_dim: int) -> ArrayLike:
+def subsample(data: Array, event_dim: int) -> Array:
     """
     EXPERIMENTAL Subsampling statement to subsample data based on enclosing
     :class:`~numpyro.primitives.plate` s.

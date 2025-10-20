@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from typing import Any
+from typing import Any, Optional
 
-import jax
+from jax import Array
 import jax.numpy as jnp
 from jax.random import PRNGKey
-from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
+from numpyro._typing import ConstraintT, DistributionT, PRNGKeyT
 import numpyro.distributions as dist
 
 
@@ -59,14 +58,14 @@ class ValidDistributionLike:
         return jnp.array(0.0)
 
     def rsample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+        self, key: Optional[PRNGKeyT], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         return self.sample(key, sample_shape)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return jnp.array(0.0)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         return jnp.array([])
 
     def shape(self, sample_shape: tuple[int, ...] = ()) -> tuple[int, ...]:

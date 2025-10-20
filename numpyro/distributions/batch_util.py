@@ -3,11 +3,11 @@
 
 import copy
 from functools import singledispatch
-from typing import Union
 
 import jax
 import jax.numpy as jnp
 
+from numpyro._typing import DistributionT
 from numpyro.distributions import constraints
 from numpyro.distributions.conjugate import (
     BetaBinomial,
@@ -17,7 +17,6 @@ from numpyro.distributions.conjugate import (
     NegativeBinomialLogits,
     NegativeBinomialProbs,
 )
-from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import (
     CAR,
     LKJ,
@@ -59,7 +58,6 @@ from numpyro.distributions.transforms import (
     AffineTransform,
     CorrCholeskyTransform,
     PowerTransform,
-    Transform,
 )
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
@@ -69,7 +67,7 @@ from numpyro.distributions.truncated import (
 
 
 @singledispatch
-def vmap_over(d: Union[Distribution, Transform, Constraint], **kwargs):
+def vmap_over(d: DistributionT, **kwargs):
     raise NotImplementedError
 
 
@@ -498,12 +496,12 @@ def _vmap_over_half_normal(dist: HalfNormal, scale=None):
 
 
 @singledispatch
-def promote_batch_shape(d: Distribution):
+def promote_batch_shape(d: DistributionT) -> DistributionT:
     raise NotImplementedError
 
 
 @promote_batch_shape.register
-def _default_promote_batch_shape(d: Distribution):
+def _default_promote_batch_shape(d: DistributionT) -> DistributionT:
     attr_batch_shapes = [d.batch_shape]
     for attr_name, constraint in d.arg_constraints.items():
         try:
@@ -515,12 +513,12 @@ def _default_promote_batch_shape(d: Distribution):
         attr_batch_shapes.append(jnp.shape(attr)[:attr_batch_ndim])
     resolved_batch_shape = jnp.broadcast_shapes(*attr_batch_shapes)
     new_self = copy.deepcopy(d)
-    new_self._batch_shape = resolved_batch_shape
+    new_self._batch_shape = resolved_batch_shape  # type: ignore
     return new_self
 
 
 @promote_batch_shape.register
-def _promote_batch_shape_expanded(d: ExpandedDistribution):
+def _promote_batch_shape_expanded(d: ExpandedDistribution) -> ExpandedDistribution:
     orig_delta_batch_shape = d.batch_shape[
         : len(d.batch_shape) - len(d.base_dist.batch_shape)
     ]
@@ -560,7 +558,7 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
 
 
 @promote_batch_shape.register
-def _promote_batch_shape_masked(d: MaskedDistribution):
+def _promote_batch_shape_masked(d: MaskedDistribution) -> MaskedDistribution:
     new_self = copy.copy(d)
     new_base_dist = promote_batch_shape(d.base_dist)
     new_self._batch_shape = new_base_dist.batch_shape
@@ -569,7 +567,7 @@ def _promote_batch_shape_masked(d: MaskedDistribution):
 
 
 @promote_batch_shape.register
-def _promote_batch_shape_independent(d: Independent):
+def _promote_batch_shape_independent(d: Independent) -> DistributionT:
     new_self = copy.copy(d)
     new_base_dist = promote_batch_shape(d.base_dist)
     new_self._batch_shape = new_base_dist.batch_shape[: -d.event_dim]
@@ -578,5 +576,5 @@ def _promote_batch_shape_independent(d: Independent):
 
 
 @promote_batch_shape.register
-def _promote_batch_shape_unit(d: Unit):
+def _promote_batch_shape_unit(d: Unit) -> Unit:
     return d
