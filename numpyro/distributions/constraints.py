@@ -73,7 +73,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT
+from numpyro._typing import ConstraintT, NonScalarArray, NumLike
 
 
 class Constraint(object):
@@ -153,7 +153,7 @@ class _Boolean(_SingletonConstraint):
 class _CorrCholesky(_SingletonConstraint):
     event_dim = 2
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
         lower_triangular = jnp.all(
@@ -165,7 +165,7 @@ class _CorrCholesky(_SingletonConstraint):
         unit_norm_row = jnp.all(jnp.abs(x_norm - 1) <= tol, axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]), prototype.shape
         )
@@ -174,7 +174,7 @@ class _CorrCholesky(_SingletonConstraint):
 class _CorrMatrix(_SingletonConstraint):
     event_dim = 2
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
         symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
@@ -186,7 +186,7 @@ class _CorrMatrix(_SingletonConstraint):
         )
         return symmetric & positive & unit_variance
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]), prototype.shape
         )
@@ -284,10 +284,10 @@ def is_dependent(constraint):
 
 
 class _GreaterThan(Constraint):
-    def __init__(self, lower_bound):
+    def __init__(self, lower_bound: NumLike) -> None:
         self.lower_bound = lower_bound
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return x > self.lower_bound
 
     def __repr__(self) -> str:
@@ -295,7 +295,7 @@ class _GreaterThan(Constraint):
         fmt_string += "(lower_bound={})".format(self.lower_bound)
         return fmt_string
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
 
     def tree_flatten(self):
@@ -308,7 +308,7 @@ class _GreaterThan(Constraint):
 
 
 class _GreaterThanEq(_GreaterThan):
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return x >= self.lower_bound
 
     def __eq__(self, other: ConstraintT) -> bool:
@@ -346,6 +346,10 @@ class _IndependentConstraint(Constraint):
         self.base_constraint = base_constraint
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
         super().__init__()
+
+    @property
+    def is_discrete(self) -> bool:
+        return self.base_constraint.is_discrete
 
     @property
     def event_dim(self) -> int:
@@ -405,10 +409,10 @@ class _RealMatrix(_IndependentConstraint, _SingletonConstraint):
 
 
 class _LessThan(Constraint):
-    def __init__(self, upper_bound: ArrayLike) -> None:
+    def __init__(self, upper_bound: NumLike) -> None:
         self.upper_bound = upper_bound
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return x < self.upper_bound
 
     def __repr__(self) -> str:
@@ -416,7 +420,7 @@ class _LessThan(Constraint):
         fmt_string += "(upper_bound={})".format(self.upper_bound)
         return fmt_string
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
 
     def tree_flatten(self):
@@ -429,7 +433,7 @@ class _LessThan(Constraint):
 
 
 class _LessThanEq(_LessThan):
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return x <= self.upper_bound
 
     def __eq__(self, other: ConstraintT) -> bool:
@@ -441,11 +445,11 @@ class _LessThanEq(_LessThan):
 class _IntegerInterval(Constraint):
     is_discrete = True
 
-    def __init__(self, lower_bound: ArrayLike, upper_bound: ArrayLike) -> None:
+    def __init__(self, lower_bound: NumLike, upper_bound: NumLike) -> None:
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
     def __repr__(self) -> str:
@@ -455,7 +459,7 @@ class _IntegerInterval(Constraint):
         )
         return fmt_string
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
     def tree_flatten(self):
@@ -476,10 +480,10 @@ class _IntegerInterval(Constraint):
 class _IntegerGreaterThan(Constraint):
     is_discrete = True
 
-    def __init__(self, lower_bound: ArrayLike) -> None:
+    def __init__(self, lower_bound: NumLike) -> None:
         self.lower_bound = lower_bound
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return (x % 1 == 0) & (x >= self.lower_bound)
 
     def __repr__(self) -> str:
@@ -487,7 +491,7 @@ class _IntegerGreaterThan(Constraint):
         fmt_string += "(lower_bound={})".format(self.lower_bound)
         return fmt_string
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
     def tree_flatten(self):
@@ -510,11 +514,11 @@ class _IntegerNonnegative(_SingletonConstraint, _IntegerGreaterThan):
 
 
 class _Interval(Constraint):
-    def __init__(self, lower_bound: ArrayLike, upper_bound: ArrayLike) -> None:
+    def __init__(self, lower_bound: NumLike, upper_bound: NumLike) -> None:
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return (x >= self.lower_bound) & (x <= self.upper_bound)
 
     def __repr__(self) -> str:
@@ -524,7 +528,7 @@ class _Interval(Constraint):
         )
         return fmt_string
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.broadcast_to(
             (self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype)
         )
@@ -554,7 +558,7 @@ class _UnitInterval(_SingletonConstraint, _Interval):
 
 
 class _OpenInterval(_Interval):
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         return (x > self.lower_bound) & (x < self.upper_bound)
 
     def __repr__(self) -> str:
@@ -568,7 +572,7 @@ class _OpenInterval(_Interval):
 class _LowerCholesky(_SingletonConstraint):
     event_dim = 2
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
         lower_triangular = jnp.all(
@@ -577,7 +581,7 @@ class _LowerCholesky(_SingletonConstraint):
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]), prototype.shape
         )
@@ -590,10 +594,10 @@ class _Multinomial(Constraint):
     def __init__(self, upper_bound: ArrayLike) -> None:
         self.upper_bound = upper_bound
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + (
             (0, prototype.shape[-1] - 1),
         )
@@ -617,22 +621,22 @@ class _L1Ball(_SingletonConstraint):
     event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         eps = jnp.finfo(x.dtype).eps
         return jnp.abs(x).sum(axis=-1) < 1 + self.reltol * eps
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.zeros_like(prototype)
 
 
 class _OrderedVector(_SingletonConstraint):
     event_dim = 1
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.arange(float(prototype.shape[-1])), prototype.shape
         )
@@ -641,7 +645,7 @@ class _OrderedVector(_SingletonConstraint):
 class _PositiveDefinite(_SingletonConstraint):
     event_dim = 2
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
         symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
@@ -649,7 +653,7 @@ class _PositiveDefinite(_SingletonConstraint):
         positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]), prototype.shape
         )
@@ -658,20 +662,20 @@ class _PositiveDefinite(_SingletonConstraint):
 class _PositiveDefiniteCirculantVector(_SingletonConstraint):
     event_dim = 1
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tol = 10 * jnp.finfo(x.dtype).eps
         rfft = jnp.fft.rfft(x)
         return (jnp.abs(rfft.imag) < tol) & (rfft.real > -tol)
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.zeros_like(prototype).at[..., 0].set(1.0)
 
 
 class _PositiveSemiDefinite(_SingletonConstraint):
     event_dim = 2
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
         symmetric = jnp.all(jnp.isclose(x, jnp.swapaxes(x, -2, -1)), axis=(-2, -1))
@@ -679,7 +683,7 @@ class _PositiveSemiDefinite(_SingletonConstraint):
         nonnegative = jnp.linalg.eigh(x)[0][..., 0] >= 0
         return symmetric & nonnegative
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]), prototype.shape
         )
@@ -693,41 +697,41 @@ class _PositiveOrderedVector(_SingletonConstraint):
 
     event_dim = 1
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         return ordered_vector.check(x) & independent(positive, 1).check(x)
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))), prototype.shape
         )
 
 
 class _Complex(_SingletonConstraint):
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float("inf")) & (x != float("-inf"))
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.zeros_like(prototype)
 
 
 class _Real(_SingletonConstraint):
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> ArrayLike:
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float("inf")) & (x != float("-inf"))
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.zeros_like(prototype)
 
 
 class _Simplex(_SingletonConstraint):
     event_dim = 1
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         x_sum = x.sum(axis=-1)
         return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
@@ -735,12 +739,12 @@ class _SoftplusPositive(_SingletonConstraint, _GreaterThan):
     def __init__(self) -> None:
         super().__init__(lower_bound=0.0)
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NumLike) -> NumLike:
         return jax.numpy.full(jax.numpy.shape(prototype), np.log(2))
 
 
 class _SoftplusLowerCholesky(_LowerCholesky):
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.broadcast_to(
             jax.numpy.eye(prototype.shape[-1]) * np.log(2), prototype.shape
         )
@@ -758,14 +762,14 @@ class _Sphere(_SingletonConstraint):
     event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         eps = jnp.finfo(x.dtype).eps
         norm = jnp.linalg.norm(x, axis=-1)
         error = jnp.abs(norm - 1)
         return error < self.reltol * eps * x.shape[-1] ** 0.5
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
 
 
@@ -774,7 +778,7 @@ class _ZeroSum(Constraint):
         self.event_dim = event_dim
         super().__init__()
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tol = jnp.finfo(x.dtype).eps * x.shape[-1] * 10
         zerosum_true = True
@@ -785,7 +789,7 @@ class _ZeroSum(Constraint):
     def __eq__(self, other: ConstraintT) -> bool:
         return type(self) is type(other) and self.event_dim == other.event_dim
 
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jax.numpy.zeros_like(prototype)
 
     def tree_flatten(self):
@@ -801,18 +805,18 @@ complex: ConstraintT = _Complex()
 corr_cholesky: ConstraintT = _CorrCholesky()
 corr_matrix: ConstraintT = _CorrMatrix()
 dependent: ConstraintT = _Dependent()
-greater_than: ConstraintT = _GreaterThan
-greater_than_eq: ConstraintT = _GreaterThanEq
-less_than: ConstraintT = _LessThan
-less_than_eq: ConstraintT = _LessThanEq
-independent: ConstraintT = _IndependentConstraint
-integer_interval: ConstraintT = _IntegerInterval
-integer_greater_than: ConstraintT = _IntegerGreaterThan
-interval: ConstraintT = _Interval
+greater_than = _GreaterThan
+greater_than_eq = _GreaterThanEq
+less_than = _LessThan
+less_than_eq = _LessThanEq
+independent = _IndependentConstraint
+integer_interval = _IntegerInterval
+integer_greater_than = _IntegerGreaterThan
+interval = _Interval
 l1_ball: ConstraintT = _L1Ball()
 lower_cholesky: ConstraintT = _LowerCholesky()
 scaled_unit_lower_cholesky: ConstraintT = _ScaledUnitLowerCholesky()
-multinomial: ConstraintT = _Multinomial
+multinomial = _Multinomial
 nonnegative: ConstraintT = _Nonnegative()
 nonnegative_integer: ConstraintT = _IntegerNonnegative()
 ordered_vector: ConstraintT = _OrderedVector()
@@ -830,5 +834,5 @@ softplus_lower_cholesky: ConstraintT = _SoftplusLowerCholesky()
 softplus_positive: ConstraintT = _SoftplusPositive()
 sphere: ConstraintT = _Sphere()
 unit_interval: ConstraintT = _UnitInterval()
-open_interval: ConstraintT = _OpenInterval
-zero_sum: ConstraintT = _ZeroSum
+open_interval = _OpenInterval
+zero_sum = _ZeroSum

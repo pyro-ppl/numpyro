@@ -80,7 +80,7 @@ def _vmap_over_affine_transform(
     dist_axes = copy.copy(dist)
     dist_axes.loc = loc
     dist_axes.scale = scale
-    dist_axes.domain = domain
+    dist_axes._domain = domain
     return dist_axes
 
 
