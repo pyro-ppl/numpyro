@@ -40,9 +40,27 @@ PyTree: TypeAlias = Any
 NumLikeT = TypeVar("NumLikeT", bound=NumLike)
 
 
+# ConstraintLike represents any constraint object (both Constraint[NumLike] and
+# Constraint[NonScalarArray]). We use Any because:
+# 1. Constraint[T] is a generic class, and mypy struggles with Protocol subtyping
+#    of generic classes due to variance issues
+# 2. Some constraints only accept NonScalarArray while others accept full NumLike,
+#    making a single Protocol definition either too restrictive or too permissive
+# 3. Creating a structural Protocol causes mypy errors when assigning concrete
+#    constraint instances to protocol-typed variables
+# At runtime, all constraints share the interface (is_discrete, event_dim, __call__, etc.)
+# and work correctly. This type alias provides better documentation than raw `Any`
+# while acknowledging the limitations of Python's type system for this use case.
+ConstraintLike: TypeAlias = Any
+
+
 @runtime_checkable
 class ConstraintT(Protocol):
-    """A protocol for typing constraints."""
+    """A protocol for typing constraints that accept NumLike inputs.
+
+    This is a more specific protocol for constraints that can handle both
+    arrays and scalars (NumLike type).
+    """
 
     @property
     def is_discrete(self) -> bool: ...
@@ -117,9 +135,9 @@ class TransformT(Protocol):
     _inv: Optional[Union["TransformT", weakref.ref]] = ...
 
     @property
-    def domain(self) -> ConstraintT: ...
+    def domain(self) -> ConstraintLike: ...
     @property
-    def codomain(self) -> ConstraintT: ...
+    def codomain(self) -> ConstraintLike: ...
     @property
     def inv(self) -> "TransformT": ...
     @property

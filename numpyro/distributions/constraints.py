@@ -118,11 +118,11 @@ class Constraint(Generic[NumLikeT]):
     def event_dim(self) -> int:
         return self._event_dim
 
-    @is_discrete.setter  # type: ignore[attr-defined]
+    @is_discrete.setter  # type: ignore[attr-defined, no-redef]
     def is_discrete(self, value: bool):
         self._is_discrete = value
 
-    @event_dim.setter  # type: ignore[attr-defined]
+    @event_dim.setter  # type: ignore[attr-defined, no-redef]
     def event_dim(self, value: int):
         self._event_dim = value
 
@@ -283,7 +283,9 @@ class dependent_property(property, _Dependent[NumLikeT]):
         self._is_discrete = is_discrete
         self._event_dim = event_dim
 
-    def __call__(self, x: NumLikeT) -> ArrayLike:
+    def __call__(  # type: ignore[override]
+        self, x: NumLikeT
+    ) -> ArrayLike:
         if not callable(x):
             return super().__call__(x)
 
@@ -351,6 +353,9 @@ class _IndependentConstraint(Constraint[NumLikeT]):
     independent entries are valid.
     """
 
+    base_constraint: ConstraintT
+    reinterpreted_batch_ndims: int
+
     def __init__(self, base_constraint: ConstraintT, reinterpreted_batch_ndims: int):
         assert isinstance(base_constraint, Constraint)
         assert isinstance(reinterpreted_batch_ndims, int)
@@ -394,7 +399,7 @@ class _IndependentConstraint(Constraint[NumLikeT]):
         )
 
     def feasible_like(self, prototype: NumLikeT) -> NumLikeT:
-        return self.base_constraint.feasible_like(prototype)
+        return self.base_constraint.feasible_like(prototype)  # type: ignore[return-value]
 
     def tree_flatten(self):
         return (self.base_constraint,), (
@@ -846,9 +851,9 @@ class _ZeroSum(Constraint[NonScalarArray]):
 boolean: ConstraintT = _Boolean()
 circular: ConstraintT = _Circular()
 complex: ConstraintT = _Complex()
-corr_cholesky: ConstraintT = _CorrCholesky()
-corr_matrix: ConstraintT = _CorrMatrix()
-dependent: ConstraintT = _Dependent()
+corr_cholesky = _CorrCholesky()
+corr_matrix = _CorrMatrix()
+dependent: _Dependent = _Dependent()
 greater_than = _GreaterThan
 greater_than_eq = _GreaterThanEq
 less_than = _LessThan
@@ -858,25 +863,25 @@ integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
 l1_ball: ConstraintT = _L1Ball()
-lower_cholesky: ConstraintT = _LowerCholesky()
-scaled_unit_lower_cholesky: ConstraintT = _ScaledUnitLowerCholesky()
+lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
 nonnegative: ConstraintT = _Nonnegative()
 nonnegative_integer: ConstraintT = _IntegerNonnegative()
-ordered_vector: ConstraintT = _OrderedVector()
+ordered_vector = _OrderedVector()
 positive: ConstraintT = _Positive()
-positive_definite: ConstraintT = _PositiveDefinite()
-positive_definite_circulant_vector: ConstraintT = _PositiveDefiniteCirculantVector()
-positive_semidefinite: ConstraintT = _PositiveSemiDefinite()
+positive_definite = _PositiveDefinite()
+positive_definite_circulant_vector = _PositiveDefiniteCirculantVector()
+positive_semidefinite = _PositiveSemiDefinite()
 positive_integer: ConstraintT = _IntegerPositive()
-positive_ordered_vector: ConstraintT = _PositiveOrderedVector()
+positive_ordered_vector = _PositiveOrderedVector()
 real: ConstraintT = _Real()
-real_vector: ConstraintT = _RealVector()
-real_matrix: ConstraintT = _RealMatrix()
-simplex: ConstraintT = _Simplex()
-softplus_lower_cholesky: ConstraintT = _SoftplusLowerCholesky()
+real_vector = _RealVector()
+real_matrix = _RealMatrix()
+simplex = _Simplex()
+softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive: ConstraintT = _SoftplusPositive()
-sphere: ConstraintT = _Sphere()
+sphere = _Sphere()
 unit_interval: ConstraintT = _UnitInterval()
 open_interval = _OpenInterval
 zero_sum = _ZeroSum
