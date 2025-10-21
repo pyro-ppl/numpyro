@@ -64,7 +64,7 @@ __all__ = [
 ]
 
 import math
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional
 
 import numpy as np
 
@@ -73,9 +73,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, NonScalarArray, NumLike
-
-NumLikeT = TypeVar("NumLikeT", bound=NumLike)
+from numpyro._typing import ConstraintT, NonScalarArray, NumLike, NumLikeT
 
 
 class Constraint(Generic[NumLikeT]):
@@ -353,9 +351,7 @@ class _IndependentConstraint(Constraint[NumLikeT]):
     independent entries are valid.
     """
 
-    def __init__(
-        self, base_constraint: ConstraintT[NumLikeT], reinterpreted_batch_ndims: int
-    ):
+    def __init__(self, base_constraint: ConstraintT, reinterpreted_batch_ndims: int):
         assert isinstance(base_constraint, Constraint)
         assert isinstance(reinterpreted_batch_ndims, int)
         assert reinterpreted_batch_ndims >= 0
@@ -846,12 +842,12 @@ class _ZeroSum(Constraint[NonScalarArray]):
 # TODO: Make types consistent
 # See https://github.com/pytorch/pytorch/issues/50616
 
-# fmt: off
-boolean: ConstraintT[NumLike] = _Boolean()
-circular: ConstraintT[NumLike] = _Circular()
-complex: ConstraintT[NumLike] = _Complex()
-corr_cholesky: ConstraintT[NonScalarArray] = _CorrCholesky()
-corr_matrix: ConstraintT[NonScalarArray] = _CorrMatrix()
+
+boolean: ConstraintT = _Boolean()
+circular: ConstraintT = _Circular()
+complex: ConstraintT = _Complex()
+corr_cholesky: ConstraintT = _CorrCholesky()
+corr_matrix: ConstraintT = _CorrMatrix()
 dependent: ConstraintT = _Dependent()
 greater_than = _GreaterThan
 greater_than_eq = _GreaterThanEq
@@ -861,27 +857,26 @@ independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
-l1_ball: ConstraintT[NumLike] = _L1Ball()
-lower_cholesky: ConstraintT[NonScalarArray] = _LowerCholesky()
-scaled_unit_lower_cholesky: ConstraintT[NonScalarArray] = _ScaledUnitLowerCholesky()
+l1_ball: ConstraintT = _L1Ball()
+lower_cholesky: ConstraintT = _LowerCholesky()
+scaled_unit_lower_cholesky: ConstraintT = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
-nonnegative: ConstraintT[NumLike] = _Nonnegative()
-nonnegative_integer: ConstraintT[NumLike] = _IntegerNonnegative()
-ordered_vector: ConstraintT[NonScalarArray] = _OrderedVector()
-positive: ConstraintT[NumLike] = _Positive()
-positive_definite: ConstraintT[NonScalarArray] = _PositiveDefinite()
-positive_definite_circulant_vector: ConstraintT[NonScalarArray] = _PositiveDefiniteCirculantVector()
-positive_semidefinite: ConstraintT[NonScalarArray] = _PositiveSemiDefinite()
-positive_integer: ConstraintT[NumLike] = _IntegerPositive()
-positive_ordered_vector: ConstraintT[NonScalarArray] = _PositiveOrderedVector()
-real: ConstraintT[NumLike] = _Real()
-real_vector: ConstraintT[NumLike] = _RealVector()
-real_matrix: ConstraintT[NumLike] = _RealMatrix()
-simplex: ConstraintT[NonScalarArray] = _Simplex()
-softplus_lower_cholesky: ConstraintT[NonScalarArray] = _SoftplusLowerCholesky()
-softplus_positive: ConstraintT[NumLike] = _SoftplusPositive()
-sphere: ConstraintT[NonScalarArray] = _Sphere()
-unit_interval: ConstraintT[NumLike] = _UnitInterval()
+nonnegative: ConstraintT = _Nonnegative()
+nonnegative_integer: ConstraintT = _IntegerNonnegative()
+ordered_vector: ConstraintT = _OrderedVector()
+positive: ConstraintT = _Positive()
+positive_definite: ConstraintT = _PositiveDefinite()
+positive_definite_circulant_vector: ConstraintT = _PositiveDefiniteCirculantVector()
+positive_semidefinite: ConstraintT = _PositiveSemiDefinite()
+positive_integer: ConstraintT = _IntegerPositive()
+positive_ordered_vector: ConstraintT = _PositiveOrderedVector()
+real: ConstraintT = _Real()
+real_vector: ConstraintT = _RealVector()
+real_matrix: ConstraintT = _RealMatrix()
+simplex: ConstraintT = _Simplex()
+softplus_lower_cholesky: ConstraintT = _SoftplusLowerCholesky()
+softplus_positive: ConstraintT = _SoftplusPositive()
+sphere: ConstraintT = _Sphere()
+unit_interval: ConstraintT = _UnitInterval()
 open_interval = _OpenInterval
 zero_sum = _ZeroSum
-# fmt: on
