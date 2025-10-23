@@ -37,9 +37,6 @@ PyTree: TypeAlias = Any
 """A generic type for a pytree, i.e. a nested structure of lists, tuples, dicts, and arrays."""
 
 
-NumLikeT = TypeVar("NumLikeT", bound=NumLike)
-
-
 @runtime_checkable
 class ConstraintT(Protocol):
     """A protocol for typing constraints."""
