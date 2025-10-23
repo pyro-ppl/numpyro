@@ -369,13 +369,12 @@ class _IndependentConstraint(Constraint[NumLikeT]):
             raise ValueError(
                 f"Expected value.dim() >= {expected} but got {jax.numpy.ndim(value)}"
             )
-        # jax>=0.7.2 introduced `TypedNdArray` to represent constants in jaxpr, and they
-        # have no reshape method.
-        result = result.reshape(  # type: ignore[union-attr]
+        result = jnp.reshape(
+            result,
             jax.numpy.shape(result)[
                 : jax.numpy.ndim(result) - self.reinterpreted_batch_ndims
             ]
-            + (-1,)
+            + (-1,),
         )
         result = result.all(-1)
         return result
