@@ -120,14 +120,6 @@ class Constraint(Generic[NumLikeT]):
     def event_dim(self) -> int:
         return self._event_dim
 
-    @is_discrete.setter  # type: ignore[attr-defined]
-    def is_discrete(self, value: bool):
-        self._is_discrete = value
-
-    @event_dim.setter  # type: ignore[attr-defined]
-    def event_dim(self, value: int):
-        self._event_dim = value
-
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         params_keys, aux_data = aux_data
@@ -271,7 +263,7 @@ class _Dependent(Constraint[NumLikeT]):
     def tree_flatten(self):
         return (), (
             (),
-            dict(is_discrete=self._is_discrete, event_dim=self._event_dim),
+            dict(_is_discrete=self._is_discrete, _event_dim=self._event_dim),
         )
 
 

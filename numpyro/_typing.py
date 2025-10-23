@@ -4,7 +4,7 @@
 
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, Optional, Protocol, TypeVar, Union, runtime_checkable
+from typing import Any, Optional, Protocol, Union, runtime_checkable
 import weakref
 
 try:
@@ -45,10 +45,6 @@ class ConstraintT(Protocol):
     def is_discrete(self) -> bool: ...
     @property
     def event_dim(self) -> int: ...
-    @is_discrete.setter
-    def is_discrete(self, value: bool): ...
-    @event_dim.setter
-    def event_dim(self, value: int): ...
 
     def __call__(self, x: NumLike) -> ArrayLike: ...
     def __repr__(self) -> str: ...
