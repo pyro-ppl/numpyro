@@ -330,6 +330,10 @@ class IntervalCensoredDistribution(Distribution):
     # loglik[2] = log (F(9) - F(6))
     """
 
+    arg_constraints = {
+        "left_censored": constraints.boolean,
+        "right_censored": constraints.boolean,
+    }
     pytree_data_fields = ("base_dist", "left_censored", "right_censored", "_support")
 
     def __init__(
@@ -376,7 +380,7 @@ class IntervalCensoredDistribution(Distribution):
     @validate_sample
     def log_prob(self, value):
         dtype = jnp.result_type(value, float)
-        # minval = 100.0 * jnp.finfo(dtype).tiny
+        minval = 100.0 * jnp.finfo(dtype).tiny
         eps = jnp.finfo(dtype).eps
 
         x1 = jnp.take(value, 0, axis=-1)  # left bound
@@ -405,8 +409,8 @@ class IntervalCensoredDistribution(Distribution):
         F2 = jnp.where(m_right, 1.0, F2_tmp)
 
         # Stabilize against log(0) and tiny intervals
-        F1 = jnp.clip(F1, eps, 1.0)
-        F2 = jnp.clip(F2, eps, 1.0)
+        F1 = jnp.clip(F1, minval, 1.0 - eps)
+        F2 = jnp.clip(F2, minval, 1.0 - eps)
 
         # Use a stable log-diff for intervals (also covers left/right cases)
         # log(F2 - F1) = logF2 + log1p(-exp(logF1 - logF2))
@@ -414,7 +418,7 @@ class IntervalCensoredDistribution(Distribution):
         logF2 = jnp.log(F2)
         lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, max=-eps)))
 
-        # for doubly censored data, the value is not in the interval, so computation is 1 - lp_interval
+        # for doubly censored data, the value is not in the interval, so computation is 1 - exp(lp_interval)
         lp_double = jnp.log1p(-jnp.exp(lp_interval))
 
         # Select the right expression per row

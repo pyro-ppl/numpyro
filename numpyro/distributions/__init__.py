@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.distributions.censored import (
+    IntervalCensoredDistribution,
     LeftCensoredDistribution,
     RightCensoredDistribution,
 )
@@ -200,6 +201,7 @@ __all__ = [
     "RightTruncatedDistribution",
     "LeftCensoredDistribution",
     "RightCensoredDistribution",
+    "IntervalCensoredDistribution",
     "SineBivariateVonMises",
     "SineSkewed",
     "SoftLaplace",
