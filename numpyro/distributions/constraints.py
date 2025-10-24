@@ -404,14 +404,14 @@ class _IndependentConstraint(Constraint[NumLikeT]):
 
 
 class _RealVector(
-    _IndependentConstraint[NumLike], _SingletonConstraint[NonScalarArray]
+    _IndependentConstraint[NonScalarArray], _SingletonConstraint[NonScalarArray]
 ):
     def __init__(self) -> None:
         super().__init__(_Real(), 1)
 
 
 class _RealMatrix(
-    _IndependentConstraint[NumLike], _SingletonConstraint[NonScalarArray]
+    _IndependentConstraint[NonScalarArray], _SingletonConstraint[NonScalarArray]
 ):
     def __init__(self) -> None:
         super().__init__(_Real(), 2)
