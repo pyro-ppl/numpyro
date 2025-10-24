@@ -84,8 +84,8 @@ class Constraint(Generic[NumLikeT]):
     e.g. within which a variable can be optimized.
     """
 
-    _is_discrete = False
-    _event_dim = 0
+    is_discrete: bool = False
+    event_dim: int = 0
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -109,14 +109,6 @@ class Constraint(Generic[NumLikeT]):
         Get a feasible value which has the same shape as dtype as `prototype`.
         """
         raise NotImplementedError
-
-    @property
-    def is_discrete(self) -> bool:
-        return self._is_discrete
-
-    @property
-    def event_dim(self) -> int:
-        return self._event_dim
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -149,7 +141,7 @@ class _SingletonConstraint(ParameterFreeConstraint[NumLikeT]):
 
 
 class _Boolean(_SingletonConstraint[NumLike]):
-    _is_discrete = True
+    is_discrete = True
 
     def __call__(self, x: NumLike) -> ArrayLike:
         xp = jax.numpy if isinstance(x, jax.Array) else np
@@ -160,7 +152,7 @@ class _Boolean(_SingletonConstraint[NumLike]):
 
 
 class _CorrCholesky(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 2
+    event_dim = 2
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -179,7 +171,7 @@ class _CorrCholesky(_SingletonConstraint[NonScalarArray]):
 
 
 class _CorrMatrix(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 2
+    event_dim = 2
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -226,7 +218,7 @@ class _Dependent(Constraint[NumLikeT]):
         return self._is_discrete
 
     @property
-    def event_dim(self) -> int:
+    def event_dim(self) -> int:  # type: ignore[override]
         if self._event_dim is NotImplemented:
             raise NotImplementedError(".event_dim cannot be determined statically")
         return self._event_dim
@@ -260,7 +252,7 @@ class _Dependent(Constraint[NumLikeT]):
     def tree_flatten(self):
         return (), (
             (),
-            dict(_is_discrete=self._is_discrete, _event_dim=self._event_dim),
+            dict(_is_discrete=self._is_discrete, _event_dim=self.event_dim),
         )
 
 
@@ -272,7 +264,7 @@ class dependent_property(property, _Dependent[NumLikeT]):
     ):
         super().__init__(fn)
         self._is_discrete = is_discrete
-        self._event_dim = event_dim
+        self.event_dim = event_dim
 
     def __call__(self, x: NumLikeT) -> ArrayLike:
         if not callable(x):
@@ -283,7 +275,7 @@ class dependent_property(property, _Dependent[NumLikeT]):
         #     def support(self):
         #         ...
         return dependent_property(
-            x, is_discrete=self._is_discrete, event_dim=self._event_dim
+            x, is_discrete=self._is_discrete, event_dim=self.event_dim
         )
 
 
@@ -355,8 +347,8 @@ class _IndependentConstraint(Constraint[NumLikeT]):
             base_constraint = base_constraint.base_constraint
         self.base_constraint: Constraint = base_constraint
         self.reinterpreted_batch_ndims: int = reinterpreted_batch_ndims
-        self._is_discrete = base_constraint.is_discrete
-        self._event_dim = base_constraint.event_dim + reinterpreted_batch_ndims
+        self.is_discrete = base_constraint.is_discrete
+        self.event_dim = base_constraint.event_dim + reinterpreted_batch_ndims
         super().__init__()
 
     def __call__(self, value: NumLikeT) -> ArrayLike:
@@ -454,7 +446,7 @@ class _LessThanEq(_LessThan):
 
 
 class _IntegerInterval(Constraint[NumLike]):
-    _is_discrete = True
+    is_discrete = True
 
     def __init__(self, lower_bound: NumLike, upper_bound: NumLike) -> None:
         self.lower_bound = lower_bound
@@ -494,7 +486,7 @@ class _IntegerInterval(Constraint[NumLike]):
 
 
 class _IntegerGreaterThan(Constraint[NumLike]):
-    _is_discrete = True
+    is_discrete = True
 
     def __init__(self, lower_bound: NumLike) -> None:
         self.lower_bound = lower_bound
@@ -591,7 +583,7 @@ class _OpenInterval(_Interval):
 
 
 class _LowerCholesky(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 2
+    event_dim = 2
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -607,8 +599,8 @@ class _LowerCholesky(_SingletonConstraint[NonScalarArray]):
 
 
 class _Multinomial(Constraint[NonScalarArray]):
-    _is_discrete = True
-    _event_dim = 1
+    is_discrete = True
+    event_dim = 1
 
     def __init__(self, upper_bound: ArrayLike) -> None:
         self.upper_bound = upper_bound
@@ -638,7 +630,7 @@ class _L1Ball(_SingletonConstraint[NumLike]):
     Constrain to the L1 ball of any dimension.
     """
 
-    _event_dim = 1
+    event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
 
     def __call__(self, x: NumLike) -> ArrayLike:
@@ -651,7 +643,7 @@ class _L1Ball(_SingletonConstraint[NumLike]):
 
 
 class _OrderedVector(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 1
+    event_dim = 1
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
@@ -663,7 +655,7 @@ class _OrderedVector(_SingletonConstraint[NonScalarArray]):
 
 
 class _PositiveDefinite(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 2
+    event_dim = 2
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -680,7 +672,7 @@ class _PositiveDefinite(_SingletonConstraint[NonScalarArray]):
 
 
 class _PositiveDefiniteCirculantVector(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 1
+    event_dim = 1
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -693,7 +685,7 @@ class _PositiveDefiniteCirculantVector(_SingletonConstraint[NonScalarArray]):
 
 
 class _PositiveSemiDefinite(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 2
+    event_dim = 2
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -715,7 +707,7 @@ class _PositiveOrderedVector(_SingletonConstraint[NonScalarArray]):
     increasing along the `event_shape` dimension.
     """
 
-    _event_dim = 1
+    event_dim = 1
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         return jnp.logical_and(
@@ -752,7 +744,7 @@ class _Real(_SingletonConstraint[NumLike]):
 
 
 class _Simplex(_SingletonConstraint[NonScalarArray]):
-    _event_dim = 1
+    event_dim = 1
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         x_sum = x.sum(axis=-1)
@@ -786,7 +778,7 @@ class _Sphere(_SingletonConstraint[NonScalarArray]):
     Constrain to the Euclidean sphere of any dimension.
     """
 
-    _event_dim = 1
+    event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
@@ -802,7 +794,7 @@ class _Sphere(_SingletonConstraint[NonScalarArray]):
 
 class _ZeroSum(Constraint[NonScalarArray]):
     def __init__(self, event_dim: int = 1) -> None:
-        self._event_dim = event_dim
+        self.event_dim = event_dim
         super().__init__()
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
