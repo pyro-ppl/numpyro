@@ -64,7 +64,7 @@ __all__ = [
 ]
 
 import math
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional
 
 import numpy as np
 
@@ -73,9 +73,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, NonScalarArray, NumLike
-
-NumLikeT = TypeVar("NumLikeT", bound=NumLike)
+from numpyro._typing import ConstraintT, NonScalarArray, NumLike, NumLikeT
 
 
 class Constraint(Generic[NumLikeT]):

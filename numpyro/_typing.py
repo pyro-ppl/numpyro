@@ -4,7 +4,7 @@
 
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Optional, Protocol, TypeVar, Union, runtime_checkable
 import weakref
 
 try:
@@ -35,6 +35,9 @@ NumLike = Union[NonScalarArray, np.number, int, float, complex]
 
 PyTree: TypeAlias = Any
 """A generic type for a pytree, i.e. a nested structure of lists, tuples, dicts, and arrays."""
+
+
+NumLikeT = TypeVar("NumLikeT", bound=NumLike)
 
 
 @runtime_checkable
