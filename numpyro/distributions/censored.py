@@ -258,7 +258,7 @@ class IntervalCensoredDistribution(Distribution):
     This distribution augments a base distribution with interval censoring,
     so that the likelihood contribution depends on whether the observation is
     left-censored, right-censored, interval-censored, or doubly-censored
-    (meaning value is known not to be in the interval, which is rare in practice).
+    (meaning value is known to lie outside of the interval).
 
     Parameters
     ----------
@@ -380,8 +380,8 @@ class IntervalCensoredDistribution(Distribution):
     @validate_sample
     def log_prob(self, value):
         dtype = jnp.result_type(value, float)
-        minval = 100.0 * jnp.finfo(dtype).tiny
-        eps = jnp.finfo(dtype).eps
+        minval = 100.0 * jnp.finfo(dtype).tiny  # for values close to 0
+        eps = jnp.finfo(dtype).eps  # otherwise
 
         x1 = jnp.take(value, 0, axis=-1)  # left bound
         x2 = jnp.take(value, 1, axis=-1)  # right bound
@@ -416,7 +416,7 @@ class IntervalCensoredDistribution(Distribution):
         # log(F2 - F1) = logF2 + log1p(-exp(logF1 - logF2))
         logF1 = jnp.log(F1)
         logF2 = jnp.log(F2)
-        lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, max=-eps)))
+        lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, max=-minval)))
 
         # for doubly censored data, the value is not in the interval, so computation is 1 - exp(lp_interval)
         lp_double = jnp.log1p(-jnp.exp(lp_interval))

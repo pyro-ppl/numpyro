@@ -4021,9 +4021,12 @@ param_cens_dist = pytest.mark.parametrize(
         (dist.HalfNormal, (1.0,)),
         (dist.Poisson, (1.0,)),
         (dist.GammaPoisson, (1, 1)),
+        (dist.Weibull, (1.0, 1.0)),
     ],
 )
 param_censored = pytest.mark.parametrize("censored", [0.0, 1.0])
+param_left_censored = pytest.mark.parametrize("left_censored", [0.0, 1.0])
+param_right_censored = pytest.mark.parametrize("right_censored", [0.0, 1.0])
 
 
 @param_cens_dist
@@ -4080,6 +4083,72 @@ def test_right_censored_logprob(base_dist_class, base_params, censored):
         censored, logp_values - logS_values, logp_values - base_logp_values
     )
     assert jnp.abs(base_diff).max() < 1e-6
+
+
+@param_cens_dist
+@param_left_censored
+@param_right_censored
+def test_interval_censored_logprob(
+    base_dist_class, base_params, left_censored, right_censored
+):
+    """Test log_prob for interval censored distributions."""
+    base_dist = base_dist_class(*base_params)
+    interval_censored_dist = dist.IntervalCensoredDistribution(
+        base_dist, left_censored, right_censored
+    )
+    left_censored_dist = dist.LeftCensoredDistribution(base_dist, 1.0)
+    right_censored_dist = dist.RightCensoredDistribution(base_dist, 1.0)
+
+    # Test points
+    test_values_lower = base_dist.support.feasible_like(jnp.zeros((1,)))
+    test_values_upper = test_values_lower + 1
+    test_values = jnp.stack([test_values_lower, test_values_upper], axis=-1)
+
+    # Compute log_prob
+    logp_values = interval_censored_dist.log_prob(test_values)
+    # note: for left censoring, the value is cdf up to right point
+    logp_values_left_lower = left_censored_dist.log_prob(test_values_lower)
+    logp_values_left_upper = left_censored_dist.log_prob(test_values_upper)
+    # note: for right censoring, the value is cdf from left point up to infinity
+    logp_values_right_lower = right_censored_dist.log_prob(test_values_lower)
+    logp_values_right_upper = right_censored_dist.log_prob(test_values_upper)
+
+    # Basic properties
+    assert logp_values.shape == test_values_lower.shape
+    assert jnp.all(jnp.isfinite(logp_values))
+
+    lc = jnp.array(left_censored, dtype=bool)
+    rc = jnp.array(right_censored, dtype=bool)
+    m_left = lc & ~rc
+    m_right = rc & ~lc
+
+    # For left censored points, log_prob should match left censored distribution, evaluated at right point
+    # For right censored points, log_prob should match right censored distribution, evaluated at left point
+    left_diff = jnp.where(m_left, logp_values - logp_values_left_upper, 0.0)
+    right_diff = jnp.where(m_right, logp_values - logp_values_right_lower, 0.0)
+    assert jnp.abs(left_diff).max() < 1e-6
+    assert jnp.abs(right_diff).max() < 1e-6
+
+    # for interval censored points, log_prob should be log CDF between left and right points,
+    # evaluated at respective points
+    # logp_left(x) = log CDF(x)
+    # logp_right(y) = log (1 - CDF(y)) = log S(y)
+    # logp_interval(x, y) = log (CDF(y) - CDF(x)) = log (exp(logp_left(y)) - exp(logp_right(x)))
+    m_interval = (~lc) & (~rc)
+    interval_comparison = jnp.log1p(
+        -(jnp.exp(logp_values_right_upper) + jnp.exp(logp_values_left_lower))
+    )
+    interval_diff = jnp.where(m_interval, logp_values - interval_comparison, 0.0)
+    assert jnp.abs(interval_diff).max() < 1e-5
+
+    # for double censored points, log_prob should be log (1 - CDF between left and right points)
+    # logp_double(x, y) = log (1 - (CDF(y) - CDF(x))) = log (1 - CDF(y) + CDF(x))
+    m_double = lc & rc
+    double_comparison = jnp.log(
+        jnp.exp(logp_values_right_upper) + jnp.exp(logp_values_left_lower)
+    )
+    double_diff = jnp.where(m_double, logp_values - double_comparison, 0.0)
+    assert jnp.abs(double_diff).max() < 1e-5
 
 
 def test_censored_logprob_edge_cases():
