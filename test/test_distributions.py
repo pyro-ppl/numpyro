@@ -4152,3 +4152,58 @@ def test_censored_sample_shape():
     )
     samples = censored_dist.sample(rng_key, sample_shape)
     assert samples.shape == expected_shape
+
+
+def test_beta_logprob_edge_case_concentration1_one():
+    """Test Beta(1, β) at x=0 should give finite log probability."""
+    beta_dist = dist.Beta(1.0, 8.0)
+    log_prob_at_zero = beta_dist.log_prob(0.0)
+
+    assert not jnp.isnan(log_prob_at_zero), "Beta(1,8).log_prob(0) should not be NaN"
+    assert jnp.isfinite(log_prob_at_zero), "Beta(1,8).log_prob(0) should be finite"
+
+
+def test_beta_logprob_edge_case_concentration0_one():
+    """Test Beta(α, 1) at x=1 should give finite log probability."""
+    beta_dist2 = dist.Beta(8.0, 1.0)
+    log_prob_at_one = beta_dist2.log_prob(1.0)
+
+    assert not jnp.isnan(log_prob_at_one), "Beta(8,1).log_prob(1) should not be NaN"
+    assert jnp.isfinite(log_prob_at_one), "Beta(8,1).log_prob(1) should be finite"
+
+
+def test_beta_logprob_edge_case_consistency_small_values():
+    """Test that edge case values are consistent with small deviation values."""
+    beta_dist = dist.Beta(1.0, 8.0)
+    beta_dist2 = dist.Beta(8.0, 1.0)
+
+    # At boundary
+    log_prob_at_zero = beta_dist.log_prob(0.0)
+    log_prob_at_one = beta_dist2.log_prob(1.0)
+
+    # Very close to boundary
+    small_value = 1e-10
+    log_prob_small = beta_dist.log_prob(small_value)
+    log_prob_close_to_one = beta_dist2.log_prob(1.0 - small_value)
+
+    # Edge case values should be close to small deviation values
+    assert jnp.abs(log_prob_at_zero - log_prob_small) < 1e-5
+    assert jnp.abs(log_prob_at_one - log_prob_close_to_one) < 1e-5
+
+
+def test_beta_logprob_edge_case_non_boundary_values():
+    """Test that Beta with concentration=1 still works for non-boundary values."""
+    beta_dist = dist.Beta(1.0, 8.0)
+    beta_dist2 = dist.Beta(8.0, 1.0)
+
+    assert jnp.isfinite(beta_dist.log_prob(0.5))
+    assert jnp.isfinite(beta_dist2.log_prob(0.5))
+
+
+def test_beta_logprob_boundary_non_edge_cases():
+    """Test that non-edge cases (concentration > 1) still give -inf at boundaries."""
+    beta_dist3 = dist.Beta(2.0, 8.0)
+    beta_dist4 = dist.Beta(8.0, 2.0)
+
+    assert jnp.isneginf(beta_dist3.log_prob(0.0))
+    assert jnp.isneginf(beta_dist4.log_prob(1.0))

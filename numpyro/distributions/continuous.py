@@ -216,7 +216,18 @@ class Beta(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        return self._dirichlet.log_prob(jnp.stack([value, 1.0 - value], -1))
+        # Handle edge cases where concentration1=1 and value=0, or concentration0=1 and value=1
+        # These cases would result in nan due to log(0) * 0 in the Dirichlet computation
+        log_prob = jnp.where(
+            (value == 0.0) & (self.concentration1 == 1.0),
+            jnp.log(self.concentration0),
+            jnp.where(
+                (value == 1.0) & (self.concentration0 == 1.0),
+                jnp.log(self.concentration1),
+                self._dirichlet.log_prob(jnp.stack([value, 1.0 - value], -1)),
+            ),
+        )
+        return log_prob
 
     @property
     def mean(self) -> ArrayLike:
