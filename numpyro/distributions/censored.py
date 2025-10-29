@@ -296,6 +296,9 @@ class IntervalCensoredDistribution(Distribution):
             Interval = (-inf, lower] | [upper, inf) → event occurred outside of the interval
             Contribution = log(1 - (F(upper) - F(lower)))
 
+        * If `jnp.isclose(lower, upper)`:
+            Contribution = log F(upper) (i.e., the CDF at that point)
+
     where f is the density and F the cumulative distribution function of `base_dist`.
 
     - This approach is commonly used in survival analysis, where event times are positive,
@@ -366,7 +369,7 @@ class IntervalCensoredDistribution(Distribution):
             promote_shapes(right_censored, shape=batch_shape)[0], dtype=jnp.bool
         )
         self._support = base_dist.support
-        super().__init__(event_shape=(2,), validate_args=validate_args)
+        super().__init__(batch_shape, event_shape=(2,), validate_args=validate_args)
 
     def sample(
         self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
@@ -391,6 +394,7 @@ class IntervalCensoredDistribution(Distribution):
         m_right = self.right_censored & (~self.left_censored)  # right-censored only
         m_int = (~self.left_censored) & (~self.right_censored)  # interval censored
         m_double = self.left_censored & self.right_censored  # doubly censored
+        m_point = jnp.isclose(x1, x2)  # point interval
 
         # Replace potential out-of-support values with finite placeholder BEFORE cdf
         # (value doesn't matter; it will be overwritten)
@@ -416,7 +420,10 @@ class IntervalCensoredDistribution(Distribution):
         # log(F2 - F1) = logF2 + log1p(-exp(logF1 - logF2))
         logF1 = jnp.log(F1)
         logF2 = jnp.log(F2)
+
         lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, max=-minval)))
+        # handle point intervals (x1 == x2) by returning log density instead of log prob
+        lp_interval = jnp.where(m_point, self.base_dist.log_prob(x1), lp_interval)
 
         # for doubly censored data, the value is not in the interval, so computation is 1 - exp(lp_interval)
         lp_double = jnp.log1p(-jnp.exp(lp_interval))
