@@ -58,8 +58,8 @@ def set_platform(platform: Optional[str] = None) -> None:
         separated list of these values to specify multiple platforms. If `None`,
         reads from environment variable `JAX_PLATFORMS` or defaults to `cpu`.
     """
-    flag_name: str  # for type checking
-    valid_platforms: tuple[str, ...]  # for type checking
+    flag_name: str = "jax_platforms"
+    valid_platforms: tuple[str, ...] = ("cpu", "cuda", "rocm", "tpu", "METAL")
     if platform is None:
         if (
             deprecated_platform_key := os.getenv("JAX_PLATFORM_NAME", None)
@@ -73,9 +73,7 @@ def set_platform(platform: Optional[str] = None) -> None:
             # Valid platforms are not available in current jax docs. Following
             # collection is found in
             # https://github.com/jax-ml/jax/issues/25315#issuecomment-2526987274
-            valid_platforms = ("cpu", "cuda", "rocm", "tpu", "METAL")
             platform = os.getenv("JAX_PLATFORMS", "cpu")
-            flag_name = "jax_platforms"
     assert all(p.strip() in valid_platforms for p in platform.split(",")), (
         "Invalid platform '{0}'. Valid platforms are: {1}.".format(
             platform, ", ".join(valid_platforms)
