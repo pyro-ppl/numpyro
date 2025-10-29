@@ -257,80 +257,69 @@ class IntervalCensoredDistribution(Distribution):
 
     This distribution augments a base distribution with interval censoring,
     so that the likelihood contribution depends on whether the observation is
+    exactly observed,
     left-censored, right-censored, interval-censored, or doubly-censored
-    (meaning value is known to lie outside of the interval).
+    (i.e., known to lie outside the observed interval).
 
-    Parameters
-    ----------
-    base_dist : numpyro.distributions.Distribution
-        Parametric distribution for the *uncensored* values
-        (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
-        This distribution must implement a `cdf` method.
-    left_censored : array-like of {0,1}
-        Indicator per observation:
-        - 1 → observation is left-censored at the reported upper bound
-        - 0 → not left-censored
-    right_censored : array-like of {0,1}
-        Indicator per observation:
-        - 1 → observation is right-censored at the reported lower bound
-        - 0 → not right-censored
+    :param base_dist: Parametric distribution for the *uncensored* values
+            (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
+            This distribution must implement a ``cdf`` method.
+    :type base_dist: numpyro.distributions.Distribution
+    :param left_censored: Indicator per observation:
+            1 → observation is left-censored at the reported upper bound
+            0 → not left-censored
+    :type left_censored: array-like of {0,1}
+    :param right_censored: Indicator per observation:
+            1 → observation is right-censored at the reported lower bound
+            0 → not right-censored
+    :type right_censored: array-like of {0,1}
 
-    Notes
-    -----
-    - The `log_prob(value)` method expects `value` to be a two-dimensional array
-      of shape `(batch_size, 2)`, where each row is `(lower, upper)`:
+    .. note::
+            The ``log_prob(value)`` method expects ``value`` to be a two-dimensional array
+            of shape ``(batch_size, 2)``, where each row is ``(lower, upper)``.
+            The contribution to the log-likelihood is determined as follows:
 
-        * If `left_censored[i] == 1`:
-            Interval = (-inf, upper] → left-censored at `upper`
-            Contribution = log F(upper)
+                    log F(upper)                   if left_censored == 1 and right_censored == 0
+                    log (1 - F(lower))             if right_censored == 1 and left_censored == 0
+                    log (F(upper) - F(lower))      if both == 0  (interval-censored)
+                    log (1 - (F(upper) - F(lower))) if both == 1  (doubly-censored)
+                    log f(value)                   if lower ≈ upper (point interval)
 
-        * If `right_censored[i] == 1`:
-            Interval = (lower, inf) → right-censored at `lower`
-            Contribution = log(1 - F(lower))
+            where f is the density and F the cumulative distribution function of ``base_dist``.
 
-        * If both `left_censored[i] == 0` and `right_censored[i] == 0`:
-            Interval = (lower, upper] → event occurred within the interval
-            Contribution = log(F(upper) - F(lower))
+            This is commonly used in survival analysis, where event times are positive,
+            but the approach is general and can be applied to any distribution
+            with a cumulative distribution function, regardless of support.
 
-        * If both `left_censored[i] == 1` and `right_censored[i] == 1`:
-            Interval = (-inf, lower] | [upper, inf) → event occurred outside of the interval
-            Contribution = log(1 - (F(upper) - F(lower)))
+            In R's ``survival`` package notation, this corresponds to
+            ``Surv(l, r, type = 'interval2')``.
 
-        * If `jnp.isclose(lower, upper)`:
-            Contribution = log F(upper) (i.e., the CDF at that point)
+            Example:
 
-    where f is the density and F the cumulative distribution function of `base_dist`.
+                    Surv(l = c(2, 4, 6), r = c(5, Inf, 9), type = 'interval2')
 
-    - This approach is commonly used in survival analysis, where event times are positive,
-      but it is more general and can be applied to any distribution with a cumulative
-      distribution function, regardless of support.
+            means:
 
-    - This matches the semantics of R’s **survival** package with
-    `Surv(l, r, type = "interval2")`.
+                    subject 1 had an event in (2, 5]
+                    subject 2 was right-censored at 4
+                    subject 3 had an event in (6, 9]
 
-        Example:
-        `Surv(l = c(2, 4, 6), r = c(5, Inf, 9), type="interval2")`
-        means:
-        * subject 1: event occurred in (2, 5]
-        * subject 2: event interval (2,5]
-        * subject 3: event occurred in (6, 9]
+    **Example:**
 
-    Examples
-    --------
-    >>> base = dist.Weibull(concentration=2.0, scale=3.0)
-    >>> left_censored = jnp.array([0, 0, 0])
-    >>> right_censored = jnp.array([0, 1, 0])
-    >>> surv_dist = IntervalCensoredDistribution(base, left_censored=left_censored, right_censored=right_censored)
-    >>> # Three observations: interval-censored, right-censored, interval-censored
-    >>> values = jnp.array([
-    ...     [2.0, 5.0],   # left-censored at 4
-    ...     [4.0, jnp.inf], # right-censored at 4
-    ...     [6.0, 9.0],   # interval (6,9]
-    ... ])
-    >>> loglik = surv_dist.log_prob(values)
-    # loglik[0] = log (F(5) - F(2))
-    # loglik[1] = log (1 - F(4))
-    # loglik[2] = log (F(9) - F(6))
+    .. doctest::
+
+            >>> from jax import numpy as jnp
+            >>> from numpyro import distributions as dist
+            >>> base = dist.Weibull(concentration=2.0, scale=3.0)
+            >>> left_censored = jnp.array([0, 0, 0])
+            >>> right_censored = jnp.array([0, 1, 0])
+            >>> surv_dist = dist.IntervalCensoredDistribution(base, left_censored, right_censored)
+            >>> values = jnp.array([
+            ...     [2.0, 5.0],
+            ...     [4.0, jnp.inf],
+            ...     [6.0, 9.0],
+            ... ])
+            >>> loglik = surv_dist.log_prob(values)
     """
 
     arg_constraints = {
