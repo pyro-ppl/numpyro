@@ -10,7 +10,7 @@ import os
 import random
 import re
 from threading import Lock
-from typing import Any, Callable, Generator, Optional
+from typing import Any, Callable, Generator, Literal, Optional
 import warnings
 
 import numpy as np
@@ -58,8 +58,10 @@ def set_platform(platform: Optional[str] = None) -> None:
         separated list of these values to specify multiple platforms. If `None`,
         reads from environment variable `JAX_PLATFORMS` or defaults to `cpu`.
     """
-    flag_name: str = "jax_platforms"
-    valid_platforms: tuple[str, ...] = ("cpu", "cuda", "rocm", "tpu", "METAL")
+    flag_name: Literal["jax_platforms", "jax_platform_name"] = "jax_platforms"
+    valid_platforms: tuple[
+        Literal["cpu", "cuda", "rocm", "tpu", "METAL", "gpu"], ...
+    ] = ("cpu", "cuda", "rocm", "tpu", "METAL")
     if platform is None:
         if (
             deprecated_platform_key := os.getenv("JAX_PLATFORM_NAME", None)
