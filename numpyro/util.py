@@ -59,6 +59,8 @@ def set_platform(platform: Optional[str] = None) -> None:
         reads from environment variable `JAX_PLATFORMS` or defaults to `cpu`.
     """
     flag_name: Literal["jax_platforms", "jax_platform_name"] = "jax_platforms"
+    # Valid platforms are not available in current jax docs. Following collection is
+    # found in https://github.com/jax-ml/jax/issues/25315#issuecomment-2526987274
     valid_platforms: tuple[
         Literal["cpu", "cuda", "rocm", "tpu", "METAL", "gpu"], ...
     ] = ("cpu", "cuda", "rocm", "tpu", "METAL")
@@ -72,9 +74,6 @@ def set_platform(platform: Optional[str] = None) -> None:
             valid_platforms = ("cpu", "gpu", "tpu")
             flag_name = "jax_platform_name"
         else:
-            # Valid platforms are not available in current jax docs. Following
-            # collection is found in
-            # https://github.com/jax-ml/jax/issues/25315#issuecomment-2526987274
             platform = os.getenv("JAX_PLATFORMS", "cpu")
     assert all(p.strip() in valid_platforms for p in platform.split(",")), (
         "Invalid platform '{0}'. Valid platforms are: {1}.".format(
