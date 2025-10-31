@@ -3,6 +3,9 @@
 
 
 from typing import Optional
+import warnings
+
+import numpy as np
 
 import jax
 from jax import lax
@@ -16,6 +19,7 @@ from numpyro.distributions.util import (
     promote_shapes,
     validate_sample,
 )
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 class LeftCensoredDistribution(Distribution):
@@ -369,6 +373,20 @@ class IntervalCensoredDistribution(Distribution):
     def support(self) -> ConstraintT:
         return self._support
 
+    def _get_censoring_masks(self, value):
+        """Helper to get censoring masks."""
+
+        x1 = jnp.take(value, 0, axis=-1)  # left bound
+        x2 = jnp.take(value, 1, axis=-1)  # right bound
+
+        m_left = self.left_censored & (~self.right_censored)  # left-censored only
+        m_right = self.right_censored & (~self.left_censored)  # right-censored only
+        m_int = (~self.left_censored) & (~self.right_censored)  # interval censored
+        m_double = self.left_censored & self.right_censored  # doubly censored
+        m_point = jnp.isclose(x1, x2) & m_int  # point observation
+        m_int = m_int & (~m_point)  # update interval mask to exclude point obs
+        return m_left, m_right, m_int, m_double, m_point
+
     @validate_sample
     def log_prob(self, value):
         dtype = jnp.result_type(value, float)
@@ -379,11 +397,7 @@ class IntervalCensoredDistribution(Distribution):
         x2 = jnp.take(value, 1, axis=-1)  # right bound
 
         # make masks based on censoring indicators
-        m_left = self.left_censored & (~self.right_censored)  # left-censored only
-        m_right = self.right_censored & (~self.left_censored)  # right-censored only
-        m_int = (~self.left_censored) & (~self.right_censored)  # interval censored
-        m_double = self.left_censored & self.right_censored  # doubly censored
-        m_point = jnp.isclose(x1, x2)  # point interval
+        m_left, m_right, m_int, m_double, m_point = self._get_censoring_masks(value)
 
         # Replace potential out-of-support values with finite placeholder BEFORE cdf
         # (value doesn't matter; it will be overwritten)
@@ -429,3 +443,56 @@ class IntervalCensoredDistribution(Distribution):
         logp = jnp.where(m_int, lp_interval, logp)
         logp = jnp.where(m_double, lp_double, logp)
         return logp
+
+    def _validate_sample(self, value: ArrayLike) -> None:
+        if value.shape[-1] != 2:
+            raise ValueError(
+                f"Expected last dimension of `value` to be 2 (lower, upper), but got shape {value.shape}"
+            )
+        x1 = jnp.take(value, 0, axis=-1)  # left bound
+        x2 = jnp.take(value, 1, axis=-1)  # right bound
+        m_left, m_right, m_int, m_double, m_point = self._get_censoring_masks(value)
+
+        # check validity under base_dist of x1 and x2
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            x1_mask = self.base_dist._validate_sample(x1)
+            x2_mask = self.base_dist._validate_sample(x2)
+
+        mask = jnp.ones_like(x1, dtype=jnp.bool)
+        # for left-censored, the upper bound must be in the support of base_dist
+        mask = jnp.where(m_left, x2_mask, mask)
+        if not_jax_tracer(mask):
+            if not np.all(mask):
+                warnings.warn(
+                    "For left-censored observations, upper bound should be within the support of base_dist. ",
+                    stacklevel=find_stack_level(),
+                )
+
+        # for right-censored, the lower bound must be in the support of base_dist
+        mask = jnp.where(m_right, x1_mask, mask)
+        if not_jax_tracer(mask):
+            if not np.all(mask):
+                warnings.warn(
+                    "For right-censored observations, lower bound should be within the support of base_dist. ",
+                    stacklevel=find_stack_level(),
+                )
+        # for interval-censored, doubly censored and point, both bounds must be in the support of base_dist
+        mask = jnp.where(m_int | m_double | m_point, x1_mask & x2_mask, mask)
+        if not_jax_tracer(mask):
+            if not np.all(mask):
+                warnings.warn(
+                    "For interval-censored, doubly-censored, or exact observations,"
+                    "lower bound should be within the support of base_dist. ",
+                    stacklevel=find_stack_level(),
+                )
+        # for interval-censored and doubly-censored, upper bound must be > lower bound
+        mask = jnp.where(m_int | m_double, mask & (x2 > x1), mask)
+        if not_jax_tracer(mask):
+            if not np.all(mask):
+                warnings.warn(
+                    "For interval-censored and doubly-censored observations,"
+                    "upper bound should greater than lower bound. ",
+                    stacklevel=find_stack_level(),
+                )
+        return mask
