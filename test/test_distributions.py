@@ -4391,6 +4391,104 @@ def test_censored_sample_shape():
 
 
 @pytest.mark.parametrize(
+    "left_censored, right_censored, lower, upper, censoring_type",
+    [
+        # left censored examples
+        (1.0, 0.0, 0.001, 1.0, "left"),
+        (1.0, 0.0, 0.001, 0.001, "left"),
+        # right censored examples
+        (0.0, 1.0, 0.001, 1.0, "right"),
+        (0.0, 1.0, 0.001, 0.001, "right"),
+        # interval censored example
+        (0.0, 0.0, 0.001, 1.0, "interval"),
+        # # doubly censored example
+        (1.0, 1.0, 0.001, 1.0, "double"),
+        # exact example
+        (0.0, 0.0, 0.001, 0.001, "exact"),
+    ],
+)
+def test_interval_censored_masks(
+    left_censored, right_censored, lower, upper, censoring_type
+):
+    base_dist = dist.HalfNormal()
+    censored_dist = dist.IntervalCensoredDistribution(
+        base_dist,
+        left_censored,
+        right_censored,
+        validate_args=True,
+    )
+    value = jnp.array([[lower, upper]])
+    m_left, m_right, m_interval, m_doubly, m_exact = censored_dist._get_censoring_masks(
+        value
+    )
+    # assert that always exactly one mask is true
+    assert m_left + m_right + m_interval + m_doubly + m_exact == 1
+
+    if censoring_type == "left":
+        assert m_left
+    elif censoring_type == "right":
+        assert m_right
+    elif censoring_type == "interval":
+        assert m_interval
+    elif censoring_type == "double":
+        assert m_doubly
+    elif censoring_type == "exact":
+        assert m_exact
+
+
+@pytest.mark.parametrize(
+    "left_censored, right_censored, lower, upper, should_raise",
+    [
+        # left censored examples
+        (1.0, 0.0, 0.001, 1.0, False),
+        (1.0, 0.0, 0.001, -1.0, True),
+        (1.0, 0.0, -0.001, 1.0, False),
+        (1.0, 0.0, -jnp.inf, 1.0, False),
+        (1.0, 0.0, jnp.nan, 1.0, False),
+        # right censored examples
+        (0.0, 1.0, 0.001, 1.0, False),
+        (0.0, 1.0, 0.001, -1.0, False),
+        (0.0, 1.0, -1.0, 0.001, True),
+        (0.0, 1.0, 1.0, -jnp.inf, False),
+        (0.0, 1.0, 1.0, jnp.nan, False),
+        # interval, doubly, exact examples: both bounds valid
+        # interval censored examples
+        (0.0, 0.0, 0.001, 1.0, False),
+        (0.0, 0.0, -0.001, 1.0, True),
+        (0.0, 0.0, 0.001, -1.0, True),
+        # doubly censored examples
+        (1.0, 1.0, 0.001, 1.0, False),
+        (1.0, 1.0, -0.001, 1.0, True),
+        (1.0, 1.0, 0.001, -1.0, True),
+        # exact examples
+        (0.0, 0.0, 0.001, 0.001, False),
+        (0.0, 0.0, -0.001, -0.001, True),
+        # interval and doubly censored, upper should be >= lower
+        (0.0, 0.0, 0.001, 0.002, False),
+        (1.0, 1.0, 0.001, 0.002, False),
+        (0.0, 0.0, 0.002, 0.001, True),
+        (1.0, 1.0, 0.002, 0.001, True),
+    ],
+)
+def test_interval_censored_validate_sample(
+    left_censored, right_censored, lower, upper, should_raise
+):
+    base_dist = dist.HalfNormal()
+    censored_dist = dist.IntervalCensoredDistribution(
+        base_dist,
+        left_censored,
+        right_censored,
+        validate_args=True,
+    )
+    value = jnp.array([[lower, upper]])
+    if should_raise:
+        with pytest.raises(UserWarning):
+            censored_dist.log_prob(value)
+    else:
+        censored_dist.log_prob(value)  # Should not raise
+
+
+@pytest.mark.parametrize(
     argnames="concentration1,concentration0,value",
     argvalues=[
         (1.0, 8.0, 0.0),
@@ -4516,101 +4614,3 @@ def test_beta_gradient_edge_cases_all_params(concentration1, concentration0, val
         f"All gradients for Beta({concentration1},{concentration0}) at x={value} "
         f"should be finite"
     )
-
-@pytest.mark.parametrize(
-    "left_censored, right_censored, lower, upper, censoring_type",
-    [
-        # left censored examples
-        (1.0, 0.0, 0.001, 1.0, "left"),
-        (1.0, 0.0, 0.001, 0.001, "left"),
-        # right censored examples
-        (0.0, 1.0, 0.001, 1.0, "right"),
-        (0.0, 1.0, 0.001, 0.001, "right"),
-        # interval censored example
-        (0.0, 0.0, 0.001, 1.0, "interval"),
-        # # doubly censored example
-        (1.0, 1.0, 0.001, 1.0, "double"),
-        # exact example
-        (0.0, 0.0, 0.001, 0.001, "exact"),
-    ],
-)
-def test_interval_censored_masks(
-    left_censored, right_censored, lower, upper, censoring_type
-):
-    base_dist = dist.HalfNormal()
-    censored_dist = dist.IntervalCensoredDistribution(
-        base_dist,
-        left_censored,
-        right_censored,
-        validate_args=True,
-    )
-    value = jnp.array([[lower, upper]])
-    m_left, m_right, m_interval, m_doubly, m_exact = censored_dist._get_censoring_masks(
-        value
-    )
-    # assert that always exactly one mask is true
-    assert m_left + m_right + m_interval + m_doubly + m_exact == 1
-
-    if censoring_type == "left":
-        assert m_left
-    elif censoring_type == "right":
-        assert m_right
-    elif censoring_type == "interval":
-        assert m_interval
-    elif censoring_type == "double":
-        assert m_doubly
-    elif censoring_type == "exact":
-        assert m_exact
-
-
-@pytest.mark.parametrize(
-    "left_censored, right_censored, lower, upper, should_raise",
-    [
-        # left censored examples
-        (1.0, 0.0, 0.001, 1.0, False),
-        (1.0, 0.0, 0.001, -1.0, True),
-        (1.0, 0.0, -0.001, 1.0, False),
-        (1.0, 0.0, -jnp.inf, 1.0, False),
-        (1.0, 0.0, jnp.nan, 1.0, False),
-        # right censored examples
-        (0.0, 1.0, 0.001, 1.0, False),
-        (0.0, 1.0, 0.001, -1.0, False),
-        (0.0, 1.0, -1.0, 0.001, True),
-        (0.0, 1.0, 1.0, -jnp.inf, False),
-        (0.0, 1.0, 1.0, jnp.nan, False),
-        # interval, doubly, exact examples: both bounds valid
-        # interval censored examples
-        (0.0, 0.0, 0.001, 1.0, False),
-        (0.0, 0.0, -0.001, 1.0, True),
-        (0.0, 0.0, 0.001, -1.0, True),
-        # doubly censored examples
-        (1.0, 1.0, 0.001, 1.0, False),
-        (1.0, 1.0, -0.001, 1.0, True),
-        (1.0, 1.0, 0.001, -1.0, True),
-        # exact examples
-        (0.0, 0.0, 0.001, 0.001, False),
-        (0.0, 0.0, -0.001, -0.001, True),
-        # interval and doubly censored, upper should be >= lower
-        (0.0, 0.0, 0.001, 0.002, False),
-        (1.0, 1.0, 0.001, 0.002, False),
-        (0.0, 0.0, 0.002, 0.001, True),
-        (1.0, 1.0, 0.002, 0.001, True),
-    ],
-)
-def test_interval_censored_validate_sample(
-    left_censored, right_censored, lower, upper, should_raise
-):
-    base_dist = dist.HalfNormal()
-    censored_dist = dist.IntervalCensoredDistribution(
-        base_dist,
-        left_censored,
-        right_censored,
-        validate_args=True,
-    )
-    value = jnp.array([[lower, upper]])
-    if should_raise:
-        with pytest.raises(UserWarning):
-            censored_dist.log_prob(value)
-    else:
-        censored_dist.log_prob(value)  # Should not raise
-  
