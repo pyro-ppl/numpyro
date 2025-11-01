@@ -197,54 +197,58 @@ def _beta_log_prob(value, concentration1, concentration0):
 
 @_beta_log_prob.defjvp
 def _beta_log_prob_jvp(primals, tangents):
-    """
-    Define custom JVP (Jacobian-vector product) for Beta log_prob.
-
-    For Beta(α, β), the derivatives are:
-    - d/dx log_prob = (α - 1) / x - (β - 1) / (1 - x)
-    - d/dα log_prob = log(x) - ψ(α) + ψ(α + β)
-    - d/dβ log_prob = log(1 - x) - ψ(β) + ψ(α + β)
-
-    where ψ is the digamma function. Edge cases (α=1, x=0) or (β=1, x=1) are handled
-    by setting gradients to finite values using safe operations.
-    """
+    """Custom JVP for Beta log_prob handling edge cases at boundaries."""
     value, concentration1, concentration0 = primals
     value_dot, concentration1_dot, concentration0_dot = tangents
-
     primal_out = _beta_log_prob(value, concentration1, concentration0)
 
-    # Gradient w.r.t. value - use safe division and set to 0 at edge cases
-    safe_value = jnp.where(value == 0.0, 1.0, value)
+    # Gradient w.r.t. value - safe division, zero at edge cases
+    safe_val = jnp.where(value == 0.0, 1.0, value)
     safe_one_minus = jnp.where(value == 1.0, 1.0, 1.0 - value)
-    grad_value = (concentration1 - 1.0) / safe_value - (
+    grad_val = (concentration1 - 1.0) / safe_val - (
         concentration0 - 1.0
     ) / safe_one_minus
-    grad_value = jnp.where(
+    grad_val = jnp.where(
         ((value == 0.0) & (concentration1 == 1.0))
         | ((value == 1.0) & (concentration0 == 1.0)),
         0.0,
-        grad_value,
+        grad_val,
     )
 
-    # Gradients w.r.t. concentration parameters - use safe log (0 instead of -inf)
-    digamma_sum = digamma(concentration1 + concentration0)
-    grad_concentration1 = (
-        jnp.where(value == 0.0, 0.0, jnp.log(value))
-        - digamma(concentration1)
-        + digamma_sum
+    # Gradients w.r.t. concentrations - safe log (0 instead of -inf)
+    dsum = digamma(concentration1 + concentration0)
+    grad_c1 = (
+        jnp.where(value == 0.0, 0.0, jnp.log(value)) - digamma(concentration1) + dsum
     )
-    grad_concentration0 = (
+    grad_c0 = (
         jnp.where(value == 1.0, 0.0, jnp.log(1.0 - value))
         - digamma(concentration0)
-        + digamma_sum
+        + dsum
     )
 
-    # Chain rule
-    tangent_out = (
-        grad_value * value_dot
-        + grad_concentration1 * concentration1_dot
-        + grad_concentration0 * concentration0_dot
-    )
+    # Build tangent output - handle Zero tangents properly
+    from jax.interpreters import ad
+
+    def is_tangent_active(tangent):
+        """Check if tangent is active (not Zero or float0)."""
+        if isinstance(tangent, ad.Zero):
+            return False
+        # Check for float0 dtype (float0 has itemsize 0)
+        if (
+            hasattr(tangent, "dtype")
+            and hasattr(tangent.dtype, "itemsize")
+            and tangent.dtype.itemsize == 0
+        ):
+            return False
+        return True
+
+    tangent_out = 0.0
+    if is_tangent_active(value_dot):
+        tangent_out = tangent_out + grad_val * value_dot
+    if is_tangent_active(concentration1_dot):
+        tangent_out = tangent_out + grad_c1 * concentration1_dot
+    if is_tangent_active(concentration0_dot):
+        tangent_out = tangent_out + grad_c0 * concentration0_dot
 
     return primal_out, tangent_out
 
