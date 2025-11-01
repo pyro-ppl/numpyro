@@ -179,6 +179,80 @@ class AsymmetricLaplace(Distribution):
         )
 
 
+@jax.custom_jvp
+def _beta_log_prob(value, concentration1, concentration0):
+    """
+    Compute Beta log probability with custom gradients to handle edge cases.
+
+    When concentration1=1 and value=0, or concentration0=1 and value=1,
+    the standard formula involves log(0) * 0 which should be 0, but has
+    undefined gradients. We use custom_jvp to define proper gradients.
+    """
+    return (
+        xlogy(concentration1 - 1.0, value)
+        + xlogy(concentration0 - 1.0, 1.0 - value)
+        - betaln(concentration1, concentration0)
+    )
+
+
+@_beta_log_prob.defjvp
+def _beta_log_prob_jvp(primals, tangents):
+    """Custom JVP for Beta log_prob handling edge cases at boundaries."""
+    value, concentration1, concentration0 = primals
+    value_dot, concentration1_dot, concentration0_dot = tangents
+    primal_out = _beta_log_prob(value, concentration1, concentration0)
+
+    # Gradient w.r.t. value - safe division, zero at edge cases
+    safe_val = jnp.where(value == 0.0, 1.0, value)
+    safe_one_minus = jnp.where(value == 1.0, 1.0, 1.0 - value)
+    grad_val = (concentration1 - 1.0) / safe_val - (
+        concentration0 - 1.0
+    ) / safe_one_minus
+    grad_val = jnp.where(
+        ((value == 0.0) & (concentration1 == 1.0))
+        | ((value == 1.0) & (concentration0 == 1.0)),
+        0.0,
+        grad_val,
+    )
+
+    # Gradients w.r.t. concentrations - safe log (0 instead of -inf)
+    dsum = digamma(concentration1 + concentration0)
+    grad_c1 = (
+        jnp.where(value == 0.0, 0.0, jnp.log(value)) - digamma(concentration1) + dsum
+    )
+    grad_c0 = (
+        jnp.where(value == 1.0, 0.0, jnp.log(1.0 - value))
+        - digamma(concentration0)
+        + dsum
+    )
+
+    # Build tangent output - handle Zero tangents properly
+    from jax.interpreters import ad
+
+    def is_tangent_active(tangent):
+        """Check if tangent is active (not Zero or float0)."""
+        if isinstance(tangent, ad.Zero):
+            return False
+        # Check for float0 dtype (float0 has itemsize 0)
+        if (
+            hasattr(tangent, "dtype")
+            and hasattr(tangent.dtype, "itemsize")
+            and tangent.dtype.itemsize == 0
+        ):
+            return False
+        return True
+
+    tangent_out = 0.0
+    if is_tangent_active(value_dot):
+        tangent_out = tangent_out + grad_val * value_dot
+    if is_tangent_active(concentration1_dot):
+        tangent_out = tangent_out + grad_c1 * concentration1_dot
+    if is_tangent_active(concentration0_dot):
+        tangent_out = tangent_out + grad_c0 * concentration0_dot
+
+    return primal_out, tangent_out
+
+
 class Beta(Distribution):
     arg_constraints = {
         "concentration1": constraints.positive,
@@ -216,7 +290,9 @@ class Beta(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        return self._dirichlet.log_prob(jnp.stack([value, 1.0 - value], -1))
+        # Compute Beta log_prob directly using the formula with custom gradients
+        # to handle edge cases where concentration=1 and value is at boundary
+        return _beta_log_prob(value, self.concentration1, self.concentration0)
 
     @property
     def mean(self) -> ArrayLike:
