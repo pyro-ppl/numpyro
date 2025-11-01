@@ -15,10 +15,7 @@ from jax.typing import ArrayLike
 from numpyro._typing import ConstraintT, DistributionT
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import (
-    promote_shapes,
-    validate_sample,
-)
+from numpyro.distributions.util import log1mexp, promote_shapes, validate_sample
 from numpyro.util import find_stack_level, not_jax_tracer
 
 
@@ -429,7 +426,7 @@ class IntervalCensoredDistribution(Distribution):
         lp_interval = jnp.where(m_point, self.base_dist.log_prob(x1), lp_interval)
 
         # for doubly censored data, the value is not in the interval, so computation is 1 - exp(lp_interval)
-        lp_double = jnp.log1p(-jnp.exp(lp_interval))
+        lp_double = log1mexp(lp_interval)
 
         # Select the right expression per row
         # left: log F(x2)
