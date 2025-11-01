@@ -4207,3 +4207,73 @@ def test_beta_logprob_boundary_non_edge_cases():
 
     assert jnp.isneginf(beta_dist3.log_prob(0.0))
     assert jnp.isneginf(beta_dist4.log_prob(1.0))
+
+
+@pytest.mark.parametrize(
+    argnames="concentration1,concentration0,value,grad_param,grad_value",
+    argvalues=[
+        (1.0, 8.0, 0.0, "value", 0.0),
+        (8.0, 1.0, 1.0, "value", 1.0),
+        (1.0, 8.0, 0.0, "concentration1", 1.0),
+        (1.0, 8.0, 0.0, "concentration0", 8.0),
+        (8.0, 1.0, 1.0, "concentration1", 8.0),
+        (8.0, 1.0, 1.0, "concentration0", 1.0),
+    ],
+    ids=[
+        "Beta(1,8) at x=0",
+        "Beta(8,1) at x=1",
+        "Beta(1,8) at concentration1=1",
+        "Beta(1,8) at concentration0=8",
+        "Beta(8,1) at concentration1=8",
+        "Beta(8,1) at concentration0=1",
+    ],
+)
+def test_beta_gradient_edge_cases_single_param(
+    concentration1, concentration0, value, grad_param, grad_value
+):
+    """Test that gradients w.r.t. individual parameters are finite at edge cases."""
+    if grad_param == "value":
+
+        def log_prob_fn(x):
+            return dist.Beta(concentration1, concentration0).log_prob(x)
+
+        grad = jax.grad(log_prob_fn)(value)
+    elif grad_param == "concentration1":
+
+        def log_prob_fn(c1):
+            return dist.Beta(c1, concentration0).log_prob(value)
+
+        grad = jax.grad(log_prob_fn)(grad_value)
+    else:  # concentration0
+
+        def log_prob_fn(c0):
+            return dist.Beta(concentration1, c0).log_prob(value)
+
+        grad = jax.grad(log_prob_fn)(grad_value)
+
+    assert jnp.isfinite(grad), (
+        f"Gradient w.r.t. {grad_param} for Beta({concentration1},{concentration0}) "
+        f"at x={value} should be finite"
+    )
+
+
+@pytest.mark.parametrize(
+    argnames="concentration1,concentration0,value",
+    argvalues=[
+        (1.0, 8.0, 0.0),
+        (8.0, 1.0, 1.0),
+    ],
+    ids=["Beta(1,8) at x=0", "Beta(8,1) at x=1"],
+)
+def test_beta_gradient_edge_cases_all_params(concentration1, concentration0, value):
+    """Test that all gradients are finite when computed simultaneously at edge cases."""
+
+    def log_prob_fn(params):
+        c1, c0, v = params
+        return dist.Beta(c1, c0).log_prob(v)
+
+    grads = jax.grad(log_prob_fn)(jnp.array([concentration1, concentration0, value]))
+    assert jnp.all(jnp.isfinite(grads)), (
+        f"All gradients for Beta({concentration1},{concentration0}) at x={value} "
+        f"should be finite"
+    )
