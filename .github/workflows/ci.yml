@@ -25,16 +25,24 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - uses: astral-sh/setup-uv@v1
+      with:
+        enable-cache: true
+    - name: Create virtual environment
+      run: |
+        uv venv
+        echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+        echo "$PWD/.venv/bin" >> $GITHUB_PATH
     - name: Install dependencies
       run: |
         sudo apt install -y pandoc gsfonts
-        python -m pip install --upgrade pip
-        pip install jaxlib
-        pip install jax
-        pip install '.[doc,test]'
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install -r docs/requirements.txt
-        pip freeze
+        uv pip install --upgrade pip
+        uv pip install jaxlib
+        uv pip install jax
+        uv pip install '.[doc,test]'
+        uv pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        uv pip install -r docs/requirements.txt
+        uv pip freeze
     - name: Lint with mypy and ruff
       if: matrix.python-version != '3.9'
       run: |
@@ -64,17 +72,24 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - uses: astral-sh/setup-uv@v1
+      with:
+        enable-cache: true
+    - name: Create virtual environment
+      run: |
+        uv venv
+        echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+        echo "$PWD/.venv/bin" >> $GITHUB_PATH
     - name: Install dependencies
       run: |
         sudo apt install -y graphviz
-        python -m pip install --upgrade pip
-        # Keep track of pyro-api master branch
-        pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
-        pip install jaxlib
-        pip install jax
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install -e '.[dev,test]'
-        pip freeze
+        uv pip install --upgrade pip
+        uv pip install "git+https://github.com/pyro-ppl/pyro-api.git@master#egg=pyro-api"
+        uv pip install jaxlib
+        uv pip install jax
+        uv pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        uv pip install -e '.[dev,test]'
+        uv pip freeze
     - name: Test with pytest
       run: |
         CI=1 pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
@@ -115,16 +130,23 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - uses: astral-sh/setup-uv@v1
+      with:
+        enable-cache: true
+    - name: Create virtual environment
+      run: |
+        uv venv
+        echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+        echo "$PWD/.venv/bin" >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        # Keep track of pyro-api master branch
-        pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
-        pip install jaxlib
-        pip install jax
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install -e '.[dev,test]'
-        pip freeze
+        uv pip install --upgrade pip
+        uv pip install "git+https://github.com/pyro-ppl/pyro-api.git@master#egg=pyro-api"
+        uv pip install jaxlib
+        uv pip install jax
+        uv pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        uv pip install -e '.[dev,test]'
+        uv pip freeze
     - name: Test with pytest
       run: |
         pytest -vs --durations=20 test/infer/test_mcmc.py
@@ -168,14 +190,22 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - uses: astral-sh/setup-uv@v1
+      with:
+        enable-cache: true
+    - name: Create virtual environment
+      run: |
+        uv venv
+        echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+        echo "$PWD/.venv/bin" >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install jaxlib
-        pip install jax
-        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
-        pip install -e '.[dev,examples,test]'
-        pip freeze
+        uv pip install --upgrade pip
+        uv pip install jaxlib
+        uv pip install jax
+        uv pip install https://github.com/pyro-ppl/funsor/archive/master.zip
+        uv pip install -e '.[dev,examples,test]'
+        uv pip freeze
     - name: Test with pytest
       run: |
         CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example
