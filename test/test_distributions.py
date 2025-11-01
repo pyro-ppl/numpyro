@@ -4154,22 +4154,25 @@ def test_censored_sample_shape():
     assert samples.shape == expected_shape
 
 
-def test_beta_logprob_edge_case_concentration1_one():
-    """Test Beta(1, β) at x=0 should give finite log probability."""
-    beta_dist = dist.Beta(1.0, 8.0)
-    log_prob_at_zero = beta_dist.log_prob(0.0)
+@pytest.mark.parametrize(
+    argnames="concentration1,concentration0,value",
+    argvalues=[
+        (1.0, 8.0, 0.0),
+        (8.0, 1.0, 1.0),
+    ],
+    ids=["Beta(1,8) at x=0", "Beta(8,1) at x=1"],
+)
+def test_beta_logprob_edge_cases(concentration1, concentration0, value):
+    """Test Beta distribution with concentration=1 gives finite log probability at boundary."""
+    beta_dist = dist.Beta(concentration1, concentration0)
+    log_prob = beta_dist.log_prob(value)
 
-    assert not jnp.isnan(log_prob_at_zero), "Beta(1,8).log_prob(0) should not be NaN"
-    assert jnp.isfinite(log_prob_at_zero), "Beta(1,8).log_prob(0) should be finite"
-
-
-def test_beta_logprob_edge_case_concentration0_one():
-    """Test Beta(α, 1) at x=1 should give finite log probability."""
-    beta_dist2 = dist.Beta(8.0, 1.0)
-    log_prob_at_one = beta_dist2.log_prob(1.0)
-
-    assert not jnp.isnan(log_prob_at_one), "Beta(8,1).log_prob(1) should not be NaN"
-    assert jnp.isfinite(log_prob_at_one), "Beta(8,1).log_prob(1) should be finite"
+    assert not jnp.isnan(log_prob), (
+        f"Beta({concentration1},{concentration0}).log_prob({value}) should not be NaN"
+    )
+    assert jnp.isfinite(log_prob), (
+        f"Beta({concentration1},{concentration0}).log_prob({value}) should be finite"
+    )
 
 
 def test_beta_logprob_edge_case_consistency_small_values():
