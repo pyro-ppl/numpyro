@@ -4486,3 +4486,9 @@ def test_interval_censored_validate_sample(
             censored_dist.log_prob(value)
     else:
         censored_dist.log_prob(value)  # Should not raise
+
+
+def test_uniform_log_prob_outside_support():
+    d = dist.Uniform(0, 1)
+    assert_allclose(d.log_prob(-0.5), -jnp.inf)
+    assert_allclose(d.log_prob(1.5), -jnp.inf)
