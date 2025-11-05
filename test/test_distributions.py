@@ -4766,3 +4766,9 @@ def test_beta_gradient_edge_cases_all_params(concentration1, concentration0, val
         f"All gradients for Beta({concentration1},{concentration0}) at x={value} "
         f"should be finite"
     )
+
+
+def test_uniform_log_prob_outside_support():
+    d = dist.Uniform(0, 1)
+    assert_allclose(d.log_prob(-0.5), -jnp.inf)
+    assert_allclose(d.log_prob(1.5), -jnp.inf)
