@@ -88,7 +88,7 @@ def _(d):
 
     def transform_fn(q):
         # NB: icdf is not available yet for Gamma distribution
-        # so this will raise an NotImplementedError for now.
+        # so this will raise a NotImplementedError for now.
         # We will need scipy.special.gammaincinv, which is not available yet in JAX
         # see issue: https://github.com/jax-ml/jax/issues/5350
         # TODO: consider wrap jaxns GammaPrior transform implementation

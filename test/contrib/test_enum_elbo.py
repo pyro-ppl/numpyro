@@ -493,7 +493,7 @@ def test_elbo_enumerate_plate_4(outer_obs, inner_obs, scale):
     #  |       \                |
     #  | b ---> inner_obs   N=2 |
     #  +------------------------+
-    # This tests two different observations, one outside and one inside an plate.
+    # This tests two different observations, one outside and one inside a plate.
     params = {}
     params["probs_a"] = jnp.array([0.4, 0.6])
     params["probs_b"] = jnp.array([0.6, 0.4])
