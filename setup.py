@@ -87,7 +87,8 @@ setup(
         # TPU and CUDA installations, currently require to add package repository URL, i.e.,
         # pip install 'numpyro[cuda]' -f https://storage.googleapis.com/jax-releases/jax_releases.html
         "tpu": f"jax[tpu]{_jax_version_constraints}",
-        "cuda": f"jax[cuda]{_jax_version_constraints}",
+        "cuda12": f"jax[cuda12]{_jax_version_constraints}",
+        "cuda13": f"jax[cuda13]{_jax_version_constraints}",
     },
     python_requires=">=3.9",
     long_description=long_description,
