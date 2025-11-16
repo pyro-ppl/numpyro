@@ -601,7 +601,7 @@ class DoublyTruncatedPowerLaw(Distribution):
             alpha_tangent = jnp.where(
                 neq_neg1_mask,
                 log_x + alpha_tangent_variable(neq_neg1_alpha),
-                # Approximate derivate with right an lefthand approximation
+                # Approximate derivative with right and lefthand approximation
                 log_x
                 + (
                     alpha_tangent_variable(alpha - delta_eq_neg1)
