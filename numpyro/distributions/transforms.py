@@ -3,7 +3,7 @@
 
 
 import math
-from typing import Generic, Optional, Sequence, Tuple, TypeVar, Union, cast
+from typing import Generic, Optional, Sequence, Tuple, Union, cast
 import warnings
 import weakref
 
@@ -18,7 +18,14 @@ from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, NonScalarArray, NumLike, PyTree, TransformT
+from numpyro._typing import (
+    ConstraintT,
+    NonScalarArray,
+    NumLike,
+    NumLikeT,
+    PyTree,
+    TransformT,
+)
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
     add_diag,
@@ -63,9 +70,6 @@ __all__ = [
 def _clipped_expit(x: NumLike) -> NumLike:
     finfo = jnp.finfo(jnp.result_type(x))
     return jnp.clip(expit(x), finfo.tiny, 1.0 - finfo.eps)
-
-
-NumLikeT = TypeVar("NumLikeT", bound=NumLike)
 
 
 class Transform(Generic[NumLikeT]):
