@@ -179,80 +179,6 @@ class AsymmetricLaplace(Distribution):
         )
 
 
-@jax.custom_jvp
-def _beta_log_prob(value, concentration1, concentration0):
-    """
-    Compute Beta log probability with custom gradients to handle edge cases.
-
-    When concentration1=1 and value=0, or concentration0=1 and value=1,
-    the standard formula involves log(0) * 0 which should be 0, but has
-    undefined gradients. We use custom_jvp to define proper gradients.
-    """
-    return (
-        xlogy(concentration1 - 1.0, value)
-        + xlogy(concentration0 - 1.0, 1.0 - value)
-        - betaln(concentration1, concentration0)
-    )
-
-
-@_beta_log_prob.defjvp
-def _beta_log_prob_jvp(primals, tangents):
-    """Custom JVP for Beta log_prob handling edge cases at boundaries."""
-    value, concentration1, concentration0 = primals
-    value_dot, concentration1_dot, concentration0_dot = tangents
-    primal_out = _beta_log_prob(value, concentration1, concentration0)
-
-    # Gradient w.r.t. value - safe division, zero at edge cases
-    safe_val = jnp.where(value == 0.0, 1.0, value)
-    safe_one_minus = jnp.where(value == 1.0, 1.0, 1.0 - value)
-    grad_val = (concentration1 - 1.0) / safe_val - (
-        concentration0 - 1.0
-    ) / safe_one_minus
-    grad_val = jnp.where(
-        ((value == 0.0) & (concentration1 == 1.0))
-        | ((value == 1.0) & (concentration0 == 1.0)),
-        0.0,
-        grad_val,
-    )
-
-    # Gradients w.r.t. concentrations - safe log (0 instead of -inf)
-    dsum = digamma(concentration1 + concentration0)
-    grad_c1 = (
-        jnp.where(value == 0.0, 0.0, jnp.log(value)) - digamma(concentration1) + dsum
-    )
-    grad_c0 = (
-        jnp.where(value == 1.0, 0.0, jnp.log(1.0 - value))
-        - digamma(concentration0)
-        + dsum
-    )
-
-    # Build tangent output - handle Zero tangents properly
-    from jax.interpreters import ad
-
-    def is_tangent_active(tangent):
-        """Check if tangent is active (not Zero or float0)."""
-        if isinstance(tangent, ad.Zero):
-            return False
-        # Check for float0 dtype (float0 has itemsize 0)
-        if (
-            hasattr(tangent, "dtype")
-            and hasattr(tangent.dtype, "itemsize")
-            and tangent.dtype.itemsize == 0
-        ):
-            return False
-        return True
-
-    tangent_out = 0.0
-    if is_tangent_active(value_dot):
-        tangent_out = tangent_out + grad_val * value_dot
-    if is_tangent_active(concentration1_dot):
-        tangent_out = tangent_out + grad_c1 * concentration1_dot
-    if is_tangent_active(concentration0_dot):
-        tangent_out = tangent_out + grad_c0 * concentration0_dot
-
-    return primal_out, tangent_out
-
-
 class Beta(Distribution):
     arg_constraints = {
         "concentration1": constraints.positive,
@@ -290,9 +216,41 @@ class Beta(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        # Compute Beta log_prob directly using the formula with custom gradients
-        # to handle edge cases where concentration=1 and value is at boundary
-        return _beta_log_prob(value, self.concentration1, self.concentration0)
+        # Use double-where trick to avoid NaN gradients at boundary conditions
+        # when concentration parameters equal 1 (following TF Probability approach).
+        # Reference: https://github.com/tensorflow/probability/blob/main/discussion/where-nan.pdf
+        #
+        # The key insight is to mask extreme values BEFORE computation, so gradients
+        # flow through the safe path. The forward pass automatically gets the right
+        # answer because xlogy(0, 0) = 0.
+
+        # Step 1: Identify boundary values (0 or 1)
+        is_boundary = (value == 0.0) | (value == 1.0)
+
+        # Step 2: Inner where - mask boundary values to safe canonical value (0.5)
+        # This ensures log(0) never appears in the gradient computation path
+        safe_value = jnp.where(is_boundary, 0.5, value)
+
+        # Step 3: Compute log_prob with safe values (gradients flow through here)
+        safe_log_prob = (
+            xlogy(self.concentration1 - 1.0, safe_value)
+            + xlogy(self.concentration0 - 1.0, 1.0 - safe_value)
+            - betaln(self.concentration1, self.concentration0)
+        )
+
+        # Step 4: Compute correct forward-pass value at boundaries
+        # Use stop_gradient to prevent gradients from flowing through this branch
+        # xlogy(0, 0) = 0 gives the correct value when concentration=1 at boundaries
+        boundary_log_prob = jax.lax.stop_gradient(
+            xlogy(self.concentration1 - 1.0, value)
+            + xlogy(self.concentration0 - 1.0, 1.0 - value)
+            - betaln(self.concentration1, self.concentration0)
+        )
+
+        # Step 5: Outer where - select boundary value at boundaries, safe value elsewhere
+        # Forward pass: uses boundary_log_prob at boundaries (correct value)
+        # Gradients: come from safe_log_prob (finite, since safe_value avoids log(0))
+        return jnp.where(is_boundary, boundary_log_prob, safe_log_prob)
 
     @property
     def mean(self) -> ArrayLike:
