@@ -1103,6 +1103,20 @@ DISCRETE = [
         np.array([5.0, 3.0]),
         np.array([10, 12]),
     ),
+    T(dist.BetaNegativeBinomial, 5.0, 2.0, 2.0),
+    T(dist.BetaNegativeBinomial, np.array([1.0, 5.0, 10.0]), 2.0, 2.0),
+    T(
+        dist.BetaNegativeBinomial,
+        np.array([1.0, 5.0, 10.0]),
+        np.array([2.0, 3.0, 4.0]),
+        2.0
+    ),
+    T(
+        dist.BetaNegativeBinomial,
+        np.array([1.0, 5.0, 10.0]),
+        np.array([2.0, 3.0, 4.0]),
+        np.array([2.0, 1.0, 0.5])
+    ),
     T(dist.BernoulliProbs, 0.2),
     T(dist.BernoulliProbs, np.array([0.2, 0.7])),
     T(dist.BernoulliLogits, np.array([-1.0, 3.0])),
@@ -2315,6 +2329,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
 
             def dist_gen_fn():
                 d = jax_dist(*oob_params, validate_args=True)
+                print(d)
                 return d
 
             jax.jit(dist_gen_fn)()
