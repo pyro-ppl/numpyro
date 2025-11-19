@@ -53,7 +53,7 @@ from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints
 
-_VALIDATION_ENABLED = False
+_VALIDATION_ENABLED = True
 
 
 def enable_validation(is_validate: bool = True) -> None:
