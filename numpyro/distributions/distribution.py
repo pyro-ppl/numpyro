@@ -53,10 +53,10 @@ from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints
 
-_VALIDATION_ENABLED = False
+_VALIDATION_ENABLED = True
 
 
-def enable_validation(is_validate: bool = True) -> None:
+def enable_validation(is_validate: bool = False) -> None:
     """
     Enable or disable validation checks in NumPyro. Validation checks provide useful warnings and
     errors, e.g. NaN checks, validating distribution arguments and support values, etc. which is
