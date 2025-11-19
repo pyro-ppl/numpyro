@@ -217,42 +217,27 @@ class Beta(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
         # Use double-where trick to avoid NaN gradients at boundary conditions
-        # when concentration parameters equal 1 (following TF Probability approach).
         # Reference: https://github.com/tensorflow/probability/blob/main/discussion/where-nan.pdf
-        #
-        # The key insight is to mask extreme values BEFORE computation, so gradients
-        # flow through the safe path. The forward pass gets the correct value via
-        # a correction term with stop_gradient.
-
-        # Step 1: Identify boundary values (0 or 1)
         is_boundary = (value == 0.0) | (value == 1.0)
 
-        # Step 2: Inner where - mask boundary values to safe canonical value (0.5)
-        # This ensures log(0) never appears in the gradient computation path
+        # Mask boundary values (0 or 1) to safe value (0.5) for gradient computation
         safe_value = jnp.where(is_boundary, 0.5, value)
-        # Also mask the complement to avoid floating point errors
         safe_complement = jnp.where(is_boundary, 0.5, 1.0 - value)
 
-        # Step 3: Compute log_prob with safe values using Dirichlet (gradients flow here)
-        # Stack the safe values to create a valid Dirichlet input
+        # Compute log_prob with safe values (gradients flow through this path)
         safe_dirichlet_value = jnp.stack([safe_value, safe_complement], axis=-1)
         safe_log_prob = self._dirichlet.log_prob(safe_dirichlet_value)
 
-        # Step 4: Compute the correct value at boundaries using xlogy
-        # xlogy(0, 0) = 0 gives the correct value when concentration=1 at boundaries
-        correct_boundary_value = (
+        # At boundaries, compute correct forward value using xlogy (handles 0*log(0)=0)
+        # Use stop_gradient so gradients come only from safe_log_prob
+        correct_value = (
             xlogy(self.concentration1 - 1.0, value)
             + xlogy(self.concentration0 - 1.0, 1.0 - value)
             - betaln(self.concentration1, self.concentration0)
         )
+        correction = jax.lax.stop_gradient(correct_value - safe_log_prob)
 
-        # Step 5: Compute correction as a constant (stop gradients)
-        # This is the difference between correct boundary value and safe value
-        correction = jax.lax.stop_gradient(correct_boundary_value - safe_log_prob)
-
-        # Step 6: Apply correction only at boundaries (adds 0.0 elsewhere)
-        # Forward pass: correct value at boundaries, safe value elsewhere
-        # Gradients: only from safe_log_prob (correction has zero gradient)
+        # Apply correction at boundaries, return safe value elsewhere
         return safe_log_prob + jnp.where(is_boundary, correction, 0.0)
 
     @property
