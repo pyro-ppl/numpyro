@@ -180,6 +180,12 @@ def hsgp_rational_quadratic(
     Rational Quadratic kernel and the spectrum of the Dirichlet Laplacian operator to obtain
     a low-rank approximation of the Gram matrix. For more details see [1, 2].
 
+    .. note::
+
+        Due to the heavier tails of the RQ kernel compared to the Squared Exponential kernel,
+        the HSGP approximation may require larger ``ell`` values (e.g., 10 instead of 5) for
+        accurate results, especially for small ``scale_mixture`` values.
+
     **References:**
 
         1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
@@ -190,7 +196,7 @@ def hsgp_rational_quadratic(
 
     :param ArrayLike x: input data
     :param float alpha: amplitude of the Rational Quadratic kernel
-    :param float length: length scale of the Rational Quadratic kernel
+    :param float length: length scale of the Rational Quadratic kernel (scalar, isotropic only)
     :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.

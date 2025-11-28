@@ -201,16 +201,23 @@ def spectral_density_rational_quadratic(
 
     The spectral density involves the modified Bessel function of the second kind.
     For the kernel :math:`k(r) = (1 + r^2/(2 \\alpha_{\\text{mix}} \\ell^2))^{-\\alpha_{\\text{mix}}}`,
-    the spectral density is:
+    the spectral density in :math:`D` dimensions is:
 
     .. math::
 
-        S(\\omega) = \\alpha \\sqrt{2\\pi} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a \\cdot
-            \\frac{(a|\\omega|)^{\\alpha_{\\text{mix}}-1/2}
-            K_{\\alpha_{\\text{mix}}-1/2}(a|\\omega|)}{\\Gamma(\\alpha_{\\text{mix}})}
+        S(\\boldsymbol{\\omega}) = \\sigma^2 (2\\pi)^{D/2} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a \\cdot
+            \\frac{(a|\\boldsymbol{\\omega}|)^{\\alpha_{\\text{mix}}-D/2}
+            K_{\\alpha_{\\text{mix}}-D/2}(a|\\boldsymbol{\\omega}|)}{\\Gamma(\\alpha_{\\text{mix}})}
 
-    where :math:`a = \\sqrt{2 \\alpha_{\\text{mix}}} \\cdot \\ell` and :math:`K_\\nu` is the
-    modified Bessel function of the second kind.
+    where :math:`a = \\sqrt{2 \\alpha_{\\text{mix}}} \\cdot \\ell`, :math:`\\sigma^2` is the amplitude,
+    and :math:`K_\\nu` is the modified Bessel function of the second kind.
+
+    For :math:`\\boldsymbol{\\omega} \\to 0`, we use the asymptotic expansion
+    :math:`z^\\nu K_\\nu(z) \\to \\Gamma(\\nu) 2^{\\nu-1}` as :math:`z \\to 0`, giving:
+
+    .. math::
+
+        S(0) = \\sigma^2 \\pi^{D/2} a^D \\frac{\\Gamma(\\alpha_{\\text{mix}} - D/2)}{\\Gamma(\\alpha_{\\text{mix}})}
 
     .. note::
 
@@ -228,9 +235,9 @@ def spectral_density_rational_quadratic(
 
     :param int dim: dimension (currently only dim=1 is fully supported)
     :param ArrayLike w: frequency
-    :param float alpha: amplitude
+    :param float alpha: amplitude (σ² in the spectral density formula)
     :param float length: length scale (scalar)
-    :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
+    :param float scale_mixture: scale mixture parameter (α_mix in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
     :return: spectral density value
@@ -253,13 +260,11 @@ def spectral_density_rational_quadratic(
     abs_w = jnp.sqrt(jnp.sum(w**2, axis=-1))
     scaled_w = a * abs_w
 
-    # Order of Bessel function
+    # Order of Bessel function: ν = α_mix - D/2
     nu = scale_mixture - dim / 2
 
-    # For small ω, use asymptotic expansion of K_ν(z) * z^ν → Γ(ν) * 2^(ν-1) as z → 0
-    # S(0) = alpha * (2π)^(D/2) * 2^(1-α) * a^D * Γ(ν) * 2^(ν-1) / Γ(α)
-    #      = alpha * (2π)^(D/2) * a^D * 2^(-D/2) * Γ(α - D/2) / Γ(α)
-    #      = alpha * π^(D/2) * a^D * Γ(α - D/2) / Γ(α)
+    # For small ω, use asymptotic expansion: z^ν K_ν(z) → Γ(ν) 2^(ν-1) as z → 0
+    # This gives: S(0) = α * π^(D/2) * a^D * Γ(α_mix - D/2) / Γ(α_mix)
     log_S_0 = (
         jnp.log(alpha)
         + (dim / 2) * jnp.log(jnp.pi)
@@ -269,7 +274,8 @@ def spectral_density_rational_quadratic(
     )
     S_0 = jnp.exp(log_S_0)
 
-    # For regular case: S(ω) = alpha * sqrt(2π)^D * 2^(1-α) * a * (a|ω|)^(α-D/2) * K_{α-D/2}(a|ω|) / Γ(α)
+    # For regular case (ω ≠ 0):
+    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a * (a|ω|)^(α_mix-D/2) * K_{α_mix-D/2}(a|ω|) / Γ(α_mix)
     # Using log for numerical stability
     log_S_regular = (
         jnp.log(alpha)
