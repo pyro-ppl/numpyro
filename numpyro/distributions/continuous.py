@@ -235,10 +235,11 @@ class Beta(Distribution):
             + xlogy(self.concentration0 - 1.0, 1.0 - value)
             - betaln(self.concentration1, self.concentration0)
         )
-        correction = jax.lax.stop_gradient(correct_value - safe_log_prob)
 
         # Apply correction at boundaries, return safe value elsewhere
-        return safe_log_prob + jnp.where(is_boundary, correction, 0.0)
+        return jnp.where(
+            is_boundary, jax.lax.stop_gradient(correct_value), safe_log_prob
+        )
 
     @property
     def mean(self) -> ArrayLike:
