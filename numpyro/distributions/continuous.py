@@ -3456,37 +3456,22 @@ class InverseWishartCholesky(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        # value is the Cholesky factor L such that X = L @ L^T ~ InverseWishart
-        # Log density of Inverse Wishart:
-        # (nu/2) log|Psi| - (nu*p/2) log(2) - log Gamma_p(nu/2)
-        # - ((nu+p+1)/2) log|X| - tr(Psi @ X^{-1}) / 2
-        #
-        # With X = L @ L^T:
-        # log|X| = 2 * sum(log(diag(L)))
-        # X^{-1} = L^{-T} @ L^{-1}
-        # tr(Psi @ X^{-1}) = tr(Psi @ L^{-T} @ L^{-1}) = ||L^{-1} @ Psi_tril||_F^2
-        # where we use the fact that tr(A @ A^T) = ||A||_F^2
-        #
-        # Actually, tr(Psi @ X^{-1}) = tr(L^{-1} @ Psi @ L^{-T})
-        # Let y = solve(L, Psi_tril) where Psi = Psi_tril @ Psi_tril^T
-        # Then tr(Psi @ X^{-1}) = tr(y^T @ y) = sum(y^2)
-
-        # Compute tr(Psi @ X^{-1}) = tr(scale_tril @ scale_tril^T @ L^{-T} @ L^{-1})
-        # = tr(scale_tril^T @ L^{-T} @ L^{-1} @ scale_tril)
-        # = ||L^{-1} @ scale_tril||_F^2
+        # L = value (Cholesky factor), X = L @ L^T ~ InverseWishart(Psi, nu)
+        # log p(X) = (nu/2) log|Psi| - (nu*p/2) log(2) - log Gamma_p(nu/2)
+        #            - ((nu+p+1)/2) log|X| - tr(Psi @ X^{-1}) / 2
+        # Trace trick: tr(Psi @ X^{-1}) = ||L^{-1} @ scale_tril||_F^2
         x = solve_triangular(*jnp.broadcast_arrays(value, self.scale_tril), lower=True)
         trace = jnp.square(x).sum(axis=(-1, -2))
 
         p = value.shape[-1]
         return (
-            self.concentration * tri_logabsdet(self.scale_tril)
-            # Normalization constant plus p*log(2) from Jacobian of X -> L transform
-            + p * (1 - self.concentration / 2) * jnp.log(2)
+            self.concentration * tri_logabsdet(self.scale_tril)  # (nu/2) log|Psi|
+            + p * (1 - self.concentration / 2) * jnp.log(2)  # normalization
             - multigammaln(self.concentration / 2, p)
-            - (self.concentration + p + 1) * tri_logabsdet(value)
-            - trace / 2
-            # Jacobian of the Cholesky transformation
-            + jnp.sum(
+            - (self.concentration + p + 1)
+            * tri_logabsdet(value)  # -((nu+p+1)/2) log|X|
+            - trace / 2  # -tr(Psi @ X^{-1}) / 2
+            + jnp.sum(  # Jacobian: X = L @ L^T
                 jnp.arange(p, 0, -1) * jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1)),
                 axis=-1,
             )
@@ -3507,13 +3492,8 @@ class InverseWishartCholesky(Distribution):
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
-        # Sample using the relationship: if X ~ Wishart(nu, Psi^{-1}), then X^{-1} ~ InverseWishart(nu, Psi)
-        # We sample L_wishart from WishartCholesky(nu, Psi^{-1})
-        # Then X_wishart = L_wishart @ L_wishart^T
-        # X_invwishart = X_wishart^{-1}
-        # L_invwishart = cholesky(X_invwishart)
-        #
-        # Using the Bartlett decomposition for Wishart with rate_matrix = Psi (scale = Psi^{-1}):
+        # If X ~ Wishart(nu, Psi^{-1}), then X^{-1} ~ InverseWishart(nu, Psi)
+        # Use Bartlett decomposition to sample Wishart, then invert.
         rng_diag, rng_offdiag = random.split(key)
         latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
         p = self.event_shape[-1]
@@ -3530,32 +3510,24 @@ class InverseWishartCholesky(Distribution):
         latent = latent.at[..., i, j].set(
             random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
         )
-        # Wishart Cholesky sample with scale_tril corresponding to Psi^{-1}
-        # rate_matrix = Psi, so scale_tril_wishart = cholesky(Psi^{-1}) = cholesky_of_inverse(Psi)
+        # L_wishart @ L_wishart^T ~ Wishart(nu, Psi^{-1})
         scale_tril_wishart = cholesky_of_inverse(self.scale_matrix)
         L_wishart = jnp.matmul(*jnp.broadcast_arrays(scale_tril_wishart, latent))
-        # X_wishart = L_wishart @ L_wishart^T, X_invwishart = X_wishart^{-1}
-        # L_invwishart = chol(X_invwishart) = cholesky_of_inverse(X_wishart)
-        # But X_wishart = L_wishart @ L_wishart^T, so we need chol((L @ L^T)^{-1}) = chol(L^{-T} @ L^{-1})
-        # This is the same as cholesky_of_inverse of X_wishart.
-        # We can compute this as: solve(L_wishart.T, I) then take cholesky
+        # Invert: chol((L @ L^T)^{-1}) = chol(L^{-T} @ L^{-1})
         identity = jnp.broadcast_to(jnp.eye(p), L_wishart.shape)
         L_inv = solve_triangular(jnp.swapaxes(L_wishart, -1, -2), identity, lower=False)
-        # X_inv = L_inv @ L_inv^T, chol(X_inv) = chol(L_inv @ L_inv^T)
         X_invwishart = jnp.matmul(L_inv, jnp.swapaxes(L_inv, -1, -2))
         return jnp.linalg.cholesky(X_invwishart)
 
     @lazy_property
     def mean(self) -> ArrayLike:
-        # Mean of the Cholesky factor is complex; we return the mean of X = L @ L^T
-        # then take its Cholesky (approximation)
+        # Approximate: chol(E[X]) where E[X] = Psi / (nu - p - 1) for nu > p + 1
         p = self.scale_tril.shape[-1]
         mean_x = jnp.where(
             self.concentration[..., None, None] > p + 1,
             self.scale_matrix / (self.concentration[..., None, None] - p - 1),
             jnp.full_like(self.scale_matrix, jnp.nan),
         )
-        # This is not exactly the mean of the Cholesky factor, but a reasonable approximation
         return jnp.linalg.cholesky(
             jnp.where(jnp.isnan(mean_x), jnp.eye(p), mean_x)
         ) * jnp.where(
