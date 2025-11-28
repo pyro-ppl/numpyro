@@ -499,36 +499,71 @@ def test_matern_gp_model(
 
 
 @pytest.mark.parametrize(
-    argnames="x1, x2, scale_mixture, length, ell",
+    argnames="x1, x2, scale_mixture, length, ell, m",
     argvalues=[
         # Note: RQ kernel requires larger ell values than SE kernel due to heavier tails.
-        # sklearn's RationalQuadratic only supports isotropic (scalar) length_scale.
-        (np.array([[1.0]]), np.array([[0.0]]), 1.0, 1.0, 10.0),
-        (np.array([[1.0]]), np.array([[0.0]]), 2.0, 1.0, 10.0),
-        (np.array([[1.0]]), np.array([[0.0]]), 5.0, 1.0, 10.0),
-        (np.array([[1.0]]), np.array([[0.0]]), 10.0, 1.0, 10.0),
+        # sklearn's RationalQuadratic supports isotropic (scalar) length_scale in any dimension.
+        # 1D tests
+        (np.array([[1.0]]), np.array([[0.0]]), 1.0, 1.0, 10.0, 200),
+        (np.array([[1.0]]), np.array([[0.0]]), 2.0, 1.0, 10.0, 200),
+        (np.array([[1.0]]), np.array([[0.0]]), 5.0, 1.0, 10.0, 200),
+        (np.array([[1.0]]), np.array([[0.0]]), 10.0, 1.0, 10.0, 200),
+        # 2D tests (scale_mixture > 1.0 required for dim=2)
+        (np.array([[0.5, 0.3]]), np.array([[0.0, 0.0]]), 2.0, 1.0, 10.0, [20, 20]),
+        (np.array([[0.5, 0.3]]), np.array([[0.0, 0.0]]), 5.0, 1.0, 10.0, [20, 20]),
+        (np.array([[0.5, 0.3]]), np.array([[0.0, 0.0]]), 10.0, 1.0, 10.0, [20, 20]),
+        # 3D tests (scale_mixture > 1.5 required for dim=3)
+        # 3D requires more basis functions than lower dimensions for accurate approximation
+        (
+            np.array([[0.3, 0.2, 0.1]]),
+            np.array([[0.0, 0.0, 0.0]]),
+            2.0,
+            1.0,
+            10.0,
+            [15, 15, 15],
+        ),
+        (
+            np.array([[0.3, 0.2, 0.1]]),
+            np.array([[0.0, 0.0, 0.0]]),
+            5.0,
+            1.0,
+            10.0,
+            [15, 15, 15],
+        ),
     ],
     ids=[
         "1d,sm=1.0",
         "1d,sm=2.0",
         "1d,sm=5.0",
         "1d,sm=10.0",
+        "2d,sm=2.0",
+        "2d,sm=5.0",
+        "2d,sm=10.0",
+        "3d,sm=2.0",
+        "3d,sm=5.0",
     ],
 )
 def test_kernel_approx_rational_quadratic(
-    x1: ArrayLike, x2: ArrayLike, scale_mixture: float, length: float, ell: float
+    x1: ArrayLike,
+    x2: ArrayLike,
+    scale_mixture: float,
+    length: float,
+    ell: float,
+    m: Union[int, list[int]],
 ):
     """ensure that the approximation of the rational quadratic kernel is accurate,
     matching the exact kernel implementation from sklearn.
 
     Note: The RQ kernel HSGP approximation requires larger ell values than the SE kernel
-    due to the heavier tails of the RQ kernel. sklearn's RationalQuadratic only supports
-    isotropic (scalar) length_scale.
+    due to the heavier tails of the RQ kernel. sklearn's RationalQuadratic supports
+    isotropic (scalar) length_scale in any dimension.
+
+    The scale_mixture parameter must satisfy scale_mixture > dim/2 for the spectral
+    density to be well-defined at ω=0.
 
     See Riutort-Mayol 2023 equation (13) for the approximation formula.
     """
     assert x1.shape == x2.shape
-    m = 200  # use more basis functions for RQ kernel
     dim = x1.shape[-1]
     spd = diag_spectral_density_rational_quadratic(
         alpha=1.0, length=length, scale_mixture=scale_mixture, ell=ell, m=m, dim=dim
@@ -541,8 +576,16 @@ def test_kernel_approx_rational_quadratic(
     exact = RationalQuadratic(length_scale=length, alpha=scale_mixture)(x1, x2).squeeze(
         axis=-1
     )
-    # Use slightly relaxed tolerance for sm=1.0 due to heavier tails
-    rtol = 0.02 if scale_mixture < 2.0 else 1e-3
+    # Use slightly relaxed tolerance for low scale_mixture due to heavier tails
+    # and for higher dimensions due to approximation error accumulation
+    if scale_mixture < 2.0:
+        rtol = 0.02
+    elif dim >= 3:
+        rtol = 0.05  # 3D+ needs more basis functions, relax tolerance
+    elif dim == 2:
+        rtol = 0.01
+    else:
+        rtol = 1e-3
     assert jnp.isclose(approx, exact, rtol=rtol).all()
 
 
