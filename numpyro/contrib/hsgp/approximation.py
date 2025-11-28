@@ -16,6 +16,7 @@ from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_period
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
     diag_spectral_density_periodic,
+    diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
 )
 import numpyro.distributions as dist
@@ -152,6 +153,67 @@ def hsgp_matern(
     spd = jnp.sqrt(
         diag_spectral_density_matern(
             nu=nu, alpha=alpha, length=length, ell=ell, m=m, dim=dim
+        )
+    )
+    return linear_approximation(
+        phi=phi, spd=spd, m=phi.shape[-1], non_centered=non_centered
+    )
+
+
+def hsgp_rational_quadratic(
+    x: ArrayLike,
+    alpha: float,
+    length: float,
+    scale_mixture: float,
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    non_centered: bool = True,
+) -> Array:
+    """
+    Hilbert space Gaussian process approximation using the Rational Quadratic kernel.
+
+    The Rational Quadratic kernel can be seen as a scale mixture (an infinite sum)
+    of squared exponential kernels with different length scales. As the scale mixture
+    parameter approaches infinity, the kernel converges to the squared exponential kernel.
+
+    The main idea of the approach is to combine the associated spectral density of the
+    Rational Quadratic kernel and the spectrum of the Dirichlet Laplacian operator to obtain
+    a low-rank approximation of the Gram matrix. For more details see [1, 2].
+
+    **References:**
+
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020).
+
+        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+    :param ArrayLike x: input data
+    :param float alpha: amplitude of the Rational Quadratic kernel
+    :param float length: length scale of the Rational Quadratic kernel
+    :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
+        Controls the relative weighting of small-scale and large-scale variations.
+        As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
+    :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
+        that the input data lies in the interval :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
+        We expect the approximation to be valid within this interval
+    :param int | list[m] m: number of eigenvalues to compute and include in the approximation for each dimension
+        (:math:`\\left\\{1, ..., D\\right\\}`).
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :param bool non_centered: whether to use a non-centered parameterization. By default, it is set to True.
+    :return: the low-rank approximation linear model
+    :rtype: Array
+    """
+    dim = jnp.shape(x)[-1] if jnp.ndim(x) > 1 else 1
+    phi = eigenfunctions(x=x, ell=ell, m=m)
+    spd = jnp.sqrt(
+        diag_spectral_density_rational_quadratic(
+            alpha=alpha,
+            length=length,
+            scale_mixture=scale_mixture,
+            ell=ell,
+            m=m,
+            dim=dim,
         )
     )
     return linear_approximation(

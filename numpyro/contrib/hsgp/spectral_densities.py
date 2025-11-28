@@ -162,6 +162,166 @@ def diag_spectral_density_matern(
     return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
 
 
+def modified_bessel_second_kind(v, z):
+    """
+    Modified Bessel function of the second kind K_v(z).
+
+    Uses the exponentially scaled version from TensorFlow Probability for numerical stability.
+
+    :param v: order of the Bessel function
+    :param z: argument
+    :return: K_v(z)
+    """
+    try:
+        from tensorflow_probability.substrates import jax as tfp
+    except ImportError as e:
+        raise ImportError(
+            "TensorFlow Probability is required for the Rational Quadratic kernel spectral density."
+        ) from e
+
+    v = jnp.asarray(v, dtype=float)
+    z = jnp.asarray(z, dtype=float)
+    # bessel_kve returns K_v(z) * exp(z), so we multiply by exp(-z) to get K_v(z)
+    return jnp.exp(-z) * tfp.math.bessel_kve(v, z)
+
+
+def spectral_density_rational_quadratic(
+    dim: int,
+    w: ArrayLike,
+    alpha: float,
+    length: float | ArrayLike,
+    scale_mixture: float,
+) -> Array:
+    """
+    Spectral density of the Rational Quadratic kernel.
+
+    The Rational Quadratic kernel can be seen as a scale mixture (an infinite sum)
+    of squared exponential kernels with different length scales. As the scale mixture
+    parameter approaches infinity, the kernel converges to the squared exponential kernel.
+
+    The spectral density involves the modified Bessel function of the second kind.
+    For the kernel :math:`k(r) = (1 + r^2/(2 \\alpha_{\\text{mix}} \\ell^2))^{-\\alpha_{\\text{mix}}}`,
+    the spectral density is:
+
+    .. math::
+
+        S(\\omega) = \\alpha \\sqrt{2\\pi} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a \\cdot
+            \\frac{(a|\\omega|)^{\\alpha_{\\text{mix}}-1/2}
+            K_{\\alpha_{\\text{mix}}-1/2}(a|\\omega|)}{\\Gamma(\\alpha_{\\text{mix}})}
+
+    where :math:`a = \\sqrt{2 \\alpha_{\\text{mix}}} \\cdot \\ell` and :math:`K_\\nu` is the
+    modified Bessel function of the second kind.
+
+    .. note::
+
+        This implementation currently only supports 1-dimensional inputs (dim=1) with isotropic
+        length scales, matching the limitation of sklearn's RationalQuadratic kernel.
+        The HSGP approximation for the RQ kernel may require larger ``ell`` values compared
+        to the Squared Exponential kernel due to the heavier tails of the RQ kernel.
+
+    **References:**
+
+        1. Rasmussen, C. E., & Williams, C. K. I. (2006). Gaussian Processes for Machine Learning.
+
+        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+    :param int dim: dimension (currently only dim=1 is fully supported)
+    :param ArrayLike w: frequency
+    :param float alpha: amplitude
+    :param float length: length scale (scalar)
+    :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
+        Controls the relative weighting of small-scale and large-scale variations.
+        As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
+    :return: spectral density value
+    :rtype: Array
+    """
+    # For now, only support isotropic (scalar) length scale
+    length = jnp.atleast_1d(length)
+    if length.shape[-1] > 1 and dim > 1:
+        raise NotImplementedError(
+            "Rational Quadratic spectral density currently only supports "
+            "isotropic (scalar) length scales."
+        )
+    length_scalar = jnp.mean(length)  # Use scalar length
+
+    # Compute scaling parameter: a = sqrt(2 * scale_mixture) * length
+    a = jnp.sqrt(2 * scale_mixture) * length_scalar
+
+    # Compute |ω| (magnitude of frequency vector)
+    w = jnp.atleast_1d(w)
+    abs_w = jnp.sqrt(jnp.sum(w**2, axis=-1))
+    scaled_w = a * abs_w
+
+    # Order of Bessel function
+    nu = scale_mixture - dim / 2
+
+    # For small ω, use asymptotic expansion of K_ν(z) * z^ν → Γ(ν) * 2^(ν-1) as z → 0
+    # S(0) = alpha * (2π)^(D/2) * 2^(1-α) * a^D * Γ(ν) * 2^(ν-1) / Γ(α)
+    #      = alpha * (2π)^(D/2) * a^D * 2^(-D/2) * Γ(α - D/2) / Γ(α)
+    #      = alpha * π^(D/2) * a^D * Γ(α - D/2) / Γ(α)
+    log_S_0 = (
+        jnp.log(alpha)
+        + (dim / 2) * jnp.log(jnp.pi)
+        + dim * jnp.log(a)
+        + special.gammaln(scale_mixture - dim / 2)
+        - special.gammaln(scale_mixture)
+    )
+    S_0 = jnp.exp(log_S_0)
+
+    # For regular case: S(ω) = alpha * sqrt(2π)^D * 2^(1-α) * a * (a|ω|)^(α-D/2) * K_{α-D/2}(a|ω|) / Γ(α)
+    # Using log for numerical stability
+    log_S_regular = (
+        jnp.log(alpha)
+        + (dim / 2) * jnp.log(2 * jnp.pi)
+        + (1 - scale_mixture) * jnp.log(2)
+        + jnp.log(a)
+        + nu * jnp.log(scaled_w)
+        + jnp.log(modified_bessel_second_kind(nu, scaled_w))
+        - special.gammaln(scale_mixture)
+    )
+    S_regular = jnp.exp(log_S_regular)
+
+    # Use S_0 for small ω, S_regular otherwise
+    return jnp.where(abs_w < 1e-8, S_0, S_regular)
+
+
+def diag_spectral_density_rational_quadratic(
+    alpha: float,
+    length: float | list[float],
+    scale_mixture: float,
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    dim: int,
+) -> Array:
+    """
+    Evaluates the spectral density of the Rational Quadratic kernel at the first :math:`D \\times m^\\star`
+    square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
+
+    :param float alpha: amplitude of the Rational Quadratic kernel
+    :param float length: length scale of the Rational Quadratic kernel
+    :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
+        Controls the relative weighting of small-scale and large-scale variations.
+        As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
+    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
+        If a float or int, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :param int dim: The dimension of the space
+
+    :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
+    :rtype: Array
+    """
+
+    def _spectral_density(w):
+        return spectral_density_rational_quadratic(
+            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
+        )
+
+    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
+    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
+
+
 def modified_bessel_first_kind(v, z):
     try:
         from tensorflow_probability.substrates import jax as tfp
