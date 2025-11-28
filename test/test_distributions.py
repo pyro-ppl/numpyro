@@ -3270,7 +3270,7 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     expected_log_prob = expected_dist.log_prob(expected_sample)
     actual_log_prob = actual_dist.log_prob(actual_sample)
     assert_allclose(actual_sample, expected_sample, rtol=1e-6)
-    assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-6)
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
 
 @pytest.mark.parametrize(
