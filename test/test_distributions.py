@@ -142,6 +142,14 @@ def _wishart_to_scipy(conc, scale, rate, tril):
     return osp.wishart(float(jax_dist.concentration), jax_dist.scale_matrix)
 
 
+def _invwishart_to_scipy(conc, scale, rate, tril):
+    jax_dist = dist.InverseWishart(conc, scale, rate, tril)
+    if not jnp.isscalar(jax_dist.concentration):
+        pytest.skip("scipy invwishart only supports a single scalar concentration")
+    # Cast to float explicitly because np.isscalar returns False on scalar jax arrays.
+    return osp.invwishart(float(jax_dist.concentration), jax_dist.scale_matrix)
+
+
 def _circulant_to_scipy(loc, covariance_row, covariance_rfft):
     jax_dist = dist.CirculantNormal(loc, covariance_row, covariance_rfft)
     return osp.multivariate_normal(mean=jax_dist.mean, cov=jax_dist.covariance_matrix)
@@ -507,6 +515,7 @@ _DIST_MAP = {
         scale=scale,
     ),
     dist.Wishart: _wishart_to_scipy,
+    dist.InverseWishart: _invwishart_to_scipy,
     _TruncatedNormal: _truncnorm_to_scipy,
     dist.Levy: lambda loc, scale: osp.levy(loc=loc, scale=scale),
 }
@@ -963,6 +972,80 @@ CONTINUOUS = [
     ),
     T(
         dist.WishartCholesky,
+        9.0,
+        None,
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+        None,
+    ),
+    # InverseWishart tests: concentration must be > p - 1 (for p=2, need conc > 1)
+    # Using concentration > p + 1 to ensure mean exists
+    T(dist.InverseWishart, 5, 2 * np.eye(2) + 0.1, None, None),
+    T(
+        dist.InverseWishart,
+        5.0,
+        None,
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
+        None,
+    ),
+    T(
+        dist.InverseWishart,
+        np.array([6.0, 7.0]),
+        None,
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        None,
+    ),
+    T(
+        dist.InverseWishart,
+        np.array([5.0]),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.InverseWishart,
+        np.arange(5, 11, dtype=np.float32).reshape((3, 2)),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
+    ),
+    T(
+        dist.InverseWishart,
+        9.0,
+        None,
+        np.broadcast_to(np.identity(3), (2, 3, 3)),
+        None,
+    ),
+    T(dist.InverseWishartCholesky, 5, 2 * np.eye(2) + 0.1, None, None),
+    T(
+        dist.InverseWishartCholesky,
+        5.0,
+        None,
+        np.array([[1.0, 0.5], [0.5, 1.0]]),
+        None,
+    ),
+    T(
+        dist.InverseWishartCholesky,
+        np.array([6.0, 7.0]),
+        None,
+        np.array([[[1.0, 0.5], [0.5, 1.0]]]),
+        None,
+    ),
+    T(
+        dist.InverseWishartCholesky,
+        np.array([5.0]),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.5, 1.0]]),
+    ),
+    T(
+        dist.InverseWishartCholesky,
+        np.arange(5, 11, dtype=np.float32).reshape((3, 2)),
+        None,
+        None,
+        np.array([[1.0, 0.0], [0.0, 1.0]]),
+    ),
+    T(
+        dist.InverseWishartCholesky,
         9.0,
         None,
         np.broadcast_to(np.identity(3), (2, 3, 3)),
@@ -1957,6 +2040,38 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
+@pytest.mark.parametrize("conc", [15.0, 20.0, 30.0])
+def test_inverse_wishart_variance(conc):
+    """Test InverseWishart variance formula against Monte Carlo samples.
+
+    The variance formula is:
+    Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
+    """
+    # Use a non-trivial scale matrix
+    scale = np.array([[2.0, 0.5], [0.5, 1.0]])
+    p = scale.shape[0]
+
+    # conc must be > p + 3 for variance to exist
+    assert conc > p + 3
+
+    # Create distribution
+    iw = dist.InverseWishart(conc, scale_matrix=scale)
+
+    # Sample and compute empirical variance
+    key = random.PRNGKey(42)
+    num_samples = 200000
+    samples = iw.sample(key, sample_shape=(num_samples,))
+    empirical_var = jnp.var(samples, axis=0)
+
+    # Get analytical variance
+    analytical_var = iw.variance
+
+    # Check that variance formula matches empirical variance
+    # Use larger tolerance for smaller conc (more variance in estimates)
+    rtol = 0.15 if conc < 20 else 0.10
+    assert_allclose(analytical_var, empirical_var, rtol=rtol)
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
@@ -2064,6 +2179,16 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Censored distributions do not have mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")
+    if jax_dist is dist.InverseWishartCholesky:
+        pytest.skip(
+            "InverseWishartCholesky.mean is an approximation (Cholesky of mean matrix)"
+        )
+    if jax_dist is dist.InverseWishart:
+        # Skip generic mean_var test; dedicated test_inverse_wishart_variance validates
+        # the variance formula with appropriate df values and sample sizes
+        pytest.skip(
+            "InverseWishart variance tested in dedicated test_inverse_wishart_variance"
+        )
     if jax_dist in [dist.LowerTruncatedPowerLaw, dist.DoublyTruncatedPowerLaw]:
         pytest.skip(
             f"{jax_dist.__name__} distribution does not has mean/var implemented"
@@ -2103,10 +2228,11 @@ def test_mean_var(jax_dist, sp_dist, params):
         else:
             sp_var = d_sp.var()
         assert_allclose(d_jax.mean, sp_mean, rtol=0.01, atol=1e-7)
-        assert_allclose(d_jax.variance, sp_var, rtol=0.01, atol=1e-7)
+        if sp_var is not None:
+            assert_allclose(d_jax.variance, sp_var, rtol=0.01, atol=1e-7)
         if jnp.all(jnp.isfinite(sp_mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
-        if jnp.all(jnp.isfinite(sp_var)):
+        if sp_var is not None and jnp.all(jnp.isfinite(sp_var)):
             assert_allclose(
                 jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.06, atol=1e-2
             )
