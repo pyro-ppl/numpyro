@@ -205,7 +205,8 @@ def spectral_density_rational_quadratic(
 
     .. math::
 
-        S(\\boldsymbol{\\omega}) = \\sigma^2 (2\\pi)^{D/2} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a \\cdot
+        S(\\boldsymbol{\\omega}) = \\sigma^2 (2\\pi)^{D/2} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a
+            \\cdot (2\\alpha_{\\text{mix}})^{(D-1)/2} \\cdot
             \\frac{(a|\\boldsymbol{\\omega}|)^{\\alpha_{\\text{mix}}-D/2}
             K_{\\alpha_{\\text{mix}}-D/2}(a|\\boldsymbol{\\omega}|)}{\\Gamma(\\alpha_{\\text{mix}})}
 
@@ -217,12 +218,13 @@ def spectral_density_rational_quadratic(
 
     .. math::
 
-        S(0) = \\sigma^2 \\pi^{D/2} a^D \\frac{\\Gamma(\\alpha_{\\text{mix}} - D/2)}{\\Gamma(\\alpha_{\\text{mix}})}
+        S(0) = \\sigma^2 \\pi^{D/2} a^D (2\\alpha_{\\text{mix}})^{(D-1)/2}
+            \\frac{\\Gamma(\\alpha_{\\text{mix}} - D/2)}{\\Gamma(\\alpha_{\\text{mix}})}
 
     .. note::
 
-        This implementation currently only supports 1-dimensional inputs (dim=1) with isotropic
-        length scales, matching the limitation of sklearn's RationalQuadratic kernel.
+        The S(0) formula requires :math:`\\alpha_{\\text{mix}} > D/2` to be well-defined.
+        For :math:`\\alpha_{\\text{mix}} \\leq D/2`, the spectral density diverges at :math:`\\omega = 0`.
         The HSGP approximation for the RQ kernel may require larger ``ell`` values compared
         to the Squared Exponential kernel due to the heavier tails of the RQ kernel.
 
@@ -233,17 +235,17 @@ def spectral_density_rational_quadratic(
         2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param int dim: dimension (currently only dim=1 is fully supported)
+    :param int dim: dimension
     :param ArrayLike w: frequency
     :param float alpha: amplitude (σ² in the spectral density formula)
-    :param float length: length scale (scalar)
+    :param float length: length scale (scalar, isotropic)
     :param float scale_mixture: scale mixture parameter (α_mix in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
     :return: spectral density value
     :rtype: Array
     """
-    # For now, only support isotropic (scalar) length scale
+    # Only support isotropic (scalar) length scale
     length = jnp.atleast_1d(length)
     if length.shape[-1] > 1 and dim > 1:
         raise NotImplementedError(
@@ -263,25 +265,31 @@ def spectral_density_rational_quadratic(
     # Order of Bessel function: ν = α_mix - D/2
     nu = scale_mixture - dim / 2
 
+    # Dimension-dependent correction factor: (2 * α_mix)^((D-1)/2)
+    log_dim_factor = ((dim - 1) / 2) * jnp.log(2 * scale_mixture)
+
     # For small ω, use asymptotic expansion: z^ν K_ν(z) → Γ(ν) 2^(ν-1) as z → 0
-    # This gives: S(0) = α * π^(D/2) * a^D * Γ(α_mix - D/2) / Γ(α_mix)
+    # S(0) = α * π^(D/2) * a^D * (2*α_mix)^((D-1)/2) * Γ(α_mix - D/2) / Γ(α_mix)
+    # Note: This requires α_mix > D/2 for Γ(α_mix - D/2) to be positive and finite
     log_S_0 = (
         jnp.log(alpha)
         + (dim / 2) * jnp.log(jnp.pi)
         + dim * jnp.log(a)
+        + log_dim_factor
         + special.gammaln(scale_mixture - dim / 2)
         - special.gammaln(scale_mixture)
     )
     S_0 = jnp.exp(log_S_0)
 
     # For regular case (ω ≠ 0):
-    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a * (a|ω|)^(α_mix-D/2) * K_{α_mix-D/2}(a|ω|) / Γ(α_mix)
-    # Using log for numerical stability
+    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a * (2*α_mix)^((D-1)/2)
+    #        * (a|ω|)^(α_mix-D/2) * K_{α_mix-D/2}(a|ω|) / Γ(α_mix)
     log_S_regular = (
         jnp.log(alpha)
         + (dim / 2) * jnp.log(2 * jnp.pi)
         + (1 - scale_mixture) * jnp.log(2)
         + jnp.log(a)
+        + log_dim_factor
         + nu * jnp.log(scaled_w)
         + jnp.log(modified_bessel_second_kind(nu, scaled_w))
         - special.gammaln(scale_mixture)

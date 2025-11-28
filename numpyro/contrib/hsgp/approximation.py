@@ -182,9 +182,12 @@ def hsgp_rational_quadratic(
 
     .. note::
 
-        Due to the heavier tails of the RQ kernel compared to the Squared Exponential kernel,
-        the HSGP approximation may require larger ``ell`` values (e.g., 10 instead of 5) for
-        accurate results, especially for small ``scale_mixture`` values.
+        - Due to the heavier tails of the RQ kernel compared to the Squared Exponential kernel,
+          the HSGP approximation may require larger ``ell`` values (e.g., 10 instead of 5) for
+          accurate results, especially for small ``scale_mixture`` values.
+        - The spectral density requires ``scale_mixture > dim/2`` for the approximation at
+          :math:`\\omega = 0` to be well-defined. For example, ``scale_mixture > 0.5`` for 1D,
+          ``scale_mixture > 1`` for 2D, and ``scale_mixture > 1.5`` for 3D.
 
     **References:**
 
