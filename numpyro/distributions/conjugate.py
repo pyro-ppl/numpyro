@@ -109,6 +109,122 @@ class BetaBinomial(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
 
+class BetaNegativeBinomial(Distribution):
+    r"""
+    Compound distribution comprising of a beta-negative-binomial pair. The ``probs``
+    parameter for the :class:`~numpyro.distributions.NegativeBinomialProbs` distribution
+    is unknown and randomly drawn from a :class:`~numpyro.distributions.Beta` distribution
+    prior to the negative binomial counting process.
+
+    The Beta Negative Binomial is a heavy-tailed discrete distribution useful for modeling
+    overdispersed count data. It arises as the marginal distribution when integrating out
+    the success probability in a negative binomial model with a beta prior.
+
+    .. math::
+
+        p &\sim \mathrm{Beta}(\alpha, \beta) \\
+        X \mid p &\sim \mathrm{NegativeBinomial}(n, p)
+
+    The probability mass function is:
+
+    .. math::
+
+        P(X = k) = \binom{n + k - 1}{k} \frac{B(\alpha + k, \beta + n)}{B(\alpha, \beta)}
+
+    where :math:`B(\cdot, \cdot)` is the beta function.
+
+    :param numpy.ndarray concentration1: 1st concentration parameter (alpha) for the
+        Beta distribution.
+    :param numpy.ndarray concentration0: 2nd concentration parameter (beta) for the
+        Beta distribution.
+    :param numpy.ndarray n: positive number of successes parameter for the negative
+        binomial distribution.
+
+    **Properties**
+
+    - **Mean**: :math:`\frac{n \cdot \alpha}{\beta - 1}` for :math:`\beta > 1`, else undefined.
+    - **Variance**: for :math:`\beta > 2`, else undefined.
+
+      .. math::
+
+          \frac{n \cdot \alpha \cdot (n + \beta - 1) \cdot (\alpha + \beta - 1)}{(\beta - 1)^2 \cdot (\beta - 2)}
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Beta_negative_binomial_distribution
+    [2] https://mc-stan.org/docs/functions-reference/unbounded_discrete_distributions.html#beta-neg-binomial
+    """
+
+    arg_constraints = {
+        "concentration1": constraints.positive,
+        "concentration0": constraints.positive,
+        "n": constraints.positive,
+    }
+    support = constraints.nonnegative_integer
+    pytree_data_fields = ("concentration1", "concentration0", "n", "_beta")
+
+    def __init__(
+        self,
+        concentration1: ArrayLike,
+        concentration0: ArrayLike,
+        n: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        self.concentration1, self.concentration0, self.n = promote_shapes(
+            concentration1, concentration0, n
+        )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration1), jnp.shape(concentration0), jnp.shape(n)
+        )
+        concentration1 = jnp.broadcast_to(concentration1, batch_shape)
+        concentration0 = jnp.broadcast_to(concentration0, batch_shape)
+        self._beta = Beta(concentration1, concentration0)
+        super(BetaNegativeBinomial, self).__init__(
+            batch_shape, validate_args=validate_args
+        )
+
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        assert is_prng_key(key)
+        key_beta, key_nb = random.split(key)
+        probs = self._beta.sample(key_beta, sample_shape)
+        return NegativeBinomialProbs(total_count=self.n, probs=probs).sample(key_nb)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        return (
+            gammaln(self.n + value)
+            - gammaln(self.n)
+            - gammaln(value + 1)
+            + betaln(self.concentration1 + value, self.concentration0 + self.n)
+            - betaln(self.concentration1, self.concentration0)
+        )
+
+    @property
+    def mean(self) -> ArrayLike:
+        return jnp.where(
+            self.concentration0 > 1,
+            self.n * self.concentration1 / (self.concentration0 - 1),
+            jnp.inf,
+        )
+
+    @property
+    def variance(self) -> ArrayLike:
+        alpha = self.concentration1
+        beta = self.concentration0
+        n = self.n
+        var = (
+            n
+            * alpha
+            * (n + beta - 1)
+            * (alpha + beta - 1)
+            / (jnp.square(beta - 1) * (beta - 2))
+        )
+        return jnp.where(beta > 2, var, jnp.inf)
+
+
 class DirichletMultinomial(Distribution):
     r"""
     Compound distribution comprising of a dirichlet-multinomial pair. The probability of

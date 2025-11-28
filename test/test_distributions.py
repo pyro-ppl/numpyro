@@ -1103,6 +1103,13 @@ DISCRETE = [
         np.array([5.0, 3.0]),
         np.array([10, 12]),
     ),
+    T(dist.BetaNegativeBinomial, 2.0, 5.0, 10),
+    T(
+        dist.BetaNegativeBinomial,
+        np.array([2.0, 4.0]),
+        np.array([5.0, 3.0]),
+        np.array([5, 10]),
+    ),
     T(dist.BernoulliProbs, 0.2),
     T(dist.BernoulliProbs, np.array([0.2, 0.7])),
     T(dist.BernoulliLogits, np.array([-1.0, 3.0])),
@@ -1920,6 +1927,25 @@ def test_beta_binomial_log_prob(total_count, shape):
         value
     )
     assert_allclose(actual, expected, rtol=0.02)
+
+
+@pytest.mark.parametrize("n", [1, 2, 5, 10])
+@pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
+def test_beta_negative_binomial_log_prob(n, shape):
+    concentration0 = np.exp(np.random.normal(size=shape))
+    concentration1 = np.exp(np.random.normal(size=shape))
+    value = jnp.arange(15)
+
+    num_samples = 300000
+    probs = np.random.beta(concentration1, concentration0, size=(num_samples,) + shape)
+    # Use NegativeBinomialProbs: total_count=n (number of successes), probs=p
+    log_probs = dist.NegativeBinomialProbs(n, probs).log_prob(value)
+    expected = logsumexp(log_probs, 0) - jnp.log(num_samples)
+
+    actual = dist.BetaNegativeBinomial(concentration1, concentration0, n).log_prob(
+        value
+    )
+    assert_allclose(actual, expected, rtol=0.05)
 
 
 @pytest.mark.parametrize("total_count", [1, 2, 3, 10])

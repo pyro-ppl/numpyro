@@ -8,6 +8,7 @@ from numpyro.distributions.censored import (
 )
 from numpyro.distributions.conjugate import (
     BetaBinomial,
+    BetaNegativeBinomial,
     DirichletMultinomial,
     GammaPoisson,
     NegativeBinomial2,
@@ -129,6 +130,7 @@ __all__ = [
     "BernoulliProbs",
     "Beta",
     "BetaBinomial",
+    "BetaNegativeBinomial",
     "BetaProportion",
     "Binomial",
     "BinomialLogits",
