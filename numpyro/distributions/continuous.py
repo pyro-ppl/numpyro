@@ -3511,6 +3511,7 @@ class InverseWishartCholesky(Distribution):
             random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
         )
         # L_wishart @ L_wishart^T ~ Wishart(nu, Psi^{-1})
+        # L_wishart is lower triangular (product of two lower triangular matrices)
         scale_tril_wishart = cholesky_of_inverse(self.scale_matrix)
         L_wishart = jnp.matmul(*jnp.broadcast_arrays(scale_tril_wishart, latent))
         identity = jnp.broadcast_to(jnp.eye(p), L_wishart.shape)
