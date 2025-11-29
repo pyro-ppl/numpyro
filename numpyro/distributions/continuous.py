@@ -3519,7 +3519,10 @@ class InverseWishartCholesky(Distribution):
         scale_tril_wishart = cholesky_of_inverse(self.scale_matrix)
         L_wishart = jnp.matmul(*jnp.broadcast_arrays(scale_tril_wishart, latent))
         identity = jnp.broadcast_to(jnp.eye(p), L_wishart.shape)
-        return solve_triangular(jnp.swapaxes(L_wishart, -1, -2), identity, lower=False)
+        L_wishart_inv = solve_triangular(L_wishart, identity, lower=True)
+        # (L @ L^T)^{-1} = L^{-T} @ L^{-1}, take Cholesky for lower triangular result
+        X_inv = jnp.matmul(jnp.swapaxes(L_wishart_inv, -1, -2), L_wishart_inv)
+        return jnp.linalg.cholesky(X_inv)
 
     @lazy_property
     def mean(self) -> ArrayLike:
