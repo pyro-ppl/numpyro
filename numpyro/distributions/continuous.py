@@ -3285,8 +3285,10 @@ class InverseWishart(TransformedDistribution):
 
     :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
         Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
-    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`.
-    :param rate_matrix: Inverse of the scale matrix (alternative parameterization).
+    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
+        to the inverse rate of a :class:`Gamma` distribution.
+    :param rate_matrix: Inverse of the scale matrix, analogous to the rate of a
+        :class:`Gamma` distribution.
     :param scale_tril: Cholesky decomposition of the scale matrix.
 
     **Properties**
@@ -3394,8 +3396,10 @@ class InverseWishartCholesky(Distribution):
 
     :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
         Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
-    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`.
-    :param rate_matrix: Inverse of the scale matrix (alternative parameterization).
+    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
+        to the inverse rate of a :class:`Gamma` distribution.
+    :param rate_matrix: Inverse of the scale matrix, analogous to the rate of a
+        :class:`Gamma` distribution.
     :param scale_tril: Cholesky decomposition of the scale matrix.
 
     **References**
