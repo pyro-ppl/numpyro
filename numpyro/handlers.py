@@ -131,6 +131,7 @@ __all__ = [
     "seed",
     "substitute",
     "trace",
+    "uncondition",
     "do",
 ]
 
@@ -473,6 +474,52 @@ class condition(Messenger):
         if value is not None:
             msg["value"] = value
             msg["is_observed"] = True
+
+
+class uncondition(Messenger):
+    """
+    Messenger to force the value of observed nodes to be sampled from their
+    distribution, ignoring observations.
+
+    **Example:**
+
+    .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import seed, trace, uncondition
+       >>> import numpyro.distributions as dist
+
+       >>> def model(obs=None):
+       ...     return numpyro.sample('x', dist.Normal(0., 1.), obs=obs)
+
+       >>> # By default, the observed value is used
+       >>> model = seed(model, random.PRNGKey(0))
+       >>> exec_trace = trace(model).get_trace(obs=1.5)
+       >>> assert exec_trace['x']['value'] == 1.5
+       >>> assert exec_trace['x']['is_observed']
+
+       >>> # With uncondition, we sample from the prior instead
+       >>> unconditioned_model = uncondition(seed(model, random.PRNGKey(0)))
+       >>> exec_trace = trace(unconditioned_model).get_trace(obs=1.5)
+       >>> assert exec_trace['x']['value'] != 1.5  # sampled value
+       >>> assert not exec_trace['x']['is_observed']
+       >>> assert exec_trace['x']['infer']['was_observed']
+       >>> assert exec_trace['x']['infer']['obs'] == 1.5
+    """
+
+    def process_message(self, msg: Message) -> None:
+        if msg["type"] != "sample":
+            return
+        if msg["is_observed"]:
+            msg["is_observed"] = False
+            msg["infer"]["was_observed"] = True
+            msg["infer"]["obs"] = msg["value"]
+            msg["value"] = None
+            # Request an rng_key if none was provided (since seed handler
+            # may have skipped this site when it saw an observed value)
+            if msg["kwargs"]["rng_key"] is None:
+                msg["kwargs"]["rng_key"] = numpyro.prng_key()
 
 
 class infer_config(Messenger):

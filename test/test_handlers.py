@@ -888,3 +888,55 @@ def test_sites_have_unique_names():
     msg = "all sites must have unique names but got `alpha` duplicated"
     with pytest.raises(AssertionError, match=msg):
         mcmc.run(random.PRNGKey(0))
+
+
+def test_uncondition():
+    def model(obs=None):
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0), obs=obs)
+        return x
+
+    obs_value = 1.5
+
+    # Without uncondition, the observed value is used
+    model_with_seed = handlers.seed(model, random.PRNGKey(0))
+    trace_observed = handlers.trace(model_with_seed).get_trace(obs=obs_value)
+    assert trace_observed["x"]["value"] == obs_value
+    assert trace_observed["x"]["is_observed"]
+
+    # With uncondition, we sample from the prior instead
+    unconditioned_model = handlers.uncondition(handlers.seed(model, random.PRNGKey(0)))
+    trace_unconditioned = handlers.trace(unconditioned_model).get_trace(obs=obs_value)
+
+    # The value should be sampled, not the observation
+    assert trace_unconditioned["x"]["value"] != obs_value
+    assert not trace_unconditioned["x"]["is_observed"]
+
+    # The original observation is stored in infer dict
+    assert trace_unconditioned["x"]["infer"]["was_observed"]
+    assert trace_unconditioned["x"]["infer"]["obs"] == obs_value
+
+
+def test_uncondition_multiple_sites():
+    def model(obs_x=None, obs_y=None):
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0), obs=obs_x)
+        y = numpyro.sample("y", dist.Normal(x, 1.0), obs=obs_y)
+        z = numpyro.sample("z", dist.Normal(y, 1.0))  # not observed
+        return x, y, z
+
+    obs_x, obs_y = 1.0, 2.0
+
+    unconditioned_model = handlers.uncondition(handlers.seed(model, random.PRNGKey(0)))
+    trace = handlers.trace(unconditioned_model).get_trace(obs_x=obs_x, obs_y=obs_y)
+
+    # Both observed sites should now be sampled
+    assert not trace["x"]["is_observed"]
+    assert trace["x"]["infer"]["was_observed"]
+    assert trace["x"]["infer"]["obs"] == obs_x
+
+    assert not trace["y"]["is_observed"]
+    assert trace["y"]["infer"]["was_observed"]
+    assert trace["y"]["infer"]["obs"] == obs_y
+
+    # The unobserved site should remain unobserved
+    assert not trace["z"]["is_observed"]
+    assert not trace["z"]["infer"].get("was_observed", False)
