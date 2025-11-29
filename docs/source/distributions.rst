@@ -467,6 +467,14 @@ BetaBinomial
     :show-inheritance:
     :member-order: bysource
 
+BetaNegativeBinomial
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.conjugate.BetaNegativeBinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Binomial
 ^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.Binomial
