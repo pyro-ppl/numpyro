@@ -3368,7 +3368,7 @@ class InverseWishart(TransformedDistribution):
         # Variance of entry (i,j) for nu > p + 3
         # Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
         p = self.scale_matrix.shape[-1]
-        nu = self.concentration[..., None, None]
+        nu = jnp.expand_dims(self.concentration, axis=(-1, -2))
         psi = self.scale_matrix
         denom = (nu - p - 1) ** 2 * (nu - p - 3)
         psi_ii = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., :, None]
@@ -3464,17 +3464,16 @@ class InverseWishartCholesky(Distribution):
         trace = jnp.square(x).sum(axis=(-1, -2))
 
         p = value.shape[-1]
+        log_diag = jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1))
         return (
             self.concentration * tri_logabsdet(self.scale_tril)  # (nu/2) log|Psi|
             + p * (1 - self.concentration / 2) * jnp.log(2)  # normalization
             - multigammaln(self.concentration / 2, p)
-            - (self.concentration + p + 1)
-            * tri_logabsdet(value)  # -((nu+p+1)/2) log|X|
-            - trace / 2  # -tr(Psi @ X^{-1}) / 2
-            + jnp.sum(  # Jacobian: X = L @ L^T
-                jnp.arange(p, 0, -1) * jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1)),
+            + jnp.sum(
+                (-self.concentration[..., None] - 1 - jnp.arange(p)) * log_diag,
                 axis=-1,
             )
+            - trace / 2
         )
 
     @lazy_property
@@ -3507,17 +3506,15 @@ class InverseWishartCholesky(Distribution):
         )
         i, j = jnp.tril_indices(p, -1)
         assert i.size == p * (p - 1) // 2
+        # latent is a lower triangular matrix from the Bartlett decomposition
         latent = latent.at[..., i, j].set(
             random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
         )
         # L_wishart @ L_wishart^T ~ Wishart(nu, Psi^{-1})
         scale_tril_wishart = cholesky_of_inverse(self.scale_matrix)
         L_wishart = jnp.matmul(*jnp.broadcast_arrays(scale_tril_wishart, latent))
-        # Invert: chol((L @ L^T)^{-1}) = chol(L^{-T} @ L^{-1})
         identity = jnp.broadcast_to(jnp.eye(p), L_wishart.shape)
-        L_inv = solve_triangular(jnp.swapaxes(L_wishart, -1, -2), identity, lower=False)
-        X_invwishart = jnp.matmul(L_inv, jnp.swapaxes(L_inv, -1, -2))
-        return jnp.linalg.cholesky(X_invwishart)
+        return solve_triangular(jnp.swapaxes(L_wishart, -1, -2), identity, lower=False)
 
     @lazy_property
     def mean(self) -> ArrayLike:
