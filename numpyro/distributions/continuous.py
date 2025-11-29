@@ -3496,28 +3496,13 @@ class InverseWishartCholesky(Distribution):
     ) -> ArrayLike:
         assert is_prng_key(key)
         # If X ~ Wishart(nu, Psi^{-1}), then X^{-1} ~ InverseWishart(nu, Psi)
-        # Use Bartlett decomposition to sample Wishart, then invert.
-        rng_diag, rng_offdiag = random.split(key)
-        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
+        # Sample from WishartCholesky with rate_matrix=Psi to get Wishart(nu, Psi^{-1})
+        wishart_cholesky = WishartCholesky(
+            self.concentration, rate_matrix=self.scale_matrix
+        )
+        L_wishart = wishart_cholesky.sample(key, sample_shape)
+        # Invert: L_wishart^{-1} is lower triangular (efficient via solve_triangular)
         p = self.event_shape[-1]
-        i = jnp.arange(p)
-        latent = latent.at[..., i, i].set(
-            jnp.sqrt(
-                random.chisquare(
-                    rng_diag, self.concentration[..., None] - i, latent.shape[:-1]
-                )
-            )
-        )
-        i, j = jnp.tril_indices(p, -1)
-        assert i.size == p * (p - 1) // 2
-        # latent is a lower triangular matrix from the Bartlett decomposition
-        latent = latent.at[..., i, j].set(
-            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
-        )
-        # L_wishart @ L_wishart^T ~ Wishart(nu, Psi^{-1})
-        # L_wishart is lower triangular (product of two lower triangular matrices)
-        scale_tril_wishart = cholesky_of_inverse(self.scale_matrix)
-        L_wishart = jnp.matmul(*jnp.broadcast_arrays(scale_tril_wishart, latent))
         identity = jnp.broadcast_to(jnp.eye(p), L_wishart.shape)
         L_wishart_inv = solve_triangular(L_wishart, identity, lower=True)
         # (L @ L^T)^{-1} = L^{-T} @ L^{-1}, take Cholesky for lower triangular result
