@@ -1320,7 +1320,7 @@ class Unit(Distribution):
     arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
 
-    def __init__(self, log_factor: ArrayLike, *, validate_args: Optional[bool] = None):
+    def __init__(self, log_factor: ArrayLike, *, validate_args: bool = False):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
         self.log_factor = log_factor

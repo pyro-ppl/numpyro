@@ -3577,7 +3577,7 @@ class Levy(Distribution):
     """
 
     arg_constraints = {
-        "loc": constraints.positive,
+        "loc": constraints.real,
         "scale": constraints.positive,
     }
 
