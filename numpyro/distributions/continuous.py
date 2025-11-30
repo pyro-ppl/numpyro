@@ -3495,18 +3495,19 @@ class InverseWishartCholesky(Distribution):
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
-        # Sample from standard WishartCholesky (Bartlett decomposition)
-        # then use the trick to get standard InverseWishartCholesky.
+        # Sample from standard InverseWishartCholesky using Bartlett decomposition
         # Ref: https://nbviewer.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
         rng_diag, rng_offdiag = random.split(key)
         latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
         p = self.event_shape[-1]
-        # Standard Bartlett: nu, nu - p + 1, ..., nu - 1
+        # Inverse Wishart Bartlett: nu - p + 1, nu - p + 2, ..., nu - 1, nu
         i = jnp.arange(p)
         latent = latent.at[..., i, i].set(
             jnp.sqrt(
                 random.chisquare(
-                    rng_diag, self.concentration[..., None] - i, latent.shape[:-1]
+                    rng_diag,
+                    self.concentration[..., None] + i - p + 1,
+                    latent.shape[:-1],
                 )
             )
         )
@@ -3514,11 +3515,9 @@ class InverseWishartCholesky(Distribution):
         latent = latent.at[..., i, j].set(
             random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
         )
-        # Apply flip-transpose-inverse trick to get Cholesky of InverseWishart(I)
-        Lf_flipped = latent[..., ::-1, ::-1]
-        tril_inv = jnp.swapaxes(Lf_flipped, -1, -2)
+        # Get Cholesky of InverseWishart(I) by inverting latent
         identity = jnp.broadcast_to(jnp.eye(p), latent.shape)
-        L_inv_std = solve_triangular(tril_inv, identity, lower=True)
+        L_inv_std = solve_triangular(latent, identity, lower=True)
 
         # Transform to InverseWishart(Psi): L = scale_tril @ L_inv_std
         return jnp.matmul(self.scale_tril, L_inv_std)
