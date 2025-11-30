@@ -3495,19 +3495,33 @@ class InverseWishartCholesky(Distribution):
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
-        # If X ~ Wishart(nu, Psi^{-1}), then X^{-1} ~ InverseWishart(nu, Psi)
-        # Sample from WishartCholesky with rate_matrix=Psi to get Wishart(nu, Psi^{-1})
-        wishart_cholesky = WishartCholesky(
-            self.concentration, rate_matrix=self.scale_matrix
-        )
-        L_wishart = wishart_cholesky.sample(key, sample_shape)
-        # Invert: L_wishart^{-1} is lower triangular (efficient via solve_triangular)
+        # Sample from standard WishartCholesky (Bartlett decomposition)
+        # then use the trick to get standard InverseWishartCholesky.
+        # Ref: https://nbviewer.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+        rng_diag, rng_offdiag = random.split(key)
+        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
         p = self.event_shape[-1]
-        identity = jnp.broadcast_to(jnp.eye(p), L_wishart.shape)
-        L_wishart_inv = solve_triangular(L_wishart, identity, lower=True)
-        # (L @ L^T)^{-1} = L^{-T} @ L^{-1}, take Cholesky for lower triangular result
-        X_inv = jnp.matmul(jnp.swapaxes(L_wishart_inv, -1, -2), L_wishart_inv)
-        return jnp.linalg.cholesky(X_inv)
+        # Standard Bartlett: nu, nu - p + 1, ..., nu - 1
+        i = jnp.arange(p)
+        latent = latent.at[..., i, i].set(
+            jnp.sqrt(
+                random.chisquare(
+                    rng_diag, self.concentration[..., None] - i, latent.shape[:-1]
+                )
+            )
+        )
+        i, j = jnp.tril_indices(p, -1)
+        latent = latent.at[..., i, j].set(
+            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
+        )
+        # Apply flip-transpose-inverse trick to get Cholesky of InverseWishart(I)
+        Lf_flipped = latent[..., ::-1, ::-1]
+        tril_inv = jnp.swapaxes(Lf_flipped, -1, -2)
+        identity = jnp.broadcast_to(jnp.eye(p), latent.shape)
+        L_inv_std = solve_triangular(tril_inv, identity, lower=True)
+
+        # Transform to InverseWishart(Psi): L = scale_tril @ L_inv_std
+        return jnp.matmul(self.scale_tril, L_inv_std)
 
     @lazy_property
     def mean(self) -> ArrayLike:
