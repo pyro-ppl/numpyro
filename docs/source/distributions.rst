@@ -256,6 +256,22 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+InverseWishart
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.InverseWishart
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+InverseWishartCholesky
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.InverseWishartCholesky
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Kumaraswamy
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Kumaraswamy
