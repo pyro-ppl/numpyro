@@ -711,7 +711,7 @@ class _PositiveOrderedVector(_SingletonConstraint[NonScalarArray]):
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
         return jnp.logical_and(
-            ordered_vector.check(x), independent[NumLike](positive, 1).check(x)
+            ordered_vector.check(x), jnp.all(positive.check(x), axis=-1)
         )
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
