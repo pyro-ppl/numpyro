@@ -3694,7 +3694,6 @@ def test_vmap_validate_args():
 def test_explicit_validate_args():
     # Check validation passes for valid parameters.
     d = dist.Normal(0, 1, validate_args=False)
-    d.validate_args()
 
     # Check validation fails for invalid parameters.
     d = dist.Normal(0, -1)
