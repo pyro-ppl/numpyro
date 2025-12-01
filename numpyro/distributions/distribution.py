@@ -53,7 +53,7 @@ from numpyro.util import find_stack_level, not_jax_tracer
 
 from . import constraints
 
-_VALIDATION_ENABLED = False
+_VALIDATION_ENABLED = True
 
 
 def enable_validation(is_validate: bool = True) -> None:
@@ -1320,7 +1320,7 @@ class Unit(Distribution):
     arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
 
-    def __init__(self, log_factor: ArrayLike, *, validate_args: Optional[bool] = None):
+    def __init__(self, log_factor: ArrayLike, *, validate_args: bool = False):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
         self.log_factor = log_factor

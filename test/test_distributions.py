@@ -3693,11 +3693,11 @@ def test_vmap_validate_args():
 
 def test_explicit_validate_args():
     # Check validation passes for valid parameters.
-    d = dist.Normal(0, 1)
+    d = dist.Normal(0, 1, validate_args=False)
     d.validate_args()
 
     # Check validation fails for invalid parameters.
-    d = dist.Normal(0, -1)
+    d = dist.Normal(0, -1, validate_args=False)
     with pytest.raises(ValueError, match="got invalid scale parameter"):
         d.validate_args()
 
@@ -4766,3 +4766,16 @@ def test_beta_gradient_edge_cases_all_params(concentration1, concentration0, val
         f"All gradients for Beta({concentration1},{concentration0}) at x={value} "
         f"should be finite"
     )
+
+
+def test_uniform_log_prob_outside_support():
+    from numpyro.distributions.distribution import enable_validation
+
+    enable_validation()
+
+    d = dist.Uniform(0, 1)
+    with pytest.warns(
+        UserWarning,
+        match="Out-of-support values provided to log prob method. The value argument should be within the support.",
+    ):
+        d.log_prob(-0.5)
