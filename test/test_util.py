@@ -112,7 +112,7 @@ def test_format_shapes():
 
     def model_test():
         mean = numpyro.param("mean", jnp.zeros(len(data)))
-        scale = numpyro.sample("scale", dist.Normal(0, 1).expand([3]).to_event(1))
+        scale = numpyro.sample("scale", dist.LogNormal(0, 1).expand([3]).to_event(1))
         scale = scale.sum()
         with numpyro.plate("data", len(data), subsample_size=10) as ind:
             batch = data[ind]

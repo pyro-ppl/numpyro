@@ -56,7 +56,7 @@ from . import constraints
 _VALIDATION_ENABLED = True
 
 
-def enable_validation(is_validate: bool = False) -> None:
+def enable_validation(is_validate: bool = True) -> None:
     """
     Enable or disable validation checks in NumPyro. Validation checks provide useful warnings and
     errors, e.g. NaN checks, validating distribution arguments and support values, etc. which is
