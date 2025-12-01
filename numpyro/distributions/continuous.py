@@ -2706,11 +2706,8 @@ class Uniform(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        log_p = -jnp.log(self.high - self.low)
-        is_in_support = (value >= self.low) & (value < self.high)
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
-        log_p = jnp.broadcast_to(log_p, shape)
-        return jnp.where(is_in_support, log_p, -jnp.inf)
+        return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
         cdf = (value - self.low) / (self.high - self.low)
