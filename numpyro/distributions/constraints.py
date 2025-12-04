@@ -45,6 +45,8 @@ __all__ = [
     "multinomial",
     "nonnegative",
     "nonnegative_integer",
+    "optional",
+    "ordered_vector",
     "positive",
     "positive_definite",
     "positive_definite_circulant_vector",
@@ -396,6 +398,43 @@ class _IndependentConstraint(Constraint):
         return (self.base_constraint == other.base_constraint) & (
             self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
         )
+
+
+class _OptionalConstraint(Constraint):
+    def __init__(self, base_constraint: Constraint) -> None:
+        assert isinstance(base_constraint, Constraint)
+        self.base_constraint = base_constraint
+        super().__init__()
+
+    @property
+    def is_discrete(self) -> bool:
+        return self.base_constraint.is_discrete
+
+    @property
+    def event_dim(self) -> int:
+        return self.base_constraint.event_dim
+
+    def __call__(self, value: Optional[ArrayLike]) -> ArrayLike:
+        if value is None:
+            return True
+        return self.base_constraint(value)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__[1:]}({repr(self.base_constraint)})"
+
+    def feasible_like(self, prototype: ArrayLike) -> ArrayLike:
+        return self.base_constraint.feasible_like(prototype)
+
+    def tree_flatten(self):
+        return (self.base_constraint,), (
+            ("base_constraint",),
+            {},
+        )
+
+    def __eq__(self, other: ConstraintT) -> bool:
+        if not isinstance(other, _OptionalConstraint):
+            return False
+        return self.base_constraint == other.base_constraint
 
 
 class _RealVector(_IndependentConstraint, _SingletonConstraint):
@@ -819,6 +858,7 @@ scaled_unit_lower_cholesky: ConstraintT = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
 nonnegative: ConstraintT = _Nonnegative()
 nonnegative_integer: ConstraintT = _IntegerNonnegative()
+optional = _OptionalConstraint
 ordered_vector: ConstraintT = _OrderedVector()
 positive: ConstraintT = _Positive()
 positive_definite: ConstraintT = _PositiveDefinite()

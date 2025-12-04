@@ -648,10 +648,11 @@ class GaussianStateSpace(TransformedDistribution):
 
     .. math::
         \mathbf{z}_{t} &= \mathbf{A} \mathbf{z}_{t - 1} + \boldsymbol{\epsilon}_t\\
-        &=\sum_{k=1} \mathbf{A}^{t-k} \boldsymbol{\epsilon}_t,
+        &= \mathbf{A}^t \mathbf{z}_0 + \sum_{k=1}^{t} \mathbf{A}^{t-k} \boldsymbol{\epsilon}_k,
 
     where :math:`\mathbf{z}_t` is the state vector at step :math:`t`, :math:`\mathbf{A}`
-    is the transition matrix, and :math:`\boldsymbol\epsilon` is the innovation noise.
+    is the transition matrix, :math:`\mathbf{z}_0` is the initial value, and
+    :math:`\boldsymbol\epsilon` is the innovation noise.
 
 
     :param num_steps: Number of steps.
@@ -662,6 +663,8 @@ class GaussianStateSpace(TransformedDistribution):
         :math:`\boldsymbol\epsilon`.
     :param scale_tril: Scale matrix of the innovation noise
         :math:`\boldsymbol\epsilon`.
+    :param initial_value: Initial state vector :math:`\mathbf{z}_0`. If ``None``,
+        defaults to zero.
     """
 
     arg_constraints = {
@@ -669,6 +672,7 @@ class GaussianStateSpace(TransformedDistribution):
         "precision_matrix": constraints.positive_definite,
         "scale_tril": constraints.lower_cholesky,
         "transition_matrix": constraints.real_matrix,
+        "initial_value": constraints.optional(constraints.real_vector),
     }
     support = constraints.real_matrix
     pytree_aux_fields = ("num_steps",)
@@ -680,6 +684,7 @@ class GaussianStateSpace(TransformedDistribution):
         covariance_matrix: Optional[Array] = None,
         precision_matrix: Optional[Array] = None,
         scale_tril: Optional[Array] = None,
+        initial_value: Optional[Array] = None,
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
@@ -691,6 +696,7 @@ class GaussianStateSpace(TransformedDistribution):
             "`transition_matrix` argument should be a square matrix"
         )
         self.transition_matrix = transition_matrix
+        self.initial_value = initial_value
         # Expand the covariance/precision/scale matrices to the right number of steps.
         args = {
             "covariance_matrix": covariance_matrix,
@@ -705,23 +711,45 @@ class GaussianStateSpace(TransformedDistribution):
         base_distribution = MultivariateNormal(**args)
         self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
         base_distribution = base_distribution.to_event(1)
-        transform = RecursiveLinearTransform(transition_matrix)
+
+        # The base distribution must have at least the same batch shape as the initial
+        # value.
+        if initial_value is not None:
+            batch_shape = initial_value.shape[:-1]
+            base_distribution = base_distribution.expand(batch_shape)
+
+        transform = RecursiveLinearTransform(
+            transition_matrix, initial_value=initial_value
+        )
         super().__init__(base_distribution, transform, validate_args=validate_args)
 
     @property
     def mean(self) -> ArrayLike:
-        # The mean of the base distribution is zero and it has the right shape.
-        return self.base_dist.mean
+        # If there's no initial value, the mean is zero (base distribution mean).
+        if self.initial_value is None:
+            return self.base_dist.mean
+
+        # Otherwise, we need to compute A^t @ z_0 for each time step t.
+        # z_t = A @ z_{t-1} for the deterministic part with z_0 = initial_value
+        def propagate(z, _):
+            z_next = jnp.einsum("...ij,...j->...i", self.transition_matrix, z)
+            return z_next, z_next
+
+        _, means = scan(propagate, self.initial_value, jnp.arange(self.num_steps))
+        # means has shape (num_steps, ..., state_dim)
+        # We need to move num_steps to axis -2 to match base_dist.mean shape
+        return jnp.moveaxis(means, 0, -2)
 
     @property
     def variance(self) -> ArrayLike:
-        # Given z_t = \sum_{k=1}^t A^{t-k} \epsilon_t, the covariance of the state
+        # Given z_t = z_0 + \sum_{k=1}^t A^{t-k} \epsilon_t, the covariance of the state
         # vector at step t is E[z_t transpose(z_t)] = \sum_{k,k'}^t A^{t-k}
         # E[\epsilon_k transpose(\epsilon_{k'})] transpose(A^{t-k'}). We only have
         # contributions for k = k' because innovations at different steps are
         # independent such that E[z_t transpose(z_t)] = \sum_k^t A^{t-k} @
-        # @ covariance_matrix @ transpose(A^{t-k}). Using `scan` is an easy way to
-        # evaluate this expression.
+        # @ covariance_matrix @ transpose(A^{t-k}). The initial value is deterministic,
+        # and we don't need to consider it here. Using `scan` is an easy way to evaluate
+        # this expression.
         _, scale_tril = scan(
             lambda carry, _: (self.transition_matrix @ carry, carry),
             self.scale_tril,

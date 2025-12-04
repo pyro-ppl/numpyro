@@ -631,6 +631,33 @@ CONTINUOUS = [
         np.array([[0.8, 0.2], [-0.1, 1.1]]),
         np.array([0.1, 0.3, 0.25])[:, None, None] * np.array([[0.8, 0.2], [0.2, 0.7]]),
     ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.1], [-0.1, 0.9]]),
+        None,
+        None,
+        np.array([[0.5, 0.0], [0.0, 0.5]]),
+        np.array([1.0, 2.0]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.1], [-0.1, 0.9]]),
+        None,
+        None,
+        np.array([[0.5, 0.0], [0.0, 0.5]]),
+        np.array([[1.0, 2.0], [0.5, 1.5], [-1.0, 0.0]]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        4,
+        np.array([[0.9, 0.0], [0.0, 0.9]]),
+        None,
+        None,
+        np.array([[0.3, 0.0], [0.0, 0.3]]),
+        np.array([[[1.0, 0.0]], [[0.0, 1.0]]]),
+    ),
     pytest.param(
         *T(
             dist.GaussianCopulaBeta,
@@ -1328,7 +1355,7 @@ def gen_values_within_bounds(constraint, size, key=None):
     elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
         return x - random.normal(key, size[:-1] + (1,))
-    elif isinstance(constraint, constraints.independent):
+    elif isinstance(constraint, (constraints.independent, constraints.optional)):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
     elif constraint is constraints.sphere:
         x = random.normal(key, size)
@@ -1404,7 +1431,7 @@ def gen_values_outside_bounds(constraint, size, key=None):
     elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
         return x[..., ::-1]
-    elif isinstance(constraint, constraints.independent):
+    elif isinstance(constraint, (constraints.independent, constraints.optional)):
         return gen_values_outside_bounds(constraint.base_constraint, size, key)
     elif constraint is constraints.sphere:
         x = random.normal(key, size)
@@ -3276,9 +3303,11 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     # Test that parameters do not change after flattening.
     expected_dist = f(0)
     actual_dist = jax.jit(f)(0)
-    for name in expected_dist.arg_constraints:
+    for name, constraint in expected_dist.arg_constraints.items():
         expected_arg = getattr(expected_dist, name)
         actual_arg = getattr(actual_dist, name)
+        if actual_arg is None and isinstance(constraint, constraints.optional):
+            continue
         assert actual_arg is not None, f"arg {name} is None"
         if np.issubdtype(np.asarray(expected_arg).dtype, np.number):
             assert_allclose(actual_arg, expected_arg, atol=1e-7)
