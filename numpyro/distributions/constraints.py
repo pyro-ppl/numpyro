@@ -45,6 +45,7 @@ __all__ = [
     "multinomial",
     "nonnegative",
     "nonnegative_integer",
+    "ordered_vector",
     "positive",
     "positive_definite",
     "positive_definite_circulant_vector",
