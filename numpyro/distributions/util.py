@@ -780,6 +780,8 @@ def validate_sample(log_prob_fn):
             log_prob = jnp.where(mask, log_prob, -jnp.inf)
         return log_prob
 
+    wrapper.__doc__ = log_prob_fn.__doc__
+
     return wrapper
 
 
