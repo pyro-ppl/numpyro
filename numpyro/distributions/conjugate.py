@@ -326,7 +326,7 @@ class GammaPoisson(Distribution):
     drawn from a :class:`~numpyro.distributions.Gamma` distribution.
 
     :param numpy.ndarray concentration: shape parameter (alpha) of the Gamma distribution.
-    :param numpy.ndarray rate: rate parameter (beta) for the Gamma distribution.
+    :param numpy.ndarray rate: rate parameter (rate) for the Gamma distribution.
     """
 
     arg_constraints = {
@@ -352,6 +352,20 @@ class GammaPoisson(Distribution):
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the sampling
+        procedure is:
+
+        .. math::
+            \begin{align*}
+                \theta &\sim \mathrm{Gamma}(\alpha, \lambda) \\
+                X \mid \theta &\sim \mathrm{Poisson}(\theta)
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Gamma` to generate samples
+        from the Gamma distribution and
+        :class:`~numpyro.distributions.continuous.Poisson` to generate samples from the
+        Poisson distribution.
+        """
         assert is_prng_key(key)
         key_gamma, key_poisson = random.split(key)
         rate = self._gamma.sample(key_gamma, sample_shape)
@@ -359,6 +373,12 @@ class GammaPoisson(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the log
+        probability mass function is:
+
+        .. math::
+            p_{X}(k) = \frac{\lambda^\alpha}{(\alpha + k)(1+\lambda)^{\alpha + k}\mathrm{B}(\alpha, k + 1)}
+        """
         post_value = self.concentration + value
         return (
             -betaln(self.concentration, value + 1)
@@ -369,13 +389,33 @@ class GammaPoisson(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the mean is:
+
+        .. math::
+            \mathbb{E}[X] = \frac{\alpha}{\lambda}
+        """
         return self.concentration / self.rate
 
     @property
     def variance(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the variance is:
+
+        .. math::
+            \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}(1 + \lambda)
+        """
         return self.concentration / jnp.square(self.rate) * (1 + self.rate)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
+        distribution function is:
+
+        .. math::
+            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, x + 1)}
+            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{x} dt
+
+        which is the regularized incomplete beta function.
+        This implementation uses :func:`~jax.scipy.special.betainc`.
+        """
         bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
         return bt
 
