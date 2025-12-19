@@ -120,34 +120,12 @@ class BetaNegativeBinomial(Distribution):
     overdispersed count data. It arises as the marginal distribution when integrating out
     the success probability in a negative binomial model with a beta prior.
 
-    .. math::
-
-        p &\sim \mathrm{Beta}(\alpha, \beta) \\
-        X \mid p &\sim \mathrm{NegativeBinomial}(n, p)
-
-    The probability mass function is:
-
-    .. math::
-
-        P(X = k) = \binom{n + k - 1}{k} \frac{B(\alpha + k, \beta + n)}{B(\alpha, \beta)}
-
-    where :math:`B(\cdot, \cdot)` is the beta function.
-
     :param numpy.ndarray concentration1: 1st concentration parameter (alpha) for the
         Beta distribution.
     :param numpy.ndarray concentration0: 2nd concentration parameter (beta) for the
         Beta distribution.
     :param numpy.ndarray n: positive number of successes parameter for the negative
         binomial distribution.
-
-    **Properties**
-
-    - **Mean**: :math:`\frac{n \cdot \alpha}{\beta - 1}` for :math:`\beta > 1`, else undefined.
-    - **Variance**: for :math:`\beta > 2`, else undefined.
-
-      .. math::
-
-          \frac{n \cdot \alpha \cdot (n + \beta - 1) \cdot (\alpha + \beta - 1)}{(\beta - 1)^2 \cdot (\beta - 2)}
 
     **References**
 
@@ -187,6 +165,20 @@ class BetaNegativeBinomial(Distribution):
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the sampling
+        procedure is:
+
+        .. math::
+            \begin{align*}
+                p &\sim \mathrm{Beta}(\alpha, \beta) \\
+                X \mid p &\sim \mathrm{NegativeBinomial}(n, p)
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Beta` to generate samples
+        from the Beta distribution and
+        :class:`~numpyro.distributions.discrete.NegativeBinomialProbs` to generate samples
+        from the Negative Binomial distribution.
+        """
         assert is_prng_key(key)
         key_beta, key_nb = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -194,6 +186,15 @@ class BetaNegativeBinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the log
+        probability mass function is:
+
+        .. math::
+            P(X = k) = \binom{n + k - 1}{k} \frac{B(\alpha + k, \beta + n)}{B(\alpha, \beta)}
+
+        To ensure differentiability, the binomial coefficient is computed using
+        gamma functions.
+        """
         return (
             gammaln(self.n + value)
             - gammaln(self.n)
@@ -204,6 +205,14 @@ class BetaNegativeBinomial(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)` and
+        :math:`\beta > 1`, then the mean is:
+
+        .. math::
+            \mathbb{E}[X] = \frac{n\alpha}{\beta - 1},
+
+        otherwise, the its undefined.
+        """
         return jnp.where(
             self.concentration0 > 1,
             self.n * self.concentration1 / (self.concentration0 - 1),
@@ -212,6 +221,15 @@ class BetaNegativeBinomial(Distribution):
 
     @property
     def variance(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)` and
+        :math:`\beta > 2`, then the variance is:
+
+        .. math::
+            \mathrm{Var}[X] =
+            \frac{n\alpha (n + \beta - 1)(\alpha + \beta - 1)}{(\beta - 1)^2 \cdot (\beta - 2)},
+
+        otherwise, the its undefined.
+        """
         alpha = self.concentration1
         beta = self.concentration0
         n = self.n
