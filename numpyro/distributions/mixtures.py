@@ -81,6 +81,10 @@ class _MixtureBase(Distribution):
         raise NotImplementedError
 
     @property
+    def has_rsample(self) -> bool:
+        return False
+
+    @property
     def mixture_size(self) -> int:
         """The number of components in the mixture"""
         return self._mixture_size
