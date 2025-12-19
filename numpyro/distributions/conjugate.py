@@ -444,7 +444,18 @@ def NegativeBinomial(
     logits: Optional[ArrayLike] = None,
     *,
     validate_args: Optional[bool] = None,
-):
+) -> GammaPoisson:
+    """Factory function for Negative Binomial distribution.
+
+    :param int total_count: Number of successful trials.
+    :param Optional[ArrayLike] probs: Probability of success for each trial, by default None
+    :param Optional[ArrayLike] logits: Log-odds of success for each trial, by default None
+    :param Optional[bool] validate_args: Whether to validate the parameters, by default None
+    :return: An instance of :class:`NegativeBinomialProbs` or
+        :class:`NegativeBinomialLogits` depending on the provided parameters.
+    :rtype: GammaPoisson
+    :raises ValueError: If neither :code:`probs` nor :code:`logits` is specified.
+    """
     if probs is not None:
         return NegativeBinomialProbs(total_count, probs, validate_args=validate_args)
     elif logits is not None:
@@ -454,6 +465,14 @@ def NegativeBinomial(
 
 
 class NegativeBinomialProbs(GammaPoisson):
+    r"""Negative Binomial distribution parameterized by :code:`total_count` (:math:`r`)
+    and :code:`probs` (:math:`p`). It is implemented as a
+    :math:`\displaystyle\mathrm{GammaPoisson}(n, \frac{1}{p} - 1)` distribution.
+
+    :param total_count: Number of successful trials (:math:`r`).
+    :param probs: Probability of success for each trial (:math:`p`).
+    """
+
     arg_constraints = {
         "total_count": constraints.positive,
         "probs": constraints.unit_interval,
@@ -474,6 +493,15 @@ class NegativeBinomialProbs(GammaPoisson):
 
 
 class NegativeBinomialLogits(GammaPoisson):
+    r"""Negative Binomial distribution parameterized by :code:`total_count` (:math:`r`)
+    and :code:`logits` (:math:`\displaystyle\mathrm{logits}(p)=\log \frac{p}{1-p}`). It
+    is implemented as a :math:`\mathrm{GammaPoisson}(n, \exp(-\mathrm{logits}(p)))`
+    distribution.
+
+    :param total_count: Number of successful trials.
+    :param logits: Log-odds of success for each trial (:math:`\ln \frac{p}{1-p}`).
+    """
+
     arg_constraints = {
         "total_count": constraints.positive,
         "logits": constraints.real,
@@ -494,6 +522,14 @@ class NegativeBinomialLogits(GammaPoisson):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{NegativeBinomial}(r, \mathrm{logits}(p))`, then the log
+        probability mass function is:
+
+        .. math::
+            \ln P(X = k) = -r \ln(1+\exp(\mathrm{logits}(p)))
+            - k \ln(1+\exp(-\mathrm{logits}(p)))
+            - \ln\Gamma(1 + k) - \ln\Gamma(\alpha) + \ln\Gamma(k + \alpha)
+        """
         return -(
             self.total_count * nn.softplus(self.logits)
             + value * nn.softplus(-self.logits)
@@ -502,8 +538,11 @@ class NegativeBinomialLogits(GammaPoisson):
 
 
 class NegativeBinomial2(GammaPoisson):
-    """
-    Another parameterization of GammaPoisson with `rate` is replaced by `mean`.
+    r"""If :math:`X \sim \mathrm{NegativeBinomial2}(\mu, \alpha)`, then
+    :math:`X \sim \mathrm{GammaPoisson}(\alpha, \frac{\alpha}{\mu})`.
+
+    :param numpy.ndarray mean: mean parameter (:math:`\mu`).
+    :param numpy.ndarray concentration: concentration parameter (:math:`\alpha`).
     """
 
     arg_constraints = {
