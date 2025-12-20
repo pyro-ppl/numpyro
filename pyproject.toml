@@ -130,5 +130,6 @@ module = [
     "numpyro.primitives.*",
     "numpyro.patch.*",
     "numpyro.util.*",
+    "numpyro.distributions.transforms",
 ]
 ignore_errors = false
