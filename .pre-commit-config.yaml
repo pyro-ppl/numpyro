@@ -20,6 +20,14 @@ repos:
         entry: mypy --install-types --non-interactive
         files: ^numpyro/
 
+      - id: ty
+        name: ty check
+        language: python
+        entry: ty
+        args: [check, --config-file, ty.toml]
+        pass_filenames: false
+        always_run: true
+        additional_dependencies: [ty]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -30,7 +38,7 @@ repos:
         exclude: notebooks/
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
+    rev: v2.4.1
     hooks:
       - id: codespell
         stages: [pre-commit, commit-msg]
