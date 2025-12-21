@@ -1,0 +1,22 @@
+[environment]
+python-version = "3.12"
+
+[rules]
+unresolved-import = "ignore"
+
+[src]
+include = ["numpyro"]
+exclude = [
+    "numpyro.contrib.control_flow.*",
+    "numpyro.contrib.funsor.*",
+    "numpyro.contrib.hsgp.*",
+    "numpyro.contrib.stochastic_support.*",
+    "numpyro.diagnostics.*",
+    "numpyro.handlers.*",
+    "numpyro.infer.elbo.*",
+    "numpyro.optim.*",
+    "numpyro.primitives.*",
+    "numpyro.patch.*",
+    "numpyro.util.*",
+]
+respect-ignore-files = true
