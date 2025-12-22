@@ -1,7 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from collections import namedtuple
+import functools as ft
 from functools import partial, update_wrapper
 import math
 import warnings
@@ -772,6 +774,7 @@ class lazy_property(object):
 
 
 def validate_sample(log_prob_fn):
+    @ft.wraps(log_prob_fn)
     def wrapper(self, *args, **kwargs):
         log_prob = log_prob_fn(self, *args, **kwargs)
         if self._validate_args:
@@ -779,8 +782,6 @@ def validate_sample(log_prob_fn):
             mask = self._validate_sample(value)
             log_prob = jnp.where(mask, log_prob, -jnp.inf)
         return log_prob
-
-    wrapper.__doc__ = log_prob_fn.__doc__
 
     return wrapper
 
