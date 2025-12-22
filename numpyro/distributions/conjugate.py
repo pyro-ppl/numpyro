@@ -120,34 +120,12 @@ class BetaNegativeBinomial(Distribution):
     overdispersed count data. It arises as the marginal distribution when integrating out
     the success probability in a negative binomial model with a beta prior.
 
-    .. math::
-
-        p &\sim \mathrm{Beta}(\alpha, \beta) \\
-        X \mid p &\sim \mathrm{NegativeBinomial}(n, p)
-
-    The probability mass function is:
-
-    .. math::
-
-        P(X = k) = \binom{n + k - 1}{k} \frac{B(\alpha + k, \beta + n)}{B(\alpha, \beta)}
-
-    where :math:`B(\cdot, \cdot)` is the beta function.
-
     :param numpy.ndarray concentration1: 1st concentration parameter (alpha) for the
         Beta distribution.
     :param numpy.ndarray concentration0: 2nd concentration parameter (beta) for the
         Beta distribution.
     :param numpy.ndarray n: positive number of successes parameter for the negative
         binomial distribution.
-
-    **Properties**
-
-    - **Mean**: :math:`\frac{n \cdot \alpha}{\beta - 1}` for :math:`\beta > 1`, else undefined.
-    - **Variance**: for :math:`\beta > 2`, else undefined.
-
-      .. math::
-
-          \frac{n \cdot \alpha \cdot (n + \beta - 1) \cdot (\alpha + \beta - 1)}{(\beta - 1)^2 \cdot (\beta - 2)}
 
     **References**
 
@@ -187,6 +165,20 @@ class BetaNegativeBinomial(Distribution):
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the sampling
+        procedure is:
+
+        .. math::
+            \begin{align*}
+                p &\sim \mathrm{Beta}(\alpha, \beta) \\
+                X \mid p &\sim \mathrm{NegativeBinomial}(n, p)
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Beta` to generate samples
+        from the Beta distribution and
+        :class:`~numpyro.distributions.discrete.NegativeBinomialProbs` to generate samples
+        from the Negative Binomial distribution.
+        """
         assert is_prng_key(key)
         key_beta, key_nb = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -194,6 +186,15 @@ class BetaNegativeBinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the log
+        probability mass function is:
+
+        .. math::
+            P(X = k) = \binom{n + k - 1}{k} \frac{B(\alpha + k, \beta + n)}{B(\alpha, \beta)}
+
+        To ensure differentiability, the binomial coefficient is computed using
+        gamma functions.
+        """
         return (
             gammaln(self.n + value)
             - gammaln(self.n)
@@ -204,6 +205,14 @@ class BetaNegativeBinomial(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)` and
+        :math:`\beta > 1`, then the mean is:
+
+        .. math::
+            \mathbb{E}[X] = \frac{n\alpha}{\beta - 1},
+
+        otherwise, the its undefined.
+        """
         return jnp.where(
             self.concentration0 > 1,
             self.n * self.concentration1 / (self.concentration0 - 1),
@@ -212,6 +221,15 @@ class BetaNegativeBinomial(Distribution):
 
     @property
     def variance(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)` and
+        :math:`\beta > 2`, then the variance is:
+
+        .. math::
+            \mathrm{Var}[X] =
+            \frac{n\alpha (n + \beta - 1)(\alpha + \beta - 1)}{(\beta - 1)^2 \cdot (\beta - 2)},
+
+        otherwise, the its undefined.
+        """
         alpha = self.concentration1
         beta = self.concentration0
         n = self.n
@@ -326,7 +344,7 @@ class GammaPoisson(Distribution):
     drawn from a :class:`~numpyro.distributions.Gamma` distribution.
 
     :param numpy.ndarray concentration: shape parameter (alpha) of the Gamma distribution.
-    :param numpy.ndarray rate: rate parameter (beta) for the Gamma distribution.
+    :param numpy.ndarray rate: rate parameter (rate) for the Gamma distribution.
     """
 
     arg_constraints = {
@@ -352,6 +370,20 @@ class GammaPoisson(Distribution):
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the sampling
+        procedure is:
+
+        .. math::
+            \begin{align*}
+                \theta &\sim \mathrm{Gamma}(\alpha, \lambda) \\
+                X \mid \theta &\sim \mathrm{Poisson}(\theta)
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Gamma` to generate samples
+        from the Gamma distribution and
+        :class:`~numpyro.distributions.continuous.Poisson` to generate samples from the
+        Poisson distribution.
+        """
         assert is_prng_key(key)
         key_gamma, key_poisson = random.split(key)
         rate = self._gamma.sample(key_gamma, sample_shape)
@@ -359,6 +391,12 @@ class GammaPoisson(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the log
+        probability mass function is:
+
+        .. math::
+            p_{X}(k) = \frac{\lambda^\alpha}{(\alpha + k)(1+\lambda)^{\alpha + k}\mathrm{B}(\alpha, k + 1)}
+        """
         post_value = self.concentration + value
         return (
             -betaln(self.concentration, value + 1)
@@ -369,13 +407,33 @@ class GammaPoisson(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the mean is:
+
+        .. math::
+            \mathbb{E}[X] = \frac{\alpha}{\lambda}
+        """
         return self.concentration / self.rate
 
     @property
     def variance(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the variance is:
+
+        .. math::
+            \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}(1 + \lambda)
+        """
         return self.concentration / jnp.square(self.rate) * (1 + self.rate)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
+        distribution function is:
+
+        .. math::
+            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, x + 1)}
+            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{x} dt
+
+        which is the regularized incomplete beta function.
+        This implementation uses :func:`~jax.scipy.special.betainc`.
+        """
         bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
         return bt
 
@@ -386,7 +444,18 @@ def NegativeBinomial(
     logits: Optional[ArrayLike] = None,
     *,
     validate_args: Optional[bool] = None,
-):
+) -> GammaPoisson:
+    """Factory function for Negative Binomial distribution.
+
+    :param int total_count: Number of successful trials.
+    :param Optional[ArrayLike] probs: Probability of success for each trial, by default None
+    :param Optional[ArrayLike] logits: Log-odds of success for each trial, by default None
+    :param Optional[bool] validate_args: Whether to validate the parameters, by default None
+    :return: An instance of :class:`NegativeBinomialProbs` or
+        :class:`NegativeBinomialLogits` depending on the provided parameters.
+    :rtype: GammaPoisson
+    :raises ValueError: If neither :code:`probs` nor :code:`logits` is specified.
+    """
     if probs is not None:
         return NegativeBinomialProbs(total_count, probs, validate_args=validate_args)
     elif logits is not None:
@@ -396,6 +465,14 @@ def NegativeBinomial(
 
 
 class NegativeBinomialProbs(GammaPoisson):
+    r"""Negative Binomial distribution parameterized by :code:`total_count` (:math:`r`)
+    and :code:`probs` (:math:`p`). It is implemented as a
+    :math:`\displaystyle\mathrm{GammaPoisson}(n, \frac{1}{p} - 1)` distribution.
+
+    :param total_count: Number of successful trials (:math:`r`).
+    :param probs: Probability of success for each trial (:math:`p`).
+    """
+
     arg_constraints = {
         "total_count": constraints.positive,
         "probs": constraints.unit_interval,
@@ -416,6 +493,15 @@ class NegativeBinomialProbs(GammaPoisson):
 
 
 class NegativeBinomialLogits(GammaPoisson):
+    r"""Negative Binomial distribution parameterized by :code:`total_count` (:math:`r`)
+    and :code:`logits` (:math:`\displaystyle\mathrm{logits}(p)=\log \frac{p}{1-p}`). It
+    is implemented as a :math:`\mathrm{GammaPoisson}(n, \exp(-\mathrm{logits}(p)))`
+    distribution.
+
+    :param total_count: Number of successful trials.
+    :param logits: Log-odds of success for each trial (:math:`\ln \frac{p}{1-p}`).
+    """
+
     arg_constraints = {
         "total_count": constraints.positive,
         "logits": constraints.real,
@@ -436,6 +522,14 @@ class NegativeBinomialLogits(GammaPoisson):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{NegativeBinomial}(r, \mathrm{logits}(p))`, then the log
+        probability mass function is:
+
+        .. math::
+            \ln P(X = k) = -r \ln(1+\exp(\mathrm{logits}(p)))
+            - k \ln(1+\exp(-\mathrm{logits}(p)))
+            - \ln\Gamma(1 + k) - \ln\Gamma(\alpha) + \ln\Gamma(k + \alpha)
+        """
         return -(
             self.total_count * nn.softplus(self.logits)
             + value * nn.softplus(-self.logits)
@@ -444,8 +538,11 @@ class NegativeBinomialLogits(GammaPoisson):
 
 
 class NegativeBinomial2(GammaPoisson):
-    """
-    Another parameterization of GammaPoisson with `rate` is replaced by `mean`.
+    r"""If :math:`X \sim \mathrm{NegativeBinomial2}(\mu, \alpha)`, then
+    :math:`X \sim \mathrm{GammaPoisson}(\alpha, \frac{\alpha}{\mu})`.
+
+    :param numpy.ndarray mean: mean parameter (:math:`\mu`).
+    :param numpy.ndarray concentration: concentration parameter (:math:`\alpha`).
     """
 
     arg_constraints = {

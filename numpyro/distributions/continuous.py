@@ -572,6 +572,14 @@ class Exponential(Distribution):
 
 
 class Gamma(Distribution):
+    r"""Implementation of the `Gamma distribution <https://en.wikipedia.org/wiki/Gamma_distribution>`_,
+    :math:`\mathrm{Gamma}(\alpha, \lambda)`, where, :math:`\alpha` is the concentration
+    and :math:`\lambda` is the rate.
+
+    :param ArrayLike concentration: concentration parameter :math:`\alpha` (also known as shape parameter).
+    :param ArrayLike rate: rate parameter :math:`\lambda` (inverse scale parameter).
+    """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "rate": constraints.positive,
@@ -595,12 +603,26 @@ class Gamma(Distribution):
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""Method to generate samples :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`.
+        It uses :func:`~jax.random.gamma` under the hood to generate samples.
+        """
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
         return random.gamma(key, self.concentration, shape=shape) / self.rate
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+
+            f_X(x\mid \alpha, \lambda) =
+            \frac{\lambda^{\alpha} x^{\alpha - 1} e^{-\lambda x}}{\Gamma(\alpha)},
+            \quad x > 0
+
+        It uses :func:`~jax.scipy.special.gammaln` to compute the logarithm of the
+        gamma function.
+        """
         normalize_term = gammaln(self.concentration) - self.concentration * jnp.log(
             self.rate
         )
@@ -612,19 +634,58 @@ class Gamma(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            \mathbb{E}[X] = \frac{\alpha}{\lambda}
+        """
         return self.concentration / self.rate
 
     @property
     def variance(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}
+        """
         return self.concentration / jnp.power(self.rate, 2)
 
     def cdf(self, x):
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            F_X(x \mid \alpha, \lambda) = \frac{1}{\Gamma(\alpha)}
+            \gamma\left(\alpha, \lambda x\right)
+
+        where, :math:`\gamma(\cdot,\cdot)` is the `lower incomplete gamma function <https://en.wikipedia.org/wiki/Incomplete_gamma_function>`_.
+        This method uses regularized incomplete gamma function,
+        which is implemented as :func:`~jax.scipy.special.gammainc`.
+        """
         return gammainc(self.concentration, self.rate * x)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            F^{-1}_X(q \mid \alpha, \lambda) = \frac{1}{\lambda}
+            \gamma^{-1}\left(\alpha, q \Gamma(\alpha)\right)
+
+        where, :math:`\gamma^{-1}(\cdot,\cdot)` is the inverse of the lower incomplete gamma function.
+        This method uses regularized incomplete gamma inverse function,
+        which is implemented as :func:`~numpyro.distributions.util.gammaincinv`.
+        """
         return gammaincinv(self.concentration, q) / self.rate
 
     def entropy(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            H[X] = \alpha - \ln(\lambda) + \ln\Gamma(\alpha)
+            + (1 - \alpha) \psi(\alpha)
+
+        where, :math:`\psi(\cdot)` is the `digamma function <https://en.wikipedia.org/wiki/Digamma_function>`_.
+        This methods uses which is implemented as :func:`~jax.scipy.special.digamma`.
+        """
         return (
             self.concentration
             - jnp.log(self.rate)
