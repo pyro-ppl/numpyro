@@ -279,7 +279,14 @@ def _load_jsb_chorales():
 
     file_path = os.path.join(DATA_DIR, "jsb_chorales.pickle")
     with open(file_path, "rb") as f:
-        data = pickle.load(f)
+        # Filter numpy deprecation warning from loading legacy pickle file
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="dtype.*align should be passed as Python or NumPy boolean",
+                category=np.exceptions.VisibleDeprecationWarning,
+            )
+            data = pickle.load(f)
 
     # XXX: we might expose those in `load_dataset` keywords
     min_note = 21
