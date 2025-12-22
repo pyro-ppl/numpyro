@@ -44,3 +44,9 @@ repos:
         stages: [pre-commit, commit-msg]
         args: [--ignore-words-list, "Teh,aas,ans,dout", --check-filenames, --skip, "*.ipynb"]
 
+  # Format yaml files
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.20.0
+    hooks:
+      - id: yamlfmt
+        args: [-formatter, retain_line_breaks=true]
