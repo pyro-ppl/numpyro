@@ -560,6 +560,47 @@ def test_get_mask_optimization():
     assert "guide-sometimes" not in called
 
 
+def test_predictive_mask_with_infer_discrete_true():
+    called = set()
+
+    def model():
+        probs = numpyro.sample("probs", dist.Dirichlet(jnp.ones(3)))
+        numpyro.sample(
+            "z",
+            dist.Categorical(probs=probs),
+            infer={"enumerate": "parallel"},
+        )
+        if numpyro.get_mask() is not False:
+            called.add("mask-true")
+            numpyro.sample("f", dist.Normal(0.0, 1.0), obs=0.0)
+
+    num_samples = 2
+    posterior_samples = {
+        "probs": jnp.tile(jnp.array([1.0 / 3, 1.0 / 3, 1.0 / 3]), (num_samples, 1))
+    }
+    Predictive(
+        model,
+        posterior_samples=posterior_samples,
+        infer_discrete=True,
+        batch_ndims=1,
+    )(random.PRNGKey(0))
+    assert "mask-true" in called
+
+
+def test_predictive_mask_with_infer_discrete_false():
+    called = set()
+
+    def model():
+        probs = numpyro.sample("probs", dist.Dirichlet(jnp.ones(3)))
+        numpyro.sample("z", dist.Categorical(probs=probs))
+        if numpyro.get_mask() is not False:
+            called.add("mask-true")
+            numpyro.sample("f", dist.Normal(0.0, 1.0))
+
+    Predictive(model, num_samples=2, infer_discrete=False)(random.PRNGKey(0))
+    assert "mask-true" not in called
+
+
 def test_log_likelihood_flax_nn():
     import numpy as np
 
