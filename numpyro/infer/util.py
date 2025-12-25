@@ -813,7 +813,8 @@ def _predictive(
     model_args=(),
     model_kwargs={},
 ):
-    masked_model = numpyro.handlers.mask(model, mask=False)
+    # When enumerating discrete sites, we need true log probabilities.
+    masked_model = numpyro.handlers.mask(model, mask=infer_discrete)
     if infer_discrete:
         # inspect the model to get some structure
         rng_key, subkey = random.split(rng_key)
