@@ -57,6 +57,7 @@ setup(
             "pyro-api>=0.1.1",
             "scikit-learn",
             "scipy>=1.9",
+            "ty>=0.0.4",
         ],
         "dev": [
             "dm-haiku>=0.0.14; python_version >= '3.10'",

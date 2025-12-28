@@ -81,7 +81,7 @@ class LeftCensoredDistribution(Distribution):
         base_dist: DistributionT,
         censored: ArrayLike = False,
         *,
-        validate_args: Optional[bool] = None,
+        validate_args: bool = False,
     ):
         # test if base_dist has an implemented cdf method
         if not hasattr(base_dist, "cdf"):
@@ -197,7 +197,7 @@ class RightCensoredDistribution(Distribution):
         base_dist: DistributionT,
         censored: ArrayLike = False,
         *,
-        validate_args: Optional[bool] = None,
+        validate_args: bool = False,
     ):
         # test if base_dist has an implemented cdf method
         if not hasattr(base_dist, "cdf"):
@@ -335,7 +335,7 @@ class IntervalCensoredDistribution(Distribution):
         left_censored: ArrayLike,
         right_censored: ArrayLike,
         *,
-        validate_args: Optional[bool] = None,
+        validate_args: bool = False,
     ):
         # Optionally test that cdf actually works (in validate_args mode)
         if validate_args:

@@ -620,7 +620,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
             return x, state
 
     # Eager initialization of the Net module outside the model
-    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))  # noqa: E1111
+    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))
     x = dist.Normal(0, 1).expand([4, 3]).to_event(2).sample(random.PRNGKey(0))
 
     def model():

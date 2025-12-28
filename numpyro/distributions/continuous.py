@@ -572,6 +572,14 @@ class Exponential(Distribution):
 
 
 class Gamma(Distribution):
+    r"""Implementation of the `Gamma distribution <https://en.wikipedia.org/wiki/Gamma_distribution>`_,
+    :math:`\mathrm{Gamma}(\alpha, \lambda)`, where, :math:`\alpha` is the concentration
+    and :math:`\lambda` is the rate.
+
+    :param ArrayLike concentration: concentration parameter :math:`\alpha` (also known as shape parameter).
+    :param ArrayLike rate: rate parameter :math:`\lambda` (inverse scale parameter).
+    """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "rate": constraints.positive,
@@ -595,12 +603,26 @@ class Gamma(Distribution):
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""Method to generate samples :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`.
+        It uses :func:`~jax.random.gamma` under the hood to generate samples.
+        """
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
         return random.gamma(key, self.concentration, shape=shape) / self.rate
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+
+            f_X(x\mid \alpha, \lambda) =
+            \frac{\lambda^{\alpha} x^{\alpha - 1} e^{-\lambda x}}{\Gamma(\alpha)},
+            \quad x > 0
+
+        It uses :func:`~jax.scipy.special.gammaln` to compute the logarithm of the
+        gamma function.
+        """
         normalize_term = gammaln(self.concentration) - self.concentration * jnp.log(
             self.rate
         )
@@ -612,19 +634,58 @@ class Gamma(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            \mathbb{E}[X] = \frac{\alpha}{\lambda}
+        """
         return self.concentration / self.rate
 
     @property
     def variance(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}
+        """
         return self.concentration / jnp.power(self.rate, 2)
 
     def cdf(self, x):
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            F_X(x \mid \alpha, \lambda) = \frac{1}{\Gamma(\alpha)}
+            \gamma\left(\alpha, \lambda x\right)
+
+        where, :math:`\gamma(\cdot,\cdot)` is the `lower incomplete gamma function <https://en.wikipedia.org/wiki/Incomplete_gamma_function>`_.
+        This method uses regularized incomplete gamma function,
+        which is implemented as :func:`~jax.scipy.special.gammainc`.
+        """
         return gammainc(self.concentration, self.rate * x)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            F^{-1}_X(q \mid \alpha, \lambda) = \frac{1}{\lambda}
+            \gamma^{-1}\left(\alpha, q \Gamma(\alpha)\right)
+
+        where, :math:`\gamma^{-1}(\cdot,\cdot)` is the inverse of the lower incomplete gamma function.
+        This method uses regularized incomplete gamma inverse function,
+        which is implemented as :func:`~numpyro.distributions.util.gammaincinv`.
+        """
         return gammaincinv(self.concentration, q) / self.rate
 
     def entropy(self) -> ArrayLike:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            H[X] = \alpha - \ln(\lambda) + \ln\Gamma(\alpha)
+            + (1 - \alpha) \psi(\alpha)
+
+        where, :math:`\psi(\cdot)` is the `digamma function <https://en.wikipedia.org/wiki/Digamma_function>`_.
+        This methods uses which is implemented as :func:`~jax.scipy.special.digamma`.
+        """
         return (
             self.concentration
             - jnp.log(self.rate)
@@ -3265,6 +3326,304 @@ class WishartCholesky(Distribution):
                 return batch_shape, event_shape
 
 
+class InverseWishart(TransformedDistribution):
+    r"""
+    Inverse Wishart distribution for covariance matrices.
+
+    The Inverse Wishart distribution is the conjugate prior for the covariance matrix
+    of a multivariate normal distribution. If :math:`\mathbf{X} \sim W^{-1}(\mathbf{\Psi}, \nu)`,
+    then :math:`\mathbf{X}^{-1} \sim W(\mathbf{\Psi}^{-1}, \nu)` (Wishart distribution).
+
+    .. math::
+
+        p(\mathbf{X} \mid \mathbf{\Psi}, \nu) =
+        \frac{|\mathbf{\Psi}|^{\nu/2}}{2^{\nu p/2} \Gamma_p(\nu/2)}
+        |\mathbf{X}|^{-(\nu + p + 1)/2}
+        \exp\left( -\frac{1}{2} \mathrm{tr}(\mathbf{\Psi} \mathbf{X}^{-1}) \right)
+
+    where :math:`p` is the dimension of the matrix, :math:`\nu > p - 1` is the degrees
+    of freedom, and :math:`\mathbf{\Psi}` is the positive definite scale matrix.
+
+    :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
+        Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
+    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
+        to the inverse rate of a :class:`Gamma` distribution.
+    :param rate_matrix: Inverse of the scale matrix, analogous to the rate of a
+        :class:`Gamma` distribution.
+    :param scale_tril: Cholesky decomposition of the scale matrix.
+
+    **Properties**
+
+    - **Mean**: :math:`\frac{\mathbf{\Psi}}{\nu - p - 1}` for :math:`\nu > p + 1`
+    - **Mode**: :math:`\frac{\mathbf{\Psi}}{\nu + p + 1}`
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Inverse-Wishart_distribution
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.positive_definite
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        scale_matrix: Optional[Array] = None,
+        rate_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        base_dist = InverseWishartCholesky(
+            concentration,
+            scale_matrix,
+            rate_matrix,
+            scale_tril,
+            validate_args=validate_args,
+        )
+        super().__init__(
+            base_dist, CholeskyTransform().inv, validate_args=validate_args
+        )
+
+    @lazy_property
+    def concentration(self):
+        return self.base_dist.concentration
+
+    @lazy_property
+    def scale_matrix(self):
+        return self.base_dist.scale_matrix
+
+    @lazy_property
+    def rate_matrix(self):
+        return self.base_dist.rate_matrix
+
+    @lazy_property
+    def scale_tril(self):
+        return self.base_dist.scale_tril
+
+    @lazy_property
+    def mean(self) -> ArrayLike:
+        # Mean exists only when concentration > p + 1
+        p = self.scale_matrix.shape[-1]
+        return jnp.where(
+            self.concentration[..., None, None] > p + 1,
+            self.scale_matrix / (self.concentration[..., None, None] - p - 1),
+            jnp.full_like(self.scale_matrix, jnp.nan),
+        )
+
+    @lazy_property
+    def mode(self) -> ArrayLike:
+        p = self.scale_matrix.shape[-1]
+        return self.scale_matrix / (self.concentration[..., None, None] + p + 1)
+
+    @lazy_property
+    def variance(self) -> ArrayLike:
+        # Variance of entry (i,j) for nu > p + 3
+        # Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
+        p = self.scale_matrix.shape[-1]
+        nu = jnp.expand_dims(self.concentration, axis=(-1, -2))
+        psi = self.scale_matrix
+        denom = (nu - p - 1) ** 2 * (nu - p - 3)
+        psi_ii = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., :, None]
+        psi_jj = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., None, :]
+        var = (psi**2 + psi_ii * psi_jj) / denom
+        return jnp.where(nu > p + 3, var, jnp.full_like(var, jnp.nan))
+
+    @staticmethod
+    def infer_shapes(
+        concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        return InverseWishartCholesky.infer_shapes(
+            concentration, scale_matrix, rate_matrix, scale_tril
+        )
+
+
+class InverseWishartCholesky(Distribution):
+    r"""
+    Cholesky factor of an Inverse Wishart distribution for covariance matrices.
+
+    This distribution samples the Cholesky factor :math:`\mathbf{L}` such that
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T \sim W^{-1}(\mathbf{\Psi}, \nu)`.
+
+    :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
+        Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
+    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
+        to the inverse rate of a :class:`Gamma` distribution.
+    :param rate_matrix: Inverse of the scale matrix, analogous to the rate of a
+        :class:`Gamma` distribution.
+    :param scale_tril: Cholesky decomposition of the scale matrix.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Inverse-Wishart_distribution
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.lower_cholesky
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        scale_matrix: Optional[Array] = None,
+        rate_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        concentration = jnp.asarray(concentration)[..., None, None]
+        if scale_matrix is not None:
+            concentration, self.scale_matrix = promote_shapes(
+                concentration, scale_matrix
+            )
+            self.scale_tril = jnp.linalg.cholesky(self.scale_matrix)
+        elif rate_matrix is not None:
+            concentration, self.rate_matrix = promote_shapes(concentration, rate_matrix)
+            self.scale_tril = cholesky_of_inverse(self.rate_matrix)
+        elif scale_tril is not None:
+            concentration, self.scale_tril = promote_shapes(
+                concentration, jnp.asarray(scale_tril)
+            )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration)[:-2], jnp.shape(self.scale_tril)[:-2]
+        )
+        event_shape = jnp.shape(self.scale_tril)[-2:]
+        self.concentration = concentration[..., 0, 0]
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        # L = value (Cholesky factor), X = L @ L^T ~ InverseWishart(Psi, nu)
+        # log p(X) = (nu/2) log|Psi| - (nu*p/2) log(2) - log Gamma_p(nu/2)
+        #            - ((nu+p+1)/2) log|X| - tr(Psi @ X^{-1}) / 2
+        # Trace trick: tr(Psi @ X^{-1}) = ||L^{-1} @ scale_tril||_F^2
+        x = solve_triangular(*jnp.broadcast_arrays(value, self.scale_tril), lower=True)
+        trace = jnp.square(x).sum(axis=(-1, -2))
+
+        p = value.shape[-1]
+        log_diag = jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1))
+        return (
+            self.concentration * tri_logabsdet(self.scale_tril)  # (nu/2) log|Psi|
+            + p * (1 - self.concentration / 2) * jnp.log(2)  # normalization
+            - multigammaln(self.concentration / 2, p)
+            + jnp.sum(
+                (-self.concentration[..., None] - 1 - jnp.arange(p)) * log_diag,
+                axis=-1,
+            )
+            - trace / 2
+        )
+
+    @lazy_property
+    def scale_matrix(self):
+        return jnp.matmul(self.scale_tril, self.scale_tril.mT)
+
+    @lazy_property
+    def rate_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        assert is_prng_key(key)
+        # Sample from standard InverseWishartCholesky using Bartlett decomposition
+        # Ref: https://nbviewer.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+        rng_diag, rng_offdiag = random.split(key)
+        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
+        p = self.event_shape[-1]
+        # Inverse Wishart Bartlett: nu - p + 1, nu - p + 2, ..., nu - 1, nu
+        i = jnp.arange(p)
+        latent = latent.at[..., i, i].set(
+            jnp.sqrt(
+                random.chisquare(
+                    rng_diag,
+                    self.concentration[..., None] + i - p + 1,
+                    latent.shape[:-1],
+                )
+            )
+        )
+        i, j = jnp.tril_indices(p, -1)
+        latent = latent.at[..., i, j].set(
+            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
+        )
+        # Get Cholesky of InverseWishart(I) by inverting latent
+        identity = jnp.broadcast_to(jnp.eye(p), latent.shape)
+        L_inv_std = solve_triangular(latent, identity, lower=True)
+
+        # Transform to InverseWishart(Psi): L = scale_tril @ L_inv_std
+        return jnp.matmul(self.scale_tril, L_inv_std)
+
+    @lazy_property
+    def mean(self) -> ArrayLike:
+        # Approximate: chol(E[X]) where E[X] = Psi / (nu - p - 1) for nu > p + 1
+        p = self.scale_tril.shape[-1]
+        mean_x = jnp.where(
+            self.concentration[..., None, None] > p + 1,
+            self.scale_matrix / (self.concentration[..., None, None] - p - 1),
+            jnp.full_like(self.scale_matrix, jnp.nan),
+        )
+        return jnp.linalg.cholesky(
+            jnp.where(jnp.isnan(mean_x), jnp.eye(p), mean_x)
+        ) * jnp.where(
+            self.concentration[..., None, None] > p + 1,
+            jnp.ones_like(mean_x),
+            jnp.full_like(mean_x, jnp.nan),
+        )
+
+    @lazy_property
+    def variance(self) -> ArrayLike:
+        # Variance of Cholesky factor is complex; return NaN for now
+        return jnp.full(self.batch_shape + self.event_shape, jnp.nan)
+
+    @staticmethod
+    def infer_shapes(
+        concentration: tuple[int, ...] = (),
+        scale_matrix: Optional[tuple[int, ...]] = None,
+        rate_matrix: Optional[tuple[int, ...]] = None,
+        scale_tril: Optional[tuple[int, ...]] = None,
+    ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        for matrix in [scale_matrix, rate_matrix, scale_tril]:
+            if matrix is not None:
+                batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
+                event_shape = matrix[-2:]
+                return batch_shape, event_shape
+
+
 class Levy(Distribution):
     r"""Lévy distribution is a special case of Lévy alpha-stable distribution.
     Its probability density function is given by,
@@ -3279,7 +3638,7 @@ class Levy(Distribution):
     """
 
     arg_constraints = {
-        "loc": constraints.positive,
+        "loc": constraints.real,
         "scale": constraints.positive,
     }
 

@@ -298,6 +298,14 @@ diag_spectral_density_matern
 ----------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_matern
 
+spectral_density_rational_quadratic
+-----------------------------------
+.. autofunction:: numpyro.contrib.hsgp.spectral_densities.spectral_density_rational_quadratic
+
+diag_spectral_density_rational_quadratic
+----------------------------------------
+.. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_rational_quadratic
+
 diag_spectral_density_periodic
 ------------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_periodic
@@ -309,6 +317,10 @@ hsgp_squared_exponential
 hsgp_matern
 -----------
 .. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_matern
+
+hsgp_rational_quadratic
+-----------------------
+.. autofunction:: numpyro.contrib.hsgp.approximation.hsgp_rational_quadratic
 
 hsgp_periodic_non_centered
 --------------------------
