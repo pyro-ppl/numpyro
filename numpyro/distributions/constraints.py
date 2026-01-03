@@ -246,7 +246,7 @@ class _Dependent(Constraint[NumLikeT]):
             return False
         return (
             self._is_discrete == other._is_discrete
-            and self._event_dim == other._event_dim
+            and self.event_dim == other._event_dim
         )
 
     def tree_flatten(self):
@@ -264,7 +264,7 @@ class dependent_property(property, _Dependent[NumLikeT]):
     ):
         super().__init__(fn)
         self._is_discrete = is_discrete
-        self.event_dim = event_dim
+        self._event_dim = event_dim
 
     def __call__(self, x):
         if not callable(x):
@@ -275,7 +275,7 @@ class dependent_property(property, _Dependent[NumLikeT]):
         #     def support(self):
         #         ...
         return dependent_property(
-            x, is_discrete=self._is_discrete, event_dim=self.event_dim
+            x, is_discrete=self._is_discrete, event_dim=self._event_dim
         )
 
 
@@ -347,8 +347,8 @@ class _IndependentConstraint(Constraint[NumLikeT]):
             base_constraint = base_constraint.base_constraint
         self.base_constraint: Constraint = base_constraint
         self.reinterpreted_batch_ndims: int = reinterpreted_batch_ndims
-        self.is_discrete = base_constraint.is_discrete
-        self.event_dim = base_constraint.event_dim + reinterpreted_batch_ndims
+        self._is_discrete = base_constraint.is_discrete
+        self._event_dim = base_constraint.event_dim + reinterpreted_batch_ndims
         super().__init__()
 
     def __call__(self, value: NumLikeT) -> ArrayLike:
