@@ -1,0 +1,40 @@
+[environment]
+python-version = "3.13"
+
+# Match mypy behavior: mypy has ignore_errors = true globally, making it very lenient.
+# The modules with ignore_errors = false still pass mypy because mypy is less strict than ty.
+# To match mypy's "passing" behavior, we disable ty's stricter rules that mypy doesn't catch.
+[rules]
+unresolved-import = "ignore"
+# Rules that ty catches but mypy doesn't (needed to match mypy's passing behavior)
+invalid-type-form = "ignore"        # ParamSpec usage patterns
+non-subscriptable = "ignore"        # ModelT[P] subscripting
+invalid-assignment = "ignore"       # Implicit shadowing
+possibly-missing-attribute = "warn" # Nullable attribute access
+not-iterable = "ignore"             # Iterator type inference
+invalid-argument-type = "ignore"    # Stricter arg type checking
+no-matching-overload = "ignore"     # Overload resolution
+invalid-return-type = "ignore"      # Return type mismatches
+unresolved-attribute = "ignore"     # Attribute resolution
+invalid-method-override = "ignore"  # Liskov substitution violations
+call-non-callable = "ignore"        # Callable type inference
+unsupported-operator = "ignore"     # Operator type checking
+too-many-positional-arguments = "ignore"  # Argument count checking
+
+# Check the same modules mypy checks (ignore_errors = false in pyproject.toml)
+[src]
+include = [
+    "numpyro/contrib/control_flow",
+    "numpyro/contrib/funsor",
+    "numpyro/contrib/hsgp",
+    "numpyro/contrib/stochastic_support",
+    "numpyro/diagnostics.py",
+    "numpyro/handlers.py",
+    "numpyro/infer/elbo.py",
+    "numpyro/optim.py",
+    "numpyro/primitives.py",
+    "numpyro/patch.py",
+    "numpyro/util.py",
+    "numpyro/distributions/transforms.py",
+]
+respect-ignore-files = true

@@ -57,6 +57,7 @@ setup(
             "pyro-api>=0.1.1",
             "scikit-learn",
             "scipy>=1.9",
+            "ty>=0.0.4",
         ],
         "dev": [
             "dm-haiku>=0.0.14; python_version >= '3.10'",
@@ -87,7 +88,8 @@ setup(
         # TPU and CUDA installations, currently require to add package repository URL, i.e.,
         # pip install 'numpyro[cuda]' -f https://storage.googleapis.com/jax-releases/jax_releases.html
         "tpu": f"jax[tpu]{_jax_version_constraints}",
-        "cuda": f"jax[cuda]{_jax_version_constraints}",
+        "cuda12": f"jax[cuda12]{_jax_version_constraints}",
+        "cuda13": f"jax[cuda13]{_jax_version_constraints}",
     },
     python_requires=">=3.9",
     long_description=long_description,

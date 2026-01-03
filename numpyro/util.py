@@ -10,7 +10,7 @@ import os
 import random
 import re
 from threading import Lock
-from typing import Any, Callable, Generator, Optional
+from typing import Any, Callable, Generator, Literal, Optional
 import warnings
 
 import numpy as np
@@ -54,11 +54,33 @@ def set_platform(platform: Optional[str] = None) -> None:
     Changes platform to CPU, GPU, or TPU. This utility only takes
     effect at the beginning of your program.
 
-    :param str platform: either 'cpu', 'gpu', or 'tpu'.
+    :param str platform: either `cpu`, `cuda`, `rocm`, `tpu`, `METAL` or a comma
+        separated list of these values to specify multiple platforms. If `None`,
+        reads from environment variable `JAX_PLATFORMS` or defaults to `cpu`.
     """
+    flag_name: Literal["jax_platforms", "jax_platform_name"] = "jax_platforms"
+    # Valid platforms are not available in current jax docs. Following collection is
+    # found in https://github.com/jax-ml/jax/issues/25315#issuecomment-2526987274
+    valid_platforms: tuple[
+        Literal["cpu", "cuda", "rocm", "tpu", "METAL", "gpu"], ...
+    ] = ("cpu", "cuda", "rocm", "tpu", "METAL")
     if platform is None:
-        platform = os.getenv("JAX_PLATFORM_NAME", "cpu")
-    jax.config.update("jax_platform_name", platform)
+        if (
+            deprecated_platform_key := os.getenv("JAX_PLATFORM_NAME", None)
+        ) is not None:
+            # https://github.com/jax-ml/jax/issues/32980#issuecomment-3463782922
+            warnings.warn("`JAX_PLATFORM_NAME` is deprecated; use `JAX_PLATFORMS`.")
+            platform = deprecated_platform_key
+            valid_platforms = ("cpu", "gpu", "tpu")
+            flag_name = "jax_platform_name"
+        else:
+            platform = os.getenv("JAX_PLATFORMS", "cpu")
+    assert all(p.strip() in valid_platforms for p in platform.split(",")), (
+        "Invalid platform '{0}'. Valid platforms are: {1}.".format(
+            platform, ", ".join(valid_platforms)
+        )
+    )
+    jax.config.update(flag_name, platform)
 
 
 def set_host_device_count(n: int) -> None:

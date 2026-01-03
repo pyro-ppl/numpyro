@@ -535,13 +535,19 @@ class DoublyTruncatedPowerLaw(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
         r"""Logarithmic probability distribution:
+
         Z inequal minus one:
+
         .. math::
-            (x^\alpha) (\alpha + 1)/(b^(\alpha + 1) - a^(\alpha + 1))
+
+            \frac{(\alpha + 1)x^\alpha}{b^{\alpha + 1} - a^{\alpha + 1}}
 
         Z equal minus one:
+
         .. math::
-            (x^\alpha)/(log(b) - log(a))
+
+            \frac{x^\alpha}{\log(b) - \log(a)}
+
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
         """
 
@@ -601,7 +607,7 @@ class DoublyTruncatedPowerLaw(Distribution):
             alpha_tangent = jnp.where(
                 neq_neg1_mask,
                 log_x + alpha_tangent_variable(neq_neg1_alpha),
-                # Approximate derivate with right an lefthand approximation
+                # Approximate derivative with right and lefthand approximation
                 log_x
                 + (
                     alpha_tangent_variable(alpha - delta_eq_neg1)

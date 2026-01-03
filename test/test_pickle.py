@@ -65,7 +65,7 @@ def bernoulli_model():
 
 
 def logistic_regression():
-    data = jnp.arange(10)
+    data = random.choice(random.PRNGKey(0), jnp.array([0, 1]), (10,))
     x = numpyro.sample("x", dist.Normal(0, 1))
     with numpyro.plate("N", 10, subsample_size=2):
         batch = numpyro.subsample(data, 0)

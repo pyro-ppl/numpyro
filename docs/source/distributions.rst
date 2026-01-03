@@ -256,6 +256,22 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+InverseWishart
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.InverseWishart
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+InverseWishartCholesky
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.InverseWishartCholesky
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Kumaraswamy
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Kumaraswamy
@@ -462,6 +478,14 @@ BernoulliProbs
 BetaBinomial
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.BetaBinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+BetaNegativeBinomial
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.conjugate.BetaNegativeBinomial
     :members:
     :undoc-members:
     :show-inheritance:
@@ -766,7 +790,7 @@ Censored Distributions
 -----------------------
 
 LeftCensoredDistribution
-^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.censored.LeftCensoredDistribution
     :members:
     :undoc-members:
@@ -774,13 +798,20 @@ LeftCensoredDistribution
     :member-order: bysource
 
 RightCensoredDistribution
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.censored.RightCensoredDistribution
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
+IntervalCensoredDistribution
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.censored.IntervalCensoredDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 TensorFlow Distributions
 ------------------------
