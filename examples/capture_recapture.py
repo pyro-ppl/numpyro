@@ -203,7 +203,7 @@ def model_4(capture_history, sex):
     # survival probabilities for males/females
     phi_male = numpyro.sample("phi_male", dist.Uniform(0.0, 1.0))
     phi_female = numpyro.sample("phi_female", dist.Uniform(0.0, 1.0))
-    # we construct a N-dimensional vector that contains the appropriate
+    # we construct an N-dimensional vector that contains the appropriate
     # phi for each individual given its sex (female = 0, male = 1)
     phi = sex * phi_male + (1.0 - sex) * phi_female
     rho = numpyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
