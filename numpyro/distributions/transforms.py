@@ -491,7 +491,7 @@ class CholeskyTransform(ParameterFreeTransform[NonScalarArray]):
 
 class CorrCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
-    Transforms a unconstrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
+    Transforms an unconstrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
     triangular matrix with positive diagonals and unit Euclidean norm for each row.
     The transform is processed as follows:
@@ -727,7 +727,7 @@ class IndependentTransform(Transform[NumLike]):
 
 class L1BallTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
-    Transforms a unconstrained real vector :math:`x` into the unit L1 ball.
+    Transforms an unconstrained real vector :math:`x` into the unit L1 ball.
     """
 
     domain = constraints.real_vector
