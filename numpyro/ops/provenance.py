@@ -29,7 +29,11 @@ except ImportError:
     debug_info = None
 
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
-from jax.interpreters.pxla import xla_pmap_p
+
+try:
+    from jax.extend.core.primitives import xla_pmap_p
+except ImportError:
+    from jax.interpreters.pxla import xla_pmap_p
 
 
 # Adapted from definition in jax v0.5.0
