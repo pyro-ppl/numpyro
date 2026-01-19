@@ -4,13 +4,8 @@
 
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Optional, Protocol, Union, runtime_checkable, ParamSpec, TypeAlias
 import weakref
-
-try:
-    from typing import ParamSpec, TypeAlias
-except ImportError:
-    from typing_extensions import ParamSpec, TypeAlias
 
 import numpy as np
 
