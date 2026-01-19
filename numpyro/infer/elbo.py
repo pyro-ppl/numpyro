@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import OrderedDict, defaultdict
 from collections.abc import Callable
 from functools import partial
-from typing import TYPE_CHECKING, Any, TypedDict, TypeVar, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, TypedDict, TypeVar
 import warnings
 
 import jax

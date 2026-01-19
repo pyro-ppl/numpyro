@@ -2,13 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import jax
-from jax.api_util import flatten_fun, shaped_abstractify
-
-from jax.extend.core.primitives import jit_p
-import jax.extend.linear_util as lu
+from jax.api_util import debug_info, flatten_fun, shaped_abstractify
 from jax.extend.core import Literal
-from jax.extend.core.primitives import call_p, closed_call_p, xla_pmap_p
-from jax.api_util import debug_info
+from jax.extend.core.primitives import call_p, closed_call_p, jit_p, xla_pmap_p
+import jax.extend.linear_util as lu
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 
 

@@ -7,11 +7,9 @@ import pytest
 
 import jax
 from jax.api_util import flatten_fun_nokwargs
-
+from jax.extend.core.primitives import call_p, closed_call_p
 import jax.extend.linear_util as lu
 import jax.numpy as jnp
-
-from jax.extend.core.primitives import call_p, closed_call_p
 
 try:
     from jax.api_util import debug_info
