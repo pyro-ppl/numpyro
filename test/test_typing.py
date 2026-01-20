@@ -72,6 +72,9 @@ class ValidDistributionLike:
     def shape(self, sample_shape: tuple[int, ...] = ()) -> tuple[int, ...]:
         return sample_shape + self.batch_shape + self.event_shape
 
+    def expand(self, batch_shape: tuple[int, ...]) -> "ValidDistributionLike":
+        return self
+
     @property
     def has_rsample(self) -> bool:
         return True

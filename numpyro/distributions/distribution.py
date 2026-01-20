@@ -605,9 +605,12 @@ class Distribution(metaclass=DistributionMeta):
             shapes.
         :rtype: tuple
         """
-        # Check support at class level - may be a class attribute or _support
-        support = cls.__dict__.get("support", cls._support)
-        if support is not None and support.event_dim > 0:
+        # Check support at class level - access via cls.support which handles
+        # class attributes, properties, and dependent_property correctly.
+        # Note: accessing cls.support on a class returns the descriptor or
+        # class attribute; dependent_property.event_dim raises NotImplementedError
+        # for dynamic supports, which causes infer_shapes to be skipped.
+        if cls.support is not None and cls.support.event_dim > 0:  # type: ignore[attr-defined]
             raise NotImplementedError
 
         # Convert args to kwargs.
