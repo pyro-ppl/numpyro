@@ -38,7 +38,6 @@ import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 from jax.typing import ArrayLike
 
-from numpyro._typing import DistributionT
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
@@ -846,7 +845,7 @@ class ZeroInflatedProbs(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         gate: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -909,7 +908,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         gate_logits: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -929,7 +928,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 
 
 def ZeroInflatedDistribution(
-    base_dist: DistributionT,
+    base_dist: Distribution,
     *,
     gate: Optional[ArrayLike] = None,
     gate_logits: Optional[ArrayLike] = None,
