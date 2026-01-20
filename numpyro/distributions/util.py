@@ -114,7 +114,7 @@ def _binomial_btrs(key, p, n):
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
         # when vmapped _binomial_dispatch will convert the cond condition into
-        # a HLO select that will execute both branches. This is a workaround
+        # an HLO select that will execute both branches. This is a workaround
         # that avoids the resulting infinite loop when p=0. This should also
         # improve performance in less catastrophic cases.
         cond_exclude_small_mu = p * n >= _binomial_mu_thresh
