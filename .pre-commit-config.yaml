@@ -24,11 +24,10 @@ repos:
         name: ty check
         language: python
         entry: ty
-        args: [check, --config-file, ty.toml, --exit-zero]
+        args: [check, --config-file, ty.toml]
         pass_filenames: false
         always_run: true
         additional_dependencies: [ty]
-        verbose: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
