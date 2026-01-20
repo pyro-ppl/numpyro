@@ -106,11 +106,10 @@ from jax.typing import ArrayLike
 
 import numpyro
 from numpyro._typing import Message, TraceT
-from numpyro.distributions.distribution import COERCIONS
+from numpyro.distributions.distribution import COERCIONS, Distribution
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
-    DistributionT,
     Messenger,
     apply_stack,
     plate,
@@ -574,7 +573,7 @@ class lift(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        prior: Optional[Union[DistributionT, dict[str, DistributionT]]] = None,
+        prior: Optional[Union[Distribution, dict[str, Distribution]]] = None,
     ) -> None:
         super().__init__(fn)
         self.prior = prior

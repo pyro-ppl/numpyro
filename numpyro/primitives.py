@@ -15,7 +15,7 @@ from jax.typing import ArrayLike
 
 import numpyro
 from numpyro._typing import Message
-from numpyro.distributions.distribution import DistributionT
+from numpyro.distributions.distribution import Distribution
 from numpyro.util import find_stack_level, identity
 
 _PYRO_STACK: list = []
@@ -121,7 +121,7 @@ class Messenger(object):
 
 def _masked_observe(
     name: str,
-    fn: DistributionT,
+    fn: Distribution,
     obs: Optional[ArrayLike],
     obs_mask,  # noqa: ANN001
     **kwargs,
@@ -141,7 +141,7 @@ def _masked_observe(
 
 def sample(
     name: str,
-    fn: DistributionT,
+    fn: Distribution,
     obs: Optional[ArrayLike] = None,
     rng_key: Optional[ArrayLike] = None,
     sample_shape: tuple[int, ...] = (),
