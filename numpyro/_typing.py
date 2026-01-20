@@ -10,6 +10,7 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeAlias,
+    TypeVar,
     Union,
     runtime_checkable,
 )
@@ -39,6 +40,9 @@ PyTree: TypeAlias = Any
 """A generic type for a pytree, i.e. a nested structure of lists, tuples, dicts, and arrays."""
 
 
+NumLikeT = TypeVar("NumLikeT", bound=NumLike)
+
+
 @runtime_checkable
 class ConstraintT(Protocol):
     """A protocol for typing constraints."""
@@ -48,10 +52,10 @@ class ConstraintT(Protocol):
     @property
     def event_dim(self) -> int: ...
 
-    def __call__(self, x: ArrayLike) -> ArrayLike: ...
+    def __call__(self, x: NumLike) -> ArrayLike: ...
     def __repr__(self) -> str: ...
-    def check(self, value: ArrayLike) -> ArrayLike: ...
-    def feasible_like(self, prototype: ArrayLike) -> ArrayLike: ...
+    def check(self, value: NumLike) -> ArrayLike: ...
+    def feasible_like(self, prototype: NumLike) -> NumLike: ...
 
 
 @runtime_checkable
