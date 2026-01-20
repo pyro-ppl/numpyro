@@ -64,7 +64,7 @@ __all__ = [
 ]
 
 import math
-from typing import Generic, Optional, Union
+from typing import Generic, Optional, cast
 
 import numpy as np
 
@@ -73,7 +73,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, NonScalarArray, NumLike, NumLikeT
+from numpyro._typing import NonScalarArray, NumLike, NumLikeT
 
 
 class Constraint(Generic[NumLikeT]):
@@ -191,7 +191,7 @@ class _CorrMatrix(_SingletonConstraint[NonScalarArray]):
         )
 
 
-class _Dependent(Constraint[NumLikeT]):
+class _Dependent(Constraint[NumLike]):
     """
     Placeholder for variables whose support depends on other variables.
     These variables obey no simple coordinate-wise constraints.
@@ -225,7 +225,7 @@ class _Dependent(Constraint[NumLikeT]):
 
     def __call__(
         self,
-        x: Optional[NumLikeT] = None,
+        x: Optional[NumLike] = None,
         *,
         is_discrete: bool = NotImplemented,
         event_dim: int = NotImplemented,
@@ -256,7 +256,7 @@ class _Dependent(Constraint[NumLikeT]):
         )
 
 
-class dependent_property(property, _Dependent[NumLikeT]):
+class dependent_property(property, _Dependent):
     # XXX: this should not need to be pytree-able since it simply wraps a method
     # and thus is automatically present once the method's object is created
     def __init__(
@@ -336,7 +336,9 @@ class _IndependentConstraint(Constraint[NumLikeT]):
     independent entries are valid.
     """
 
-    def __init__(self, base_constraint: ConstraintT, reinterpreted_batch_ndims: int):
+    def __init__(
+        self, base_constraint: Constraint[NumLikeT], reinterpreted_batch_ndims: int
+    ):
         assert isinstance(base_constraint, Constraint)
         assert isinstance(reinterpreted_batch_ndims, int)
         assert reinterpreted_batch_ndims >= 0
@@ -399,14 +401,14 @@ class _RealVector(
     _IndependentConstraint[NonScalarArray], _SingletonConstraint[NonScalarArray]
 ):
     def __init__(self) -> None:
-        super().__init__(_Real(), 1)
+        super().__init__(cast(Constraint[NonScalarArray], _Real()), 1)
 
 
 class _RealMatrix(
     _IndependentConstraint[NonScalarArray], _SingletonConstraint[NonScalarArray]
 ):
     def __init__(self) -> None:
-        super().__init__(_Real(), 2)
+        super().__init__(cast(Constraint[NonScalarArray], _Real()), 2)
 
 
 class _LessThan(Constraint[NumLike]):
@@ -821,12 +823,12 @@ class _ZeroSum(Constraint[NonScalarArray]):
 # See https://github.com/pytorch/pytorch/issues/50616
 
 
-boolean: Union[Constraint, ConstraintT] = _Boolean()
-circular: Union[Constraint, ConstraintT] = _Circular()
-complex: Union[Constraint, ConstraintT] = _Complex()
-corr_cholesky: Union[Constraint, ConstraintT] = _CorrCholesky()
-corr_matrix: Union[Constraint, ConstraintT] = _CorrMatrix()
-dependent: Union[Constraint, ConstraintT] = _Dependent()
+boolean = _Boolean()
+circular = _Circular()
+complex = _Complex()
+corr_cholesky = _CorrCholesky()
+corr_matrix = _CorrMatrix()
+dependent: Constraint = _Dependent()
 greater_than = _GreaterThan
 greater_than_eq = _GreaterThanEq
 less_than = _LessThan
@@ -835,28 +837,26 @@ independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
-l1_ball: Union[Constraint, ConstraintT] = _L1Ball()
-lower_cholesky: Union[Constraint, ConstraintT] = _LowerCholesky()
-scaled_unit_lower_cholesky: Union[Constraint, ConstraintT] = _ScaledUnitLowerCholesky()
+l1_ball = _L1Ball()
+lower_cholesky = _LowerCholesky()
+scaled_unit_lower_cholesky = _ScaledUnitLowerCholesky()
 multinomial = _Multinomial
-nonnegative: Union[Constraint, ConstraintT] = _Nonnegative()
-nonnegative_integer: Union[Constraint, ConstraintT] = _IntegerNonnegative()
-ordered_vector: Union[Constraint, ConstraintT] = _OrderedVector()
-positive: Union[Constraint, ConstraintT] = _Positive()
-positive_definite: Union[Constraint, ConstraintT] = _PositiveDefinite()
-positive_definite_circulant_vector: Union[Constraint, ConstraintT] = (
-    _PositiveDefiniteCirculantVector()
-)
-positive_semidefinite: Union[Constraint, ConstraintT] = _PositiveSemiDefinite()
-positive_integer: Union[Constraint, ConstraintT] = _IntegerPositive()
-positive_ordered_vector: Union[Constraint, ConstraintT] = _PositiveOrderedVector()
-real: Union[Constraint, ConstraintT] = _Real()
-real_vector: Union[Constraint, ConstraintT] = _RealVector()
-real_matrix: Union[Constraint, ConstraintT] = _RealMatrix()
-simplex: Union[Constraint, ConstraintT] = _Simplex()
-softplus_lower_cholesky: Union[Constraint, ConstraintT] = _SoftplusLowerCholesky()
-softplus_positive: Union[Constraint, ConstraintT] = _SoftplusPositive()
-sphere: Union[Constraint, ConstraintT] = _Sphere()
-unit_interval: Union[Constraint, ConstraintT] = _UnitInterval()
+nonnegative = _Nonnegative()
+nonnegative_integer = _IntegerNonnegative()
+ordered_vector = _OrderedVector()
+positive = _Positive()
+positive_definite = _PositiveDefinite()
+positive_definite_circulant_vector = _PositiveDefiniteCirculantVector()
+positive_semidefinite = _PositiveSemiDefinite()
+positive_integer = _IntegerPositive()
+positive_ordered_vector = _PositiveOrderedVector()
+real = _Real()
+real_vector = _RealVector()
+real_matrix = _RealMatrix()
+simplex = _Simplex()
+softplus_lower_cholesky = _SoftplusLowerCholesky()
+softplus_positive = _SoftplusPositive()
+sphere = _Sphere()
+unit_interval = _UnitInterval()
 open_interval = _OpenInterval
 zero_sum = _ZeroSum

@@ -19,14 +19,13 @@ from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
 from numpyro._typing import (
-    ConstraintT,
     NonScalarArray,
     NumLike,
     NumLikeT,
     PyTree,
-    TransformT,
 )
 from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.util import (
     add_diag,
     matrix_to_tril_vec,
@@ -73,14 +72,14 @@ def _clipped_expit(x: NumLike) -> NumLike:
 
 
 class Transform(Generic[NumLikeT]):
-    _inv: Optional[Union[TransformT, weakref.ref]] = None
+    _inv: Optional[Union["Transform", weakref.ref]] = None
 
     @property
-    def domain(self) -> ConstraintT:
+    def domain(self) -> Constraint:
         return constraints.real
 
     @property
-    def codomain(self) -> ConstraintT:
+    def codomain(self) -> Constraint:
         return constraints.real
 
     def __init_subclass__(cls, **kwargs):
@@ -88,14 +87,14 @@ class Transform(Generic[NumLikeT]):
         register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
     @property
-    def inv(self: TransformT) -> TransformT:
+    def inv(self) -> "Transform":
         inv = None
         if (self._inv is not None) and isinstance(self._inv, weakref.ref):
             inv = self._inv()
         if inv is None:
             inv = _InverseTransform(self)
             self._inv = weakref.ref(inv)
-        return cast(TransformT, inv)
+        return cast("Transform", inv)
 
     def __call__(self, x: NumLikeT) -> NumLike:
         raise NotImplementedError()
@@ -165,16 +164,16 @@ class ParameterFreeTransform(Transform[NumLikeT]):
 
 
 class _InverseTransform(Transform[NumLike]):
-    def __init__(self, transform: TransformT):
+    def __init__(self, transform: Transform):
         super().__init__()
-        self._inv: TransformT = transform
+        self._inv: Transform = transform
 
     @property
-    def domain(self) -> ConstraintT:
+    def domain(self) -> Constraint:
         return self._inv.codomain
 
     @property
-    def codomain(self) -> ConstraintT:
+    def codomain(self) -> Constraint:
         return self._inv.domain
 
     @property
@@ -182,7 +181,7 @@ class _InverseTransform(Transform[NumLike]):
         return self._inv.sign
 
     @property
-    def inv(self) -> TransformT:
+    def inv(self) -> Transform:
         return self._inv
 
     def __call__(self, x: NumLike) -> NumLike:
@@ -235,18 +234,18 @@ class AffineTransform(Transform[NumLike]):
     """
 
     def __init__(
-        self, loc: NumLike, scale: NumLike, domain: ConstraintT = constraints.real
+        self, loc: NumLike, scale: NumLike, domain: Constraint = constraints.real
     ):
         self.loc = loc
         self.scale = scale
         self._domain = domain
 
     @property
-    def domain(self) -> ConstraintT:
+    def domain(self) -> Constraint:
         return self._domain
 
     @property
-    def codomain(self) -> ConstraintT:
+    def codomain(self) -> Constraint:
         if self.domain is constraints.real:
             return constraints.real
         elif isinstance(self.domain, constraints.greater_than):
@@ -334,37 +333,31 @@ def _get_compose_transform_output_event_dim(parts):
 
 
 class ComposeTransform(Transform[NumLike]):
-    def __init__(self, parts: Sequence[TransformT]) -> None:
+    def __init__(self, parts: Sequence[Transform]) -> None:
         self.parts = parts
 
     @property
-    def domain(self) -> ConstraintT:
+    def domain(self) -> Constraint:
         input_event_dim = _get_compose_transform_input_event_dim(self.parts)
         first_input_event_dim = self.parts[0].domain.event_dim
         assert input_event_dim >= first_input_event_dim
         if input_event_dim == first_input_event_dim:
             return self.parts[0].domain
         else:
-            return cast(
-                ConstraintT,
-                constraints.independent(
-                    self.parts[0].domain, input_event_dim - first_input_event_dim
-                ),
+            return constraints.independent(
+                self.parts[0].domain, input_event_dim - first_input_event_dim
             )
 
     @property
-    def codomain(self) -> ConstraintT:
+    def codomain(self) -> Constraint:
         output_event_dim = _get_compose_transform_output_event_dim(self.parts)
         last_output_event_dim = self.parts[-1].codomain.event_dim
         assert output_event_dim >= last_output_event_dim
         if output_event_dim == last_output_event_dim:
             return self.parts[-1].codomain
         else:
-            return cast(
-                ConstraintT,
-                constraints.independent(
-                    self.parts[-1].codomain, output_event_dim - last_output_event_dim
-                ),
+            return constraints.independent(
+                self.parts[-1].codomain, output_event_dim - last_output_event_dim
             )
 
     @property
@@ -575,8 +568,8 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
     correlation matrix.
     """
 
-    domain = constraints.corr_matrix
-    codomain = constraints.corr_cholesky
+    domain = constraints.corr_matrix  # type: ignore
+    codomain = constraints.corr_cholesky  # type: ignore
 
     def log_abs_det_jacobian(
         self,
@@ -595,15 +588,15 @@ class ExpTransform(Transform[NumLike]):
 
     # TODO: refine domain/codomain logic through setters, especially when
     # transforms for inverses are supported
-    def __init__(self, domain: ConstraintT = constraints.real):
+    def __init__(self, domain: Constraint = constraints.real):
         self._domain = domain
 
     @property
-    def domain(self) -> ConstraintT:
+    def domain(self) -> Constraint:
         return self._domain
 
     @property
-    def codomain(self) -> ConstraintT:
+    def codomain(self) -> Constraint:
         if self.domain is constraints.ordered_vector:
             return constraints.positive_ordered_vector
         elif self.domain is constraints.real:
@@ -662,7 +655,7 @@ class IndependentTransform(Transform[NumLike]):
     """
 
     def __init__(
-        self, base_transform: TransformT, reinterpreted_batch_ndims: int
+        self, base_transform: Transform, reinterpreted_batch_ndims: int
     ) -> None:
         assert isinstance(base_transform, Transform)
         assert isinstance(reinterpreted_batch_ndims, int)
@@ -672,21 +665,15 @@ class IndependentTransform(Transform[NumLike]):
         super().__init__()
 
     @property
-    def domain(self) -> ConstraintT:
-        return cast(
-            ConstraintT,
-            constraints.independent(
-                self.base_transform.domain, self.reinterpreted_batch_ndims
-            ),
+    def domain(self) -> Constraint:
+        return constraints.independent(
+            self.base_transform.domain, self.reinterpreted_batch_ndims
         )
 
     @property
-    def codomain(self) -> ConstraintT:
-        return cast(
-            ConstraintT,
-            constraints.independent(
-                self.base_transform.codomain, self.reinterpreted_batch_ndims
-            ),
+    def codomain(self) -> Constraint:
+        return constraints.independent(
+            self.base_transform.codomain, self.reinterpreted_batch_ndims
         )
 
     def __call__(self, x: NumLike) -> NumLike:
@@ -1361,18 +1348,12 @@ class ReshapeTransform(Transform[NonScalarArray]):
         self._inverse_shape = inverse_shape
 
     @property
-    def domain(self) -> ConstraintT:
-        return cast(
-            ConstraintT,
-            constraints.independent(constraints.real, len(self._inverse_shape)),
-        )
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, len(self._inverse_shape))
 
     @property
-    def codomain(self) -> ConstraintT:
-        return cast(
-            ConstraintT,
-            constraints.independent(constraints.real, len(self._forward_shape)),
-        )
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.real, len(self._forward_shape))
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
@@ -1485,17 +1466,12 @@ class RealFastFourierTransform(Transform[NonScalarArray]):
         return (), ((), aux_data)
 
     @property
-    def domain(self) -> ConstraintT:
-        return cast(
-            ConstraintT, constraints.independent(constraints.real, self.transform_ndims)
-        )
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
 
     @property
-    def codomain(self) -> ConstraintT:
-        return cast(
-            ConstraintT,
-            constraints.independent(constraints.complex, self.transform_ndims),
-        )
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.complex, self.transform_ndims)
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -1513,7 +1489,7 @@ class PackRealFastFourierCoefficientsTransform(Transform[NonScalarArray]):
     """
 
     domain = constraints.real_vector
-    codomain = cast(ConstraintT, constraints.independent(constraints.complex, 1))
+    codomain = constraints.independent(constraints.complex, 1)
 
     def __init__(self, transform_shape: Optional[tuple[int, ...]] = None) -> None:
         assert transform_shape is None or len(transform_shape) == 1, (
@@ -1729,14 +1705,12 @@ class ZeroSumTransform(Transform[NonScalarArray]):
         self.transform_ndims = transform_ndims
 
     @property
-    def domain(self) -> ConstraintT:
-        return cast(
-            ConstraintT, constraints.independent(constraints.real, self.transform_ndims)
-        )
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
 
     @property
-    def codomain(self) -> ConstraintT:
-        return cast(ConstraintT, constraints.zero_sum(self.transform_ndims))
+    def codomain(self) -> Constraint:
+        return constraints.zero_sum(self.transform_ndims)
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:
         zero_sum_axes = tuple(range(-self.transform_ndims, 0))
