@@ -631,6 +631,33 @@ CONTINUOUS = [
         np.array([[0.8, 0.2], [-0.1, 1.1]]),
         np.array([0.1, 0.3, 0.25])[:, None, None] * np.array([[0.8, 0.2], [0.2, 0.7]]),
     ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.1], [-0.1, 0.9]]),
+        None,
+        None,
+        np.array([[0.5, 0.0], [0.0, 0.5]]),
+        np.array([1.0, 2.0]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.1], [-0.1, 0.9]]),
+        None,
+        None,
+        np.array([[0.5, 0.0], [0.0, 0.5]]),
+        np.array([[1.0, 2.0], [0.5, 1.5], [-1.0, 0.0]]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        4,
+        np.array([[0.9, 0.0], [0.0, 0.9]]),
+        None,
+        None,
+        np.array([[0.3, 0.0], [0.0, 0.3]]),
+        np.array([[[1.0, 0.0]], [[0.0, 1.0]]]),
+    ),
     pytest.param(
         *T(
             dist.GaussianCopulaBeta,
