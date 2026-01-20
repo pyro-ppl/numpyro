@@ -31,7 +31,17 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
-from typing import Any, Callable, ClassVar, Generator, Optional, Union, cast
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Generator,
+    Literal,
+    Optional,
+    Union,
+    cast,
+    overload,
+)
 import warnings
 
 import numpy as np
@@ -436,6 +446,26 @@ class Distribution(metaclass=DistributionMeta):
                     stacklevel=find_stack_level(),
                 )
         return mask
+
+    @overload
+    def __call__(
+        self,
+        *args: Any,
+        rng_key: Optional[ArrayLike] = ...,
+        sample_shape: tuple[int, ...] = ...,
+        sample_intermediates: Literal[False] = ...,
+        **kwargs: Any,
+    ) -> ArrayLike: ...
+
+    @overload
+    def __call__(
+        self,
+        *args: Any,
+        rng_key: Optional[ArrayLike] = ...,
+        sample_shape: tuple[int, ...] = ...,
+        sample_intermediates: Literal[True] = ...,
+        **kwargs: Any,
+    ) -> tuple[ArrayLike, list[Any]]: ...
 
     def __call__(
         self,
