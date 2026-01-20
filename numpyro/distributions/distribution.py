@@ -31,7 +31,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import functools
 import inspect
-from typing import Any, Callable, Generator, Optional, Union
+from typing import Any, Callable, ClassVar, Generator, Optional, Union, cast
 import warnings
 
 import numpy as np
@@ -42,10 +42,6 @@ import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 from jax.typing import ArrayLike
 
-from numpyro._typing import (
-    DistributionT,  # noqa: F401
-    TransformT,  # noqa: F401
-)
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
     lazy_property,
@@ -100,7 +96,8 @@ class DistributionMeta(type):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        signature = inspect.signature(functools.partial(cls.__init__, None))  # type: ignore[misc]
+        init_method = getattr(cls, "__init__")
+        signature = inspect.signature(functools.partial(init_method, None))
         cls.__signature__ = signature
         return super().__init__(*args, **kwargs)
 
@@ -146,12 +143,36 @@ class Distribution(metaclass=DistributionMeta):
     """
 
     arg_constraints: dict[str, Any] = {}
-    support: Optional[constraints.Constraint] = None  # type: ignore[assignment]
-    has_enumerate_support: bool = False
-    reparametrized_params: list[str] = []
+    _support: Optional[constraints.Constraint] = None
     _validate_args: bool = False
+    _arg_names: ClassVar[Optional[tuple[str, ...]]] = None
     pytree_data_fields: tuple[str, ...] = ()
     pytree_aux_fields: tuple[str, ...] = ("_batch_shape", "_event_shape")
+
+    @property
+    def support(self) -> Optional[constraints.Constraint]:
+        """
+        The support of this distribution.
+        Subclasses can override this as a class attribute or as a property.
+        """
+        return self._support
+
+    @property
+    def has_enumerate_support(self) -> bool:
+        """
+        Whether this distribution has enumerate support.
+        Subclasses can override this as a class attribute (e.g., `has_enumerate_support = True`)
+        or as a property.
+        """
+        return False
+
+    @property
+    def reparametrized_params(self) -> list[str]:
+        """
+        List of reparametrized parameters.
+        Subclasses can override this as a class attribute or as a property.
+        """
+        return []
 
     # register Distribution as a pytree
     # ref: https://github.com/jax-ml/jax/issues/2916
@@ -560,15 +581,16 @@ class Distribution(metaclass=DistributionMeta):
             shapes.
         :rtype: tuple
         """
-        if cls.support is not None and cls.support.event_dim > 0:
+        # Check support at class level - may be a class attribute or _support
+        support = cls.__dict__.get("support", cls._support)
+        if support is not None and support.event_dim > 0:
             raise NotImplementedError
 
         # Convert args to kwargs.
-        try:
-            arg_names = cls._arg_names  # type: ignore[attr-defined]
-        except AttributeError:
+        if cls._arg_names is None:
             sig = inspect.signature(cls.__init__)
-            arg_names = cls._arg_names = tuple(sig.parameters)[1:]  # type: ignore[attr-defined]
+            cls._arg_names = tuple(sig.parameters)[1:]
+        arg_names = cls._arg_names
         kwargs.update(zip(arg_names, args))
 
         # Assumes distribution is univariate.
@@ -619,6 +641,7 @@ class ExpandedDistribution(Distribution):
         "_expanded_sizes",
         "_interstitial_sizes",
     )
+    base_dist: Distribution
 
     def __init__(
         self, base_dist: Distribution, batch_shape: tuple[int, ...] = ()
@@ -628,7 +651,7 @@ class ExpandedDistribution(Distribution):
             batch_shape, _, _ = self._broadcast_shape(
                 base_dist.batch_shape, batch_shape
             )
-            actual_base_dist = base_dist.base_dist  # type: ignore[has-type]
+            actual_base_dist = base_dist.base_dist
         self.base_dist = actual_base_dist
 
         # adjust batch shape
@@ -675,11 +698,11 @@ class ExpandedDistribution(Distribution):
         )
 
     @property
-    def has_enumerate_support(self) -> bool:  # type: ignore[override]
+    def has_enumerate_support(self) -> bool:
         return self.base_dist.has_enumerate_support
 
     @property
-    def has_rsample(self) -> bool:  # type: ignore[override]
+    def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
     def _sample(
@@ -733,7 +756,7 @@ class ExpandedDistribution(Distribution):
         )[0]
 
     @property
-    def support(self) -> constraints.Constraint:  # type: ignore[override]
+    def support(self) -> constraints.Constraint:
         assert self.base_dist.support is not None
         return self.base_dist.support
 
@@ -759,9 +782,9 @@ class ExpandedDistribution(Distribution):
         return jnp.broadcast_to(log_prob, shape)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
-        samples = self.base_dist.enumerate_support(expand=False)
-        enum_shape = samples.shape[:1]  # type: ignore[union-attr]
-        samples = samples.reshape(enum_shape + (1,) * len(self.batch_shape))  # type: ignore[union-attr]
+        samples = jnp.asarray(self.base_dist.enumerate_support(expand=False))
+        enum_shape = samples.shape[:1]
+        samples = samples.reshape(enum_shape + (1,) * len(self.batch_shape))
         if expand:
             samples = jnp.broadcast_to(
                 samples, enum_shape + self.batch_shape + self.event_shape
@@ -836,7 +859,7 @@ class ImproperUniform(Distribution):
     """
 
     arg_constraints = {}
-    support = constraints.dependent
+    support: constraints.Constraint = constraints.dependent
     pytree_data_fields = ("support",)
 
     def __init__(
@@ -847,7 +870,7 @@ class ImproperUniform(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
-        self.support = constraints.independent(
+        self.support: constraints.Constraint = constraints.independent(
             support, len(event_shape) - support.event_dim
         )
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
@@ -892,6 +915,7 @@ class Independent(Distribution):
     arg_constraints = {}
     pytree_data_fields = ("base_dist",)
     pytree_aux_fields = ("reinterpreted_batch_ndims",)
+    base_dist: Distribution
 
     def __init__(
         self,
@@ -918,18 +942,18 @@ class Independent(Distribution):
         )
 
     @property
-    def support(self) -> constraints.Constraint:  # type: ignore[override]
+    def support(self) -> constraints.Constraint:
         assert self.base_dist.support is not None
         return constraints.independent(
             self.base_dist.support, self.reinterpreted_batch_ndims
         )
 
     @property
-    def has_enumerate_support(self) -> bool:  # type: ignore[override]
+    def has_enumerate_support(self) -> bool:
         return self.base_dist.has_enumerate_support
 
     @property
-    def reparametrized_params(self) -> list[str]:  # type: ignore[override]
+    def reparametrized_params(self) -> list[str]:
         return self.base_dist.reparametrized_params
 
     @property
@@ -941,7 +965,7 @@ class Independent(Distribution):
         return self.base_dist.variance
 
     @property
-    def has_rsample(self) -> bool:  # type: ignore[override]
+    def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
     def rsample(
@@ -968,7 +992,7 @@ class Independent(Distribution):
 
     def entropy(self) -> ArrayLike:
         axes = range(-self.reinterpreted_batch_ndims, 0)
-        return self.base_dist.entropy().sum(axes)  # type: ignore[union-attr]
+        return jnp.asarray(self.base_dist.entropy()).sum(axes)
 
 
 class MaskedDistribution(Distribution):
@@ -985,6 +1009,7 @@ class MaskedDistribution(Distribution):
     arg_constraints = {}
     pytree_data_fields = ("base_dist", "_mask")
     pytree_aux_fields = ("_mask",)
+    base_dist: Distribution
 
     def __init__(self, base_dist: Distribution, mask: Union[bool, Array]):
         self._mask: Union[bool, Array]
@@ -1003,11 +1028,11 @@ class MaskedDistribution(Distribution):
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
 
     @property
-    def has_enumerate_support(self) -> bool:  # type: ignore[override]
+    def has_enumerate_support(self) -> bool:
         return self.base_dist.has_enumerate_support
 
     @property
-    def has_rsample(self) -> bool:  # type: ignore[override]
+    def has_rsample(self) -> bool:
         return self.base_dist.has_rsample
 
     def rsample(
@@ -1016,7 +1041,7 @@ class MaskedDistribution(Distribution):
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
-    def support(self) -> constraints.Constraint:  # type: ignore[override]
+    def support(self) -> constraints.Constraint:
         assert self.base_dist.support is not None
         return self.base_dist.support
 
@@ -1083,7 +1108,7 @@ class MaskedDistribution(Distribution):
             setattr(d, "_mask", params[_mask_data_idx])
         else:
             setattr(d, "_mask", aux_data[_mask_aux_idx])
-        return d  # type: ignore[return-value]
+        return cast(MaskedDistribution, d)
 
 
 class TransformedDistribution(Distribution):
@@ -1101,6 +1126,7 @@ class TransformedDistribution(Distribution):
 
     arg_constraints = {}
     pytree_data_fields = ("base_dist", "transforms")
+    base_dist: Distribution
 
     def __init__(
         self,
@@ -1124,7 +1150,7 @@ class TransformedDistribution(Distribution):
             )
         base_dist: Distribution
         if isinstance(base_distribution, TransformedDistribution):
-            base_dist = base_distribution.base_dist  # type: ignore[has-type]
+            base_dist = base_distribution.base_dist
             self.transforms: list[Transform] = (
                 base_distribution.transforms + transform_list
             )
@@ -1178,7 +1204,7 @@ class TransformedDistribution(Distribution):
         return x
 
     @property
-    def support(self) -> constraints.Constraint:  # type: ignore[override]
+    def support(self) -> constraints.Constraint:
         codomain = self.transforms[-1].codomain
         codomain_event_dim = codomain.event_dim
         assert self.event_dim >= codomain_event_dim
@@ -1289,7 +1315,7 @@ class FoldedDistribution(TransformedDistribution):
 
 class Delta(Distribution):
     arg_constraints = {
-        "v": constraints.dependent(is_discrete=False),  # type: ignore[call-arg]
+        "v": constraints.dependent(is_discrete=False),
         "log_density": constraints.real,
     }
     reparametrized_params = ["v", "log_density"]
