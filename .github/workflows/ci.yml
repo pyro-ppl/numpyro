@@ -32,7 +32,7 @@ jobs:
       - name: prek check
         uses: j178/prek-action@v1
         with:
-          extra-args: --all-files
+          extra-args: --all-files --skip ruff --skip ruff-format --skip ty --skip mypy
 
 
   lint:
