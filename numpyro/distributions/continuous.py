@@ -55,11 +55,11 @@ from jax.scipy.special import (
 from jax.scipy.stats import norm as jax_norm
 from jax.typing import ArrayLike
 
+from numpyro._typing import DistributionT
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import (
     Distribution,
-    DistributionT,
     TransformedDistribution,
 )
 from numpyro.distributions.transforms import (

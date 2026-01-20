@@ -38,8 +38,9 @@ import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 from jax.typing import ArrayLike
 
+from numpyro._typing import DistributionT
 from numpyro.distributions import constraints, transforms
-from numpyro.distributions.distribution import Distribution, DistributionT
+from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     assert_one_of,
     binary_cross_entropy_with_logits,
