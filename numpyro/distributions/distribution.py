@@ -680,14 +680,16 @@ class ExpandedDistribution(Distribution):
 
         # adjust batch shape
         # Do basic validation. e.g. we should not "unexpand" distributions even if that is possible.
-        new_shape, _, _ = self._broadcast_shape(base_dist.batch_shape, batch_shape)
+        new_shape, _, _ = self._broadcast_shape(
+            actual_base_dist.batch_shape, batch_shape
+        )
         # Record interstitial and expanded dims/sizes w.r.t. the base distribution
         new_shape, expanded_sizes, interstitial_sizes = self._broadcast_shape(
-            base_dist.batch_shape, new_shape
+            actual_base_dist.batch_shape, new_shape
         )
         self._expanded_sizes = expanded_sizes
         self._interstitial_sizes = interstitial_sizes
-        super().__init__(new_shape, base_dist.event_shape)
+        super().__init__(new_shape, actual_base_dist.event_shape)
 
     @staticmethod
     def _broadcast_shape(
