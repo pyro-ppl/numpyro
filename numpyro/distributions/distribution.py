@@ -97,8 +97,8 @@ COERCIONS: list[Any] = []
 class DistributionMeta(type):
     def __init__(
         cls,
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
         signature = inspect.signature(functools.partial(cls.__init__, None))  # type: ignore[misc]
         cls.__signature__ = signature
@@ -106,9 +106,9 @@ class DistributionMeta(type):
 
     def __call__(
         cls,
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
-    ) -> Any:  # noqa: ANN401
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
@@ -155,7 +155,7 @@ class Distribution(metaclass=DistributionMeta):
 
     # register Distribution as a pytree
     # ref: https://github.com/jax-ml/jax/issues/2916
-    def __init_subclass__(cls, **kwargs: Any) -> None:  # noqa: ANN401
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
@@ -418,8 +418,8 @@ class Distribution(metaclass=DistributionMeta):
 
     def __call__(
         self,
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
+        *args: Any,
+        **kwargs: Any,
     ) -> Union[ArrayLike, tuple[ArrayLike, list[Any]]]:
         key = kwargs.pop("rng_key")
         sample_intermediates = kwargs.pop("sample_intermediates", False)
@@ -541,8 +541,8 @@ class Distribution(metaclass=DistributionMeta):
     @classmethod
     def infer_shapes(
         cls,
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
+        *args: Any,
+        **kwargs: Any,
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         r"""
         Infers ``batch_shape`` and ``event_shape`` given shapes of args to
