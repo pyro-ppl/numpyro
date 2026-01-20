@@ -220,7 +220,7 @@ def sample(
     # if no active Messengers, draw a sample or return obs as expected:
     if not _PYRO_STACK:
         if obs is None:
-            return fn(rng_key=rng_key, sample_shape=sample_shape)
+            return fn.sample(rng_key, sample_shape)  # type: ignore[arg-type]
         else:
             return obs
 
