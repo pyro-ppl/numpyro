@@ -176,13 +176,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         return False
 
-    @property
-    def reparametrized_params(self) -> list[str]:
-        """
-        List of reparametrized parameters.
-        Subclasses can override this as a class attribute or as a property.
-        """
-        return []
+    reparametrized_params: list[str] = []
 
     # register Distribution as a pytree
     # ref: https://github.com/jax-ml/jax/issues/2916
@@ -967,6 +961,7 @@ class Independent(Distribution):
         event_shape = shape[len(shape) - event_dim :]
         self.base_dist = base_dist
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        self.reparametrized_params = base_dist.reparametrized_params
         super(Independent, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
@@ -981,10 +976,6 @@ class Independent(Distribution):
     @property
     def has_enumerate_support(self) -> bool:
         return self.base_dist.has_enumerate_support
-
-    @property
-    def reparametrized_params(self) -> list[str]:
-        return self.base_dist.reparametrized_params
 
     @property
     def mean(self) -> ArrayLike:
