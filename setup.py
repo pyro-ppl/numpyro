@@ -57,6 +57,7 @@ setup(
             "scikit-learn",
             "scipy>=1.9",
             "ty>=0.0.4",
+            "blackjax>=1.3",
         ],
         "dev": [
             "dm-haiku>=0.0.14",
