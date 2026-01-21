@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax.random import PRNGKey
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
+from numpyro._typing import ConstraintT, Distribution
 import numpyro.distributions as dist
 
 
@@ -94,16 +94,16 @@ class InvalidDistributionLike:
 def test_valid_distribution_implementations():
     """Test that valid implementations are recognized as DistributionLike"""
     # Test standard NumPyro distribution
-    assert isinstance(dist.Normal(0, 1), DistributionT)
+    assert isinstance(dist.Normal(0, 1), Distribution)
 
     # Test custom implementation
-    assert isinstance(ValidDistributionLike(), DistributionT)
+    assert isinstance(ValidDistributionLike(), Distribution)
 
 
 def test_invalid_distribution_implementations():
     """Test that invalid implementations are not recognized as DistributionLike"""
-    assert not isinstance(InvalidDistributionLike(), DistributionT)
-    assert not isinstance(object(), DistributionT)
+    assert not isinstance(InvalidDistributionLike(), Distribution)
+    assert not isinstance(object(), Distribution)
 
 
 def test_distribution_like_interface():
