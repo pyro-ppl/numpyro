@@ -659,6 +659,7 @@ class ExpandedDistribution(Distribution):
     pytree_aux_fields = (
         "_expanded_sizes",
         "_interstitial_sizes",
+        "has_enumerate_support",
     )
     base_dist: Distribution
 
@@ -932,7 +933,7 @@ class Independent(Distribution):
 
     arg_constraints = {}
     pytree_data_fields = ("base_dist",)
-    pytree_aux_fields = ("reinterpreted_batch_ndims",)
+    pytree_aux_fields = ("reinterpreted_batch_ndims", "has_enumerate_support")
     base_dist: Distribution
 
     def __init__(
@@ -1020,7 +1021,7 @@ class MaskedDistribution(Distribution):
 
     arg_constraints = {}
     pytree_data_fields = ("base_dist", "_mask")
-    pytree_aux_fields = ("_mask",)
+    pytree_aux_fields = ("_mask", "has_enumerate_support")
     base_dist: Distribution
 
     def __init__(self, base_dist: Distribution, mask: Union[bool, Array]):
