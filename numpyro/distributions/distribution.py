@@ -685,7 +685,7 @@ class ExpandedDistribution(Distribution):
         )
         self._expanded_sizes = expanded_sizes
         self._interstitial_sizes = interstitial_sizes
-        self.has_enumerate_support = actual_base_dist.has_enumerate_support
+        self.has_enumerate_support = bool(actual_base_dist.has_enumerate_support)
         super().__init__(new_shape, actual_base_dist.event_shape)
 
     @staticmethod
@@ -957,7 +957,7 @@ class Independent(Distribution):
         self.base_dist = base_dist
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
         self.reparametrized_params = base_dist.reparametrized_params
-        self.has_enumerate_support = base_dist.has_enumerate_support
+        self.has_enumerate_support = bool(base_dist.has_enumerate_support)
         super(Independent, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
@@ -1038,7 +1038,7 @@ class MaskedDistribution(Distribution):
                 base_dist = base_dist.expand(batch_shape)
             self._mask = mask.astype("bool")
         self.base_dist = base_dist
-        self.has_enumerate_support = base_dist.has_enumerate_support
+        self.has_enumerate_support = bool(base_dist.has_enumerate_support)
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
 
     @property
