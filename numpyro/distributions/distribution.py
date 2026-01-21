@@ -167,15 +167,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         return self._support
 
-    @property
-    def has_enumerate_support(self) -> bool:
-        """
-        Whether this distribution has enumerate support.
-        Subclasses can override this as a class attribute (e.g., `has_enumerate_support = True`)
-        or as a property.
-        """
-        return False
-
+    has_enumerate_support: bool = False
     reparametrized_params: list[str] = []
 
     # register Distribution as a pytree
@@ -692,6 +684,7 @@ class ExpandedDistribution(Distribution):
         )
         self._expanded_sizes = expanded_sizes
         self._interstitial_sizes = interstitial_sizes
+        self.has_enumerate_support = actual_base_dist.has_enumerate_support
         super().__init__(new_shape, actual_base_dist.event_shape)
 
     @staticmethod
@@ -725,10 +718,6 @@ class ExpandedDistribution(Distribution):
             OrderedDict(reversed(expanded_sizes)),
             OrderedDict(interstitial_sizes),
         )
-
-    @property
-    def has_enumerate_support(self) -> bool:
-        return self.base_dist.has_enumerate_support
 
     @property
     def has_rsample(self) -> bool:
@@ -967,6 +956,7 @@ class Independent(Distribution):
         self.base_dist = base_dist
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
         self.reparametrized_params = base_dist.reparametrized_params
+        self.has_enumerate_support = base_dist.has_enumerate_support
         super(Independent, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
@@ -977,10 +967,6 @@ class Independent(Distribution):
         return constraints.independent(
             self.base_dist.support, self.reinterpreted_batch_ndims
         )
-
-    @property
-    def has_enumerate_support(self) -> bool:
-        return self.base_dist.has_enumerate_support
 
     @property
     def mean(self) -> ArrayLike:
@@ -1051,11 +1037,8 @@ class MaskedDistribution(Distribution):
                 base_dist = base_dist.expand(batch_shape)
             self._mask = mask.astype("bool")
         self.base_dist = base_dist
+        self.has_enumerate_support = base_dist.has_enumerate_support
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
-
-    @property
-    def has_enumerate_support(self) -> bool:
-        return self.base_dist.has_enumerate_support
 
     @property
     def has_rsample(self) -> bool:
