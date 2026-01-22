@@ -9,8 +9,8 @@ from jax import Array, lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT
 from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import validate_sample
@@ -258,7 +258,7 @@ class MixtureSameFamily(_MixtureBase):
         return self._component_distribution
 
     @constraints.dependent_property
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self.component_distribution.support
 
     @property
@@ -353,7 +353,7 @@ class MixtureGeneral(_MixtureBase):
         mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
         component_distributions: list[Distribution],
         *,
-        support: Optional[ConstraintT] = None,
+        support: Optional[Constraint] = None,
         validate_args: Optional[bool] = None,
     ):
         _check_mixing_distribution(mixing_distribution)
@@ -424,7 +424,7 @@ class MixtureGeneral(_MixtureBase):
         return self._component_distributions
 
     @constraints.dependent_property
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         if self._support is not None:
             return self._support
         return self.component_distributions[0].support
