@@ -8,7 +8,7 @@ python-version = "3.13"
 unresolved-import = "ignore"
 # Rules that ty catches but mypy doesn't (needed to match mypy's passing behavior)
 invalid-type-form = "ignore"        # ParamSpec usage patterns
-non-subscriptable = "ignore"        # ModelT[P] subscripting
+not-subscriptable = "ignore"        # ModelT[P] subscripting
 invalid-assignment = "ignore"       # Implicit shadowing
 possibly-missing-attribute = "warn" # Nullable attribute access
 not-iterable = "ignore"             # Iterator type inference
@@ -29,6 +29,7 @@ include = [
     "numpyro/contrib/hsgp",
     "numpyro/contrib/stochastic_support",
     "numpyro/diagnostics.py",
+    "numpyro/distributions/distribution.py",
     "numpyro/handlers.py",
     "numpyro/infer/elbo.py",
     "numpyro/optim.py",

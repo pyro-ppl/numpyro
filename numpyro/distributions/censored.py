@@ -12,7 +12,7 @@ from jax import lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
+from numpyro._typing import ConstraintT
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import log1mexp, promote_shapes, validate_sample
@@ -78,7 +78,7 @@ class LeftCensoredDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         censored: ArrayLike = False,
         *,
         validate_args: bool = False,
@@ -194,7 +194,7 @@ class RightCensoredDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         censored: ArrayLike = False,
         *,
         validate_args: bool = False,
@@ -331,7 +331,7 @@ class IntervalCensoredDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         left_censored: ArrayLike,
         right_censored: ArrayLike,
         *,

@@ -59,7 +59,6 @@ from numpyro.distributions import constraints
 from numpyro.distributions.discrete import _to_logits_bernoulli
 from numpyro.distributions.distribution import (
     Distribution,
-    DistributionT,
     TransformedDistribution,
 )
 from numpyro.distributions.transforms import (
@@ -409,7 +408,7 @@ class EulerMaruyama(Distribution):
         self,
         t: Array,
         sde_fn: Callable[[Array, Array], tuple[Array, Array]],
-        init_dist: DistributionT,
+        init_dist: Distribution,
         *,
         validate_args: Optional[bool] = None,
     ) -> None:

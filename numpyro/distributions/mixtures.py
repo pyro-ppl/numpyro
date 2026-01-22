@@ -9,16 +9,17 @@ from jax import Array, lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
-from numpyro.distributions import Distribution, constraints
+from numpyro._typing import ConstraintT
+from numpyro.distributions import constraints
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
+from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import validate_sample
 from numpyro.util import is_prng_key
 
 
 def Mixture(
     mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
-    component_distributions: Union[list[DistributionT], DistributionT],
+    component_distributions: Union[list[Distribution], Distribution],
     *,
     validate_args: Optional[bool] = None,
 ):
@@ -217,7 +218,7 @@ class MixtureSameFamily(_MixtureBase):
     def __init__(
         self,
         mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
-        component_distribution: DistributionT,
+        component_distribution: Distribution,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -247,7 +248,7 @@ class MixtureSameFamily(_MixtureBase):
         )
 
     @property
-    def component_distribution(self) -> DistributionT:
+    def component_distribution(self) -> Distribution:
         """
         Return the vectorized distribution of components being mixed.
 
@@ -350,7 +351,7 @@ class MixtureGeneral(_MixtureBase):
     def __init__(
         self,
         mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
-        component_distributions: list[DistributionT],
+        component_distributions: list[Distribution],
         *,
         support: Optional[ConstraintT] = None,
         validate_args: Optional[bool] = None,
@@ -414,7 +415,7 @@ class MixtureGeneral(_MixtureBase):
         )
 
     @property
-    def component_distributions(self) -> list[DistributionT]:
+    def component_distributions(self) -> list[Distribution]:
         """The list of component distributions in the mixture
 
         :return: The list of component distributions
@@ -471,7 +472,7 @@ class MixtureGeneral(_MixtureBase):
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
-def _check_mixing_distribution(mixing_distribution: DistributionT) -> None:
+def _check_mixing_distribution(mixing_distribution: Distribution) -> None:
     if not isinstance(mixing_distribution, (CategoricalLogits, CategoricalProbs)):
         raise ValueError(
             "The mixing distribution must be a numpyro.distributions.Categorical. "
