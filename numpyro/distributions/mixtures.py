@@ -222,6 +222,13 @@ class MixtureSameFamily(_MixtureBase):
         *,
         validate_args: Optional[bool] = None,
     ):
+        assert isinstance(
+            component_distribution.support, constraints.ParameterFreeConstraint
+        ), (
+            f"Invalid component distribution: {type(component_distribution).__name__}. "
+            "The mixture components must have a support that does not depend on their parameters "
+            f"(expected ParameterFreeConstraint, but found {component_distribution.support})."
+        )
         _check_mixing_distribution(mixing_distribution)
         mixture_size = mixing_distribution.probs.shape[-1]
         if not isinstance(component_distribution, Distribution):
