@@ -344,8 +344,8 @@ def test_nnx_module():
             self.bias = nnx.Param(jnp.zeros((dout,)))
 
         def __call__(self, x):
-            w_val = self.w.value
-            bias_val = self.bias.value
+            w_val = self.w[...]
+            bias_val = self.bias[...]
             return x @ w_val + bias_val
 
     # Eager initialization of the Linear module outside the model

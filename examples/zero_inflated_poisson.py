@@ -154,7 +154,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser("Zero-Inflated Poisson Regression")
     parser.add_argument("--seed", nargs="?", default=42, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)

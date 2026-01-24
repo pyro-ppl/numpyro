@@ -568,7 +568,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     args = parse_arguments()
     numpyro.enable_x64(args.x64)
     numpyro.set_platform(args.device)
