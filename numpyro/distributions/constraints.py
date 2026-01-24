@@ -302,7 +302,7 @@ class _GreaterThan(Constraint[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _GreaterThan):
             return False
-        return jnp.array_equal(self.lower_bound, other.lower_bound)  # type: ignore[return-value]
+        return self.lower_bound is other.lower_bound
 
 
 class _GreaterThanEq(_GreaterThan):
@@ -313,7 +313,7 @@ class _GreaterThanEq(_GreaterThan):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _GreaterThanEq):
             return False
-        return jnp.array_equal(self.lower_bound, other.lower_bound)  # type: ignore[return-value]
+        return self.lower_bound is other.lower_bound
 
 
 class _Positive(_SingletonConstraint[NumLike], _GreaterThan):
@@ -434,7 +434,7 @@ class _LessThan(Constraint[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _LessThan):
             return False
-        return jnp.array_equal(self.upper_bound, other.upper_bound)  # type: ignore[return-value]
+        return self.upper_bound is other.upper_bound
 
 
 class _LessThanEq(_LessThan):
@@ -445,7 +445,7 @@ class _LessThanEq(_LessThan):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _LessThanEq):
             return False
-        return jnp.array_equal(self.upper_bound, other.upper_bound)  # type: ignore[return-value]
+        return self.upper_bound is other.upper_bound
 
 
 class _IntegerInterval(Constraint[NumLike]):
@@ -482,10 +482,10 @@ class _IntegerInterval(Constraint[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _IntegerInterval):
             return False
-        return jnp.logical_and(
-            jnp.array_equal(self.lower_bound, other.lower_bound),
-            jnp.array_equal(self.upper_bound, other.upper_bound),
-        )  # type: ignore[return-value]
+        return (
+            self.lower_bound is other.lower_bound
+            and self.upper_bound is other.upper_bound
+        )
 
 
 class _IntegerGreaterThan(Constraint[NumLike]):
@@ -512,7 +512,7 @@ class _IntegerGreaterThan(Constraint[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _IntegerGreaterThan):
             return False
-        return jnp.array_equal(self.lower_bound, other.lower_bound)  # type: ignore[return-value]
+        return self.lower_bound is other.lower_bound
 
 
 class _IntegerPositive(_SingletonConstraint[NumLike], _IntegerGreaterThan):
@@ -551,9 +551,10 @@ class _Interval(Constraint[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _Interval):
             return False
-        return jnp.array_equal(self.lower_bound, other.lower_bound) & jnp.array_equal(
-            self.upper_bound, other.upper_bound
-        )  # type: ignore[return-value]
+        return (
+            self.lower_bound is other.lower_bound
+            and self.upper_bound is other.upper_bound
+        )
 
     def tree_flatten(self):
         return (self.lower_bound, self.upper_bound), (
@@ -623,7 +624,7 @@ class _Multinomial(Constraint[NonScalarArray]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _Multinomial):
             return False
-        return jnp.array_equal(self.upper_bound, other.upper_bound)  # type: ignore[return-value]
+        return self.upper_bound is other.upper_bound
 
 
 class _L1Ball(_SingletonConstraint[NumLike]):

@@ -306,12 +306,11 @@ class AffineTransform(Transform[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AffineTransform):
             return False
-        is_equal = (
-            jnp.array_equal(self.loc, other.loc)
-            & jnp.array_equal(self.scale, other.scale)
-            & (self.domain == other.domain)
+        return (
+            self.loc is other.loc
+            and self.scale is other.scale
+            and self.domain == other.domain
         )
-        return is_equal  # type: ignore[return-value]
 
 
 def _get_compose_transform_input_event_dim(parts):
@@ -431,7 +430,9 @@ class ComposeTransform(Transform[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ComposeTransform):
             return False
-        return jnp.logical_and(*(p1 == p2 for p1, p2 in zip(self.parts, other.parts)))  # type: ignore[return-value]
+        return len(self.parts) == len(other.parts) and all(
+            p1 == p2 for p1, p2 in zip(self.parts, other.parts)
+        )
 
 
 def _matrix_forward_shape(shape: tuple[int, ...], offset: int = 0) -> tuple[int, ...]:
@@ -711,8 +712,9 @@ class IndependentTransform(Transform[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, IndependentTransform):
             return False
-        return (self.base_transform == other.base_transform) & (
-            self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
+        return (
+            self.base_transform == other.base_transform
+            and self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
         )
 
 
@@ -842,9 +844,7 @@ class LowerCholeskyAffine(Transform[NonScalarArray]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LowerCholeskyAffine):
             return False
-        return jnp.array_equal(self.loc, other.loc) & jnp.array_equal(
-            self.scale_tril, other.scale_tril
-        )  # type: ignore[return-value]
+        return self.loc is other.loc and self.scale_tril is other.scale_tril
 
 
 class LowerCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
@@ -1000,7 +1000,7 @@ class PermuteTransform(Transform[NonScalarArray]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PermuteTransform):
             return False
-        return jnp.array_equal(self.permutation, other.permutation)  # type: ignore[return-value]
+        return self.permutation is other.permutation
 
 
 class PowerTransform(Transform[NumLike]):
@@ -1033,7 +1033,7 @@ class PowerTransform(Transform[NumLike]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PowerTransform):
             return False
-        return jnp.array_equal(self.exponent, other.exponent)  # type: ignore[return-value]
+        return self.exponent is other.exponent
 
     @property
     def sign(self) -> NumLike:
@@ -1120,7 +1120,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, SimplexToOrderedTransform):
             return False
-        return jnp.array_equal(self.anchor_point, other.anchor_point)  # type: ignore[return-value]
+        return self.anchor_point is other.anchor_point
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return shape[:-1] + (shape[-1] - 1,)
@@ -1685,9 +1685,10 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, RecursiveLinearTransform):
             return False
-        return jnp.array_equal(
-            self.transition_matrix, other.transition_matrix
-        ) & jnp.array_equal(self.initial_value, other.initial_value)  # type: ignore[return-value]
+        return (
+            self.transition_matrix is other.transition_matrix
+            and self.initial_value is other.initial_value
+        )
 
 
 class ZeroSumTransform(Transform[NonScalarArray]):
