@@ -535,7 +535,7 @@ class RenyiELBO(ELBO):
         model: ModelT[P],
         guide: ModelT[P],
         param_map: dict[str, jax.Array],
-        args: tuple[Any],
+        args: tuple[Any, ...],
         kwargs: dict[str, Any],
         rng_key: jax.Array,
     ) -> tuple[jax.Array, float]:
@@ -626,8 +626,8 @@ class RenyiELBO(ELBO):
             model,
             guide,
             param_map,
-            args,  # type: ignore
-            kwargs,  # type: ignore
+            args,
+            kwargs,
         )
 
         rng_keys = random.split(rng_key, self.num_particles)
@@ -926,6 +926,7 @@ def get_importance_trace_enum(
     The returned traces also store the log probability at each site and the log measure for measure vars.
     """
     import funsor
+    import funsor.optimizer
     from numpyro.contrib.funsor import (
         enum,
         plate_to_enum_plate,
@@ -1137,6 +1138,7 @@ class TraceEnum_ELBO(ELBO):
     ) -> jax.Array:
         def single_particle_elbo(rng_key: jax.Array) -> jax.Array:
             import funsor
+            import funsor.optimizer
             from numpyro.contrib.funsor import to_data
 
             model_seed, guide_seed = random.split(rng_key)

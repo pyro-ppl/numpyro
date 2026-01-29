@@ -6,6 +6,7 @@ python-version = "3.13"
 # To match mypy's "passing" behavior, we disable ty's stricter rules that mypy doesn't catch.
 [rules]
 unresolved-import = "ignore"
+unused-ignore-comment = "ignore"    # Needed for mypy compatibility
 # Rules that ty catches but mypy doesn't (needed to match mypy's passing behavior)
 invalid-type-form = "ignore"        # ParamSpec usage patterns
 not-subscriptable = "ignore"        # ModelT[P] subscripting

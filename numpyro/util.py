@@ -518,7 +518,7 @@ def format_shapes(
     """
     if not trace.keys():
         return title
-    rows = [[title]]
+    rows: list[list[str | None]] = [[title]]
 
     rows.append(["Param Sites:"])
     for name, site in trace.items():
@@ -537,7 +537,7 @@ def format_shapes(
             batch_shape = getattr(site["fn"], "batch_shape", ())
             event_shape = getattr(site["fn"], "event_shape", ())
             rows.append(
-                [f"{name} dist", None]  # type: ignore[arg-type]
+                [f"{name} dist", None]
                 + [str(size) for size in batch_shape]
                 + ["|", None]
                 + [str(size) for size in event_shape]
@@ -549,7 +549,7 @@ def format_shapes(
             batch_shape = shape[: len(shape) - event_dim]
             event_shape = shape[len(shape) - event_dim :]
             rows.append(
-                ["value", None]  # type: ignore[arg-type]
+                ["value", None]
                 + [str(size) for size in batch_shape]
                 + ["|", None]
                 + [str(size) for size in event_shape]
@@ -561,14 +561,14 @@ def format_shapes(
             ):
                 batch_shape = getattr(site["fn"].log_prob(site["value"]), "shape", ())
                 rows.append(
-                    ["log_prob", None]  # type: ignore[arg-type]
+                    ["log_prob", None]
                     + [str(size) for size in batch_shape]
                     + ["|", None]
                 )
         elif site["type"] == "plate":
             shape = getattr(site["value"], "shape", ())
             rows.append(
-                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]  # type: ignore[arg-type]
+                [f"{name} plate", None] + [str(size) for size in shape] + ["|", None]
             )
 
         if name == last_site:
@@ -735,7 +735,7 @@ def check_model_guide_match(model_trace: dict, guide_trace: dict) -> None:
         )
 
 
-def _format_table(rows):
+def _format_table(rows: list[list[str | None]]) -> str:
     """
     Formats a right justified table using None as column separator.
     """
@@ -753,32 +753,34 @@ def _format_table(rows):
             column_widths[j] = max(column_widths[j], widths[j])
 
     # justify columns
-    for i, row in enumerate(rows):
-        cols = [[], [], []]
+    justified_rows: list[list[str]] = []
+    for row in rows:
+        cols: list[list[str]] = [[], [], []]
         j = 0
         for cell in row:
             if cell is None:
                 j += 1
             else:
                 cols[j].append(cell)
-        cols = [
+        justified_cols: list[list[str]] = [
             [""] * (width - len(col)) + col
             if direction == "r"
             else col + [""] * (width - len(col))
             for width, col, direction in zip(column_widths, cols, "rrl")
         ]
-        rows[i] = sum(cols, [])
+        flattened: list[str] = [cell for col in justified_cols for cell in col]
+        justified_rows.append(flattened)
 
     # compute cell widths
-    cell_widths = [0] * len(rows[0])
-    for row in rows:
-        for j, cell in enumerate(row):
+    cell_widths = [0] * len(justified_rows[0])
+    for justified_row in justified_rows:
+        for j, cell in enumerate(justified_row):
             cell_widths[j] = max(cell_widths[j], len(cell))
 
     # justify cells
     return "\n".join(
-        " ".join(cell.rjust(width) for cell, width in zip(row, cell_widths))
-        for row in rows
+        " ".join(cell.rjust(width) for cell, width in zip(justified_row, cell_widths))
+        for justified_row in justified_rows
     )
 
 

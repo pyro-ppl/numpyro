@@ -165,7 +165,7 @@ class trace(Messenger):
                       'value': Array(-0.20584235, dtype=float32)})])
     """
 
-    def __enter__(self) -> TraceT:  # type: ignore [override]
+    def __enter__(self) -> TraceT:
         super(trace, self).__enter__()
         self.trace: TraceT = OrderedDict()
         return self.trace
@@ -359,7 +359,7 @@ class collapse(trace):
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
 
-    def __enter__(self) -> TraceT:  # type: ignore [override]
+    def __enter__(self) -> TraceT:
         self.preserved_plates = frozenset(
             h.name for h in _PYRO_STACK if isinstance(h, plate)
         )

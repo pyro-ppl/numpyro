@@ -528,6 +528,7 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg["value"]
+        assert isinstance(subsample, jnp.ndarray)
         subsample_size = msg["args"][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             warnings.warn(
@@ -537,7 +538,7 @@ class plate(Messenger):
                 + " Did you accidentally use different subsample_size in the model and guide?",
                 stacklevel=find_stack_level(),
             )
-        cond_indep_stack = msg["cond_indep_stack"]
+        cond_indep_stack: list[CondIndepStackFrame] = msg["cond_indep_stack"]
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
             new_dim = -1

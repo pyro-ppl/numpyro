@@ -75,6 +75,7 @@ from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
 from numpyro._typing import NonScalarArray, NumLike, NumLikeT
+from numpyro.distributions.util import array_equiv
 
 
 class Constraint(Generic[NumLikeT]):
@@ -111,6 +112,12 @@ class Constraint(Generic[NumLikeT]):
         """
         raise NotImplementedError
 
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return self is other
+
+    def __eq__(self, other: object) -> bool:
+        return bool(self.eq(other, static=True))
+
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         params_keys, aux_data = aux_data
@@ -126,6 +133,9 @@ class Constraint(Generic[NumLikeT]):
 class ParameterFreeConstraint(Constraint[NumLikeT]):
     def tree_flatten(self):
         return (), ((), dict())
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return isinstance(other, type(self))
 
 
 class _SingletonConstraint(ParameterFreeConstraint[NumLikeT]):
@@ -238,7 +248,7 @@ class _Dependent(Constraint[NumLike]):
             event_dim = self._event_dim
         return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _Dependent):
             return False
         return (
@@ -299,10 +309,10 @@ class _GreaterThan(Constraint[NumLike]):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _GreaterThan):
             return False
-        return self.lower_bound is other.lower_bound
+        return array_equiv(self.lower_bound, other.lower_bound, static=static)
 
 
 class _GreaterThanEq(_GreaterThan):
@@ -310,20 +320,32 @@ class _GreaterThanEq(_GreaterThan):
         xp = jnp if isinstance(x, jax.Array) else np
         return xp.greater_equal(x, self.lower_bound)
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _GreaterThanEq):
             return False
-        return self.lower_bound is other.lower_bound
+        return array_equiv(self.lower_bound, other.lower_bound, static=static)
 
 
-class _Positive(_SingletonConstraint[NumLike], _GreaterThan):
+class _Positive(_GreaterThan, _SingletonConstraint[NumLike]):
     def __init__(self) -> None:
         super().__init__(0.0)
 
+    def tree_flatten(self):
+        return (), ((), dict())
 
-class _Nonnegative(_SingletonConstraint[NumLike], _GreaterThanEq):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return _GreaterThan.eq(self, other, static=static)
+
+
+class _Nonnegative(_GreaterThanEq, _SingletonConstraint[NumLike]):
     def __init__(self) -> None:
         super().__init__(0.0)
+
+    def tree_flatten(self):
+        return (), ((), dict())
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return _GreaterThanEq.eq(self, other, static=static)
 
 
 class _IndependentConstraint(Constraint[NumLikeT]):
@@ -389,13 +411,12 @@ class _IndependentConstraint(Constraint[NumLikeT]):
             {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
         )
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _IndependentConstraint):
             return False
-
-        return (self.base_constraint == other.base_constraint) & (
-            self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
-        )
+        if self.reinterpreted_batch_ndims != other.reinterpreted_batch_ndims:
+            return False
+        return self.base_constraint.eq(other.base_constraint, static=static)
 
 
 class _RealVector(
@@ -431,10 +452,10 @@ class _LessThan(Constraint[NumLike]):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _LessThan):
             return False
-        return self.upper_bound is other.upper_bound
+        return array_equiv(self.upper_bound, other.upper_bound, static=static)
 
 
 class _LessThanEq(_LessThan):
@@ -442,10 +463,10 @@ class _LessThanEq(_LessThan):
         xp = jnp if isinstance(x, jax.Array) else np
         return xp.less_equal(x, self.upper_bound)
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _LessThanEq):
             return False
-        return self.upper_bound is other.upper_bound
+        return array_equiv(self.upper_bound, other.upper_bound, static=static)
 
 
 class _IntegerInterval(Constraint[NumLike]):
@@ -479,13 +500,12 @@ class _IntegerInterval(Constraint[NumLike]):
             dict(),
         )
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _IntegerInterval):
             return False
-        return (
-            self.lower_bound is other.lower_bound
-            and self.upper_bound is other.upper_bound
-        )
+        return array_equiv(
+            self.lower_bound, other.lower_bound, static=static
+        ) & array_equiv(self.upper_bound, other.upper_bound, static=static)
 
 
 class _IntegerGreaterThan(Constraint[NumLike]):
@@ -509,20 +529,32 @@ class _IntegerGreaterThan(Constraint[NumLike]):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _IntegerGreaterThan):
             return False
-        return self.lower_bound is other.lower_bound
+        return array_equiv(self.lower_bound, other.lower_bound, static=static)
 
 
-class _IntegerPositive(_SingletonConstraint[NumLike], _IntegerGreaterThan):
+class _IntegerPositive(_IntegerGreaterThan, _SingletonConstraint[NumLike]):
     def __init__(self) -> None:
         super().__init__(1)
 
+    def tree_flatten(self):
+        return (), ((), dict())
 
-class _IntegerNonnegative(_SingletonConstraint[NumLike], _IntegerGreaterThan):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return _IntegerGreaterThan.eq(self, other, static=static)
+
+
+class _IntegerNonnegative(_IntegerGreaterThan, _SingletonConstraint[NumLike]):
     def __init__(self) -> None:
         super().__init__(0)
+
+    def tree_flatten(self):
+        return (), ((), dict())
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return _IntegerGreaterThan.eq(self, other, static=static)
 
 
 class _Interval(Constraint[NumLike]):
@@ -548,13 +580,12 @@ class _Interval(Constraint[NumLike]):
             (self.lower_bound + self.upper_bound) / 2, jnp.shape(prototype)
         )
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _Interval):
             return False
-        return (
-            self.lower_bound is other.lower_bound
-            and self.upper_bound is other.upper_bound
-        )
+        return array_equiv(
+            self.lower_bound, other.lower_bound, static=static
+        ) & array_equiv(self.upper_bound, other.upper_bound, static=static)
 
     def tree_flatten(self):
         return (self.lower_bound, self.upper_bound), (
@@ -563,14 +594,26 @@ class _Interval(Constraint[NumLike]):
         )
 
 
-class _Circular(_SingletonConstraint[NumLike], _Interval):
+class _Circular(_Interval, _SingletonConstraint[NumLike]):
     def __init__(self) -> None:
         super().__init__(-math.pi, math.pi)
 
+    def tree_flatten(self):
+        return (), ((), dict())
 
-class _UnitInterval(_SingletonConstraint[NumLike], _Interval):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return _Interval.eq(self, other, static=static)
+
+
+class _UnitInterval(_Interval, _SingletonConstraint[NumLike]):
     def __init__(self) -> None:
         super().__init__(0.0, 1.0)
+
+    def tree_flatten(self):
+        return (), ((), dict())
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return _Interval.eq(self, other, static=static)
 
 
 class _OpenInterval(_Interval):
@@ -621,10 +664,10 @@ class _Multinomial(Constraint[NonScalarArray]):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _Multinomial):
             return False
-        return self.upper_bound is other.upper_bound
+        return array_equiv(self.upper_bound, other.upper_bound, static=static)
 
 
 class _L1Ball(_SingletonConstraint[NumLike]):
@@ -805,7 +848,7 @@ class _ZeroSum(Constraint[NonScalarArray]):
             zerosum_true = zerosum_true & xp.allclose(x.sum(dim), 0, atol=tol)
         return zerosum_true
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _ZeroSum):
             return False
         return self.event_dim == other.event_dim
@@ -814,7 +857,7 @@ class _ZeroSum(Constraint[NonScalarArray]):
         return jnp.zeros_like(prototype)
 
     def tree_flatten(self):
-        return (self._event_dim,), (("_event_dim",), dict())
+        return (), ((), {"_event_dim": self._event_dim})
 
 
 # TODO: Make types consistent
