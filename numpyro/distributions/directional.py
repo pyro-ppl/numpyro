@@ -46,7 +46,7 @@ def log_I1(orders: int, value: ArrayLike, terms: int = 250) -> Array:
     """
     orders = orders + 1
     if value.ndim == 0:
-        vshape = jnp.shape([1])
+        vshape = (1,)
     else:
         vshape = value.shape
     value = value.reshape(-1, 1)

@@ -202,7 +202,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="VAR(2) example")
     parser.add_argument("--num-data", nargs="?", default=100, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)

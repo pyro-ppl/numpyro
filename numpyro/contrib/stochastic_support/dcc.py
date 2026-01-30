@@ -223,10 +223,10 @@ class DCC(StochasticSupportInference):
 
         return mcmc.get_samples()
 
-    def _combine_inferences(  # type: ignore[override]
+    def _combine_inferences(
         self,
         rng_key: jax.Array,
-        samples: dict[str, Any],
+        inferences: dict[str, Any],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
         **kwargs: Any,
@@ -241,6 +241,7 @@ class DCC(StochasticSupportInference):
         1. *Layered adaptive importance sampling*,
             Luca Martino, Victor Elvira, David Luengo, and Jukka Corander.
         """
+        samples = inferences  # alias for clarity
 
         def log_weight(
             rng_key: jax.Array,

@@ -117,21 +117,24 @@ class SDVI(StochasticSupportInference):
         )
         return guide, svi_result.params
 
-    def _combine_inferences(  # type: ignore[override]
+    def _combine_inferences(
         self,
         rng_key: jax.Array,
-        guides: dict[str, tuple[AutoGuide, dict[str, Any]]],
+        inferences: dict[str, tuple[AutoGuide, dict[str, Any]]],
         branching_traces: dict[str, OrderedDictType],
         *args: Any,
         **kwargs: Any,
     ) -> SDVIResult:
         """Weight each SLP proportional to its estimated ELBO."""
+        guides = inferences  # alias for clarity
         elbos: dict[str, jax.Array] = {}
         for bt, (guide, param_map) in guides.items():
             slp_model = condition(self.model, branching_traces[bt])
-            elbos[bt] = -Trace_ELBO(num_particles=self.combine_elbo_particles).loss(  # type: ignore
+            loss = Trace_ELBO(num_particles=self.combine_elbo_particles).loss(
                 rng_key, param_map, slp_model, guide, *args, **kwargs
             )
+            assert isinstance(loss, jax.Array)
+            elbos[bt] = -loss
 
         normalizer = jax.scipy.special.logsumexp(jnp.array(list(elbos.values())))
         slp_weights = {k: jnp.exp(v - normalizer) for k, v in elbos.items()}

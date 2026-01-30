@@ -602,7 +602,11 @@ class Distribution(metaclass=DistributionMeta):
         # Note: accessing cls.support on a class returns the descriptor or
         # class attribute; dependent_property.event_dim raises NotImplementedError
         # for dynamic supports, which causes infer_shapes to be skipped.
-        if cls.support is not None and cls.support.event_dim > 0:  # type: ignore[attr-defined]
+        if (
+            cls.support is not None
+            and hasattr(cls.support, "event_dim")
+            and cls.support.event_dim > 0
+        ):
             raise NotImplementedError
 
         # Convert args to kwargs.
