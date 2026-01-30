@@ -20,7 +20,7 @@ from jax.typing import ArrayLike
 from numpyro.util import not_jax_tracer
 
 
-def array_equiv(a: ArrayLike, b: ArrayLike, static: bool = False) -> ArrayLike:
+def array_equiv(a: ArrayLike, b: ArrayLike, static: bool = False):
     """Check equality using identity first, then jnp.array_equiv for arrays.
 
     :param a: First array or value.
