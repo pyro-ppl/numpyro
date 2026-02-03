@@ -115,7 +115,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, si
     return mu, var
 
 
-# Compute the mean and variance of coefficient theta_ij for a MCMC sample of the
+# Compute the mean and variance of coefficient theta_ij for an MCMC sample of the
 # kernel hyperparameters (eta1, xisq, ...). Compare to theorem 5.1 in reference [1].
 def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, sigma):
     P, N = X.shape[1], X.shape[0]
