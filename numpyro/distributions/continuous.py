@@ -750,7 +750,7 @@ class GaussianStateSpace(TransformedDistribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         assert isinstance(num_steps, int) and num_steps > 0, (
-            "`num_steps` argument should be an positive integer."
+            "`num_steps` argument should be a positive integer."
         )
         self.num_steps = num_steps
         assert transition_matrix.ndim == 2, (
@@ -854,7 +854,7 @@ class GaussianRandomWalk(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         assert isinstance(num_steps, int) and num_steps > 0, (
-            "`num_steps` argument should be an positive integer."
+            "`num_steps` argument should be a positive integer."
         )
         self.scale = scale
         self.num_steps = num_steps
