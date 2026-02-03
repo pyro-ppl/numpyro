@@ -257,7 +257,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Defaults to 0.8.
         :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
-        :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+        :param float trajectory_length: Length of an MCMC trajectory for HMC. Default
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of
@@ -603,7 +603,7 @@ class HMC(MCMCKernel):
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Defaults to 0.8.
     :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
-    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+    :param float trajectory_length: Length of an MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
@@ -890,7 +890,7 @@ class NUTS(HMC):
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Defaults to 0.8.
-    :param float trajectory_length: Length of a MCMC trajectory for HMC. This arg has
+    :param float trajectory_length: Length of an MCMC trajectory for HMC. This arg has
         no effect in NUTS sampler.
     :param int max_tree_depth: Max depth of the binary tree created during the doubling
         scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of
