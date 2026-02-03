@@ -86,7 +86,7 @@ class HMCGibbs(MCMCKernel):
 
     def __init__(self, inner_kernel, gibbs_fn, gibbs_sites):
         if not isinstance(inner_kernel, HMC):
-            raise ValueError("inner_kernel must be a HMC or NUTS sampler.")
+            raise ValueError("inner_kernel must be an HMC or NUTS sampler.")
         if not callable(gibbs_fn):
             raise ValueError("gibbs_fn must be a callable")
         assert inner_kernel.model is not None, (
