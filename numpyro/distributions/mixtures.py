@@ -135,7 +135,7 @@ class _MixtureBase(Distribution):
         """
         A version of ``sample`` that also returns the sampled component indices
 
-        :param jax.random.PRNGKey key: the rng_key key to be used for the
+        :param jax.random.key key: the rng_key key to be used for the
             distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: A 2-element tuple with the samples from the distribution, and
@@ -208,7 +208,7 @@ class MixtureSameFamily(_MixtureBase):
        >>> mixing_dist = dist.Categorical(probs=jnp.ones(3) / 3.)
        >>> component_dist = dist.Normal(loc=jnp.zeros(3), scale=jnp.ones(3))
        >>> mixture = dist.MixtureSameFamily(mixing_dist, component_dist)
-       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       >>> mixture.sample(jax.random.key(42)).shape
        ()
     """
 
@@ -330,7 +330,7 @@ class MixtureGeneral(_MixtureBase):
        ...     dist.Normal(loc=0.6, scale=1.2),
        ... ]
        >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists)
-       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       >>> mixture.sample(jax.random.key(42)).shape
        ()
 
     .. doctest::
@@ -344,7 +344,7 @@ class MixtureGeneral(_MixtureBase):
        ...     dist.HalfNormal(scale=0.3),
        ... ]
        >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists, support=dist.constraints.real)
-       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       >>> mixture.sample(jax.random.key(42)).shape
        ()
     """
 

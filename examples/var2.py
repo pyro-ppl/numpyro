@@ -158,7 +158,7 @@ def main(args):
     Phi2_true = jnp.array([[0.2, -0.1], [-0.1, 0.2]])  # Coefficients for lag 2
     sigma_true = jnp.array([[0.1, 0.02], [0.02, 0.1]])  # Covariance matrix
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     y = generate_var2_data(T, K, c_true, Phi1_true, Phi2_true, sigma_true)
 
     # Perform inference

@@ -311,7 +311,7 @@ def main(args):
     }
 
     # do inference
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     samples = run_inference(model, args, rng_key, X, Y, hypers)
 
     # compute the mean and square root variance of each coefficient theta_i

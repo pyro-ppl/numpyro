@@ -69,7 +69,7 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
     mcmc.print_summary()
     vanilla_samples = mcmc.get_samples()["x"].copy()
 
@@ -79,10 +79,10 @@ def main(args):
     svi = SVI(dual_moon_model, guide, optim.Adam(0.003), Trace_ELBO())
 
     print("Start training guide...")
-    svi_result = svi.run(random.PRNGKey(1), args.num_iters)
+    svi_result = svi.run(random.key(1), args.num_iters)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(
-        random.PRNGKey(2), svi_result.params, sample_shape=(args.num_samples,)
+        random.key(2), svi_result.params, sample_shape=(args.num_samples,)
     )["x"].copy()
 
     print("\nStart NeuTra HMC...")
@@ -96,7 +96,7 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(random.PRNGKey(3))
+    mcmc.run(random.key(3))
     mcmc.print_summary()
     zs = mcmc.get_samples(group_by_chain=True)["auto_shared_latent"]
     print("Transform samples into unwarped space...")
@@ -108,9 +108,7 @@ def main(args):
     # make plots
 
     # guide samples (for plotting)
-    guide_base_samples = dist.Normal(jnp.zeros(2), 1.0).sample(
-        random.PRNGKey(4), (1000,)
-    )
+    guide_base_samples = dist.Normal(jnp.zeros(2), 1.0).sample(random.key(4), (1000,))
     guide_trans_samples = neutra.transform_sample(guide_base_samples)["x"]
 
     x1 = jnp.linspace(-3, 3, 100)

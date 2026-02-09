@@ -50,7 +50,7 @@ class SDVI(StochasticSupportInference):
             numpyro.sample("obs", dist.Normal(mean, 1.0), obs=0.2)
 
         sdvi = SDVI(model, numpyro.optim.Adam(step_size=0.001))
-        sdvi_result = sdvi.run(random.PRNGKey(0))
+        sdvi_result = sdvi.run(random.key(0))
 
     :param model: Python callable containing Pyro primitives :mod:`~numpyro.primitives`.
     :param optimizer:  An instance of :class:`~numpyro.optim._NumpyroOptim`, a

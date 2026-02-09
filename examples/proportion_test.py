@@ -144,7 +144,7 @@ def run_inference(
 
 
 def main(args):
-    rng_key, _ = random.split(random.PRNGKey(3))
+    rng_key, _ = random.split(random.key(3))
     design_matrix, response = make_dataset(rng_key)
     run_inference(
         design_matrix,

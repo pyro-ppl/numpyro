@@ -132,7 +132,7 @@ class StochasticSupportInference(ABC):
         """
         Run inference on each SLP separately and combine the results.
 
-        :param jax.random.PRNGKey rng_key: Random number generator key.
+        :param jax.random.key rng_key: Random number generator key.
         :param args: Arguments to the model.
         :param kwargs: Keyword arguments to the model.
         """
@@ -176,7 +176,7 @@ class DCC(StochasticSupportInference):
             num_warmup=500, num_samples=1000
         )
         dcc = DCC(model, mcmc_kwargs=mcmc_kwargs)
-        dcc_result = dcc.run(random.PRNGKey(0))
+        dcc_result = dcc.run(random.key(0))
 
     :param model: Python callable containing Pyro primitives :mod:`~numpyro.primitives`.
     :param dict mcmc_kwargs: Dictionary of arguments passed to :data:`~numpyro.infer.MCMC`.

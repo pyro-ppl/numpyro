@@ -320,7 +320,7 @@ class Minimize(_NumPyroOptim):
         >>> optimizer = numpyro.optim.Minimize()
         >>> guide = AutoLaplaceApproximation(model)
         >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-        >>> init_state = svi.init(random.PRNGKey(0), x, y)
+        >>> init_state = svi.init(random.key(0), x, y)
         >>> optimal_state, loss = svi.update(init_state, x, y)
         >>> params = svi.get_params(optimal_state)  # get guide's parameters
         >>> quantiles = guide.quantiles(params, 0.5)  # get means of posterior samples

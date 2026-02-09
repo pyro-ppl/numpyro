@@ -115,7 +115,7 @@ def print_results(header, preds, dept, male, probs):
 def main(args):
     _, fetch_train = load_dataset(UCBADMIT, split="train", shuffle=False)
     dept, male, applications, admit = fetch_train()
-    rng_key, rng_key_predict = random.split(random.PRNGKey(1))
+    rng_key, rng_key_predict = random.split(random.key(1))
     zs = run_inference(dept, male, applications, admit, rng_key, args)
     pred_probs = Predictive(glmm, zs)(rng_key_predict, dept, male, applications)[
         "probs"

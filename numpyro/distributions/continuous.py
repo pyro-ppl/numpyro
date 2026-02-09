@@ -3027,7 +3027,7 @@ class ZeroSumNormal(TransformedDistribution):
 
         >>> N = 1000
         >>> n_categories = 20
-        >>> rng_key = random.PRNGKey(0)
+        >>> rng_key = random.key(0)
         >>> key1, key2, key3 = random.split(rng_key, 3)
         >>> category_ind = random.choice(key1, jnp.arange(n_categories), shape=(N,))
         >>> beta = random.normal(key2, shape=(n_categories,))
@@ -3049,7 +3049,7 @@ class ZeroSumNormal(TransformedDistribution):
         ...     sampler=nuts_kernel,
         ...     num_samples=1_000, num_warmup=1_000, num_chains=4
         ... )
-        >>> mcmc.run(random.PRNGKey(0), category_ind=category_ind, y=y)
+        >>> mcmc.run(random.key(0), category_ind=category_ind, y=y)
         >>> posterior_samples = mcmc.get_samples()
         >>> # Confirm everything along last axis sums to zero
         >>> assert_allclose(posterior_samples['beta'].sum(-1), 0, atol=1e-3)

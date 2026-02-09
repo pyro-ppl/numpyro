@@ -22,7 +22,7 @@ logits = np.sum(true_coefs * data, axis=-1)
 
 
 def labels_maker():
-    return dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    return dist.Bernoulli(logits=logits).sample(random.key(1))
 
 
 def model(labels):
@@ -58,7 +58,7 @@ def test_chain_smoke(kernel_cls, n_chain, method):
     )
 
     with pytest.raises(AssertionError, match="chain_method"):
-        mcmc.run(random.PRNGKey(2), labels_maker())
+        mcmc.run(random.key(2), labels_maker())
 
 
 @pytest.mark.parametrize("kernel_cls", [AIES, ESS])
@@ -74,7 +74,7 @@ def test_out_shape_smoke(kernel_cls):
         num_chains=n_chains,
         chain_method="vectorized",
     )
-    mcmc.run(random.PRNGKey(2), labels_maker())
+    mcmc.run(random.key(2), labels_maker())
 
     assert mcmc.get_samples(group_by_chain=True)["coefs"].shape[0] == n_chains
 
@@ -99,8 +99,8 @@ def test_multirun(kernel_cls):
         chain_method="vectorized",
     )
     labels = labels_maker()
-    mcmc.run(random.PRNGKey(2), labels)
-    mcmc.run(random.PRNGKey(3), labels)
+    mcmc.run(random.key(2), labels)
+    mcmc.run(random.key(3), labels)
 
 
 @pytest.mark.parametrize("kernel_cls", [AIES, ESS])
@@ -117,5 +117,5 @@ def test_warmup(kernel_cls):
         chain_method="vectorized",
     )
     labels = labels_maker()
-    mcmc.warmup(random.PRNGKey(2), labels)
-    mcmc.run(random.PRNGKey(3), labels)
+    mcmc.warmup(random.key(2), labels)
+    mcmc.run(random.key(3), labels)

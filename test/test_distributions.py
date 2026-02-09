@@ -1306,7 +1306,7 @@ def _is_batched_multivariate(jax_dist):
 
 
 def gen_values_within_bounds(constraint, size, key=None):
-    key = random.PRNGKey(11) if key is None else key
+    key = random.key(11) if key is None else key
     eps = 1e-6
 
     if constraint is constraints.boolean:
@@ -1378,7 +1378,7 @@ def gen_values_within_bounds(constraint, size, key=None):
 
 
 def gen_values_outside_bounds(constraint, size, key=None):
-    key = random.PRNGKey(11) if key is None else key
+    key = random.key(11) if key is None else key
     if constraint is constraints.boolean:
         return random.bernoulli(key, shape=size) - 2
     elif isinstance(constraint, constraints.greater_than):
@@ -1457,7 +1457,7 @@ def gen_values_outside_bounds(constraint, size, key=None):
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     jax_dist = jax_dist_cls(*params)
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     if jax_dist_cls is not dist.Delta:
@@ -1544,21 +1544,21 @@ def test_has_rsample(jax_dist, sp_dist, params):
             assert jax_dist.base_dist.has_rsample
         else:
             assert set(jax_dist.arg_constraints) == set(jax_dist.reparametrized_params)
-        jax_dist.rsample(random.PRNGKey(0))
+        jax_dist.rsample(random.key(0))
         if isinstance(jax_dist, dist.Normal):
-            masked_dist.rsample(random.PRNGKey(0))
-            indept_dist.rsample(random.PRNGKey(0))
-            transf_dist.rsample(random.PRNGKey(0))
+            masked_dist.rsample(random.key(0))
+            indept_dist.rsample(random.key(0))
+            transf_dist.rsample(random.key(0))
     else:
         with pytest.raises(NotImplementedError):
-            jax_dist.rsample(random.PRNGKey(0))
+            jax_dist.rsample(random.key(0))
         if isinstance(jax_dist, dist.BernoulliProbs):
             with pytest.raises(NotImplementedError):
-                masked_dist.rsample(random.PRNGKey(0))
+                masked_dist.rsample(random.key(0))
             with pytest.raises(NotImplementedError):
-                indept_dist.rsample(random.PRNGKey(0))
+                indept_dist.rsample(random.key(0))
             with pytest.raises(NotImplementedError):
-                transf_dist.rsample(random.PRNGKey(0))
+                transf_dist.rsample(random.key(0))
 
 
 @pytest.mark.parametrize(
@@ -1574,9 +1574,9 @@ def test_args_attributes(jax_dist_cls, sp_dist, params):
 
 @pytest.mark.parametrize("batch_shape", [(), (4,), (3, 2)])
 def test_unit(batch_shape):
-    log_factor = random.normal(random.PRNGKey(0), batch_shape)
+    log_factor = random.normal(random.key(0), batch_shape)
     d = dist.Unit(log_factor=log_factor)
-    x = d.sample(random.PRNGKey(1))
+    x = d.sample(random.key(1))
     assert x.shape == batch_shape + (0,)
     assert (d.log_prob(x) == log_factor).all()
 
@@ -1627,7 +1627,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         v for k, v in params_dict.items() if k in reparametrized_params
     )
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     def fn(args):
         args_dict = dict(zip(reparametrized_params, args))
@@ -1666,7 +1666,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     ],
 )
 def test_pathwise_gradient(jax_dist, params):
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     N = 1000000
 
     def f(params):
@@ -1698,7 +1698,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
     ):
         pytest.xfail(reason="non-jittable params")
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     samples = jax_dist(*params).sample(key=rng_key, sample_shape=(2, 3))
 
     def log_likelihood(*params):
@@ -1718,7 +1718,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     if isinstance(jax_dist, dist.IntervalCensoredDistribution):
         # IntervalCensoredDistribution takes interval (lo-hi) input but return univarite samples
@@ -1854,8 +1854,8 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     if d.event_dim > 0:
         pytest.skip("skip testing cdf/icdf methods of multivariate distributions")
-    samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
-    quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
+    samples = d.sample(key=random.key(0), sample_shape=(100,))
+    quantiles = random.uniform(random.key(1), (100,) + d.shape())
     try:
         rtol = (
             2e-3
@@ -1909,7 +1909,7 @@ def test_independent_shape(jax_dist, sp_dist, params):
     shape = batch_shape + event_shape
     for i in range(len(batch_shape)):
         indep = dist.Independent(d, reinterpreted_batch_ndims=i)
-        sample = indep.sample(random.PRNGKey(0))
+        sample = indep.sample(random.key(0))
         event_boundary = len(shape) - len(event_shape) - i
         assert indep.batch_shape == shape[:event_boundary]
         assert indep.event_shape == shape[event_boundary:]
@@ -1932,7 +1932,7 @@ def test_log_prob_LKJCholesky_uniform(dimension):
     N = 5
     corr_log_prob = []
     for i in range(N):
-        sample = d.sample(random.PRNGKey(i))
+        sample = d.sample(random.key(i))
         log_prob = d.log_prob(sample)
         sample_tril = matrix_to_tril_vec(sample, diagonal=-1)
         cholesky_to_corr_jac = np.linalg.slogdet(
@@ -1968,7 +1968,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     # to (1, 0)) and transform is a signed stick-breaking process.
     d = dist.LKJCholesky(dimension, concentration, sample_method="cvine")
 
-    beta_sample = d._beta.sample(random.PRNGKey(0))
+    beta_sample = d._beta.sample(random.key(0))
     beta_log_prob = jnp.sum(d._beta.log_prob(beta_sample))
     partial_correlation = 2 * beta_sample - 1
     affine_logdet = beta_sample.shape[-1] * jnp.log(2)
@@ -2007,7 +2007,7 @@ def test_ZIP_log_prob(rate):
     # if gate is 0 ZIP is Poisson
     zip_ = dist.ZeroInflatedPoisson(0.0, rate)
     pois = dist.Poisson(rate)
-    s = zip_.sample(random.PRNGKey(0), (20,))
+    s = zip_.sample(random.key(0), (20,))
     zip_prob = zip_.log_prob(s)
     pois_prob = pois.log_prob(s)
     assert_allclose(zip_prob, pois_prob, rtol=1e-6)
@@ -2069,7 +2069,7 @@ def test_dirichlet_multinomial_log_prob(total_count, batch_shape):
     )
 
     num_samples = 100000
-    probs = dist.Dirichlet(concentration).sample(random.PRNGKey(0), (num_samples, 1))
+    probs = dist.Dirichlet(concentration).sample(random.key(0), (num_samples, 1))
     log_probs = dist.Multinomial(total_count, probs).log_prob(value)
     expected = logsumexp(log_probs, 0) - jnp.log(num_samples)
 
@@ -2111,7 +2111,7 @@ def test_inverse_wishart_variance(conc):
     iw = dist.InverseWishart(conc, scale_matrix=scale)
 
     # Sample and compute empirical variance
-    key = random.PRNGKey(42)
+    key = random.key(42)
     num_samples = 200000
     samples = iw.sample(key, sample_shape=(num_samples,))
     empirical_var = jnp.var(samples, axis=0)
@@ -2139,7 +2139,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     ):
         pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     value = jax_dist(*params).sample(rng_key)
     if isinstance(jax_dist(*params), dist.IntervalCensoredDistribution):
         # IntervalCensoredDistribution takes interval (lo-hi) input but returns univarite samples
@@ -2255,7 +2255,7 @@ def test_mean_var(jax_dist, sp_dist, params):
         else 200000
     )
     d_jax = jax_dist(*params)
-    k = random.PRNGKey(0)
+    k = random.key(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
     # XXX: VonMises is already tested below
@@ -2422,7 +2422,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
-    key = random.PRNGKey(1)
+    key = random.key(1)
     dependent_constraint = False
     for i in range(len(params)):
         if (
@@ -2763,7 +2763,7 @@ def test_biject_to(constraint, shape):
         assert transform.codomain.upper_bound == constraint.upper_bound
     if len(shape) < event_dim:
         return
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     x = random.normal(rng_key, shape)
     y = transform(x)
 
@@ -2888,7 +2888,7 @@ def test_biject_to(constraint, shape):
 )
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     x = biject_to(transform.domain)(random.normal(rng_key, shape))
     y = transform(x)
 
@@ -2984,7 +2984,7 @@ def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape
     d = dist.TransformedDistribution(base_dist, [t1, t2, t1])
     assert d.event_dim == 2 + len(prepend_event_shape)
 
-    y = d.sample(random.PRNGKey(0), sample_shape)
+    y = d.sample(random.key(0), sample_shape)
     t = transforms.ComposeTransform([t1, t2, t1])
     x = t.inv(y)
     assert x.shape == sample_shape + base_dist.shape()
@@ -3014,9 +3014,7 @@ def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape
 )
 def test_transformed_distribution_intermediates(transformed_dist):
     transformed_dist = transformed_dist()
-    sample, intermediates = transformed_dist.sample_with_intermediates(
-        random.PRNGKey(1)
-    )
+    sample, intermediates = transformed_dist.sample_with_intermediates(random.key(1))
     assert_allclose(
         transformed_dist.log_prob(sample, intermediates),
         transformed_dist.log_prob(sample),
@@ -3034,7 +3032,7 @@ def test_transformed_transformed_distribution():
     assert isinstance(dist2.transforms[0], transforms.PowerTransform)
     assert isinstance(dist2.transforms[1], transforms.AffineTransform)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     assert_allclose(loc + scale * dist1.sample(rng_key), dist2.sample(rng_key))
     intermediates = dist2.sample_with_intermediates(rng_key)
     assert len(intermediates) == 2
@@ -3058,15 +3056,15 @@ def _make_iaf(input_dim, hidden_dims, rng_key):
             transforms.PowerTransform(3.0),
         ],
         lambda: [
-            _make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(0)),
+            _make_iaf(5, hidden_dims=[10], rng_key=random.key(0)),
             transforms.PermuteTransform(jnp.arange(5)[::-1]),
-            _make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(1)),
+            _make_iaf(5, hidden_dims=[10], rng_key=random.key(1)),
         ],
     ],
 )
 def test_compose_transform_with_intermediates(ts):
     transform = transforms.ComposeTransform(ts())
-    x = random.normal(random.PRNGKey(2), (7, 5))
+    x = random.normal(random.key(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
     logdet = transform.log_abs_det_jacobian(x, y, intermediates)
     assert_allclose(y, transform(x))
@@ -3096,7 +3094,7 @@ def test_generated_sample_distribution(jax_dist, sp_dist, params, N_sample=100_0
     agreement in the empirical distribution of generated samples between our
     samplers and those from SciPy.
     """
-    key = random.PRNGKey(11)
+    key = random.key(11)
 
     if jax_dist not in [dist.Gumbel]:
         pytest.skip(
@@ -3149,7 +3147,7 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     jax_dist = jax_dist(*params)
     new_batch_shape = prepend_shape + jax_dist.batch_shape
     expanded_dist = jax_dist.expand(new_batch_shape)
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     samples = expanded_dist.sample(rng_key, sample_shape)
     assert expanded_dist.batch_shape == new_batch_shape
     if isinstance(jax_dist, dist.IntervalCensoredDistribution):
@@ -3174,10 +3172,10 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
 def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
     expand_shape = (2, 3, 5)
     event_dim = min(event_dim, len(base_shape))
-    loc = random.normal(random.PRNGKey(0), base_shape) * 10
+    loc = random.normal(random.key(0), base_shape) * 10
     base_dist = dist.Normal(loc, 0.1).to_event(event_dim)
     expanded_dist = base_dist.expand(expand_shape[: len(expand_shape) - event_dim])
-    samples = expanded_dist.sample(random.PRNGKey(1), sample_shape)
+    samples = expanded_dist.sample(random.key(1), sample_shape)
     expected_mean = jnp.broadcast_to(loc, sample_shape[1:] + expanded_dist.shape())
     assert_allclose(samples.mean(0), expected_mean, atol=0.1)
 
@@ -3193,7 +3191,7 @@ def test_sine_bivariate_von_mises_batch_shape(batch_shape):
     sine = SineBivariateVonMises(phi_loc, psi_loc, phi_conc, psi_conc, corr)
     assert sine.batch_shape == batch_shape
 
-    samples = sine.sample(random.PRNGKey(0))
+    samples = sine.sample(random.key(0))
     assert samples.shape == (*batch_shape, 2)
 
 
@@ -3201,7 +3199,7 @@ def test_sine_bivariate_von_mises_sample_mean():
     loc = jnp.array([[2.0, -1.0], [-2, 1.0]])
 
     sine = SineBivariateVonMises(*loc, 5000, 5000, 0.0)
-    samples = sine.sample(random.PRNGKey(0), (5000,))
+    samples = sine.sample(random.key(0), (5000,))
 
     assert_allclose(_circ_mean(samples).T, loc, rtol=5e-3)
 
@@ -3209,7 +3207,7 @@ def test_sine_bivariate_von_mises_sample_mean():
 @pytest.mark.parametrize("batch_shape", [(), (4,)])
 def test_polya_gamma(batch_shape, num_points=20000):
     d = dist.TruncatedPolyaGamma(batch_shape=batch_shape)
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     # test density approximately normalized
     x = jnp.linspace(1.0e-6, d.truncation_point, num_points)
@@ -3260,10 +3258,10 @@ def test_mask(batch_shape, event_shape, mask_shape):
     jax_dist = (
         dist.Normal().expand(batch_shape + event_shape).to_event(len(event_shape))
     )
-    mask = dist.Bernoulli(0.5).sample(random.PRNGKey(0), mask_shape)
+    mask = dist.Bernoulli(0.5).sample(random.key(0), mask_shape)
     if mask_shape == ():
         mask = bool(mask)
-    samples = jax_dist.sample(random.PRNGKey(1))
+    samples = jax_dist.sample(random.key(1))
     actual = jax_dist.mask(mask).log_prob(samples)
     assert_allclose(
         actual != 0,
@@ -3314,8 +3312,8 @@ def test_dist_pytree(jax_dist, sp_dist, params):
                 actual_arg.shape == expected_arg.shape
                 and actual_arg.dtype == expected_arg.dtype
             )
-    expected_sample = expected_dist.sample(random.PRNGKey(0))
-    actual_sample = actual_dist.sample(random.PRNGKey(0))
+    expected_sample = expected_dist.sample(random.key(0))
+    actual_sample = actual_dist.sample(random.key(0))
     if isinstance(expected_dist, dist.IntervalCensoredDistribution):
         # interval censored distributions take interval (lo-hi) input but return univarite samples
         expected_sample = jnp.stack([expected_sample, expected_sample + 0.1], axis=-1)
@@ -3511,7 +3509,7 @@ def test_kl_univariate(shape, p_dist, q_dist):
     p = make_dist(p_dist)
     q = make_dist(q_dist)
     actual = kl_divergence(p, q)
-    x = p.sample(random.PRNGKey(0), (10000,)).copy()
+    x = p.sample(random.key(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
 
@@ -3540,7 +3538,7 @@ def test_kl_dirichlet_dirichlet(shape):
     p = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
     q = dist.Dirichlet(np.exp(np.random.normal(size=shape)))
     actual = kl_divergence(p, q)
-    x = p.sample(random.PRNGKey(0), (10_000,)).copy()
+    x = p.sample(random.key(0), (10_000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
 
@@ -3552,7 +3550,7 @@ def test_vmapped_binomial_p0():
         _, key = random.split(key)
         return dist.Binomial(total_count=n, probs=0).sample(key)
 
-    jax.vmap(sample_binomial_withp0)(random.split(random.PRNGKey(0), 1))
+    jax.vmap(sample_binomial_withp0)(random.split(random.key(0), 1))
 
 
 def _get_vmappable_dist_init_params(jax_dist):
@@ -3627,7 +3625,7 @@ def test_vmap_dist(jax_dist, sp_dist, params):
         return jax_dist(*params)
 
     def sample(d: dist.Distribution):
-        return d.sample(random.PRNGKey(0))
+        return d.sample(random.key(0))
 
     d = make_jax_dist(*params)
 
@@ -3746,7 +3744,7 @@ def test_get_args():
 
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
-    key = random.PRNGKey(0)
+    key = random.key(0)
 
     def f(x):
         total_count = x.sum(-1)
@@ -3761,7 +3759,7 @@ def test_multinomial_abstract_total_count():
 
 def test_dirichlet_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
-    key = random.PRNGKey(0)
+    key = random.key(0)
 
     def f(x):
         total_count = x.sum(-1)
@@ -3815,13 +3813,13 @@ def test_sample_truncated_normal_in_tail():
     # test, if samples from distributions truncated in
     # tail of distribution returns any inf's
     tail_dist = dist.TruncatedNormal(loc=0, scale=1, low=-16, high=-15)
-    samples = tail_dist.sample(random.PRNGKey(0), sample_shape=(10_000,))
+    samples = tail_dist.sample(random.key(0), sample_shape=(10_000,))
     assert ~jnp.isinf(samples).any()
 
 
 @jax.enable_custom_prng()
 def test_jax_custom_prng():
-    samples = dist.Normal(0, 5).sample(random.PRNGKey(0), sample_shape=(1000,))
+    samples = dist.Normal(0, 5).sample(random.key(0), sample_shape=(1000,))
     assert ~jnp.isinf(samples).any()
 
 
@@ -3880,8 +3878,8 @@ def test_gaussian_random_walk_linear_recursive_equivalence():
         dist.Normal(0, 3.7).expand([15, 1]).to_event(2),
         dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
     )
-    x1 = dist1.sample(random.PRNGKey(7))
-    x2 = dist2.sample(random.PRNGKey(7))
+    x1 = dist1.sample(random.key(7))
+    x2 = dist2.sample(random.key(7))
     assert jnp.allclose(x1, x2.squeeze())
     assert jnp.allclose(dist1.log_prob(x1), dist2.log_prob(x2))
 
@@ -4523,7 +4521,7 @@ def test_censored_gradient(left_censored, right_censored):
 @param_left_censored
 @param_right_censored
 def test_censored_sample_validity(left_censored, right_censored):
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     sample_shape = (1000,)
 
     base_dist = dist.Normal(0.0, 1.0)
@@ -4550,7 +4548,7 @@ def test_censored_sample_validity(left_censored, right_censored):
 
 def test_censored_sample_shape():
     # Check sample shapes also when broadcasting
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     censored = jnp.array([0.0, 1.0]).reshape((1, 2))
     base_dist = dist.Normal(jnp.zeros((3, 1)))
     sample_shape = (10, 4)

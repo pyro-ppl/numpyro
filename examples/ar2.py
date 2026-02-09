@@ -105,7 +105,7 @@ def run_inference(model, args, rng_key, y):
 def main(args):
     # generate artificial dataset
     num_data = args.num_data
-    rng_key = jax.random.PRNGKey(0)
+    rng_key = jax.random.key(0)
     t = jnp.arange(0, num_data)
     y = jnp.sin(t) + random.normal(rng_key, (num_data,)) * 0.1
 

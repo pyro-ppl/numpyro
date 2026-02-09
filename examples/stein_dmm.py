@@ -292,7 +292,7 @@ def vis_tune(i, tunes, lengths, name="stein_dmm.pdf"):
 
 
 def main(args):
-    inf_key, pred_key = random.split(random.PRNGKey(seed=args.rng_seed), 2)
+    inf_key, pred_key = random.split(random.key(seed=args.rng_seed), 2)
 
     steinvi = SteinVI(
         model,

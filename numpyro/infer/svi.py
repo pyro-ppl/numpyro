@@ -101,18 +101,18 @@ class SVI(object):
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
         >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
         >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-        >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
+        >>> svi_result = svi.run(random.key(0), 2000, data)
         >>> params = svi_result.params
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
         >>> # use guide to make predictive
         >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(1), data=None)
+        >>> samples = predictive(random.key(1), data=None)
         >>> # get posterior samples
         >>> predictive = Predictive(guide, params=params, num_samples=1000)
-        >>> posterior_samples = predictive(random.PRNGKey(1), data=None)
+        >>> posterior_samples = predictive(random.key(1), data=None)
         >>> # use posterior samples to make predictive
         >>> predictive = Predictive(model, posterior_samples, params=params, num_samples=1000)
-        >>> samples = predictive(random.PRNGKey(1), data=None)
+        >>> samples = predictive(random.key(1), data=None)
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -167,7 +167,7 @@ class SVI(object):
         """
         Gets the initial SVI state.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
@@ -345,7 +345,7 @@ class SVI(object):
             flexible methods :meth:`init`, :meth:`update`, :meth:`evaluate` to
             customize your training procedure.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param int num_steps: the number of optimization steps.
         :param args: arguments to the model / guide
         :param bool progress_bar: Whether to enable progress bar updates. Defaults to
@@ -363,10 +363,10 @@ class SVI(object):
             final state of previous SVI run. Usage::
 
                 svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-                svi_result = svi.run(random.PRNGKey(0), 2000, data)
+                svi_result = svi.run(random.key(0), 2000, data)
                 # upon inspection of svi_result the user decides that the model has not converged
                 # continue from the end of the previous svi run rather than beginning again from iteration 0
-                svi_result = svi.run(random.PRNGKey(1), 2000, data, init_state=svi_result.state)
+                svi_result = svi.run(random.key(1), 2000, data, init_state=svi_result.state)
 
         :param dict init_params: if not None, initialize :class:`numpyro.param` sites with values from
             this dictionary instead of using ``init_value`` in :class:`numpyro.param` primitives.

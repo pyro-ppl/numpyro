@@ -335,7 +335,7 @@ def find_reasonable_step_size(
     :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
     :param IntegratorState z_info: The current integrator state.
-    :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
+    :param jax.random.key rng_key: Random key to be used as the source of randomness.
     :return: a reasonable value for step size.
     :rtype: float
     """
@@ -554,7 +554,7 @@ def warmup_adapter(
     ):
         """
         :param IntegratorState z_info: The initial integrator state.
-        :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
+        :param jax.random.key rng_key: Random key to be used as the source of randomness.
         :param float step_size: Initial step size.
         :param inverse_mass_matrix: Inverse of the initial mass matrix. If ``None``,
             inverse of mass matrix will be an identity matrix with size is decided
@@ -1111,7 +1111,7 @@ def build_tree(
     :param verlet_state: Initial integrator state.
     :param inverse_mass_matrix: Inverse of the mass matrix.
     :param float step_size: Step size for the current trajectory.
-    :param jax.random.PRNGKey rng_key: random key to be used as the source of
+    :param jax.random.key rng_key: random key to be used as the source of
         randomness.
     :param float max_delta_energy: A threshold to decide if the new state diverges
         (based on the energy difference) too much from the initial integrator state.
@@ -1237,7 +1237,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
     :param int num_draws: number of draws from the merged posterior.
     :param bool diagonal: whether to compute weights using variance or covariance, defaults to
         `False` (using covariance).
-    :param jax.random.PRNGKey rng_key: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :param jax.random.key rng_key: source of the randomness, defaults to `jax.random.key(0)`.
     :return: if `num_draws` is None, merges subposteriors without resampling; otherwise, returns
         a collection of `num_draws` samples with the same data structure as each subposterior.
     """
@@ -1249,7 +1249,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
     )
 
     if num_draws is not None:
-        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
+        rng_key = random.key(0) if rng_key is None else rng_key
         # randomly gets num_draws from subposteriors
         n_subs = len(subposteriors)
         n_samples = jax.tree.flatten(subposteriors[0])[0][0].shape[0]
@@ -1334,10 +1334,10 @@ def parametric_draws(subposteriors, num_draws, diagonal=False, rng_key=None):
     :param int num_draws: number of draws from the merged posterior.
     :param bool diagonal: whether to compute weights using variance or covariance, defaults to
         `False` (using covariance).
-    :param jax.random.PRNGKey rng_key: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :param jax.random.key rng_key: source of the randomness, defaults to `jax.random.key(0)`.
     :return: a collection of `num_draws` samples with the same data structure as each subposterior.
     """
-    rng_key = random.PRNGKey(0) if rng_key is None else rng_key
+    rng_key = random.key(0) if rng_key is None else rng_key
     if diagonal:
         mean, var = parametric(subposteriors, diagonal=True)
         samples_flat = dist.Normal(mean, jnp.sqrt(var)).sample(rng_key, (num_draws,))

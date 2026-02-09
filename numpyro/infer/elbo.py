@@ -104,7 +104,7 @@ class ELBO:
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.
@@ -132,7 +132,7 @@ class ELBO:
         Like :meth:`loss` but also update and return the mutable state, which stores the
         values at :func:`~numpyro.mutable` sites.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.
@@ -835,7 +835,7 @@ class TraceGraph_ELBO(ELBO):
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.

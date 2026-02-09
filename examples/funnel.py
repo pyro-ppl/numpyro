@@ -64,7 +64,7 @@ def run_inference(model, args, rng_key):
 
 
 def main(args):
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     # do inference with centered parameterization
     print(
@@ -84,7 +84,7 @@ def main(args):
     # collect deterministic sites
     reparam_samples = Predictive(
         reparam_model, reparam_samples, return_sites=["x", "y"]
-    )(random.PRNGKey(1))
+    )(random.key(1))
 
     # make plots
     fig, (ax1, ax2) = plt.subplots(

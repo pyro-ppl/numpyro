@@ -553,7 +553,7 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=(not is_sphinxbuild),
     )
-    mcmc.run(jax.random.PRNGKey(0), **data_dict)
+    mcmc.run(jax.random.key(0), **data_dict)
     if not is_sphinxbuild:
         mcmc.print_summary()
 

@@ -42,7 +42,7 @@ from numpyro.ops.indexing import Vindex
 def main(args):
     num_obs = args.num_obs
     num_steps = args.num_steps
-    prior, CPDs, data = handlers.seed(generate_data, random.PRNGKey(0))(num_obs)
+    prior, CPDs, data = handlers.seed(generate_data, random.key(0))(num_obs)
     posterior_params = train(prior, data, num_steps, num_obs)
     evaluate(CPDs, posterior_params)
 
@@ -93,7 +93,7 @@ def guide(prior, obs, num_obs):
 def train(prior, data, num_steps, num_obs):
     elbo = TraceEnum_ELBO()
     svi = SVI(model, guide, optax.adam(learning_rate=0.01), loss=elbo)
-    svi_result = svi.run(random.PRNGKey(0), num_steps, prior, data, num_obs)
+    svi_result = svi.run(random.key(0), num_steps, prior, data, num_obs)
     plt.figure()
     plt.plot(svi_result.losses)
     plt.show()
