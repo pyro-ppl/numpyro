@@ -203,7 +203,7 @@ class EnsembleSampler(MCMCKernel, ABC):
             active, inactive = jax.lax.cond(
                 i == 0,
                 lambda x: (x[:split_ind], x[split_ind:]),
-                lambda x: (x[split_ind:], x[split_ind:]),
+                lambda x: (x[split_ind:], x[:split_ind]),
                 z_flat,
             )
 
