@@ -837,7 +837,7 @@ def test_prng_key():
     with handlers.seed(rng_seed=0):
         rng_key = numpyro.prng_key()
 
-    assert rng_key.shape == (2,) and rng_key.dtype == "uint32"
+    assert rng_key.shape == () and rng_key.dtype.name == "key<fry>"
 
 
 def test_prng_key_with_vmap():
