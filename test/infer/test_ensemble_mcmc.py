@@ -142,7 +142,8 @@ def test_ensemble_sampler_uses_complementary_halves():
 
     sampler = ToyEnsembleSampler()
     state = EnsembleSamplerState(
-        z=jnp.array([[0.0], [1.0], [10.0], [11.0]]),
+        # First sub-iteration uses second-half inactive chains [10, 11].
+        z=jnp.array([[0.0], [0.0], [10.0], [11.0]]),
         inner_state=jnp.array(0),
         rng_key=random.PRNGKey(0),
     )
