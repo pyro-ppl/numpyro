@@ -1,3 +1,100 @@
+[project]
+name = "numpyro"
+authors = [{ name = "Uber AI Labs", email = "fehiepsi@gmail.com" }]
+dynamic = ["version"]
+description = "Probabilistic programming with NumPy powered by JAX for autograd and JIT compilation to GPU/TPU/CPU."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+keywords = ["probabilistic", "machine learning", "bayesian", "statistics"]
+dependencies = [
+    "jax>=0.7.0",
+    "jaxlib>=0.7.0",
+    "multipledispatch",
+    "numpy",
+    "tqdm",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "numpyro.version.__version__" }
+
+[project.optional-dependencies]
+cpu = ["jax[cpu]>=0.7.0"]
+cuda12 = ["jax[cuda12]>=0.7.0"]
+cuda13 = ["jax[cuda13]>=0.7.0"]
+tpu = ["jax[tpu]>=0.7.0"]
+dev = [
+    "dm-haiku>=0.0.14",
+    "equinox",
+    "flax",
+    "funsor>=0.4.1",
+    "graphviz",
+    "jaxns>=2.6.3,<=2.6.9",
+    "matplotlib",
+    "optax>=0.0.6",
+    "pylab-sdk",            # jaxns dependency
+    "pytest-cov",
+    "pyyaml",               # flax dependency
+    "requests",             # pylab dependency
+    "tfp-nightly",
+]
+test = [
+    "importlib-metadata<5.0",
+    "mypy>=1.13",
+    "pyro-api>=0.1.1",
+    "pytest>=4.1",
+    "ruff>=0.1.8",
+    "scikit-learn",
+    "scipy>=1.9",
+    "ty>=0.0.4",
+]
+doc = [
+    "ipython",                          # sphinx needs this to render codes
+    "nbsphinx>=0.8.9",
+    "readthedocs-sphinx-search>=0.3.2",
+    "sphinx_rtd_theme",
+    "sphinx-gallery",
+    "sphinx>=5",
+]
+examples = [
+    "arviz",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "scikit-learn",
+    "seaborn",
+    "wordcloud",
+]
+
+[project.urls]
+Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
+Discussion = "https://github.com/pyro-ppl/numpyro/discussions"
+Homepage = "https://github.com/pyro-ppl/numpyro"
+Issues = "https://github.com/pyro-ppl/numpyro/issues"
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# NOTE: this can be simplified using src-layout
+[tool.setuptools.packages.find]
+include = ["numpyro*"]
+
+[tool.setuptools]
+include-package-data = true
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
