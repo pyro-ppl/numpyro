@@ -663,10 +663,8 @@ class HMCECS(HMCGibbs):
         z_gibbs, gibbs_state, pe, z_grad = cond(
             transition,
             (z_gibbs_new, gibbs_state_new, pe_new),
-            lambda vals: (
-                vals
-                + (grad_(partial(potential_fn, vals[0], vals[1]))(state.hmc_state.z),)
-            ),
+            lambda vals: vals
+            + (grad_(partial(potential_fn, vals[0], vals[1]))(state.hmc_state.z),),
             (z_gibbs, state.gibbs_state, pe, state.hmc_state.z_grad),
             identity,
         )

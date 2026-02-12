@@ -334,18 +334,14 @@ class SteinVI:
 
         # Compute non-mixture parameter gradients.
         nonmix_uparam_grads = grad(
-            lambda cps: (
-                -self.stein_loss.loss(
-                    classic_key,
-                    self.constrain_fn(cps),
-                    model,
-                    self.guide,
-                    unravel_pytree_batched(
-                        vmap(particle_transform_fn)(stein_particles)
-                    ),
-                    *args,
-                    **kwargs,
-                )
+            lambda cps: -self.stein_loss.loss(
+                classic_key,
+                self.constrain_fn(cps),
+                model,
+                self.guide,
+                unravel_pytree_batched(vmap(particle_transform_fn)(stein_particles)),
+                *args,
+                **kwargs,
             )
         )(nonmix_uparams)
 

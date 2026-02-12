@@ -759,26 +759,21 @@ def test_tracegraph_gaussian_chain(num_latents, num_steps, step_size, atol, diff
         for k in reversed(range(1, N + 1)):
             loc_q = numpyro.param(
                 f"loc_q_{k}",
-                lambda key: (
-                    target_mus[k] + difficulty * (0.1 * random.normal(key) - 0.53)
-                ),
+                lambda key: target_mus[k]
+                + difficulty * (0.1 * random.normal(key) - 0.53),
             )
             log_sig_q = numpyro.param(
                 f"log_sig_q_{k}",
-                lambda key: (
-                    -0.5 * jnp.log(lambda_posts[k])
-                    + difficulty * (0.1 * random.normal(key) - 0.53)
-                ),
+                lambda key: -0.5 * jnp.log(lambda_posts[k])
+                + difficulty * (0.1 * random.normal(key) - 0.53),
             )
             sig_q = jnp.exp(log_sig_q)
             kappa_q = None
             if k != N:
                 kappa_q = numpyro.param(
                     "kappa_q_%d" % k,
-                    lambda key: (
-                        target_kappas[k]
-                        + difficulty * (0.1 * random.normal(key) - 0.53)
-                    ),
+                    lambda key: target_kappas[k]
+                    + difficulty * (0.1 * random.normal(key) - 0.53),
                 )
             mean_function = loc_q if k == N else kappa_q * previous_sample + loc_q
             node_flagged = True if which_nodes_reparam[k - 1] == 1.0 else False

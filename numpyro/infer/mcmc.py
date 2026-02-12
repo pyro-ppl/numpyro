@@ -472,11 +472,9 @@ class MCMC(object):
             init_state = new_init_state if init_state is None else init_state
         sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = (  # noqa: E731
-            lambda x: (
-                self.sampler.get_diagnostics_str(x[0])
-                if is_prng_key(rng_key) or self.sampler.is_ensemble_kernel
-                else ""
-            )
+            lambda x: self.sampler.get_diagnostics_str(x[0])
+            if is_prng_key(rng_key) or self.sampler.is_ensemble_kernel
+            else ""
         )
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]

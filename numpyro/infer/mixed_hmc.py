@@ -147,9 +147,8 @@ class MixedHMC(DiscreteHMCGibbs):
             z_discrete, pe, ke_discrete_i, z_grad = lax.cond(
                 ke_discrete_i_new > 0,
                 (z_discrete_new, pe_new, ke_discrete_i_new),
-                lambda vals: (
-                    vals + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),)
-                ),
+                lambda vals: vals
+                + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),),
                 (
                     z_discrete,
                     hmc_state.potential_energy,
