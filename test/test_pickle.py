@@ -245,3 +245,9 @@ def test_beta_bernoulli():
     pickled_params = svi_result.params
 
     jax.tree.all(jax.tree.map(assert_allclose, params, pickled_params))
+
+
+def test_pickle_PRNG_key():
+    key = random.key(0)
+    pickled_key = pickle.loads(pickle.dumps(key))
+    assert jnp.array_equal(key, pickled_key)
