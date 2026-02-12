@@ -10,6 +10,8 @@ import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import AIES, ESS, MCMC
+from numpyro.infer.ensemble import EnsembleSampler, EnsembleSamplerState
+from numpyro.infer.initialization import init_to_uniform
 
 numpyro.set_host_device_count(2)
 # ---
@@ -119,3 +121,33 @@ def test_warmup(kernel_cls):
     labels = labels_maker()
     mcmc.warmup(random.PRNGKey(2), labels)
     mcmc.run(random.PRNGKey(3), labels)
+
+
+def test_ensemble_sampler_uses_complementary_halves():
+    class ToyEnsembleSampler(EnsembleSampler):
+        def __init__(self):
+            super().__init__(
+                potential_fn=lambda z: jnp.array(0.0),
+                randomize_split=False,
+                init_strategy=init_to_uniform,
+            )
+            self._num_chains = 4
+
+        def init_inner_state(self, rng_key):
+            return jnp.array(0)
+
+        def update_active_chains(self, active, inactive, inner_state):
+            # Encode which half was used as inactive in each sub-iteration.
+            return inactive + 1.0, inner_state
+
+    sampler = ToyEnsembleSampler()
+    state = EnsembleSamplerState(
+        # First sub-iteration uses second-half inactive chains [10, 11].
+        z=jnp.array([[0.0], [0.0], [10.0], [11.0]]),
+        inner_state=jnp.array(0),
+        rng_key=random.PRNGKey(0),
+    )
+
+    new_state = sampler.sample(state, model_args=(), model_kwargs={})
+    expected = jnp.array([[11.0], [12.0], [12.0], [13.0]])
+    assert jnp.allclose(new_state.z, expected)
