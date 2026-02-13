@@ -65,7 +65,7 @@ def bernoulli_model():
 
 
 def logistic_regression():
-    data = random.choice(random.key(0), jnp.array([0, 1]), (10,))
+    data = random.choice(random.PRNGKey(0), jnp.array([0, 1]), (10,))
     x = numpyro.sample("x", dist.Normal(0, 1))
     with numpyro.plate("N", 10, subsample_size=2):
         batch = numpyro.subsample(data, 0)
@@ -88,7 +88,7 @@ def gmm(data, K):
 @pytest.mark.parametrize("kernel", [BarkerMH, HMC, NUTS, SA])
 def test_pickle_hmc(kernel):
     mcmc = MCMC(kernel(normal_model), num_warmup=10, num_samples=10)
-    mcmc.run(random.key(0))
+    mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     jax.tree.all(
         jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
@@ -102,13 +102,13 @@ def test_pickle_hmc_enumeration(kernel):
     true_cluster_means = jnp.array([1.0, 5.0, 10.0])
     true_mix_proportions = jnp.array([0.1, 0.3, 0.6])
     cluster_assignments = dist.Categorical(true_mix_proportions).sample(
-        random.key(0), (N,)
+        random.PRNGKey(0), (N,)
     )
     data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(
-        random.key(1)
+        random.PRNGKey(1)
     )
     mcmc = MCMC(kernel(gmm), num_warmup=10, num_samples=10)
-    mcmc.run(random.key(0), data, K)
+    mcmc.run(random.PRNGKey(0), data, K)
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     jax.tree.all(
         jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
@@ -118,7 +118,7 @@ def test_pickle_hmc_enumeration(kernel):
 @pytest.mark.parametrize("kernel", [DiscreteHMCGibbs, MixedHMC])
 def test_pickle_discrete_hmc(kernel):
     mcmc = MCMC(kernel(HMC(bernoulli_model)), num_warmup=10, num_samples=10)
-    mcmc.run(random.key(0))
+    mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     jax.tree.all(
         jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
@@ -127,7 +127,7 @@ def test_pickle_discrete_hmc(kernel):
 
 def test_pickle_hmcecs():
     mcmc = MCMC(HMCECS(NUTS(logistic_regression)), num_warmup=10, num_samples=10)
-    mcmc.run(random.key(0))
+    mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     jax.tree.all(
         jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
@@ -141,6 +141,10 @@ def poisson_regression(x, N):
         numpyro.sample("x", dist.Poisson(rate), obs=x)
 
 
+@pytest.mark.xfail(
+    reason="Issue reported at https://github.com/jax-ml/jax/issues/35065."
+    "TypeError: cannot pickle 'PRNGKeyArray' object"
+)
 @pytest.mark.parametrize("guide_class", [AutoDelta, AutoDiagonalNormal, AutoNormal])
 def test_pickle_autoguide(guide_class):
     x = np.random.poisson(1.0, size=(100,))
@@ -148,7 +152,7 @@ def test_pickle_autoguide(guide_class):
     guide = guide_class(poisson_regression)
     optim = numpyro.optim.Adam(1e-2)
     svi = SVI(poisson_regression, guide, optim, numpyro.infer.Trace_ELBO())
-    svi_result = svi.run(random.key(1), 3, x, len(x))
+    svi_result = svi.run(random.PRNGKey(1), 3, x, len(x))
     pickled_guide = pickle.loads(pickle.dumps(guide))
 
     predictive = Predictive(
@@ -158,7 +162,7 @@ def test_pickle_autoguide(guide_class):
         num_samples=1,
         return_sites=["param", "x"],
     )
-    samples = predictive(random.key(1), None, 1)
+    samples = predictive(random.PRNGKey(1), None, 1)
     assert set(samples.keys()) == {"param", "x"}
 
 
@@ -214,10 +218,10 @@ def test_pickle_singleton_constraint():
 
 def test_mcmc_pickle_post_warmup():
     mcmc = MCMC(NUTS(normal_model), num_warmup=10, num_samples=10)
-    mcmc.run(random.key(0))
+    mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
     pickled_mcmc.post_warmup_state = pickled_mcmc.last_state
-    pickled_mcmc.run(random.key(1))
+    pickled_mcmc.run(random.PRNGKey(1))
 
 
 def bernoulli_regression(data):
@@ -237,16 +241,26 @@ def test_beta_bernoulli():
     pickled_model = pickle.loads(pickle.dumps(config_kl(bernoulli_regression)))
     optim = numpyro.optim.Adam(1e-2)
     svi = SVI(config_kl(bernoulli_regression), guide, optim, TraceEnum_ELBO())
-    svi_result = svi.run(random.key(0), 3, data)
+    svi_result = svi.run(random.PRNGKey(0), 3, data)
     params = svi_result.params
 
     svi = SVI(pickled_model, guide, optim, TraceEnum_ELBO())
-    svi_result = svi.run(random.key(0), 3, data)
+    svi_result = svi.run(random.PRNGKey(0), 3, data)
     pickled_params = svi_result.params
 
     jax.tree.all(jax.tree.map(assert_allclose, params, pickled_params))
 
 
+def test_pickle_legacy_PRNGKey():
+    key = random.PRNGKey(0)
+    pickled_key = pickle.loads(pickle.dumps(key))
+    assert jnp.array_equal(key, pickled_key)
+
+
+@pytest.mark.xfail(
+    reason="Issue reported at https://github.com/jax-ml/jax/issues/35065."
+    "TypeError: cannot pickle 'PRNGKeyArray' object"
+)
 def test_pickle_PRNG_key():
     key = random.key(0)
     pickled_key = pickle.loads(pickle.dumps(key))
