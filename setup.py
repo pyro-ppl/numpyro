@@ -89,7 +89,7 @@ setup(
         "cuda12": f"jax[cuda12]{_jax_version_constraints}",
         "cuda13": f"jax[cuda13]{_jax_version_constraints}",
     },
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords="probabilistic machine learning bayesian statistics",
