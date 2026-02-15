@@ -68,6 +68,10 @@ log_likelihood
 --------------
 .. autofunction:: numpyro.infer.util.log_likelihood
 
+psis_diagnostic
+---------------
+.. autofunction:: numpyro.infer.importance.psis_diagnostic
+
 find_valid_initial_params
 -------------------------
 .. autofunction:: numpyro.infer.util.find_valid_initial_params
