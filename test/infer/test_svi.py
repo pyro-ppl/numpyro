@@ -43,11 +43,11 @@ def test_renyi_elbo(alpha):
         pass
 
     def elbo_loss_fn(x):
-        return Trace_ELBO().loss(random.PRNGKey(0), {}, model, guide, x)
+        return Trace_ELBO().loss(random.key(0), {}, model, guide, x)
 
     def renyi_loss_fn(x):
         return RenyiELBO(alpha=alpha, num_particles=10).loss(
-            random.PRNGKey(0), {}, model, guide, x
+            random.key(0), {}, model, guide, x
         )
 
     elbo_loss, elbo_grad = value_and_grad(elbo_loss_fn)(2.0)
@@ -68,7 +68,7 @@ def test_renyi_local():
 
     def renyi_loss_fn(subsample_size=None):
         return RenyiELBO(num_particles=10).loss(
-            random.PRNGKey(0), {}, model, guide, subsample_size
+            random.key(0), {}, model, guide, subsample_size
         )
 
     # Test that the scales are applied correctly.
@@ -95,7 +95,7 @@ def test_renyi_nonnested_plates():
             {},
             (),
             {},
-            random.PRNGKey(0),
+            random.key(0),
         )
 
     elbo, _ = get_elbo()
@@ -133,13 +133,13 @@ def test_renyi_create_plates(n, k):
             {},
             (data,),
             dict(n=n, k=k, fix_indices=fix_indices),
-            random.PRNGKey(0),
+            random.key(0),
         )
 
     def get_renyi(n=N, k=K, fix_indices=True):
         renyi_elbo = RenyiELBO(num_particles=P)
         return -renyi_elbo.loss(
-            random.PRNGKey(0), {}, model, guide, data, n=n, k=k, fix_indices=fix_indices
+            random.key(0), {}, model, guide, data, n=n, k=k, fix_indices=fix_indices
         )
 
     elbo, scale = get_elbo(n=n, k=k)
@@ -195,10 +195,10 @@ def test_vectorized_particle(vectorize_particles):
         guide,
         optim.Adam(0.1),
         Trace_ELBO(vectorize_particles=vectorize_particles),
-    ).run(random.PRNGKey(0), 100, data)
+    ).run(random.key(0), 100, data)
     map_results = SVI(
         model, guide, optim.Adam(0.1), Trace_ELBO(vectorize_particles=False)
-    ).run(random.PRNGKey(0), 100, data)
+    ).run(random.key(0), 100, data)
     assert_allclose(results.losses, map_results.losses, atol=1e-5)
 
 
@@ -218,7 +218,7 @@ def test_beta_bernoulli(elbo, optimizer):
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optimizer, elbo)
-    svi_state = svi.init(random.PRNGKey(1), data)
+    svi_state = svi.init(random.key(1), data)
     assert_allclose(svi.optim.get_params(svi_state.optim_state)["alpha_q"], 0.0)
 
     def body_fn(i, val):
@@ -271,7 +271,7 @@ def test_run(vectorize_particles, progress_bar):
         optim.Adam(0.05),
         Trace_ELBO(vectorize_particles=vectorize_particles),
     )
-    svi_result = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    svi_result = svi.run(random.key(1), 1000, data, progress_bar=progress_bar)
     params, losses = svi_result.params, svi_result.losses
     assert losses.shape == (1000,)
     assert_allclose(
@@ -297,7 +297,7 @@ def test_jitted_update_fn():
 
     adam = optim.Adam(0.05)
     svi = SVI(model, guide, adam, Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(1), data)
+    svi_state = svi.init(random.key(1), data)
 
     expected = svi.get_params(svi.update(svi_state, data)[0])
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
@@ -308,7 +308,7 @@ def test_jitted_update_fn():
 def test_param():
     # this test the validity of model/guide sites having
     # param constraints contain composed transformed
-    rng_keys = random.split(random.PRNGKey(0), 5)
+    rng_keys = random.split(random.key(0), 5)
     a_minval = 1
     c_minval = -2
     c_maxval = -1
@@ -332,7 +332,7 @@ def test_param():
 
     adam = optim.Adam(0.01)
     svi = SVI(model, guide, adam, Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
 
     params = svi.get_params(svi_state)
     assert_allclose(params["a"], a_init)
@@ -361,7 +361,7 @@ def test_shared_param_init():
         numpyro.param("shared", lambda _: shared_init)
 
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     params = svi.get_params(svi_state)
     # make sure the correct init ended up in the SVI state
     assert_allclose(params["shared"], shared_init)
@@ -379,7 +379,7 @@ def test_shared_param():
         numpyro.param("shared", 1.0)
 
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 1000)
+    svi_result = svi.run(random.key(0), 1000)
     assert_allclose(svi_result.params["shared"], target_value, atol=0.1)
 
 
@@ -396,7 +396,7 @@ def test_init_params():
         numpyro.param("c")
 
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0), init_params=init_params)
+    svi_state = svi.init(random.key(0), init_params=init_params)
     params = svi.get_params(svi_state)
     init_params["a"] = 0.0
     # make sure init params ended up in the SVI state
@@ -420,7 +420,7 @@ def test_elbo_dynamic_support():
     x = 2.0
     guide = substitute(guide, data={"x": x})
     svi = SVI(model, guide, adam, Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     actual_loss = svi.evaluate(svi_state)
     assert jnp.isfinite(actual_loss)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)
@@ -436,7 +436,7 @@ def test_run_with_small_num_steps(num_steps):
         pass
 
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
-    svi.run(random.PRNGKey(0), num_steps)
+    svi.run(random.key(0), num_steps)
 
 
 @pytest.mark.parametrize("stable_run", [True, False])
@@ -450,7 +450,7 @@ def test_stable_run(stable_run):
         numpyro.sample("var", dist.Normal(loc, 10))
 
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_run)
+    svi_result = svi.run(random.key(0), 1000, stable_update=stable_run)
     assert jnp.isfinite(svi_result.params["loc"]) == stable_run
 
 
@@ -473,7 +473,7 @@ def test_svi_discrete_latent():
         s_name = type(elbo).__name__
         w_msg = f"Currently, SVI with {s_name} loss does not support models with discrete latent variables"
         with pytest.warns(UserWarning, match=w_msg):
-            svi.run(random.PRNGKey(0), 10)
+            svi.run(random.key(0), 10)
 
 
 @pytest.mark.parametrize("loss_cls", [Trace_ELBO, TraceMeanField_ELBO])
@@ -534,9 +534,9 @@ def test_mutable_state(stable_update, num_particles, elbo):
     svi = SVI(model, guide, optim.Adam(0.1), elbo(num_particles=num_particles))
     if num_particles > 1:
         with pytest.warns(UserWarning, match="mutable state"):
-            svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
+            svi_result = svi.run(random.key(0), 1000, stable_update=stable_update)
         return
-    svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
+    svi_result = svi.run(random.key(0), 1000, stable_update=stable_update)
     params = svi_result.params
     mutable_state = svi_result.state.mutable_state
     assert set(mutable_state) == {"x1p", "loc1p"}
@@ -591,7 +591,7 @@ def test_tracegraph_normal_normal():
 
     adam = optim.Adam(step_size=0.0015, b1=0.97, b2=0.999)
     svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
-    svi_result = svi.run(jax.random.PRNGKey(0), 5000)
+    svi_result = svi.run(jax.random.key(0), 5000)
 
     loc_error = jnp.sum(jnp.power(analytic_loc_n - svi_result.params["loc_q"], 2.0))
     log_sig_error = jnp.sum(
@@ -635,7 +635,7 @@ def test_tracegraph_beta_bernoulli():
 
     adam = optim.Adam(step_size=0.0007, b1=0.95, b2=0.999)
     svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
-    svi_result = svi.run(jax.random.PRNGKey(0), 3000)
+    svi_result = svi.run(jax.random.key(0), 3000)
 
     alpha_error = jnp.sum(
         jnp.power(log_alpha_n - svi_result.params["alpha_q_log"], 2.0)
@@ -678,7 +678,7 @@ def test_tracegraph_gamma_exponential():
 
     adam = optim.Adam(step_size=0.0007, b1=0.95, b2=0.999)
     svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
-    svi_result = svi.run(jax.random.PRNGKey(0), 8000)
+    svi_result = svi.run(jax.random.key(0), 8000)
 
     alpha_error = jnp.sum(
         jnp.power(log_alpha_n - svi_result.params["alpha_q_log"], 2.0)
@@ -789,7 +789,7 @@ def test_tracegraph_gaussian_chain(num_latents, num_steps, step_size, atol, diff
 
     adam = optim.Adam(step_size=step_size, b1=0.95, b2=0.999)
     svi = SVI(model, guide, adam, loss=TraceGraph_ELBO())
-    svi_result = svi.run(jax.random.PRNGKey(0), num_steps, difficulty=difficulty)
+    svi_result = svi.run(jax.random.key(0), num_steps, difficulty=difficulty)
 
     kappa_errors, log_sig_errors, loc_errors = [], [], []
     for k in range(1, N + 1):
@@ -828,7 +828,7 @@ def test_multi_sample_guide():
         numpyro.sample("x", dist.Normal(loc, scale).expand([10]))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(multi_sample_guide=True))
-    svi_results = svi.run(random.PRNGKey(0), 2000)
+    svi_results = svi.run(random.key(0), 2000)
     params = svi_results.params
     assert_allclose(params["loc"], actual_loc, rtol=0.1)
     assert_allclose(params["scale"], actual_scale, rtol=0.1)
@@ -848,4 +848,4 @@ def test_forward_mode_differentiation():
     # this fails in reverse mode
     optimizer = numpyro.optim.Adam(step_size=0.01)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-    svi.run(random.PRNGKey(0), 1000, forward_mode_differentiation=True)
+    svi.run(random.key(0), 1000, forward_mode_differentiation=True)

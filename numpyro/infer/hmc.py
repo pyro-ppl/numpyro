@@ -160,15 +160,15 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         >>> from numpyro.util import fori_collect
 
         >>> true_coefs = jnp.array([1., 2., 3.])
-        >>> data = random.normal(random.PRNGKey(2), (2000, 3))
-        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
+        >>> data = random.normal(random.key(2), (2000, 3))
+        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.key(3))
         >>>
         >>> def model(data, labels):
         ...     coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(3), jnp.ones(3)))
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
-        >>> model_info = initialize_model(random.PRNGKey(0), model, model_args=(data, labels,))
+        >>> model_info = initialize_model(random.key(0), model, model_args=(data, labels,))
         >>> init_kernel, sample_kernel = hmc(model_info.potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(model_info.param_info,
         ...                         trajectory_length=10,
@@ -277,11 +277,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             does not take effect if ``adapt_mass_matrix == False``.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
-        :param jax.random.PRNGKey rng_key: random key to be used as the source of
+        :param jax.random.key rng_key: random key to be used as the source of
             randomness.
 
         """
-        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
+        rng_key = random.key(0) if rng_key is None else rng_key
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
         if trajectory_length is not None:
             trajectory_length = lax.convert_element_type(

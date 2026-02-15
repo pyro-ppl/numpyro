@@ -256,7 +256,7 @@ def multiple_formatter(denominator=2, number=np.pi, latex=r"\pi"):
 def main(args):
     data = {}
     pred_datas = {}
-    rng_key = random.PRNGKey(args.rng_seed)
+    rng_key = random.key(args.rng_seed)
     for aa in args.amino_acids:
         rng_key, inf_key, pred_key = random.split(rng_key, 3)
         data[aa] = fetch_aa_dihedrals(aa)

@@ -197,10 +197,10 @@ def test_random_module_mcmc(backend, init, callable_prior):
 
     N, dim = 3000, 3
     num_warmup, num_samples = (1000, 1000)
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
     if init == "shape":
         args = ()
@@ -228,7 +228,7 @@ def test_random_module_mcmc(backend, init, callable_prior):
     mcmc = MCMC(
         kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
     )
-    mcmc.run(random.PRNGKey(2), data, labels)
+    mcmc.run(random.key(2), data, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert set(samples.keys()) == {
@@ -278,7 +278,7 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
     # test svi
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    svi.run(random.PRNGKey(100), 10)
+    svi.run(random.key(100), 10)
 
 
 @pytest.mark.parametrize("dropout", [True, False])
@@ -328,7 +328,7 @@ def test_flax_state_dropout_smoke(dropout, batchnorm):
     # test svi
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    svi.run(random.PRNGKey(100), 10)
+    svi.run(random.key(100), 10)
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
@@ -349,7 +349,7 @@ def test_nnx_module():
             return x @ w_val + bias_val
 
     # Eager initialization of the Linear module outside the model
-    rng_key = random.PRNGKey(1)
+    rng_key = random.key(1)
     linear_module = Linear(din=100, dout=100, rngs=nnx.Rngs(params=rng_key))
 
     # Extract parameters and state for inspection
@@ -434,7 +434,7 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
     # test svi
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    svi.run(random.PRNGKey(100), 10)
+    svi.run(random.key(100), 10)
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
@@ -462,10 +462,10 @@ def test_random_nnx_module_mcmc(callable_prior, scope_divider: str):
             return x @ w_val + b_val
 
     N, dim = 3000, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
     if callable_prior:
 
@@ -475,7 +475,7 @@ def test_random_nnx_module_mcmc(callable_prior, scope_divider: str):
         prior = {"w": dist.Normal(), "b": dist.Cauchy()}
 
     # Create a pre-initialized module for eager initialization
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     linear_module = Linear(din=dim, dout=1, rngs=nnx.Rngs(params=rng_key))
 
     # Extract parameters and state for inspection
@@ -496,7 +496,7 @@ def test_random_nnx_module_mcmc(callable_prior, scope_divider: str):
 
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    mcmc.run(random.PRNGKey(0), data, labels)
+    mcmc.run(random.key(0), data, labels)
     samples = mcmc.get_samples()
     assert f"nn{scope_divider}b" in samples
     assert f"nn{scope_divider}w" in samples
@@ -525,12 +525,12 @@ def test_random_nnx_module_mcmc_sequence_params(scope_divider: str):
             return self.layers[-1](x)
 
     N, dim = 3000, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     nn_module = MLP(
         din=dim, dout=1, hidden_layers=[8, 8], rngs=nnx.Rngs(params=rng_key)
     )
@@ -548,7 +548,7 @@ def test_random_nnx_module_mcmc_sequence_params(scope_divider: str):
 
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
-    mcmc.run(random.PRNGKey(0), data, labels)
+    mcmc.run(random.key(0), data, labels)
     samples = mcmc.get_samples()
 
     # check both layers have parameters in the samples
@@ -563,9 +563,7 @@ def test_eqx_module():
     X = np.arange(100).astype(np.float32)[None]
     Y = 2 * X + 2
 
-    linear_module = eqx.nn.Linear(
-        in_features=100, out_features=100, key=random.PRNGKey(0)
-    )
+    linear_module = eqx.nn.Linear(in_features=100, out_features=100, key=random.key(0))
 
     # Verify parameters were created correctly
     assert hasattr(linear_module, "weight")
@@ -620,8 +618,8 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
             return x, state
 
     # Eager initialization of the Net module outside the model
-    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.PRNGKey(0))
-    x = dist.Normal(0, 1).expand([4, 3]).to_event(2).sample(random.PRNGKey(0))
+    net_module, eager_state = eqx.nn.make_with_state(Net)(key=random.key(0))
+    x = dist.Normal(0, 1).expand([4, 3]).to_event(2).sample(random.key(0))
 
     def model():
         # Use the pre-initialized module
@@ -645,7 +643,7 @@ def test_eqx_state_dropout_smoke(dropout, batchnorm):
     # test svi - trace error with AutoDelta
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    svi.run(random.PRNGKey(100), 10)
+    svi.run(random.key(100), 10)
 
 
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
@@ -663,10 +661,10 @@ def test_random_eqx_module_mcmc(callable_prior, scope_divider: str):
     import equinox as eqx
 
     N, dim = 3000, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
     if callable_prior:
 
@@ -676,7 +674,7 @@ def test_random_eqx_module_mcmc(callable_prior, scope_divider: str):
         prior = {"weight": dist.Normal(), "bias": dist.Cauchy()}
 
     # Create a pre-initialized module for eager initialization
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     linear_module = eqx.nn.Linear(in_features=dim, out_features=1, key=rng_key)
 
     def model(data, labels=None):
@@ -689,7 +687,7 @@ def test_random_eqx_module_mcmc(callable_prior, scope_divider: str):
 
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=2, num_samples=2, progress_bar=False)
-    mcmc.run(random.PRNGKey(0), data, labels)
+    mcmc.run(random.key(0), data, labels)
     samples = mcmc.get_samples()
     assert f"nn{scope_divider}bias" in samples
     assert f"nn{scope_divider}weight" in samples
@@ -712,7 +710,7 @@ def test_random_eqx_module_mcmc_sequence_params(scope_divider: str):
             in_size: int,
             out_size: int,
             hidden_layers: list[int],
-            key: jax.random.PRNGKey,
+            key: jax.random.key,
         ):
             keys = jax.random.split(key, len(hidden_layers))
             self.layers = []
@@ -729,12 +727,12 @@ def test_random_eqx_module_mcmc_sequence_params(scope_divider: str):
             return self.layers[-1](x)  # Final layer, no activation
 
     N, dim = 3000, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     nn_module = MLP(in_size=dim, out_size=1, hidden_layers=[8, 8], key=rng_key)
 
     def prior(name, shape):
@@ -750,7 +748,7 @@ def test_random_eqx_module_mcmc_sequence_params(scope_divider: str):
 
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=1, num_samples=1, progress_bar=False)
-    mcmc.run(random.PRNGKey(0), data, labels)
+    mcmc.run(random.key(0), data, labels)
     samples = mcmc.get_samples()
 
     # check both layers have parameters in the samples

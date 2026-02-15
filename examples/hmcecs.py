@@ -87,7 +87,7 @@ def main(args):
     else:
         data, obs = (np.random.normal(size=(10, 28)), np.ones(10))
 
-    hmcecs_key, hmc_key = random.split(random.PRNGKey(args.rng_seed))
+    hmcecs_key, hmc_key = random.split(random.key(args.rng_seed))
 
     # choose inner_kernel
     if args.inner_kernel == "hmc":

@@ -148,7 +148,7 @@ def predict(model, args, samples, rng_key, y, n_seasons):
 
 def main(args):
     # generate artificial dataset
-    rng_key, _ = random.split(random.PRNGKey(0))
+    rng_key, _ = random.split(random.key(0))
     T = args.T
     t = jnp.linspace(0, T + args.future, (T + args.future) * N_POINTS_PER_UNIT)
     y = jnp.sin(2 * np.pi * t) + 0.3 * t + jax.random.normal(rng_key, t.shape) * 0.1
@@ -157,11 +157,11 @@ def main(args):
     t_test = t[-args.future * N_POINTS_PER_UNIT :]
 
     # do inference
-    rng_key, _ = random.split(random.PRNGKey(1))
+    rng_key, _ = random.split(random.key(1))
     samples = run_inference(holt_winters, args, rng_key, y_train, n_seasons)
 
     # do prediction
-    rng_key, _ = random.split(random.PRNGKey(2))
+    rng_key, _ = random.split(random.key(2))
     preds = predict(holt_winters, args, samples, rng_key, y_train, n_seasons)
     mean_preds = preds.mean(axis=0)
     hpdi_preds = hpdi(preds)

@@ -119,7 +119,7 @@ def model(x, y=None, hidden_dim=50, sub_size=100):
 def main(args):
     data = load_data()
 
-    inf_key, pred_key, data_key = random.split(random.PRNGKey(args.rng_key), 3)
+    inf_key, pred_key, data_key = random.split(random.key(args.rng_key), 3)
     # Normalize features to zero mean unit variance.
     x, xtr_mean, xtr_std = normalize(data.xtr)
 

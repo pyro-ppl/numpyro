@@ -354,7 +354,7 @@ def main(args):
 
     logger.info("Each sequence has shape {}".format(sequences[0].shape))
     logger.info("Starting inference...")
-    rng_key = random.PRNGKey(2)
+    rng_key = random.key(2)
     start = time.time()
     kernel = {"nuts": NUTS, "hmc": HMC}[args.kernel](model)
     mcmc = MCMC(

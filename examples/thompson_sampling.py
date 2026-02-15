@@ -167,7 +167,7 @@ class ThompsonSamplingGP:
         self.X = np.array([])
         self.y = np.array([])
 
-        self.rng_key = random.PRNGKey(seed)
+        self.rng_key = random.key(seed)
 
     # fitting process
     def fit(self, X, y, n_step):

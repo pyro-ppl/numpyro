@@ -343,7 +343,7 @@ def main(args):
     )
 
     model = models[args.model]
-    rng_key = random.PRNGKey(args.rng_seed)
+    rng_key = random.key(args.rng_seed)
     run_inference(model, capture_history, sex, rng_key, args)
 
 

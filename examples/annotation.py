@@ -284,12 +284,12 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(random.PRNGKey(0), *data)
+    mcmc.run(random.key(0), *data)
     mcmc.print_summary()
 
     posterior_samples = mcmc.get_samples()
     predictive = Predictive(model, posterior_samples, infer_discrete=True)
-    discrete_samples = predictive(random.PRNGKey(1), *data)
+    discrete_samples = predictive(random.key(1), *data)
 
     item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
         discrete_samples["c"].squeeze(-1)

@@ -141,6 +141,10 @@ def poisson_regression(x, N):
         numpyro.sample("x", dist.Poisson(rate), obs=x)
 
 
+@pytest.mark.xfail(
+    reason="Issue reported at https://github.com/jax-ml/jax/issues/35065."
+    "TypeError: cannot pickle 'PRNGKeyArray' object"
+)
 @pytest.mark.parametrize("guide_class", [AutoDelta, AutoDiagonalNormal, AutoNormal])
 def test_pickle_autoguide(guide_class):
     x = np.random.poisson(1.0, size=(100,))
@@ -245,3 +249,19 @@ def test_beta_bernoulli():
     pickled_params = svi_result.params
 
     jax.tree.all(jax.tree.map(assert_allclose, params, pickled_params))
+
+
+def test_pickle_legacy_PRNGKey():
+    key = random.PRNGKey(0)
+    pickled_key = pickle.loads(pickle.dumps(key))
+    assert jnp.array_equal(key, pickled_key)
+
+
+@pytest.mark.xfail(
+    reason="Issue reported at https://github.com/jax-ml/jax/issues/35065."
+    "TypeError: cannot pickle 'PRNGKeyArray' object"
+)
+def test_pickle_PRNG_key():
+    key = random.key(0)
+    pickled_key = pickle.loads(pickle.dumps(key))
+    assert jnp.array_equal(key, pickled_key)

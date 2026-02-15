@@ -195,7 +195,7 @@ def main(args):
     for i, model in enumerate(
         (fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)
     ):
-        rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
+        rng_key, rng_key_predict = random.split(random.key(i + 1))
         zs = run_inference(model, at_bats, hits, rng_key, args)
         predict(model, at_bats, hits, zs, rng_key_predict, player_names)
         predict(

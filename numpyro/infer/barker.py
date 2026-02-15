@@ -107,7 +107,7 @@ class BarkerMH(MCMCKernel):
         >>>
         >>> kernel = BarkerMH(model)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, progress_bar=True)
-        >>> mcmc.run(jax.random.PRNGKey(0))
+        >>> mcmc.run(jax.random.key(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
 

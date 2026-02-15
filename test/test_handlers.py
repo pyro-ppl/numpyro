@@ -40,8 +40,8 @@ def test_mask(mask_last, use_jit):
                 with handlers.scale(scale=2):
                     numpyro.sample("obs", dist.Normal(x, 1), obs=data)
 
-    data = random.normal(random.PRNGKey(0), (N,))
-    x = random.normal(random.PRNGKey(1), (N,))
+    data = random.normal(random.key(0), (N,))
+    x = random.normal(random.key(1), (N,))
     if use_jit:
         log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(
             model, (data, mask), {}, {"x": x, "y": x}
@@ -81,7 +81,7 @@ def test_obs_mask_ok(Elbo, mask, num_particles):
 
     elbo = Elbo(num_particles=num_particles)
     svi = SVI(model, guide, numpyro.optim.Adam(1), elbo)
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -119,7 +119,7 @@ def test_obs_mask_multivariate_ok(Elbo, mask, num_particles):
 
     elbo = Elbo(num_particles=num_particles)
     svi = SVI(model, guide, numpyro.optim.Adam(1), elbo)
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -140,7 +140,7 @@ def test_scale(use_context_manager):
             numpyro.sample("obs", dist.Normal(x, 1), obs=data)
 
     model = model if use_context_manager else handlers.scale(model, 10.0)
-    key1, key2 = random.split(random.PRNGKey(0))
+    key1, key2 = random.split(random.key(0))
     data = random.normal(key1, (3,))
     x = random.normal(key2)
     log_joint = log_density(model, (data,), {}, {"x": x})[0]
@@ -208,7 +208,7 @@ def test_condition():
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         return x + y
 
-    model = handlers.condition(handlers.seed(model, random.PRNGKey(1)), {"y": 2.0})
+    model = handlers.condition(handlers.seed(model, random.key(1)), {"y": 2.0})
     model_trace = handlers.trace(model).get_trace()
     assert model_trace["y"]["value"] == 2.0
     assert model_trace["y"]["is_observed"]
@@ -341,11 +341,9 @@ def model_subsample_2():
     ],
 )
 def test_trace_jit(model):
-    trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
+    trace = handlers.trace(handlers.seed(model, random.key(1))).get_trace()
     with jax.check_tracer_leaks(False):
-        jit_trace = handlers.trace(
-            jit(handlers.seed(model, random.PRNGKey(1)))
-        ).get_trace()
+        jit_trace = handlers.trace(jit(handlers.seed(model, random.key(1)))).get_trace()
     assert "z" in trace
     for name, site in trace.items():
         if site["type"] == "sample":
@@ -431,7 +429,7 @@ def test_subsample_gradient(scale, subsample):
     optimizer = optim.Adam(0.1)
     elbo = Trace_ELBO(num_particles=num_particles)
     svi = SVI(model, guide, optimizer, loss=elbo)
-    svi_state = svi.init(random.PRNGKey(0), None)
+    svi_state = svi.init(random.key(0), None)
     params = svi.optim.get_params(svi_state.optim_state)
     normalizer = 2 if subsample else 1
     if subsample_size == 1:
@@ -778,8 +776,8 @@ def test_collapse_beta_binomial():
 
     svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
     svi2 = SVI(model2, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state1 = svi1.init(random.PRNGKey(0))
-    svi_state2 = svi2.init(random.PRNGKey(0))
+    svi_state1 = svi1.init(random.key(0))
+    svi_state2 = svi2.init(random.key(0))
     params1 = svi1.get_params(svi_state1)
     params2 = svi2.get_params(svi_state2)
     assert_allclose(params1["c1"], params2["c1"])
@@ -807,7 +805,7 @@ def test_collapse_beta_bernoulli():
         numpyro.sample("c", dist.Gamma(a, b))
 
     svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -828,7 +826,7 @@ def test_collapse_beta_binomial_plate():
         numpyro.sample("c", dist.Gamma(a, b))
 
     svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -839,7 +837,7 @@ def test_prng_key():
     with handlers.seed(rng_seed=0):
         rng_key = numpyro.prng_key()
 
-    assert rng_key.shape == (2,) and rng_key.dtype == "uint32"
+    assert rng_key.shape == () and rng_key.dtype.name == "key<fry>"
 
 
 def test_prng_key_with_vmap():
@@ -865,10 +863,10 @@ def test_subsample_fn():
     def subsample_fn(rng_key):
         return numpyro.primitives._subsample_fn(size, subsample_size, rng_key)
 
-    rng_keys = random.split(random.PRNGKey(0), num_samples)
+    rng_keys = random.split(random.key(0), num_samples)
     subsamples = vmap(subsample_fn)(rng_keys)
     for k in range(1, 11):
-        i = random.randint(random.PRNGKey(k), (), 0, size)
+        i = random.randint(random.key(k), (), 0, size)
         assert_allclose(
             jnp.mean(subsamples == i, axis=0),
             jnp.full(subsample_size, 1 / size),
@@ -887,7 +885,7 @@ def test_sites_have_unique_names():
     mcmc = MCMC(NUTS(model), num_chains=1, num_samples=10, num_warmup=10)
     msg = "all sites must have unique names but got `alpha` duplicated"
     with pytest.raises(AssertionError, match=msg):
-        mcmc.run(random.PRNGKey(0))
+        mcmc.run(random.key(0))
 
 
 def test_uncondition():
@@ -898,13 +896,13 @@ def test_uncondition():
     obs_value = 1.5
 
     # Without uncondition, the observed value is used
-    model_with_seed = handlers.seed(model, random.PRNGKey(0))
+    model_with_seed = handlers.seed(model, random.key(0))
     trace_observed = handlers.trace(model_with_seed).get_trace(obs=obs_value)
     assert trace_observed["x"]["value"] == obs_value
     assert trace_observed["x"]["is_observed"]
 
     # With uncondition, we sample from the prior instead
-    unconditioned_model = handlers.uncondition(handlers.seed(model, random.PRNGKey(0)))
+    unconditioned_model = handlers.uncondition(handlers.seed(model, random.key(0)))
     trace_unconditioned = handlers.trace(unconditioned_model).get_trace(obs=obs_value)
 
     # The value should be sampled, not the observation
@@ -925,7 +923,7 @@ def test_uncondition_multiple_sites():
 
     obs_x, obs_y = 1.0, 2.0
 
-    unconditioned_model = handlers.uncondition(handlers.seed(model, random.PRNGKey(0)))
+    unconditioned_model = handlers.uncondition(handlers.seed(model, random.key(0)))
     trace = handlers.trace(unconditioned_model).get_trace(obs_x=obs_x, obs_y=obs_y)
 
     # Both observed sites should now be sampled

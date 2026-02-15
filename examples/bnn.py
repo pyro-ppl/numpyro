@@ -126,7 +126,7 @@ def main(args):
     X, Y, X_test = get_data(N=N, D_X=D_X)
 
     # do inference
-    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
+    rng_key, rng_key_predict = random.split(random.key(0))
     samples = run_inference(model, args, rng_key, X, Y, D_H)
 
     # predict Y_test at inputs X_test

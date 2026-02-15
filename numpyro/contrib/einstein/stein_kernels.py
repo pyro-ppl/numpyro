@@ -48,7 +48,7 @@ class SteinKernel(ABC):
     def init(self, rng_key, particles_shape):
         """
         Initializes the kernel
-        :param rng_key: a JAX PRNGKey to initialize the kernel
+        :param rng_key: a JAX PRNG key to initialize the kernel
         :param tuple particles_shape: shape of the input `particles` in :meth:`compute`
         """
         pass

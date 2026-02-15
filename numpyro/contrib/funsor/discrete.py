@@ -142,7 +142,7 @@ def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=Non
         This should be a negative integer.
     :param int temperature: Either 1 (sample via forward-filter backward-sample)
         or 0 (optimize via Viterbi-like MAP inference). Defaults to 1 (sample).
-    :param jax.random.PRNGKey rng_key: a random number generator key, to be used in
+    :param jax.random.key rng_key: a random number generator key, to be used in
         cases ``temperature=1`` or ``first_available_dim is None``.
     """
     if temperature == 1 or first_available_dim is None:

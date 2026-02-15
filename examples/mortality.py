@@ -215,7 +215,7 @@ def main(args):
     print_model_shape(model, a, s2, t, lookup, population)
 
     print("Starting inference...")
-    rng_key = random.PRNGKey(args.rng_seed)
+    rng_key = random.key(args.rng_seed)
     run_inference(model, a, s2, t, lookup, population, deaths, rng_key, args)
 
 

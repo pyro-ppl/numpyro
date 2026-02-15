@@ -375,7 +375,7 @@ class Distribution(metaclass=DistributionMeta):
         leading dimensions (of size `sample_shape`) of the returned sample will
         be filled with iid draws from the distribution instance.
 
-        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
+        :param jax.random.key key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
         :rtype: numpy.ndarray
@@ -389,7 +389,7 @@ class Distribution(metaclass=DistributionMeta):
         Same as ``sample`` except that any intermediate computations are
         returned (useful for `TransformedDistribution`).
 
-        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
+        :param jax.random.key key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
         :rtype: numpy.ndarray
@@ -565,7 +565,7 @@ class Distribution(metaclass=DistributionMeta):
             >>> masked_array = jnp.where(data == 1, True, False)
             >>> optimizer = numpyro.optim.Adam(step_size=0.05)
             >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-            >>> svi_result = svi.run(random.PRNGKey(0), 300, data, masked_array)
+            >>> svi_result = svi.run(random.key(0), 300, data, masked_array)
             >>> params = svi_result.params
             >>> # inferred_mean is closer to 1
             >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])

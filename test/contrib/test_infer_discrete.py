@@ -72,7 +72,7 @@ def test_hmm_smoke(length, temperature):
     assert len(true_states) == 1 + len(data)
 
     decoder = infer_discrete(
-        config_enumerate(hmm), temperature=temperature, rng_key=random.PRNGKey(1)
+        config_enumerate(hmm), temperature=temperature, rng_key=random.key(1)
     )
     inferred_states, _ = decoder(data)
     assert len(inferred_states) == len(true_states)
@@ -115,7 +115,7 @@ def test_scan_hmm_smoke(length, temperature):
     assert len(true_states) == 1 + len(data)
 
     decoder = infer_discrete(
-        config_enumerate(hmm), temperature=temperature, rng_key=random.PRNGKey(1)
+        config_enumerate(hmm), temperature=temperature, rng_key=random.key(1)
     )
     inferred_states, _ = decoder(data)
     assert len(inferred_states) == len(true_states)
@@ -154,7 +154,7 @@ def test_distribution_1(temperature):
         model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
     )
     sampled_model = infer_discrete(
-        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+        vectorized_model, first_available_dim, temperature, rng_key=random.key(1)
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {
@@ -209,7 +209,7 @@ def test_distribution_2(temperature):
         model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
     )
     sampled_model = infer_discrete(
-        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+        vectorized_model, first_available_dim, temperature, rng_key=random.key(1)
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {
@@ -266,7 +266,7 @@ def test_distribution_3_simple(temperature):
         model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
     )
     sampled_model = infer_discrete(
-        vectorized_model, first_available_dim, temperature, random.PRNGKey(1)
+        vectorized_model, first_available_dim, temperature, random.key(1)
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {
@@ -325,7 +325,7 @@ def test_distribution_3(temperature):
         model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
     )
     sampled_model = infer_discrete(
-        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+        vectorized_model, first_available_dim, temperature, rng_key=random.key(1)
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {
@@ -403,7 +403,7 @@ def model2():
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_mcmc_model_side_enumeration(model, temperature):
     mcmc = infer.MCMC(infer.NUTS(config_enumerate(model)), num_warmup=0, num_samples=1)
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
     mcmc_data = {
         k: v[0] for k, v in mcmc.get_samples().items() if k in ["loc", "scale"]
     }
@@ -416,7 +416,7 @@ def test_mcmc_model_side_enumeration(model, temperature):
             # handlers.replay(config_enumerate(model), mcmc_trace),
             handlers.condition(config_enumerate(model), mcmc_data),
             temperature=temperature,
-            rng_key=random.PRNGKey(1),
+            rng_key=random.key(1),
         )
     ).get_trace()
 
@@ -447,7 +447,7 @@ def test_distribution_masked(temperature):
         model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
     )
     sampled_model = infer_discrete(
-        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+        vectorized_model, first_available_dim, temperature, rng_key=random.key(1)
     )
     sampled_trace = handlers.trace(sampled_model).get_trace()
     conditioned_traces = {

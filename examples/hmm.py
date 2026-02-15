@@ -209,14 +209,14 @@ def main(args):
         supervised_words,
         unsupervised_words,
     ) = simulate_data(
-        random.PRNGKey(1),
+        random.key(1),
         num_categories=args.num_categories,
         num_words=args.num_words,
         num_supervised_data=args.num_supervised,
         num_unsupervised_data=args.num_unsupervised,
     )
     print("Starting inference...")
-    rng_key = random.PRNGKey(2)
+    rng_key = random.key(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
     mcmc = MCMC(

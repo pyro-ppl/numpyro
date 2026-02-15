@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from jax import jit, lax, random
 from jax.example_libraries import stax
 import jax.numpy as jnp
-from jax.random import PRNGKey
+from jax.random import key
 
 import numpyro
 from numpyro import optim
@@ -82,7 +82,7 @@ def main(args):
     svi = SVI(
         model, guide, adam, Trace_ELBO(), hidden_dim=args.hidden_dim, z_dim=args.z_dim
     )
-    rng_key = PRNGKey(0)
+    rng_key = key(0)
     train_init, train_fetch = load_dataset(
         MNIST, batch_size=args.batch_size, split="train"
     )

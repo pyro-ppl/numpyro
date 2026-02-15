@@ -107,7 +107,7 @@ def run_svi(rng_key, X, Y, guide_family="AutoDiagonalNormal", K=8):
     print("[{}] final elbo: {:.2f}".format(guide_name, final_elbo))
 
     return guide.sample_posterior(
-        random.PRNGKey(1), params, sample_shape=(args.num_samples,)
+        random.key(1), params, sample_shape=(args.num_samples,)
     )
 
 
@@ -122,7 +122,7 @@ def run_nuts(mcmc_key, args, X, Y):
 def main(args):
     X, Y = get_data()
 
-    rng_keys = random.split(random.PRNGKey(0), 4)
+    rng_keys = random.split(random.key(0), 4)
 
     # run SVI with an AutoDAIS guide for two values of K
     dais8_samples = run_svi(rng_keys[1], X, Y, guide_family="AutoDAIS", K=8)
