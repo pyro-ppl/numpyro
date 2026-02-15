@@ -126,6 +126,9 @@ def test_numpyrooptim_no_double_jit(optim_class, args, kwargs, uses_value_arg):
 
     if uses_value_arg:
         # Dtype is different on the first call vs the rest of the calls
-        assert my_fn_calls == 2
+        if optax.__version__ >= "0.2.7":
+            assert my_fn_calls == 1
+        else:
+            assert my_fn_calls == 2
     else:
         assert my_fn_calls == 1
