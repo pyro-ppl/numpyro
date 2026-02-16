@@ -120,6 +120,8 @@ jobs:
           enable-cache: true
           update-path: true
           python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
           uv pip install --system --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
