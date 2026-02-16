@@ -37,10 +37,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt install -y pandoc gsfonts
-          uv pip install --system --upgrade jaxlib jax
-          uv pip install --system --upgrade '.[doc,test]'
-          uv pip install --system --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --system --upgrade -r docs/requirements.txt
+          uv pip install --upgrade jaxlib jax
+          uv pip install --upgrade '.[doc,test]'
+          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
+          uv pip install --upgrade -r docs/requirements.txt
           uv pip freeze
       - name: Lint with mypy and ruff
         run: |
@@ -74,10 +74,10 @@ jobs:
         run: |
           sudo apt install -y graphviz
           # Keep track of pyro-api master branch
-          uv pip install --system --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
-          uv pip install --system --upgrade jaxlib jax
-          uv pip install --system --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --system --upgrade -e '.[dev,test]'
+          uv pip install --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
+          uv pip install --upgrade jaxlib jax
+          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
+          uv pip install --upgrade -e '.[dev,test]'
           uv pip freeze
       - name: Test with pytest
         run: |
@@ -124,10 +124,10 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
-          uv pip install --system --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
-          uv pip install --system --upgrade jaxlib jax
-          uv pip install --system --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --system --upgrade -e '.[dev,test]'
+          uv pip install --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
+          uv pip install --upgrade jaxlib jax
+          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
+          uv pip install --upgrade -e '.[dev,test]'
           uv pip freeze
       - name: Test with pytest
         run: |
@@ -176,9 +176,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
-          uv pip install --system --upgrade jaxlib jax
-          uv pip install --system --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --system --upgrade -e '.[dev,examples,test]'
+          uv pip install --upgrade jaxlib jax
+          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
+          uv pip install --upgrade -e '.[dev,examples,test]'
           uv pip freeze
       - name: Test with pytest
         run: |
