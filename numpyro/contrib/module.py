@@ -365,12 +365,12 @@ def random_flax_module(
         >>> guide = autoguide.AutoNormal(model, init_loc_fn=init_to_feasible)
         >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), TraceMeanField_ELBO())
         >>> n_iterations = 3000
-        >>> svi_result = svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
+        >>> svi_result = svi.run(random.key(0), n_iterations, x_train, y_train, batch_size=256)
         >>> params, losses = svi_result.params, svi_result.losses
         >>> n_test_data = 100
         >>> x_test, y_test = generate_data(n_test_data)
         >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-        >>> y_pred = predictive(random.PRNGKey(1), x_test[:100])["obs"].copy()
+        >>> y_pred = predictive(random.key(1), x_test[:100])["obs"].copy()
         >>> assert losses[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
@@ -540,7 +540,7 @@ def random_nnx_module(
                     return x @ self.w + self.b
 
             # Eager initialization
-            linear = Linear(din=4, dout=1, rngs=nnx.Rngs(params=random.PRNGKey(0)))
+            linear = Linear(din=4, dout=1, rngs=nnx.Rngs(params=random.key(0)))
             net = random_nnx_module("net", linear, prior={"w": dist.Normal(), "b": dist.Cauchy()})
 
         Alternatively, we can use a callable. For example the following are equivalent::
@@ -650,7 +650,7 @@ def random_eqx_module(name, nn_module, prior, scope_divider="/"):
                     return self.weight @ x + self.bias
 
             # Eager initialization
-            linear = Linear(in_features=3, out_features=1, key=random.PRNGKey(0))
+            linear = Linear(in_features=3, out_features=1, key=random.key(0))
             nn_priors = {"weight": dist.Normal(), "bias": dist.Cauchy()}
             net = random_eqx_module("net", linear, prior=nn_priors)
 

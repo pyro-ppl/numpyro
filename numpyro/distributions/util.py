@@ -19,6 +19,26 @@ from jax.typing import ArrayLike
 
 from numpyro.util import not_jax_tracer
 
+
+def array_equiv(a: ArrayLike, b: ArrayLike, static: bool = False):
+    """Check equality using identity first, then jnp.array_equiv for arrays.
+
+    :param a: First array or value.
+    :param b: Second array or value.
+    :param static: If True, returns a Python bool. Returns False if either input
+        is a JAX array (to avoid tracer issues). If False (default), returns
+        an array-like result suitable for use with JAX tracers.
+    """
+    if a is b:
+        return True
+    if static:
+        if isinstance(a, jax.Array) or isinstance(b, jax.Array):
+            return False
+        return bool(np.array_equiv(a, b))
+    xp = jnp if isinstance(a, jax.Array) or isinstance(b, jax.Array) else np
+    return xp.array_equiv(a, b)
+
+
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
     "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]

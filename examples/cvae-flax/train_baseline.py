@@ -10,7 +10,7 @@ from models import cross_entropy_loss  # isort:skip
 
 
 def create_train_state(model, x, learning_rate_fn):
-    params = model.init(random.PRNGKey(0), x)
+    params = model.init(random.key(0), x)
     tx = optax.adam(learning_rate_fn)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return state
@@ -65,7 +65,7 @@ def train_baseline(
 ):
     state = create_train_state(model, train_fetch(0, train_idx)[0], 0.003)
 
-    rng = random.PRNGKey(0)
+    rng = random.key(0)
     best_val_loss = jnp.inf
     best_state = state
     for i in range(n_epochs):

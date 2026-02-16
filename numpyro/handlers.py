@@ -56,14 +56,14 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    ...     logits = jnp.sum(coefs * data + intercept, axis=-1)
    ...     return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-   >>> data = random.normal(random.PRNGKey(0), (N, D))
+   >>> data = random.normal(random.key(0), (N, D))
    >>> true_coefs = jnp.arange(1., D + 1.)
    >>> logits = jnp.sum(true_coefs * data, axis=-1)
-   >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+   >>> labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
    >>> num_warmup, num_samples = 1000, 1000
    >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
-   >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
+   >>> mcmc.run(random.key(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP
 
@@ -86,7 +86,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    ...     log_lk_vals = log_lk_fn(random.split(rng_key, n), params)
    ...     return jnp.sum(logsumexp(log_lk_vals, 0) - jnp.log(n))
 
-   >>> print(log_predictive_density(random.PRNGKey(2), mcmc.get_samples(),
+   >>> print(log_predictive_density(random.key(2), mcmc.get_samples(),
    ...       logistic_regression, data, labels))  # doctest: +SKIP
    -874.89813
 """
@@ -153,7 +153,7 @@ class trace(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
+       >>> exec_trace = trace(seed(model, random.key(0))).get_trace()
        >>> pp.pprint(exec_trace)  # doctest: +SKIP
        OrderedDict([('a',
                      {'args': (),
@@ -165,7 +165,7 @@ class trace(Messenger):
                       'value': Array(-0.20584235, dtype=float32)})])
     """
 
-    def __enter__(self) -> TraceT:  # type: ignore [override]
+    def __enter__(self) -> TraceT:
         super(trace, self).__enter__()
         self.trace: TraceT = OrderedDict()
         return self.trace
@@ -215,7 +215,7 @@ class replay(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
+       >>> exec_trace = trace(seed(model, random.key(0))).get_trace()
        >>> print(exec_trace['a']['value'])  # doctest: +SKIP
        -0.20584235
        >>> replayed_trace = trace(replay(model, exec_trace)).get_trace()
@@ -281,7 +281,7 @@ class block(Messenger):
        ...     a = numpyro.sample('a', dist.Normal(0., 1.))
        ...     return numpyro.sample('b', dist.Normal(a, 1.))
 
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> block_all = block(model)
        >>> block_a = block(model, lambda site: site['name'] == 'a')
        >>> trace_block_all = trace(block_all).get_trace()
@@ -359,7 +359,7 @@ class collapse(trace):
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
 
-    def __enter__(self) -> TraceT:  # type: ignore [override]
+    def __enter__(self) -> TraceT:
         self.preserved_plates = frozenset(
             h.name for h in _PYRO_STACK if isinstance(h, plate)
         )
@@ -435,7 +435,7 @@ class condition(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
@@ -493,13 +493,13 @@ class uncondition(Messenger):
        ...     return numpyro.sample('x', dist.Normal(0., 1.), obs=obs)
 
        >>> # By default, the observed value is used
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> exec_trace = trace(model).get_trace(obs=1.5)
        >>> assert exec_trace['x']['value'] == 1.5
        >>> assert exec_trace['x']['is_observed']
 
        >>> # With uncondition, we sample from the prior instead
-       >>> unconditioned_model = uncondition(seed(model, random.PRNGKey(0)))
+       >>> unconditioned_model = uncondition(seed(model, random.key(0)))
        >>> exec_trace = trace(unconditioned_model).get_trace(obs=1.5)
        >>> assert exec_trace['x']['value'] != 1.5  # sampled value
        >>> assert not exec_trace['x']['is_observed']
@@ -801,16 +801,16 @@ class scope(Messenger):
 class seed(Messenger):
     """
     JAX uses a functional pseudo random number generator that requires passing
-    in a seed :func:`~jax.random.PRNGKey` to every stochastic function. The
+    in a seed :func:`~jax.random.key` to every stochastic function. The
     `seed` handler allows us to initially seed a stochastic function with a
-    :func:`~jax.random.PRNGKey`. Every call to the :func:`~numpyro.handlers.sample`
+    :func:`~jax.random.key`. Every call to the :func:`~numpyro.handlers.sample`
     primitive inside the function results in a splitting of this initial seed
     so that we use a fresh seed for each subsequent call without having to
-    explicitly pass in a `PRNGKey` to each `sample` call.
+    explicitly pass in a PRNG key to each `sample` call.
 
     :param fn: Python callable with NumPyro primitives.
     :param rng_seed: a random number generator seed.
-    :type rng_seed: int, jnp.ndarray scalar, or jax.random.PRNGKey
+    :type rng_seed: int, jnp.ndarray scalar, or jax.random.key
     :param list hide_types: an optional list of site types to skip seeding, e.g. ['plate'].
 
     .. note::
@@ -865,7 +865,7 @@ class seed(Messenger):
                     and not jnp.shape(rng_seed)
                 )
             ):
-                rng_seed = random.PRNGKey(rng_seed)
+                rng_seed = random.key(rng_seed)
             if not is_prng_key(rng_seed):
                 raise TypeError(
                     "Incorrect type for rng_seed: {}".format(type(rng_seed))
@@ -931,7 +931,7 @@ class substitute(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """

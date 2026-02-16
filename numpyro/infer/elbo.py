@@ -104,7 +104,7 @@ class ELBO:
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.
@@ -132,7 +132,7 @@ class ELBO:
         Like :meth:`loss` but also update and return the mutable state, which stores the
         values at :func:`~numpyro.mutable` sites.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.
@@ -535,7 +535,7 @@ class RenyiELBO(ELBO):
         model: ModelT[P],
         guide: ModelT[P],
         param_map: dict[str, jax.Array],
-        args: tuple[Any],
+        args: tuple[Any, ...],
         kwargs: dict[str, Any],
         rng_key: jax.Array,
     ) -> tuple[jax.Array, float]:
@@ -626,8 +626,8 @@ class RenyiELBO(ELBO):
             model,
             guide,
             param_map,
-            args,  # type: ignore
-            kwargs,  # type: ignore
+            args,
+            kwargs,
         )
 
         rng_keys = random.split(rng_key, self.num_particles)
@@ -835,7 +835,7 @@ class TraceGraph_ELBO(ELBO):
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
-        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param jax.random.key rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.
@@ -926,6 +926,7 @@ def get_importance_trace_enum(
     The returned traces also store the log probability at each site and the log measure for measure vars.
     """
     import funsor
+    import funsor.optimizer
     from numpyro.contrib.funsor import (
         enum,
         plate_to_enum_plate,
@@ -1137,6 +1138,7 @@ class TraceEnum_ELBO(ELBO):
     ) -> jax.Array:
         def single_particle_elbo(rng_key: jax.Array) -> jax.Array:
             import funsor
+            import funsor.optimizer
             from numpyro.contrib.funsor import to_data
 
             model_seed, guide_seed = random.split(rng_key)

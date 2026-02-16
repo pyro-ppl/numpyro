@@ -8,6 +8,7 @@ from jax.typing import ArrayLike
 
 from numpyro.distributions.constraints import real_vector
 from numpyro.distributions.transforms import Transform
+from numpyro.distributions.util import array_equiv
 from numpyro.util import fori_loop
 
 
@@ -108,13 +109,17 @@ class InverseAutoregressiveTransform(Transform):
             {"arn": self.arn},
         )
 
-    def __eq__(self, other: Transform) -> bool:
+    def eq(self, other: Transform, static: bool = False) -> ArrayLike:
         if not isinstance(other, InverseAutoregressiveTransform):
             return False
         return (
             (self.arn is other.arn)
-            & jnp.array_equal(self.log_scale_min_clip, other.log_scale_min_clip)
-            & jnp.array_equal(self.log_scale_max_clip, other.log_scale_max_clip)
+            & array_equiv(
+                self.log_scale_min_clip, other.log_scale_min_clip, static=static
+            )
+            & array_equiv(
+                self.log_scale_max_clip, other.log_scale_max_clip, static=static
+            )
         )
 
 
@@ -169,7 +174,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
     def tree_flatten(self):
         return (), ((), {"bn_arn": self.bn_arn})
 
-    def __eq__(self, other: Transform) -> bool:
+    def eq(self, other: Transform, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, BlockNeuralAutoregressiveTransform)
             and self.bn_arn is other.bn_arn

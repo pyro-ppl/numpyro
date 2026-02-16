@@ -28,6 +28,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.util import (
     add_diag,
+    array_equiv,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -154,19 +155,27 @@ class Transform(Generic[NumLikeT]):
             setattr(self, k, v)
         return self
 
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return self is other
+
+    def __eq__(self, other: object) -> bool:
+        return bool(self.eq(other, static=True))
+
 
 class ParameterFreeTransform(Transform[NumLikeT]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return isinstance(other, type(self))
 
 
 class _InverseTransform(Transform[NumLike]):
+    _inv: Transform
+
     def __init__(self, transform: Transform):
         super().__init__()
-        self._inv: Transform = transform
+        self._inv = transform
 
     @property
     def domain(self) -> Constraint:
@@ -202,18 +211,15 @@ class _InverseTransform(Transform[NumLike]):
     def tree_flatten(self):
         return (self._inv,), (("_inv",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _InverseTransform):
             return False
-        return self._inv == other._inv
+        return self._inv.eq(other._inv, static=static)
 
 
 class AbsTransform(ParameterFreeTransform[NumLike]):
     domain = constraints.real
     codomain = constraints.positive
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, AbsTransform)
 
     def __call__(self, x: NumLike) -> NumLike:
         return jnp.abs(x)
@@ -303,15 +309,14 @@ class AffineTransform(Transform[NumLike]):
             dict(),
         )
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, AffineTransform):
             return False
-        is_equal = (
-            jnp.array_equal(self.loc, other.loc)
-            & jnp.array_equal(self.scale, other.scale)
-            & (self.domain == other.domain)
+        return (
+            array_equiv(self.loc, other.loc, static=static)
+            & array_equiv(self.scale, other.scale, static=static)
+            & self.domain.eq(other.domain, static=static)
         )
-        return is_equal  # type: ignore[return-value]
 
 
 def _get_compose_transform_input_event_dim(parts):
@@ -428,10 +433,19 @@ class ComposeTransform(Transform[NumLike]):
     def tree_flatten(self):
         return (self.parts,), (("parts",), {})
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, ComposeTransform):
             return False
-        return jnp.logical_and(*(p1 == p2 for p1, p2 in zip(self.parts, other.parts)))  # type: ignore[return-value]
+        if len(self.parts) != len(other.parts):
+            return False
+        if static:
+            return all(
+                p1.eq(p2, static=True) for p1, p2 in zip(self.parts, other.parts)
+            )
+        result = jnp.array(True)
+        for p1, p2 in zip(self.parts, other.parts):
+            result = result & p1.eq(p2, static=False)
+        return result
 
 
 def _matrix_forward_shape(shape: tuple[int, ...], offset: int = 0) -> tuple[int, ...]:
@@ -568,8 +582,8 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
     correlation matrix.
     """
 
-    domain = constraints.corr_matrix  # type: ignore
-    codomain = constraints.corr_cholesky  # type: ignore
+    domain = constraints.corr_matrix  # type: ignore[assignment]
+    codomain = constraints.corr_cholesky  # type: ignore[assignment]
 
     def log_abs_det_jacobian(
         self,
@@ -626,10 +640,10 @@ class ExpTransform(Transform[NumLike]):
     def tree_flatten(self):
         return (self.domain,), (("_domain",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, ExpTransform):
             return False
-        return self.domain == other.domain
+        return self.domain.eq(other.domain, static=static)
 
 
 class IdentityTransform(ParameterFreeTransform[NumLike]):
@@ -703,17 +717,17 @@ class IndependentTransform(Transform[NumLike]):
         return self.base_transform.inverse_shape(shape)
 
     def tree_flatten(self):
-        return (self.base_transform, self.reinterpreted_batch_ndims), (
-            ("base_transform", "reinterpreted_batch_ndims"),
-            dict(),
+        return (self.base_transform,), (
+            ("base_transform",),
+            {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
         )
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, IndependentTransform):
             return False
-        return (self.base_transform == other.base_transform) & (
-            self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
-        )
+        if self.reinterpreted_batch_ndims != other.reinterpreted_batch_ndims:
+            return False
+        return self.base_transform.eq(other.base_transform, static=static)
 
 
 class L1BallTransform(ParameterFreeTransform[NonScalarArray]):
@@ -839,12 +853,12 @@ class LowerCholeskyAffine(Transform[NonScalarArray]):
     def tree_flatten(self):
         return (self.loc, self.scale_tril), (("loc", "scale_tril"), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, LowerCholeskyAffine):
             return False
-        return jnp.array_equal(self.loc, other.loc) & jnp.array_equal(
-            self.scale_tril, other.scale_tril
-        )  # type: ignore[return-value]
+        return array_equiv(self.loc, other.loc, static=static) & array_equiv(
+            self.scale_tril, other.scale_tril, static=static
+        )
 
 
 class LowerCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
@@ -997,10 +1011,10 @@ class PermuteTransform(Transform[NonScalarArray]):
     def tree_flatten(self):
         return (self.permutation,), (("permutation",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, PermuteTransform):
             return False
-        return jnp.array_equal(self.permutation, other.permutation)  # type: ignore[return-value]
+        return array_equiv(self.permutation, other.permutation, static=static)
 
 
 class PowerTransform(Transform[NumLike]):
@@ -1030,10 +1044,10 @@ class PowerTransform(Transform[NumLike]):
     def tree_flatten(self):
         return (self.exponent,), (("exponent",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, PowerTransform):
             return False
-        return jnp.array_equal(self.exponent, other.exponent)  # type: ignore[return-value]
+        return array_equiv(self.exponent, other.exponent, static=static)
 
     @property
     def sign(self) -> NumLike:
@@ -1117,10 +1131,10 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
     def tree_flatten(self):
         return (self.anchor_point,), (("anchor_point",), dict())
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, SimplexToOrderedTransform):
             return False
-        return jnp.array_equal(self.anchor_point, other.anchor_point)  # type: ignore[return-value]
+        return array_equiv(self.anchor_point, other.anchor_point, static=static)
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return shape[:-1] + (shape[-1] - 1,)
@@ -1307,7 +1321,7 @@ class UnpackTransform(Transform[NonScalarArray]):
         # XXX: what if unpack_fn is a parametrized callable pytree?
         return (), ((), {"unpack_fn": self.unpack_fn, "pack_fn": self.pack_fn})
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, UnpackTransform)
             and (self.unpack_fn is other.unpack_fn)
@@ -1382,7 +1396,7 @@ class ReshapeTransform(Transform[NonScalarArray]):
         }
         return (), ((), aux_data)
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, ReshapeTransform)
             and self._forward_shape == other._forward_shape
@@ -1473,7 +1487,7 @@ class RealFastFourierTransform(Transform[NonScalarArray]):
     def codomain(self) -> Constraint:
         return constraints.independent(constraints.complex, self.transform_ndims)
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, RealFastFourierTransform)
             and self.transform_ndims == other.transform_ndims
@@ -1548,7 +1562,7 @@ class PackRealFastFourierCoefficientsTransform(Transform[NonScalarArray]):
         n_imag = n - n_real
         return jnp.concatenate([y.real, y.imag[..., 1 : n_imag + 1]], axis=-1)
 
-    def __eq__(self, other) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, PackRealFastFourierCoefficientsTransform)
             and self.shape == other.shape
@@ -1682,12 +1696,19 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
             {},
         )
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, RecursiveLinearTransform):
             return False
-        return jnp.array_equal(
-            self.transition_matrix, other.transition_matrix
-        ) & jnp.array_equal(self.initial_value, other.initial_value)  # type: ignore[return-value]
+        tm_eq = array_equiv(
+            self.transition_matrix, other.transition_matrix, static=static
+        )
+        if self.initial_value is None and other.initial_value is None:
+            iv_eq = True
+        elif self.initial_value is None or other.initial_value is None:
+            iv_eq = False
+        else:
+            iv_eq = array_equiv(self.initial_value, other.initial_value, static=static)
+        return tm_eq & iv_eq
 
 
 class ZeroSumTransform(Transform[NonScalarArray]):
@@ -1770,7 +1791,7 @@ class ZeroSumTransform(Transform[NonScalarArray]):
         aux_data = {"transform_ndims": self.transform_ndims}
         return (), ((), aux_data)
 
-    def __eq__(self, other: object) -> bool:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, ZeroSumTransform)
             and self.transform_ndims == other.transform_ndims

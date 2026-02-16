@@ -67,7 +67,7 @@ def test_linear_model_log_sigma(
         kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
     )
 
-    mcmc.run(random.PRNGKey(0), X, Y)
+    mcmc.run(random.key(0), X, Y)
 
     beta_mean = np.mean(mcmc.get_samples()["beta"], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
@@ -103,7 +103,7 @@ def test_linear_model_sigma(
         kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
     )
 
-    mcmc.run(random.PRNGKey(0), X, Y)
+    mcmc.run(random.key(0), X, Y)
 
     beta_mean = np.mean(mcmc.get_samples()["beta"], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
@@ -157,7 +157,7 @@ def test_gaussian_model(kernel_cls, D=2, num_warmup=5000, num_samples=5000):
         kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=False
     )
 
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
 
     x0_mean = np.mean(mcmc.get_samples()["x0"], axis=0)
     x1_mean = np.mean(mcmc.get_samples()["x1"], axis=0)
@@ -191,7 +191,7 @@ def test_discrete_gibbs_multiple_sites_chain(kernel, inner_kernel, kwargs, num_c
         num_chains=num_chains,
         progress_bar=False,
     )
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"], 0), 0.7 * jnp.ones(3), atol=0.05)
@@ -210,7 +210,7 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
 
     sampler = kernel(inner_kernel(model), **kwargs)
     mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
 
@@ -230,7 +230,7 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
 
     sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
     mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
     samples = mcmc.get_samples()["c"]
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
 
@@ -244,7 +244,7 @@ def test_improper_uniform():
 
     sampler = DiscreteHMCGibbs(NUTS(model))
     mcmc = MCMC(sampler, num_warmup=10, num_samples=10, progress_bar=False)
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
 
 
 @pytest.mark.parametrize("modified", [False, True])
@@ -263,7 +263,7 @@ def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
         inner_kernel(model, trajectory_length=1.2), modified=modified, **kwargs
     )
     mcmc = MCMC(sampler, num_warmup=1000, num_samples=200000, progress_bar=False)
-    mcmc.run(random.PRNGKey(0), probs, locs)
+    mcmc.run(random.key(0), probs, locs)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"]), 1.3, atol=0.1)
     assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.4)
@@ -278,10 +278,10 @@ def test_enum_subsample_smoke():
             batch = numpyro.subsample(data, event_dim=0)
             numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
 
-    data = random.normal(random.PRNGKey(0), (10000,)) + 1
+    data = random.normal(random.key(0), (10000,)) + 1
     kernel = HMCECS(NUTS(model), num_blocks=10)
     mcmc = MCMC(kernel, num_warmup=10, num_samples=10)
-    mcmc.run(random.PRNGKey(0), data)
+    mcmc.run(random.key(0), data)
 
 
 def test_enum_subsample_error():
@@ -291,11 +291,11 @@ def test_enum_subsample_error():
             batch = numpyro.subsample(data, event_dim=0)
             numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
 
-    data = random.normal(random.PRNGKey(0), (10000,)) + 1
+    data = random.normal(random.key(0), (10000,)) + 1
     kernel = HMCECS(NUTS(model), num_blocks=10, proxy=HMCECS.taylor_proxy({}))
     mcmc = MCMC(kernel, num_warmup=10, num_samples=10)
     with pytest.raises(RuntimeError, match=".*discrete latent.*"):
-        mcmc.run(random.PRNGKey(0), data)
+        mcmc.run(random.key(0), data)
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
@@ -306,7 +306,7 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 200, 200
     data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
-        random.PRNGKey(1), (10000,)
+        random.key(1), (10000,)
     )
 
     def model(data, subsample_size):
@@ -317,14 +317,12 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
             sub_data = numpyro.subsample(data, 1)
             numpyro.sample("obs", dist.Normal(mean, 1).to_event(), obs=sub_data)
 
-    ref_params = {
-        "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
-    }
+    ref_params = {"mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.key(0))}
     proxy_fn = HMCECS.taylor_proxy(ref_params, degree=degree)
 
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(0), data, subsample_size)
+    mcmc.run(random.key(0), data, subsample_size)
 
     samples = mcmc.get_samples()
     assert_allclose(np.mean(mcmc.get_samples()["mean"], axis=0), true_loc, atol=0.1)
@@ -333,7 +331,7 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size, degree):
 
 @pytest.mark.parametrize("subsample_size", [5, 10, 15])
 def test_taylor_proxy_norm(subsample_size):
-    data_key, tr_key, rng_key = random.split(random.PRNGKey(0), 3)
+    data_key, tr_key, rng_key = random.split(random.key(0), 3)
     ref_params = jnp.array([0.1, 0.5, -0.2])
     sigma = 0.1
 
@@ -409,7 +407,7 @@ def test_estimate_likelihood(kernel_cls):
     ref_params = jnp.array([0.1, 0.5, -0.2])
     sigma = 0.1
     data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
-        random.PRNGKey(0), (2000,)
+        random.key(0), (2000,)
     )
     n, _ = data.shape
     num_warmup = 200
@@ -427,7 +425,7 @@ def test_estimate_likelihood(kernel_cls):
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn, num_blocks=num_blocks)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
 
-    mcmc.run(random.PRNGKey(0), data, extra_fields=["hmc_state.potential_energy"])
+    mcmc.run(random.key(0), data, extra_fields=["hmc_state.potential_energy"])
 
     pes = mcmc.get_extra_fields()["hmc_state.potential_energy"]
     samples = mcmc.get_samples()
@@ -444,7 +442,7 @@ def test_hmcecs_multiple_plates():
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 2, 2
     data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
-        random.PRNGKey(1), (1000,)
+        random.key(1), (1000,)
     )
 
     def model(data):
@@ -454,14 +452,12 @@ def test_hmcecs_multiple_plates():
             with numpyro.plate("dim", 3):
                 numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
 
-    ref_params = {
-        "mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))
-    }
+    ref_params = {"mean": true_loc + dist.Normal(true_loc, 5e-2).sample(random.key(0))}
     proxy_fn = HMCECS.taylor_proxy(ref_params)
 
     kernel = HMCECS(NUTS(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(0), data)
+    mcmc.run(random.key(0), data)
 
 
 def test_callable_chain_method():
@@ -485,6 +481,6 @@ def test_callable_chain_method():
         chain_method=vmap,
         progress_bar=False,
     )
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
     samples = mcmc.get_samples()
     assert set(samples.keys()) == {"x", "y"}

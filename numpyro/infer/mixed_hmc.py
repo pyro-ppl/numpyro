@@ -60,7 +60,7 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = MixedHMC(HMC(model, trajectory_length=1.2), num_discrete_updates=20)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
-        >>> mcmc.run(random.PRNGKey(0), probs, locs)
+        >>> mcmc.run(random.key(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()
         >>> assert "x" in samples and "c" in samples
@@ -147,8 +147,9 @@ class MixedHMC(DiscreteHMCGibbs):
             z_discrete, pe, ke_discrete_i, z_grad = lax.cond(
                 ke_discrete_i_new > 0,
                 (z_discrete_new, pe_new, ke_discrete_i_new),
-                lambda vals: vals
-                + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),),
+                lambda vals: (
+                    vals + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),)
+                ),
                 (
                     z_discrete,
                     hmc_state.potential_energy,

@@ -167,7 +167,7 @@ class ThompsonSamplingGP:
         self.X = np.array([])
         self.y = np.array([])
 
-        self.rng_key = random.PRNGKey(seed)
+        self.rng_key = random.key(seed)
 
     # fitting process
     def fit(self, X, y, n_step):
@@ -292,7 +292,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Thompson sampling example")
     parser.add_argument(
         "--num-random", nargs="?", default=2, type=int, help="number of random draws"

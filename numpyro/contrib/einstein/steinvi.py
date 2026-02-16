@@ -71,12 +71,12 @@ class SteinVI:
         >>> k = RBFKernel()
         >>> stein = SteinVI(model, guide, opt, k, num_stein_particles=2)
 
-        >>> stein_result = stein.run(random.PRNGKey(0), 200, data)
+        >>> stein_result = stein.run(random.key(0), 200, data)
         >>> params = stein_result.params
 
         >>> # Use guide to make predictions.
         >>> predictive = MixtureGuidePredictive(model, guide, params, num_samples=10, guide_sites=stein.guide_sites)
-        >>> samples = predictive(random.PRNGKey(1), data=None)
+        >>> samples = predictive(random.key(1), data=None)
 
     :param Callable model: Python callable with NumPyro primitives for the model.
     :param Callable guide: Python callable with NumPyro primitives for the guide.
@@ -334,14 +334,18 @@ class SteinVI:
 
         # Compute non-mixture parameter gradients.
         nonmix_uparam_grads = grad(
-            lambda cps: -self.stein_loss.loss(
-                classic_key,
-                self.constrain_fn(cps),
-                model,
-                self.guide,
-                unravel_pytree_batched(vmap(particle_transform_fn)(stein_particles)),
-                *args,
-                **kwargs,
+            lambda cps: (
+                -self.stein_loss.loss(
+                    classic_key,
+                    self.constrain_fn(cps),
+                    model,
+                    self.guide,
+                    unravel_pytree_batched(
+                        vmap(particle_transform_fn)(stein_particles)
+                    ),
+                    *args,
+                    **kwargs,
+                )
             )
         )(nonmix_uparams)
 
@@ -357,7 +361,7 @@ class SteinVI:
     def init(self, rng_key, *args, **kwargs):
         """Register random variable transformations, constraints and determine initialize positions of the particles.
 
-        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param jax.random.key rng_key: Random number generator seed.
         :param args: Positional arguments to the model and guide.
         :param kwargs: Keyword arguments to the model and guide.
         :return: Initial :data:`SteinVIState`.
@@ -514,7 +518,7 @@ class SteinVI:
     ):
         """Run SteinVI inference.
 
-        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param jax.random.key rng_key: Random number generator seed.
         :param int num_steps: Number of steps to optimize.
         :param *args: Positional arguments to the model and guide.
         :param bool progress_bar: Use a progress bar. Default is `True`.
@@ -593,11 +597,11 @@ class SVGD(SteinVI):
         >>> k = RBFKernel()
         >>> svgd = SVGD(model, opt, k, num_stein_particles=2)
 
-        >>> svgd_result = svgd.run(random.PRNGKey(0), 200, data)
+        >>> svgd_result = svgd.run(random.key(0), 200, data)
 
         >>> params = svgd_result.params
         >>> predictive = Predictive(model, guide=svgd.guide, params=params, num_samples=10, batch_ndims=1)
-        >>> samples = predictive(random.PRNGKey(1), data=None)
+        >>> samples = predictive(random.key(1), data=None)
 
     :param Callable model: Python callable with NumPyro primitives for the model.
     :param Callable guide: Python callable with NumPyro primitives for the guide.
@@ -688,11 +692,11 @@ class ASVGD(SVGD):
         >>> k = RBFKernel()
         >>> asvgd = ASVGD(model, opt, k, num_stein_particles=2)
 
-        >>> asvgd_result = asvgd.run(random.PRNGKey(0), 200, data)
+        >>> asvgd_result = asvgd.run(random.key(0), 200, data)
 
         >>> params = asvgd_result.params
         >>> predictive = Predictive(model, guide=asvgd.guide, params=params, num_samples=10, batch_ndims=1)
-        >>> samples = predictive(random.PRNGKey(1), data=None)
+        >>> samples = predictive(random.key(1), data=None)
 
     :param Callable model: Python callable with NumPyro primitives for the model.
     :param Callable guide: Python callable with NumPyro primitives for the guide.
@@ -783,7 +787,7 @@ class ASVGD(SVGD):
     def init(self, rng_key, num_steps, *args, **kwargs):
         """Register random variable transformations, constraints and determine initialize positions of the particles.
 
-        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param jax.random.key rng_key: Random number generator seed.
         :param args: Positional arguments to the model and guide.
         :param num_steps: Total number of steps in the optimization.
         :param kwargs: Keyword arguments to the model and guide.
@@ -880,7 +884,7 @@ class ASVGD(SVGD):
     ):
         """Run ASVGD inference.
 
-        :param jax.random.PRNGKey rng_key: Random number generator seed.
+        :param jax.random.key rng_key: Random number generator seed.
         :param int num_steps: Number of steps to optimize.
         :param *args: Positional arguments to the model and guide.
         :param bool progress_bar: Use a progress bar. Default is `True`.

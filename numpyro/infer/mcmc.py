@@ -70,7 +70,7 @@ class MCMCKernel(ABC):
 
         >>> kernel = MetropolisHastings(f)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
-        >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
+        >>> mcmc.run(random.key(0), init_params=jnp.array([1., 2.]))
         >>> posterior_samples = mcmc.get_samples()
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
@@ -92,7 +92,7 @@ class MCMCKernel(ABC):
         Initialize the `MCMCKernel` and return an initial state to begin sampling
         from.
 
-        :param random.PRNGKey rng_key: Random number generator key to initialize
+        :param Array rng_key: Random number generator key to initialize
             the kernel.
         :param int num_warmup: Number of warmup steps. This can be useful
             when doing adaptation during warmup.
@@ -262,7 +262,7 @@ class MCMC(object):
             sharding = PositionalSharding(mesh_utils.create_device_mesh((8,)))
             X_shard = jax.device_put(X, sharding.reshape(8, 1))
             y_shard = jax.device_put(y, sharding.reshape(8))
-            mcmc.run(jax.random.PRNGKey(0), X_shard, y_shard)
+            mcmc.run(jax.random.key(0), X_shard, y_shard)
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
@@ -314,7 +314,7 @@ class MCMC(object):
                 return {**mcmc.get_samples(), **mcmc.get_extra_fields()}
             # Number of devices to pmap over
             n_parallel = jax.local_device_count()
-            rng_keys = jax.random.split(PRNGKey(rng_seed), n_parallel)
+            rng_keys = jax.random.split(key(rng_seed), n_parallel)
             traces = pmap(do_mcmc)(rng_keys)
             # concatenate traces along pmap'ed axis
             trace = {k: np.concatenate(v) for k, v in traces.items()}
@@ -472,9 +472,11 @@ class MCMC(object):
             init_state = new_init_state if init_state is None else init_state
         sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = (  # noqa: E731
-            lambda x: self.sampler.get_diagnostics_str(x[0])
-            if is_prng_key(rng_key) or self.sampler.is_ensemble_kernel
-            else ""
+            lambda x: (
+                self.sampler.get_diagnostics_str(x[0])
+                if is_prng_key(rng_key) or self.sampler.is_ensemble_kernel
+                else ""
+            )
         )
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
@@ -558,10 +560,10 @@ class MCMC(object):
             .. code-block:: python
 
                 mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
-                mcmc.run(random.PRNGKey(0))
+                mcmc.run(random.key(0))
                 first_100_samples = mcmc.get_samples()
                 mcmc.post_warmup_state = mcmc.last_state
-                mcmc.run(mcmc.post_warmup_state.rng_key)  # or mcmc.run(random.PRNGKey(1))
+                mcmc.run(mcmc.post_warmup_state.rng_key)  # or mcmc.run(random.key(1))
                 second_100_samples = mcmc.get_samples()
         """
         return self._warmup_state
@@ -591,7 +593,7 @@ class MCMC(object):
         and the :meth:`run` method will skip the warmup adaptation phase. To run `warmup` again
         for the new data, it is required to run :meth:`warmup` again.
 
-        :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
+        :param Array rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
         :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.mcmc.MCMCKernel.default_fields`)
@@ -627,7 +629,7 @@ class MCMC(object):
         """
         Run the MCMC samplers and collect samples.
 
-        :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
+        :param Array rng_key: Random number generator key to be used for the sampling.
             For multi-chains, a batch of `num_chains` keys can be supplied. If `rng_key`
             does not have batch_size, it will be split in to a batch of `num_chains` keys.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.

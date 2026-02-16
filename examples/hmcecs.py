@@ -87,7 +87,7 @@ def main(args):
     else:
         data, obs = (np.random.normal(size=(10, 28)), np.ones(10))
 
-    hmcecs_key, hmc_key = random.split(random.PRNGKey(args.rng_seed))
+    hmcecs_key, hmc_key = random.split(random.key(args.rng_seed))
 
     # choose inner_kernel
     if args.inner_kernel == "hmc":
@@ -139,7 +139,7 @@ def summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtim
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(
         "Hamiltonian Monte Carlo with Energy Conserving Subsampling"
     )

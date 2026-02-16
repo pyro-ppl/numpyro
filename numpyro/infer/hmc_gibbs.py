@@ -77,7 +77,7 @@ class HMCGibbs(MCMCKernel):
         >>> hmc_kernel = NUTS(model)
         >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
         >>> mcmc = MCMC(kernel, num_warmup=100, num_samples=100, progress_bar=False)
-        >>> mcmc.run(random.PRNGKey(0))
+        >>> mcmc.run(random.key(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
 
     """
@@ -86,7 +86,7 @@ class HMCGibbs(MCMCKernel):
 
     def __init__(self, inner_kernel, gibbs_fn, gibbs_sites):
         if not isinstance(inner_kernel, HMC):
-            raise ValueError("inner_kernel must be a HMC or NUTS sampler.")
+            raise ValueError("inner_kernel must be an HMC or NUTS sampler.")
         if not callable(gibbs_fn):
             raise ValueError("gibbs_fn must be a callable")
         assert inner_kernel.model is not None, (
@@ -389,7 +389,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> locs = jnp.array([-2, 0, 2, 4])
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=100000, progress_bar=False)
-        >>> mcmc.run(random.PRNGKey(0), probs, locs)
+        >>> mcmc.run(random.key(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
@@ -547,10 +547,10 @@ class HMCECS(HMCGibbs):
         ...         batch = numpyro.subsample(data, event_dim=0)
         ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
         ...
-        >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
+        >>> data = random.normal(random.key(0), (10000,)) + 1
         >>> kernel = HMCECS(NUTS(model), num_blocks=10)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
-        >>> mcmc.run(random.PRNGKey(0), data)
+        >>> mcmc.run(random.key(0), data)
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.) < 0.1
 
@@ -663,8 +663,10 @@ class HMCECS(HMCGibbs):
         z_gibbs, gibbs_state, pe, z_grad = cond(
             transition,
             (z_gibbs_new, gibbs_state_new, pe_new),
-            lambda vals: vals
-            + (grad_(partial(potential_fn, vals[0], vals[1]))(state.hmc_state.z),),
+            lambda vals: (
+                vals
+                + (grad_(partial(potential_fn, vals[0], vals[1]))(state.hmc_state.z),)
+            ),
             (z_gibbs, state.gibbs_state, pe, state.hmc_state.z_grad),
             identity,
         )

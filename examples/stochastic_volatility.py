@@ -90,7 +90,7 @@ def print_results(posterior, dates):
 def main(args):
     _, fetch = load_dataset(SP500, shuffle=False)
     dates, returns = fetch()
-    init_rng_key, sample_rng_key = random.split(random.PRNGKey(args.rng_seed))
+    init_rng_key, sample_rng_key = random.split(random.key(args.rng_seed))
     model_info = initialize_model(init_rng_key, model, model_args=(returns,))
     init_kernel, sample_kernel = hmc(model_info.potential_fn, algo="NUTS")
     hmc_state = init_kernel(
@@ -123,7 +123,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Stochastic Volatility Model")
     parser.add_argument("-n", "--num-samples", nargs="?", default=600, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=600, type=int)
