@@ -174,7 +174,7 @@ def _run_svi_check_warnings(model, guide, expected_string):
     with pytest.warns(UserWarning, match=expected_string) as ws:
         adam = numpyro.optim.Adam(1e-3)
         svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
-        svi.run(random.PRNGKey(42), num_steps=5)
+        svi.run(random.key(42), num_steps=5)
         assert len(ws) == 1
         assert expected_string in str(ws[0].message)
 

@@ -9,16 +9,17 @@ from jax import Array, lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
-from numpyro.distributions import Distribution, constraints
+from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.discrete import CategoricalLogits, CategoricalProbs
+from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import validate_sample
 from numpyro.util import is_prng_key
 
 
 def Mixture(
     mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
-    component_distributions: Union[list[DistributionT], DistributionT],
+    component_distributions: Union[list[Distribution], Distribution],
     *,
     validate_args: Optional[bool] = None,
 ):
@@ -134,7 +135,7 @@ class _MixtureBase(Distribution):
         """
         A version of ``sample`` that also returns the sampled component indices
 
-        :param jax.random.PRNGKey key: the rng_key key to be used for the
+        :param jax.random.key key: the rng_key key to be used for the
             distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: A 2-element tuple with the samples from the distribution, and
@@ -207,7 +208,7 @@ class MixtureSameFamily(_MixtureBase):
        >>> mixing_dist = dist.Categorical(probs=jnp.ones(3) / 3.)
        >>> component_dist = dist.Normal(loc=jnp.zeros(3), scale=jnp.ones(3))
        >>> mixture = dist.MixtureSameFamily(mixing_dist, component_dist)
-       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       >>> mixture.sample(jax.random.key(42)).shape
        ()
     """
 
@@ -217,10 +218,17 @@ class MixtureSameFamily(_MixtureBase):
     def __init__(
         self,
         mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
-        component_distribution: DistributionT,
+        component_distribution: Distribution,
         *,
         validate_args: Optional[bool] = None,
     ):
+        assert isinstance(
+            component_distribution.support, constraints.ParameterFreeConstraint
+        ), (
+            f"Invalid component distribution: {type(component_distribution).__name__}. "
+            "The mixture components must have a support that does not depend on their parameters "
+            f"(expected ParameterFreeConstraint, but found {component_distribution.support})."
+        )
         _check_mixing_distribution(mixing_distribution)
         mixture_size = mixing_distribution.probs.shape[-1]
         if not isinstance(component_distribution, Distribution):
@@ -247,7 +255,7 @@ class MixtureSameFamily(_MixtureBase):
         )
 
     @property
-    def component_distribution(self) -> DistributionT:
+    def component_distribution(self) -> Distribution:
         """
         Return the vectorized distribution of components being mixed.
 
@@ -257,7 +265,7 @@ class MixtureSameFamily(_MixtureBase):
         return self._component_distribution
 
     @constraints.dependent_property
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self.component_distribution.support
 
     @property
@@ -322,7 +330,7 @@ class MixtureGeneral(_MixtureBase):
        ...     dist.Normal(loc=0.6, scale=1.2),
        ... ]
        >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists)
-       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       >>> mixture.sample(jax.random.key(42)).shape
        ()
 
     .. doctest::
@@ -336,7 +344,7 @@ class MixtureGeneral(_MixtureBase):
        ...     dist.HalfNormal(scale=0.3),
        ... ]
        >>> mixture = dist.MixtureGeneral(mixing_dist, component_dists, support=dist.constraints.real)
-       >>> mixture.sample(jax.random.PRNGKey(42)).shape
+       >>> mixture.sample(jax.random.key(42)).shape
        ()
     """
 
@@ -350,9 +358,9 @@ class MixtureGeneral(_MixtureBase):
     def __init__(
         self,
         mixing_distribution: Union[CategoricalProbs, CategoricalLogits],
-        component_distributions: list[DistributionT],
+        component_distributions: list[Distribution],
         *,
-        support: Optional[ConstraintT] = None,
+        support: Optional[Constraint] = None,
         validate_args: Optional[bool] = None,
     ):
         _check_mixing_distribution(mixing_distribution)
@@ -414,7 +422,7 @@ class MixtureGeneral(_MixtureBase):
         )
 
     @property
-    def component_distributions(self) -> list[DistributionT]:
+    def component_distributions(self) -> list[Distribution]:
         """The list of component distributions in the mixture
 
         :return: The list of component distributions
@@ -423,7 +431,7 @@ class MixtureGeneral(_MixtureBase):
         return self._component_distributions
 
     @constraints.dependent_property
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         if self._support is not None:
             return self._support
         return self.component_distributions[0].support
@@ -471,7 +479,7 @@ class MixtureGeneral(_MixtureBase):
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
-def _check_mixing_distribution(mixing_distribution: DistributionT) -> None:
+def _check_mixing_distribution(mixing_distribution: Distribution) -> None:
     if not isinstance(mixing_distribution, (CategoricalLogits, CategoricalProbs)):
         raise ValueError(
             "The mixing distribution must be a numpyro.distributions.Categorical. "

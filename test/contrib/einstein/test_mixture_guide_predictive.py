@@ -32,7 +32,7 @@ def test_predictive_with_particles():
         numpyro.sample("latent", dist.Normal(latent_loc, 0.1).to_event(1))
 
     params = jnp.array([[-100, -100, -100.0], [0, 0, 0], [100, 100, 100]])
-    x = dist.Normal(jnp.full(fdim, 10), 1.0).sample(random.PRNGKey(0), (num_data,))
+    x = dist.Normal(jnp.full(fdim, 10), 1.0).sample(random.key(0), (num_data,))
 
     predictions = MixtureGuidePredictive(
         model,
@@ -41,7 +41,7 @@ def test_predictive_with_particles():
         num_samples=num_samples,
         guide_sites=["latent_loc"],
         mixture_assignment_sitename=mixture_assignment_sitename,
-    )(random.PRNGKey(0), x)
+    )(random.key(0), x)
     assert predictions["y"].shape == (num_samples, num_data, fdim)
     assert mixture_assignment_sitename in predictions
     assert jnp.max(predictions[mixture_assignment_sitename]) <= num_particles - 1

@@ -2,34 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import jax
-from jax.api_util import flatten_fun, shaped_abstractify
-
-try:
-    from jax.experimental.pjit import pjit_p
-except ImportError:
-    from jax.extend.core.primitives import jit_p as pjit_p
-try:
-    import jax.extend.linear_util as lu
-except ImportError:
-    import jax.linear_util as lu
-
-try:
-    from jax.extend.core import Literal
-except ImportError:
-    from jax.core import Literal
-
-try:
-    from jax.extend.core.primitives import call_p, closed_call_p
-except ImportError:
-    from jax.core import call_p, closed_call_p
-
-try:
-    from jax.api_util import debug_info
-except ImportError:
-    debug_info = None
-
+from jax.api_util import debug_info, flatten_fun, shaped_abstractify
+from jax.extend.core import Literal
+from jax.extend.core.primitives import call_p, closed_call_p, jit_p, xla_pmap_p
+import jax.extend.linear_util as lu
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
-from jax.interpreters.pxla import xla_pmap_p
 
 
 # Adapted from definition in jax v0.5.0
@@ -147,8 +124,8 @@ def track_deps_closed_call_rule(eqn, provenance_inputs):
 track_deps_rules[closed_call_p] = track_deps_closed_call_rule
 
 
-def track_deps_pjit_rule(eqn, provenance_inputs):
+def track_deps_jit_rule(eqn, provenance_inputs):
     return track_deps_jaxpr(eqn.params["jaxpr"].jaxpr, provenance_inputs)
 
 
-track_deps_rules[pjit_p] = track_deps_pjit_rule
+track_deps_rules[jit_p] = track_deps_jit_rule

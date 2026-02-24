@@ -105,7 +105,7 @@ def run_inference(model, args, rng_key, y):
 def main(args):
     # generate artificial dataset
     num_data = args.num_data
-    rng_key = jax.random.PRNGKey(0)
+    rng_key = jax.random.key(0)
     t = jnp.arange(0, num_data)
     y = jnp.sin(t) + random.normal(rng_key, (num_data,)) * 0.1
 
@@ -138,7 +138,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="AR2 example")
     parser.add_argument("--num-data", nargs="?", default=142, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)

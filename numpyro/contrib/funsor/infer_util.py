@@ -7,6 +7,7 @@ import functools
 import re
 
 import funsor
+import funsor.optimizer
 import numpyro
 from numpyro.contrib.funsor.enum_messenger import (
     infer_config,
@@ -125,7 +126,9 @@ def config_kl(fn=None, sites=None):
 
 def _get_shift(name):
     """helper function used internally in sarkka_bilmes_product"""
-    return len(re.search(r"^(_PREV_)*", name).group(0)) // 6
+    match = re.search(r"^(_PREV_)*", name)
+    assert match is not None
+    return len(match.group(0)) // 6
 
 
 def _shift_name(name, t):

@@ -113,7 +113,7 @@ def test_gradient(model, guide, params, data):
     def expected_loss_fn(params_raw):
         params = jax.tree.map(transform, params_raw)
         return elbo.loss(
-            random.PRNGKey(0), {}, model, config_enumerate(guide), data, params
+            random.key(0), {}, model, config_enumerate(guide), data, params
         )
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
@@ -123,7 +123,7 @@ def test_gradient(model, guide, params, data):
 
     def actual_loss_fn(params_raw):
         params = jax.tree.map(transform, params_raw)
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
+        return elbo.loss(random.key(0), {}, model, guide, data, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
@@ -341,16 +341,14 @@ def test_analytic_kl_1(model, kl_sites, valid_kl):
     # Exact integration based on enumeration
     def expected_loss_fn(params_raw):
         params = jax.tree.map(transform, params_raw)
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
     # Exact integration based on the mix of enumeration and analytic kl
     def actual_loss_fn(params_raw):
         params = jax.tree.map(transform, params_raw)
-        return elbo.loss(
-            random.PRNGKey(0), {}, model, config_kl(guide, kl_sites), params
-        )
+        return elbo.loss(random.key(0), {}, model, config_kl(guide, kl_sites), params)
 
     if valid_kl:
         actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
@@ -456,7 +454,7 @@ def test_analytic_kl_2():
             "probs_z2": transform(params_raw["probs_z2"]),
             "probs_z3": params_raw["probs_z3"],
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
@@ -551,7 +549,7 @@ def test_analytic_kl_3():
             "probs_z2": transform(params_raw["probs_z2"]),
             "probs_z3": params_raw["probs_z3"],
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
@@ -619,7 +617,7 @@ def test_analytic_kl_4(z1_dim, z2_dim, scale1, scale2):
             "probs_z1": transform(params_raw["probs_z1"]),
             "probs_z2": params_raw["probs_z2"],
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, config_kl(guide), params)
+        return elbo.loss(random.key(0), {}, model, config_kl(guide), params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 

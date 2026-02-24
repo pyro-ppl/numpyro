@@ -11,8 +11,8 @@ import jax.random as random
 from jax.scipy.special import logsumexp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT
 from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import (
     Cauchy,
     Laplace,
@@ -57,7 +57,7 @@ class LeftTruncatedDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @lazy_property
@@ -162,7 +162,7 @@ class RightTruncatedDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @lazy_property
@@ -259,7 +259,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @lazy_property
@@ -529,19 +529,25 @@ class DoublyTruncatedPowerLaw(Distribution):
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
         r"""Logarithmic probability distribution:
+
         Z inequal minus one:
+
         .. math::
-            (x^\alpha) (\alpha + 1)/(b^(\alpha + 1) - a^(\alpha + 1))
+
+            \frac{(\alpha + 1)x^\alpha}{b^{\alpha + 1} - a^{\alpha + 1}}
 
         Z equal minus one:
+
         .. math::
-            (x^\alpha)/(log(b) - log(a))
+
+            \frac{x^\alpha}{\log(b) - \log(a)}
+
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
         """
 
@@ -1004,7 +1010,7 @@ class LowerTruncatedPowerLaw(Distribution):
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @validate_sample

@@ -247,7 +247,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
         if jitted
         else find_reasonable_step_size
     )
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     step_size = fn(
         potential_fn,
         kinetic_fn,
@@ -313,7 +313,7 @@ def test_warmup_adapter(jitted):
     wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
     wa_update = jit(wa_update) if jitted else wa_update
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     z = jnp.ones(3)
     wa_state = wa_init(
         (z, None, None, None),
@@ -414,7 +414,7 @@ def test_build_tree(step_size):
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     vv_state = vv_init(0.0, 1.0)
     inverse_mass_matrix = np.array([1.0])
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     @jit
     def fn(vv_state):
@@ -454,9 +454,7 @@ def test_gaussian_subposterior(method, diagonal):
     cov = jnp.ones((D, D)) * 0.9 + jnp.identity(D) * 0.1
     subcov = n_subs * cov  # subposterior's covariance
     subposteriors = list(
-        dist.MultivariateNormal(mean, subcov).sample(
-            random.PRNGKey(1), (n_subs, n_samples)
-        )
+        dist.MultivariateNormal(mean, subcov).sample(random.key(1), (n_subs, n_samples))
     )
 
     draws = method(subposteriors, n_draws, diagonal=diagonal)

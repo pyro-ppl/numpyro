@@ -144,7 +144,7 @@ def run_inference(
 
 
 def main(args):
-    rng_key, _ = random.split(random.PRNGKey(3))
+    rng_key, _ = random.split(random.key(3))
     design_matrix, response = make_dataset(rng_key)
     run_inference(
         design_matrix,
@@ -158,7 +158,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Testing whether  ")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)

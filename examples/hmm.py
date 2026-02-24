@@ -209,14 +209,14 @@ def main(args):
         supervised_words,
         unsupervised_words,
     ) = simulate_data(
-        random.PRNGKey(1),
+        random.key(1),
         num_categories=args.num_categories,
         num_words=args.num_words,
         num_supervised_data=args.num_supervised,
         num_unsupervised_data=args.num_unsupervised,
     )
     print("Starting inference...")
-    rng_key = random.PRNGKey(2)
+    rng_key = random.key(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
     mcmc = MCMC(
@@ -263,7 +263,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Semi-supervised Hidden Markov Model")
     parser.add_argument("--num-categories", default=3, type=int)
     parser.add_argument("--num-words", default=10, type=int)

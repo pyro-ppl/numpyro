@@ -160,15 +160,15 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         >>> from numpyro.util import fori_collect
 
         >>> true_coefs = jnp.array([1., 2., 3.])
-        >>> data = random.normal(random.PRNGKey(2), (2000, 3))
-        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
+        >>> data = random.normal(random.key(2), (2000, 3))
+        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.key(3))
         >>>
         >>> def model(data, labels):
         ...     coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(3), jnp.ones(3)))
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
-        >>> model_info = initialize_model(random.PRNGKey(0), model, model_args=(data, labels,))
+        >>> model_info = initialize_model(random.key(0), model, model_args=(data, labels,))
         >>> init_kernel, sample_kernel = hmc(model_info.potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(model_info.param_info,
         ...                         trajectory_length=10,
@@ -257,7 +257,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Defaults to 0.8.
         :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
-        :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+        :param float trajectory_length: Length of an MCMC trajectory for HMC. Default
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of
@@ -277,11 +277,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             does not take effect if ``adapt_mass_matrix == False``.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
-        :param jax.random.PRNGKey rng_key: random key to be used as the source of
+        :param jax.random.key rng_key: random key to be used as the source of
             randomness.
 
         """
-        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
+        rng_key = random.key(0) if rng_key is None else rng_key
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
         if trajectory_length is not None:
             trajectory_length = lax.convert_element_type(
@@ -603,7 +603,7 @@ class HMC(MCMCKernel):
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Defaults to 0.8.
     :param int num_steps: if different than None, fix the number of steps allowed for each iteration.
-    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+    :param float trajectory_length: Length of an MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
@@ -890,7 +890,7 @@ class NUTS(HMC):
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Defaults to 0.8.
-    :param float trajectory_length: Length of a MCMC trajectory for HMC. This arg has
+    :param float trajectory_length: Length of an MCMC trajectory for HMC. This arg has
         no effect in NUTS sampler.
     :param int max_tree_depth: Max depth of the binary tree created during the doubling
         scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of

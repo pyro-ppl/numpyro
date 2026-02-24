@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 from jax.experimental.ode import odeint
 import jax.numpy as jnp
-from jax.random import PRNGKey
+from jax.random import key
 
 import numpyro
 import numpyro.distributions as dist
@@ -95,11 +95,11 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(PRNGKey(1), N=data.shape[0], y=data)
+    mcmc.run(key(1), N=data.shape[0], y=data)
     mcmc.print_summary()
 
     # predict populations
-    pop_pred = Predictive(model, mcmc.get_samples())(PRNGKey(2), data.shape[0])["y"]
+    pop_pred = Predictive(model, mcmc.get_samples())(key(2), data.shape[0])["y"]
     mu = jnp.mean(pop_pred, 0)
     pi = jnp.percentile(pop_pred, jnp.array([10, 90]), 0)
     plt.figure(figsize=(8, 6), constrained_layout=True)
@@ -117,7 +117,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Predator-Prey Model")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

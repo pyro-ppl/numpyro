@@ -114,7 +114,7 @@ def cond(pred: bool, true_fun: Callable, false_fun: Callable, operand: Any) -> A
        ...     return cond(cluster > 0, true_fun, false_fun, None)
        >>>
        >>> svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
-       >>> svi_result = svi.run(random.PRNGKey(0), num_steps=2500)
+       >>> svi_result = svi.run(random.key(0), num_steps=2500)
 
     .. warning:: This is an experimental utility function that allows users to use
         JAX control flow with NumPyro's effect handlers. Currently, `sample` and

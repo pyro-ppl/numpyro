@@ -86,7 +86,7 @@ def test_beta_bernoulli(auto_class):
     else:
         guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(1), data)
+    svi_state = svi.init(random.key(1), data)
 
     def body_fn(i, val):
         svi_state, loss = svi.update(val, data)
@@ -98,7 +98,7 @@ def test_beta_bernoulli(auto_class):
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
-        random.PRNGKey(1), params, sample_shape=(1000,)
+        random.key(1), params, sample_shape=(1000,)
     )
     posterior_mean = jnp.mean(posterior_samples["beta"], 0)
     assert_allclose(posterior_mean, true_coefs, atol=0.05)
@@ -114,12 +114,12 @@ def test_beta_bernoulli(auto_class):
 
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
-    predictive_samples = predictive(random.PRNGKey(1), None)
+    predictive_samples = predictive(random.key(1), None)
     assert predictive_samples["obs"].shape == (1000, N, 2)
 
     # ... or from the guide + params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-    predictive_samples = predictive(random.PRNGKey(1), None)
+    predictive_samples = predictive(random.key(1), None)
     assert predictive_samples["obs"].shape == (1000, N, 2)
 
 
@@ -141,10 +141,10 @@ def test_beta_bernoulli(auto_class):
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
     N, dim = 3000, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
     def model(data=None, labels=None):
         coefs = numpyro.sample("coefs", dist.Normal(0, 1).expand([dim]).to_event())
@@ -154,7 +154,7 @@ def test_logistic_regression(auto_class, Elbo):
                 return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_key_init = random.PRNGKey(1)
+    rng_key_init = random.key(1)
     if auto_class == AutoGuideList:
         guide = AutoGuideList(model)
         guide.append(AutoNormal(handlers.block(model, hide=["logits"])))
@@ -190,7 +190,7 @@ def test_logistic_regression(auto_class, Elbo):
             assert_allclose(quantiles["coefs"][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(
-        random.PRNGKey(1), params, sample_shape=(1000,)
+        random.key(1), params, sample_shape=(1000,)
     )
     expected_coefs = jnp.array([0.97, 2.05, 3.18])
     assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
@@ -201,7 +201,7 @@ def test_mvn_quantile():
         numpyro.sample("x", dist.Normal(0, 1).expand([2]).to_event(1))
 
     guide = AutoMultivariateNormal(model)
-    with handlers.seed(rng_seed=random.PRNGKey(0)):
+    with handlers.seed(rng_seed=random.key(0)):
         guide()
     params = {
         "auto_loc": jnp.zeros(2),
@@ -220,10 +220,10 @@ def test_mvn_quantile():
 def test_iaf():
     # test for substitute logic for exposed methods `sample_posterior` and `get_transforms`
     N, dim = 3000, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = jnp.arange(1.0, dim + 1.0)
     logits = jnp.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
     def model(data, labels):
         coefs = numpyro.sample("coefs", dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
@@ -232,14 +232,14 @@ def test_iaf():
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_key_init = random.PRNGKey(1)
+    rng_key_init = random.key(1)
     guide = AutoIAFNormal(model)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data, labels)
     params = svi.get_params(svi_state)
 
-    x = random.normal(random.PRNGKey(0), (dim + 1,))
-    rng_key = random.PRNGKey(1)
+    x = random.normal(random.key(0), (dim + 1,))
+    rng_key = random.key(1)
     actual_sample = guide.sample_posterior(rng_key, params)
     actual_output = guide._unpack_latent(guide.get_transform(params)(x))
 
@@ -275,7 +275,7 @@ def test_iaf():
 
 def test_uniform_normal():
     true_coef = 0.9
-    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    data = true_coef + random.normal(random.key(0), (1000,))
 
     def model(data):
         alpha = numpyro.sample("alpha", dist.Uniform(0, 1))
@@ -290,7 +290,7 @@ def test_uniform_normal():
             numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_key_init = random.PRNGKey(1)
+    rng_key_init = random.key(1)
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data)
@@ -311,7 +311,7 @@ def test_uniform_normal():
 def test_param():
     # this test the validity of model having
     # param sites contain composed transformed constraints
-    rng_keys = random.split(random.PRNGKey(0), 3)
+    rng_keys = random.split(random.key(0), 3)
     a_minval = 1
     a_init = jnp.exp(random.normal(rng_keys[0])) + a_minval
     b_init = jnp.exp(random.normal(rng_keys[1]))
@@ -330,7 +330,7 @@ def test_param():
             )(*args, **kwargs)
 
     adam = optim.Adam(0.01)
-    rng_key_init = random.PRNGKey(1)
+    rng_key_init = random.key(1)
     guide = _AutoGuide(model)
     svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init)
@@ -351,7 +351,7 @@ def test_param():
 
 def test_dynamic_supports():
     true_coef = 0.9
-    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    data = true_coef + random.normal(random.key(0), (1000,))
 
     def actual_model(data):
         alpha = numpyro.sample("alpha", dist.Uniform(0, 1))
@@ -372,7 +372,7 @@ def test_dynamic_supports():
             numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_key_init = random.PRNGKey(1)
+    rng_key_init = random.key(1)
 
     guide = AutoDiagonalNormal(actual_model)
     svi = SVI(actual_model, guide, adam, Trace_ELBO())
@@ -407,15 +407,15 @@ def test_laplace_approximation_warning():
         with numpyro.plate("N", len(x)):
             numpyro.sample("y", dist.Normal(mu, 0.00001), obs=y)
 
-    x = random.normal(random.PRNGKey(0), (3,))
+    x = random.normal(random.key(0), (3,))
     y = 1 + 2 * x + 3 * x**2 + 4 * x**3
     guide = AutoLaplaceApproximation(model)
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
-    init_state = svi.init(random.PRNGKey(0))
+    init_state = svi.init(random.key(0))
     svi_state = fori_loop(0, 10000, lambda i, val: svi.update(val)[0], init_state)
     params = svi.get_params(svi_state)
     with pytest.warns(UserWarning, match="Hessian of log posterior"):
-        guide.sample_posterior(random.PRNGKey(1), params)
+        guide.sample_posterior(random.key(1), params)
 
 
 def test_laplace_approximation_custom_hessian():
@@ -426,18 +426,18 @@ def test_laplace_approximation_custom_hessian():
         with numpyro.plate("N", len(x)):
             numpyro.sample("y", dist.Normal(mu, 1), obs=y)
 
-    x = random.normal(random.PRNGKey(0), (100,))
+    x = random.normal(random.key(0), (100,))
     y = 1 + 2 * x
     guide = AutoLaplaceApproximation(
         model, hessian_fn=lambda f, x: jacobian(jacobian(f))(x)
     )
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
-    svi_result = svi.run(random.PRNGKey(0), 10000, progress_bar=False)
+    svi_result = svi.run(random.key(0), 10000, progress_bar=False)
     guide.get_transform(svi_result.params)
 
 
 def test_improper():
-    y = random.normal(random.PRNGKey(0), (100,))
+    y = random.normal(random.key(0), (100,))
 
     def model(y):
         lambda1 = numpyro.sample(
@@ -455,13 +455,13 @@ def test_improper():
 
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, optim.Adam(0.003), Trace_ELBO(), y=y)
-    svi_state = svi.init(random.PRNGKey(2))
+    svi_state = svi.init(random.key(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(10000))
 
 
 def test_module():
-    x = random.normal(random.PRNGKey(0), (100, 10))
-    y = random.normal(random.PRNGKey(1), (100,))
+    x = random.normal(random.key(0), (100, 10))
+    y = random.normal(random.key(1), (100,))
 
     def model(x, y):
         nn = numpyro.module("nn", Dense(1), (10,))
@@ -472,7 +472,7 @@ def test_module():
 
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, optim.Adam(0.003), Trace_ELBO(), x=x, y=y)
-    svi_state = svi.init(random.PRNGKey(2))
+    svi_state = svi.init(random.key(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(1000))
 
 
@@ -513,7 +513,7 @@ def test_subsample_guide(auto_class):
 
     svi = SVI(model, guide, optim.Adam(0.02), Trace_ELBO())
     svi_state = svi.init(
-        random.PRNGKey(0),
+        random.key(0),
         data[:, :batch_size],
         jnp.arange(batch_size),
         full_size=full_size,
@@ -552,7 +552,7 @@ def test_autoguide_deterministic(auto_class):
         numpyro.deterministic("z", (y - mu) / sigma)
 
     mu, sigma = 2, 3
-    y = mu + sigma * random.normal(random.PRNGKey(0), shape=(300,))
+    y = mu + sigma * random.normal(random.key(0), shape=(300,))
     y_train = y[:200]
     y_test = y[200:]
 
@@ -560,15 +560,15 @@ def test_autoguide_deterministic(auto_class):
     optimiser = numpyro.optim.Adam(step_size=0.01)
     svi = SVI(model, guide, optimiser, Trace_ELBO())
 
-    svi_result = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
+    svi_result = svi.run(random.key(0), num_steps=500, y=y_train)
     params = svi_result.params
     posterior_samples = guide.sample_posterior(
-        random.PRNGKey(0), params, sample_shape=(1000,)
+        random.key(0), params, sample_shape=(1000,)
     )
 
     posterior_samples.pop("z")
     predictive = Predictive(model, posterior_samples, params=params)
-    predictive_samples = predictive(random.PRNGKey(0), y_test)
+    predictive_samples = predictive(random.key(0), y_test)
 
     assert predictive_samples["y"].shape == (1000, 100)
     assert predictive_samples["z"].shape == (1000, 100)
@@ -591,7 +591,7 @@ def test_plate_inconsistent(size, dim):
     guide = AutoDelta(model)
     svi = SVI(model, guide, numpyro.optim.Adam(step_size=0.1), Trace_ELBO())
     with pytest.raises(AssertionError, match="has inconsistent dim or size"):
-        svi.run(random.PRNGKey(0), 10)
+        svi.run(random.key(0), 10)
 
 
 @pytest.mark.parametrize(
@@ -675,7 +675,7 @@ def test_autodais_subsampling_error():
     svi = SVI(model, guide, adam, Trace_ELBO())
 
     with pytest.raises(NotImplementedError, match=".*data subsampling.*"):
-        svi.init(random.PRNGKey(1), data)
+        svi.init(random.key(1), data)
 
 
 def test_subsample_model_with_deterministic():
@@ -687,8 +687,8 @@ def test_subsample_model_with_deterministic():
 
     guide = AutoNormal(model)
     svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 10)
-    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    svi_result = svi.run(random.key(0), 10)
+    samples = guide.sample_posterior(random.key(1), svi_result.params)
     assert "x2" in samples
 
 
@@ -700,7 +700,7 @@ def test_autocontinuous_local_error():
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
     with pytest.raises(ValueError, match="local latent variables"):
-        svi.init(random.PRNGKey(0))
+        svi.init(random.key(0))
 
 
 def test_init_to_scalar_value():
@@ -709,7 +709,7 @@ def test_init_to_scalar_value():
 
     guide = AutoDiagonalNormal(model, init_loc_fn=init_to_value(values={"x": 1.0}))
     svi = SVI(model, guide, optim.Adam(1.0), Trace_ELBO())
-    svi.init(random.PRNGKey(0))
+    svi.init(random.key(0))
 
 
 def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples=5000):
@@ -749,16 +749,16 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
         model16, partial(local_model, 16), base_guide, K=4, eta_max=0.25, eta_init=0.005
     )
     svi_result16 = SVI(model16, guide16, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(0), num_steps
+        random.key(0), num_steps
     )
 
     assert svi_result16.params["auto_eta_coeff"].mean() > 0.2
 
-    samples16 = guide16.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    samples16 = guide16.sample_posterior(random.key(1), svi_result16.params)
     assert samples16["theta"].shape == (P,) and samples16["tau"].shape == (16,)
 
     dais_elbo16 = Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(0), svi_result16.params, model16, guide16
+        random.key(0), svi_result16.params, model16, guide16
     )
     dais_elbo16 = -dais_elbo16.item()
 
@@ -767,11 +767,11 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     )
     with handlers.seed(rng_seed=0):
         guide12()  # initialize guide since we are not training this guide
-    samples12 = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
+    samples12 = guide12.sample_posterior(random.key(1), svi_result16.params)
     assert samples12["theta"].shape == (P,) and samples12["tau"].shape == (12,)
 
     dais_elbo12 = Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(0), svi_result16.params, model12, guide12
+        random.key(0), svi_result16.params, model12, guide12
     )
     dais_elbo12 = -dais_elbo12.item()
     assert_allclose(dais_elbo12, dais_elbo16, atol=0.05)
@@ -781,11 +781,11 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
 
     mf_guide = AutoNormal(model16, create_plates=create_plates)
     mf_svi_result = SVI(model16, mf_guide, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(0), num_steps
+        random.key(0), num_steps
     )
 
     mf_elbo = Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(0), mf_svi_result.params, model16, mf_guide
+        random.key(0), mf_svi_result.params, model16, mf_guide
     )
     mf_elbo = -mf_elbo.item()
     assert dais_elbo16 > mf_elbo + 0.1
@@ -793,12 +793,12 @@ def test_autosemidais(N=18, P=3, sigma_obs=0.1, num_steps=45 * 1000, num_samples
     with handlers.substitute(
         data={"N": jnp.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}
     ):
-        samples_one = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
+        samples_one = guide12.sample_posterior(random.key(1), svi_result16.params)
 
     with handlers.substitute(
         data={"N": jnp.array([0, 2, 9, 10, 11, 12, 13, 14, 3, 4, 5, 6])}
     ):
-        samples_two = guide12.sample_posterior(random.PRNGKey(1), svi_result16.params)
+        samples_two = guide12.sample_posterior(random.key(1), svi_result16.params)
     assert_allclose(samples_one["theta"], samples_two["theta"])
     assert_allclose(samples_one["tau"][:2], samples_two["tau"][:2])
     assert jnp.min(jnp.abs(samples_one["tau"][2:] - samples_two["tau"][2:])) > 1e-5
@@ -833,8 +833,8 @@ def test_autosemidais_admissible_smoke():
     base_guide = AutoNormal(global_model)
     guide = AutoSemiDAIS(model, local_model1, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 10)
-    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    svi_result = svi.run(random.key(0), 10)
+    samples = guide.sample_posterior(random.key(1), svi_result.params)
     assert samples["theta"].shape == () and samples["tau"].shape == (2,)
     assert samples["sigma"].shape == (20, 5)
     assert samples["log_sigma"].shape == (20, 5, 2)
@@ -858,8 +858,8 @@ def test_autosemidais_admissible_smoke():
     base_guide = AutoNormal(global_model)
     guide = AutoSemiDAIS(model, local_model2, base_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 10)
-    samples = guide.sample_posterior(random.PRNGKey(1), svi_result.params)
+    svi_result = svi.run(random.key(0), 10)
+    samples = guide.sample_posterior(random.key(1), svi_result.params)
     assert samples["theta"].shape == () and samples["tau"].shape == (2,)
     assert samples["sigma"].shape == (5,) and samples["log_sigma"].shape == (5, 2)
 
@@ -878,9 +878,9 @@ def test_autosemidais_local_only():
     local_guide = AutoNormal(model, create_plates=create_plates)
     guide = AutoSemiDAIS(model, model, None, local_guide=local_guide)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 10)
+    svi_result = svi.run(random.key(0), 10)
     samples = guide.sample_posterior(
-        random.PRNGKey(1), svi_result.params, sample_shape=(100,)
+        random.key(1), svi_result.params, sample_shape=(100,)
     )
     assert samples["x"].shape == (100, 5)
 
@@ -907,7 +907,7 @@ def test_autosemidais_inadmissible_smoke():
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
 
     with pytest.raises(AssertionError, match="contains exactly 1 plate"):
-        svi.run(random.PRNGKey(0), 10)
+        svi.run(random.key(0), 10)
 
     def model2():
         return local_model2(global_model())
@@ -915,7 +915,7 @@ def test_autosemidais_inadmissible_smoke():
     guide = AutoSemiDAIS(model2, local_model2, base_guide)
     svi = SVI(model2, guide, optim.Adam(0.01), Trace_ELBO())
     with pytest.raises(RuntimeError, match="are no local variables"):
-        svi.run(random.PRNGKey(0), 10)
+        svi.run(random.key(0), 10)
 
 
 def test_autosldais(
@@ -946,7 +946,7 @@ def test_autosldais(
     X = RandomState(0).randn(N, D)
     X[:, 2] = X[:, 0] + X[:, 1]
     logits = X[:, 0] - 0.5 * X[:, 1]
-    Y = dist.Bernoulli(logits=logits).sample(random.PRNGKey(0))
+    Y = dist.Bernoulli(logits=logits).sample(random.key(0))
 
     model = partial(_model, X, Y)
     surrogate_model = partial(_surrogate_model, X[:num_surrogate], Y[:num_surrogate])
@@ -963,14 +963,14 @@ def test_autosldais(
         model, surrogate_model, K=3, eta_max=0.25, eta_init=0.005
     )
     svi_result = SVI(model, guide, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(1), num_steps
+        random.key(1), num_steps
     )
 
-    samples = guide.sample_posterior(random.PRNGKey(2), svi_result.params)
+    samples = guide.sample_posterior(random.key(2), svi_result.params)
     assert samples["theta"].shape == (D,)
 
     dais_elbo = Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(0), svi_result.params, model, guide
+        random.key(0), svi_result.params, model, guide
     )
     dais_elbo = -dais_elbo.item()
 
@@ -979,11 +979,11 @@ def test_autosldais(
 
     mf_guide = AutoNormal(model, create_plates=create_plates)
     mf_svi_result = SVI(model, mf_guide, _get_optim(), Trace_ELBO()).run(
-        random.PRNGKey(0), num_steps
+        random.key(0), num_steps
     )
 
     mf_elbo = Trace_ELBO(num_particles=num_samples).loss(
-        random.PRNGKey(1), mf_svi_result.params, model, mf_guide
+        random.key(1), mf_svi_result.params, model, mf_guide
     )
     mf_elbo = -mf_elbo.item()
 
@@ -997,9 +997,9 @@ def test_autodelta_capture_deterministic_variables():
 
     guide = AutoDelta(model)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+    svi_result = svi.run(random.key(0), num_steps=1_000)
     guide_samples = guide.sample_posterior(
-        rng_key=random.PRNGKey(1), params=svi_result.params
+        rng_key=random.key(1), params=svi_result.params
     )
     assert "x2" in guide_samples
 
@@ -1013,9 +1013,9 @@ def test_autodelta_sample_posterior_with_sample_shape(shape, sample_shape):
 
     guide = AutoDelta(model)
     svi = SVI(model, guide, optim.Adam(0.01), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+    svi_result = svi.run(random.key(0), num_steps=1_000)
     guide_samples = guide.sample_posterior(
-        rng_key=random.PRNGKey(1), params=svi_result.params, sample_shape=sample_shape
+        rng_key=random.key(1), params=svi_result.params, sample_shape=sample_shape
     )
     assert guide_samples["x"].shape == sample_shape + shape
     assert guide_samples["x2"].shape == sample_shape + shape
@@ -1051,8 +1051,8 @@ def test_autoguidelist(auto_classes, Elbo):
     N = 500
     a = 1
     b = jnp.asarray([[-0.5], [-1]])
-    x = random.normal(random.PRNGKey(0), (N, 2))
-    y = a + x @ b + sigma * random.normal(random.PRNGKey(1), (N, 1))
+    x = random.normal(random.key(0), (N, 2))
+    y = a + x @ b + sigma * random.normal(random.key(1), (N, 1))
 
     guide = AutoGuideList(model)
     guide.append(auto_classes[0](numpyro.handlers.block(model, expose=["a"])))
@@ -1095,10 +1095,10 @@ def test_autoguidelist(auto_classes, Elbo):
     optimiser = numpyro.optim.Adam(step_size=0.1)
     svi = SVI(model, guide, optimiser, Elbo())
 
-    svi_result = svi.run(random.PRNGKey(0), num_steps=500, x=x, y=y)
+    svi_result = svi.run(random.key(0), num_steps=500, x=x, y=y)
     params = svi_result.params
     posterior_samples = guide.sample_posterior(
-        random.PRNGKey(0), params, x=x, sample_shape=(1_000,)
+        random.key(0), params, x=x, sample_shape=(1_000,)
     )
 
     assert posterior_samples["a"].shape == (1_000,)
@@ -1109,12 +1109,12 @@ def test_autoguidelist(auto_classes, Elbo):
 
     # Predictive can be instantiated from posterior samples...
     predictive = Predictive(model, posterior_samples=posterior_samples)
-    predictive_samples = predictive(random.PRNGKey(1), x)
+    predictive_samples = predictive(random.key(1), x)
     assert predictive_samples["y"].shape == (1_000, N, 1)
 
     # ... or from the guide + params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1_000)
-    predictive_samples = predictive(random.PRNGKey(1), x)
+    predictive_samples = predictive(random.key(1), x)
     assert predictive_samples["y"].shape == (1_000, N, 1)
 
     # median and quantiles from guide
@@ -1207,16 +1207,16 @@ def test_autoguidelist_sample_posterior_with_sample_shape(
             ValueError,
             match="latent dim = 1. Consider using AutoDiagonalNormal instead",
         ):
-            svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+            svi_result = svi.run(random.key(0), num_steps=1_000)
             guide_samples = guide.sample_posterior(
-                rng_key=random.PRNGKey(1),
+                rng_key=random.key(1),
                 params=svi_result.params,
                 sample_shape=sample_shape,
             )
     else:
-        svi_result = svi.run(random.PRNGKey(0), num_steps=1_000)
+        svi_result = svi.run(random.key(0), num_steps=1_000)
         guide_samples = guide.sample_posterior(
-            rng_key=random.PRNGKey(1),
+            rng_key=random.key(1),
             params=svi_result.params,
             sample_shape=sample_shape,
         )
@@ -1236,9 +1236,9 @@ def test_dais_vae(use_global_dais_params):
         model, model, subsample_plate="N", use_global_dais_params=use_global_dais_params
     )
     svi = SVI(model, guide, optax.adam(0.02), Trace_ELBO())
-    svi_results = svi.run(random.PRNGKey(0), 5000)
+    svi_results = svi.run(random.key(0), 5000)
     samples = guide.sample_posterior(
-        random.PRNGKey(1), svi_results.params, sample_shape=(1000,)
+        random.key(1), svi_results.params, sample_shape=(1000,)
     )
     if use_global_dais_params:
         assert_allclose(
@@ -1269,10 +1269,8 @@ def test_auto_batched(auto_class) -> None:
     # Run inference.
     guide = auto_class(model)
     svi = SVI(model, guide, optax.adam(0.001), Trace_ELBO())
-    result = svi.run(random.PRNGKey(0), 10000)
-    samples = guide.sample_posterior(
-        random.PRNGKey(1), result.params, sample_shape=(1000,)
-    )
+    result = svi.run(random.key(0), 10000)
+    samples = guide.sample_posterior(random.key(1), result.params, sample_shape=(1000,))
 
     # Verify off-diagonal entries are correlated.
     empirical_covs = vmap(jnp.cov)(jnp.moveaxis(samples["x"], 0, 2))

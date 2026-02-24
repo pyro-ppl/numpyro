@@ -165,18 +165,17 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
     jitted_out_t = jit(out_t)
 
     assert jitted_in_t(transform, 1.0) == 1.0
-    assert jitted_out_t(transform, 1.0) == transform
+    assert jitted_out_t(transform, 1.0).eq(transform)
 
-    assert jitted_out_t(transform.inv, 1.0) == transform.inv
+    assert jitted_out_t(transform.inv, 1.0).eq(transform.inv)
 
     assert jnp.allclose(
         vmap(in_t, in_axes=(None, 0), out_axes=0)(transform, jnp.ones(3)),
         jnp.ones(3),
     )
 
-    assert (
-        vmap(out_t, in_axes=(None, 0), out_axes=None)(transform, jnp.ones(3))
-        == transform
+    assert vmap(out_t, in_axes=(None, 0), out_axes=None)(transform, jnp.ones(3)).eq(
+        transform
     )
 
     if len(transform_args) > 0:
@@ -189,7 +188,7 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
         vmapped_transform = jit(
             vmap(lambda args: cls(*args, **transform_kwargs), in_axes=(0,))
         )(vmapped_transform_args)
-        assert vmap(lambda x: x == transform, in_axes=0)(vmapped_transform).all()
+        assert vmap(lambda x: x.eq(transform), in_axes=0)(vmapped_transform).all()
 
         twice_vmapped_transform_args = jax.tree.map(
             lambda x: x[None], vmapped_transform_args
@@ -201,7 +200,7 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
                 in_axes=(0,),
             )
         )(twice_vmapped_transform_args)
-        assert vmap(vmap(lambda x: x == transform, in_axes=0), in_axes=0)(
+        assert vmap(vmap(lambda x: x.eq(transform), in_axes=0), in_axes=0)(
             vmapped_transform
         ).all()
 
@@ -214,14 +213,14 @@ def test_parametrized_transform_pytree(cls, transform_args, transform_kwargs):
 def test_parametrized_transform_eq(cls, transform_args, transform_kwargs):
     transform = cls(*transform_args, **transform_kwargs)
     transform2 = cls(*transform_args, **transform_kwargs)
-    assert transform == transform2
+    assert transform.eq(transform2)
     assert transform != 1.0
 
     # check that equality checks are robust to transforms parametrized
     # by abstract values
     @jit
     def check_transforms(t1, t2):
-        return t1 == t2
+        return t1.eq(t2)
 
     assert check_transforms(transform, transform2)
 

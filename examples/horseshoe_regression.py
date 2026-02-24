@@ -133,7 +133,7 @@ def main(args):
     X, Y = get_data(N=N, D_X=D_X, response="continuous")
 
     # do inference
-    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
+    rng_key, rng_key_predict = random.split(random.key(0))
     summary = run_inference(model_normal_likelihood, args, rng_key, X, Y)
 
     # lambda should only be large for the first 3 dimensions, which
@@ -150,7 +150,7 @@ def main(args):
     X, Y = get_data(N=4 * N, D_X=D_X, response="binary")
 
     # do inference
-    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
+    rng_key, rng_key_predict = random.split(random.key(0))
     summary = run_inference(model_bernoulli_likelihood, args, rng_key, X, Y)
 
     # lambda should only be large for the first 3 dimensions, which
@@ -162,7 +162,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Horseshoe regression example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

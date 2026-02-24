@@ -146,7 +146,7 @@ def main(args):
     X, Y, X_test = get_data(N=args.num_data)
 
     # do inference
-    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
+    rng_key, rng_key_predict = random.split(random.key(0))
     samples = run_inference(model, args, rng_key, X, Y)
 
     # do prediction
@@ -180,7 +180,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

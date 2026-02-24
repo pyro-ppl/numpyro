@@ -169,7 +169,7 @@ def test_neals_funnel_smoke():
 
     guide = AutoIAFNormal(neals_funnel)
     svi = SVI(neals_funnel, guide, Adam(1e-10), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0), dim)
+    svi_state = svi.init(random.key(0), dim)
 
     def body_fn(i, val):
         svi_state, loss = svi.update(val, dim)
@@ -182,7 +182,7 @@ def test_neals_funnel_smoke():
     model = neutra.reparam(neals_funnel)
     nuts = NUTS(model)
     mcmc = MCMC(nuts, num_warmup=50, num_samples=50)
-    mcmc.run(random.PRNGKey(1), dim)
+    mcmc.run(random.key(1), dim)
     samples = mcmc.get_samples()
     transformed_samples = neutra.transform_sample(samples["auto_shared_latent"])
     assert "x" in transformed_samples
@@ -199,13 +199,13 @@ def test_neals_funnel_smoke():
 def test_reparam_log_joint(model, kwargs):
     guide = AutoIAFNormal(model)
     svi = SVI(model, guide, Adam(1e-10), Trace_ELBO(), **kwargs)
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     params = svi.get_params(svi_state)
     neutra = NeuTraReparam(guide, params)
     reparam_model = neutra.reparam(model)
-    _, pe_fn, _, _ = initialize_model(random.PRNGKey(1), model, model_kwargs=kwargs)
+    _, pe_fn, _, _ = initialize_model(random.key(1), model, model_kwargs=kwargs)
     init_params, pe_fn_neutra, _, _ = initialize_model(
-        random.PRNGKey(2), reparam_model, model_kwargs=kwargs
+        random.key(2), reparam_model, model_kwargs=kwargs
     )
     latent_x = list(init_params[0].values())[0]
     pe_transformed = pe_fn_neutra(init_params[0])
@@ -220,7 +220,7 @@ def test_neutra_reparam_unobserved_model():
     data = jnp.ones(10, dtype=jnp.int32)
     guide = AutoIAFNormal(model)
     svi = SVI(model, guide, Adam(1e-3), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0), data)
+    svi_state = svi.init(random.key(0), data)
     params = svi.get_params(svi_state)
     neutra = NeuTraReparam(guide, params)
     reparam_model = neutra.reparam(model)
@@ -236,7 +236,7 @@ def test_neutra_reparam_with_plate():
 
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, Adam(1e-3), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     params = svi.get_params(svi_state)
     neutra = NeuTraReparam(guide, params)
     reparam_model = neutra.reparam(model)
@@ -366,7 +366,7 @@ def test_circular(shape):
     def get_actual_probe(loc, concentration):
         kernel = NUTS(model_act, dense_mass=True)
         mcmc = MCMC(kernel, num_warmup=1000, num_samples=10000, num_chains=1)
-        mcmc.run(random.PRNGKey(0), loc, concentration)
+        mcmc.run(random.key(0), loc, concentration)
         samples = mcmc.get_samples()
         return get_circular_moments(samples["x"])
 
@@ -436,6 +436,6 @@ def test_explicit_reparam():
     reparametrized = handlers.reparam(model, {"x": reparam})
     kernel = NUTS(model=reparametrized)
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=1)
-    mcmc.run(random.PRNGKey(2))
+    mcmc.run(random.key(2))
     samples = mcmc.get_samples()
     assert abs(samples["x"].mean() - 1) < 0.1

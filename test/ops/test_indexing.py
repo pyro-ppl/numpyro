@@ -107,8 +107,8 @@ def test_shape(expression, expected_shape):
 @pytest.mark.parametrize("x_shape", [(), (2,), (3, 1), (4, 1, 1), (4, 3, 2)], ids=str)
 def test_value(x_shape, i_shape, j_shape, event_shape):
     x = jnp.array(np.random.rand(*(x_shape + (5, 6) + event_shape)))
-    i = dist.Categorical(jnp.ones((5,))).sample(random.PRNGKey(1), i_shape)
-    j = dist.Categorical(jnp.ones((6,))).sample(random.PRNGKey(2), j_shape)
+    i = dist.Categorical(jnp.ones((5,))).sample(random.key(1), i_shape)
+    j = dist.Categorical(jnp.ones((6,))).sample(random.key(2), j_shape)
     if event_shape:
         actual = Vindex(x)[..., i, j, :]
     else:

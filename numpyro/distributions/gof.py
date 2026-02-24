@@ -209,19 +209,11 @@ def volume_of_sphere(dim, radius):
 
 
 def get_nearest_neighbor_distances(samples):
-    try:
-        # This version scales as O(N log(N)).
-        from scipy.spatial import cKDTree
+    # This version scales as O(N log(N)).
+    from scipy.spatial import cKDTree
 
-        distances, indices = cKDTree(samples).query(samples, k=2)
-        return distances[:, 1]
-    except ImportError:
-        # This version scales as O(N^2).
-        x = samples
-        x2 = (x * x).sum(-1)
-        d2 = x2[:, None] + x2 - 2 * x @ x.T
-        min_d2 = np.partition(d2, 1)[:, 1]
-        return np.sqrt(np.clip(min_d2, 0, None))
+    distances, indices = cKDTree(samples).query(samples, k=2)
+    return distances[:, 1]
 
 
 def vector_density_goodness_of_fit(samples, probs, *, dim=None, plot=False):

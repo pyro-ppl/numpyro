@@ -183,7 +183,7 @@ Other kernels can be used similarly.
         ...     return x, y_obs
 
 
-        >>> rng_key = random.PRNGKey(seed=42)
+        >>> rng_key = random.key(seed=42)
         >>> rng_key, rng_subkey = random.split(rng_key)
         >>> x, y_obs = generate_synthetic_data(
         ...     rng_key=rng_subkey, start=0, stop=1, num=80, scale=0.3

@@ -45,15 +45,15 @@ def test_gaussian_mixture_model():
     true_cluster_means = jnp.array([1.0, 5.0, 10.0])
     true_mix_proportions = jnp.array([0.1, 0.3, 0.6])
     cluster_assignments = dist.Categorical(true_mix_proportions).sample(
-        random.PRNGKey(0), (N,)
+        random.key(0), (N,)
     )
     data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(
-        random.PRNGKey(1)
+        random.key(1)
     )
 
     nuts_kernel = NUTS(gmm, init_strategy=init_to_median)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
-    mcmc.run(random.PRNGKey(2), data)
+    mcmc.run(random.key(2), data)
     samples = mcmc.get_samples()
     assert_allclose(samples["phi"].mean(0).sort(), true_mix_proportions, atol=0.05)
     assert_allclose(
@@ -72,13 +72,13 @@ def test_bernoulli_latent_model():
 
     N = 2000
     y_prob = 0.3
-    y = dist.Bernoulli(y_prob).sample(random.PRNGKey(0), (N,))
-    z = dist.Bernoulli(0.65 * y + 0.1).sample(random.PRNGKey(1))
-    data = dist.Normal(2.0 * z, 1.0).sample(random.PRNGKey(2))
+    y = dist.Bernoulli(y_prob).sample(random.key(0), (N,))
+    z = dist.Bernoulli(0.65 * y + 0.1).sample(random.key(1))
+    data = dist.Normal(2.0 * z, 1.0).sample(random.key(2))
 
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
-    mcmc.run(random.PRNGKey(3), data)
+    mcmc.run(random.key(3), data)
     samples = mcmc.get_samples()
     assert_allclose(samples["y_prob"].mean(0), y_prob, atol=0.05)
 
@@ -107,7 +107,7 @@ def test_change_point():
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500)
-    mcmc.run(random.PRNGKey(0), count_data)
+    mcmc.run(random.key(0), count_data)
     samples = mcmc.get_samples()
     assert_allclose(samples["lambda_1"].mean(0), 18.0, atol=1.0)
     assert_allclose(samples["lambda_2"].mean(0), 22.5, atol=1.5)
@@ -147,7 +147,7 @@ def test_gaussian_hmm():
     data = _generate_data()
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
-    mcmc.run(random.PRNGKey(0), data)
+    mcmc.run(random.key(0), data)
 
 
 def test_iteration():
@@ -222,13 +222,13 @@ def test_nested_plate():
     with enum(first_available_dim=-3):
         with enum_plate("a", 5):
             with enum_plate("b", 2):
-                x = numpyro.sample("x", dist.Normal(0, 1), rng_key=random.PRNGKey(0))
+                x = numpyro.sample("x", dist.Normal(0, 1), rng_key=random.key(0))
                 assert x.shape == (2, 5)
 
 
 @pytest.mark.parametrize("num_steps", [1, 10, 11])
 def test_scan_enum_one_latent(num_steps):
-    data = random.normal(random.PRNGKey(0), (num_steps,))
+    data = random.normal(random.key(0), (num_steps,))
     init_probs = jnp.array([0.6, 0.4])
     transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
     locs = jnp.array([-1.0, 1.0])
@@ -265,7 +265,7 @@ def test_scan_enum_one_latent(num_steps):
 
 def test_scan_enum_plate():
     N, D = 10, 3
-    data = random.normal(random.PRNGKey(0), (N, D))
+    data = random.normal(random.key(0), (N, D))
     init_probs = jnp.array([0.6, 0.4])
     transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
     locs = jnp.array([-1.0, 1.0])
@@ -300,7 +300,7 @@ def test_scan_enum_plate():
 
 def test_scan_enum_separated_plates_same_dim():
     N, D1, D2 = 10, 3, 4
-    data = random.normal(random.PRNGKey(0), (N, D1 + D2))
+    data = random.normal(random.key(0), (N, D1 + D2))
     data1, data2 = data[:, :D1], data[:, D1:]
     init_probs = jnp.array([0.6, 0.4])
     transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
@@ -342,7 +342,7 @@ def test_scan_enum_separated_plates_same_dim():
 
 def test_scan_enum_separated_plate_discrete():
     N, D = 10, 3
-    data = random.normal(random.PRNGKey(0), (N, D))
+    data = random.normal(random.key(0), (N, D))
     transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
     locs = jnp.array([[-1.0, 1.0], [2.0, 3.0]])
 
@@ -377,7 +377,7 @@ def test_scan_enum_separated_plate_discrete():
 
 
 def test_scan_enum_discrete_outside():
-    data = random.normal(random.PRNGKey(0), (10,))
+    data = random.normal(random.key(0), (10,))
     probs = jnp.array([[[0.8, 0.2], [0.1, 0.9]], [[0.7, 0.3], [0.6, 0.4]]])
     locs = jnp.array([-1.0, 1.0])
 
@@ -407,7 +407,7 @@ def test_scan_enum_discrete_outside():
 
 def test_scan_enum_two_latents():
     num_steps = 11
-    data = random.normal(random.PRNGKey(0), (num_steps,))
+    data = random.normal(random.key(0), (num_steps,))
     probs_x = jnp.array([[0.8, 0.2], [0.1, 0.9]])
     probs_w = jnp.array([[0.7, 0.3], [0.6, 0.4]])
     locs = jnp.array([[-1.0, 1.0], [2.0, 3.0]])
@@ -439,7 +439,7 @@ def test_scan_enum_two_latents():
 
 def test_scan_enum_scan_enum():
     num_steps = 11
-    data_x = random.normal(random.PRNGKey(0), (num_steps,))
+    data_x = random.normal(random.key(0), (num_steps,))
     data_w = data_x[:-1] + 1
     probs_x = jnp.array([[0.8, 0.2], [0.1, 0.9]])
     probs_w = jnp.array([[0.7, 0.3], [0.6, 0.4]])
@@ -560,20 +560,20 @@ def test_missing_plate(monkeypatch):
     true_cluster_means = jnp.array([1.0, 5.0, 10.0])
     true_mix_proportions = jnp.array([0.1, 0.3, 0.6])
     cluster_assignments = dist.Categorical(true_mix_proportions).sample(
-        random.PRNGKey(0), (N,)
+        random.key(0), (N,)
     )
     data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(
-        random.PRNGKey(1)
+        random.key(1)
     )
 
     nuts_kernel = NUTS(gmm)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
     with pytest.raises(ValueError, match="Missing a plate statement"):
-        mcmc.run(random.PRNGKey(2), data)
+        mcmc.run(random.key(2), data)
 
     monkeypatch.setattr(numpyro.infer.util, "_validate_model", lambda model_trace: None)
     with pytest.raises(Exception):
-        mcmc.run(random.PRNGKey(2), data)
+        mcmc.run(random.key(2), data)
     assert len(_PYRO_STACK) == 0
 
 
