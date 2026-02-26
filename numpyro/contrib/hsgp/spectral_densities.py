@@ -52,6 +52,38 @@ def spectral_density_squared_exponential(
     e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
     return c * e
 
+def log_spectral_density_squared_exponential(
+    dim: int, w: ArrayLike, alpha: float, length: float | ArrayLike
+) -> Array:
+    """
+    Spectral density of the squared exponential kernel.
+
+    See Section 4.2 in [1] and Section 2.1 in [2].
+
+    .. math::
+
+        S(\\boldsymbol{\\omega}) = \\alpha (\\sqrt{2\\pi})^D \\ell^D
+            \\exp\\left(-\\frac{1}{2} \\ell^2 \\boldsymbol{\\omega}^{T} \\boldsymbol{\\omega}\\right)
+
+
+    **References:**
+
+        1. Rasmussen, C. E., & Williams, C. K. I. (2006). Gaussian Processes for Machine Learning.
+
+        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+    :param int dim: dimension
+    :param ArrayLike w: frequency
+    :param float alpha: amplitude
+    :param float length: length scale
+    :return: spectral density value
+    :rtype: Array
+    """
+    length = align_param(dim, length)
+    c = jnp.log(alpha) + jnp.sum(0.5*jnp.log(2*jnp.pi) + jnp.log(length), axis=-1)
+    e = -0.5 * jnp.sum(w**2 * length**2, axis=-1)
+    return c + e
 
 def spectral_density_matern(
     dim: int, nu: float, w: ArrayLike, alpha: float, length: float | ArrayLike
@@ -96,6 +128,14 @@ def spectral_density_matern(
     c3 = special.gamma(nu)
     return c1 * c2 / c3
 
+# def log_diag_spectral_density_squared_exponential(
+#     length: float | list[float],
+#     max_basis_size: int,
+#     alpha: float | list[float],
+# ) -> Array:
+#     S = jnp.arange(1, max_basis_size + 1)
+#     sqrt_eigenvalues_ = S * jnp.pi / 2 / ell 
+#     return jnp.log(alpha) + 0.5*jnp.log(2*jnp.pi) + jnp.log(length) - 0.5*sqrt_eigenvalues_**2 * length**2
 
 def diag_spectral_density_squared_exponential(
     alpha: float,
