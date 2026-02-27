@@ -1,41 +1,67 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from collections.abc import Callable
+from typing import Any, NamedTuple, cast
 
 import jax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
+from numpyro._typing import LogDensityFn, NumLike, PyTree
 from numpyro.diagnostics import effective_sample_size
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
 
-MCLMCState = namedtuple(
-    "MCLMCState", ["position", "momentum", "logdensity", "logdensity_grad"]
-)
-MCLMCInfo = namedtuple("MCLMCInfo", ["logdensity", "kinetic_change", "energy_change"])
-MCLMCAdaptationState = namedtuple(
-    "MCLMCAdaptationState", ["L", "step_size", "inverse_mass_matrix"]
-)
-FullState = namedtuple(
-    "FullState", ["position", "momentum", "logdensity", "logdensity_grad", "rng_key"]
-)
+
+class MCLMCState(NamedTuple):
+    position: PyTree
+    momentum: PyTree
+    logdensity: NumLike
+    logdensity_grad: PyTree
+
+
+class MCLMCInfo(NamedTuple):
+    logdensity: NumLike
+    kinetic_change: NumLike
+    energy_change: NumLike
+
+
+class MCLMCAdaptationState(NamedTuple):
+    L: NumLike
+    step_size: NumLike
+    inverse_mass_matrix: ArrayLike
+
+
+class FullState(NamedTuple):
+    position: PyTree
+    momentum: PyTree
+    logdensity: NumLike
+    logdensity_grad: PyTree
+    rng_key: jax.dtypes.prng_key
+
 
 # First momentum-stage coefficient in the 5-stage McLachlan splitting scheme.
-_MCLACHLAN_B1 = 0.1931833275037836
+_MCLACHLAN_B1: float = 0.1931833275037836
 # Palindromic integrator coefficients for one isokinetic McLachlan update.
-_MCLACHLAN_COEFS = (_MCLACHLAN_B1, 0.5, 1 - 2 * _MCLACHLAN_B1, 0.5, _MCLACHLAN_B1)
+_MCLACHLAN_COEFS: tuple[float, ...] = (
+    _MCLACHLAN_B1,
+    0.5,
+    1 - 2 * _MCLACHLAN_B1,
+    0.5,
+    _MCLACHLAN_B1,
+)
 # When NaNs are detected during adaptation, shrink step size by this factor.
-_DELTA_NAN_STEP_SIZE_FACTOR = 0.8
+_DELTA_NAN_STEP_SIZE_FACTOR: float = 0.8
 
 
-def _pytree_size(pytree):
+def _pytree_size(pytree: PyTree) -> int:
     return sum(jnp.size(leaf) for leaf in jax.tree.leaves(pytree))
 
 
-def _generate_unit_vector(rng_key, position):
+def _generate_unit_vector(rng_key: jax.dtypes.prng_key, position: PyTree) -> PyTree:
     flat_position, unravel_fn = ravel_pytree(position)
     sample = jax.random.normal(
         rng_key, shape=flat_position.shape, dtype=flat_position.dtype
@@ -44,8 +70,11 @@ def _generate_unit_vector(rng_key, position):
 
 
 def _incremental_value_update(
-    expectation, incremental_val, weight=1.0, zero_prevention=0.0
-):
+    expectation: ArrayLike,
+    incremental_val: tuple[NumLike, ArrayLike],
+    weight: NumLike = 1.0,
+    zero_prevention: NumLike = 0.0,
+) -> tuple[NumLike, ArrayLike]:
     total, average = incremental_val
     average = jax.tree.map(
         lambda exp, av: jnp.where(
@@ -59,7 +88,9 @@ def _incremental_value_update(
     return total + weight, average
 
 
-def _init_mclmc(position, logdensity_fn, rng_key):
+def _init_mclmc(
+    position: PyTree, logdensity_fn: LogDensityFn, rng_key: jax.dtypes.prng_key
+) -> MCLMCState:
     if _pytree_size(position) < 2:
         raise ValueError(
             "The target distribution must have more than 1 dimension for MCLMC."
@@ -73,7 +104,13 @@ def _init_mclmc(position, logdensity_fn, rng_key):
     )
 
 
-def _position_update(position, kinetic_grad, step_size, coef, logdensity_fn):
+def _position_update(
+    position: PyTree,
+    kinetic_grad: PyTree,
+    step_size: NumLike,
+    coef: NumLike,
+    logdensity_fn: LogDensityFn,
+) -> tuple[PyTree, NumLike, PyTree]:
     new_position = jax.tree.map(
         lambda x, grad: x + step_size * coef * grad,
         position,
@@ -83,19 +120,19 @@ def _position_update(position, kinetic_grad, step_size, coef, logdensity_fn):
     return new_position, logdensity, logdensity_grad
 
 
-def _normalized_flatten(x, tol=1e-13):
+def _normalized_flatten(x: ArrayLike, tol: float = 1e-13) -> tuple[ArrayLike, NumLike]:
     norm = jnp.linalg.norm(x)
     return jnp.where(norm > tol, x / norm, x), norm
 
 
 def _esh_dynamics_momentum_update_one_step(
-    momentum,
-    logdensity_grad,
-    step_size,
-    coef,
-    inverse_mass_matrix,
-    previous_kinetic_energy_change=None,
-):
+    momentum: PyTree,
+    logdensity_grad: PyTree,
+    step_size: NumLike,
+    coef: NumLike,
+    inverse_mass_matrix: ArrayLike,
+    previous_kinetic_energy_change: NumLike | None = None,
+) -> tuple[PyTree, PyTree, NumLike]:
     sqrt_inverse_mass_matrix = jnp.sqrt(inverse_mass_matrix)
     flatten_grads, unravel_fn = ravel_pytree(logdensity_grad)
     flatten_grads = flatten_grads * sqrt_inverse_mass_matrix
@@ -123,7 +160,12 @@ def _esh_dynamics_momentum_update_one_step(
     return next_momentum, kinetic_grad, kinetic_energy_change
 
 
-def _isokinetic_mclachlan_step(state, step_size, logdensity_fn, inverse_mass_matrix):
+def _isokinetic_mclachlan_step(
+    state: MCLMCState,
+    step_size: NumLike,
+    logdensity_fn: LogDensityFn,
+    inverse_mass_matrix: ArrayLike,
+) -> tuple[MCLMCState, NumLike]:
     position, momentum, _, logdensity_grad = state
     kinetic_energy_change = None
 
@@ -161,7 +203,9 @@ def _isokinetic_mclachlan_step(state, step_size, logdensity_fn, inverse_mass_mat
     ), kinetic_energy_change
 
 
-def _partially_refresh_momentum(momentum, rng_key, step_size, L):
+def _partially_refresh_momentum(
+    momentum: PyTree, rng_key: jax.dtypes.prng_key, step_size: NumLike, L: NumLike
+) -> PyTree:
     flat_momentum, unravel_fn = ravel_pytree(momentum)
     dim = flat_momentum.shape[0]
     nu = jnp.sqrt((jnp.exp(2 * step_size / L) - 1.0) / dim)
@@ -175,8 +219,13 @@ def _partially_refresh_momentum(momentum, rng_key, step_size, L):
 
 
 def _maruyama_step(
-    init_state, step_size, L, rng_key, logdensity_fn, inverse_mass_matrix
-):
+    init_state: MCLMCState,
+    step_size: NumLike,
+    L: NumLike,
+    rng_key: jax.dtypes.prng_key,
+    logdensity_fn: LogDensityFn,
+    inverse_mass_matrix: ArrayLike,
+) -> tuple[MCLMCState, NumLike]:
     key1, key2 = jax.random.split(rng_key)
     state = init_state._replace(
         momentum=_partially_refresh_momentum(
@@ -203,7 +252,12 @@ def _maruyama_step(
     return state, kinetic_change
 
 
-def _handle_nans(previous_state, next_state, info, key):
+def _handle_nans(
+    previous_state: MCLMCState,
+    next_state: MCLMCState,
+    info: MCLMCInfo,
+    key: jax.dtypes.prng_key,
+) -> tuple[MCLMCState, MCLMCInfo]:
     new_momentum = _generate_unit_vector(key, previous_state.position)
     flat_position, _ = ravel_pytree(next_state.position)
     flat_momentum, _ = ravel_pytree(next_state.momentum)
@@ -225,8 +279,14 @@ def _handle_nans(previous_state, next_state, info, key):
     return state, info
 
 
-def _build_kernel(logdensity_fn, inverse_mass_matrix):
-    def kernel(rng_key, state, L, step_size):
+def _build_kernel(
+    logdensity_fn: LogDensityFn, inverse_mass_matrix: ArrayLike
+) -> Callable[
+    [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike], tuple[MCLMCState, MCLMCInfo]
+]:
+    def kernel(
+        rng_key: jax.dtypes.prng_key, state: MCLMCState, L: NumLike, step_size: NumLike
+    ) -> tuple[MCLMCState, MCLMCInfo]:
         kernel_key, nan_key = jax.random.split(rng_key)
         next_state, kinetic_change = _maruyama_step(
             init_state=state,
@@ -253,8 +313,13 @@ def _build_kernel(logdensity_fn, inverse_mass_matrix):
 
 
 def _adaptation_handle_nans(
-    previous_state, next_state, step_size, step_size_max, kinetic_change, key
-):
+    previous_state: MCLMCState,
+    next_state: MCLMCState,
+    step_size: NumLike,
+    step_size_max: NumLike,
+    kinetic_change: NumLike,
+    key: jax.dtypes.prng_key,
+) -> tuple[NumLike, MCLMCState, NumLike, NumLike]:
     flat_position, _ = ravel_pytree(next_state.position)
     flat_momentum, _ = ravel_pytree(next_state.momentum)
     nonans = jnp.logical_and(
@@ -276,18 +341,34 @@ def _adaptation_handle_nans(
 
 
 def _make_l_step_size_adaptation(
-    kernel_fn,
-    dim,
-    frac_tune1,
-    frac_tune2,
-    diagonal_preconditioning,
-    desired_energy_var=1e-3,
-    trust_in_estimate=1.5,
-    num_effective_samples=150,
-):
+    kernel_fn: Callable[
+        [ArrayLike],
+        Callable[
+            [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
+            tuple[MCLMCState, MCLMCInfo],
+        ],
+    ],
+    dim: int,
+    frac_tune1: NumLike,
+    frac_tune2: NumLike,
+    diagonal_preconditioning: bool,
+    desired_energy_var: NumLike = 1e-3,
+    trust_in_estimate: NumLike = 1.5,
+    num_effective_samples: int = 150,
+) -> Callable[
+    [MCLMCState, MCLMCAdaptationState, int, jax.dtypes.prng_key],
+    tuple[MCLMCState, MCLMCAdaptationState],
+]:
     decay_rate = (num_effective_samples - 1.0) / (num_effective_samples + 1.0)
 
-    def predictor(previous_state, params, adaptive_state, rng_key):
+    def predictor(
+        previous_state: MCLMCState,
+        params: MCLMCAdaptationState,
+        adaptive_state: tuple[NumLike, NumLike, NumLike],
+        rng_key: jax.dtypes.prng_key,
+    ) -> tuple[
+        MCLMCState, MCLMCAdaptationState, tuple[NumLike, NumLike, NumLike], NumLike
+    ]:
         time, x_average, step_size_max = adaptive_state
         rng_key, nan_key = jax.random.split(rng_key)
         next_state, info = kernel_fn(params.inverse_mass_matrix)(
@@ -315,7 +396,23 @@ def _make_l_step_size_adaptation(
         params_new = params._replace(step_size=step_size)
         return state, params_new, (time, x_average, step_size_max), success
 
-    def step(iteration_state, weight_and_key):
+    def step(
+        iteration_state: tuple[
+            MCLMCState,
+            MCLMCAdaptationState,
+            tuple[NumLike, NumLike, NumLike],
+            tuple[NumLike, jax.dtypes.prng_key],
+        ],
+        weight_and_key: tuple[NumLike, jax.dtypes.prng_key],
+    ) -> tuple[
+        tuple[
+            MCLMCState,
+            MCLMCAdaptationState,
+            tuple[NumLike, NumLike, NumLike],
+            tuple[NumLike, jax.dtypes.prng_key],
+        ],
+        None,
+    ]:
         mask, rng_key = weight_and_key
         state, params, adaptive_state, streaming_avg = iteration_state
         state, params, adaptive_state, success = predictor(
@@ -329,7 +426,16 @@ def _make_l_step_size_adaptation(
         )
         return (state, params, adaptive_state, streaming_avg), None
 
-    def run_steps(xs, state, params):
+    def run_steps(
+        xs: tuple[ArrayLike, jax.dtypes.prng_key],
+        state: MCLMCState,
+        params: MCLMCAdaptationState,
+    ) -> tuple[
+        MCLMCState,
+        MCLMCAdaptationState,
+        tuple[NumLike, NumLike, NumLike],
+        tuple[NumLike, jax.dtypes.prng_key],
+    ]:
         return jax.lax.scan(
             step,
             init=(
@@ -341,7 +447,12 @@ def _make_l_step_size_adaptation(
             xs=xs,
         )[0]
 
-    def adaptation(state, params, num_steps, rng_key):
+    def adaptation(
+        state: MCLMCState,
+        params: MCLMCAdaptationState,
+        num_steps: int,
+        rng_key: jax.dtypes.prng_key,
+    ) -> tuple[MCLMCState, MCLMCAdaptationState]:
         num_steps1 = round(num_steps * frac_tune1)
         num_steps2 = round(num_steps * frac_tune2)
         keys = jax.random.split(rng_key, num_steps1 + num_steps2 + 1)
@@ -368,11 +479,18 @@ def _make_l_step_size_adaptation(
 
 
 def _make_adaptation_l(kernel, frac, lfactor):
-    def adaptation_l(state, params, num_steps, rng_key):
+    def adaptation_l(
+        state: MCLMCState,
+        params: MCLMCAdaptationState,
+        num_steps: int,
+        rng_key: jax.dtypes.prng_key,
+    ) -> tuple[MCLMCState, MCLMCAdaptationState]:
         num_steps3 = round(num_steps * frac)
         keys = jax.random.split(rng_key, num_steps3)
 
-        def step(curr_state, key):
+        def step(
+            curr_state: MCLMCState, key: jax.dtypes.prng_key
+        ) -> tuple[MCLMCState, PyTree]:
             next_state, _ = kernel(
                 rng_key=key,
                 state=curr_state,
@@ -392,20 +510,26 @@ def _make_adaptation_l(kernel, frac, lfactor):
 
 
 def _mclmc_find_l_and_step_size(
-    mclmc_kernel,
-    num_steps,
-    state,
-    rng_key,
-    frac_tune1=0.1,
-    frac_tune2=0.1,
-    frac_tune3=0.1,
-    desired_energy_var=5e-4,
-    trust_in_estimate=1.5,
-    num_effective_samples=150,
-    diagonal_preconditioning=True,
-    params=None,
-    lfactor=0.4,
-):
+    mclmc_kernel: Callable[
+        [ArrayLike],
+        Callable[
+            [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
+            tuple[MCLMCState, MCLMCInfo],
+        ],
+    ],
+    num_steps: int,
+    state: MCLMCState,
+    rng_key: jax.dtypes.prng_key,
+    frac_tune1: NumLike = 0.1,
+    frac_tune2: NumLike = 0.1,
+    frac_tune3: NumLike = 0.1,
+    desired_energy_var: NumLike = 5e-4,
+    trust_in_estimate: NumLike = 1.5,
+    num_effective_samples: int = 150,
+    diagonal_preconditioning: bool = True,
+    params: MCLMCAdaptationState | None = None,
+    lfactor: NumLike = 0.4,
+) -> tuple[MCLMCState, MCLMCAdaptationState, int]:
     dim = _pytree_size(state.position)
     if params is None:
         params = MCLMCAdaptationState(
@@ -509,41 +633,61 @@ class MCLMC(MCMCKernel):
     """
 
     def __init__(
-        self,
-        model=None,
-        desired_energy_var=5e-4,
-        diagonal_preconditioning=True,
-    ):
+        self: "MCLMC",
+        model: Callable[..., Any] | None = None,
+        desired_energy_var: NumLike = 5e-4,
+        diagonal_preconditioning: bool = True,
+    ) -> None:
         if model is None:
             raise ValueError("Model must be specified for MCLMC")
         self._model = model
         self._diagonal_preconditioning = diagonal_preconditioning
         self._desired_energy_var = desired_energy_var
-        self._postprocess_fn = None
+        self._postprocess_fn: Callable[..., Callable[[PyTree], PyTree]] | None = None
+        self.logdensity_fn: LogDensityFn | None = None
+        self.adapt_state: MCLMCAdaptationState | None = None
+        self._kernel: (
+            Callable[
+                [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
+                tuple[MCLMCState, MCLMCInfo],
+            ]
+            | None
+        ) = None
 
     @property
-    def model(self):
+    def model(self: "MCLMC") -> Callable[..., Any]:
         return self._model
 
     @property
-    def sample_field(self):
+    def sample_field(self: "MCLMC") -> str:
         return "position"
 
     @property
-    def default_fields(self):
+    def default_fields(self: "MCLMC") -> tuple[str, ...]:
         return (self.sample_field,)
 
-    def get_diagnostics_str(self, state):
+    def get_diagnostics_str(self: "MCLMC", state: FullState) -> str:
+        if self.adapt_state is None:
+            return ""
         return "step_size={:.2e}, L={:.2e}".format(
             self.adapt_state.step_size, self.adapt_state.L
         )
 
-    def postprocess_fn(self, args, kwargs):
+    def postprocess_fn(
+        self: "MCLMC", args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> Callable[[PyTree], PyTree]:
         if self._postprocess_fn is None:
-            return identity
+            return cast(Callable[[PyTree], PyTree], identity)
         return self._postprocess_fn(*args, **kwargs)
 
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
+    def init(
+        self: "MCLMC",
+        rng_key: jax.dtypes.prng_key,
+        num_warmup: int,
+        init_params: Any,
+        model_args: tuple[Any, ...],
+        model_kwargs: dict[str, Any],
+    ) -> FullState:
         init_model_key, init_state_key, run_key, tune_key = jax.random.split(rng_key, 4)
         init_params, potential_fn_gen, postprocess_fn, _ = initialize_model(
             init_model_key,
@@ -554,7 +698,7 @@ class MCLMC(MCMCKernel):
         )
         self._postprocess_fn = postprocess_fn
 
-        def logdensity_fn(position):
+        def logdensity_fn(position: PyTree) -> NumLike:
             return -potential_fn_gen(*model_args, **model_kwargs)(position)
 
         self.logdensity_fn = logdensity_fn
@@ -564,7 +708,12 @@ class MCLMC(MCMCKernel):
             rng_key=init_state_key,
         )
 
-        def kernel_fn(inverse_mass_matrix):
+        def kernel_fn(
+            inverse_mass_matrix: ArrayLike,
+        ) -> Callable[
+            [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
+            tuple[MCLMCState, MCLMCInfo],
+        ]:
             return _build_kernel(
                 logdensity_fn=self.logdensity_fn,
                 inverse_mass_matrix=inverse_mass_matrix,
@@ -594,11 +743,20 @@ class MCLMC(MCMCKernel):
             run_key,
         )
 
-    def sample(self, state, model_args, model_kwargs):
+    def sample(
+        self: "MCLMC",
+        state: FullState,
+        model_args: tuple[Any, ...],
+        model_kwargs: dict[str, Any],
+    ) -> FullState:
+        del model_args, model_kwargs
         mclmc_state = MCLMCState(
             state.position, state.momentum, state.logdensity, state.logdensity_grad
         )
         rng_key, sample_key = jax.random.split(state.rng_key, 2)
+        if self._kernel is None or self.adapt_state is None:
+            msg = "MCLMC must be initialized before calling sample."
+            raise RuntimeError(msg)
         new_state, _ = self._kernel(
             rng_key=sample_key,
             state=mclmc_state,
@@ -613,7 +771,7 @@ class MCLMC(MCMCKernel):
             rng_key,
         )
 
-    def __getstate__(self):
+    def __getstate__(self: "MCLMC") -> dict[str, Any]:
         state = self.__dict__.copy()
         state["_postprocess_fn"] = None
         return state

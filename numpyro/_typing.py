@@ -35,4 +35,8 @@ PyTree: TypeAlias = Any
 """A generic type for a pytree, i.e. a nested structure of lists, tuples, dicts, and arrays."""
 
 
+LogDensityFn: TypeAlias = Callable[[PyTree], NumLike]
+"""Callable log-density signature used by gradient-based kernels."""
+
+
 NumLikeT = TypeVar("NumLikeT", bound=NumLike)
