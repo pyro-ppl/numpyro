@@ -43,6 +43,12 @@ class FullState(NamedTuple):
     rng_key: jax.dtypes.prng_key
 
 
+KernelFn = Callable[
+    [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike], tuple[MCLMCState, MCLMCInfo]
+]
+KernelFactoryFn = Callable[[ArrayLike], KernelFn]
+
+
 # First momentum-stage coefficient in the 5-stage McLachlan splitting scheme.
 _MCLACHLAN_B1: float = 0.1931833275037836
 # Palindromic integrator coefficients for one isokinetic McLachlan update.
@@ -76,12 +82,14 @@ def _incremental_value_update(
     zero_prevention: NumLike = 0.0,
 ) -> tuple[NumLike, ArrayLike]:
     total, average = incremental_val
+    total_weight = total + weight + zero_prevention
+
+    def _update_average(exp: ArrayLike, av: ArrayLike) -> ArrayLike:
+        numerator = total * av + weight * exp
+        return jnp.where(numerator == 0.0, 0.0, numerator / total_weight)
+
     average = jax.tree.map(
-        lambda exp, av: jnp.where(
-            (total * av + weight * exp) == 0.0,
-            0.0,
-            (total * av + weight * exp) / (total + weight + zero_prevention),
-        ),
+        _update_average,
         expectation,
         average,
     )
@@ -252,6 +260,14 @@ def _maruyama_step(
     return state, kinetic_change
 
 
+def _state_is_finite(state: MCLMCState) -> NumLike:
+    flat_position, _ = ravel_pytree(state.position)
+    flat_momentum, _ = ravel_pytree(state.momentum)
+    return jnp.logical_and(
+        jnp.all(jnp.isfinite(flat_position)), jnp.all(jnp.isfinite(flat_momentum))
+    )
+
+
 def _handle_nans(
     previous_state: MCLMCState,
     next_state: MCLMCState,
@@ -259,11 +275,7 @@ def _handle_nans(
     key: jax.dtypes.prng_key,
 ) -> tuple[MCLMCState, MCLMCInfo]:
     new_momentum = _generate_unit_vector(key, previous_state.position)
-    flat_position, _ = ravel_pytree(next_state.position)
-    flat_momentum, _ = ravel_pytree(next_state.momentum)
-    nonans = jnp.logical_and(
-        jnp.all(jnp.isfinite(flat_position)), jnp.all(jnp.isfinite(flat_momentum))
-    )
+    nonans = _state_is_finite(next_state)
     state, info = jax.lax.cond(
         nonans,
         lambda: (next_state, info),
@@ -281,9 +293,7 @@ def _handle_nans(
 
 def _build_kernel(
     logdensity_fn: LogDensityFn, inverse_mass_matrix: ArrayLike
-) -> Callable[
-    [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike], tuple[MCLMCState, MCLMCInfo]
-]:
+) -> KernelFn:
     def kernel(
         rng_key: jax.dtypes.prng_key, state: MCLMCState, L: NumLike, step_size: NumLike
     ) -> tuple[MCLMCState, MCLMCInfo]:
@@ -320,11 +330,7 @@ def _adaptation_handle_nans(
     kinetic_change: NumLike,
     key: jax.dtypes.prng_key,
 ) -> tuple[NumLike, MCLMCState, NumLike, NumLike]:
-    flat_position, _ = ravel_pytree(next_state.position)
-    flat_momentum, _ = ravel_pytree(next_state.momentum)
-    nonans = jnp.logical_and(
-        jnp.all(jnp.isfinite(flat_position)), jnp.all(jnp.isfinite(flat_momentum))
-    )
+    nonans = _state_is_finite(next_state)
     state, step_size, kinetic_change = jax.tree.map(
         lambda new, old: jax.lax.select(nonans, jnp.nan_to_num(new), old),
         (next_state, step_size_max, kinetic_change),
@@ -341,13 +347,7 @@ def _adaptation_handle_nans(
 
 
 def _make_l_step_size_adaptation(
-    kernel_fn: Callable[
-        [ArrayLike],
-        Callable[
-            [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
-            tuple[MCLMCState, MCLMCInfo],
-        ],
-    ],
+    kernel_fn: KernelFactoryFn,
     dim: int,
     frac_tune1: NumLike,
     frac_tune2: NumLike,
@@ -510,13 +510,7 @@ def _make_adaptation_l(kernel, frac, lfactor):
 
 
 def _mclmc_find_l_and_step_size(
-    mclmc_kernel: Callable[
-        [ArrayLike],
-        Callable[
-            [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
-            tuple[MCLMCState, MCLMCInfo],
-        ],
-    ],
+    mclmc_kernel: KernelFactoryFn,
     num_steps: int,
     state: MCLMCState,
     rng_key: jax.dtypes.prng_key,
@@ -638,6 +632,19 @@ class MCLMC(MCMCKernel):
         desired_energy_var: NumLike = 5e-4,
         diagonal_preconditioning: bool = True,
     ) -> None:
+        """
+        Construct an MCLMC kernel.
+
+        :param model: NumPyro model callable that defines latent variables and
+            observations.
+        :param desired_energy_var: Target energy variance used during warmup to
+            tune step size. Smaller values typically produce more conservative
+            integrator updates.
+        :param diagonal_preconditioning: Whether to estimate a diagonal inverse
+            mass matrix during warmup. If ``False``, adaptation uses isotropic
+            scaling.
+        :raises ValueError: If ``model`` is not provided.
+        """
         if model is None:
             raise ValueError("Model must be specified for MCLMC")
         self._model = model
@@ -646,27 +653,41 @@ class MCLMC(MCMCKernel):
         self._postprocess_fn: Callable[..., Callable[[PyTree], PyTree]] | None = None
         self.logdensity_fn: LogDensityFn | None = None
         self.adapt_state: MCLMCAdaptationState | None = None
-        self._kernel: (
-            Callable[
-                [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
-                tuple[MCLMCState, MCLMCInfo],
-            ]
-            | None
-        ) = None
+        self._kernel: KernelFn | None = None
 
     @property
     def model(self: "MCLMC") -> Callable[..., Any]:
+        """Return the model callable associated with this kernel."""
         return self._model
 
     @property
     def sample_field(self: "MCLMC") -> str:
+        """
+        Name of the state attribute treated as the MCMC sample.
+
+        This is used by :class:`~numpyro.infer.mcmc.MCMC` for collection and
+        postprocessing.
+        """
         return "position"
 
     @property
     def default_fields(self: "MCLMC") -> tuple[str, ...]:
+        """
+        State attributes collected by default during sampling.
+
+        :return: Tuple of field names to collect from each state.
+        """
         return (self.sample_field,)
 
     def get_diagnostics_str(self: "MCLMC", state: FullState) -> str:
+        """
+        Return progress-bar diagnostics for current adaptation parameters.
+
+        :param state: Current full sampler state (unused; present for kernel API
+            compatibility).
+        :return: A formatted diagnostics string during/after initialization, or
+            an empty string if adaptation is unavailable.
+        """
         if self.adapt_state is None:
             return ""
         return "step_size={:.2e}, L={:.2e}".format(
@@ -676,6 +697,14 @@ class MCLMC(MCMCKernel):
     def postprocess_fn(
         self: "MCLMC", args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> Callable[[PyTree], PyTree]:
+        """
+        Build a transform from unconstrained latent space to constrained space.
+
+        :param args: Positional model arguments used to initialize transforms.
+        :param kwargs: Keyword model arguments used to initialize transforms.
+        :return: Callable that maps unconstrained latent samples to constrained
+            values and includes deterministic sites.
+        """
         if self._postprocess_fn is None:
             return cast(Callable[[PyTree], PyTree], identity)
         return self._postprocess_fn(*args, **kwargs)
@@ -688,6 +717,23 @@ class MCLMC(MCMCKernel):
         model_args: tuple[Any, ...],
         model_kwargs: dict[str, Any],
     ) -> FullState:
+        """
+        Initialize sampler state and run warmup adaptation.
+
+        This method initializes model state, builds the log-density function,
+        adapts ``step_size``, ``L``, and (optionally) diagonal preconditioning,
+        then returns a ready-to-sample state.
+
+        :param rng_key: JAX PRNG key.
+        :param num_warmup: Number of warmup steps requested by the outer MCMC
+            driver; used to set adaptation phase fractions.
+        :param init_params: Optional initial parameters (kept for kernel API
+            compatibility; model initialization is delegated to
+            :func:`~numpyro.infer.util.initialize_model`).
+        :param model_args: Positional arguments passed to the model.
+        :param model_kwargs: Keyword arguments passed to the model.
+        :return: Fully initialized :class:`FullState`.
+        """
         init_model_key, init_state_key, run_key, tune_key = jax.random.split(rng_key, 4)
         init_params, potential_fn_gen, postprocess_fn, _ = initialize_model(
             init_model_key,
@@ -710,10 +756,7 @@ class MCLMC(MCMCKernel):
 
         def kernel_fn(
             inverse_mass_matrix: ArrayLike,
-        ) -> Callable[
-            [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike],
-            tuple[MCLMCState, MCLMCInfo],
-        ]:
+        ) -> KernelFn:
             return _build_kernel(
                 logdensity_fn=self.logdensity_fn,
                 inverse_mass_matrix=inverse_mass_matrix,
@@ -749,6 +792,17 @@ class MCLMC(MCMCKernel):
         model_args: tuple[Any, ...],
         model_kwargs: dict[str, Any],
     ) -> FullState:
+        """
+        Advance the Markov chain by one MCLMC transition.
+
+        :param state: Current full sampler state.
+        :param model_args: Unused after initialization (kept for API
+            compatibility with :class:`~numpyro.infer.mcmc.MCMCKernel`).
+        :param model_kwargs: Unused after initialization (kept for API
+            compatibility with :class:`~numpyro.infer.mcmc.MCMCKernel`).
+        :return: Next :class:`FullState` after one transition.
+        :raises RuntimeError: If called before :meth:`init`.
+        """
         del model_args, model_kwargs
         mclmc_state = MCLMCState(
             state.position, state.momentum, state.logdensity, state.logdensity_grad
@@ -772,6 +826,14 @@ class MCLMC(MCMCKernel):
         )
 
     def __getstate__(self: "MCLMC") -> dict[str, Any]:
+        """
+        Return a pickle-safe object state.
+
+        The cached postprocess closure is intentionally cleared because closures
+        from ``initialize_model`` are not reliably serializable.
+
+        :return: Serializable state dictionary for this kernel instance.
+        """
         state = self.__dict__.copy()
         state["_postprocess_fn"] = None
         return state
