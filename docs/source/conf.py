@@ -95,7 +95,7 @@ autodoc_inherit_docstrings = True
 templates_path = ["_templates"]
 
 # The suffix(es) of source filenames.
-# You can specify multiple suffix as a list of string:
+# You can specify multiple suffixes as a list of strings:
 #
 # source_suffix = ['.rst', '.md']
 # NOTE: `.rst` is the default suffix of sphinx, and nbsphinx will
