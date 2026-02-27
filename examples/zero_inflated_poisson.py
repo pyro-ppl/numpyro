@@ -26,7 +26,7 @@ import pandas as pd
 from sklearn.metrics import mean_squared_error
 
 import jax.numpy as jnp
-from jax.random import PRNGKey
+from jax.random import key
 import jax.scipy as jsp
 
 import numpyro
@@ -62,7 +62,7 @@ def run_mcmc(model, args, X, Y):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(PRNGKey(1), X, Y)
+    mcmc.run(key(1), X, Y)
     mcmc.print_summary()
     return mcmc.get_samples()
 
@@ -75,7 +75,7 @@ def run_svi(model, guide_family, args, X, Y):
 
     optimizer = numpyro.optim.Adam(0.001)
     svi = SVI(model, guide, optimizer, Trace_ELBO())
-    svi_results = svi.run(PRNGKey(1), args.maxiter, X=X, Y=Y)
+    svi_results = svi.run(key(1), args.maxiter, X=X, Y=Y)
     params = svi_results.params
 
     return params, guide
@@ -112,7 +112,7 @@ def main(args):
         predictive = Predictive(
             model=model, guide=guide, params=params, num_samples=args.num_samples
         )
-        predictions = predictive(PRNGKey(1), X=X, Y=None)
+        predictions = predictive(key(1), X=X, Y=None)
         svi_predictions = jnp.rint(predictions["Y"].mean(0))
         return svi_predictions
 
@@ -120,7 +120,7 @@ def main(args):
     vi_predictions = svi_predict(model, vi_guide, vi_params, args, X_test)
 
     predictive = Predictive(model, posterior_samples=posterior_samples)
-    predictions = predictive(PRNGKey(1), X=X_test, Y=None)
+    predictions = predictive(key(1), X=X_test, Y=None)
     mcmc_predictions = jnp.rint(predictions["Y"].mean(0))
 
     print(
@@ -154,7 +154,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser("Zero-Inflated Poisson Regression")
     parser.add_argument("--seed", nargs="?", default=42, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)

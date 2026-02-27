@@ -162,7 +162,7 @@ def sample(
     :param str name: name of the sample site.
     :param fn: a stochastic function that returns a sample.
     :param jnp.ndarray obs: observed value
-    :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
+    :param jax.random.key rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
     :param dict infer: an optional dictionary containing additional information
         for inference algorithms. For example, if `fn` is a discrete distribution,
@@ -261,7 +261,7 @@ def param(
 
     :param str name: name of site.
     :param init_value: initial value specified by the user or a lazy callable
-        that accepts a JAX random PRNGKey and returns an array.
+        that accepts a JAX random PRNG key and returns an array.
         Note that the onus of using this to initialize the optimizer is
         on the user inference algorithm, since there is no global parameter
         store in NumPyro.
@@ -528,6 +528,7 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg["value"]
+        assert isinstance(subsample, jnp.ndarray)
         subsample_size = msg["args"][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             warnings.warn(
@@ -537,7 +538,7 @@ class plate(Messenger):
                 + " Did you accidentally use different subsample_size in the model and guide?",
                 stacklevel=find_stack_level(),
             )
-        cond_indep_stack = msg["cond_indep_stack"]
+        cond_indep_stack: list[CondIndepStackFrame] = msg["cond_indep_stack"]
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
             new_dim = -1
@@ -667,7 +668,7 @@ def factor(name: str, log_factor: ArrayLike) -> None:
 def prng_key() -> Union[Array, None]:
     """
     A statement to draw a pseudo-random number generator key
-    :func:`~jax.random.PRNGKey` under :class:`~numpyro.handlers.seed` handler.
+    :func:`~jax.random.key` under :class:`~numpyro.handlers.seed` handler.
 
     :return: a PRNG key of shape (2,) and dtype unit32.
     """

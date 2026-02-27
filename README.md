@@ -62,7 +62,7 @@ Let us infer the values of the unknown parameters in our model by running MCMC u
 
 >>> nuts_kernel = NUTS(eight_schools)
 >>> mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=1000)
->>> rng_key = random.PRNGKey(0)
+>>> rng_key = random.key(0)
 >>> mcmc.run(rng_key, J, sigma, y=y, extra_fields=('potential_energy',))
 
 ```
@@ -111,7 +111,7 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
 
 >>> nuts_kernel = NUTS(eight_schools_noncentered)
 >>> mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=1000)
->>> rng_key = random.PRNGKey(0)
+>>> rng_key = random.key(0)
 >>> mcmc.run(rng_key, J, sigma, y=y, extra_fields=('potential_energy',))
 >>> mcmc.print_summary(exclude_deterministic=False)  # doctest: +SKIP
 
@@ -161,7 +161,7 @@ Now, let us assume that we have a new school for which we have not observed any 
 ...     return numpyro.sample('obs', dist.Normal(mu, tau))
 
 >>> predictive = Predictive(new_school, mcmc.get_samples())
->>> samples_predictive = predictive(random.PRNGKey(1))
+>>> samples_predictive = predictive(random.key(1))
 >>> print(np.mean(samples_predictive['obs']))  # doctest: +SKIP
 3.9886456
 
@@ -286,18 +286,18 @@ conda install -c conda-forge numpyro
 
 1. Unlike in Pyro, `numpyro.sample('x', dist.Normal(0, 1))` does not work. Why?
 
-   You are most likely using a `numpyro.sample` statement outside an inference context. JAX does not have a global random state, and as such, distribution samplers need an explicit random number generator key ([PRNGKey](https://jax.readthedocs.io/en/latest/jax.random.html#jax.random.PRNGKey)) to generate samples from. NumPyro's inference algorithms use the [seed](https://num.pyro.ai/en/latest/handlers.html#seed) handler to thread in a random number generator key, behind the scenes.
+   You are most likely using a `numpyro.sample` statement outside an inference context. JAX does not have a global random state, and as such, distribution samplers need an explicit random number generator key ([PRNG Key](https://jax.readthedocs.io/en/latest/jax.random.html#jax.random.key)) to generate samples from. NumPyro's inference algorithms use the [seed](https://num.pyro.ai/en/latest/handlers.html#seed) handler to thread in a random number generator key, behind the scenes.
 
    Your options are:
 
-   - Call the distribution directly and provide a `PRNGKey`, e.g. `dist.Normal(0, 1).sample(PRNGKey(0))`
-   - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=PRNGKey(0))`.
+   - Call the distribution directly and provide a PRNG key, e.g. `dist.Normal(0, 1).sample(key(0))`
+   - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=key(0))`.
    - Wrap the code in a `seed` handler, used either as a context manager or as a function that wraps over the original callable. e.g.
 
         ```python
-        with handlers.seed(rng_seed=0):  # random.PRNGKey(0) is used
-            x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNGKey split from random.PRNGKey(0)
-            y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
+        with handlers.seed(rng_seed=0):  # random.key(0) is used
+            x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNG key split from random.key(0)
+            y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNG key split from the last one
         ```
 
      , or as a higher order function:

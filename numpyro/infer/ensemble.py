@@ -269,7 +269,7 @@ class AIES(EnsembleSampler):
         >>> kernel = AIES(model, moves={AIES.DEMove() : 0.5,
         ...                            AIES.StretchMove() : 0.5})
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
-        >>> mcmc.run(jax.random.PRNGKey(0))
+        >>> mcmc.run(jax.random.key(0))
     """
 
     def __init__(
@@ -486,7 +486,7 @@ class ESS(EnsembleSampler):
         >>> kernel = ESS(model, moves={ESS.DifferentialMove() : 0.8,
         ...                            ESS.RandomMove() : 0.2})
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=2000, num_chains=20, chain_method='vectorized')
-        >>> mcmc.run(jax.random.PRNGKey(0))
+        >>> mcmc.run(jax.random.key(0))
     """
 
     def __init__(

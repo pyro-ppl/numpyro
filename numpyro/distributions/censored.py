@@ -12,8 +12,8 @@ from jax import lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT, DistributionT
 from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import log1mexp, promote_shapes, validate_sample
 from numpyro.util import find_stack_level, not_jax_tracer
@@ -78,7 +78,7 @@ class LeftCensoredDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         censored: ArrayLike = False,
         *,
         validate_args: bool = False,
@@ -116,7 +116,7 @@ class LeftCensoredDistribution(Distribution):
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @validate_sample
@@ -194,7 +194,7 @@ class RightCensoredDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         censored: ArrayLike = False,
         *,
         validate_args: bool = False,
@@ -232,7 +232,7 @@ class RightCensoredDistribution(Distribution):
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     @validate_sample
@@ -331,7 +331,7 @@ class IntervalCensoredDistribution(Distribution):
 
     def __init__(
         self,
-        base_dist: DistributionT,
+        base_dist: Distribution,
         left_censored: ArrayLike,
         right_censored: ArrayLike,
         *,
@@ -367,7 +367,7 @@ class IntervalCensoredDistribution(Distribution):
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return self._support
 
     def _get_censoring_masks(self, value):

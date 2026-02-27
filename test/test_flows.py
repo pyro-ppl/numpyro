@@ -23,7 +23,7 @@ from numpyro.nn.block_neural_arn import LeakyTanh, Tanh
 
 
 def _make_iaf_args(input_dim, hidden_dims):
-    _, rng_perm = random.split(random.PRNGKey(0))
+    _, rng_perm = random.split(random.key(0))
     perm = random.permutation(rng_perm, np.arange(input_dim))
     # we use Elu nonlinearity because the default one, Relu, masks out negative hidden values,
     # which in turn create some zero entries in the lower triangular part of Jacobian.
@@ -34,7 +34,7 @@ def _make_iaf_args(input_dim, hidden_dims):
         permutation=perm,
         nonlinearity=stax.Elu,
     )
-    _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
+    _, init_params = arn_init(random.key(0), (input_dim,))
     return (partial(arn, init_params),)
 
 
@@ -44,8 +44,8 @@ def _make_bnaf_args(input_dim, hidden_factors, activation):
         hidden_factors,
         activation=activation,
     )
-    _, rng_key_perm = random.split(random.PRNGKey(0))
-    _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
+    _, rng_key_perm = random.split(random.key(0))
+    _, init_params = arn_init(random.key(0), (input_dim,))
     return (partial(arn, init_params),)
 
 
@@ -88,7 +88,7 @@ def _make_bnaf_args(input_dim, hidden_factors, activation):
 def test_flows(flow_class, flow_args, input_dim, batch_shape):
     flow_args = flow_args()
     transform = flow_class(*flow_args)
-    x = random.normal(random.PRNGKey(0), batch_shape + (input_dim,))
+    x = random.normal(random.key(0), batch_shape + (input_dim,))
 
     # test inverse is correct
     y = transform(x)
@@ -111,7 +111,7 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
         # make sure jacobian is triangular, first permute jacobian as necessary
         if isinstance(transform, InverseAutoregressiveTransform):
             permuted_jac = np.zeros(jac.shape)
-            _, rng_key_perm = random.split(random.PRNGKey(0))
+            _, rng_key_perm = random.split(random.key(0))
             perm = random.permutation(rng_key_perm, np.arange(input_dim))
 
             for j in range(input_dim):
@@ -129,7 +129,7 @@ def test_bnaf_normalization():
     x = jnp.linspace(-1000, 1000, 5000)[:, None]
 
     init_fn, apply_fn = BlockNeuralAutoregressiveNN(dim[0], activation=LeakyTanh(0.1))
-    params = init_fn(jr.PRNGKey(0), (1,))[1]
+    params = init_fn(jr.key(0), (1,))[1]
     arn = partial(apply_fn, params)
     bnaf = BlockNeuralAutoregressiveTransform(arn)
     dist = TransformedDistribution(Normal(jnp.zeros(dim), 0.5), bnaf.inv)

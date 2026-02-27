@@ -132,7 +132,7 @@ def model(docs, hyperparams, is_training=False, nn_framework="flax"):
             "decoder",
             FlaxDecoder(hyperparams["vocab_size"], hyperparams["dropout_rate"]),
             input_shape=(1, hyperparams["num_topics"]),
-            # ensure PRNGKey is made available to dropout layers
+            # ensure PRNG key is made available to dropout layers
             apply_rng=["dropout"],
             # indicate mutable state due to BatchNorm layers
             mutable=["batch_stats"],
@@ -186,7 +186,7 @@ def guide(docs, hyperparams, is_training=False, nn_framework="flax"):
                 hyperparams["dropout_rate"],
             ),
             input_shape=(1, hyperparams["vocab_size"]),
-            # ensure PRNGKey is made available to dropout layers
+            # ensure PRNG key is made available to dropout layers
             apply_rng=["dropout"],
             # indicate mutable state due to BatchNorm layers
             mutable=["batch_stats"],
@@ -243,7 +243,7 @@ def load_data():
 
 
 def run_inference(docs, args):
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     docs = device_put(docs)
 
     hyperparams = dict(
@@ -315,7 +315,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(
         description="Probabilistic topic modelling with Flax and Haiku"
     )

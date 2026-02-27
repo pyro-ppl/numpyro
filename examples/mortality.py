@@ -215,12 +215,12 @@ def main(args):
     print_model_shape(model, a, s2, t, lookup, population)
 
     print("Starting inference...")
-    rng_key = random.PRNGKey(args.rng_seed)
+    rng_key = random.key(args.rng_seed)
     run_inference(model, a, s2, t, lookup, population, deaths, rng_key, args)
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
 
     parser = argparse.ArgumentParser(description="Mortality regression model")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)

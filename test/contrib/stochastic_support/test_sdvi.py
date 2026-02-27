@@ -57,7 +57,7 @@ def test_autoguides(auto_class):
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma).to_event(), obs=y)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     rng_key, subkey = random.split(rng_key)
     y = dist.Normal(0, 1).sample(subkey, (200, dim))
@@ -103,7 +103,7 @@ def test_elbos(elbo_class, num_particles):
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma).to_event(), obs=y)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     rng_key, subkey = random.split(rng_key)
     y = dist.Normal(0, 1).sample(subkey, (200, dim))
@@ -133,7 +133,7 @@ def test_fail_elbos(elbo_class):
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma).to_event(), obs=y)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     rng_key, subkey = random.split(rng_key)
     y = dist.Normal(0, 1).sample(subkey, (200, dim))
@@ -160,7 +160,7 @@ def test_progress_bar():
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma).to_event(), obs=y)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     rng_key, subkey = random.split(rng_key)
     y = dist.Normal(0, 1).sample(subkey, (200, dim))

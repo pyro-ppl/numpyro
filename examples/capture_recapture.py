@@ -343,12 +343,12 @@ def main(args):
     )
 
     model = models[args.model]
-    rng_key = random.PRNGKey(args.rng_seed)
+    rng_key = random.key(args.rng_seed)
     run_inference(model, capture_history, sex, rng_key, args)
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(
         description="CJS capture-recapture model for ecological data"
     )

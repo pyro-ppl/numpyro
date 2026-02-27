@@ -39,7 +39,7 @@ def test_scan():
     num_samples = 100
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(0), T=T)
+    mcmc.run(random.key(0), T=T)
     assert set(mcmc.get_samples()) == {"x", "y", "y2", "x_0", "y_0"}
     mcmc.print_summary()
 
@@ -54,7 +54,7 @@ def test_scan():
         return_sites=["x", "y", "y2"],
         parallel=True,
     )
-    result = predictive(random.PRNGKey(1), T=T + future)
+    result = predictive(random.key(1), T=T + future)
     expected_shape = (num_samples, T + future)
     assert result["x"].shape == expected_shape
     assert result["y"].shape == expected_shape
@@ -165,7 +165,7 @@ def test_cond():
         cond(cluster > 0, true_fun, false_fun, None)
 
     svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
-    svi_result = svi.run(random.PRNGKey(0), num_steps=2500)
+    svi_result = svi.run(random.key(0), num_steps=2500)
     params = svi_result.params
 
     predictive = Predictive(
@@ -175,7 +175,7 @@ def test_cond():
         num_samples=1000,
         return_sites=["cluster", "x", "z"],
     )
-    result = predictive(random.PRNGKey(0))
+    result = predictive(random.key(0))
 
     assert result["cluster"].shape == (1000,)
     assert result["x"].shape == (1000,)
@@ -188,7 +188,7 @@ def test_cond():
         num_chains=4,
         chain_method="sequential",
     )
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
 
     x = mcmc.get_samples()["x"]
     assert x.shape == (10_000,)
@@ -268,7 +268,7 @@ def test_scan_svi():
 
     guide = AutoNormal(gaussian_hmm)
     svi = SVI(gaussian_hmm, guide, Adam(0.1), Trace_ELBO(), y=y, T=T, N=N)
-    results = svi.run(random.PRNGKey(0), 10**3)
+    results = svi.run(random.key(0), 10**3)
 
     xhat = results.params["x_auto_loc"]
     assert_allclose(xhat, tr["x"]["value"], rtol=0.1, atol=0.2)

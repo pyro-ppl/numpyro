@@ -50,7 +50,7 @@ def generate_synthetic_one_dim_data(
 @pytest.fixture
 def synthetic_one_dim_data() -> tuple[Array, Array]:
     kwargs = {
-        "rng_key": random.PRNGKey(0),
+        "rng_key": random.key(0),
         "start": -0.2,
         "stop": 1.2,
         "num": 80,
@@ -71,7 +71,7 @@ def generate_synthetic_two_dim_data(
 @pytest.fixture
 def synthetic_two_dim_data() -> tuple[Array, Array]:
     kwargs = {
-        "rng_key": random.PRNGKey(0),
+        "rng_key": random.key(0),
         "start": -0.2,
         "stop": 1.2,
         "num": 80,
@@ -301,7 +301,7 @@ def test_approximation_squared_exponential(
             hsgp_squared_exponential(x, alpha, length, ell, m, non_centered),
         )
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     approx_trace = trace(seed(model, rng_key)).get_trace(
         x, alpha, length, ell, m, non_centered
     )
@@ -352,7 +352,7 @@ def test_approximation_matern(
             "f", hsgp_matern(x, nu, alpha, length, ell, m, non_centered)
         )
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     approx_trace = trace(seed(model, rng_key)).get_trace(
         x, nu, alpha, length, ell, m, non_centered
     )
@@ -410,7 +410,7 @@ def test_squared_exponential_gp_model(
             numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
-    model_trace = trace(seed(model, random.PRNGKey(0))).get_trace(
+    model_trace = trace(seed(model, random.key(0))).get_trace(
         x, ell, m, non_centered, y_obs
     )
 
@@ -480,7 +480,7 @@ def test_matern_gp_model(
             numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
-    model_trace = trace(seed(model, random.PRNGKey(0))).get_trace(
+    model_trace = trace(seed(model, random.key(0))).get_trace(
         x, nu, ell, m, non_centered, y_obs
     )
 
@@ -624,7 +624,7 @@ def test_approximation_rational_quadratic(
             ),
         )
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     approx_trace = trace(seed(model, rng_key)).get_trace(
         x, alpha, length, scale_mixture, ell, m, non_centered
     )
@@ -695,7 +695,7 @@ def test_rational_quadratic_gp_model(
             numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
-    model_trace = trace(seed(model, random.PRNGKey(0))).get_trace(
+    model_trace = trace(seed(model, random.key(0))).get_trace(
         x, scale_mixture, ell, m, non_centered, y_obs
     )
 
@@ -750,7 +750,7 @@ def test_periodic_gp_one_dim_model(synthetic_one_dim_data, w0, m):
             numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data
-    model_trace = trace(seed(model, random.PRNGKey(0))).get_trace(x, w0, m, y_obs)
+    model_trace = trace(seed(model, random.key(0))).get_trace(x, w0, m, y_obs)
 
     assert model_trace["periodic::f"]["value"].shape == x.shape
     assert model_trace["periodic::cos_basis"]["value"].shape == (m,)

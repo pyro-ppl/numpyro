@@ -24,7 +24,7 @@ def test_single_particle_loss():
 
     try:
         SteinLoss(elbo_num_particles=10, stein_num_particles=1).loss(
-            random.PRNGKey(0), {}, model, guide, {}, 2.0
+            random.key(0), {}, model, guide, {}, 2.0
         )
         fail()
     except ValueError:
@@ -40,13 +40,11 @@ def test_stein_elbo():
         numpyro.sample("x", dist.Normal(0, 1))
 
     def elbo_loss_fn(x, param):
-        return Trace_ELBO(num_particles=1).loss(
-            random.PRNGKey(0), param, model, guide, x
-        )
+        return Trace_ELBO(num_particles=1).loss(random.key(0), param, model, guide, x)
 
     def stein_loss_fn(x, particles):
         return SteinLoss(elbo_num_particles=1, stein_num_particles=1).loss(
-            random.PRNGKey(0), {}, model, guide, particles, x
+            random.key(0), {}, model, guide, particles, x
         )
 
     elbo_loss, elbo_grad = value_and_grad(elbo_loss_fn)(2.0, {"x": 1.0})
@@ -66,7 +64,7 @@ def test_stein_particle_loss():
 
     def stein_loss_fn(chosen_particle, obs, particles, assign):
         return SteinLoss(elbo_num_particles=1, stein_num_particles=3).particle_loss(
-            random.PRNGKey(0),
+            random.key(0),
             model,
             guide,
             chosen_particle,
@@ -83,7 +81,7 @@ def test_stein_particle_loss():
     particles = {"x": xs}
 
     # Replicate the splitting in SteinLoss
-    base_key = random.split(random.split(random.PRNGKey(0), 1)[0], 2)[0]
+    base_key = random.split(random.split(random.key(0), 1)[0], 2)[0]
     zs = vmap(
         lambda key: trace(substitute(seed(guide, key), {"x": -1})).get_trace(2.0)["z"][
             "value"

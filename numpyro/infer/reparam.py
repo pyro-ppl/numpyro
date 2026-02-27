@@ -384,7 +384,7 @@ class ExplicitReparam(Reparam):
         >>> reparametrized = handlers.reparam(model, {"x": reparam})
         >>> kernel = NUTS(model=reparametrized)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=1)
-        >>> mcmc.run(random.PRNGKey(2))  # doctest: +SKIP
+        >>> mcmc.run(random.key(2))  # doctest: +SKIP
         sample: 100%|██████████| 2000/2000 [00:00<00:00, 2306.47it/s, 3 steps of size 9.65e-01. acc. prob=0.93]
     """
 

@@ -53,7 +53,7 @@ ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
 class _substitute_default_key(Messenger):
     def process_message(self, msg):
         if msg["type"] == "prng_key" and msg["value"] is None:
-            msg["value"] = random.PRNGKey(0)
+            msg["value"] = random.key(0)
 
 
 def compute_log_probs(
@@ -353,7 +353,7 @@ def find_valid_initial_params(
     are considered valid if the values and the gradients for the log density have
     finite values.
 
-    :param jax.random.PRNGKey rng_key: random number generator seed to
+    :param jax.random.key rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
@@ -646,7 +646,7 @@ def initialize_model(
     and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
     to return a tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`, `model_trace`).
 
-    :param jax.random.PRNGKey rng_key: random number generator seed to
+    :param jax.random.key rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
@@ -1078,7 +1078,7 @@ class Predictive(object):
         contained in `posterior_samples` are returned. This can be modified by changing the
         `return_sites` keyword argument of this :class:`Predictive` instance.
 
-        :param jax.random.PRNGKey rng_key: random key to draw samples.
+        :param jax.random.key rng_key: random key to draw samples.
         :param args: model arguments.
         :param kwargs: model kwargs.
         """

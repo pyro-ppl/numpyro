@@ -89,18 +89,20 @@ class SteinLoss:
         )
         score_keys = random.split(score_key, self.elbo_num_particles)
         elbos = vmap(
-            lambda key, assign: self.particle_loss(
-                rng_key=key,
-                model=model,
-                guide=guide,
-                selected_particle=unravel_pytree(flat_particles[assign]),
-                unravel_pytree=unravel_pytree,
-                flat_particles=flat_particles,
-                select_index=assign,
-                model_args=args,
-                model_kwargs=kwargs,
-                param_map=param_map,
+            lambda key, assign: (
+                self.particle_loss(
+                    rng_key=key,
+                    model=model,
+                    guide=guide,
+                    selected_particle=unravel_pytree(flat_particles[assign]),
+                    unravel_pytree=unravel_pytree,
+                    flat_particles=flat_particles,
+                    select_index=assign,
+                    model_args=args,
+                    model_kwargs=kwargs,
+                    param_map=param_map,
+                )
+                - jnp.log(self.stein_num_particles)
             )
-            - jnp.log(self.stein_num_particles)
         )(score_keys, assigns)
         return -elbos.mean()

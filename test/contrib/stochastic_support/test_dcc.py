@@ -23,7 +23,7 @@ from numpyro.infer import HMC, NUTS, SA, BarkerMH
 )
 @pytest.mark.xfail(raises=RuntimeError)
 def test_continuous_branching(branch_dist):
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     def model():
         model1 = numpyro.sample("model1", branch_dist(), infer={"branching": True})
@@ -42,7 +42,7 @@ def test_continuous_branching(branch_dist):
 
 
 def test_different_address_path():
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     def model():
         model1 = numpyro.sample(
@@ -79,7 +79,7 @@ def test_proposal_scale(proposal_scale):
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma), obs=y)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     rng_key, subkey = random.split(rng_key)
     y_train = dist.Normal(0, 1).sample(subkey, (200,))
@@ -115,7 +115,7 @@ def test_kernels(chain_method, kernel_cls):
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma), obs=y)
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     rng_key, subkey = random.split(rng_key)
     y_train = dist.Normal(0, 1).sample(subkey, (200,))
@@ -178,7 +178,7 @@ def test_weight_convergence():
         with numpyro.plate("data", y.shape[0]):
             numpyro.sample("obs", dist.Normal(z, sigma), obs=y)
 
-    rng_key = random.PRNGKey(1)
+    rng_key = random.key(1)
 
     rng_key, subkey = random.split(rng_key)
     y_train = dist.Normal(0, 1).sample(subkey, (200,))

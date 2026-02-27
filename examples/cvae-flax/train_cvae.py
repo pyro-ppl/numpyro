@@ -78,14 +78,14 @@ def train_cvae(
     n_epochs=100,
 ):
     svi, state = create_train_state(
-        random.PRNGKey(23), model, guide, train_fetch, baseline_params, 0.003
+        random.key(23), model, guide, train_fetch, baseline_params, 0.003
     )
 
     p1 = baseline_params.unfreeze()["params"]["Dense_0"]["kernel"]
     p2 = state.optim_state[1][0]["baseline$params"]["Dense_0"]["kernel"]
     assert jnp.all(p1 == p2)
 
-    rng = random.PRNGKey(0)
+    rng = random.key(0)
     best_val_loss = jnp.inf
     best_state = state
     for i in range(n_epochs):

@@ -24,7 +24,7 @@ def test_block_update_partitioning(num_blocks):
     gibbs_state = {}
 
     new_gibbs_sites, new_gibbs_state = block_update(
-        plate_sizes, num_blocks, random.PRNGKey(2), gibbs_sites, gibbs_state
+        plate_sizes, num_blocks, random.key(2), gibbs_sites, gibbs_state
     )
     block_size = 100 // num_blocks
     for name in gibbs_sites:

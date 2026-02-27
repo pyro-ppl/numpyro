@@ -158,7 +158,7 @@ def main(args):
     Phi2_true = jnp.array([[0.2, -0.1], [-0.1, 0.2]])  # Coefficients for lag 2
     sigma_true = jnp.array([[0.1, 0.02], [0.02, 0.1]])  # Covariance matrix
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     y = generate_var2_data(T, K, c_true, Phi1_true, Phi2_true, sigma_true)
 
     # Perform inference
@@ -202,7 +202,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="VAR(2) example")
     parser.add_argument("--num-data", nargs="?", default=100, type=int)
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)

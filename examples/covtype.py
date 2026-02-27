@@ -72,7 +72,7 @@ def model(data, labels, subsample_size=None):
 
 
 def benchmark_hmc(args, features, labels):
-    rng_key = random.PRNGKey(1)
+    rng_key = random.key(1)
     start = time.time()
     # a MAP estimate at the following source
     # https://github.com/google/edward2/blob/master/examples/no_u_turn_sampler/logistic_regression.py#L117
@@ -174,7 +174,7 @@ def benchmark_hmc(args, features, labels):
         subsample_size = 1000
         guide = AutoBNAFNormal(model, num_flows=1, hidden_factors=[8])
         svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-        svi_result = svi.run(random.PRNGKey(2), 2000, features, labels)
+        svi_result = svi.run(random.key(2), 2000, features, labels)
         params, losses = svi_result.params, svi_result.losses
         plt.plot(losses)
         plt.show()
@@ -206,7 +206,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument(
         "-n", "--num-samples", default=1000, type=int, help="number of samples"

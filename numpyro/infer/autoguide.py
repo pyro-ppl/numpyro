@@ -137,7 +137,7 @@ class AutoGuide(ABC):
         Generate samples from the approximate posterior over the latent
         sites in the model.
 
-        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
+        :param jax.random.key rng_key: random key to be used draw samples.
         :param dict params: Current parameters of model and autoguide.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
             method from :class:`~numpyro.infer.svi.SVI`.
@@ -229,7 +229,7 @@ class AutoGuideList(AutoGuide):
 
     Example usage::
 
-        rng_key_init = random.PRNGKey(0)
+        rng_key_init = random.key(0)
         guide = AutoGuideList(my_model)
         guide.append(
             AutoNormal(
@@ -1269,7 +1269,7 @@ class AutoSemiDAIS(AutoGuide):
 
         # sample posterior for particular data subset {3, 7}
         with handlers.substitute(data={"data": jnp.array([3, 7])}):
-            samples = guide.sample_posterior(random.PRNGKey(1), params)
+            samples = guide.sample_posterior(random.key(1), params)
 
     :param callable model: A NumPyro model with global and local latent variables.
     :param callable local_model: The portion of `model` that includes the local latent variables only.
@@ -2142,7 +2142,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         def loss_fn(params):
             # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
             return Trace_ELBO().loss(
-                random.PRNGKey(0), params, self.model, self, *args, **kwargs
+                random.key(0), params, self.model, self, *args, **kwargs
             )
 
         self._loss_fn = loss_fn

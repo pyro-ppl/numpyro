@@ -195,7 +195,7 @@ def main(args):
     for i, model in enumerate(
         (fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)
     ):
-        rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
+        rng_key, rng_key_predict = random.split(random.key(i + 1))
         zs = run_inference(model, at_bats, hits, rng_key, args)
         predict(model, at_bats, hits, zs, rng_key_predict, player_names)
         predict(
@@ -210,7 +210,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Baseball batting average using MCMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)

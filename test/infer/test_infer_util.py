@@ -43,7 +43,7 @@ import numpyro.optim as optim
 def rng_key(request):
     rng_type = request.param
     if rng_type == "old":
-        return random.PRNGKey(0)
+        return random.key(0)
     else:
         return random.key(0)
 
@@ -51,7 +51,7 @@ def rng_key(request):
 def beta_bernoulli():
     N = 800
     true_probs = jnp.array([0.2, 0.7])
-    data = dist.Bernoulli(true_probs).sample(random.PRNGKey(0), (N,))
+    data = dist.Bernoulli(true_probs).sample(random.key(0), (N,))
 
     def model(data=None):
         with numpyro.plate("dim", 2):
@@ -66,7 +66,7 @@ def beta_bernoulli():
 
 def linear_regression():
     N = 800
-    X = dist.Normal(0, 1).sample(random.PRNGKey(0), (N,))
+    X = dist.Normal(0, 1).sample(random.key(0), (N,))
     y = 1.5 + X * 0.7
 
     def model(X, y=None):
@@ -134,16 +134,16 @@ def test_predictive_with_deterministic(parallel):
     n_preds = 400
     model, X, y = linear_regression()
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
-    mcmc.run(random.PRNGKey(0), X=X, y=y)
+    mcmc.run(random.key(0), X=X, y=y)
     samples = mcmc.get_samples()
     predictive = Predictive(model, samples, parallel=parallel)
     # change the input (X) shape to make sure the deterministic shape changes
-    predictive_samples = predictive(random.PRNGKey(1), X=X[:n_preds])
+    predictive_samples = predictive(random.key(1), X=X[:n_preds])
     assert predictive_samples.keys() == {"mu", "obs"}
 
     predictive.return_sites = ["beta", "mu", "obs"]
     # change the input (X) shape to make sure the deterministic shape changes
-    predictive_samples = predictive(random.PRNGKey(1), X=X[:n_preds])
+    predictive_samples = predictive(random.key(1), X=X[:n_preds])
     # check shapes
     assert predictive_samples["mu"].shape == (100,) + X[:n_preds].shape
     assert predictive_samples["obs"].shape == (100,) + X[:n_preds].shape
@@ -165,7 +165,7 @@ def test_discrete_predictive_with_deterministic(parallel):
         exclude_deterministic=False,
     )
 
-    predictive_samples = predictive(random.PRNGKey(1), probs=probs)
+    predictive_samples = predictive(random.key(1), probs=probs)
     assert predictive_samples.keys() == {"counts_categorical"}
     assert predictive_samples["counts_categorical"].shape == probs.shape
 
@@ -185,10 +185,10 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(1), 5000, data)
+    svi_result = svi.run(random.key(1), 5000, data)
     params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(
-        random.PRNGKey(2), data=None
+        random.key(2), data=None
     )
     assert predictive["beta_sq"].shape == (1000,)
     obs_pred = predictive["obs"].astype(np.float32)
@@ -214,14 +214,14 @@ def test_predictive_with_particles():
         numpyro.sample("latent", dist.Normal(latent_loc, 1.0).to_event(1))
 
     params = {"latent_loc": jnp.zeros((num_particles, fdim))}
-    x = dist.Normal(jnp.full(3, 0.2), 1.0).sample(random.PRNGKey(0), (num_data,))
+    x = dist.Normal(jnp.full(3, 0.2), 1.0).sample(random.key(0), (num_data,))
     predictions = Predictive(
         model,
         guide=guide,
         params=params,
         num_samples=num_samples,
         batch_ndims=1,
-    )(random.PRNGKey(0), x)
+    )(random.key(0), x)
     assert predictions["y"].shape == (num_samples, num_particles, num_data)
 
 
@@ -239,12 +239,12 @@ def test_predictive_with_improper():
             )
         numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
-    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    data = true_coef + random.normal(random.key(0), (1000,))
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
-    mcmc.run(random.PRNGKey(0), data)
+    mcmc.run(random.key(0), data)
     samples = mcmc.get_samples()
-    obs_pred = Predictive(model, samples)(random.PRNGKey(1), data=None)["obs"]
+    obs_pred = Predictive(model, samples)(random.key(1), data=None)["obs"]
     assert_allclose(jnp.mean(obs_pred), true_coef, atol=0.05)
 
 
@@ -252,7 +252,7 @@ def test_predictive_with_improper():
 def test_prior_predictive(batch_ndims):
     model, data, true_probs = beta_bernoulli()
     predictive = Predictive(model, num_samples=100, batch_ndims=batch_ndims)
-    predictive_samples = predictive(random.PRNGKey(1))
+    predictive_samples = predictive(random.key(1))
     assert predictive_samples.keys() == {"beta", "beta_sq", "obs"}
 
     # check shapes
@@ -264,13 +264,11 @@ def test_prior_predictive(batch_ndims):
 @pytest.mark.parametrize("batch_shape", [(), (100,), (2, 50)])
 def test_log_likelihood(batch_shape):
     model, data, _ = beta_bernoulli()
-    samples = Predictive(model, return_sites=["beta"], num_samples=200)(
-        random.PRNGKey(1)
-    )
+    samples = Predictive(model, return_sites=["beta"], num_samples=200)(random.key(1))
     batch_size = int(np.prod(batch_shape))
     samples = {"beta": samples["beta"][:batch_size].reshape(batch_shape + (1, -1))}
 
-    preds = Predictive(model, samples, batch_ndims=len(batch_shape))(random.PRNGKey(2))
+    preds = Predictive(model, samples, batch_ndims=len(batch_shape))(random.key(2))
     loglik = log_likelihood(model, samples, data, batch_ndims=len(batch_shape))
     assert preds.keys() == {"beta_sq", "obs"}
     assert loglik.keys() == {"obs"}
@@ -308,7 +306,7 @@ def test_model_with_transformed_distribution():
         numpyro.sample("y", y_prior)
 
     params = {"x": jnp.array(-5.0), "y": jnp.array(7.0)}
-    model = handlers.seed(model, random.PRNGKey(0))
+    model = handlers.seed(model, random.key(0))
     inv_transforms = {"x": biject_to(x_prior.support), "y": biject_to(y_prior.support)}
     expected_samples = partial(transform_fn, inv_transforms)(params)
     expected_potential_energy = (
@@ -321,7 +319,7 @@ def test_model_with_transformed_distribution():
     reparam_model = handlers.reparam(model, {"y": TransformReparam()})
     base_params = {"x": params["x"], "y_base": params["y"]}
     actual_samples = constrain_fn(
-        handlers.seed(reparam_model, random.PRNGKey(0)),
+        handlers.seed(reparam_model, random.key(0)),
         (),
         {},
         base_params,
@@ -345,7 +343,7 @@ def test_constrain_unconstrain():
         numpyro.param("z", init_value=2.0, constraint=z_constraint)
 
     params = {"x": jnp.array(-5.0), "y": jnp.array(7.0), "z": jnp.array(3.0)}
-    model = handlers.seed(model, random.PRNGKey(0))
+    model = handlers.seed(model, random.key(0))
     inv_transforms = {
         "x": biject_to(x_prior.support),
         "y": biject_to(y_prior.support),
@@ -388,7 +386,7 @@ def test_model_with_mask_false():
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500, num_chains=1)
-    mcmc.run(random.PRNGKey(1))
+    mcmc.run(random.key(1))
     assert_allclose(mcmc.get_samples()["x"].mean(), 0.0, atol=0.15)
 
 
@@ -450,7 +448,7 @@ def test_initialize_model_change_point(init_strategy):
         31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
     # fmt: on
 
-    rng_keys = random.split(random.PRNGKey(1), 2)
+    rng_keys = random.split(random.key(1), 2)
     init_params, _, _, _ = initialize_model(
         rng_keys, model, init_strategy=init_strategy, model_args=(count_data,)
     )
@@ -485,9 +483,9 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
         return p_latent
 
     true_probs = jnp.array([0.1, 0.6, 0.3])
-    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
+    data = dist.Categorical(true_probs).sample(random.key(1), (2000,))
 
-    rng_keys = random.split(random.PRNGKey(1), 2)
+    rng_keys = random.split(random.key(1), 2)
     init_params, _, _, _ = initialize_model(
         rng_keys, model, init_strategy=init_strategy, model_args=(data,)
     )
@@ -513,7 +511,7 @@ def test_improper_expand(event_shape):
             incidence = numpyro.sample("incidence", d)
             assert d.log_prob(incidence).shape == (3,)
 
-    model_info = initialize_model(random.PRNGKey(0), model)
+    model_info = initialize_model(random.key(0), model)
     assert model_info.param_info.z["incidence"].shape == (3,) + event_shape
 
 
@@ -553,7 +551,7 @@ def test_get_mask_optimization():
     assert "guide-sometimes" not in called
 
     called = set()
-    Predictive(model, guide=guide, num_samples=2, parallel=True)(random.PRNGKey(2))
+    Predictive(model, guide=guide, num_samples=2, parallel=True)(random.key(2))
     assert "model-always" in called
     assert "guide-always" in called
     assert "model-sometimes" not in called
@@ -583,7 +581,7 @@ def test_predictive_mask_with_infer_discrete_true():
         posterior_samples=posterior_samples,
         infer_discrete=True,
         batch_ndims=1,
-    )(random.PRNGKey(0))
+    )(random.key(0))
     assert "mask-true" in called
 
 
@@ -597,7 +595,7 @@ def test_predictive_mask_with_infer_discrete_false():
             called.add("mask-true")
             numpyro.sample("f", dist.Normal(0.0, 1.0))
 
-    Predictive(model, num_samples=2, infer_discrete=False)(random.PRNGKey(0))
+    Predictive(model, num_samples=2, infer_discrete=False)(random.key(0))
     assert "mask-true" not in called
 
 
@@ -636,7 +634,7 @@ def test_log_likelihood_flax_nn():
     # Fit model
     kernel = NUTS(model, target_accept_prob=0.95)
     mcmc = MCMC(kernel, num_warmup=100, num_samples=100, num_chains=1)
-    mcmc.run(random.PRNGKey(0), X=X, y=y)
+    mcmc.run(random.key(0), X=X, y=y)
 
     # run log likelihood
     numpyro.infer.util.log_likelihood(model, mcmc.get_samples(), X=X, y=y)

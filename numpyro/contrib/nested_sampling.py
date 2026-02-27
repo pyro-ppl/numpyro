@@ -154,8 +154,8 @@ class NestedSampler:
         >>> from numpyro.contrib.nested_sampling import NestedSampler
 
         >>> true_coefs = jnp.array([1., 2., 3.])
-        >>> data = random.normal(random.PRNGKey(0), (2000, 3))
-        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(1))
+        >>> data = random.normal(random.key(0), (2000, 3))
+        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.key(1))
         >>>
         >>> def model(data, labels):
         ...     coefs = numpyro.sample('coefs', dist.Normal(0, 1).expand([3]))
@@ -164,8 +164,8 @@ class NestedSampler:
         ...                           obs=labels)
         >>>
         >>> ns = NestedSampler(model)
-        >>> ns.run(random.PRNGKey(2), data, labels)
-        >>> samples = ns.get_samples(random.PRNGKey(3), num_samples=1000)
+        >>> ns.run(random.key(2), data, labels)
+        >>> samples = ns.get_samples(random.key(3), num_samples=1000)
         >>> assert jnp.mean(jnp.abs(samples['intercept'])) < 0.05
         >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.93661342 1.95034876 2.86123884]
@@ -193,7 +193,7 @@ class NestedSampler:
         """
         Run the nested samplers and collect weighted samples.
 
-        :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
+        :param Array rng_key: Random number generator key to be used for the sampling.
         :param args: The arguments needed by the `model`.
         :param kwargs: The keyword arguments needed by the `model`.
         """
@@ -307,7 +307,7 @@ class NestedSampler:
         """
         Draws samples from the weighted samples collected from the run.
 
-        :param random.PRNGKey rng_key: Random number generator key to be used to draw samples.
+        :param Array rng_key: Random number generator key to be used to draw samples.
         :param int num_samples: The number of samples.
         :param bool group_by_chain: If True, a leading chain dimension of 1 is added to the output arrays.
         :return: a dict of posterior samples

@@ -553,7 +553,7 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=(not is_sphinxbuild),
     )
-    mcmc.run(jax.random.PRNGKey(0), **data_dict)
+    mcmc.run(jax.random.key(0), **data_dict)
     if not is_sphinxbuild:
         mcmc.print_summary()
 
@@ -568,7 +568,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     args = parse_arguments()
     numpyro.enable_x64(args.x64)
     numpyro.set_platform(args.device)

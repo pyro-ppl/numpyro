@@ -5,6 +5,8 @@ import jax.numpy as jnp
 
 
 def _is_batched(arg):
+    if isinstance(arg, slice) or arg is Ellipsis or arg is None:
+        return False
     return jnp.ndim(arg) > 0
 
 

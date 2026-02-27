@@ -40,7 +40,7 @@ def test_gof(jax_dist, sp_dist, params):
         for name in ["BetaProportion", "SineBivariateVonMises"]
     ):
         num_samples = 20000
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     d = jax_dist(*params)
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
     probs = np.exp(d.log_prob(samples))

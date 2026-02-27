@@ -10,8 +10,8 @@ import jax.numpy as jnp
 from jax.scipy.special import betainc, betaln, gammaln
 from jax.typing import ArrayLike
 
-from numpyro._typing import ConstraintT
 from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
 from numpyro.distributions.discrete import (
     BinomialProbs,
@@ -105,7 +105,7 @@ class BetaBinomial(Distribution):
         )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return constraints.integer_interval(0, self.total_count)
 
 
@@ -324,7 +324,7 @@ class DirichletMultinomial(Distribution):
         return n * alpha_ratio * (1 - alpha_ratio) * (n + alpha_sum) / (1 + alpha_sum)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
-    def support(self) -> ConstraintT:
+    def support(self) -> Constraint:
         return constraints.multinomial(self.total_count)
 
     @staticmethod

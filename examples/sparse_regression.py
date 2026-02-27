@@ -115,7 +115,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, si
     return mu, var
 
 
-# Compute the mean and variance of coefficient theta_ij for a MCMC sample of the
+# Compute the mean and variance of coefficient theta_ij for an MCMC sample of the
 # kernel hyperparameters (eta1, xisq, ...). Compare to theorem 5.1 in reference [1].
 def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, sigma):
     P, N = X.shape[1], X.shape[0]
@@ -311,7 +311,7 @@ def main(args):
     }
 
     # do inference
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     samples = run_inference(model, args, rng_key, X, Y, hypers)
 
     # compute the mean and square root variance of each coefficient theta_i
@@ -384,7 +384,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.19.0")
+    assert numpyro.__version__.startswith("0.20.0")
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
