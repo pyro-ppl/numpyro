@@ -224,6 +224,7 @@ module = [
     "numpyro.diagnostics.*",
     "numpyro.handlers.*",
     "numpyro.infer.elbo.*",
+    "numpyro.infer.mclmc.py",
     "numpyro.optim.*",
     "numpyro.primitives.*",
     "numpyro.patch.*",
