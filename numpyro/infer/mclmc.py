@@ -43,6 +43,24 @@ class FullState(NamedTuple):
     rng_key: jax.dtypes.prng_key
 
 
+class _AdaptationAverages(NamedTuple):
+    time: NumLike
+    x_average: NumLike
+    step_size_max: NumLike
+
+
+class _StreamingAverage(NamedTuple):
+    total: NumLike
+    average: ArrayLike
+
+
+class _AdaptationIterationState(NamedTuple):
+    state: MCLMCState
+    params: MCLMCAdaptationState
+    adaptive_state: _AdaptationAverages
+    streaming_avg: _StreamingAverage
+
+
 KernelFn = Callable[
     [jax.dtypes.prng_key, MCLMCState, NumLike, NumLike], tuple[MCLMCState, MCLMCInfo]
 ]
@@ -77,10 +95,10 @@ def _generate_unit_vector(rng_key: jax.dtypes.prng_key, position: PyTree) -> PyT
 
 def _incremental_value_update(
     expectation: ArrayLike,
-    incremental_val: tuple[NumLike, ArrayLike],
+    incremental_val: _StreamingAverage,
     weight: NumLike = 1.0,
     zero_prevention: NumLike = 0.0,
-) -> tuple[NumLike, ArrayLike]:
+) -> _StreamingAverage:
     total, average = incremental_val
     total_weight = total + weight + zero_prevention
 
@@ -93,7 +111,7 @@ def _incremental_value_update(
         expectation,
         average,
     )
-    return total + weight, average
+    return _StreamingAverage(total + weight, average)
 
 
 def _init_mclmc(
@@ -268,19 +286,26 @@ def _state_is_finite(state: MCLMCState) -> NumLike:
     )
 
 
+def _fallback_state_with_fresh_momentum(
+    previous_state: MCLMCState, key: jax.dtypes.prng_key
+) -> MCLMCState:
+    return previous_state._replace(
+        momentum=_generate_unit_vector(key, previous_state.position)
+    )
+
+
 def _handle_nans(
     previous_state: MCLMCState,
     next_state: MCLMCState,
     info: MCLMCInfo,
     key: jax.dtypes.prng_key,
 ) -> tuple[MCLMCState, MCLMCInfo]:
-    new_momentum = _generate_unit_vector(key, previous_state.position)
     nonans = _state_is_finite(next_state)
     state, info = jax.lax.cond(
         nonans,
         lambda: (next_state, info),
         lambda: (
-            previous_state._replace(momentum=new_momentum),
+            _fallback_state_with_fresh_momentum(previous_state, key),
             MCLMCInfo(
                 logdensity=previous_state.logdensity,
                 energy_change=jnp.zeros_like(info.energy_change),
@@ -338,9 +363,7 @@ def _adaptation_handle_nans(
     )
     state = jax.lax.cond(
         jnp.isnan(next_state.logdensity),
-        lambda: state._replace(
-            momentum=_generate_unit_vector(key, previous_state.position)
-        ),
+        lambda: _fallback_state_with_fresh_momentum(state, key),
         lambda: state,
     )
     return nonans, state, step_size, kinetic_change
@@ -364,11 +387,9 @@ def _make_l_step_size_adaptation(
     def predictor(
         previous_state: MCLMCState,
         params: MCLMCAdaptationState,
-        adaptive_state: tuple[NumLike, NumLike, NumLike],
+        adaptive_state: _AdaptationAverages,
         rng_key: jax.dtypes.prng_key,
-    ) -> tuple[
-        MCLMCState, MCLMCAdaptationState, tuple[NumLike, NumLike, NumLike], NumLike
-    ]:
+    ) -> tuple[MCLMCState, MCLMCAdaptationState, _AdaptationAverages, NumLike]:
         time, x_average, step_size_max = adaptive_state
         rng_key, nan_key = jax.random.split(rng_key)
         next_state, info = kernel_fn(params.inverse_mass_matrix)(
@@ -394,25 +415,17 @@ def _make_l_step_size_adaptation(
         step_size = jnp.power(x_average / time, -1.0 / 6.0)
         step_size = jnp.where(step_size < step_size_max, step_size, step_size_max)
         params_new = params._replace(step_size=step_size)
-        return state, params_new, (time, x_average, step_size_max), success
+        return (
+            state,
+            params_new,
+            _AdaptationAverages(time, x_average, step_size_max),
+            success,
+        )
 
     def step(
-        iteration_state: tuple[
-            MCLMCState,
-            MCLMCAdaptationState,
-            tuple[NumLike, NumLike, NumLike],
-            tuple[NumLike, jax.dtypes.prng_key],
-        ],
+        iteration_state: _AdaptationIterationState,
         weight_and_key: tuple[NumLike, jax.dtypes.prng_key],
-    ) -> tuple[
-        tuple[
-            MCLMCState,
-            MCLMCAdaptationState,
-            tuple[NumLike, NumLike, NumLike],
-            tuple[NumLike, jax.dtypes.prng_key],
-        ],
-        None,
-    ]:
+    ) -> tuple[_AdaptationIterationState, None]:
         mask, rng_key = weight_and_key
         state, params, adaptive_state, streaming_avg = iteration_state
         state, params, adaptive_state, success = predictor(
@@ -424,25 +437,22 @@ def _make_l_step_size_adaptation(
             incremental_val=streaming_avg,
             weight=mask * success * params.step_size,
         )
-        return (state, params, adaptive_state, streaming_avg), None
+        return _AdaptationIterationState(
+            state, params, adaptive_state, streaming_avg
+        ), None
 
     def run_steps(
         xs: tuple[ArrayLike, jax.dtypes.prng_key],
         state: MCLMCState,
         params: MCLMCAdaptationState,
-    ) -> tuple[
-        MCLMCState,
-        MCLMCAdaptationState,
-        tuple[NumLike, NumLike, NumLike],
-        tuple[NumLike, jax.dtypes.prng_key],
-    ]:
+    ) -> _AdaptationIterationState:
         return jax.lax.scan(
             step,
-            init=(
+            init=_AdaptationIterationState(
                 state,
                 params,
-                (0.0, 0.0, jnp.inf),
-                (0.0, jnp.array([jnp.zeros(dim), jnp.zeros(dim)])),
+                _AdaptationAverages(0.0, 0.0, jnp.inf),
+                _StreamingAverage(0.0, jnp.array([jnp.zeros(dim), jnp.zeros(dim)])),
             ),
             xs=xs,
         )[0]
@@ -459,7 +469,9 @@ def _make_l_step_size_adaptation(
         tune_keys, final_key = keys[:-1], keys[-1]
         mask = jnp.concatenate((jnp.zeros(num_steps1), jnp.ones(num_steps2)))
 
-        state, params, _, (_, average) = run_steps((mask, tune_keys), state, params)
+        iteration_state = run_steps((mask, tune_keys), state, params)
+        state, params = iteration_state.state, iteration_state.params
+        average = iteration_state.streaming_avg.average
         L = params.L
         inverse_mass_matrix = params.inverse_mass_matrix
         if num_steps2 > 1:
@@ -472,7 +484,8 @@ def _make_l_step_size_adaptation(
                 L = jnp.sqrt(dim)
             steps = round(num_steps2 / 3)
             keys = jax.random.split(final_key, steps)
-            state, params, _, (_, _) = run_steps((jnp.ones(steps), keys), state, params)
+            iteration_state = run_steps((jnp.ones(steps), keys), state, params)
+            state, params = iteration_state.state, iteration_state.params
         return state, MCLMCAdaptationState(L, params.step_size, inverse_mass_matrix)
 
     return adaptation
@@ -502,6 +515,13 @@ def _make_adaptation_l(kernel, frac, lfactor):
         state, samples = jax.lax.scan(step, init=state, xs=keys)
         flat_samples = jax.vmap(lambda x: ravel_pytree(x)[0])(samples)
         ess = effective_sample_size(flat_samples[None, ...])
+        ess = jnp.nan_to_num(
+            ess,
+            nan=1.0,
+            posinf=float(num_steps3),
+            neginf=1.0,
+        )
+        ess = jnp.clip(ess, min=1.0)
         return state, params._replace(
             L=lfactor * params.step_size * jnp.mean(num_steps3 / ess)
         )
