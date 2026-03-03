@@ -419,7 +419,7 @@ def fori_collect(
             _, collection, _, _ = _body_fn(-1, val, collection, start_idx, thinning)
             vals = (val, collection, start_idx, thinning)
         else:
-            with tqdm.trange(upper, miniters = print_rate) as t:
+            with tqdm.trange(upper, miniters=print_rate) as t:
                 for i in t:
                     vals = _body_fn(i, *vals)
 
