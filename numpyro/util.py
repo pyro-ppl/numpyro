@@ -215,7 +215,7 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
-def progress_bar_factory(num_samples: int, num_chains: int, print_rate) -> Callable:
+def progress_bar_factory(num_samples: int, num_chains: int, print_rate: int) -> Callable:
     """Factory that builds a progress bar decorator along
     with the `set_tqdm_description` and `close_tqdm` functions
     """
