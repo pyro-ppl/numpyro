@@ -215,15 +215,12 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
-def progress_bar_factory(num_samples: int, num_chains: int) -> Callable:
+def progress_bar_factory(
+    num_samples: int, num_chains: int, print_rate: int
+) -> Callable:
     """Factory that builds a progress bar decorator along
     with the `set_tqdm_description` and `close_tqdm` functions
     """
-
-    if num_samples > 20:
-        print_rate = int(num_samples / 20)
-    else:
-        print_rate = 1
 
     remainder = num_samples % print_rate
 
@@ -303,6 +300,7 @@ def fori_collect(
     init_val: Any,
     transform: Callable = identity,
     progbar: bool = True,
+    print_rate: None | int = None,
     return_last_val: bool = False,
     collection_size=None,
     thinning=1,
@@ -325,6 +323,7 @@ def fori_collect(
         be any Python collection type containing `np.ndarray` objects.
     :param transform: a callable to post-process the values returned by `body_fn`.
     :param progbar: whether to post progress bar updates.
+    :param print_rate: number of iterations per progress bar update.
     :param bool return_last_val: If `True`, the last value is also returned.
         This has the same type as `init_val`.
     :param thinning: Positive integer that controls the thinning ratio for retained
@@ -350,6 +349,12 @@ def fori_collect(
     init_val_transformed = transform(init_val)
     start_idx = lower + (upper - lower) % thinning
     num_chains = progbar_opts.pop("num_chains", 1)
+
+    if print_rate is None:
+        if upper > 20:
+            print_rate = int(upper / 20)
+        else:
+            print_rate = 1
 
     @partial(maybe_jit, donate_argnums=2)
     @cached_by(fori_collect, body_fun, transform)
@@ -391,7 +396,7 @@ def fori_collect(
         last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
 
     elif num_chains > 1:
-        progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
+        progress_bar_fori_loop = progress_bar_factory(upper, num_chains, print_rate)
         _body_fn_pbar = progress_bar_fori_loop(lambda i, vals: _body_fn(i, *vals))
 
         def loop_fn(collection):
@@ -416,7 +421,7 @@ def fori_collect(
             _, collection, _, _ = _body_fn(-1, val, collection, start_idx, thinning)
             vals = (val, collection, start_idx, thinning)
         else:
-            with tqdm.trange(upper) as t:
+            with tqdm.trange(upper, miniters=print_rate) as t:
                 for i in t:
                     vals = _body_fn(i, *vals)
 
