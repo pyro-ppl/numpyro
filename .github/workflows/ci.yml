@@ -37,10 +37,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt install -y pandoc gsfonts
-          uv pip install --upgrade jaxlib jax
-          uv pip install --upgrade '.[doc,test]'
-          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --upgrade -r docs/requirements.txt
+          uv sync \
+            --upgrade \
+            --extra cpu \
+            --group ci \
+            --group docs \
+            --group test
           uv pip freeze
       - name: Lint with mypy and ruff
         run: |
@@ -67,18 +69,17 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          update-path: true
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
           sudo apt install -y graphviz
-          # Keep track of pyro-api master branch
-          # See: https://github.com/pyro-ppl/pyro-api/pull/26
-          # uv pip install --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
-          uv pip install --upgrade jaxlib jax
-          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --upgrade -e '.[dev,test]'
+          uv sync \
+            --upgrade \
+            --extra cpu \
+            --group ci \
+            --group dev \
+            --group test
           uv pip freeze
       - name: Test with pytest
         run: |
@@ -119,17 +120,17 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          update-path: true
           python-version: ${{ matrix.python-version }}
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
-          # See: https://github.com/pyro-ppl/pyro-api/pull/26
-          # uv pip install --upgrade https://github.com/pyro-ppl/pyro-api/archive/master.zip
-          uv pip install --upgrade jaxlib jax
-          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --upgrade -e '.[dev,test]'
+          uv sync \
+            --upgrade \
+            --extra cpu \
+            --group ci \
+            --group dev \
+            --group test
           uv pip freeze
       - name: Test with pytest
         run: |
@@ -178,9 +179,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
-          uv pip install --upgrade jaxlib jax
-          uv pip install --upgrade https://github.com/pyro-ppl/funsor/archive/master.zip
-          uv pip install --upgrade -e '.[dev,examples,test]'
+          uv sync \
+            --upgrade \
+            --extra cpu \
+            --group ci \
+            --group dev \
+            --group examples \
+            --group test
           uv pip freeze
       - name: Test with pytest
         run: |
