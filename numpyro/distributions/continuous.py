@@ -348,7 +348,9 @@ class Dirichlet(Distribution):
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape
         samples = random.dirichlet(key, self.concentration, shape=shape)
-        return jnp.clip(samples, jnp.finfo(samples).tiny, 1 - jnp.finfo(samples).eps)
+        return jnp.clip(
+            samples, jnp.finfo(samples.dtype).tiny, 1 - jnp.finfo(samples.dtype).eps
+        )
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
