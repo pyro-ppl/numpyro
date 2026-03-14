@@ -40,6 +40,7 @@ dev = [
     "equinox",
     "flax",
     "funsor>=0.4.1",
+    "gpjax",
     "graphviz",
     "jaxns>=2.6.3,<=2.6.9",
     "matplotlib",
