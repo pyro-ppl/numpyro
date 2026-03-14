@@ -20,11 +20,9 @@ from numpyro.contrib.module import (
     _update_params,
     eqx_module,
     flax_module,
-    haiku_module,
     nnx_module,
     random_eqx_module,
     random_flax_module,
-    random_haiku_module,
     random_nnx_module,
 )
 import numpyro.distributions as dist
@@ -35,43 +33,6 @@ from numpyro.primitives import mutable as numpyro_mutable
 pytestmark = pytest.mark.filterwarnings(
     "ignore:jax.tree_.+ is deprecated:FutureWarning"
 )
-
-
-def haiku_model_by_shape(x, y):
-    import haiku as hk
-
-    linear_module = hk.transform(lambda x: hk.Linear(100)(x))
-    nn = haiku_module("nn", linear_module, input_shape=(100,))
-    mean = nn(x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
-
-
-def haiku_model_by_kwargs_1(x, y):
-    import haiku as hk
-
-    linear_module = hk.transform(lambda x: hk.Linear(100)(x))
-    nn = haiku_module("nn", linear_module, x=x)
-    mean = nn(x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
-
-
-def haiku_model_by_kwargs_2(w, x, y):
-    import haiku as hk
-
-    class TestHaikuModule(hk.Module):
-        def __init__(self, dim: int = 100):
-            super().__init__()
-            self._dim = dim
-
-        def __call__(self, w, x):
-            l1 = hk.Linear(self._dim, name="w_linear")(w)
-            l2 = hk.Linear(self._dim, name="x_linear")(x)
-            return l1 + l2
-
-    linear_module = hk.transform(lambda w, x: TestHaikuModule(100)(w, x))
-    nn = haiku_module("nn", linear_module, w=w, x=x)
-    mean = nn(w, x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
 def flax_model_by_shape(x, y):
@@ -117,39 +78,6 @@ def test_flax_module():
     assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
-def test_haiku_module():
-    W = np.arange(100).astype(np.float32)
-    X = np.arange(100).astype(np.float32)
-    Y = 2 * X + 2
-
-    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
-        haiku_model_by_shape(X, Y)
-    assert haiku_tr["nn$params"]["value"]["linear"]["w"].shape == (100, 100)
-    assert haiku_tr["nn$params"]["value"]["linear"]["b"].shape == (100,)
-
-    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
-        haiku_model_by_kwargs_1(X, Y)
-    assert haiku_tr["nn$params"]["value"]["linear"]["w"].shape == (100, 100)
-    assert haiku_tr["nn$params"]["value"]["linear"]["b"].shape == (100,)
-
-    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
-        haiku_model_by_kwargs_2(W, X, Y)
-    assert haiku_tr["nn$params"]["value"]["test_haiku_module/w_linear"]["w"].shape == (
-        100,
-        100,
-    )
-    assert haiku_tr["nn$params"]["value"]["test_haiku_module/w_linear"]["b"].shape == (
-        100,
-    )
-    assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["w"].shape == (
-        100,
-        100,
-    )
-    assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["b"].shape == (
-        100,
-    )
-
-
 def test_update_params():
     params = {"a": {"b": {"c": {"d": 1}, "e": np.array(2)}, "f": np.ones(4)}}
     prior = {"a.b.c.d": dist.Delta(4), "a.f": dist.Delta(5)}
@@ -174,26 +102,16 @@ def test_update_params():
     )
 
 
-@pytest.mark.parametrize("backend", ["flax", "haiku"])
 @pytest.mark.parametrize("init", ["args", "shape", "kwargs"])
 @pytest.mark.parametrize("callable_prior", [True, False])
-def test_random_module_mcmc(backend, init, callable_prior):
-    if backend == "flax":
-        import flax
+def test_random_module_mcmc(init, callable_prior):
+    import flax
 
-        linear_module = flax.linen.Dense(features=1)
-        bias_name = "bias"
-        weight_name = "kernel"
-        random_module = random_flax_module
-        kwargs_name = "inputs"
-    elif backend == "haiku":
-        import haiku as hk
-
-        linear_module = hk.transform(lambda x: hk.Linear(1)(x))
-        bias_name = "linear.b"
-        weight_name = "linear.w"
-        random_module = random_haiku_module
-        kwargs_name = "x"
+    linear_module = flax.linen.Dense(features=1)
+    bias_name = "bias"
+    weight_name = "kernel"
+    random_module = random_flax_module
+    kwargs_name = "inputs"
 
     N, dim = 3000, 3
     num_warmup, num_samples = (1000, 1000)
@@ -240,45 +158,6 @@ def test_random_module_mcmc(backend, init, callable_prior):
         true_coefs,
         atol=0.22,
     )
-
-
-@pytest.mark.parametrize("dropout", [True, False])
-@pytest.mark.parametrize("batchnorm", [True, False])
-def test_haiku_state_dropout_smoke(dropout, batchnorm):
-    import haiku as hk
-
-    def fn(x):
-        if dropout:
-            x = hk.dropout(hk.next_rng_key(), 0.5, x)
-        if batchnorm:
-            x = hk.BatchNorm(create_offset=True, create_scale=True, decay_rate=0.001)(
-                x, is_training=True
-            )
-        return x
-
-    def model():
-        transform = hk.transform_with_state if batchnorm else hk.transform
-        nn = haiku_module("nn", transform(fn), apply_rng=dropout, input_shape=(4, 3))
-        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
-        if dropout:
-            y = nn(numpyro.prng_key(), x)
-        else:
-            y = nn(x)
-        numpyro.deterministic("y", y)
-
-    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
-        model()
-
-    if batchnorm:
-        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
-        assert tr["nn$state"]["type"] == "mutable"
-    else:
-        assert set(tr.keys()) == {"nn$params", "x", "y"}
-
-    # test svi
-    guide = AutoDelta(model)
-    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-    svi.run(random.key(100), 10)
 
 
 @pytest.mark.parametrize("dropout", [True, False])

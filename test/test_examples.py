@@ -58,13 +58,7 @@ EXAMPLES = [
     ),
     "ode.py --num-samples 100 --num-warmup 100 --num-chains 1",
     pytest.param(
-        "prodlda.py --num-steps 10 --hidden 10 --nn-framework flax",
-        marks=pytest.mark.skipif(
-            "CI" in os.environ, reason="This example requires a lot of memory."
-        ),
-    ),
-    pytest.param(
-        "prodlda.py --num-steps 10 --hidden 10 --nn-framework haiku",
+        "prodlda.py --num-steps 10 --hidden 10",
         marks=pytest.mark.skipif(
             "CI" in os.environ, reason="This example requires a lot of memory."
         ),
