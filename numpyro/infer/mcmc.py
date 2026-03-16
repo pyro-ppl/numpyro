@@ -287,7 +287,7 @@ class MCMC(object):
         drawing method, hence allowing us to collect samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
-    :param int print_rate: Number of iterations per progress bar update. Defaults to None, which is
+    :param int progress_bar: Number of iterations per progress bar update. Defaults to None, which is
         5% of total iterations when there are more than 20 iterations, otherwise every iteration.
     :param bool jit_model_args: If set to `True`, this will compile the potential energy
         computation as a function of model arguments. As such, calling `MCMC.run` again
@@ -333,7 +333,7 @@ class MCMC(object):
         postprocess_fn=None,
         chain_method="parallel",
         progress_bar=True,
-        print_rate=None,
+        progress_rate=None,
         jit_model_args=False,
     ):
         self.sampler = sampler
@@ -377,7 +377,7 @@ class MCMC(object):
         self.progress_bar = progress_bar
         if "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
-        self.print_rate = print_rate
+        self.progress_rate = progress_rate
         self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
@@ -501,7 +501,7 @@ class MCMC(object):
                 postprocess_fn, collect_fields, remove_sites
             ),
             progbar=self.progress_bar,
-            print_rate=self.print_rate,
+            progress_rate=self.progress_rate,
             return_last_val=True,
             thinning=self.thinning,
             collection_size=collection_size,
