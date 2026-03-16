@@ -36,7 +36,6 @@ cuda12 = ["jax[cuda12]>=0.7.0"]
 cuda13 = ["jax[cuda13]>=0.7.0"]
 tpu = ["jax[tpu]>=0.7.0"]
 dev = [
-    "dm-haiku>=0.0.14",
     "equinox",
     "flax",
     "funsor>=0.4.1",
@@ -189,7 +188,7 @@ section-order = [
 ]
 
 [tool.ruff.lint.isort.sections]
-known-jax = ["flax", "haiku", "jax", "optax", "tensorflow_probability"]
+known-jax = ["flax", "jax", "optax", "tensorflow_probability"]
 
 
 [tool.pytest.ini_options]
