@@ -49,7 +49,6 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 ci = ["funsor"]
 dev = [
-    "dm-haiku>=0.0.14",
     "equinox",
     "flax",
     "funsor>=0.4.1",
@@ -192,7 +191,7 @@ section-order = [
 ]
 
 [tool.ruff.lint.isort.sections]
-known-jax = ["flax", "haiku", "jax", "optax", "tensorflow_probability"]
+known-jax = ["flax", "jax", "optax", "tensorflow_probability"]
 
 
 [tool.pytest.ini_options]
@@ -220,6 +219,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
+    "examples.datasets",
     "numpyro.contrib.control_flow.*",       # types missing
     "numpyro.contrib.funsor.*",             # types missing
     "numpyro.contrib.hsgp.*",
