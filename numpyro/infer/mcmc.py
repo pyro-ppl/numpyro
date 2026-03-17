@@ -287,7 +287,7 @@ class MCMC(object):
         drawing method, hence allowing us to collect samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
-    :param int progress_bar: Number of iterations per progress bar update. Defaults to None, which is
+    :param int progress_rate: Number of iterations per progress bar update. Defaults to None, which is
         5% of total iterations when there are more than 20 iterations, otherwise every iteration.
     :param bool jit_model_args: If set to `True`, this will compile the potential energy
         computation as a function of model arguments. As such, calling `MCMC.run` again
