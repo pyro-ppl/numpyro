@@ -1,4 +1,3 @@
-dm-haiku
 flax
 funsor
 ipython
