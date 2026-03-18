@@ -102,8 +102,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel: true
           flag-name: test-modeling
-          path: coverage_files
-        run: uv run coverage combine coverage_files
 
   test-inference:
     runs-on: ubuntu-latest
@@ -159,8 +157,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel: true
           flag-name: test-inference
-          path: coverage_files
-        run: uv run coverage combine coverage_files
 
   examples:
     runs-on: ubuntu-latest
@@ -199,8 +195,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel: true
           flag-name: examples
-          path: coverage_files
-        run: uv run coverage combine coverage_files
 
   finish:
     needs: [test-modeling, test-inference, examples]
@@ -212,5 +206,5 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
           carryforward: "test-modeling,test-inference,examples"
-          path: coverage_files
+
         run: uv run coveralls
