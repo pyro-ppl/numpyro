@@ -703,7 +703,7 @@ def safe_normalize(x, *, p=2):
     assert isinstance(p, (float, int))
     assert p >= 0
     norm = jnp.linalg.norm(x, p, axis=-1, keepdims=True)
-    x = x / jnp.clip(norm, jnp.finfo(x).tiny)
+    x = x / jnp.clip(norm, jnp.finfo(x.dtype).tiny)
     # Avoid the singularity.
     mask = jnp.all(x == 0, axis=-1, keepdims=True)
     x = jnp.where(mask, x.shape[-1] ** (-1 / p), x)
