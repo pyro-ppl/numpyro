@@ -47,7 +47,11 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-ci = ["funsor"]
+ci = [
+    "coverage>=7.13.5",
+    "coveralls>=4.1.0",
+    "funsor",
+]
 dev = [
     "equinox",
     "flax",
