@@ -206,5 +206,3 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
           carryforward: "test-modeling,test-inference,examples"
-
-        run: uv run coveralls
