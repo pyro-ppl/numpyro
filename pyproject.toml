@@ -20,8 +20,8 @@ classifiers = [
 ]
 keywords = ["probabilistic", "machine learning", "bayesian", "statistics"]
 dependencies = [
-    "jax>=0.7.0",
-    "jaxlib>=0.7.0",
+    "jax>=0.7.0,<0.9.2", # temporary pinning until https://github.com/pyro-ppl/numpyro/issues/2154 is resolved
+    "jaxlib>=0.7.0,<0.9.2", # temporary pinning until https://github.com/pyro-ppl/numpyro/issues/2154 is resolved
     "multipledispatch",
     "numpy",
     "tqdm",
@@ -31,10 +31,10 @@ dependencies = [
 version = { attr = "numpyro.version.__version__" }
 
 [project.optional-dependencies]
-cpu = ["jax[cpu]>=0.7.0"]
-cuda12 = ["jax[cuda12]>=0.7.0"]
-cuda13 = ["jax[cuda13]>=0.7.0"]
-tpu = ["jax[tpu]>=0.7.0"]
+cpu = ["jax[cpu]>=0.7.0,<0.9.2"] # temporary pinning until https://github.com/pyro-ppl/numpyro/issues/2154 is resolved
+cuda12 = ["jax[cuda12]>=0.7.0,<0.9.2"] # temporary pinning until https://github.com/pyro-ppl/numpyro/issues/2154 is resolved
+cuda13 = ["jax[cuda13]>=0.7.0,<0.9.2"] # temporary pinning until https://github.com/pyro-ppl/numpyro/issues/2154 is resolved
+tpu = ["jax[tpu]>=0.7.0,<0.9.2"] # temporary pinning until https://github.com/pyro-ppl/numpyro/issues/2154 is resolved
 
 [project.urls]
 Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
