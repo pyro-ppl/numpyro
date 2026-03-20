@@ -35,6 +35,23 @@ cpu = ["jax[cpu]>=0.7.0"]
 cuda12 = ["jax[cuda12]>=0.7.0"]
 cuda13 = ["jax[cuda13]>=0.7.0"]
 tpu = ["jax[tpu]>=0.7.0"]
+
+[project.urls]
+Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
+Discussion = "https://github.com/pyro-ppl/numpyro/discussions"
+Homepage = "https://github.com/pyro-ppl/numpyro"
+Issues = "https://github.com/pyro-ppl/numpyro/issues"
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+ci = [
+    "coverage>=7.13.5",
+    "coveralls>=4.1.0",
+    "funsor",
+]
 dev = [
     "equinox",
     "flax",
@@ -50,21 +67,11 @@ dev = [
     "requests",             # pylab dependency
     "tfp-nightly",
 ]
-test = [
-    "importlib-metadata<5.0",
-    "mypy>=1.13",
-    "pyro-api>=0.1.1",
-    "pytest>=4.1",
-    "ruff>=0.1.8",
-    "scikit-learn",
-    "scipy>=1.9",
-    "ty>=0.0.4",
-]
-doc = [
+docs = [
     "ipython",                          # sphinx needs this to render codes
     "nbsphinx>=0.8.9",
     "readthedocs-sphinx-search>=0.3.2",
-    "sphinx_rtd_theme",
+    "sphinx-rtd-theme",
     "sphinx-gallery",
     "sphinx>=5",
 ]
@@ -77,16 +84,16 @@ examples = [
     "seaborn",
     "wordcloud",
 ]
-
-[project.urls]
-Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
-Discussion = "https://github.com/pyro-ppl/numpyro/discussions"
-Homepage = "https://github.com/pyro-ppl/numpyro"
-Issues = "https://github.com/pyro-ppl/numpyro/issues"
-
-[build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
+test = [
+    "importlib-metadata<5.0",
+    "mypy>=1.13",
+    "pyro-api>=0.1.1",
+    "pytest>=4.1",
+    "ruff>=0.1.8",
+    "scikit-learn",
+    "scipy>=1.9",
+    "ty>=0.0.4",
+]
 
 # NOTE: this can be simplified using src-layout
 [tool.setuptools.packages.find]
@@ -234,3 +241,6 @@ module = [
     "numpyro.distributions.transforms",
 ]
 ignore_errors = false
+
+[tool.uv.sources]
+funsor = { git = "https://github.com/pyro-ppl/funsor.git" }
