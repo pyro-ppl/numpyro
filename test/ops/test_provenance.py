@@ -21,9 +21,9 @@ from numpyro.ops.provenance import eval_provenance
 
 def _call_bind(primitive, fn, *args):
     try:
-        return primitive.bind(*args, subfuns=(fn,))
-    except TypeError:
         return primitive.bind(fn, *args)
+    except TypeError:
+        return primitive.bind(*args, subfuns=(fn,))
 
 
 @pytest.mark.parametrize(
