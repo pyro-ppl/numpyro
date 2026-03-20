@@ -8,6 +8,9 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  PYTEST_ADDOPTS: "--cov=numpyro --cov-append --cov-report=lcov"
+
 jobs:
   prek:
     runs-on: ubuntu-latest
@@ -80,21 +83,21 @@ jobs:
           uv pip freeze
       - name: Test with pytest
         run: |
-          CI=1 uv run pytest --cov=numpyro --cov-report=lcov -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
+          CI=1 uv run pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/ --ignore=test/contrib/
       - name: Test x64
         run: |
-          JAX_ENABLE_X64=1 uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/test_distributions.py -k "powerLaw or Dagum"
+          JAX_ENABLE_X64=1 uv run pytest -vs test/test_distributions.py -k "powerLaw or Dagum"
       - name: Test tracer leak
         if: matrix.python-version == '3.13'
         env:
           JAX_CHECK_TRACER_LEAKS: 1
         run: |
-          uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs \
+          uv run pytest -vs \
             test/infer/test_mcmc.py::test_chain_inside_jit \
             test/infer/test_mcmc.py::test_chain_jit_args_smoke \
             test/infer/test_mcmc.py::test_model_with_multiple_exec_paths \
             test/infer/test_mcmc.py::test_reuse_mcmc_run
-          uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/test_distributions.py::test_mean_var -k Gompertz
+          uv run pytest -vs test/test_distributions.py::test_mean_var -k Gompertz
       - name: Coveralls
         if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.13'
         uses: coverallsapp/github-action@v2
@@ -133,24 +136,24 @@ jobs:
           uv pip freeze
       - name: Test with pytest
         run: |
-          uv run pytest --cov=numpyro --cov-report=lcov -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
-          uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py --ignore=test/contrib/test_nested_sampling.py
-          uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs --durations=20 test/infer/test_mcmc.py
+          uv run pytest -vs --durations=20 test/contrib --ignore=test/contrib/stochastic_support/test_dcc.py
+          uv run pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py --ignore=test/contrib/test_nested_sampling.py
+          uv run pytest -vs --durations=20 test/infer/test_mcmc.py
       - name: Test x64
         run: |
-          JAX_ENABLE_X64=1 uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/infer/test_mcmc.py -k x64
+          JAX_ENABLE_X64=1 uv run pytest -vs test/infer/test_mcmc.py -k x64
       - name: Test chains
         run: |
-          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/contrib/stochastic_support/test_dcc.py
-          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/contrib/test_tfp.py -k "chain"
-          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/infer/test_hmc_gibbs.py -k "chain"
-          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/infer/test_mcmc.py -k "chain or pmap or vmap"
+          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/contrib/stochastic_support/test_dcc.py
+          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/contrib/test_tfp.py -k "chain"
+          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/infer/test_hmc_gibbs.py -k "chain"
+          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/infer/test_mcmc.py -k "chain or pmap or vmap"
       - name: Test custom prng
         run: |
-          JAX_ENABLE_CUSTOM_PRNG=1 uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/infer/test_mcmc.py
+          JAX_ENABLE_CUSTOM_PRNG=1 uv run pytest -vs test/infer/test_mcmc.py
       - name: Test nested sampling
         run: |
-          JAX_ENABLE_X64=1 uv run pytest --cov=numpyro --cov-append --cov-report=lcov -vs test/contrib/test_nested_sampling.py
+          JAX_ENABLE_X64=1 uv run pytest -vs test/contrib/test_nested_sampling.py
       - name: Coveralls
         if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.13'
         uses: coverallsapp/github-action@v2
@@ -189,7 +192,7 @@ jobs:
           uv pip freeze
       - name: Test with pytest
         run: |
-          CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest --cov=numpyro --cov-report=lcov -vs -k test_example
+          CI=1 XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs -k test_example
       - name: Coveralls
         if: github.repository == 'pyro-ppl/numpyro' && matrix.python-version == '3.13'
         uses: coverallsapp/github-action@v2
