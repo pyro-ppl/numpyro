@@ -3,6 +3,7 @@
 
 import inspect
 
+from packaging.version import Version
 import pytest
 
 import jax
@@ -18,12 +19,13 @@ except ImportError:
 
 from numpyro.ops.provenance import eval_provenance
 
+_JAX_SUBFUNS_API = Version(jax.__version__) >= Version("0.9.2")
+
 
 def _call_bind(primitive, fn, *args):
-    try:
-        return primitive.bind(fn, *args)
-    except TypeError:
+    if _JAX_SUBFUNS_API:
         return primitive.bind(*args, subfuns=(fn,))
+    return primitive.bind(fn, *args)
 
 
 @pytest.mark.parametrize(
