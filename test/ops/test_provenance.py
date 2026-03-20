@@ -19,6 +19,13 @@ except ImportError:
 from numpyro.ops.provenance import eval_provenance
 
 
+def _call_bind(primitive, fn, *args):
+    try:
+        return primitive.bind(fn, *args)
+    except TypeError:
+        return primitive.bind(*args, subfuns=(fn,))
+
+
 @pytest.mark.parametrize(
     "f, inputs, expected_output",
     [
@@ -84,7 +91,7 @@ def test_provenance_call():
             else {}
         )
         fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(id_fn, **id_info), in_tree)
-        out = call_p.bind(fn, *args)
+        out = _call_bind(call_p, fn, *args)
         return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}
@@ -99,7 +106,7 @@ def test_provenance_closed_call():
             else {}
         )
         fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(id_fn, **id_info), in_tree)
-        out = closed_call_p.bind(fn, *args)
+        out = _call_bind(closed_call_p, fn, *args)
         return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}
