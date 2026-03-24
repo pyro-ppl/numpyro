@@ -79,7 +79,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.20.0")
+    assert numpyro.__version__.startswith("0.20.1")
     parser = argparse.ArgumentParser(
         description="Conditional Variational Autoencoder on MNIST using Flax"
     )
