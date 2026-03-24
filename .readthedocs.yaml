@@ -12,7 +12,7 @@ build:
     create_environment:
       - uv venv "${READTHEDOCS_VIRTUALENV_PATH}"
     install:
-      - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" uv sync --frozen --extra cpu --group dev --group docs --group test
+      - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" uv sync --upgrade --extra cpu --group dev --group docs --group test
 
 sphinx:
   configuration: docs/source/conf.py
