@@ -172,6 +172,8 @@ def _download_with_retries(url: str, out_path: str) -> None:
             request = Request(url, headers={"User-Agent": "numpyro-datasets"})
             with urlopen(request) as response, open(out_path, "wb") as f:
                 shutil.copyfileobj(response, f)
+            if isinstance(last_exc, HTTPError):
+                last_exc.close()
             return
         except (HTTPError, URLError) as exc:
             retryable = _is_retryable_error(exc)
@@ -179,8 +181,12 @@ def _download_with_retries(url: str, out_path: str) -> None:
             detached_exc = _detached_download_error(exc)
             if isinstance(exc, HTTPError):
                 exc.close()
+            if isinstance(last_exc, HTTPError):
+                last_exc.close()
             last_exc = detached_exc
             if not retryable:
+                if isinstance(detached_exc, HTTPError):
+                    detached_exc.close()
                 raise detached_exc
             if attempt < _DOWNLOAD_MAX_RETRIES - 1:
                 print(
@@ -189,6 +195,8 @@ def _download_with_retries(url: str, out_path: str) -> None:
                     )
                 )
                 time.sleep(delay)
+    if isinstance(last_exc, HTTPError):
+        last_exc.close()
     raise last_exc
 
 
@@ -221,6 +229,8 @@ def _download(dset: dset) -> None:
             print("Download complete.")
             break
         else:
+            if isinstance(last_exc, HTTPError):
+                last_exc.close()
             raise last_exc
 
 
