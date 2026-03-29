@@ -982,7 +982,11 @@ def get_importance_trace_enum(
                     site["kl"] = to_funsor(
                         kl_qp, output=funsor.Real, dim_to_name=dim_to_name
                     )
-                elif not is_model and (model_trace[name].get("kl") is not None):
+                elif (
+                    not is_model
+                    and name in model_trace
+                    and (model_trace[name].get("kl") is not None)
+                ):
                     # skip logq computation if analytic kl was computed
                     pass
                 else:
