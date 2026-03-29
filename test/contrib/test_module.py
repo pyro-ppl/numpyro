@@ -435,7 +435,6 @@ def test_random_nnx_module_mcmc_sequence_params(scope_divider: str):
     assert f"nn{scope_divider}layers.1.bias" in samples
 
 
-@pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 @pytest.mark.parametrize("use_deterministic", [True, False])
 def test_random_nnx_module_mcmc_with_mutable_state(use_deterministic):
     from flax import nnx
