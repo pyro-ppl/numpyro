@@ -435,6 +435,39 @@ def test_random_nnx_module_mcmc_sequence_params(scope_divider: str):
     assert f"nn{scope_divider}layers.1.bias" in samples
 
 
+@pytest.mark.parametrize("use_deterministic", [True, False])
+def test_random_nnx_module_mcmc_with_mutable_state(use_deterministic):
+    from flax import nnx
+
+    class NNXModel(nnx.Module):
+        def __init__(self):
+            self.linear = nnx.Linear(10, 1, rngs=nnx.Rngs(0))
+            self.mutable = nnx.Variable(0)
+
+        def __call__(self, x):
+            return self.linear(x)
+
+    nn_module = NNXModel()
+
+    def model(x, y=None):
+        random_model = random_nnx_module("model", nn_module, dist.Normal(0, 1))
+        pred = random_model(x)
+        with numpyro.plate("plate", size=x.shape[0]):
+            if use_deterministic:
+                pred = numpyro.deterministic("pred", pred)
+            numpyro.sample("obs", dist.Normal(pred, 1.0).to_event(1), obs=y)
+
+    x = jax.random.uniform(jax.random.key(0), shape=(10, 10))
+    y = jax.random.uniform(jax.random.key(0), shape=(10, 1))
+
+    mcmc = MCMC(NUTS(model), num_warmup=5, num_samples=5, progress_bar=False)
+    with jax.check_tracer_leaks(True):
+        mcmc.run(jax.random.key(0), x, y)
+    samples = mcmc.get_samples()
+    assert "model/linear.kernel" in samples
+    assert "model/linear.bias" in samples
+
+
 @pytest.mark.skipif(sys.version_info[:2] == (3, 9), reason="Skipping on Python 3.9")
 def test_eqx_module():
     import equinox as eqx
