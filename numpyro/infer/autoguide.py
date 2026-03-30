@@ -84,15 +84,26 @@ class AutoGuide(ABC):
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False. This is useful for models that
+        contain JAX primitives which are not supported by reverse-mode differentiation
+        (e.g. :func:`jax.lax.while_loop`).
     """
 
     def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self.model = model
         self.prefix = prefix
         self.init_loc_fn = init_loc_fn
         self.create_plates = create_plates
+        self._forward_mode_differentiation = forward_mode_differentiation
         self.prototype_trace = None
         self._prototype_frames = {}
         self._prototype_frame_full_sizes = {}
@@ -164,6 +175,7 @@ class AutoGuide(ABC):
                 dynamic_args=True,
                 model_args=args,
                 model_kwargs=kwargs,
+                forward_mode_differentiation=self._forward_mode_differentiation,
             )
         self._potential_fn = self._potential_fn_gen(*args, **kwargs)
         postprocess_fn = postprocess_fn_gen(*args, **kwargs)
@@ -246,14 +258,26 @@ class AutoGuideList(AutoGuide):
         params = svi.get_params(svi_state)
 
     :param callable model: a NumPyro model
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self._guides = []
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            create_plates=create_plates,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
     def append(self, part):
@@ -363,6 +387,8 @@ class AutoNormal(AutoGuide):
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     scale_constraint = constraints.softplus_positive
@@ -375,11 +401,16 @@ class AutoNormal(AutoGuide):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self._init_scale = init_scale
         self._event_dims = {}
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            create_plates=create_plates,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
     def _setup_prototype(self, *args, **kwargs):
@@ -516,14 +547,26 @@ class AutoDelta(AutoGuide):
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_median, create_plates=None
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_median,
+        create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self._event_dims = {}
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            create_plates=create_plates,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
     def _setup_prototype(self, *args, **kwargs):
@@ -853,6 +896,8 @@ class AutoDAIS(AutoContinuous):
     :param float init_scale: Initial scale for the standard deviation of
         the base variational distribution for each (unconstrained transformed)
         latent variable. Defaults to 0.1.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
@@ -867,6 +912,7 @@ class AutoDAIS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        forward_mode_differentiation=False,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -889,7 +935,12 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
-        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            forward_mode_differentiation=forward_mode_differentiation,
+        )
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -1083,6 +1134,8 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
     :param float init_scale: Initial scale for the standard deviation of
         the base variational distribution for each (unconstrained transformed)
         latent variable. Defaults to 0.1.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
@@ -1098,6 +1151,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         base_dist="diagonal",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        forward_mode_differentiation=False,
     ):
         super().__init__(
             model,
@@ -1109,6 +1163,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
             init_loc_fn=init_loc_fn,
             init_scale=init_scale,
             base_dist=base_dist,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
         self.surrogate_model = surrogate_model
@@ -1127,6 +1182,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
                     dynamic_args=False,
                     model_args=(),
                     model_kwargs={},
+                    forward_mode_differentiation=self._forward_mode_differentiation,
                 )
             )
 
@@ -1299,6 +1355,8 @@ class AutoSemiDAIS(AutoGuide):
         data points in the subsample plate) or local (i.e. each data point in the
         subsample plate has individual parameters). Note that we do not use global
         parameters for the base distribution.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
@@ -1316,9 +1374,14 @@ class AutoSemiDAIS(AutoGuide):
         init_scale=0.1,
         subsample_plate=None,
         use_global_dais_params=False,
+        forward_mode_differentiation=False,
     ):
-        # init_loc_fn is only used to inspect the model.
-        super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_to_uniform,
+            forward_mode_differentiation=forward_mode_differentiation,
+        )
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
         if eta_init <= 0.0 or eta_init >= eta_max:
