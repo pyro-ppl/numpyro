@@ -193,12 +193,28 @@ def identity(x, *args, **kwargs):
     return x
 
 
+def _is_under_jax_transform():
+    """Check if we are currently under a JAX transform (e.g. jit, vmap).
+
+    When under a transform, caching functions that close over traced values
+    can cause tracer leaks (see https://github.com/pyro-ppl/numpyro/issues/2000).
+    """
+    from jax._src.core import trace_state_clean
+
+    return not trace_state_clean()
+
+
 def cached_by(outer_fn, *keys):
     # Restrict cache size to prevent ref cycles.
     max_size = 8
     outer_fn._cache = getattr(outer_fn, "_cache", OrderedDict())
 
     def _wrapped(fn):
+        # Skip caching when inside a JAX tracing context to avoid
+        # tracer leaks (https://github.com/pyro-ppl/numpyro/issues/2000).
+        if _is_under_jax_transform():
+            return fn
+
         fn_cache = outer_fn._cache
         hashkeys = (*keys, fn.__name__)
         if hashkeys in fn_cache:
