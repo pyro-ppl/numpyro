@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 from numpyro.diagnostics import print_summary
 from numpyro.util import (
+    _is_under_jax_transform,
     cached_by,
     find_stack_level,
     fori_collect,
@@ -447,7 +448,7 @@ class MCMC(object):
                 )
 
             fns = sample_fn, postprocess_fn
-            if key is not None:
+            if key is not None and not _is_under_jax_transform():
                 self._cache[key] = fns
         return fns
 
@@ -539,7 +540,8 @@ class MCMC(object):
         kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
         key = rng_key + args + kwargs
         try:
-            self._init_state_cache[key] = self._last_state
+            if not _is_under_jax_transform():
+                self._init_state_cache[key] = self._last_state
         # If unhashable arguments are provided, return None
         except TypeError:
             pass
