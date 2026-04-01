@@ -202,39 +202,6 @@ def test_vectorized_particle(vectorize_particles):
     assert_allclose(results.losses, map_results.losses, atol=1e-5)
 
 
-@pytest.mark.parametrize(
-    "vectorize_particles",
-    [True, False, _apply_vmap],
-    ids=["vmap", "lax", "callable"],
-)
-def test_renyi_elbo_vectorize_particles(vectorize_particles):
-    data = jnp.array([1.0] * 8 + [0.0] * 2)
-
-    def model(data):
-        f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
-        with numpyro.plate("N", len(data)):
-            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
-
-    def guide(data):
-        alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
-        beta_q = numpyro.param("beta_q", 1.0, constraint=constraints.positive)
-        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
-
-    results = SVI(
-        model,
-        guide,
-        optim.Adam(0.1),
-        RenyiELBO(num_particles=10, vectorize_particles=vectorize_particles),
-    ).run(random.key(0), 100, data)
-    map_results = SVI(
-        model,
-        guide,
-        optim.Adam(0.1),
-        RenyiELBO(num_particles=10, vectorize_particles=False),
-    ).run(random.key(0), 100, data)
-    assert_allclose(results.losses, map_results.losses, atol=1e-5)
-
-
 @pytest.mark.parametrize("elbo", [Trace_ELBO(), RenyiELBO(num_particles=10)])
 @pytest.mark.parametrize("optimizer", [optim.Adam(0.01), optimizers.adam(0.01)])
 def test_beta_bernoulli(elbo, optimizer):

@@ -489,10 +489,6 @@ class RenyiELBO(ELBO):
         Here :math:`\alpha \neq 1`. Default is 0.
     :param num_particles: The number of particles/samples
         used to form the objective (gradient) estimator. Default is 2.
-    :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
-        num_particles-many particles in parallel. If False use `jax.lax.map`.
-        Defaults to True. You can also pass a callable to specify a custom vectorization
-        strategy, for example `jax.pmap`.
 
     Example::
 
@@ -521,21 +517,14 @@ class RenyiELBO(ELBO):
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
 
-    def __init__(
-        self,
-        alpha: float = 0,
-        num_particles: int = 2,
-        vectorize_particles: bool = True,
-    ) -> None:
+    def __init__(self, alpha: float = 0, num_particles: int = 2) -> None:
         if alpha == 1:
             raise ValueError(
                 "The order alpha should not be equal to 1. Please use ELBO class"
                 "for the case alpha = 1."
             )
         self.alpha = alpha
-        super().__init__(
-            num_particles=num_particles, vectorize_particles=vectorize_particles
-        )
+        super().__init__(num_particles=num_particles)
 
     def _single_particle_elbo(
         self,
