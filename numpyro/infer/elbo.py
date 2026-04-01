@@ -521,14 +521,21 @@ class RenyiELBO(ELBO):
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
 
-    def __init__(self, alpha: float = 0, num_particles: int = 2) -> None:
+    def __init__(
+        self,
+        alpha: float = 0,
+        num_particles: int = 2,
+        vectorize_particles: bool = True,
+    ) -> None:
         if alpha == 1:
             raise ValueError(
                 "The order alpha should not be equal to 1. Please use ELBO class"
                 "for the case alpha = 1."
             )
         self.alpha = alpha
-        super().__init__(num_particles=num_particles)
+        super().__init__(
+            num_particles=num_particles, vectorize_particles=vectorize_particles
+        )
 
     def _single_particle_elbo(
         self,
