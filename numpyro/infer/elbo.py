@@ -489,10 +489,6 @@ class RenyiELBO(ELBO):
         Here :math:`\alpha \neq 1`. Default is 0.
     :param num_particles: The number of particles/samples
         used to form the objective (gradient) estimator. Default is 2.
-    :param vectorize_particles: Whether to use `jax.vmap` to compute ELBOs over the
-        num_particles-many particles in parallel. If False use `jax.lax.map`.
-        Defaults to True. You can also pass a callable to specify a custom vectorization
-        strategy, for example `jax.pmap`.
 
     Example::
 
