@@ -3,6 +3,7 @@
 
 
 from numpyro.infer.barker import BarkerMH
+from numpyro.infer.calibration import vsbc_diagnostic
 from numpyro.infer.elbo import (
     ELBO,
     RenyiELBO,
@@ -41,6 +42,7 @@ __all__ = [
     "init_to_value",
     "log_likelihood",
     "reparam",
+    "vsbc_diagnostic",
     "BarkerMH",
     "DiscreteHMCGibbs",
     "ELBO",
