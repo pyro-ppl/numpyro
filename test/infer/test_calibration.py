@@ -259,7 +259,9 @@ class TestVSBCDiagnostic:
         )
         rng_key, _ = random.split(rng_key)
         _, key_prior = random.split(rng_key)
-        prior_samples = Predictive(_vector_obs_model, num_samples=num_simulations)(key_prior)
+        prior_samples = Predictive(_vector_obs_model, num_samples=num_simulations)(
+            key_prior
+        )
         expected = stats.norm.cdf(
             np.array(prior_samples["loc"]),
             loc=np.array(prior_samples["obs"]).mean(axis=-1),
@@ -395,7 +397,9 @@ class TestVSBCDiagnostic:
         )
         rng_key, _ = random.split(rng_key)
         _, key_prior = random.split(rng_key)
-        prior_samples = Predictive(_container_model, num_samples=num_simulations)(key_prior)
+        prior_samples = Predictive(_container_model, num_samples=num_simulations)(
+            key_prior
+        )
         expected_loc = stats.norm.cdf(
             np.array(prior_samples["loc"]),
             loc=np.array(prior_samples["obs_loc"]),

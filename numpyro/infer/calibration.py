@@ -119,9 +119,7 @@ def _resolve_observed_sites(model_trace, observed_sites):
 
 def _validate_latent_sites(model_trace, latent_names):
     discrete_latents = [
-        name
-        for name in latent_names
-        if model_trace[name]["fn"].support.is_discrete
+        name for name in latent_names if model_trace[name]["fn"].support.is_discrete
     ]
     if discrete_latents:
         raise ValueError(
@@ -158,7 +156,11 @@ def _get_observed_arg_injector(fn, observed_names, args, kwargs):
             ):
                 continue
             current = bound.arguments.get(name, _MISSING)
-            if current is not _MISSING and current is not None and param.default is None:
+            if (
+                current is not _MISSING
+                and current is not None
+                and param.default is None
+            ):
                 bound_conflicts.append(name)
             if current is None or (current is _MISSING and param.default is None):
                 candidate_params.append(name)
@@ -400,7 +402,9 @@ def vsbc_diagnostic(
 
     if observed_sites is None:
         model_trace = trace(seed(model, key_discover)).get_trace(*args, **kwargs)
-        observed_names, latent_names = _resolve_observed_sites(model_trace, observed_sites)
+        observed_names, latent_names = _resolve_observed_sites(
+            model_trace, observed_sites
+        )
         simulated_data_injector = _get_simulated_data_injector(
             model, observed_names, args, kwargs, simulated_data_to_args
         )
@@ -416,7 +420,9 @@ def vsbc_diagnostic(
         model_trace = trace(seed(model, key_discover)).get_trace(
             *cleared_args, **cleared_kwargs
         )
-        observed_names, latent_names = _resolve_observed_sites(model_trace, observed_sites)
+        observed_names, latent_names = _resolve_observed_sites(
+            model_trace, observed_sites
+        )
         simulated_data_injector = _get_simulated_data_injector(
             model, observed_names, args, kwargs, simulated_data_to_args
         )
