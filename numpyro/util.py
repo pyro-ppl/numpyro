@@ -401,7 +401,10 @@ def fori_collect(
 
     if not progbar:
 
-        def loop_fn(collection):
+        # Cache loop_fn so jit() reuses the compiled trace across calls.
+        # Without this, loop_fn is a fresh closure each call and jit recompiles.
+        @cached_by(fori_collect, body_fun, transform, upper, start_idx, thinning)
+        def loop_fn(init_val, collection):
             return fori_loop(
                 0,
                 upper,
@@ -409,7 +412,9 @@ def fori_collect(
                 (init_val, collection, start_idx, thinning),
             )
 
-        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=0)(collection)
+        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=1)(
+            init_val, collection
+        )
 
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains, progress_rate)

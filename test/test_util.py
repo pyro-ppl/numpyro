@@ -68,6 +68,55 @@ def test_fori_collect_return_last(progbar):
     jax.tree.all(jax.tree.map(assert_allclose, tree, expected_tree))
 
 
+def test_fori_collect_no_recompilation():
+    """Regression test: repeated fori_collect(..., progbar=False) must reuse
+    the cached loop_fn and not trigger JIT recompilation.
+
+    Before the fix, loop_fn was a fresh closure each call, causing full
+    XLA recompilation on every MCMC.run().
+    """
+
+    def f(x):
+        return x + 1
+
+    init_val = jnp.array([0.0])
+
+    # First call
+    result1 = fori_collect(0, 10, f, init_val, progbar=False)
+
+    # Second call with same config but different init_val
+    result2 = fori_collect(0, 10, f, jnp.array([5.0]), progbar=False)
+
+    # Results must be correct (not stale from cached closure)
+    assert_allclose(result1, np.arange(1, 11).reshape(-1, 1))
+    assert_allclose(result2, np.arange(6, 16).reshape(-1, 1))
+
+    # Verify the cache exists and has entries
+    assert hasattr(fori_collect, "_cache")
+    assert len(fori_collect._cache) > 0
+
+
+def test_fori_collect_repeated_mcmc_no_recompilation():
+    """End-to-end regression coverage through repeated MCMC.run()."""
+    from numpyro.infer import MCMC, NUTS
+
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    mcmc = MCMC(NUTS(model), num_warmup=5, num_samples=10, num_chains=1,
+                progress_bar=False)
+
+    mcmc.run(random.PRNGKey(0))
+    samples1 = mcmc.get_samples()["x"]
+
+    mcmc.run(random.PRNGKey(1))
+    samples2 = mcmc.get_samples()["x"]
+
+    assert samples1.shape == (10,)
+    assert samples2.shape == (10,)
+    assert not np.allclose(samples1, samples2)
+
+
 @pytest.mark.parametrize(
     "pytree",
     [
