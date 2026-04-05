@@ -400,7 +400,6 @@ def fori_collect(
     collection = jax.tree.map(map_fn, init_val_transformed)
 
     if not progbar:
-
         # Cache loop_fn so jit() reuses the compiled trace across calls.
         # Without this, loop_fn is a fresh closure each call and jit recompiles.
         @cached_by(fori_collect, body_fun, transform, upper, start_idx, thinning)

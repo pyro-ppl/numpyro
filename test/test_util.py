@@ -103,8 +103,9 @@ def test_fori_collect_repeated_mcmc_no_recompilation():
     def model():
         numpyro.sample("x", dist.Normal(0, 1))
 
-    mcmc = MCMC(NUTS(model), num_warmup=5, num_samples=10, num_chains=1,
-                progress_bar=False)
+    mcmc = MCMC(
+        NUTS(model), num_warmup=5, num_samples=10, num_chains=1, progress_bar=False
+    )
 
     mcmc.run(random.PRNGKey(0))
     samples1 = mcmc.get_samples()["x"]
