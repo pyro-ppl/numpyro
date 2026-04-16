@@ -309,6 +309,15 @@ def progress_bar_factory(
     return progress_bar_fori_loop
 
 
+def _fori_collect_loop(_body_fn, upper, init_val, collection, start_idx, thinning):
+    return fori_loop(
+        0,
+        upper,
+        lambda i, vals: _body_fn(i, *vals),
+        (init_val, collection, start_idx, thinning),
+    )
+
+
 def fori_collect(
     lower: int,
     upper: int,
@@ -400,20 +409,11 @@ def fori_collect(
     collection = jax.tree.map(map_fn, init_val_transformed)
 
     if not progbar:
-        # Cache loop_fn so jit() reuses the compiled trace across calls.
-        # Without this, loop_fn is a fresh closure each call and jit recompiles.
-        @cached_by(fori_collect, body_fun, transform, upper, start_idx, thinning)
-        def loop_fn(init_val, collection):
-            return fori_loop(
-                0,
-                upper,
-                lambda i, vals: _body_fn(i, *vals),
-                (init_val, collection, start_idx, thinning),
-            )
-
-        last_val, collection, _, _ = maybe_jit(loop_fn, donate_argnums=1)(
-            init_val, collection
-        )
+        last_val, collection, _, _ = maybe_jit(
+            _fori_collect_loop,
+            static_argnums=(0, 1),
+            donate_argnums=3,
+        )(_body_fn, upper, init_val, collection, start_idx, thinning)
 
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains, progress_rate)
