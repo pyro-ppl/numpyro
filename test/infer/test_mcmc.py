@@ -863,6 +863,36 @@ def test_mcmc_inside_jit_no_tracer_leak():
             )
 
 
+def test_reuse_mcmc_run_stable_partial_identity():
+    """Regression test: repeated run() calls must reuse the same partial object.
+
+    When pmap is implemented via jit(shard_map) (JAX >= 0.8.0), jit caches
+    by function identity. Creating a new functools.partial each run() call
+    causes a fresh trace + XLA compilation whose artifacts are never freed,
+    leading to unbounded memory growth in long-running services.
+    """
+
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=5,
+        num_samples=5,
+        num_chains=1,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0))
+    first_partial = mcmc._partial_map_fn
+    assert first_partial is not None
+
+    mcmc.run(random.key(1))
+    assert mcmc._partial_map_fn is first_partial, (
+        "_partial_map_fn must be the same object across run() calls "
+        "to avoid pmap/jit recompilation leaks"
+    )
+
+
 @pytest.mark.parametrize("num_chains", [1, 2])
 @pytest.mark.parametrize("chain_method", ["parallel", "sequential", "vectorized"])
 @pytest.mark.parametrize("progress_bar", [True, False])

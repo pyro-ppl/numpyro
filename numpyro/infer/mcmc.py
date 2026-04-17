@@ -389,6 +389,7 @@ class MCMC(object):
         # HMCState returned by hmc.init_kernel
         self._init_state_cache = {}
         self._cache = {}
+        self._partial_map_fn: partial | None = None
         self._collection_params = {}
         self._set_collection_params()
 
@@ -699,13 +700,29 @@ class MCMC(object):
         collect_fields = tuple(collect_fields.keys())
         remove_sites = tuple(remove_sites.keys())
 
-        partial_map_fn = partial(
-            self._single_chain_mcmc,
-            args=args,
-            kwargs=kwargs,
-            collect_fields=collect_fields,
-            remove_sites=remove_sites,
-        )
+        # Reuse the same partial object across run() calls so that
+        # jax.pmap sees a stable function identity and reuses the cached
+        # compilation.
+        # Since JAX 0.8.0 (aa2f995b1db548df5f1da92b43514f5314e75e4e),
+        # pmap is implemented via jit(shard_map) and jit caches by function
+        # identity: a new partial each call triggers a fresh trace + XLA compilation
+        # whose artifacts are never freed, causing unbounded memory
+        # growth.
+        if self._partial_map_fn is None:
+            self._partial_map_fn = partial(
+                self._single_chain_mcmc,
+                args=args,
+                kwargs=kwargs,
+                collect_fields=collect_fields,
+                remove_sites=remove_sites,
+            )
+        else:
+            self._partial_map_fn.keywords["args"] = args
+            self._partial_map_fn.keywords["kwargs"] = kwargs
+            self._partial_map_fn.keywords["collect_fields"] = collect_fields
+            self._partial_map_fn.keywords["remove_sites"] = remove_sites
+
+        partial_map_fn = self._partial_map_fn
         map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
             states_flat, last_state = partial_map_fn(map_args)
