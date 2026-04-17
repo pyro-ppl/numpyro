@@ -68,6 +68,38 @@ def test_fori_collect_return_last(progbar):
     jax.tree.all(jax.tree.map(assert_allclose, tree, expected_tree))
 
 
+def test_fori_collect_no_recompilation():
+    def f(x):
+        return x + 1
+
+    result1 = fori_collect(0, 10, f, jnp.array([0.0]), progbar=False)
+    result2 = fori_collect(0, 10, f, jnp.array([5.0]), progbar=False)
+
+    assert_allclose(result1, np.arange(1, 11).reshape(-1, 1))
+    assert_allclose(result2, np.arange(6, 16).reshape(-1, 1))
+
+
+def test_fori_collect_repeated_mcmc_no_recompilation():
+    from numpyro.infer import MCMC, NUTS
+
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    mcmc = MCMC(
+        NUTS(model), num_warmup=5, num_samples=10, num_chains=1, progress_bar=False
+    )
+
+    mcmc.run(random.PRNGKey(0))
+    samples1 = mcmc.get_samples()["x"]
+
+    mcmc.run(random.PRNGKey(1))
+    samples2 = mcmc.get_samples()["x"]
+
+    assert samples1.shape == (10,)
+    assert samples2.shape == (10,)
+    assert not np.allclose(samples1, samples2)
+
+
 @pytest.mark.parametrize(
     "pytree",
     [
