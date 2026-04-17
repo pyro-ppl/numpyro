@@ -29,11 +29,12 @@ from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import Predictive, log_likelihood
 
-from . import autoguide, reparam
+from . import autoguide, calibration, reparam
 
 __all__ = [
     "AIES",
     "autoguide",
+    "calibration",
     "init_to_feasible",
     "init_to_mean",
     "init_to_median",
