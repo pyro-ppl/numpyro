@@ -3,7 +3,6 @@
 
 
 from numpyro.infer.barker import BarkerMH
-from numpyro.infer.calibration import vsbc_diagnostic
 from numpyro.infer.elbo import (
     ELBO,
     RenyiELBO,
@@ -29,11 +28,12 @@ from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import Predictive, log_likelihood
 
-from . import autoguide, reparam
+from . import autoguide, calibration, reparam
 
 __all__ = [
     "AIES",
     "autoguide",
+    "calibration",
     "init_to_feasible",
     "init_to_mean",
     "init_to_median",
@@ -42,7 +42,6 @@ __all__ = [
     "init_to_value",
     "log_likelihood",
     "reparam",
-    "vsbc_diagnostic",
     "BarkerMH",
     "DiscreteHMCGibbs",
     "ELBO",
