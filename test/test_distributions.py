@@ -1282,6 +1282,7 @@ DISCRETE = [
     T(SparsePoisson, 2.0),
     T(SparsePoisson, np.array([2.0, 3.0, 5.0])),
     T(SparsePoisson, 2),
+    T(SparsePoisson, np.array([0.0, 1.0])),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
     T(dist.ZeroInflatedPoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
     T(ZeroInflatedPoissonLogits, 2.0, 3.0),
