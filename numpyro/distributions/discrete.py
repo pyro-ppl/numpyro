@@ -824,7 +824,11 @@ class Poisson(Distribution):
                 )
                 .reshape(shape)
             )
-        return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
+        return (
+            xlogy(jnp.astype(value, jnp.result_type(self.rate)), self.rate)
+            - gammaln(value + 1)
+            - self.rate
+        )
 
     @property
     def mean(self) -> ArrayLike:

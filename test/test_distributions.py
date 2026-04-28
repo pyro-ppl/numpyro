@@ -1278,9 +1278,11 @@ DISCRETE = [
     T(dist.DiscreteUniform, np.array([-4, 3, 4, 5]), np.array([6])),
     T(dist.Poisson, 2.0),
     T(dist.Poisson, np.array([2.0, 3.0, 5.0])),
+    T(dist.Poisson, np.array([0.0, 1.0])),
     T(SparsePoisson, 2.0),
     T(SparsePoisson, np.array([2.0, 3.0, 5.0])),
     T(SparsePoisson, 2),
+    T(SparsePoisson, np.array([0.0, 1.0])),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
     T(dist.ZeroInflatedPoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
     T(ZeroInflatedPoissonLogits, 2.0, 3.0),
@@ -2138,6 +2140,10 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         and jnp.result_type(float) == jnp.float32
     ):
         pytest.skip(f"{jax_dist.__name__} is tested with x64 only.")
+    if jax_dist is dist.Poisson and jnp.any(params[0] == 0):
+        pytest.skip(
+            "finite difference gradients for Poisson with zero rate not defined"
+        )
 
     rng_key = random.key(0)
     value = jax_dist(*params).sample(rng_key)
