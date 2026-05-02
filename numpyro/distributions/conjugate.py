@@ -72,7 +72,7 @@ class BetaBinomial(Distribution):
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
@@ -163,7 +163,7 @@ class BetaNegativeBinomial(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the sampling
         procedure is:
@@ -293,7 +293,7 @@ class DirichletMultinomial(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
@@ -368,7 +368,7 @@ class GammaPoisson(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the sampling
         procedure is:

@@ -3678,7 +3678,7 @@ def test_vmap_dist(jax_dist, sp_dist, params):
     for in_axes, out_axes in in_out_axes_cases:
         batched_params = [
             (
-                jax.jax.tree.map(lambda x: jnp.expand_dims(x, ax), arg)
+                jax.tree.map(lambda x: jnp.expand_dims(x, ax), arg)
                 if isinstance(ax, int)
                 else arg
             )

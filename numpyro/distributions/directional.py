@@ -124,7 +124,7 @@ class VonMises(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """Generate sample from von Mises distribution
 
@@ -268,7 +268,7 @@ class SineSkewed(Distribution):
         )
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         base_key, skew_key = random.split(key)
         bd = self.base_dist
@@ -448,7 +448,7 @@ class SineBivariateVonMises(Distribution):
         return indv + corr - self.norm_const
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         ** References: **
@@ -614,7 +614,7 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
