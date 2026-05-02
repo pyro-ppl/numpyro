@@ -188,7 +188,7 @@ class BinomialProbs(Distribution):
     def __init__(
         self,
         probs: ArrayLike,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -266,7 +266,7 @@ class BinomialLogits(Distribution):
     def __init__(
         self,
         logits: ArrayLike,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -317,7 +317,7 @@ class BinomialLogits(Distribution):
 
 
 def Binomial(
-    total_count: int = 1,
+    total_count: ArrayLike = 1,
     probs: Optional[ArrayLike] = None,
     logits: Optional[ArrayLike] = None,
     *,
@@ -575,7 +575,7 @@ class MultinomialProbs(Distribution):
     def __init__(
         self,
         probs: Array,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         total_count_max: Optional[int] = None,
         validate_args: Optional[bool] = None,
@@ -629,7 +629,7 @@ class MultinomialProbs(Distribution):
 
     @staticmethod
     def infer_shapes(
-        probs: Array, total_count: int
+        probs: Array, total_count: ArrayLike
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
         event_shape = probs[-1:]
@@ -647,7 +647,7 @@ class MultinomialLogits(Distribution):
     def __init__(
         self,
         logits: Array,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         total_count_max: Optional[int] = None,
         validate_args: Optional[bool] = None,
@@ -707,7 +707,7 @@ class MultinomialLogits(Distribution):
 
     @staticmethod
     def infer_shapes(
-        logits: Array, total_count: int
+        logits: Array, total_count: ArrayLike
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
         event_shape = logits[-1:]

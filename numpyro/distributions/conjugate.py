@@ -56,7 +56,7 @@ class BetaBinomial(Distribution):
         self,
         concentration1: ArrayLike,
         concentration0: ArrayLike,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -263,7 +263,7 @@ class DirichletMultinomial(Distribution):
     def __init__(
         self,
         concentration: ArrayLike,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         total_count_max: Optional[int] = None,
         validate_args: Optional[bool] = None,
@@ -431,7 +431,7 @@ class GammaPoisson(Distribution):
 
 
 def NegativeBinomial(
-    total_count: int,
+    total_count: ArrayLike,
     probs: Optional[ArrayLike] = None,
     logits: Optional[ArrayLike] = None,
     *,
@@ -473,7 +473,7 @@ class NegativeBinomialProbs(GammaPoisson):
 
     def __init__(
         self,
-        total_count: int,
+        total_count: ArrayLike,
         probs: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -502,7 +502,7 @@ class NegativeBinomialLogits(GammaPoisson):
 
     def __init__(
         self,
-        total_count: int,
+        total_count: ArrayLike,
         logits: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
