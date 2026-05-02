@@ -161,9 +161,7 @@ class _MixtureBase(Distribution):
         # Final sample shape (*sample_shape, *batch_shape, *event_shape)
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
-    def sample(
-        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
     @validate_sample

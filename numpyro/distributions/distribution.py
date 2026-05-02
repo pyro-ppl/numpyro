@@ -1001,6 +1001,7 @@ class Independent(Distribution):
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
     def expand(self, batch_shape: Sequence[int]) -> Distribution:
+        batch_shape = tuple(batch_shape)
         base_batch_shape = (
             batch_shape + self.event_shape[: self.reinterpreted_batch_ndims]
         )
