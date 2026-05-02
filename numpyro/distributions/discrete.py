@@ -762,7 +762,7 @@ class Poisson(Distribution):
         :meth:`log_prob`, which can speed up computation when data is sparse.
     """
 
-    arg_constraints = {"rate": constraints.positive}
+    arg_constraints = {"rate": constraints.greater_than_eq(0.0)}
     support = constraints.nonnegative_integer
     pytree_aux_fields = ("is_sparse",)
 
