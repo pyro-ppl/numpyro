@@ -28,6 +28,7 @@ NumPyro documentation
    tutorials/bayesian_regression
    tutorials/bayesian_hierarchical_linear_regression
    examples/baseball
+   tutorials/effect_handlers
    examples/vae
    examples/funnel
    examples/stochastic_volatility
