@@ -271,7 +271,7 @@ def test_nnx_state_dropout_smoke(dropout, batchnorm):
         def __init__(self, *, rngs):
             if batchnorm:
                 # Use feature dimension 3 to match the input shape (4, 3)
-                self.bn = nnx.BatchNorm(3, rngs=rngs)
+                self.bn = nnx.BatchNorm(3, use_running_average=False, rngs=rngs)
             if dropout:
                 # Create dropout with deterministic=True to disable dropout
                 self.dropout = nnx.Dropout(rate=0.5, deterministic=True, rngs=rngs)

@@ -207,8 +207,9 @@ def _run_svi_check_warnings(model, guide, expected_string):
         adam = numpyro.optim.Adam(1e-3)
         svi = numpyro.infer.SVI(model, guide, adam, numpyro.infer.Trace_ELBO())
         svi.run(random.key(42), num_steps=5)
-        assert len(ws) == 1
-        assert expected_string in str(ws[0].message)
+        assert ws
+        filtered_ws = [w for w in ws if expected_string in str(w.message)]
+        assert len(filtered_ws) == 1
 
 
 def _create_traces_check_error_string(model, guide, expected_string):

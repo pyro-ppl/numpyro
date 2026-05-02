@@ -38,6 +38,7 @@ from typing import (
     Generator,
     Literal,
     Optional,
+    Sequence,
     Union,
     cast,
     overload,
@@ -344,7 +345,7 @@ class Distribution(metaclass=DistributionMeta):
         return set(self.reparametrized_params) == set(self.arg_constraints)
 
     def rsample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
@@ -367,7 +368,7 @@ class Distribution(metaclass=DistributionMeta):
         return sample_shape + self.batch_shape + self.event_shape
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
@@ -383,7 +384,7 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     def sample_with_intermediates(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> tuple[ArrayLike, list[Any]]:
         """
         Same as ``sample`` except that any intermediate computations are
@@ -495,7 +496,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def expand(self, batch_shape: tuple[int, ...]) -> "Distribution":
+    def expand(self, batch_shape: Sequence[int]) -> "Distribution":
         """
         Returns a new :class:`ExpandedDistribution` instance with batch
         dimensions expanded to `batch_shape`.
@@ -509,7 +510,7 @@ class Distribution(metaclass=DistributionMeta):
             return self
         return ExpandedDistribution(self, batch_shape)
 
-    def expand_by(self, sample_shape: tuple[int, ...]) -> "Distribution":
+    def expand_by(self, sample_shape: Sequence[int]) -> "Distribution":
         """
         Expands a distribution by adding ``sample_shape`` to the left side of
         its :attr:`~numpyro.distributions.distribution.Distribution.batch_shape`.
@@ -731,7 +732,7 @@ class ExpandedDistribution(Distribution):
     def _sample(
         self,
         sample_fn: Callable[..., tuple[ArrayLike, list[ArrayLike]]],
-        key: Optional[jax.dtypes.prng_key],
+        key: Optional[jax.Array],
         sample_shape: tuple[int, ...] = (),
     ) -> tuple[ArrayLike, list[ArrayLike]]:
         interstitial_sizes = tuple(self._interstitial_sizes.values())
@@ -770,7 +771,7 @@ class ExpandedDistribution(Distribution):
         return samples, intermediates
 
     def rsample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
@@ -784,12 +785,12 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.support
 
     def sample_with_intermediates(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> tuple[ArrayLike, list[ArrayLike]]:
         return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.sample_with_intermediates(key, sample_shape)[0]
 
@@ -986,12 +987,12 @@ class Independent(Distribution):
         return self.base_dist.has_rsample
 
     def rsample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
@@ -999,7 +1000,8 @@ class Independent(Distribution):
         log_prob = self.base_dist.log_prob(value)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
-    def expand(self, batch_shape: tuple[int, ...]) -> Distribution:
+    def expand(self, batch_shape: Sequence[int]) -> Distribution:
+        batch_shape = tuple(batch_shape)
         base_batch_shape = (
             batch_shape + self.event_shape[: self.reinterpreted_batch_ndims]
         )
@@ -1050,7 +1052,7 @@ class MaskedDistribution(Distribution):
         return self.base_dist.has_rsample
 
     def rsample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
@@ -1060,7 +1062,7 @@ class MaskedDistribution(Distribution):
         return self.base_dist.support
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
@@ -1210,7 +1212,7 @@ class TransformedDistribution(Distribution):
         return self.base_dist.has_rsample
 
     def rsample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         x = self.base_dist.rsample(key, sample_shape=sample_shape)
         for transform in self.transforms:
@@ -1230,7 +1232,7 @@ class TransformedDistribution(Distribution):
             )
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
@@ -1238,7 +1240,7 @@ class TransformedDistribution(Distribution):
         return x
 
     def sample_with_intermediates(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> tuple[ArrayLike, list[Any]]:
         x = self.base_dist.sample(key, sample_shape)
         intermediates: list[Any] = []
@@ -1363,7 +1365,7 @@ class Delta(Distribution):
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         if not sample_shape:
             return self.v
@@ -1409,7 +1411,7 @@ class Unit(Distribution):
         )
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
 

@@ -111,7 +111,7 @@ class LeftCensoredDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
@@ -227,7 +227,7 @@ class RightCensoredDistribution(Distribution):
         super().__init__(batch_shape, validate_args=validate_args)
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
@@ -362,7 +362,7 @@ class IntervalCensoredDistribution(Distribution):
         super().__init__(batch_shape, event_shape=(2,), validate_args=validate_args)
 
     def sample(
-        self, key: Optional[jax.dtypes.prng_key], sample_shape: tuple[int, ...] = ()
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 

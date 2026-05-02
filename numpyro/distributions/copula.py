@@ -66,9 +66,7 @@ class GaussianCopula(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
 
         shape = sample_shape + self.batch_shape

@@ -72,9 +72,7 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -169,9 +167,7 @@ class RightTruncatedDistribution(Distribution):
     def _cdf_at_high(self) -> ArrayLike:
         return self.base_dist.cdf(self.high)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -293,9 +289,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             sign = jnp.where(loc >= self.low, 1.0, -1.0)
             return jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -453,9 +447,7 @@ class TruncatedPolyaGamma(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         denom = jnp.square(jnp.arange(0.5, self.num_gamma_variates))
         x = random.gamma(
@@ -958,9 +950,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         return f(q, self.alpha, self.low, self.high)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)
@@ -1039,9 +1029,7 @@ class LowerTruncatedPowerLaw(Distribution):
             self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 + self.alpha)),
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)
