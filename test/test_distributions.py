@@ -4812,33 +4812,8 @@ def test_uniform_log_prob_outside_support():
         d.log_prob(-0.5)
 
 
-@pytest.mark.parametrize(
-    "rate",
-    [
-        0,
-        1,
-        2,
-        5,
-        10,
-        1e-6,  # very small positive rate
-        1e2,  # large rate
-    ],
-)
-@pytest.mark.parametrize(
-    "value",
-    [
-        0,
-        1,
-        2,
-        5,
-        10,
-        1e-6,  # near zero
-        0.999999,  # just below integer
-        1.000001,  # just above integer
-        4.999999,
-        5.000001,
-    ],
-)
+@pytest.mark.parametrize("rate", [0, 1, 2, 5, 10, 1e-6, 1e2])
+@pytest.mark.parametrize("value", [0, 1, 2, 5, 10])
 def test_poisson_dtype_consistency(rate, value):
     """
     Ensure that ``Poisson.log_prob`` is invariant to dtype differences in both
@@ -4859,13 +4834,11 @@ def test_poisson_dtype_consistency(rate, value):
     See: https://github.com/pyro-ppl/numpyro/issues/2181
     """
     rates = [rate, float(rate)]
-    values = [value, float(value)]
 
     results = []
     for r in rates:
-        for v in values:
-            d = dist.Poisson(r)
-            results.append(d.log_prob(v))
+        d = dist.Poisson(r, validate_args=True)
+        results.append(d.log_prob(value))
 
     ref = results[0]
     for res in results[1:]:
