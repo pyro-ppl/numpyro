@@ -783,32 +783,33 @@ class Poisson(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        if self._validate_args:
-            self._validate_sample(value)
+        # Using an integer vs. floating-point `rate` leads to differing results.
+        # To ensure consistent behavior, `rate` is explicitly cast to a floating-point type.
+        # See: https://github.com/pyro-ppl/numpyro/issues/2181
+        ftype = jnp.result_type(float)
+        rate = jnp.astype(self.rate, ftype)
+
         if (
             self.is_sparse
             and not isinstance(value, jax.core.Tracer)
             and jnp.size(value) > 1
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
-            rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            rate = jnp.broadcast_to(rate, shape).reshape(-1)
             nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
             return (
-                jnp.asarray(-rate, dtype=jnp.result_type(float))
+                jnp.asarray(-rate, dtype=ftype)
                 .at[nonzero]
                 .add(
                     jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
                 )
                 .reshape(shape)
             )
-        return (
-            xlogy(jnp.astype(value, jnp.result_type(self.rate)), self.rate)
-            - gammaln(value + 1)
-            - self.rate
-        )
+        _value = jnp.astype(value, ftype)
+        return xlogy(_value, rate) - gammaln(_value + 1.0) - rate
 
     @property
     def mean(self) -> ArrayLike:
