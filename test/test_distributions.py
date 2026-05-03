@@ -4810,3 +4810,65 @@ def test_uniform_log_prob_outside_support():
         match="Out-of-support values provided to log prob method. The value argument should be within the support.",
     ):
         d.log_prob(-0.5)
+
+
+@pytest.mark.parametrize(
+    "rate",
+    [
+        0,
+        1,
+        2,
+        5,
+        10,
+        1e-6,  # very small positive rate
+        1e2,  # large rate
+    ],
+)
+@pytest.mark.parametrize(
+    "value",
+    [
+        0,
+        1,
+        2,
+        5,
+        10,
+        1e-6,  # near zero
+        0.999999,  # just below integer
+        1.000001,  # just above integer
+        4.999999,
+        5.000001,
+    ],
+)
+def test_poisson_dtype_consistency(rate, value):
+    """
+    Ensure that ``Poisson.log_prob`` is invariant to dtype differences in both
+    the rate parameter and the observed value.
+
+    This test checks that using integer vs. floating-point representations for:
+      - the rate (e.g., ``2`` vs ``2.0``), and
+      - the observed value (e.g., ``2`` vs ``2.0``),
+
+    yields identical log-probabilities across all combinations. This includes
+    edge cases such as zero rate, very small rates, large rates, and values
+    near integer boundaries.
+
+    The test guards against dtype-dependent behavior, where numerically
+    equivalent inputs produce inconsistent results due to type casting or
+    implementation details.
+
+    See: https://github.com/pyro-ppl/numpyro/issues/2181
+    """
+    rates = [rate, float(rate)]
+    values = [value, float(value)]
+
+    results = []
+    for r in rates:
+        for v in values:
+            d = dist.Poisson(r)
+            results.append(d.log_prob(v))
+
+    ref = results[0]
+    for res in results[1:]:
+        assert jnp.allclose(res, ref), (
+            f"Inconsistent results for rate={rate}, value={value}: {results}"
+        )
