@@ -211,8 +211,9 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
     :param int axis: the dimension to calculate hpdi.
-    :return: quantiles of ``x`` at ``(1 - prob) / 2`` and
-        ``(1 + prob) / 2``.
+    :return: Array containing the lower and upper bounds of the HPDI along
+        the specified axis. The output has the same shape as ``x`` except
+        that the size along ``axis`` is 2 (lower bound first, upper bound second).
     :rtype: numpy.ndarray
     """
     x = np.swapaxes(x, axis, 0)
