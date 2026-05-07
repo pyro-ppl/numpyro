@@ -11,14 +11,14 @@ classifiers = [
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
-    "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-keywords = ["probabilistic", "machine learning", "bayesian", "statistics"]
+keywords = ["bayesian", "machine learning", "probabilistic", "statistics"]
 dependencies = [
     "jax>=0.7.0",
     "jaxlib>=0.7.0",
@@ -47,11 +47,6 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-ci = [
-    "coverage>=7.13.5",
-    "coveralls>=4.1.0",
-    "funsor",
-]
 dev = [
     "equinox",
     "flax",
@@ -61,19 +56,24 @@ dev = [
     "jaxns>=2.6.3,<=2.6.9",
     "matplotlib",
     "optax>=0.0.6",
-    "pylab-sdk",            # jaxns dependency
+    "pylab-sdk",                         # jaxns dependency
     "pytest-cov",
-    "pyyaml",               # flax dependency
-    "requests",             # pylab dependency
+    "pyyaml",                            # flax dependency
+    "requests",                          # pylab dependency
     "tfp-nightly",
 ]
+ci = [
+    "coverage>=7.13.5",
+    "coveralls>=4.1.0",
+    "funsor",
+]
 docs = [
-    "ipython",                          # sphinx needs this to render codes
+    "ipython",                           # sphinx needs this to render codes
     "nbsphinx>=0.8.9",
     "readthedocs-sphinx-search>=0.3.2",
-    "sphinx-rtd-theme",
-    "sphinx-gallery",
     "sphinx>=5",
+    "sphinx-gallery",
+    "sphinx-rtd-theme",
 ]
 examples = [
     "arviz",
@@ -142,10 +142,10 @@ extend-include = ["*.ipynb"]
 [tool.ruff.lint]
 select = ["ANN", "E", "F", "I", "W"]
 ignore = [
-    "ANN002", # missing args type annotation
-    "ANN003", # missing kwargs type annotation
-    "ANN204", # missing type annotation for __call__
-    "ANN401", # function arguments are annotated with a more specific type than Any.
+    "ANN002",                         # missing args type annotation
+    "ANN003",                         # missing kwargs type annotation
+    "ANN204",                         # missing type annotation for __call__
+    "ANN401",                         # function arguments are annotated with a more specific type than Any.
     "E203",
 ]
 
@@ -175,7 +175,7 @@ line-ending = "auto"
 [tool.ruff.lint.per-file-ignores]
 "!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py,distributions/distribution.py}" = [
     "ANN",
-] # require type annotations in typed modules
+]                                                                                                                        # require type annotations in typed modules
 
 [tool.ruff.lint.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
@@ -197,7 +197,6 @@ section-order = [
 
 [tool.ruff.lint.isort.sections]
 known-jax = ["flax", "jax", "optax", "tensorflow_probability"]
-
 
 [tool.pytest.ini_options]
 addopts = ["-v", "--color=yes"]
@@ -225,8 +224,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
     "examples.datasets",
-    "numpyro.contrib.control_flow.*",       # types missing
-    "numpyro.contrib.funsor.*",             # types missing
+    "numpyro.contrib.control_flow.*",        # types missing
+    "numpyro.contrib.funsor.*",              # types missing
     "numpyro.contrib.hsgp.*",
     "numpyro.contrib.stochastic_support.*",
     "numpyro.diagnostics.*",
