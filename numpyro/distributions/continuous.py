@@ -439,7 +439,7 @@ class Cauchy(Distribution):
 
         .. math::
            F^{-1}(q; x_0, \gamma) = x_0 + \gamma \tan\!\left[\pi\!\left(q
-           - \tfrac{1}{2}\right)\right]
+           - \frac{1}{2}\right)\right]
 
         :param q: Probability value in :math:`[0,1]`.
         :type q: ArrayLike
@@ -2735,6 +2735,12 @@ class Normal(Distribution):
 
     def log_cdf(self, value: ArrayLike) -> ArrayLike:
         r"""Log of the cumulative distribution function.
+
+        .. math::
+           \log F(x; \mu, \sigma) = \log\!\left(\frac{1}{2}\left[1 + \mathrm{erf}\!\left(
+           \frac{x - \mu}{\sigma\sqrt{2}}\right)\right]\right)
+
+        Implementation uses :func:`jax.scipy.stats.norm.logcdf`.
 
         :param value: Value to evaluate.
         :type value: ArrayLike
