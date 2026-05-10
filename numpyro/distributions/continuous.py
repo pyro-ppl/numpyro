@@ -2750,6 +2750,9 @@ class Normal(Distribution):
     def icdf(self, q: ArrayLike) -> ArrayLike:
         r"""Inverse cumulative distribution function (Quantile function).
 
+        .. math::
+           F^{-1}(q; \mu, \sigma) = \mu + \sigma\,\Phi^{-1}(q)
+
         :param q: Probability value in :math:`[0,1]`.
         :type q: ArrayLike
         """
