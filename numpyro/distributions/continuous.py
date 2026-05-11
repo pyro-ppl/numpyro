@@ -2724,8 +2724,11 @@ class Normal(Distribution):
         r"""Cumulative distribution function.
 
         .. math::
-           F(x; \mu, \sigma) = \frac{1}{2}\left[1 + \mathrm{erf}\!\left(
-           \frac{x - \mu}{\sigma\sqrt{2}}\right)\right]
+           F(x; \mu, \sigma) = \Phi\!\left(\frac{x-\mu}{\sigma}\right)
+
+        where, :math:`\Phi` is the
+        `cumulative distribution function of standard normal distribution <https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function>`_.
+        Implementation uses :func:`jax.scipy.special.ndtr` for :math:`\Phi`.
 
         :param value: Value to evaluate.
         :type value: ArrayLike
@@ -2734,13 +2737,8 @@ class Normal(Distribution):
         return ndtr(scaled)
 
     def log_cdf(self, value: ArrayLike) -> ArrayLike:
-        r"""Log of the cumulative distribution function.
-
-        .. math::
-           \log F(x; \mu, \sigma) = \log\!\left(\frac{1}{2}\left[1 + \mathrm{erf}\!\left(
-           \frac{x - \mu}{\sigma\sqrt{2}}\right)\right]\right)
-
-        Implementation uses :func:`jax.scipy.stats.norm.logcdf`.
+        r"""Log of the cumulative distribution function. Implementation
+        calls :func:`jax.scipy.stats.norm.logcdf`.
 
         :param value: Value to evaluate.
         :type value: ArrayLike
@@ -2752,6 +2750,10 @@ class Normal(Distribution):
 
         .. math::
            F^{-1}(q; \mu, \sigma) = \mu + \sigma\,\Phi^{-1}(q)
+
+        where, :math:`\mathrm{\Phi^{-1}}` is inverse
+        `cumulative distribution function of standard normal distribution <https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function>`_.
+        Implementation uses :func:`jax.scipy.special.ndtri` for :math:`\Phi^{-1}`.
 
         :param q: Probability value in :math:`[0,1]`.
         :type q: ArrayLike
