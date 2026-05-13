@@ -50,3 +50,8 @@ repos:
     hooks:
       - id: yamlfmt
         args: [-formatter, retain_line_breaks=true]
+
+  - repo: https://github.com/tombi-toml/tombi-pre-commit
+    rev: v0.10.6
+    hooks:
+      - id: tombi-format
