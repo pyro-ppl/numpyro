@@ -383,7 +383,7 @@ class GammaPoisson(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the log
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the
         probability mass function is:
 
         .. math::
