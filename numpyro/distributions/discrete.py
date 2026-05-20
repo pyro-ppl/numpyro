@@ -73,17 +73,46 @@ def _to_logits_multinom(probs: ArrayLike) -> ArrayLike:
 
 
 class BernoulliProbs(Distribution):
+    r"""A Bernoulli discrete random variable parameterizing the probability of a binary
+    outcome.
+
+    The Probability Mass Function (PMF) of the Bernoulli distribution is defined as:
+
+    .. math::
+        P(X = k | p) = p^k (1 - p)^{1-k}, \quad k \in \{0, 1\}
+
+    Where, :math:`p` represents the success probability parameter (:attr:`probs`),
+    :math:`k` represents the observed binary outcome (:attr:`value`).
+    The support domain is :math:`k \in \{0, 1\}`.
+    """
+
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
+    r"""The support of the Bernoulli distribution is the set of binary outcomes :math:`\{0, 1\}`."""
+
     has_enumerate_support = True
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param probs: Success probability in the interval :math:`[0, 1]`.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.probs = probs
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Bernoulli distribution.
+
+        This method invokes :func:`~jax.random.bernoulli` directly, which generates
+        binary samples from the Bernoulli parametrization. Samples are mapped across
+        the specified batch dimensions and sample dimensions via shape broadcasting.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Binary-valued samples (0 or 1) drawn from the Bernoulli distribution.
+        """
         assert is_prng_key(key)
         samples = random.bernoulli(
             key, self.probs, shape=sample_shape + self.batch_shape
@@ -92,20 +121,61 @@ class BernoulliProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified binary
+        configurations.
+
+        .. math::
+            \ln P(X=k | p) = k\ln(p) + (1-k)\ln(1-p)
+
+        The log probability mass function is evaluated using numerically-stable log-space operations.
+        Rather than computing :math:`\ln(p)` and :math:`\ln(1-p)` directly from clamped
+        probabilities, this implementation employs the primitives :func:`~jax.scipy.special.xlogy`
+        and :func:`~jax.scipy.special.xlog1py`, which handle edge cases gracefully:
+
+        - When :math:`p = 0` or :math:`p = 1`, the log-probability computation is protected
+          from logarithmic singularities via masking.
+        - The clamped probability values prevent numerical underflow in extreme configurations.
+
+        :param value: Binary observation(s) to score (:math:`k \in \{0, 1\}`).
+        :return: Log probability scores evaluated under the Bernoulli PMF.
+        """
         ps_clamped = clamp_probs(self.probs)
         value = jnp.array(value, jnp.result_type(float))
         return xlogy(value, ps_clamped) + xlog1py(1 - value, -ps_clamped)
 
     @lazy_property
     def logits(self) -> ArrayLike:
+        r"""The log-odds (logits) parameter of the Bernoulli distribution is given by
+        the logit transformation of the success probability:
+
+        .. math::
+            \alpha = \text{logit}(p) = \ln\left(\frac{p}{1-p}\right)
+        """
         return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of the Bernoulli distribution is given by the success probability
+        parameter:
+
+        .. math::
+            E[X] = p
+
+        :return: The mean of the Bernoulli distribution, which is equal to the success
+            probability :attr:`probs`.
+        """
         return self.probs
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of the Bernoulli distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = p (1 - p)
+
+        :return: The variance of the Bernoulli distribution, which is the product of
+            the success probability and its complement.
+        """
         return self.probs * (1 - self.probs)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
@@ -115,23 +185,55 @@ class BernoulliProbs(Distribution):
         return values
 
     def entropy(self) -> ArrayLike:
-        return -self.probs * jnp.log(self.probs) - (1 - self.probs) * jnp.log1p(
-            -self.probs
-        )
+        r"""The entropy of the Bernoulli distribution is given by:
+
+        .. math::
+            H[X] = -p \ln p - (1-p) \ln (1-p)
+        """
+        return -xlogy(self.probs, self.probs) - xlog1py(1 - self.probs, -self.probs)
 
 
 class BernoulliLogits(Distribution):
+    r"""A Bernoulli discrete random variable parameterized by log-odds (logits).
+
+    The Probability Mass Function (PMF) of the Bernoulli distribution is:
+
+    .. math::
+        P(X = k | \alpha) = \sigma(\alpha)^k (1 - \sigma(\alpha))^{1-k},
+        \quad k \in \{0, 1\}
+
+    Where :math:`\alpha = \text{logits}` is the log-odds parameter and
+    :math:`\sigma(\alpha) = 1/(1 + \exp{(-\alpha)})` is the sigmoid function.
+    """
+
     arg_constraints = {"logits": constraints.real}
+
     support = constraints.boolean
+    r"""The support of the Bernoulli distribution is the set of binary outcomes :math:`\{0, 1\}`."""
+
     has_enumerate_support = True
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param logits: Log-odds parameter spanning the full real line :math:`\alpha \in \mathbb{R}`.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.logits = logits
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Bernoulli distribution.
+
+        The method first converts :attr:`logits` to probabilities via the sigmoid
+        function (accessed via the lazy property :attr:`probs`), then invokes
+        :func:`~jax.random.bernoulli` for sampling.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Binary-valued samples (0 or 1) drawn from the Bernoulli distribution.
+        """
         assert is_prng_key(key)
         samples = random.bernoulli(
             key, self.probs, shape=sample_shape + self.batch_shape
@@ -140,18 +242,53 @@ class BernoulliLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified binary configurations.
+
+        The log probability mass function leverages the numerically-stable
+        :func:`~jax.nn.binary_cross_entropy_with_logits` primitive, which computes the
+        Bernoulli negative log-likelihood directly in log-odds space:
+
+        .. math::
+            \ln P(X = k | \alpha) = -\mathrm{BCEWithLogits}(\alpha, k)
+            = k \ln(\sigma(\alpha)) + (1-k) \ln(1 - \sigma(\alpha))
+
+        This formulation avoids explicit exponential evaluation for large
+        :math:`|\alpha|`, protecting against overflow (:math:`e^\alpha \to \infty` for
+        :math:`\alpha \gg 0`) and underflow (:math:`e^{-\alpha} \to 0` for
+        :math:`\alpha \ll -0`).
+
+        :param value: Binary observation(s) to score (:math:`k \\in \\{0, 1\\}`).
+        :return: Log probability scores evaluated under the Bernoulli PMF.
+        """
         return -binary_cross_entropy_with_logits(self.logits, value)
 
     @lazy_property
     def probs(self) -> ArrayLike:
+        r"""The success probability parameter of the Bernoulli distribution is given by
+        the sigmoid of the log-odds parameter:
+
+        .. math::
+            p = \sigma(\alpha) = \frac{1}{1 + e^{-\alpha}}
+        """
         return _to_probs_bernoulli(self.logits)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of the Bernoulli distribution is given by the sigmoid of the
+        log-odds parameter:
+
+        .. math::
+            E[X] = \sigma(\alpha) = \frac{1}{1 + e^{-\alpha}}
+        """
         return self.probs
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of the Bernoulli distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = \sigma(\alpha) (1 - \sigma(\alpha))
+        """
         return self.probs * (1 - self.probs)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
@@ -161,6 +298,20 @@ class BernoulliLogits(Distribution):
         return values
 
     def entropy(self) -> ArrayLike:
+        r"""The entropy of the Bernoulli distribution is given by:
+
+        .. math::
+            H[X] = -p \ln p - (1-p) \ln (1-p)
+
+        where :math:`p = \sigma(\alpha)` is the mean of the distribution.
+
+        The implementation is of following form to maintain numerical stability across
+        the full range of log-odds values:
+
+        .. math::
+            H[X] = \frac{(1 + e^{-\alpha}) \ln(1 + e^{-\alpha})
+                + e^{-\alpha} \alpha}{1 + e^{-\alpha}}
+        """
         nexp = jnp.exp(-self.logits)
         return ((1 + nexp) * jnp.log1p(nexp) + nexp * self.logits) / (1 + nexp)
 
@@ -171,6 +322,16 @@ def Bernoulli(
     *,
     validate_args: Optional[bool] = None,
 ) -> Union[BernoulliProbs, BernoulliLogits]:
+    r"""Factory function to create a Bernoulli distribution instance from either
+    probability or log-odds parameterization.
+
+    :param probs: The success probability parameter in the unit interval :math:`[0, 1]`,
+        defaults to None
+    :param logits: The log-odds parameter, defaults to None
+    :param validate_args: Optional toggle to enforce domain constraints during
+        graph construction. Default is None.
+    :return: The created Bernoulli distribution instance.
+    """
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BernoulliProbs(probs, validate_args=validate_args)
@@ -179,6 +340,19 @@ def Bernoulli(
 
 
 class BinomialProbs(Distribution):
+    r"""A Binomial discrete random variable parameterizing the count of successes in
+    repeated trials.
+
+    The Probability Mass Function (PMF) of the Binomial distribution is defined as:
+
+    .. math::
+        P(X = k | n, p) = \binom{n}{k} p^k (1 - p)^{n-k}, \quad k \in \{0, 1, \dots, n\}
+
+    Where, :math:`n` is the number of trials (:attr:`total_count`),
+    :math:`p` is the success probability per trial (:attr:`probs`),
+    :math:`k` is the observed count of successes (:attr:`value`).
+    """
+
     arg_constraints = {
         "probs": constraints.unit_interval,
         "total_count": constraints.nonnegative_integer,
@@ -192,6 +366,11 @@ class BinomialProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param probs: Success probability per trial in :math:`[0, 1]`.
+        :param total_count: Number of trials (non-negative integer).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.probs, self.total_count = promote_shapes(probs, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(probs), jnp.shape(total_count))
         super(BinomialProbs, self).__init__(
@@ -199,6 +378,15 @@ class BinomialProbs(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Binomial distribution.
+
+        This method uses the internal :func:`~numpyro.distributions.util.binomial`
+        utility function to generate count samples.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Non-negative integer samples representing success counts.
+        """
         assert is_prng_key(key)
         return binomial(
             key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape
@@ -206,6 +394,28 @@ class BinomialProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified count configurations.
+
+        The log probability mass function is fully evaluated in log-space to prevent
+        factorial overflow and underflow:
+
+        .. math::
+            \ln P(X = k | n, p) = \ln \binom{n}{k} + k \ln p + (n-k) \log(1-p)
+
+        The binomial coefficient in log-space is computed using the log-gamma function:
+
+        .. math::
+            \ln \binom{n}{k} = \ln\Gamma(n + 1) - \ln\Gamma(k + 1)
+            - \ln\Gamma(n - k + 1)
+
+        This approach using :func:`~jax.scipy.special.gammaln` avoids
+        computing factorials explicitly. The probability terms are evaluated using
+        :func:`~jax.scipy.special.xlogy` and :func:`~jax.scipy.special.xlog1py`
+        to handle boundary cases gracefully (:math:`p = 0`, :math:`p = 1`, etc.).
+
+        :param value: Count observation(s) in the range :math:`[0, n]`.
+        :return: Log probability scores evaluated under the Binomial PMF.
+        """
         value = jnp.array(value, jnp.result_type(float))
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
@@ -221,20 +431,39 @@ class BinomialProbs(Distribution):
 
     @lazy_property
     def logits(self) -> ArrayLike:
+        r"""The log-odds (logits) parameter of the Binomial distribution is given by
+        the logit transformation of the success probability:
+
+        .. math::
+            \alpha = \text{logit}(p) = \ln\left(\frac{p}{1-p}\right)
+        """
         return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of the Binomial distribution is given by:
+
+        .. math::
+            E[X] = n p
+        """
         return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of the Binomial distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = n p (1 - p)
+        """
         return jnp.broadcast_to(
             self.total_count * self.probs * (1 - self.probs), self.batch_shape
         )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        r"""The support of the Binomial distribution is the set of integer counts
+        from 0 to the total count.
+        """
         return constraints.integer_interval(0, self.total_count)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
@@ -256,6 +485,18 @@ class BinomialProbs(Distribution):
 
 
 class BinomialLogits(Distribution):
+    r"""
+    A Binomial discrete random variable parameterized by log-odds (logits).
+
+    The Probability Mass Function (PMF) of the Binomial distribution is:
+
+    .. math::
+        P(X = k | n, \alpha) = \binom{n}{k} \sigma(\alpha)^k (1 - \sigma(\alpha))^{n-k}
+
+    Where :math:`\alpha = \text{logits}` and
+    :math:`\sigma(\alpha) = 1/(1 + \exp(-\alpha))`.
+    """
+
     arg_constraints = {
         "logits": constraints.real,
         "total_count": constraints.nonnegative_integer,
@@ -270,6 +511,11 @@ class BinomialLogits(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param logits: Log-odds parameter spanning :math:`\mathbb{R}`.
+        :param total_count: Number of trials (non-negative integer).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
@@ -277,6 +523,16 @@ class BinomialLogits(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Binomial distribution.
+
+        The method first converts :attr:`logits` to probabilities via the sigmoid function
+        (via the lazy property :attr:`probs`), then uses the internal :func:`binomial`
+        utility for sampling. This maintains numerical stability across extreme log-odds values.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Non-negative integer samples representing success counts.
+        """
         assert is_prng_key(key)
         return binomial(
             key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape
@@ -284,6 +540,28 @@ class BinomialLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified count
+        configurations.
+
+        The log probability mass function is computed entirely in log-space using a
+        numerically-stable formulation that avoids sigmoid underflow/overflow:
+
+        .. math::
+            \ln P(X = k | n, \alpha) = \ln \binom{n}{k} + (k - n) \alpha
+            - n \ln(1 + \sigma(-|\alpha|))
+
+        The binomial coefficient in log-space is computed using the log-gamma function:
+
+        .. math::
+            \ln \binom{n}{k} = \ln\Gamma(n + 1) - \ln\Gamma(k + 1)
+            - \ln\Gamma(n - k + 1)
+
+        This approach using :func:`~jax.scipy.special.gammaln` avoids
+        computing factorials explicitly.
+
+        :param value: Count observation(s) in the range :math:`[0, n]`.
+        :return: Log probability scores evaluated under the Binomial PMF.
+        """
         total_count = jnp.array(self.total_count, dtype=jnp.result_type(float))
         log_factorial_n = gammaln(total_count + 1)
         log_factorial_k = gammaln(value + 1)
@@ -299,20 +577,38 @@ class BinomialLogits(Distribution):
 
     @lazy_property
     def probs(self) -> ArrayLike:
+        r"""The success probability per trial of the Binomial distribution is given by
+        the sigmoid of the log-odds parameter:
+
+        .. math::
+            p = \sigma(\alpha) = \frac{1}{1 + e^{-\alpha}}
+        """
         return _to_probs_bernoulli(self.logits)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of the Binomial distribution is given by:
+
+        .. math::
+            E[X] = n \sigma(\alpha)
+        """
         return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of the Binomial distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = n \sigma(\alpha) (1 - \sigma(\alpha))
+        """
         return jnp.broadcast_to(
             self.total_count * self.probs * (1 - self.probs), self.batch_shape
         )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        r"""The support of the Binomial distribution is the set of integer counts from
+        0 to the total count."""
         return constraints.integer_interval(0, self.total_count)
 
 
@@ -323,6 +619,18 @@ def Binomial(
     *,
     validate_args: Optional[bool] = None,
 ) -> Union[BinomialProbs, BinomialLogits]:
+    r"""Factory function to create a Binomial distribution instance from either
+    probability or log-odds parameterization.
+
+    :param total_count: Number of trials (non-negative integer), defaults to 1
+    :param probs: The success probability parameter in the unit interval :math:`[0, 1]`,
+        defaults to None
+    :param logits: The log-odds parameter, defaults to None
+    :param validate_args: Optional toggle to enforce simplex constraint during
+        graph construction. Default is None
+    :return: A Binomial distribution instance corresponding to the specified
+        parameterization.
+    """
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BinomialProbs(probs, total_count, validate_args=validate_args)
