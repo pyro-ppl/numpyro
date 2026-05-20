@@ -414,7 +414,7 @@ def _load_jsb_chorales() -> dict:
             )
             data = pickle.load(f)
 
-    # XXX: we might expose those in `load_dataset` keywords
+    # Note: we might expose those in `load_dataset` keywords
     min_note = 21
     note_range = 88
     processed_dataset = {}

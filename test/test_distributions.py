@@ -2264,7 +2264,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     k = random.key(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
-    # XXX: VonMises is already tested below
+    # note: VonMises is already tested below
     if (
         sp_dist
         and not _is_batched_multivariate(d_jax)

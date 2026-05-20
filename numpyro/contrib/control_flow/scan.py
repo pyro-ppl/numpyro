@@ -248,7 +248,7 @@ def scan_enum(
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
 
-        # XXX: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
+        # Note: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
         # we don't record 1-size dimensions in this field
         time_dim = -min(
             len(site["fn"].batch_shape), jnp.ndim(site["value"]) - site["fn"].event_dim

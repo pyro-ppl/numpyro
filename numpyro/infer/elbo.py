@@ -1146,7 +1146,7 @@ class TraceEnum_ELBO(ELBO):
             if self.max_plate_nesting == float("inf"):
                 seeded_model = seed(model, model_seed)
                 seeded_guide = seed(guide, guide_seed)
-                # XXX: We can extract abstract latents here such that they
+                # Note: We can extract abstract latents here such that they
                 # can be reused in get_nonreparam_deps below.
                 self.max_plate_nesting = guess_max_plate_nesting(
                     seeded_model, seeded_guide, args, kwargs, param_map

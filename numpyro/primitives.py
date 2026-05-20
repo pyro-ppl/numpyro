@@ -510,7 +510,7 @@ class plate(Messenger):
         self.subsample_size = self._indices.shape[0]
         super(plate, self).__init__()
 
-    # XXX: different from Pyro, this method returns dim and indices
+    # Note: different from Pyro, this method returns dim and indices
     @staticmethod
     def _subsample(name, size, subsample_size, dim):  # noqa: ANN001, ANN205
         msg = {

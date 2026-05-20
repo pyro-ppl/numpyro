@@ -193,7 +193,7 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         if is_prng_key(rng_key):
             init_state = self._init_fn(init_params, rng_key)
         else:
-            # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
+            # note: it's safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(self._init_fn)(init_params, rng_key)
