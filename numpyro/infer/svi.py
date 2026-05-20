@@ -428,7 +428,7 @@ class SVI(object):
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
-        # XXX: we also return the last svi_state for further inspection of both
+        # Note: we also return the last svi_state for further inspection of both
         # optimizer's state and mutable state.
         return SVIRunResult(self.get_params(svi_state), svi_state, losses)
 

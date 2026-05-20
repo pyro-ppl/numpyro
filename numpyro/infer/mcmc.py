@@ -214,7 +214,7 @@ def _collect_and_postprocess(postprocess_fn, collect_fields, remove_sites):
     return collect_and_postprocess
 
 
-# XXX: Is there a better hash key that we can use?
+# Note: Is there a better hash key that we can use?
 def _hashable(x):
     # NOTE: When the arguments are JITed, ShapedArray is hashable.
     if isinstance(x, (np.ndarray, jnp.ndarray)):
@@ -778,7 +778,7 @@ class MCMC(object):
         sites = self._states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
             state_sample_field = attrgetter(self._sample_field)(self._last_state)
-            # XXX: there might be the case that state.z is not a dictionary but
+            # Note: there might be the case that state.z is not a dictionary but
             # its postprocessed value `sites` is a dictionary.
             # TODO: in general, when both `sites` and `state.z` are dictionaries,
             # they can have different key names, not necessary due to deterministic

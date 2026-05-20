@@ -626,7 +626,7 @@ class ExpTransform(Transform[NumLike]):
             raise NotImplementedError
 
     def __call__(self, x: NumLike) -> NumLike:
-        # XXX consider to clamp from below for stability if necessary
+        # Note: consider to clamp from below for stability if necessary
         return jnp.exp(x)
 
     def _inverse(self, y: NumLike) -> NumLike:
@@ -1318,7 +1318,7 @@ class UnpackTransform(Transform[NonScalarArray]):
         raise NotImplementedError
 
     def tree_flatten(self):
-        # XXX: what if unpack_fn is a parametrized callable pytree?
+        # Note: what if unpack_fn is a parametrized callable pytree?
         return (), ((), {"unpack_fn": self.unpack_fn, "pack_fn": self.pack_fn})
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:

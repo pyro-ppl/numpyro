@@ -481,7 +481,7 @@ def soft_vmap(
     xs = jax.tree.map(
         lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs
     )
-    # XXX: probably for the default behavior with chunk_size=None,
+    # Note: probably for the default behavior with chunk_size=None,
     # it is better to catch OOM error and reduce chunk_size by half until OOM disappears.
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:

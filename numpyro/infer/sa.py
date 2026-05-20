@@ -139,7 +139,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             else jnp.sqrt(inverse_mass_matrix)
         )
         if adapt_state_size is None:
-            # XXX: heuristic choice
+            # Note: heuristic choice
             adapt_state_size = 2 * z_flat.shape[-1]
         else:
             assert adapt_state_size > 1, "adapt_state_size should be greater than 1."
@@ -182,7 +182,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
         zs, pes, loc, scale = sa_state.adapt_state
         # we recompute loc/scale after each iteration to avoid precision loss
-        # XXX: consider to expose a setting to do this job periodically
+        # Note: consider to expose a setting to do this job periodically
         # to save some computations
         loc = jnp.mean(zs, 0)
         if scale.ndim == 2:
@@ -235,7 +235,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             sa_state.mean_accept_prob + (accept_prob - sa_state.mean_accept_prob) / n
         )
 
-        # XXX: we make a modification of SA sampler in [1]
+        # Note: we make a modification of SA sampler in [1]
         # in [1], each MCMC state contains N points `zs`
         # here we do resampling to pick randomly a point from those N points
         k = random.categorical(rng_key_accept, jnp.zeros(zs.shape[0]))

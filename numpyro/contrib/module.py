@@ -161,7 +161,7 @@ def _update_params(params, new_params, prior, prefix=""):
             else:
                 d = prior
             param_batch_shape = param_shape[: len(param_shape) - d.event_dim]
-            # XXX: here we set all dimensions of prior to event dimensions.
+            # Note: here we set all dimensions of prior to event dimensions.
             new_params[name] = numpyro.sample(
                 flatten_name, d.expand(param_batch_shape).to_event()
             )

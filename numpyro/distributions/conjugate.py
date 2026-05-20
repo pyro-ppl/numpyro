@@ -25,7 +25,7 @@ from numpyro.util import is_prng_key
 
 
 def _log_beta_1(alpha, value):
-    # XXX: support sparse `value`
+    # Note: support sparse `value`
     return gammaln(1 + value) + gammaln(alpha) - gammaln(value + alpha)
 
 

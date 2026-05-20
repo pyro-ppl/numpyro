@@ -32,7 +32,7 @@ def _get_codomain(bijector):
         loc, scale, concentration = bijector.loc, bijector.scale, bijector.concentration
         if not_jax_tracer(concentration) and np.all(np.less(concentration, 0)):
             return constraints.interval(loc, loc + scale / jnp.abs(concentration))
-        # XXX: here we suppose concentration > 0
+        # Note: here we suppose concentration > 0
         # which is not true in general, but should cover enough usage cases
         else:
             return constraints.greater_than(loc)
@@ -278,7 +278,7 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
     @property
     def is_discrete(self):
-        # XXX: this should cover most cases
+        # Note: this should cover most cases
         return self.support is None
 
     def tree_flatten(self):

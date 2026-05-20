@@ -777,7 +777,7 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
-            # XXX: we need to add param here to be able to replay model
+            # Note: we need to add param here to be able to replay model
             unpacked_samples.update(
                 {
                     k: v
