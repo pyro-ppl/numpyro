@@ -91,7 +91,9 @@ from numpyro.distributions.discrete import (
     OrderedLogistic,
     Poisson,
     ZeroInflatedDistribution,
+    ZeroInflatedLogits,
     ZeroInflatedPoisson,
+    ZeroInflatedProbs,
 )
 from numpyro.distributions.distribution import (
     Delta,
@@ -227,7 +229,9 @@ __all__ = [
     "Wishart",
     "WishartCholesky",
     "ZeroInflatedDistribution",
+    "ZeroInflatedLogits",
     "ZeroInflatedNegativeBinomial2",
     "ZeroInflatedPoisson",
+    "ZeroInflatedProbs",
     "ZeroSumNormal",
 ]
