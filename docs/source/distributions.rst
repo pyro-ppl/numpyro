@@ -248,6 +248,22 @@ HalfNormal
     :show-inheritance:
     :member-order: bysource
 
+HurdleGamma
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.HurdleGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleLogNormal
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.HurdleLogNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 InverseGamma
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.InverseGamma
@@ -654,6 +670,22 @@ ZeroInflatedPoisson
 ZeroInflatedNegativeBinomial2
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
+
+HurdleDistribution
+^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.discrete.HurdleDistribution
+
+HurdlePoisson
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdlePoisson
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleNegativeBinomial2
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.conjugate.HurdleNegativeBinomial2
 
 
 Mixture Distributions

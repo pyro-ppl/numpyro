@@ -4845,3 +4845,184 @@ def test_poisson_dtype_consistency(rate, value):
         assert jnp.allclose(res, ref), (
             f"Inconsistent results for rate={rate}, value={value}: {results}"
         )
+
+
+_HURDLE_DISCRETE_CASES = [
+    pytest.param(dist.HurdlePoisson, {"gate": 0.3, "rate": 2.0}, id="HurdlePoisson"),
+    pytest.param(
+        dist.HurdleNegativeBinomial2,
+        {"gate": 0.4, "mean": 3.0, "concentration": 1.5},
+        id="HurdleNegativeBinomial2",
+    ),
+]
+
+_HURDLE_CONTINUOUS_CASES = [
+    pytest.param(
+        dist.HurdleGamma,
+        {"gate": 0.35, "concentration": 2.0, "rate": 1.0},
+        id="HurdleGamma",
+    ),
+    pytest.param(
+        dist.HurdleLogNormal,
+        {"gate": 0.45, "loc": 0.0, "scale": 1.0},
+        id="HurdleLogNormal",
+    ),
+]
+
+_HURDLE_ALL_CASES = _HURDLE_DISCRETE_CASES + _HURDLE_CONTINUOUS_CASES
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_at_zero(dist_cls, params):
+    """log_prob(0) must equal log(gate) for every hurdle distribution."""
+    d = dist_cls(**params)
+    assert_allclose(d.log_prob(0.0), jnp.log(params["gate"]), rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_DISCRETE_CASES)
+def test_hurdle_discrete_log_prob_matches_truncated_base(dist_cls, params):
+    """For discrete hurdles, log_prob(k>0) = log(1-g) + base.log_prob(k) - log(1-B(0))."""
+    d = dist_cls(**params)
+    base = d.base_dist
+    values = jnp.arange(1, 12)
+    log_one_minus_p0 = jnp.log(-jnp.expm1(base.log_prob(0.0)))
+    expected = jnp.log1p(-params["gate"]) + base.log_prob(values) - log_one_minus_p0
+    assert_allclose(d.log_prob(values), expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_CONTINUOUS_CASES)
+def test_hurdle_continuous_log_prob_matches_scaled_base(dist_cls, params):
+    """For continuous hurdles, log_prob(x>0) = log(1-g) + base.log_prob(x)."""
+    d = dist_cls(**params)
+    values = jnp.array([0.1, 0.5, 1.0, 2.5, 10.0])
+    expected = jnp.log1p(-params["gate"]) + d.base_dist.log_prob(values)
+    assert_allclose(d.log_prob(values), expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_normalizes(dist_cls, params):
+    """The hurdle PMF/PDF must sum/integrate to 1."""
+    d = dist_cls(**params)
+    if d.support.is_discrete:
+        # Sum the PMF on {0, 1, ..., 200}; the tail is negligible for the test params.
+        values = jnp.arange(201)
+        total = jnp.exp(d.log_prob(values)).sum()
+    else:
+        # Riemann sum on a fine grid; add the point mass at 0 explicitly.
+        grid = jnp.linspace(1e-4, 50.0, 200_001)
+        dx = float(grid[1] - grid[0])
+        total = params["gate"] + jnp.exp(d.log_prob(grid)).sum() * dx
+    assert_allclose(total, 1.0, atol=1e-3)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_sample_zero_fraction(dist_cls, params):
+    """Empirical P(X = 0) must match the gate."""
+    d = dist_cls(**params)
+    samples = d.sample(random.key(0), (50_000,))
+    empirical = float(jnp.mean(samples == 0))
+    assert abs(empirical - params["gate"]) < 0.01
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_sample_mean_variance(dist_cls, params):
+    """Empirical mean and variance must match the theoretical values."""
+    d = dist_cls(**params)
+    samples = d.sample(random.key(1), (100_000,))
+    assert_allclose(jnp.mean(samples), d.mean, rtol=0.05)
+    assert_allclose(jnp.var(samples), d.variance, rtol=0.07)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_safe_at_zero(dist_cls, params):
+    """log_prob(0) must be finite (no -inf from the underlying base PDF)."""
+    d = dist_cls(**params)
+    lp = d.log_prob(0.0)
+    assert jnp.isfinite(lp), f"log_prob(0)={lp} for {dist_cls.__name__}"
+
+
+@pytest.mark.parametrize("gate", [0.05, 0.3, 0.7, 0.95])
+def test_hurdle_logits_probs_agree(gate):
+    """HurdleLogits with logit(gate) must match HurdleProbs with gate."""
+    base = dist.Poisson(2.5)
+    gate_logits = float(jax.scipy.special.logit(gate))
+    hp = dist.HurdleDistribution(base, gate=gate)
+    hl = dist.HurdleDistribution(base, gate_logits=gate_logits)
+    values = jnp.arange(0, 15)
+    assert_allclose(hl.log_prob(values), hp.log_prob(values), rtol=1e-5, atol=1e-7)
+
+
+def test_hurdle_distribution_factory_dispatch():
+    base = dist.Poisson(2.0)
+    assert isinstance(dist.HurdleDistribution(base, gate=0.3), dist.HurdleProbs)
+    assert isinstance(dist.HurdleDistribution(base, gate_logits=0.5), dist.HurdleLogits)
+
+
+def test_hurdle_distribution_factory_requires_one_arg():
+    base = dist.Poisson(2.0)
+    with pytest.raises(ValueError):
+        dist.HurdleDistribution(base)
+    with pytest.raises(ValueError):
+        dist.HurdleDistribution(base, gate=0.3, gate_logits=0.5)
+
+
+def test_hurdle_rejects_non_empty_event_shape():
+    base = dist.Dirichlet(jnp.ones(3))
+    with pytest.raises(ValueError, match="event_shape"):
+        dist.HurdleProbs(base, gate=0.3)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_jit(dist_cls, params):
+    """log_prob must be jit-compilable and produce the same value."""
+    d = dist_cls(**params)
+    sample = d.sample(random.key(42), (32,))
+    eager = d.log_prob(sample)
+    jitted = jax.jit(d.log_prob)(sample)
+    assert_allclose(jitted, eager, rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_batched_gate(dist_cls, params):
+    """Hurdle distributions must broadcast a batched gate against scalar base params."""
+    batched_gate = jnp.array([0.1, 0.5, 0.9])
+    batched_params = dict(params, gate=batched_gate)
+    d = dist_cls(**batched_params)
+    assert d.batch_shape == (3,)
+    samples = d.sample(random.key(7), (10_000,))
+    empirical_zero = jnp.mean(samples == 0, axis=0)
+    assert_allclose(empirical_zero, batched_gate, atol=0.015)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_DISCRETE_CASES)
+def test_hurdle_discrete_support(dist_cls, params):
+    d = dist_cls(**params)
+    assert d.support is constraints.nonnegative_integer
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_CONTINUOUS_CASES)
+def test_hurdle_continuous_support(dist_cls, params):
+    d = dist_cls(**params)
+    assert d.support is constraints.nonnegative
+
+
+def test_hurdle_poisson_inference():
+    """End-to-end MCMC smoke test on HurdlePoisson recovers the gate and rate."""
+    import numpyro
+    from numpyro.infer import MCMC, NUTS
+
+    true_gate = 0.4
+    true_rate = 3.0
+    key_data, key_mcmc = random.split(random.key(123))
+    data = dist.HurdlePoisson(true_gate, true_rate).sample(key_data, (500,))
+
+    def model(y):
+        gate = numpyro.sample("gate", dist.Beta(1.0, 1.0))
+        rate = numpyro.sample("rate", dist.Exponential(0.5))
+        numpyro.sample("y", dist.HurdlePoisson(gate, rate), obs=y)
+
+    mcmc = MCMC(NUTS(model), num_warmup=400, num_samples=400, progress_bar=False)
+    mcmc.run(key_mcmc, y=data)
+    samples = mcmc.get_samples()
+    assert abs(float(jnp.mean(samples["gate"])) - true_gate) < 0.05
+    assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.3

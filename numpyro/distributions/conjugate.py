@@ -15,6 +15,7 @@ from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
 from numpyro.distributions.discrete import (
     BinomialProbs,
+    HurdleProbs,
     MultinomialProbs,
     Poisson,
     ZeroInflatedDistribution,
@@ -567,5 +568,39 @@ def ZeroInflatedNegativeBinomial2(
         NegativeBinomial2(mean, concentration, validate_args=validate_args),
         gate=gate,
         gate_logits=gate_logits,
+        validate_args=validate_args,
+    )
+
+
+def HurdleNegativeBinomial2(
+    gate: ArrayLike,
+    mean: ArrayLike,
+    concentration: ArrayLike,
+    *,
+    validate_args: Optional[bool] = None,
+) -> HurdleProbs:
+    r"""A hurdle Negative Binomial distribution (NB2 / mean-dispersion
+    parameterization): zeros are produced by a structural process with probability
+    :math:`g` and positive counts follow a zero-truncated
+    :math:`\mathrm{NegativeBinomial2}(\mu, \alpha)`.
+
+    The probability mass function is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{\mathrm{NB2}(k\mid\mu, \alpha)}
+        {1 - \mathrm{NB2}(0\mid\mu, \alpha)} \;\text{for } k \geq 1,
+
+    where :math:`\mathrm{NB2}(\cdot\mid\mu, \alpha)` is the PMF of a Negative Binomial
+    distribution with mean :math:`\mu` and concentration (dispersion) :math:`\alpha`.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike mean: mean :math:`\mu > 0` of the underlying NegativeBinomial2.
+    :param ArrayLike concentration: concentration :math:`\alpha > 0`.
+    """
+    return HurdleProbs(
+        NegativeBinomial2(mean, concentration, validate_args=validate_args),
+        gate,
         validate_args=validate_args,
     )

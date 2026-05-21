@@ -956,6 +956,230 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
+class HurdleProbs(Distribution):
+    r"""Generic hurdle distribution parameterized by a probability :math:`g` (``gate``)
+    of the structural zero and an arbitrary base distribution.
+
+    A hurdle distribution differs from a zero-inflated distribution in that **all**
+    zeros come from the structural process; non-zero observations are drawn from a
+    zero-truncated base distribution. With :math:`B` denoting the base PMF/PDF:
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{B(k)}{1 - B(0)} \;\text{for } k \geq 1
+        \;\text{(discrete base)}
+
+    For a continuous base on :math:`\mathbb{R}_{>0}` the truncation factor
+    :math:`1 - B(0)` equals 1 and the formula simplifies to a point mass at 0 with
+    weight :math:`g` mixed with :math:`(1 - g) \, b(x)` on :math:`x > 0`.
+
+    .. note::
+        ``gate`` is the probability of a structural zero. This matches the convention
+        used by :class:`ZeroInflatedDistribution`, and corresponds to ``1 - psi`` in
+        PyMC's hurdle distributions.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate: probability of a structural zero, in :math:`[0, 1]`.
+    """
+
+    arg_constraints = {"gate": constraints.unit_interval}
+    pytree_data_fields = ("base_dist", "gate")
+    pytree_aux_fields = ("_is_discrete",)
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate,) = promote_shapes(gate, shape=batch_shape)
+        if base_dist.event_shape:
+            raise ValueError(
+                "HurdleProbs expected empty base_dist.event_shape but got {}".format(
+                    base_dist.event_shape
+                )
+            )
+        self.base_dist = base_dist.expand(batch_shape)
+        self._is_discrete = base_dist.support.is_discrete
+        super(HurdleProbs, self).__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property
+    def support(self) -> constraints.Constraint:
+        return self.base_dist.support
+
+    def _log_one_minus_p_zero(self) -> ArrayLike:
+        # log(1 - B(0)) for the discrete base, used to renormalize the truncated PMF.
+        log_p0 = self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+        return jnp.log(-jnp.expm1(log_p0))
+
+    def _log_gate(self) -> ArrayLike:
+        return jnp.log(self.gate)
+
+    def _log_one_minus_gate(self) -> ArrayLike:
+        return jnp.log1p(-self.gate)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        key_bern, key_base = random.split(key)
+        shape = sample_shape + self.batch_shape
+        zero_mask = random.bernoulli(key_bern, self.gate, shape)
+        if self._is_discrete:
+            samples = self._sample_truncated(key_base, sample_shape)
+        else:
+            samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
+        return jnp.where(zero_mask, jnp.zeros_like(samples), samples)
+
+    def _sample_truncated(
+        self, key: jax.Array, sample_shape: tuple[int, ...]
+    ) -> ArrayLike:
+        # Rejection sampling from the zero-truncated base distribution: redraw any
+        # element that came back as 0 until all elements are strictly positive.
+        first = self.base_dist(rng_key=key, sample_shape=sample_shape)
+
+        def cond_fun(state: tuple) -> ArrayLike:
+            _, current = state
+            return jnp.any(current == 0)
+
+        def body_fun(state: tuple) -> tuple:
+            k, current = state
+            k, sub = random.split(k)
+            candidate = self.base_dist(rng_key=sub, sample_shape=sample_shape)
+            current = jnp.where(current == 0, candidate, current)
+            return (k, current)
+
+        _, samples = lax.while_loop(cond_fun, body_fun, (key, first))
+        return samples
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        log_gate = self._log_gate()
+        log_one_minus_gate = self._log_one_minus_gate()
+        # Replace zeros with ones before evaluating the base log_prob to avoid
+        # -inf / NaN gradients when the base PDF is undefined at 0 (e.g. Gamma).
+        safe_value = jnp.where(value == 0, jnp.ones_like(value), value)
+        log_prob_base = self.base_dist.log_prob(safe_value)
+        if self._is_discrete:
+            log_nonzero = (
+                log_one_minus_gate + log_prob_base - self._log_one_minus_p_zero()
+            )
+        else:
+            log_nonzero = log_one_minus_gate + log_prob_base
+        return jnp.where(value == 0, log_gate, log_nonzero)
+
+    @lazy_property
+    def mean(self) -> ArrayLike:
+        if self._is_discrete:
+            trunc = -jnp.expm1(
+                self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+            )
+            return (1 - self.gate) * self.base_dist.mean / trunc
+        return (1 - self.gate) * self.base_dist.mean
+
+    @lazy_property
+    def variance(self) -> ArrayLike:
+        if self._is_discrete:
+            trunc = -jnp.expm1(
+                self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+            )
+            second_moment_trunc = (
+                self.base_dist.mean**2 + self.base_dist.variance
+            ) / trunc
+            return (1 - self.gate) * second_moment_trunc - self.mean**2
+        return (1 - self.gate) * (
+            self.base_dist.mean**2 + self.base_dist.variance
+        ) - self.mean**2
+
+
+class HurdleLogits(HurdleProbs):
+    r"""Hurdle distribution parameterized by ``gate_logits`` (the log-odds of the
+    structural zero) instead of a probability. See :class:`HurdleProbs` for the
+    underlying PMF/PDF.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate_logits: log-odds of a structural zero,
+        :math:`\mathrm{logit}(g) = \log\frac{g}{1 - g}`.
+    """
+
+    arg_constraints = {"gate_logits": constraints.real}
+    pytree_data_fields = ("base_dist", "gate_logits")
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate_logits: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        gate = _to_probs_bernoulli(gate_logits)
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
+        super().__init__(base_dist, gate, validate_args=validate_args)
+
+    def _log_gate(self) -> ArrayLike:
+        return -softplus(-self.gate_logits)
+
+    def _log_one_minus_gate(self) -> ArrayLike:
+        return -softplus(self.gate_logits)
+
+
+def HurdleDistribution(
+    base_dist: Distribution,
+    *,
+    gate: Optional[ArrayLike] = None,
+    gate_logits: Optional[ArrayLike] = None,
+    validate_args: Optional[bool] = None,
+) -> Union[HurdleProbs, HurdleLogits]:
+    """Generic hurdle distribution.
+
+    Returns a :class:`HurdleProbs` if ``gate`` is supplied, or a
+    :class:`HurdleLogits` if ``gate_logits`` is supplied. Exactly one of the two
+    must be provided. See :class:`HurdleProbs` for the PMF/PDF.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate: probability of a structural zero.
+    :param ArrayLike gate_logits: log-odds of a structural zero.
+    """
+    assert_one_of(gate=gate, gate_logits=gate_logits)
+    if gate is not None:
+        return HurdleProbs(base_dist, gate, validate_args=validate_args)
+    return HurdleLogits(base_dist, gate_logits, validate_args=validate_args)
+
+
+class HurdlePoisson(HurdleProbs):
+    r"""A hurdle Poisson distribution: zeros are produced by a structural process
+    with probability :math:`g` and positive counts follow a zero-truncated
+    :math:`\mathrm{Poisson}(\lambda)`.
+
+    The probability mass function is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{\lambda^{k} e^{-\lambda} / k!}{1 - e^{-\lambda}}
+        \;\text{for } k \geq 1.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike rate: rate :math:`\lambda > 0` of the underlying Poisson.
+    """
+
+    arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
+    support = constraints.nonnegative_integer
+    pytree_data_fields = ("rate",)
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.rate = promote_shapes(gate, rate)
+        super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
+
+
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
