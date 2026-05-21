@@ -257,7 +257,7 @@ class BernoulliLogits(Distribution):
         :math:`\alpha \gg 0`) and underflow (:math:`e^{-\alpha} \to 0` for
         :math:`\alpha \ll -0`).
 
-        :param value: Binary observation(s) to score (:math:`k \\in \\{0, 1\\}`).
+        :param value: Binary observation(s) to score (:math:`k \in \{0, 1\}`).
         :return: Log probability scores evaluated under the Bernoulli PMF.
         """
         return -binary_cross_entropy_with_logits(self.logits, value)
