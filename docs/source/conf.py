@@ -325,3 +325,7 @@ intersphinx_mapping = {
 # -- Suppress warnings in Sphinx 7.3.5
 
 suppress_warnings = ["config.cache"]
+
+# Show both class docstring and __init__ docstring in the documentation.
+# source: https://stackoverflow.com/questions/5599254/how-to-use-sphinxs-autodoc-to-document-a-classs-init-self-method
+autoclass_content = "both"
