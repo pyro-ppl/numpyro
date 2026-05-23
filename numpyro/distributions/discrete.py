@@ -1013,7 +1013,7 @@ class HurdleProbs(Distribution):
     def _log_one_minus_p_zero(self) -> ArrayLike:
         # log(1 - B(0)) for the discrete base, used to renormalize the truncated PMF.
         log_p0 = self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
-        return jnp.log(-jnp.expm1(log_p0))
+        return jax.nn.log1mexp(-log_p0)
 
     def _log_gate(self) -> ArrayLike:
         return jnp.log(self.gate)

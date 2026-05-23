@@ -24,6 +24,7 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import (
     SineBivariateVonMises,
@@ -54,6 +55,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
+from numpyro.infer import MCMC, NUTS
 from numpyro.nn import AutoregressiveNN
 
 
@@ -1148,6 +1150,20 @@ CONTINUOUS = [
     T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
     T(dist.Dagum, 2.0, 3.0, np.array([0.5, 2.0, 1.0])),
     T(dist.Dagum, np.array([5.0, 2.0, 10.0]), 3.0, 5.0),
+    T(dist.HurdleGamma, 0.35, 2.0, 1.0),
+    T(
+        dist.HurdleGamma,
+        np.array([0.2, 0.5, 0.7]),
+        np.array([1.5, 2.0, 3.0]),
+        np.array([1.0, 0.8, 1.2]),
+    ),
+    T(dist.HurdleLogNormal, 0.45, 0.0, 1.0),
+    T(
+        dist.HurdleLogNormal,
+        np.array([0.1, 0.5, 0.8]),
+        np.array([0.0, 0.5, -0.3]),
+        np.array([1.0, 0.8, 1.2]),
+    ),
 ]
 
 DIRECTIONAL = [
@@ -1291,6 +1307,8 @@ DISCRETE = [
         np.array([0.2, 4.0, 0.3]),
         np.array([2.0, -3.0, 5.0]),
     ),
+    T(dist.HurdlePoisson, 0.6, 2.0),
+    T(dist.HurdlePoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
 ]
 
 BASE = [
@@ -4925,15 +4943,6 @@ def test_hurdle_sample_zero_fraction(dist_cls, params):
 
 
 @pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
-def test_hurdle_sample_mean_variance(dist_cls, params):
-    """Empirical mean and variance must match the theoretical values."""
-    d = dist_cls(**params)
-    samples = d.sample(random.key(1), (100_000,))
-    assert_allclose(jnp.mean(samples), d.mean, rtol=0.05)
-    assert_allclose(jnp.var(samples), d.variance, rtol=0.07)
-
-
-@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
 def test_hurdle_log_prob_safe_at_zero(dist_cls, params):
     """log_prob(0) must be finite (no -inf from the underlying base PDF)."""
     d = dist_cls(**params)
@@ -4972,45 +4981,8 @@ def test_hurdle_rejects_non_empty_event_shape():
         dist.HurdleProbs(base, gate=0.3)
 
 
-@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
-def test_hurdle_log_prob_jit(dist_cls, params):
-    """log_prob must be jit-compilable and produce the same value."""
-    d = dist_cls(**params)
-    sample = d.sample(random.key(42), (32,))
-    eager = d.log_prob(sample)
-    jitted = jax.jit(d.log_prob)(sample)
-    assert_allclose(jitted, eager, rtol=1e-6)
-
-
-@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
-def test_hurdle_batched_gate(dist_cls, params):
-    """Hurdle distributions must broadcast a batched gate against scalar base params."""
-    batched_gate = jnp.array([0.1, 0.5, 0.9])
-    batched_params = dict(params, gate=batched_gate)
-    d = dist_cls(**batched_params)
-    assert d.batch_shape == (3,)
-    samples = d.sample(random.key(7), (10_000,))
-    empirical_zero = jnp.mean(samples == 0, axis=0)
-    assert_allclose(empirical_zero, batched_gate, atol=0.015)
-
-
-@pytest.mark.parametrize("dist_cls, params", _HURDLE_DISCRETE_CASES)
-def test_hurdle_discrete_support(dist_cls, params):
-    d = dist_cls(**params)
-    assert d.support is constraints.nonnegative_integer
-
-
-@pytest.mark.parametrize("dist_cls, params", _HURDLE_CONTINUOUS_CASES)
-def test_hurdle_continuous_support(dist_cls, params):
-    d = dist_cls(**params)
-    assert d.support is constraints.nonnegative
-
-
 def test_hurdle_poisson_inference():
     """End-to-end MCMC smoke test on HurdlePoisson recovers the gate and rate."""
-    import numpyro
-    from numpyro.infer import MCMC, NUTS
-
     true_gate = 0.4
     true_rate = 3.0
     key_data, key_mcmc = random.split(random.key(123))
