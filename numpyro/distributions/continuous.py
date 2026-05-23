@@ -890,10 +890,37 @@ class Gamma(Distribution):
 
 
 class Chi2(Gamma):
+    r"""A chi-square continuous random variable, parameterized by the degrees of
+    freedom :math:`k`.
+
+    The Probability Density Function (PDF) of the chi-square distribution with
+    :math:`k` degrees of freedom is defined as:
+
+    .. math::
+        f(x; k) = \frac{x^{k/2 - 1} e^{-x/2}}{2^{k/2}\,\Gamma(k/2)},
+        \quad x > 0
+
+    Where, :math:`k` represents the degrees of freedom (:attr:`df`),
+    :math:`\Gamma(\cdot)` is the gamma function, and :math:`x` is the observed value.
+    The support domain is :math:`x \in (0, \infty)`.
+
+    The chi-square distribution is a special case of the Gamma distribution:
+
+    .. math::
+        \mathrm{Chi2}(k) \equiv \mathrm{Gamma}(k/2,\; 1/2)
+
+    so this class inherits sampling, log-probability, mean, variance, and entropy
+    implementations from :class:`Gamma`.
+    """
+
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
 
     def __init__(self, df: ArrayLike, *, validate_args: Optional[bool] = None) -> None:
+        r"""
+        :param df: Degrees of freedom parameter :math:`k > 0` (:attr:`df`).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
