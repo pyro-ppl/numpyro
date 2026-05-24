@@ -675,7 +675,7 @@ class CategoricalProbs(Distribution):
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         r"""Draw samples from the Categorical distribution.
 
-        This method delegates to :func:`numpyro.distributions.util.categorical`, which
+        This method delegates to :func:`~numpyro.distributions.util.categorical`, which
         internally relies on :func:`~jax.random.categorical` over the log-probabilities
         of :attr:`probs`.
 
@@ -925,19 +925,18 @@ def Categorical(probs=None, logits=None, *, validate_args: Optional[bool] = None
 
 class DiscreteUniform(Distribution):
     r"""A discrete uniform random variable over the inclusive integer interval
-    :math:`\{\text{low}, \text{low}+1, \dots, \text{high}\}`.
+    :math:`\{a, a+1, \dots, b\}`, where :math:`a` (:attr:`low`) is the inclusive
+    lower bound and :math:`b` (:attr:`high`) is the inclusive upper bound of the
+    support.
 
     The Probability Mass Function (PMF) of the discrete uniform distribution is
     defined as:
 
     .. math::
-        P(X = k \mid \text{low}, \text{high}) = \frac{1}{\text{high} - \text{low} + 1},
-        \quad k \in \{\text{low}, \text{low}+1, \dots, \text{high}\}
+        P(X = k \mid a, b) = \frac{1}{b - a + 1},
+        \quad k \in \{a, a+1, \dots, b\}
 
-    Where, :math:`\text{low}` is the inclusive lower bound of the support
-    (:attr:`low`), :math:`\text{high}` is the inclusive upper bound of the support
-    (:attr:`high`), and :math:`k` is the observed integer value (:attr:`value`). The
-    support domain is :math:`k \in \{\text{low}, \dots, \text{high}\}`.
+    Where :math:`k` is the observed integer value (:attr:`value`).
     """
 
     arg_constraints = {
@@ -977,12 +976,12 @@ class DiscreteUniform(Distribution):
 
         This method invokes :func:`~jax.random.randint` directly, which generates
         uniformly distributed integers in the half-open interval ``[low, high + 1)``,
-        equivalent to the inclusive interval :math:`\{\text{low}, \dots, \text{high}\}`.
+        equivalent to the inclusive interval :math:`\{a, \dots, b\}`.
 
         :param key: A JAX random number generator key (PRNG state).
         :param sample_shape: Desired sample dimensions to prepend to the batch shape.
         :return: Integer-valued samples drawn uniformly from
-            :math:`\{\text{low}, \dots, \text{high}\}`.
+            :math:`\{a, \dots, b\}`.
         """
         shape = sample_shape + self.batch_shape
         return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
@@ -992,14 +991,13 @@ class DiscreteUniform(Distribution):
         r"""Evaluate the log probability mass function at specified integer values.
 
         .. math::
-            \ln P(X = k \mid \text{low}, \text{high}) =
-            -\ln(\text{high} - \text{low} + 1)
+            \ln P(X = k \mid a, b) = -\ln(b - a + 1)
 
         The log-PMF is constant over the support, so the implementation simply
         broadcasts the negative log of the support cardinality to the requested shape.
 
         :param value: Integer observation(s) to score
-            (:math:`k \in \{\text{low}, \dots, \text{high}\}`).
+            (:math:`k \in \{a, \dots, b\}`).
         :return: Log probability scores evaluated under the discrete uniform PMF.
         """
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
@@ -1010,9 +1008,8 @@ class DiscreteUniform(Distribution):
         uniform distribution.
 
         .. math::
-            F(x) = \frac{\lfloor x \rfloor + 1 - \text{low}}
-            {\text{high} - \text{low} + 1}, \quad
-            \text{clipped to } [0, 1]
+            F(x) = \frac{\lfloor x \rfloor + 1 - a}{b - a + 1},
+            \quad \text{clipped to } [0, 1]
 
         :param value: Point(s) at which to evaluate the CDF.
         :return: The CDF evaluated at ``value``, clipped to the unit interval.
@@ -1025,8 +1022,7 @@ class DiscreteUniform(Distribution):
         of the discrete uniform distribution.
 
         .. math::
-            F^{-1}(u) = \text{low} + u\,(\text{high} - \text{low} + 1) - 1,
-            \quad u \in [0, 1]
+            F^{-1}(u) = a + u\,(b - a + 1) - 1, \quad u \in [0, 1]
 
         :param value: Quantile level(s) :math:`u \in [0, 1]`.
         :return: The inverse CDF evaluated at ``value``.
@@ -1039,7 +1035,7 @@ class DiscreteUniform(Distribution):
         support:
 
         .. math::
-            E[X] = \frac{\text{low} + \text{high}}{2}
+            E[X] = \frac{a + b}{2}
 
         :return: The mean of the discrete uniform distribution.
         """
@@ -1050,7 +1046,7 @@ class DiscreteUniform(Distribution):
         r"""The variance of the discrete uniform distribution is given by:
 
         .. math::
-            \mathrm{Var}[X] = \frac{(\text{high} - \text{low} + 1)^2 - 1}{12}
+            \mathrm{Var}[X] = \frac{(b - a + 1)^2 - 1}{12}
 
         :return: The variance of the discrete uniform distribution.
         """
@@ -1066,7 +1062,7 @@ class DiscreteUniform(Distribution):
         :param expand: Whether to broadcast the enumerated values across the batch
             shape. Default is True.
         :return: An array of integer values
-            :math:`\{\text{low}, \text{low}+1, \dots, \text{high}\}`, optionally
+            :math:`\{a, a+1, \dots, b\}`, optionally
             broadcast across the batch dimensions.
         """
         if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
