@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import inspect
+
 import numpy as np
 import pytest
 from test_distributions import CONTINUOUS, DIRECTIONAL
@@ -33,6 +35,8 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.skip(
             "skip gof test for censored distribution as log_prob for censored observations is cdf instead of density"
         )
+    if inspect.isclass(jax_dist) and issubclass(jax_dist, dist.HurdleProbs):
+        pytest.skip("skip gof test for hurdle distribution with point mass at zero")
 
     num_samples = 10000
     if any(
