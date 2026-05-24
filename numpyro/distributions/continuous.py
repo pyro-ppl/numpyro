@@ -4249,9 +4249,12 @@ class Dagum(Distribution):
 
 
 class HurdleGamma(HurdleProbs):
-    r"""A hurdle Gamma distribution: a point mass at zero with probability :math:`g`
-    mixed with a :math:`\mathrm{Gamma}(\alpha, \lambda)` density on
-    :math:`x > 0` with weight :math:`1 - g`.
+    r"""A hurdle Gamma distribution: a two-part model in which a structural zero
+    occurs with probability :math:`g` and, conditional on a positive outcome,
+    the magnitude is drawn from :math:`\mathrm{Gamma}(\alpha, \lambda)`. The
+    hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
 
     Because :math:`P(X = 0) = 0` under a Gamma density, no truncation factor is
     needed and the PDF is
@@ -4266,6 +4269,14 @@ class HurdleGamma(HurdleProbs):
     :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
     :param ArrayLike concentration: shape parameter :math:`\alpha > 0` of the Gamma.
     :param ArrayLike rate: rate parameter :math:`\lambda > 0` of the Gamma.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
     """
 
     arg_constraints = {
@@ -4289,9 +4300,12 @@ class HurdleGamma(HurdleProbs):
 
 
 class HurdleLogNormal(HurdleProbs):
-    r"""A hurdle Log-Normal distribution: a point mass at zero with probability
-    :math:`g` mixed with a :math:`\mathrm{LogNormal}(\mu, \sigma)` density on
-    :math:`x > 0` with weight :math:`1 - g`.
+    r"""A hurdle Log-Normal distribution: a two-part model in which a structural
+    zero occurs with probability :math:`g` and, conditional on a positive
+    outcome, the magnitude is drawn from :math:`\mathrm{LogNormal}(\mu, \sigma)`.
+    The hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
 
     Because :math:`P(X = 0) = 0` under a Log-Normal density, no truncation factor is
     needed and the PDF is
@@ -4308,6 +4322,14 @@ class HurdleLogNormal(HurdleProbs):
         (mean of :math:`\ln X` given :math:`X > 0`).
     :param ArrayLike scale: scale parameter :math:`\sigma > 0`
         (std-dev of :math:`\ln X` given :math:`X > 0`).
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
     """
 
     arg_constraints = {

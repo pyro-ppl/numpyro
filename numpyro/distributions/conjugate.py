@@ -580,9 +580,13 @@ def HurdleNegativeBinomial2(
     validate_args: Optional[bool] = None,
 ) -> HurdleProbs:
     r"""A hurdle Negative Binomial distribution (NB2 / mean-dispersion
-    parameterization): zeros are produced by a structural process with probability
-    :math:`g` and positive counts follow a zero-truncated
-    :math:`\mathrm{NegativeBinomial2}(\mu, \alpha)`.
+    parameterization): a two-part model in which structural zeros are produced
+    by a Bernoulli "hurdle" with probability :math:`g` and positive counts
+    follow a zero-truncated :math:`\mathrm{NegativeBinomial2}(\mu, \alpha)`.
+    The hurdle and the magnitude (given a positive count) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions. Compared to a Hurdle Poisson, NB2 accommodates count data
+    that is over-dispersed (variance greater than the mean).
 
     The probability mass function is
 
@@ -598,6 +602,14 @@ def HurdleNegativeBinomial2(
     :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
     :param ArrayLike mean: mean :math:`\mu > 0` of the underlying NegativeBinomial2.
     :param ArrayLike concentration: concentration :math:`\alpha > 0`.
+
+    **References:**
+
+    1. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    2. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
     """
     return HurdleProbs(
         NegativeBinomial2(mean, concentration, validate_args=validate_args),

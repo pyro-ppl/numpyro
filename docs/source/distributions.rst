@@ -591,6 +591,38 @@ GeometricProbs
     :show-inheritance:
     :member-order: bysource
 
+HurdleDistribution
+^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.discrete.HurdleDistribution
+
+HurdleLogits
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdleLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleNegativeBinomial2
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.conjugate.HurdleNegativeBinomial2
+
+HurdlePoisson
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdlePoisson
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleProbs
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdleProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Multinomial
 ^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.Multinomial
@@ -670,22 +702,6 @@ ZeroInflatedPoisson
 ZeroInflatedNegativeBinomial2
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2
-
-HurdleDistribution
-^^^^^^^^^^^^^^^^^^
-.. autofunction:: numpyro.distributions.discrete.HurdleDistribution
-
-HurdlePoisson
-^^^^^^^^^^^^^
-.. autoclass:: numpyro.distributions.discrete.HurdlePoisson
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-HurdleNegativeBinomial2
-^^^^^^^^^^^^^^^^^^^^^^^
-.. autofunction:: numpyro.distributions.conjugate.HurdleNegativeBinomial2
 
 
 Mixture Distributions

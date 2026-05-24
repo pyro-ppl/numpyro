@@ -1268,9 +1268,12 @@ class HurdleProbs(Distribution):
     r"""Generic hurdle distribution parameterized by a probability :math:`g` (``gate``)
     of the structural zero and an arbitrary base distribution.
 
-    A hurdle distribution differs from a zero-inflated distribution in that **all**
-    zeros come from the structural process; non-zero observations are drawn from a
-    zero-truncated base distribution. With :math:`B` denoting the base PMF/PDF:
+    **Hurdle mechanism.** A hurdle model is a two-part model. A Bernoulli "hurdle"
+    decides whether the outcome is zero (with probability :math:`g`, the *gate*) or
+    strictly positive (with probability :math:`1 - g`). Conditional on the outcome
+    being positive, the magnitude is drawn from the base distribution -
+    *zero-truncated* in the discrete case so the base distribution cannot itself
+    produce a zero. With :math:`B` denoting the base PMF/PDF:
 
     .. math::
 
@@ -1282,6 +1285,18 @@ class HurdleProbs(Distribution):
     :math:`1 - B(0)` equals 1 and the formula simplifies to a point mass at 0 with
     weight :math:`g` mixed with :math:`(1 - g) \, b(x)` on :math:`x > 0`.
 
+    **Assumptions.**
+
+    1. *All zeros are structural* - they originate exclusively from the hurdle
+       process. This contrasts with zero-inflated models, which mix structural
+       zeros with sampling zeros from the base distribution.
+    2. The hurdle decision (zero vs. positive) and the magnitude (given positive)
+       are *conditionally independent* given the parameters.
+    3. For a discrete base, :math:`P(\text{base} = 0) < 1` so the truncation
+       factor :math:`1 - B(0)` is well-defined. For a continuous base supported
+       on :math:`\mathbb{R}_{>0}`, :math:`P(\text{base} = 0) = 0` and no
+       truncation is needed.
+
     .. note::
         ``gate`` is the probability of a structural zero. This matches the convention
         used by :class:`ZeroInflatedDistribution`, and corresponds to ``1 - psi`` in
@@ -1289,6 +1304,14 @@ class HurdleProbs(Distribution):
 
     :param Distribution base_dist: the base distribution.
     :param ArrayLike gate: probability of a structural zero, in :math:`[0, 1]`.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
     """
 
     arg_constraints = {"gate": constraints.unit_interval}
@@ -1403,12 +1426,25 @@ class HurdleProbs(Distribution):
 
 class HurdleLogits(HurdleProbs):
     r"""Hurdle distribution parameterized by ``gate_logits`` (the log-odds of the
-    structural zero) instead of a probability. See :class:`HurdleProbs` for the
-    underlying PMF/PDF.
+    structural zero) instead of a probability.
+
+    Like :class:`HurdleProbs`, this is a two-part model where a Bernoulli
+    "hurdle" - here parameterized in logit space - selects between an exact
+    zero and a positive draw from the (zero-truncated, for discrete bases) base
+    distribution. See :class:`HurdleProbs` for the full mechanism, assumptions,
+    and underlying PMF/PDF.
 
     :param Distribution base_dist: the base distribution.
     :param ArrayLike gate_logits: log-odds of a structural zero,
         :math:`\mathrm{logit}(g) = \log\frac{g}{1 - g}`.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
     """
 
     arg_constraints = {"gate_logits": constraints.real}
@@ -1440,15 +1476,26 @@ def HurdleDistribution(
     gate_logits: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ) -> Union[HurdleProbs, HurdleLogits]:
-    """Generic hurdle distribution.
+    r"""Generic hurdle distribution.
 
-    Returns a :class:`HurdleProbs` if ``gate`` is supplied, or a
-    :class:`HurdleLogits` if ``gate_logits`` is supplied. Exactly one of the two
-    must be provided. See :class:`HurdleProbs` for the PMF/PDF.
+    A hurdle model is a two-part model: a Bernoulli "hurdle" selects between an
+    exact zero (with probability ``gate``) and a positive draw from the
+    (zero-truncated, for discrete bases) base distribution. Returns a
+    :class:`HurdleProbs` if ``gate`` is supplied, or a :class:`HurdleLogits` if
+    ``gate_logits`` is supplied. Exactly one of the two must be provided. See
+    :class:`HurdleProbs` for the full mechanism, assumptions, and PMF/PDF.
 
     :param Distribution base_dist: the base distribution.
     :param ArrayLike gate: probability of a structural zero.
     :param ArrayLike gate_logits: log-odds of a structural zero.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
     """
     assert_one_of(gate=gate, gate_logits=gate_logits)
     if gate is not None:
@@ -1457,9 +1504,11 @@ def HurdleDistribution(
 
 
 class HurdlePoisson(HurdleProbs):
-    r"""A hurdle Poisson distribution: zeros are produced by a structural process
-    with probability :math:`g` and positive counts follow a zero-truncated
-    :math:`\mathrm{Poisson}(\lambda)`.
+    r"""A hurdle Poisson distribution: a two-part model in which structural zeros
+    are produced by a Bernoulli "hurdle" with probability :math:`g` and positive
+    counts follow a zero-truncated :math:`\mathrm{Poisson}(\lambda)`. The hurdle
+    and the magnitude (given a positive count) are conditionally independent;
+    see :class:`HurdleProbs` for the full mechanism and assumptions.
 
     The probability mass function is
 
@@ -1471,6 +1520,14 @@ class HurdlePoisson(HurdleProbs):
 
     :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
     :param ArrayLike rate: rate :math:`\lambda > 0` of the underlying Poisson.
+
+    **References:**
+
+    1. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    2. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
     """
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
