@@ -639,10 +639,32 @@ def Binomial(
 
 
 class CategoricalProbs(Distribution):
+    r"""A Categorical discrete random variable over :math:`K` mutually exclusive
+    outcomes, parameterized by a probability vector on the simplex.
+
+    The Probability Mass Function (PMF) of the Categorical distribution is defined as:
+
+    .. math::
+        P(X = k \mid \mathbf{p}) = p_k, \quad k \in \{0, 1, \dots, K-1\}
+
+    where the probability vector :math:`\mathbf{p} = (p_0, p_1, \dots, p_{K-1})`
+    satisfies :math:`p_k \ge 0` and :math:`\sum_{k=0}^{K-1} p_k = 1`.
+
+    Where, :math:`\mathbf{p}` represents the category probability vector
+    (:attr:`probs`), :math:`K` is the number of categories (the size of the trailing
+    dimension of :attr:`probs`), and :math:`k` is the observed category index
+    (:attr:`value`). The support domain is :math:`k \in \{0, 1, \dots, K-1\}`.
+    """
+
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
 
     def __init__(self, probs: Array, *, validate_args: Optional[bool] = None):
+        r"""
+        :param probs: Category probability vector on the simplex; the trailing
+            dimension indexes the :math:`K` categories and must sum to one.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         self.probs = probs
@@ -651,11 +673,34 @@ class CategoricalProbs(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Categorical distribution.
+
+        This method delegates to :func:`~numpyro.distributions.util.categorical`, which
+        internally relies on :func:`~jax.random.categorical` over the log-probabilities
+        of :attr:`probs`.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples in :math:`\{0, 1, \dots, K-1\}` drawn from the
+            Categorical distribution.
+        """
         assert is_prng_key(key)
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified category indices.
+
+        .. math::
+            \ln P(X = k \mid \mathbf{p}) = \ln p_k
+
+        The implementation gathers the log-probabilities from :attr:`logits` (which are
+        already normalized log-probabilities computed from :attr:`probs`) at the
+        positions indicated by ``value`` using :func:`~jax.numpy.take_along_axis`.
+
+        :param value: Category index/indices to score (:math:`k \in \{0, 1, \dots, K-1\}`).
+        :return: Log probability scores evaluated under the Categorical PMF.
+        """
         batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, axis=-1)
         value = jnp.broadcast_to(value, batch_shape + (1,))
@@ -665,21 +710,48 @@ class CategoricalProbs(Distribution):
 
     @lazy_property
     def logits(self) -> ArrayLike:
+        r"""The log-probability (logits) parameter of the Categorical distribution is
+        the (already-normalized) log of the category probabilities:
+
+        .. math::
+            \alpha_k = \ln p_k, \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_logits_multinom(self.probs)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of a Categorical distribution over arbitrary unordered categories
+        is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of a Categorical distribution over arbitrary unordered
+        categories is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        r"""The support of the Categorical distribution is the set of integers
+        :math:`\{0, 1, \dots, K-1\}`, where :math:`K` is the number of categories
+        inferred from the trailing dimension of :attr:`probs`.
+        """
         return constraints.integer_interval(0, jnp.shape(self.probs)[-1] - 1)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
+        r"""Enumerate all values in the support of the Categorical distribution.
+
+        :param expand: Whether to broadcast the enumerated values across the batch
+            shape. Default is True.
+        :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
+            optionally broadcast across the batch dimensions.
+        """
         values = jnp.arange(self.probs.shape[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
         )
@@ -688,14 +760,44 @@ class CategoricalProbs(Distribution):
         return values
 
     def entropy(self) -> ArrayLike:
+        r"""The entropy of the Categorical distribution is given by:
+
+        .. math::
+            H[X] = -\sum_{k=0}^{K-1} p_k \ln p_k
+
+        :return: The entropy of the Categorical distribution.
+        """
         return -(self.probs * jnp.log(self.probs)).sum(axis=-1)
 
 
 class CategoricalLogits(Distribution):
+    r"""A Categorical discrete random variable over :math:`K` mutually exclusive
+    outcomes, parameterized by unnormalized log-probabilities (logits).
+
+    The Probability Mass Function (PMF) of the Categorical distribution is defined,
+    via the softmax transformation of the logits, as:
+
+    .. math::
+        P(X = k \mid \boldsymbol{\alpha}) = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1}
+        \exp(\alpha_j)}, \quad k \in \{0, 1, \dots, K-1\}
+
+    Where, :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
+    is the real-valued logits vector (:attr:`logits`), :math:`K` is the number of
+    categories (the size of the trailing dimension of :attr:`logits`), and :math:`k`
+    is the observed category index (:attr:`value`). The support domain is
+    :math:`k \in \{0, 1, \dots, K-1\}`.
+    """
+
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
 
     def __init__(self, logits: Array, *, validate_args: Optional[bool] = None):
+        r"""
+        :param logits: Real-valued logits vector; the trailing dimension indexes the
+            :math:`K` categories. Logits are unnormalized and converted to
+            probabilities via the softmax function.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
@@ -704,6 +806,17 @@ class CategoricalLogits(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Categorical distribution.
+
+        This method invokes :func:`~jax.random.categorical` directly, which samples in
+        logit-space using the Gumbel-max trick and therefore avoids materializing the
+        softmax-normalized probabilities.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples in :math:`\{0, 1, \dots, K-1\}` drawn from the
+            Categorical distribution.
+        """
         assert is_prng_key(key)
         return random.categorical(
             key, self.logits, shape=sample_shape + self.batch_shape
@@ -711,6 +824,21 @@ class CategoricalLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified category indices.
+
+        .. math::
+            \ln P(X = k \mid \boldsymbol{\alpha}) = \alpha_k - \ln\!\sum_{j=0}^{K-1}
+            \exp(\alpha_j)
+
+        The normalizing log-partition is computed via :func:`~jax.scipy.special.logsumexp`,
+        which uses the standard max-subtraction trick to guarantee numerical stability
+        in the presence of large or widely-spread logit magnitudes. After
+        normalization, the relevant log-probability is gathered with
+        :func:`~jax.numpy.take_along_axis`.
+
+        :param value: Category index/indices to score (:math:`k \in \{0, 1, \dots, K-1\}`).
+        :return: Log probability scores evaluated under the Categorical PMF.
+        """
         batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, -1)
         value = jnp.broadcast_to(value, batch_shape + (1,))
@@ -720,21 +848,49 @@ class CategoricalLogits(Distribution):
 
     @lazy_property
     def probs(self) -> ArrayLike:
+        r"""The probability vector of the Categorical distribution is given by the
+        softmax of the logits:
+
+        .. math::
+            p_k = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)},
+            \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_probs_multinom(self.logits)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of a Categorical distribution over arbitrary unordered categories
+        is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of a Categorical distribution over arbitrary unordered
+        categories is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        r"""The support of the Categorical distribution is the set of integers
+        :math:`\{0, 1, \dots, K-1\}`, where :math:`K` is the number of categories
+        inferred from the trailing dimension of :attr:`logits`.
+        """
         return constraints.integer_interval(0, jnp.shape(self.logits)[-1] - 1)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
+        r"""Enumerate all values in the support of the Categorical distribution.
+
+        :param expand: Whether to broadcast the enumerated values across the batch
+            shape. Default is True.
+        :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
+            optionally broadcast across the batch dimensions.
+        """
         values = jnp.arange(self.logits.shape[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
         )
@@ -743,6 +899,18 @@ class CategoricalLogits(Distribution):
         return values
 
     def entropy(self) -> ArrayLike:
+        r"""The entropy of the Categorical distribution is given by:
+
+        .. math::
+            H[X] = -\sum_{k=0}^{K-1} p_k \ln p_k
+            = \ln\!\sum_{j=0}^{K-1} \exp(\alpha_j) - \sum_{k=0}^{K-1} p_k\, \alpha_k
+
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`. The implementation
+        uses :func:`~jax.scipy.special.logsumexp` for the log-partition term, ensuring
+        numerical stability for large or widely-spread logits.
+
+        :return: The entropy of the Categorical distribution.
+        """
         probs = softmax(self.logits, axis=-1)
         return -(probs * self.logits).sum(axis=-1) + logsumexp(self.logits, axis=-1)
 
@@ -756,6 +924,21 @@ def Categorical(probs=None, logits=None, *, validate_args: Optional[bool] = None
 
 
 class DiscreteUniform(Distribution):
+    r"""A discrete uniform random variable over the inclusive integer interval
+    :math:`\{a, a+1, \dots, b\}`, where :math:`a` (:attr:`low`) is the inclusive
+    lower bound and :math:`b` (:attr:`high`) is the inclusive upper bound of the
+    support.
+
+    The Probability Mass Function (PMF) of the discrete uniform distribution is
+    defined as:
+
+    .. math::
+        P(X = k \mid a, b) = \frac{1}{b - a + 1},
+        \quad k \in \{a, a+1, \dots, b\}
+
+    Where :math:`k` is the observed integer value (:attr:`value`).
+    """
+
     arg_constraints = {
         "low": constraints.dependent(is_discrete=True, event_dim=0),
         "high": constraints.dependent(is_discrete=True, event_dim=0),
@@ -770,6 +953,12 @@ class DiscreteUniform(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param low: Inclusive lower bound of the integer support. Default is 0.
+        :param high: Inclusive upper bound of the integer support. Must satisfy
+            ``high >= low``. Default is 1.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         self._support = constraints.integer_interval(low, high)
@@ -777,33 +966,105 @@ class DiscreteUniform(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        r"""The support of the discrete uniform distribution is the set of integers
+        :math:`\{\text{low}, \text{low}+1, \dots, \text{high}\}`.
+        """
         return self._support
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the discrete uniform distribution.
+
+        This method invokes :func:`~jax.random.randint` directly, which generates
+        uniformly distributed integers in the half-open interval ``[low, high + 1)``,
+        equivalent to the inclusive interval :math:`\{a, \dots, b\}`.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples drawn uniformly from
+            :math:`\{a, \dots, b\}`.
+        """
         shape = sample_shape + self.batch_shape
         return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function at specified integer values.
+
+        .. math::
+            \ln P(X = k \mid a, b) = -\ln(b - a + 1)
+
+        The log-PMF is constant over the support, so the implementation simply
+        broadcasts the negative log of the support cardinality to the requested shape.
+
+        :param value: Integer observation(s) to score
+            (:math:`k \in \{a, \dots, b\}`).
+        :return: Log probability scores evaluated under the discrete uniform PMF.
+        """
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high + 1 - self.low), shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the cumulative distribution function (CDF) of the discrete
+        uniform distribution.
+
+        .. math::
+            F(x) = \frac{\lfloor x \rfloor + 1 - a}{b - a + 1},
+            \quad \text{clipped to } [0, 1]
+
+        :param value: Point(s) at which to evaluate the CDF.
+        :return: The CDF evaluated at ``value``, clipped to the unit interval.
+        """
         cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low + 1)
         return jnp.clip(cdf, 0.0, 1.0)
 
     def icdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the inverse cumulative distribution function (quantile function)
+        of the discrete uniform distribution.
+
+        .. math::
+            F^{-1}(u) = a + u\,(b - a + 1) - 1, \quad u \in [0, 1]
+
+        :param value: Quantile level(s) :math:`u \in [0, 1]`.
+        :return: The inverse CDF evaluated at ``value``.
+        """
         return self.low + value * (self.high - self.low + 1) - 1
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of the discrete uniform distribution is the midpoint of the
+        support:
+
+        .. math::
+            E[X] = \frac{a + b}{2}
+
+        :return: The mean of the discrete uniform distribution.
+        """
         return self.low + (self.high - self.low) / 2.0
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of the discrete uniform distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = \frac{(b - a + 1)^2 - 1}{12}
+
+        :return: The variance of the discrete uniform distribution.
+        """
         return ((self.high - self.low + 1) ** 2 - 1) / 12.0
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
+        r"""Enumerate all values in the support of the discrete uniform distribution.
+
+        Both :attr:`low` and :attr:`high` must be concrete (non-JAX-tracer) values and
+        homogeneous across the batch shape; otherwise a :class:`NotImplementedError`
+        is raised.
+
+        :param expand: Whether to broadcast the enumerated values across the batch
+            shape. Default is True.
+        :return: An array of integer values
+            :math:`\{a, a+1, \dots, b\}`, optionally
+            broadcast across the batch dimensions.
+        """
         if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
             raise NotImplementedError("Both `low` and `high` must not be a JAX Tracer.")
         if np.any(np.amax(self.low) != self.low):
@@ -824,6 +1085,13 @@ class DiscreteUniform(Distribution):
         return values
 
     def entropy(self) -> ArrayLike:
+        r"""The entropy of the discrete uniform distribution is given by:
+
+        .. math::
+            H[X] = \ln(\text{high} - \text{low} + 1)
+
+        :return: The entropy of the discrete uniform distribution.
+        """
         return jnp.log(self.high - self.low + 1)
 
 
