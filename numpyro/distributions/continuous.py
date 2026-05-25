@@ -907,7 +907,7 @@ class Chi2(Gamma):
     The chi-square distribution is a special case of the Gamma distribution:
 
     .. math::
-        \mathrm{Chi2}(k) \equiv \mathrm{Gamma}(k/2,\; 1/2)
+        \chi^2(k) \equiv \mathrm{Gamma}(k/2,\; 1/2)
 
     so this class inherits sampling, log-probability, mean, variance, and entropy
     implementations from :class:`Gamma`.
