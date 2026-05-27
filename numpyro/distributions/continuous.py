@@ -1306,6 +1306,22 @@ class Gompertz(Distribution):
 
 
 class Gumbel(Distribution):
+    r"""The Gumbel (maximum) distribution, a continuous real-valued
+    distribution parameterized by location :math:`\mu` and scale :math:`\beta > 0`.
+    It is the limiting distribution of the maximum of a large number of i.i.d.
+    samples from an exponential-tailed distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \beta) = \frac{1}{\beta} \exp\!\left(
+            -\frac{x - \mu}{\beta} - \exp\!\left(-\frac{x - \mu}{\beta}\right)
+        \right), \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`\beta > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -1317,6 +1333,11 @@ class Gumbel(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`\beta > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
 
@@ -1325,6 +1346,15 @@ class Gumbel(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Gumbel distribution via the location-scale
+        transform :math:`X = \mu + \beta Z`, where
+        :math:`Z \sim \mathrm{Gumbel}(0, 1)` is drawn from
+        :func:`~jax.random.gumbel`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Gumbel distribution.
+        """
         assert is_prng_key(key)
         standard_gumbel_sample = random.gumbel(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1333,23 +1363,62 @@ class Gumbel(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability density function at ``value``.
+
+        Letting :math:`z = (x - \mu)/\beta`,
+
+        .. math::
+            \ln f(x \mid \mu, \beta) = -z - e^{-z} - \ln \beta
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Gumbel distribution.
+        """
         z = (value - self.loc) / self.scale
         return -(z + jnp.exp(-z)) - jnp.log(self.scale)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Mean of the Gumbel distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \beta \gamma
+
+        where :math:`\gamma \approx 0.5772` is the Euler-Mascheroni constant.
+        """
         return jnp.broadcast_to(
             self.loc + self.scale * jnp.euler_gamma, self.batch_shape
         )
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Variance of the Gumbel distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\pi^2}{6} \beta^2
+        """
         return jnp.broadcast_to(jnp.pi**2 / 6.0 * self.scale**2, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative Distribution Function (CDF) of the Gumbel distribution:
+
+        .. math::
+            F(x \mid \mu, \beta) = \exp\!\left(-\exp\!\left(-\frac{x - \mu}{\beta}\right)\right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse CDF (quantile function) of the Gumbel distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, \beta) = \mu - \beta \ln(-\ln q),
+            \quad q \in (0, 1)
+
+        :param q: Quantile values in :math:`(0, 1)`.
+        :return: Real-valued quantiles of the Gumbel distribution at ``q``.
+        """
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
@@ -1415,6 +1484,22 @@ class Kumaraswamy(Distribution):
 
 
 class Laplace(Distribution):
+    r"""The Laplace (double-exponential) distribution, a continuous real-valued
+    distribution parameterized by location :math:`\mu` and scale :math:`b > 0`.
+    It is the distribution of the difference of two i.i.d. exponential variates
+    and has heavier tails than the Normal distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, b) = \frac{1}{2 b}
+            \exp\!\left(-\frac{|x - \mu|}{b}\right),
+            \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`b > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -1426,6 +1511,11 @@ class Laplace(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`b > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Laplace, self).__init__(
@@ -1433,6 +1523,14 @@ class Laplace(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples via the location-scale transform
+        :math:`X = \mu + b Z`, where :math:`Z \sim \mathrm{Laplace}(0, 1)` is
+        drawn from :func:`~jax.random.laplace`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Laplace distribution.
+        """
         assert is_prng_key(key)
         eps = random.laplace(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1441,27 +1539,69 @@ class Laplace(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x \mid \mu, b) = -\frac{|x - \mu|}{b} - \ln(2 b)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Laplace distribution.
+        """
         normalize_term = jnp.log(2 * self.scale)
         value_scaled = jnp.abs(value - self.loc) / self.scale
         return -value_scaled - normalize_term
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Mean of the Laplace distribution: :math:`\mathbb{E}[X] = \mu`."""
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Variance of the Laplace distribution:
+
+        .. math::
+            \mathrm{Var}(X) = 2 b^2
+        """
         return jnp.broadcast_to(2 * self.scale**2, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative Distribution Function (CDF) of the Laplace distribution.
+        Letting :math:`z = (x - \mu)/b`,
+
+        .. math::
+            F(x \mid \mu, b) = \tfrac{1}{2} - \tfrac{1}{2}\,
+                \mathrm{sgn}(z)\,\left(e^{-|z|} - 1\right)
+
+        The implementation uses :func:`~jax.numpy.expm1` for numerical
+        stability near :math:`z = 0`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         scaled = (value - self.loc) / self.scale
         return 0.5 - 0.5 * jnp.sign(scaled) * jnp.expm1(-jnp.abs(scaled))
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse CDF (quantile function) of the Laplace distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, b) = \mu - b\,\mathrm{sgn}(q - \tfrac{1}{2})\,
+                \ln\!\left(1 - 2 \left| q - \tfrac{1}{2} \right| \right),
+            \quad q \in (0, 1)
+
+        :param q: Quantile values in :math:`(0, 1)`.
+        :return: Real-valued quantiles of the Laplace distribution at ``q``.
+        """
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
 
     def entropy(self) -> ArrayLike:
+        r"""Differential entropy of the Laplace distribution:
+
+        .. math::
+            H(X) = \ln(2 b) + 1
+        """
         return jnp.log(2 * self.scale) + 1
 
 
@@ -1782,6 +1922,25 @@ class LogNormal(TransformedDistribution):
 
 
 class Logistic(Distribution):
+    r"""The Logistic distribution, a continuous real-valued distribution
+    parameterized by location :math:`\mu` and scale :math:`s > 0`. Its CDF is
+    the standard logistic (sigmoid) function shifted and scaled to :math:`\mu`,
+    :math:`s`, which makes it the natural latent distribution underlying
+    logistic regression.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, s) = \frac{
+            \exp\!\left(-\frac{x - \mu}{s}\right)
+        }{
+            s \left(1 + \exp\!\left(-\frac{x - \mu}{s}\right)\right)^{2}
+        }, \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`s > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -1793,11 +1952,24 @@ class Logistic(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`s > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples via the location-scale transform
+        :math:`X = \mu + s Z`, where :math:`Z \sim \mathrm{Logistic}(0, 1)` is
+        drawn from :func:`~jax.random.logistic`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Logistic distribution.
+        """
         assert is_prng_key(key)
         z = random.logistic(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1806,27 +1978,75 @@ class Logistic(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability density function at ``value``.
+
+        Letting :math:`u = (\mu - x)/s`, the log PDF is
+
+        .. math::
+            \ln f(x \mid \mu, s) = u - \ln s - 2 \ln(1 + e^{u})
+
+        The implementation uses :func:`~jax.nn.softplus` for
+        :math:`\ln(1 + e^{u})`, which is numerically stable for both large
+        positive and large negative values of :math:`u`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Logistic distribution.
+        """
         log_exponent = (self.loc - value) / self.scale
         log_denominator = jnp.log(self.scale) + 2 * nn.softplus(log_exponent)
         return log_exponent - log_denominator
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Mean of the Logistic distribution: :math:`\mathbb{E}[X] = \mu`."""
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Variance of the Logistic distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\pi^2 s^2}{3}
+        """
         var = (self.scale**2) * (jnp.pi**2) / 3
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative Distribution Function (CDF) of the Logistic distribution.
+        Letting :math:`z = (x - \mu)/s`,
+
+        .. math::
+            F(x \mid \mu, s) = \sigma(z) = \frac{1}{1 + e^{-z}}
+
+        where :math:`\sigma` is the logistic sigmoid, computed via
+        :func:`~jax.scipy.special.expit`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         scaled = (value - self.loc) / self.scale
         return expit(scaled)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse CDF (quantile function) of the Logistic distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, s) = \mu + s\,\mathrm{logit}(q),
+            \quad q \in (0, 1)
+
+        where :math:`\mathrm{logit}(q) = \ln(q / (1 - q))`.
+
+        :param q: Quantile values in :math:`(0, 1)`.
+        :return: Real-valued quantiles of the Logistic distribution at ``q``.
+        """
         return self.loc + self.scale * logit(q)
 
     def entropy(self) -> ArrayLike:
+        r"""Differential entropy of the Logistic distribution:
+
+        .. math::
+            H(X) = \ln s + 2
+        """
         return jnp.broadcast_to(jnp.log(self.scale) + 2, self.batch_shape)
 
 
