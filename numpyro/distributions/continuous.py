@@ -841,7 +841,7 @@ class Gamma(Distribution):
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
-            \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}
+            \mathrm{Var}(X) = \frac{\alpha}{\lambda^2}
         """
         return self.concentration / jnp.power(self.rate, 2)
 
@@ -1383,7 +1383,8 @@ class Gumbel(Distribution):
         .. math::
             \mathbb{E}[X] = \mu + \beta \gamma
 
-        where :math:`\gamma \approx 0.5772` is the Euler-Mascheroni constant.
+        where :math:`\gamma \approx 0.5772\ldots` is the Euler-Mascheroni constant,
+        available at, :data:`~jax.numpy.euler_gamma`.
         """
         return jnp.broadcast_to(
             self.loc + self.scale * jnp.euler_gamma, self.batch_shape
@@ -1553,7 +1554,11 @@ class Laplace(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
-        r"""Mean of the Laplace distribution: :math:`\mathbb{E}[X] = \mu`."""
+        r"""Mean of the Laplace distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
@@ -1570,8 +1575,8 @@ class Laplace(Distribution):
         Letting :math:`z = (x - \mu)/b`,
 
         .. math::
-            F(x \mid \mu, b) = \tfrac{1}{2} - \tfrac{1}{2}\,
-                \mathrm{sgn}(z)\,\left(e^{-|z|} - 1\right)
+            F(x \mid \mu, b) = \frac{1}{2} - \frac{1}{2}\,
+                \operatorname{sgn}(z)\,\left(e^{-|z|} - 1\right)
 
         The implementation uses :func:`~jax.numpy.expm1` for numerical
         stability near :math:`z = 0`.
@@ -1586,11 +1591,11 @@ class Laplace(Distribution):
         r"""Inverse CDF (quantile function) of the Laplace distribution:
 
         .. math::
-            F^{-1}(q \mid \mu, b) = \mu - b\,\mathrm{sgn}(q - \tfrac{1}{2})\,
-                \ln\!\left(1 - 2 \left| q - \tfrac{1}{2} \right| \right),
-            \quad q \in (0, 1)
+            F^{-1}(q \mid \mu, b) = \mu - b\,\mathrm{sgn}\left(q - \frac{1}{2}\right)\,
+                \ln\!\left(1 - 2 \left| q - \frac{1}{2} \right| \right),
+            \quad q \in [0, 1]
 
-        :param q: Quantile values in :math:`(0, 1)`.
+        :param q: Quantile values in :math:`[0, 1]`.
         :return: Real-valued quantiles of the Laplace distribution at ``q``.
         """
         a = q - 0.5
@@ -1932,9 +1937,9 @@ class Logistic(Distribution):
 
     .. math::
         f(x \mid \mu, s) = \frac{
-            \exp\!\left(-\frac{x - \mu}{s}\right)
+            \exp\!\left(-\displaystyle\frac{x - \mu}{s}\right)
         }{
-            s \left(1 + \exp\!\left(-\frac{x - \mu}{s}\right)\right)^{2}
+            s \left(1 + \exp\!\left(-\displaystyle\frac{x - \mu}{s}\right)\right)^{2}
         }, \quad x \in \mathbb{R}
 
     where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
@@ -1998,7 +2003,11 @@ class Logistic(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
-        r"""Mean of the Logistic distribution: :math:`\mathbb{E}[X] = \mu`."""
+        r"""Mean of the Logistic distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
@@ -2031,12 +2040,12 @@ class Logistic(Distribution):
         r"""Inverse CDF (quantile function) of the Logistic distribution:
 
         .. math::
-            F^{-1}(q \mid \mu, s) = \mu + s\,\mathrm{logit}(q),
-            \quad q \in (0, 1)
+            F^{-1}(q \mid \mu, s) = \mu + s\,\operatorname{logit}(q),
+            \quad q \in [0, 1]
 
-        where :math:`\mathrm{logit}(q) = \ln(q / (1 - q))`.
+        where :math:`\operatorname{logit}(q) = \ln(q / (1 - q))`.
 
-        :param q: Quantile values in :math:`(0, 1)`.
+        :param q: Quantile values in :math:`[0, 1]`.
         :return: Real-valued quantiles of the Logistic distribution at ``q``.
         """
         return self.loc + self.scale * logit(q)
@@ -2045,7 +2054,7 @@ class Logistic(Distribution):
         r"""Differential entropy of the Logistic distribution:
 
         .. math::
-            H(X) = \ln s + 2
+            H(X) = \ln(s) + 2
         """
         return jnp.broadcast_to(jnp.log(self.scale) + 2, self.batch_shape)
 
