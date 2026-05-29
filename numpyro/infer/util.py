@@ -35,12 +35,15 @@ from numpyro.util import (
 )
 
 __all__ = [
+    "constrain_samples",
     "find_valid_initial_params",
+    "get_log_density_fn",
     "get_potential_fn",
     "log_density",
     "log_likelihood",
     "potential_energy",
     "initialize_model",
+    "LogDensityInfo",
     "Predictive",
 ]
 
@@ -48,6 +51,10 @@ ModelInfo = namedtuple(
     "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
 )
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
+LogDensityInfo = namedtuple(
+    "LogDensityInfo",
+    ["logdensity_fn", "init_position", "postprocess", "model_info"],
+)
 
 
 class _substitute_default_key(Messenger):
@@ -799,6 +806,138 @@ def initialize_model(
     return ModelInfo(
         ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace
     )
+
+
+def get_log_density_fn(
+    rng_key: jax.Array,
+    model: Callable,
+    *,
+    model_args: tuple = (),
+    model_kwargs: Optional[dict] = None,
+    init_strategy: Callable = init_to_uniform,
+    forward_mode_differentiation: bool = False,
+    validate_grad: bool = True,
+) -> LogDensityInfo:
+    """
+    (EXPERIMENTAL INTERFACE) Convenience entry point that wraps
+    :func:`initialize_model` for use with external samplers (e.g. ``blackjax``,
+    ``flowMC``).
+
+    The returned :class:`LogDensityInfo` carries a ``logdensity_fn`` that is
+    already the *negated* potential energy (i.e. a log joint density that
+    external samplers can maximize), an unconstrained ``init_position``, and a
+    single-position ``postprocess`` callable with ``model_args`` /
+    ``model_kwargs`` already bound — so the caller does not have to repeat
+    them or remember to negate by hand.
+
+    :param jax.Array rng_key: PRNG key used to sample the initial position
+        from the prior.
+    :param Callable model: a Python callable containing NumPyro primitives.
+    :param tuple model_args: positional arguments passed to ``model``.
+    :param dict model_kwargs: keyword arguments passed to ``model``.
+    :param Callable init_strategy: a per-site initialization function. See
+        :ref:`init_strategy` section for available functions.
+    :param bool forward_mode_differentiation: whether to use forward-mode
+        differentiation when validating initial parameters.
+    :param bool validate_grad: whether to validate gradients of the initial
+        params.
+    :returns: a :class:`LogDensityInfo` with the fields ``logdensity_fn``,
+        ``init_position``, ``postprocess`` and ``model_info`` (the underlying
+        :class:`ModelInfo` for power users that need the raw handles).
+    :rtype: LogDensityInfo
+
+    **Example**::
+
+        info = get_log_density_fn(rng_key, model, model_args=(x, y))
+        kernel = blackjax.nuts(info.logdensity_fn, step_size, inverse_mass_matrix)
+        state = kernel.init(info.init_position)
+    """
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    model_info = initialize_model(
+        rng_key,
+        model,
+        init_strategy=init_strategy,
+        dynamic_args=True,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
+        forward_mode_differentiation=forward_mode_differentiation,
+        validate_grad=validate_grad,
+    )
+    bound_potential = model_info.potential_fn(*model_args, **model_kwargs)
+    bound_postprocess = model_info.postprocess_fn(*model_args, **model_kwargs)
+
+    def logdensity_fn(position: dict) -> jax.Array:
+        return -bound_potential(position)
+
+    return LogDensityInfo(
+        logdensity_fn=logdensity_fn,
+        init_position=model_info.param_info.z,
+        postprocess=bound_postprocess,
+        model_info=model_info,
+    )
+
+
+def constrain_samples(
+    samples: dict,
+    model: Callable,
+    *,
+    model_args: tuple = (),
+    model_kwargs: Optional[dict] = None,
+    return_deterministic: bool = True,
+    batch_ndims: int = 1,
+) -> dict:
+    """
+    (EXPERIMENTAL INTERFACE) Apply inverse transforms (and optionally include
+    ``deterministic`` sites) across a batched ``dict`` of unconstrained samples.
+
+    External samplers operate in the unconstrained reparameterised space and
+    return samples there; this helper folds in the inverse bijections and the
+    model's deterministic sites so the result is ready to feed into
+    :class:`~numpyro.infer.util.Predictive` or ``arviz``.
+
+    ``batch_ndims`` declares how many leading sample dimensions the input
+    arrays carry, so the helper can ``jax.vmap`` :func:`constrain_fn` the
+    correct number of times. The three common layouts are: ``batch_ndims=0``
+    (a single unconstrained position), ``batch_ndims=1`` (a single chain of
+    samples — the default), and ``batch_ndims=2`` (``num_chains x num_samples``).
+
+    :param dict samples: dict of unconstrained sample arrays keyed by site
+        name. Leading dimensions are batch dimensions.
+    :param Callable model: a Python callable containing NumPyro primitives.
+    :param tuple model_args: positional arguments passed to ``model``.
+    :param dict model_kwargs: keyword arguments passed to ``model``.
+    :param bool return_deterministic: include ``deterministic`` site values.
+    :param int batch_ndims: number of leading batch dimensions on each leaf
+        of ``samples``. Defaults to ``1``.
+    :returns: dict of constrained sample arrays with the same leading batch
+        dimensions, optionally augmented with deterministic sites.
+    :rtype: dict
+
+    **Example**::
+
+        raw = jax.lax.scan(...)  # unconstrained chain
+        samples = constrain_samples(raw, model, model_args=(x, y))
+        predictive = Predictive(model, posterior_samples=samples)(rng_key, x)
+    """
+    if batch_ndims < 0:
+        raise ValueError(
+            f"batch_ndims must be a non-negative integer, got {batch_ndims}."
+        )
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+
+    def single(position: dict) -> dict:
+        return constrain_fn(
+            model,
+            model_args,
+            model_kwargs,
+            position,
+            return_deterministic=return_deterministic,
+        )
+
+    fn: Callable = single
+    for _ in range(batch_ndims):
+        fn = jax.vmap(fn)
+    return fn(samples)
 
 
 def _predictive(

@@ -78,6 +78,7 @@ examples = [
     "wordcloud",
 ]
 test = [
+    "blackjax>=1.5",
     "importlib-metadata<5.0",
     "mypy>=1.13",
     "pyro-api>=0.1.1",
