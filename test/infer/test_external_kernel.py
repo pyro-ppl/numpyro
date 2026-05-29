@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 from numpy.testing import assert_allclose
 import pytest
 
@@ -58,10 +59,9 @@ def _make_build_nuts(blackjax_mod, num_warmup=500):
 
 def _make_build_mclmc(blackjax_mod, num_warmup=1000):
     """Factory: closes blackjax over the build_kernel callback for MCLMC."""
+    from blackjax.mcmc.integrators import isokinetic_mclachlan
 
     def build(rng_key, logdensity_fn, init_position):
-        from blackjax.mcmc.integrators import isokinetic_mclachlan
-
         key_init, key_tune = random.split(rng_key)
         init_state = blackjax_mod.mcmc.mclmc.init(
             position=init_position,
@@ -274,3 +274,72 @@ def test_external_kernel_multi_chain_sequential(blackjax):
     samples_by_chain = mcmc.get_samples(group_by_chain=True)
     assert samples_by_chain["a"].shape == (4, 300)
     assert samples_by_chain["mu"].shape == (4, 300, x.shape[0])
+
+
+def test_external_kernel_potential_fn_path(blackjax):
+    """ExternalKernel(potential_fn=...) skips initialize_model and uses init_params verbatim.
+
+    Targets a 3-D isotropic Gaussian via a pre-built potential function;
+    posterior mean recovers the origin and postprocess is identity (no
+    transforms because there is no NumPyro model).
+    """
+    dim = 3
+
+    def potential_fn(position):
+        return 0.5 * (position["x"] ** 2).sum()
+
+    init_params = {"x": jnp.zeros(dim)}
+    kernel = ExternalKernel(
+        potential_fn=potential_fn, build_kernel=_make_build_nuts(blackjax)
+    )
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=1000, progress_bar=False)
+    mcmc.run(random.key(8), init_params=init_params)
+    samples = mcmc.get_samples()
+    assert samples["x"].shape == (1000, dim)
+    # Identity postprocess: keys are the position keys, no extras.
+    assert set(samples.keys()) == {"x"}
+    assert jnp.linalg.norm(samples["x"].mean(axis=0)) < 0.2
+
+
+def test_external_kernel_extra_fields_inner_state(blackjax):
+    """Dotted extra_fields can drill into the inner sampler state (Blackjax HMCState)."""
+    x, y = _linreg_data()
+    kernel = ExternalKernel(_linreg_model, build_kernel=_make_build_nuts(blackjax))
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(9), x, y, extra_fields=("inner.logdensity",))
+    extras = mcmc.get_extra_fields()
+    assert "inner.logdensity" in extras
+    assert extras["inner.logdensity"].shape == (200,)
+    # logdensity is a real-valued scalar per step; finite and varying
+    assert jnp.isfinite(extras["inner.logdensity"]).all()
+
+
+def test_external_kernel_init_params_unwraps_param_info(blackjax):
+    """Passing a ParamInfo namedtuple as init_params is unwrapped like HMC does."""
+    from numpyro.infer.util import ParamInfo, initialize_model
+
+    x, y = _linreg_data()
+    model_info = initialize_model(
+        random.key(10), _linreg_model, model_args=(x, y), dynamic_args=True
+    )
+    # Pass the full ParamInfo (not just .z) — this is what HMC accepts.
+    kernel = ExternalKernel(_linreg_model, build_kernel=_make_build_nuts(blackjax))
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=100, progress_bar=False)
+    mcmc.run(random.key(11), x, y, init_params=model_info.param_info)
+    samples = mcmc.get_samples()
+    assert samples["a"].shape == (100,)
+    assert isinstance(model_info.param_info, ParamInfo)  # sanity
+
+
+def test_external_kernel_bad_build_kernel_return(blackjax):
+    """A `build_kernel` returning the wrong shape surfaces a focused TypeError."""
+
+    def bad_build(rng_key, logdensity_fn, init_position):
+        # Forgot get_position
+        return None, lambda k, s: (s, None)
+
+    x, y = _linreg_data()
+    kernel = ExternalKernel(_linreg_model, build_kernel=bad_build)
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=1, progress_bar=False)
+    with pytest.raises(TypeError, match="3-tuple"):
+        mcmc.run(random.key(12), x, y)

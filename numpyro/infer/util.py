@@ -5,7 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 import warnings
 
 import numpy as np
@@ -51,10 +51,25 @@ ModelInfo = namedtuple(
     "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
 )
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
-LogDensityInfo = namedtuple(
-    "LogDensityInfo",
-    ["logdensity_fn", "init_position", "postprocess", "model_info"],
-)
+
+
+class LogDensityInfo(NamedTuple):
+    """Return value of :func:`get_log_density_fn`.
+
+    :ivar logdensity_fn: ``(position) -> float`` — the negated potential energy
+        (i.e. a log joint density that external samplers can maximize).
+    :ivar init_position: dict of unconstrained initial values, ready to feed
+        to the sampler's ``init``.
+    :ivar postprocess: single-position ``(position) -> dict`` callable that
+        converts unconstrained back to constrained space and includes
+        ``deterministic`` sites. ``model_args`` / ``model_kwargs`` are bound.
+    :ivar model_info: underlying :class:`ModelInfo` for power users.
+    """
+
+    logdensity_fn: Callable[[dict], jax.Array]
+    init_position: dict
+    postprocess: Callable[[dict], dict]
+    model_info: ModelInfo
 
 
 class _substitute_default_key(Messenger):
@@ -899,7 +914,9 @@ def constrain_samples(
     arrays carry, so the helper can ``jax.vmap`` :func:`constrain_fn` the
     correct number of times. The three common layouts are: ``batch_ndims=0``
     (a single unconstrained position), ``batch_ndims=1`` (a single chain of
-    samples — the default), and ``batch_ndims=2`` (``num_chains x num_samples``).
+    samples — the default), and ``batch_ndims=2`` (``num_chains x num_samples``,
+    matching :meth:`MCMC.get_samples(group_by_chain=True)
+    <numpyro.infer.MCMC.get_samples>`).
 
     :param dict samples: dict of unconstrained sample arrays keyed by site
         name. Leading dimensions are batch dimensions.
