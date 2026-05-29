@@ -152,17 +152,33 @@ def test_constrain_fn_batched_chain_matches_loop():
 
 
 def test_constrain_samples_two_batch_dims():
-    """batch_ndims=2 vmaps twice (chains x samples)."""
+    """batch_ndims=2 vmaps twice (chains x samples) with distinct per-cell values."""
     x, y = _linreg_data()
     info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
     chains, draws = 4, 3
+    # Distinct value per (chain, draw) cell so a wrong vmap axis order would
+    # mismatch the manual double loop below (broadcasting alone could not).
+    offsets = jnp.arange(chains * draws).reshape(chains, draws)
     raw = {
-        k: jnp.broadcast_to(v, (chains, draws) + jnp.shape(v))
+        k: v + 0.1 * offsets.reshape((chains, draws) + (1,) * jnp.ndim(v))
         for k, v in info.init_position.items()
     }
     out = constrain_samples(raw, _linreg_model, model_args=(x, y), batch_ndims=2)
     assert out["sigma"].shape == (chains, draws)
     assert out["mu"].shape == (chains, draws, x.shape[0])
+    # Match an explicit chain x draw loop of the single-position constrain.
+    for c in range(chains):
+        for d in range(draws):
+            single = constrain_fn(
+                _linreg_model,
+                (x, y),
+                {},
+                {k: v[c, d] for k, v in raw.items()},
+                return_deterministic=True,
+                batch_ndims=0,
+            )
+            assert_allclose(out["sigma"][c, d], single["sigma"], rtol=1e-5)
+            assert_allclose(out["mu"][c, d], single["mu"], rtol=1e-5)
 
 
 @pytest.mark.parametrize("fn", ["constrain_fn", "constrain_samples"])
