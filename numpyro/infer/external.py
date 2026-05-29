@@ -30,29 +30,58 @@ BuildKernelFn = Callable[
 
 
 class ExternalKernelState(NamedTuple):
-    """
-    Wrapper state used by :class:`ExternalKernel`.
+    """Wrapper state used by :class:`ExternalKernel`.
 
-    :ivar position: unconstrained position pytree emitted by the external
-        sampler (``dict`` keyed by site name). Exposed at the top level so
-        :class:`~numpyro.infer.MCMC` can read it via
-        ``sample_field == "position"``; :class:`~numpyro.infer.MCMC` later
-        applies ``postprocess_fn`` to recover constrained samples plus
-        ``deterministic`` sites.
-    :ivar inner: the external sampler's own state object (e.g. a Blackjax
-        ``MCLMCState`` or ``HMCState``). Accessible via dotted
-        ``extra_fields``, e.g. ``extra_fields=("inner.logdensity",)``.
-    :ivar info: the most recent ``info`` returned by the external sampler's
-        ``step`` function. Accessible via dotted ``extra_fields``, e.g.
-        ``extra_fields=("info.is_divergent",)`` for NUTS.
-    :ivar rng_key: PRNG key carried through the chain so each :meth:`sample`
-        call can draw a fresh sub-key.
+    ``position`` is exposed at the top level so :class:`~numpyro.infer.MCMC`
+    can read it via ``sample_field == "position"``; ``inner`` and ``info`` are
+    reachable through dotted ``extra_fields`` (e.g.
+    ``extra_fields=("inner.logdensity", "info.is_divergent")``).
     """
 
     position: PositionDict
     inner: Any
     info: Any
     rng_key: jax.Array
+
+
+def _resolve_init_position(
+    init_params: Any, *, default: Optional[PositionDict]
+) -> PositionDict:
+    """Unwrap a :class:`ParamInfo` or pass through a raw dict.
+
+    Mirrors :class:`~numpyro.infer.HMC`'s convention at
+    ``numpyro/infer/hmc.py:763`` so users passing the output of
+    :func:`initialize_model` work seamlessly.
+
+    **Example**::
+
+        # raw dict — used as-is
+        _resolve_init_position({"x": jnp.zeros(3)}, default=None)
+        # ParamInfo — `.z` unwrapped
+        _resolve_init_position(model_info.param_info, default=None)
+        # None — fall back to default
+        _resolve_init_position(None, default={"x": jnp.zeros(3)})
+    """
+    if init_params is None:
+        if default is None:
+            raise ValueError("`init_params` cannot be None.")
+        return default
+    if isinstance(init_params, ParamInfo):
+        return init_params[0]
+    return init_params
+
+
+def _zero_info_placeholder(step_fn: StepFn, inner: Any) -> Any:
+    """Allocate a zero-filled ``info`` pytree with the right structure.
+
+    ``fori_collect`` sizes its collection buffer from the *initial* state
+    passed to it, so the placeholder needs matching shape/dtype but never
+    appears in the collected output (the first stored sample is post-step).
+    ``jax.eval_shape`` abstracts ``rng_key`` and ``inner``, so the key value
+    does not matter; we pass ``random.key(0)`` as a dummy.
+    """
+    info_shape = jax.eval_shape(step_fn, random.key(0), inner)[1]
+    return jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), info_shape)
 
 
 class ExternalKernel(MCMCKernel):
@@ -100,18 +129,23 @@ class ExternalKernel(MCMCKernel):
     :type potential_fn: Callable, optional
     :param BuildKernelFn build_kernel: required callback documented above.
     :param Callable init_strategy: per-site init strategy for the
-        unconstrained starting position.
+        unconstrained starting position. See ``numpyro.infer.init_to_*``.
     :param diagnostics_fn: optional ``(state) -> str`` used to populate the
         progress-bar diagnostics line (mirrors :class:`~numpyro.infer.HMC`'s
         ``acc. prob`` line). Defaults to no diagnostics.
     :type diagnostics_fn: Callable, optional
+    :param bool forward_mode_differentiation: whether to use forward-mode
+        differentiation when validating initial parameters. Forwarded to
+        :func:`get_log_density_fn`. Defaults to ``False``.
+    :param bool validate_grad: whether to validate gradients of the initial
+        params. Forwarded to :func:`get_log_density_fn`. Defaults to ``True``.
 
     .. note:: Internal-state lifecycle. ``self._sample_fn``, ``self._get_position``
         and ``self._postprocess_fn`` are ``None`` after construction and set
         inside :meth:`init`. They are required by :meth:`sample` and
-        :meth:`postprocess_fn`. Under ``chain_method="sequential"`` / ``"parallel"``
-        each chain's :meth:`init` overwrites them, but each chain finishes
-        sampling before the next begins, so no state is lost.
+        :meth:`postprocess_fn`. Under ``chain_method="sequential"`` /
+        ``"parallel"`` each chain's :meth:`init` overwrites them, but each
+        chain finishes sampling before the next begins, so no state is lost.
 
     **Example** (Blackjax MCLMC end-to-end)::
 
@@ -163,11 +197,11 @@ class ExternalKernel(MCMCKernel):
 
     def __init__(
         self,
-        model: Optional[Callable] = None,
+        model: Optional[Callable[..., Any]] = None,
         *,
         potential_fn: Optional[Callable[[PositionDict], jax.Array]] = None,
         build_kernel: BuildKernelFn,
-        init_strategy: Callable = init_to_uniform,
+        init_strategy: Callable[..., Any] = init_to_uniform,
         diagnostics_fn: Optional[Callable[[ExternalKernelState], str]] = None,
         forward_mode_differentiation: bool = False,
         validate_grad: bool = True,
@@ -195,19 +229,9 @@ class ExternalKernel(MCMCKernel):
         self._sample_fn: Optional[StepFn] = None
 
     @property
-    def model(self) -> Optional[Callable]:
-        """The underlying NumPyro model (``None`` if ``potential_fn`` was used)."""
-        return self._model
-
-    @property
     def sample_field(self) -> str:
         """Field of :class:`ExternalKernelState` that holds the MCMC sample."""
         return "position"
-
-    @property
-    def default_fields(self) -> tuple[str, ...]:
-        """Fields collected by default during :meth:`MCMC.run()`."""
-        return ("position",)
 
     def get_diagnostics_str(self, state: ExternalKernelState) -> str:
         """Forward to the user-supplied ``diagnostics_fn`` (default: empty)."""
@@ -216,7 +240,7 @@ class ExternalKernel(MCMCKernel):
         return self._diagnostics_fn(state)
 
     def postprocess_fn(
-        self, args: tuple, kwargs: dict
+        self, args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> Callable[[PositionDict], PositionDict]:
         """Return a single-position postprocess callable bound to model args.
 
@@ -236,13 +260,12 @@ class ExternalKernel(MCMCKernel):
         rng_key: jax.Array,
         num_warmup: int,
         init_params: Any,
-        model_args: tuple,
-        model_kwargs: dict,
+        model_args: tuple[Any, ...],
+        model_kwargs: dict[str, Any],
     ) -> ExternalKernelState:
-        """
-        Build the external sampler (running any offline warmup inside the
-        user's ``build_kernel`` closure) and return the initial wrapper state.
+        """Build the external sampler and return the initial wrapper state.
 
+        Runs any offline warmup inside the user's ``build_kernel`` closure.
         ``model_args`` / ``model_kwargs`` are forwarded by
         :class:`~numpyro.infer.MCMC`; they are bound into the log-density
         function passed to ``build_kernel``.
@@ -276,7 +299,7 @@ class ExternalKernel(MCMCKernel):
         )
         self._sample_fn = step_fn
         self._get_position = get_position
-        info = self._zero_info_placeholder(step_fn, inner)
+        info = _zero_info_placeholder(step_fn, inner)
 
         return ExternalKernelState(
             position=get_position(inner),
@@ -289,8 +312,8 @@ class ExternalKernel(MCMCKernel):
         self,
         rng_key: jax.Array,
         init_params: Any,
-        model_args: tuple,
-        model_kwargs: dict,
+        model_args: tuple[Any, ...],
+        model_kwargs: dict[str, Any],
     ) -> tuple[PositionDict, Callable[[PositionDict], jax.Array]]:
         """Resolve the unconstrained initial position and bind ``logdensity_fn``.
 
@@ -312,7 +335,7 @@ class ExternalKernel(MCMCKernel):
                 validate_grad=self._validate_grad,
             )
             self._postprocess_fn = info.postprocess_fn
-            init_position = self._resolve_init_position(
+            init_position = _resolve_init_position(
                 init_params, default=info.init_position
             )
             return init_position, info.logdensity_fn
@@ -323,41 +346,15 @@ class ExternalKernel(MCMCKernel):
                 "constructed with `potential_fn`."
             )
         self._postprocess_fn = None
-        init_position = self._resolve_init_position(init_params, default=None)
-        # `potential_fn` non-None invariant established by __init__ (line above).
+        init_position = _resolve_init_position(init_params, default=None)
+        # `potential_fn` non-None invariant established by __init__.
         potential_fn = self._potential_fn
+        assert potential_fn is not None
 
         def logdensity_fn(position: PositionDict) -> jax.Array:
-            return -potential_fn(position)  # type: ignore[misc]
+            return -potential_fn(position)
 
         return init_position, logdensity_fn
-
-    @staticmethod
-    def _resolve_init_position(
-        init_params: Any, *, default: Optional[PositionDict]
-    ) -> PositionDict:
-        """Unwrap a :class:`ParamInfo` or pass through a raw dict.
-
-        Mirrors :class:`~numpyro.infer.HMC`'s convention at
-        ``numpyro/infer/hmc.py:763`` so users passing the output of
-        :func:`initialize_model` work seamlessly.
-
-        **Example**::
-
-            # raw dict — used as-is
-            _resolve_init_position({"x": jnp.zeros(3)}, default=None)
-            # ParamInfo — `.z` unwrapped
-            _resolve_init_position(model_info.param_info, default=None)
-            # None — fall back to default
-            _resolve_init_position(None, default={"x": jnp.zeros(3)})
-        """
-        if init_params is None:
-            if default is None:
-                raise ValueError("`init_params` cannot be None.")
-            return default
-        if isinstance(init_params, ParamInfo):
-            return init_params[0]
-        return init_params
 
     def _call_build_kernel(
         self,
@@ -377,24 +374,11 @@ class ExternalKernel(MCMCKernel):
             ) from e
         return inner, step_fn, get_position
 
-    @staticmethod
-    def _zero_info_placeholder(step_fn: StepFn, inner: Any) -> Any:
-        """Allocate a zero-filled ``info`` pytree with the right structure.
-
-        ``fori_collect`` sizes its collection buffer from the *initial* state
-        passed to it, so the placeholder needs matching shape/dtype but never
-        appears in the collected output (the first stored sample is post-step).
-        ``jax.eval_shape`` abstracts ``rng_key`` and ``inner``, so the key
-        value does not matter; we pass ``random.key(0)`` as a dummy.
-        """
-        info_shape = jax.eval_shape(step_fn, random.key(0), inner)[1]
-        return jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), info_shape)
-
     def sample(
         self,
         state: ExternalKernelState,
-        model_args: tuple,
-        model_kwargs: dict,
+        model_args: tuple[Any, ...],
+        model_kwargs: dict[str, Any],
     ) -> ExternalKernelState:
         """Advance the chain by one step of the external sampler.
 
@@ -402,10 +386,17 @@ class ExternalKernel(MCMCKernel):
         :class:`~numpyro.infer.mcmc.MCMCKernel` interface compatibility but
         unused — the log-density was bound at :meth:`init` time.
         """
+        # Invariants established by :meth:`init`; narrow for the type-checker.
+        sample_fn = self._sample_fn
+        get_position = self._get_position
+        assert sample_fn is not None and get_position is not None, (
+            "ExternalKernel.sample called before init; this should not happen "
+            "in the standard MCMC orchestration."
+        )
         rng_key, step_key = random.split(state.rng_key)
-        new_inner, info = self._sample_fn(step_key, state.inner)
+        new_inner, info = sample_fn(step_key, state.inner)
         return ExternalKernelState(
-            position=self._get_position(new_inner),
+            position=get_position(new_inner),
             inner=new_inner,
             info=info,
             rng_key=rng_key,

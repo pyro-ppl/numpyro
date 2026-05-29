@@ -16,8 +16,10 @@ from numpyro.infer import (
     Predictive,
     constrain_samples,
     get_log_density_fn,
+    init_to_value,
 )
-from numpyro.infer.util import potential_energy
+from numpyro.infer.external import _resolve_init_position
+from numpyro.infer.util import ParamInfo, potential_energy
 
 
 @pytest.fixture(scope="module")
@@ -316,7 +318,7 @@ def test_external_kernel_extra_fields_inner_state(blackjax):
 
 def test_external_kernel_init_params_unwraps_param_info(blackjax):
     """Passing a ParamInfo namedtuple as init_params is unwrapped like HMC does."""
-    from numpyro.infer.util import ParamInfo, initialize_model
+    from numpyro.infer.util import initialize_model
 
     x, y = _linreg_data()
     model_info = initialize_model(
@@ -495,3 +497,66 @@ def test_external_kernel_multi_chain_parallel(blackjax):
     # shouldn't be identical to machine precision.
     chain_means = samples_by_chain["a"].mean(axis=1)
     assert float(jnp.abs(chain_means[0] - chain_means[1])) > 1e-6
+
+
+def test_get_log_density_fn_forward_mode(blackjax):
+    """forward_mode_differentiation=True still recovers the posterior."""
+    x, y = _linreg_data()
+    info = get_log_density_fn(
+        random.key(22),
+        _linreg_model,
+        model_args=(x, y),
+        forward_mode_differentiation=True,
+    )
+    # The logdensity_fn is structurally identical regardless of grad mode;
+    # the flag affects internal validation in initialize_model. Confirm it
+    # still produces a finite log-density and a valid init.
+    assert jnp.isfinite(info.logdensity_fn(info.init_position))
+    # Drive a short NUTS chain via ExternalKernel using the same flag.
+    kernel = ExternalKernel(
+        _linreg_model,
+        build_kernel=_make_build_nuts(blackjax),
+        forward_mode_differentiation=True,
+    )
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=400, progress_bar=False)
+    mcmc.run(random.key(23), x, y)
+    samples = mcmc.get_samples()
+    assert samples["a"].mean() == pytest.approx(1.0, abs=0.2)
+    assert samples["b"].mean() == pytest.approx(2.0, abs=0.2)
+
+
+def test_get_log_density_fn_with_init_to_value():
+    """A non-default init_strategy is respected by `get_log_density_fn`."""
+    x, y = _linreg_data()
+    # Use init_to_value with values in *constrained* space; numpyro inverts.
+    pinned = {"a": jnp.array(0.5), "b": jnp.array(1.2), "sigma": jnp.array(0.7)}
+    info = get_log_density_fn(
+        random.key(24),
+        _linreg_model,
+        model_args=(x, y),
+        init_strategy=init_to_value(values=pinned),
+    )
+    # After postprocess (constrained + transforms), values should be ~pinned.
+    constrained = info.postprocess_fn(info.init_position)
+    for k, v in pinned.items():
+        assert constrained[k] == pytest.approx(float(v), abs=1e-5), k
+
+
+def test_resolve_init_position_branches():
+    """Direct unit tests for the three branches of `_resolve_init_position`."""
+    pinned = {"x": jnp.zeros(3)}
+    default = {"x": jnp.ones(3)}
+
+    # Branch 1: raw dict passes through unchanged.
+    assert _resolve_init_position(pinned, default=None) is pinned
+
+    # Branch 2: ParamInfo unwraps to `.z`.
+    param_info = ParamInfo(z=pinned, potential_energy=jnp.zeros(()), z_grad=pinned)
+    assert _resolve_init_position(param_info, default=None) is pinned
+
+    # Branch 3: None falls back to default when supplied.
+    assert _resolve_init_position(None, default=default) is default
+
+    # Branch 4: None + no default raises.
+    with pytest.raises(ValueError, match="cannot be None"):
+        _resolve_init_position(None, default=None)

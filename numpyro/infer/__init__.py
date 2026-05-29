@@ -12,7 +12,7 @@ from numpyro.infer.elbo import (
     TraceMeanField_ELBO,
 )
 from numpyro.infer.ensemble import AIES, ESS
-from numpyro.infer.external import ExternalKernel, ExternalKernelState
+from numpyro.infer.external import ExternalKernel
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.importance import psis_diagnostic
@@ -60,7 +60,6 @@ __all__ = [
     "ELBO",
     "ESS",
     "ExternalKernel",
-    "ExternalKernelState",
     "HMC",
     "HMCECS",
     "HMCGibbs",

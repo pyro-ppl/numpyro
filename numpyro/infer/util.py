@@ -5,7 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 import warnings
 
 import numpy as np
@@ -56,13 +56,14 @@ ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
 class LogDensityInfo(NamedTuple):
     """Return value of :func:`get_log_density_fn`.
 
-    :ivar logdensity_fn: ``(position) -> float`` — the negated potential energy
-        (i.e. a log joint density that external samplers can maximize).
-    :ivar init_position: dict of unconstrained initial values, ready to feed
-        to the sampler's ``init``.
-    :ivar postprocess_fn: single-position ``(position) -> dict`` callable that
-        converts unconstrained back to constrained space and includes
-        ``deterministic`` sites. ``model_args`` / ``model_kwargs`` are bound.
+    All fields have their model arguments pre-bound; the caller does not need
+    to repeat ``model_args`` / ``model_kwargs`` or remember to negate.
+
+    :ivar logdensity_fn: negated potential energy (a log joint density).
+    :ivar init_position: unconstrained initial values from
+        :func:`find_valid_initial_params`.
+    :ivar postprocess_fn: single-position transform back to constrained space,
+        with ``deterministic`` sites included.
     :ivar model_info: underlying :class:`ModelInfo` for power users.
     """
 
@@ -825,11 +826,11 @@ def initialize_model(
 
 def get_log_density_fn(
     rng_key: jax.Array,
-    model: Callable,
+    model: Callable[..., Any],
     *,
-    model_args: tuple = (),
-    model_kwargs: Optional[dict] = None,
-    init_strategy: Callable = init_to_uniform,
+    model_args: tuple[Any, ...] = (),
+    model_kwargs: Optional[dict[str, Any]] = None,
+    init_strategy: Callable[..., Any] = init_to_uniform,
     forward_mode_differentiation: bool = False,
     validate_grad: bool = True,
 ) -> LogDensityInfo:
@@ -841,9 +842,9 @@ def get_log_density_fn(
     The returned :class:`LogDensityInfo` carries a ``logdensity_fn`` that is
     already the *negated* potential energy (i.e. a log joint density that
     external samplers can maximize), an unconstrained ``init_position``, and a
-    single-position ``postprocess`` callable with ``model_args`` /
-    ``model_kwargs`` already bound — so the caller does not have to repeat
-    them or remember to negate by hand.
+    single-position ``postprocess_fn`` callable with ``model_args`` /
+    ``model_kwargs`` already bound; the caller does not have to repeat them or
+    remember to negate by hand.
 
     :param jax.Array rng_key: PRNG key used to sample the initial position
         from the prior.
@@ -856,9 +857,7 @@ def get_log_density_fn(
         differentiation when validating initial parameters.
     :param bool validate_grad: whether to validate gradients of the initial
         params.
-    :returns: a :class:`LogDensityInfo` with the fields ``logdensity_fn``,
-        ``init_position``, ``postprocess`` and ``model_info`` (the underlying
-        :class:`ModelInfo` for power users that need the raw handles).
+    :returns: a :class:`LogDensityInfo`.
     :rtype: LogDensityInfo
 
     **Example**::
@@ -895,14 +894,14 @@ def get_log_density_fn(
 
 
 def constrain_samples(
-    samples: dict,
-    model: Callable,
+    samples: PositionDict,
+    model: Callable[..., Any],
     *,
-    model_args: tuple = (),
-    model_kwargs: Optional[dict] = None,
+    model_args: tuple[Any, ...] = (),
+    model_kwargs: Optional[dict[str, Any]] = None,
     return_deterministic: bool = True,
     batch_ndims: int = 1,
-) -> dict:
+) -> PositionDict:
     """
     (EXPERIMENTAL INTERFACE) Apply inverse transforms (and optionally include
     ``deterministic`` sites) across a batched ``dict`` of unconstrained samples.
@@ -932,10 +931,18 @@ def constrain_samples(
         dimensions, optionally augmented with deterministic sites.
     :rtype: dict
 
-    **Example**::
+    **Example** (concrete Blackjax NUTS loop)::
 
-        raw = jax.lax.scan(...)  # unconstrained chain
-        samples = constrain_samples(raw, model, model_args=(x, y))
+        info = get_log_density_fn(rng_key, model, model_args=(x, y))
+        kernel = blackjax.nuts(info.logdensity_fn, step_size, mass_matrix)
+        state = kernel.init(info.init_position)
+
+        def body(state, k):
+            state, _ = kernel.step(k, state)
+            return state, state.position
+
+        _, raw = jax.lax.scan(body, state, jax.random.split(rng_key, 1_000))
+        samples = constrain_samples(raw, model, model_args=(x, y), batch_ndims=1)
         predictive = Predictive(model, posterior_samples=samples)(rng_key, x)
     """
     if batch_ndims < 0:
