@@ -404,8 +404,10 @@ def test_laplace_approximation_warning():
         a = numpyro.sample("a", dist.Normal(0, 10))
         b = numpyro.sample("b", dist.Normal(0, 10).expand([3]).to_event())
         mu = a + b[0] * x + b[1] * x**2 + b[2] * x**3
-        with numpyro.plate("N", len(x)):
-            numpyro.sample("y", dist.Normal(mu, 0.00001), obs=y)
+
+        with numpyro.validation_enabled(False):
+            with numpyro.plate("N", len(x)):
+                numpyro.sample("y", dist.Normal(mu, 0.00001), obs=y)
 
     x = random.normal(random.key(0), (3,))
     y = 1 + 2 * x + 3 * x**2 + 4 * x**3

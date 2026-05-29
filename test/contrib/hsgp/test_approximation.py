@@ -400,14 +400,17 @@ def test_squared_exponential_gp_model(
         )
 
     def model(x, ell, m, non_centered, y=None):
-        alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
-        length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
-        noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
-        f = scope(latent_gp, prefix="se", divider="::")(
-            x=x, alpha=alpha, length=length, ell=ell, m=m, non_centered=non_centered
-        )
-        with numpyro.plate("data", x.shape[0]):
-            numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
+
+        with numpyro.validation_enabled(False):
+            alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
+            length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
+            noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
+            f = scope(latent_gp, prefix="se", divider="::")(
+                x=x, alpha=alpha, length=length, ell=ell, m=m, non_centered=non_centered
+            )
+
+            with numpyro.plate("data", x.shape[0]):
+                numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
     model_trace = trace(seed(model, random.key(0))).get_trace(
@@ -464,20 +467,23 @@ def test_matern_gp_model(
         )
 
     def model(x, nu, ell, m, non_centered, y=None):
-        alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
-        length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
-        noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
-        f = scope(latent_gp, prefix="matern", divider="::")(
-            x=x,
-            nu=nu,
-            alpha=alpha,
-            length=length,
-            ell=ell,
-            m=m,
-            non_centered=non_centered,
-        )
-        with numpyro.plate("data", x.shape[0]):
-            numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
+
+        with numpyro.validation_enabled(False):
+            alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
+            length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
+            noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
+            f = scope(latent_gp, prefix="matern", divider="::")(
+                x=x,
+                nu=nu,
+                alpha=alpha,
+                length=length,
+                ell=ell,
+                m=m,
+                non_centered=non_centered,
+            )
+
+            with numpyro.plate("data", x.shape[0]):
+                numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
     model_trace = trace(seed(model, random.key(0))).get_trace(
@@ -679,20 +685,23 @@ def test_rational_quadratic_gp_model(
         )
 
     def model(x, scale_mixture, ell, m, non_centered, y=None):
-        alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
-        length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
-        noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
-        f = scope(latent_gp, prefix="rq", divider="::")(
-            x=x,
-            alpha=alpha,
-            length=length,
-            scale_mixture=scale_mixture,
-            ell=ell,
-            m=m,
-            non_centered=non_centered,
-        )
-        with numpyro.plate("data", x.shape[0]):
-            numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
+
+        with numpyro.validation_enabled(False):
+            alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
+            length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
+            noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
+            f = scope(latent_gp, prefix="rq", divider="::")(
+                x=x,
+                alpha=alpha,
+                length=length,
+                scale_mixture=scale_mixture,
+                ell=ell,
+                m=m,
+                non_centered=non_centered,
+            )
+
+            with numpyro.plate("data", x.shape[0]):
+                numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data if num_dim == 1 else synthetic_two_dim_data
     model_trace = trace(seed(model, random.key(0))).get_trace(
@@ -736,18 +745,21 @@ def test_periodic_gp_one_dim_model(synthetic_one_dim_data, w0, m):
         )
 
     def model(x, w0, m, y=None):
-        alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
-        length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
-        noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
-        f = scope(latent_gp, prefix="periodic", divider="::")(
-            x=x,
-            alpha=alpha,
-            length=length,
-            w0=w0,
-            m=m,
-        )
-        with numpyro.plate("data", x.shape[0]):
-            numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
+
+        with numpyro.validation_enabled(False):
+            alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
+            length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
+            noise = numpyro.sample("noise", dist.LogNormal(0.0, 1.0))
+            f = scope(latent_gp, prefix="periodic", divider="::")(
+                x=x,
+                alpha=alpha,
+                length=length,
+                w0=w0,
+                m=m,
+            )
+
+            with numpyro.plate("data", x.shape[0]):
+                numpyro.sample("likelihood", dist.Normal(loc=f, scale=noise), obs=y)
 
     x, y_obs = synthetic_one_dim_data
     model_trace = trace(seed(model, random.key(0))).get_trace(x, w0, m, y_obs)

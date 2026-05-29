@@ -772,18 +772,22 @@ def test_elbo_enumerate_plate_7(scale):
             params["model_probs_e"],
             constraint=constraints.simplex,
         )
-        a = pyro.sample("a", dist.Categorical(probs_a))
-        b = pyro.sample(
-            "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
-        )
-        with pyro.plate("data", 2):
-            c = pyro.sample("c", dist.Categorical(probs_c[a]))
-            d = pyro.sample(
-                "d",
-                dist.Categorical(Vindex(probs_d)[b, c]),
-                infer={"enumerate": "parallel"},
+
+        # Categorical distributions are not normalized here
+        with numpyro.validation_enabled(False):
+
+            a = pyro.sample("a", dist.Categorical(probs_a))
+            b = pyro.sample(
+                "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
             )
-            pyro.sample("obs", dist.Categorical(probs_e[d]), obs=data)
+            with pyro.plate("data", 2):
+                c = pyro.sample("c", dist.Categorical(probs_c[a]))
+                d = pyro.sample(
+                    "d",
+                    dist.Categorical(Vindex(probs_d)[b, c]),
+                    infer={"enumerate": "parallel"},
+                )
+                pyro.sample("obs", dist.Categorical(probs_e[d]), obs=data)
 
     @handlers.scale(scale=scale)
     def auto_guide(data, params):
@@ -793,9 +797,13 @@ def test_elbo_enumerate_plate_7(scale):
         probs_c = pyro.param(
             "guide_probs_c", params["guide_probs_c"], constraint=constraints.simplex
         )
-        a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
-        with pyro.plate("data", 2):
-            pyro.sample("c", dist.Categorical(probs_c[a]))
+
+        # Categorical distributions are not normalized here
+        with numpyro.validation_enabled(False):
+
+            a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
+            with pyro.plate("data", 2):
+                pyro.sample("c", dist.Categorical(probs_c[a]))
 
     @handlers.scale(scale=scale)
     def hand_model(data, params):
@@ -820,18 +828,22 @@ def test_elbo_enumerate_plate_7(scale):
             params["model_probs_e"],
             constraint=constraints.simplex,
         )
-        a = pyro.sample("a", dist.Categorical(probs_a))
-        b = pyro.sample(
-            "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
-        )
-        for i in range(2):
-            c = pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
-            d = pyro.sample(
-                f"d_{i}",
-                dist.Categorical(Vindex(probs_d)[b, c]),
-                infer={"enumerate": "parallel"},
+
+        # Categorical distributions are not normalized here
+        with numpyro.validation_enabled(False):
+
+            a = pyro.sample("a", dist.Categorical(probs_a))
+            b = pyro.sample(
+                "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
             )
-            pyro.sample(f"obs_{i}", dist.Categorical(probs_e[d]), obs=data[i])
+            for i in range(2):
+                c = pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
+                d = pyro.sample(
+                    f"d_{i}",
+                    dist.Categorical(Vindex(probs_d)[b, c]),
+                    infer={"enumerate": "parallel"},
+                )
+                pyro.sample(f"obs_{i}", dist.Categorical(probs_e[d]), obs=data[i])
 
     @handlers.scale(scale=scale)
     def hand_guide(data, params):
@@ -841,9 +853,13 @@ def test_elbo_enumerate_plate_7(scale):
         probs_c = pyro.param(
             "guide_probs_c", params["guide_probs_c"], constraint=constraints.simplex
         )
-        a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
-        for i in range(2):
-            pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
+
+        # Categorical distributions are not normalized here
+        with numpyro.validation_enabled(False):
+
+            a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
+            for i in range(2):
+                pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
 
     data = jnp.array([0, 0])
 

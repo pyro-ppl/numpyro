@@ -2044,8 +2044,8 @@ def test_beta_binomial_log_prob(total_count, shape):
 @pytest.mark.parametrize("n", [1, 2, 5, 10])
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
 def test_beta_negative_binomial_log_prob(n, shape):
-    concentration0 = np.exp(np.random.normal(size=shape))
-    concentration1 = np.exp(np.random.normal(size=shape))
+    concentration0 = 1 + np.exp(np.random.normal(size=shape))
+    concentration1 = 1 + np.exp(np.random.normal(size=shape))
     value = jnp.arange(15)
 
     num_samples = 300000
