@@ -13,6 +13,7 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 from numpyro.infer import (
     MCMC,
     Predictive,
@@ -65,6 +66,19 @@ def test_initialize_model_default_has_no_logdensity_fn():
     # With dynamic_args=False, postprocess_fn is already a single-position callable.
     out = info.postprocess_fn(info.param_info.z)
     assert "mu" in out
+
+
+def test_initialize_model_bound_with_model_kwargs():
+    """`bound=True` also works when the model is fed through `model_kwargs`."""
+    x, y = _linreg_data()
+    info = initialize_model(
+        random.key(0), _linreg_model, bound=True, model_kwargs={"x": x, "y": y}
+    )
+    position = info.param_info.z
+    pe = potential_energy(_linreg_model, (), {"x": x, "y": y}, position)
+    assert_allclose(info.logdensity_fn(position), -pe, rtol=1e-5)
+    out = info.postprocess_fn(position)
+    assert out["mu"].shape == x.shape
 
 
 def test_initialize_model_bound_rejects_dynamic_args():
@@ -149,6 +163,37 @@ def test_constrain_fn_batched_chain_matches_loop():
         )
         assert_allclose(out["sigma"][i], single["sigma"], rtol=1e-5)
         assert_allclose(out["mu"][i], single["mu"], rtol=1e-5)
+
+
+def _param_site_model(x):
+    """Model with a constrained ``numpyro.param`` site to exercise that branch."""
+    scale = numpyro.param("scale", 1.0, constraint=constraints.positive)
+    loc = numpyro.sample("loc", dist.Normal(0.0, 1.0))
+    numpyro.sample("obs", dist.Normal(loc, scale), obs=x)
+
+
+def test_constrain_fn_batched_param_site():
+    """batch_ndims>0 transforms a constrained `param` site and matches a loop."""
+    x = jnp.array(0.5)
+    n = 4
+    raw = {
+        "loc": jnp.linspace(-1.0, 1.0, n),
+        "scale": jnp.linspace(-0.5, 0.5, n),  # unconstrained value for the param
+    }
+    out = constrain_fn(_param_site_model, (x,), {}, raw, batch_ndims=1)
+    # `scale` carries a positive constraint, so its constrained value is > 0.
+    assert out["scale"].shape == (n,)
+    assert jnp.all(out["scale"] > 0.0)
+    for i in range(n):
+        single = constrain_fn(
+            _param_site_model,
+            (x,),
+            {},
+            {k: v[i] for k, v in raw.items()},
+            batch_ndims=0,
+        )
+        assert_allclose(out["scale"][i], single["scale"], rtol=1e-5)
+        assert_allclose(out["loc"][i], single["loc"], rtol=1e-5)
 
 
 def test_constrain_samples_two_batch_dims():

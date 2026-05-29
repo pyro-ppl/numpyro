@@ -732,7 +732,8 @@ def initialize_model(
         ``blackjax`` or ``flowMC``) can maximize. Because `dynamic_args=False`,
         `potential_fn` and `postprocess_fn` are already single-position callables
         with the model arguments bound in. Mutually exclusive with
-        `dynamic_args`. Defaults to `False`.
+        `dynamic_args`. Expects a single, non-batched `rng_key`. Defaults to
+        `False`.
     :return: a namedtuple `ModelInfo` which contains the fields
         (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`,
         `logdensity_fn`), where

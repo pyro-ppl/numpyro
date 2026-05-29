@@ -78,7 +78,6 @@ examples = [
     "wordcloud",
 ]
 test = [
-    "blackjax>=1.5",
     "importlib-metadata<5.0",
     "mypy>=1.13",
     "pyro-api>=0.1.1",
@@ -107,7 +106,6 @@ module = [
     "numpyro.diagnostics.*",
     "numpyro.handlers.*",
     "numpyro.infer.elbo.*",
-    "numpyro.infer.external.*",
     "numpyro.infer.util.*",
     "numpyro.optim.*",
     "numpyro.primitives.*",
