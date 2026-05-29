@@ -400,7 +400,6 @@ def test_squared_exponential_gp_model(
         )
 
     def model(x, ell, m, non_centered, y=None):
-
         with numpyro.validation_enabled(False):
             alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
             length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
@@ -467,7 +466,6 @@ def test_matern_gp_model(
         )
 
     def model(x, nu, ell, m, non_centered, y=None):
-
         with numpyro.validation_enabled(False):
             alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
             length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
@@ -685,7 +683,6 @@ def test_rational_quadratic_gp_model(
         )
 
     def model(x, scale_mixture, ell, m, non_centered, y=None):
-
         with numpyro.validation_enabled(False):
             alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
             length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
@@ -745,7 +742,6 @@ def test_periodic_gp_one_dim_model(synthetic_one_dim_data, w0, m):
         )
 
     def model(x, w0, m, y=None):
-
         with numpyro.validation_enabled(False):
             alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
             length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))

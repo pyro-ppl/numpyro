@@ -775,7 +775,6 @@ def test_elbo_enumerate_plate_7(scale):
 
         # Categorical distributions are not normalized here
         with numpyro.validation_enabled(False):
-
             a = pyro.sample("a", dist.Categorical(probs_a))
             b = pyro.sample(
                 "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
@@ -800,8 +799,9 @@ def test_elbo_enumerate_plate_7(scale):
 
         # Categorical distributions are not normalized here
         with numpyro.validation_enabled(False):
-
-            a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
+            a = pyro.sample(
+                "a", dist.Categorical(probs_a), infer={"enumerate": "parallel"}
+            )
             with pyro.plate("data", 2):
                 pyro.sample("c", dist.Categorical(probs_c[a]))
 
@@ -831,7 +831,6 @@ def test_elbo_enumerate_plate_7(scale):
 
         # Categorical distributions are not normalized here
         with numpyro.validation_enabled(False):
-
             a = pyro.sample("a", dist.Categorical(probs_a))
             b = pyro.sample(
                 "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
@@ -856,8 +855,9 @@ def test_elbo_enumerate_plate_7(scale):
 
         # Categorical distributions are not normalized here
         with numpyro.validation_enabled(False):
-
-            a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
+            a = pyro.sample(
+                "a", dist.Categorical(probs_a), infer={"enumerate": "parallel"}
+            )
             for i in range(2):
                 pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
 
