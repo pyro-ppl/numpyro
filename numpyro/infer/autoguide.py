@@ -168,6 +168,7 @@ class AutoGuide(ABC):
                 self._potential_fn_gen,
                 postprocess_fn_gen,
                 self.prototype_trace,
+                *_,
             ) = initialize_model(
                 rng_key,
                 self.model,

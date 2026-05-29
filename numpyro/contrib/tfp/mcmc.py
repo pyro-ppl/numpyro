@@ -118,13 +118,15 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
-                rng_key,
-                self._model,
-                init_strategy=self._init_strategy,
-                dynamic_args=True,
-                model_args=model_args,
-                model_kwargs=model_kwargs,
+            init_params, potential_fn, postprocess_fn, model_trace, *_ = (
+                initialize_model(
+                    rng_key,
+                    self._model,
+                    init_strategy=self._init_strategy,
+                    dynamic_args=True,
+                    model_args=model_args,
+                    model_kwargs=model_kwargs,
+                )
             )
             init_params = init_params.z
             if self._init_fn is None:
