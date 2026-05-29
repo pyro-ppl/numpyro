@@ -1175,16 +1175,20 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         rng_key = numpyro.prng_key()
 
         with numpyro.handlers.block():
-            (_, self._surrogate_potential_fn, _, self._surrogate_prototype_trace) = (
-                initialize_model(
-                    rng_key,
-                    self.surrogate_model,
-                    init_strategy=self.init_loc_fn,
-                    dynamic_args=False,
-                    model_args=(),
-                    model_kwargs={},
-                    forward_mode_differentiation=self._forward_mode_differentiation,
-                )
+            (
+                _,
+                self._surrogate_potential_fn,
+                _,
+                self._surrogate_prototype_trace,
+                *_,
+            ) = initialize_model(
+                rng_key,
+                self.surrogate_model,
+                init_strategy=self.init_loc_fn,
+                dynamic_args=False,
+                model_args=(),
+                model_kwargs={},
+                forward_mode_differentiation=self._forward_mode_differentiation,
             )
 
     def _sample_latent(self, *args, **kwargs):
