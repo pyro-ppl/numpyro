@@ -104,7 +104,7 @@ def test_get_log_density_fn_postprocess_includes_deterministics():
     """postprocess maps unconstrained to constrained and includes deterministic sites."""
     x, y = _linreg_data()
     info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
-    out = info.postprocess(info.init_position)
+    out = info.postprocess_fn(info.init_position)
     assert set(out.keys()) >= {"a", "b", "sigma", "mu"}
     # sigma has Exponential prior -> constrained to be positive
     assert float(out["sigma"]) > 0.0
@@ -343,3 +343,155 @@ def test_external_kernel_bad_build_kernel_return(blackjax):
     mcmc = MCMC(kernel, num_warmup=0, num_samples=1, progress_bar=False)
     with pytest.raises(TypeError, match="3-tuple"):
         mcmc.run(random.key(12), x, y)
+
+
+def test_external_kernel_bad_build_kernel_non_iterable(blackjax):
+    """A `build_kernel` returning a non-iterable also surfaces the focused error."""
+
+    def bad_build(rng_key, logdensity_fn, init_position):
+        return object()  # not a tuple at all
+
+    x, y = _linreg_data()
+    kernel = ExternalKernel(_linreg_model, build_kernel=bad_build)
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=1, progress_bar=False)
+    with pytest.raises(TypeError, match="3-tuple"):
+        mcmc.run(random.key(13), x, y)
+
+
+def test_constrain_samples_single_position():
+    """batch_ndims=0 applies constrain_fn to a single position without vmap."""
+    x, y = _linreg_data()
+    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
+    out = constrain_samples(
+        info.init_position, _linreg_model, model_args=(x, y), batch_ndims=0
+    )
+    assert set(out.keys()) >= {"a", "b", "sigma", "mu"}
+    assert out["sigma"].shape == ()  # scalar, no leading batch dim
+    assert out["mu"].shape == x.shape
+    assert float(out["sigma"]) > 0.0
+
+
+def test_external_kernel_potential_fn_target_variance(blackjax):
+    """potential_fn path mixes properly — variance ~ 1.0, not a stuck chain."""
+    dim = 3
+
+    def potential_fn(position):
+        return 0.5 * (position["x"] ** 2).sum()
+
+    init_params = {"x": jnp.zeros(dim)}
+    kernel = ExternalKernel(
+        potential_fn=potential_fn, build_kernel=_make_build_nuts(blackjax)
+    )
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=1500, progress_bar=False)
+    mcmc.run(random.key(14), init_params=init_params)
+    samples = mcmc.get_samples()
+    # A degenerate / stuck sampler would have ~zero variance even though the
+    # mean is also ~0; the variance check rules that out.
+    sample_var = jnp.var(samples["x"], axis=0)
+    assert (sample_var > 0.5).all(), f"variance too low: {sample_var}"
+    assert (sample_var < 2.0).all(), f"variance too high: {sample_var}"
+
+
+def test_external_kernel_inner_logdensity_varies(blackjax):
+    """The collected `inner.logdensity` should vary across the chain."""
+    x, y = _linreg_data()
+    kernel = ExternalKernel(_linreg_model, build_kernel=_make_build_nuts(blackjax))
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(15), x, y, extra_fields=("inner.logdensity",))
+    series = mcmc.get_extra_fields()["inner.logdensity"]
+    assert jnp.isfinite(series).all()
+    # A constant placeholder would have std == 0; a healthy chain visits
+    # different states and the log-density wanders.
+    assert float(series.std()) > 1e-3
+
+
+def test_external_kernel_diagnostics_fn(blackjax):
+    """diagnostics_fn is invoked via get_diagnostics_str(state)."""
+    calls: list[str] = []
+
+    def diag(state):
+        msg = "tag"
+        calls.append(msg)
+        return msg
+
+    x, y = _linreg_data()
+    kernel = ExternalKernel(
+        _linreg_model,
+        build_kernel=_make_build_nuts(blackjax),
+        diagnostics_fn=diag,
+    )
+    state = kernel.init(random.key(16), 0, None, model_args=(x, y), model_kwargs={})
+    assert kernel.get_diagnostics_str(state) == "tag"
+    assert calls == ["tag"]
+
+
+def test_external_kernel_run_twice_same_kernel(blackjax):
+    """The same MCMC object can be run twice with different rng_keys."""
+    x, y = _linreg_data()
+    mcmc = MCMC(
+        ExternalKernel(_linreg_model, build_kernel=_make_build_nuts(blackjax)),
+        num_warmup=0,
+        num_samples=400,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(17), x, y)
+    means1 = {k: float(v.mean()) for k, v in mcmc.get_samples().items() if k != "mu"}
+    mcmc.run(random.key(18), x, y)
+    means2 = {k: float(v.mean()) for k, v in mcmc.get_samples().items() if k != "mu"}
+    for k in ("a", "b", "sigma"):
+        assert means1[k] == pytest.approx(means2[k], abs=0.2), k
+
+
+def _vector_param_model(x, y=None):
+    """Linear regression with a vector parameter `w` (3-D)."""
+    w = numpyro.sample("w", dist.Normal(jnp.zeros(3), 2.0).to_event(1))
+    sigma = numpyro.sample("sigma", dist.Exponential(1.0))
+    mu = numpyro.deterministic("mu", x @ w)
+    with numpyro.plate("data", x.shape[0]):
+        numpyro.sample("likelihood", dist.Normal(mu, sigma), obs=y)
+
+
+def test_external_kernel_vector_parameter(blackjax):
+    """Models with vector-shaped sites recover the true weights."""
+    key_x, key_eps = random.split(random.key(19))
+    n, d = 80, 3
+    X = random.normal(key_x, (n, d))
+    w_true = jnp.array([1.0, -0.5, 2.0])
+    y = X @ w_true + 0.2 * random.normal(key_eps, (n,))
+
+    kernel = ExternalKernel(
+        _vector_param_model, build_kernel=_make_build_nuts(blackjax)
+    )
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=800, progress_bar=False)
+    mcmc.run(random.key(20), X, y)
+    samples = mcmc.get_samples()
+    assert samples["w"].shape == (800, d)
+    assert jnp.allclose(samples["w"].mean(axis=0), w_true, atol=0.15)
+
+
+def test_external_kernel_multi_chain_parallel(blackjax):
+    """num_chains=2 under chain_method='parallel' yields per-chain samples."""
+    from jax import local_device_count
+
+    numpyro.set_host_device_count(2)
+    if local_device_count() < 2:
+        pytest.skip("requires at least 2 host devices")
+
+    x, y = _linreg_data()
+    kernel = ExternalKernel(_linreg_model, build_kernel=_make_build_nuts(blackjax))
+    mcmc = MCMC(
+        kernel,
+        num_warmup=0,
+        num_samples=200,
+        num_chains=2,
+        chain_method="parallel",
+        progress_bar=False,
+    )
+    mcmc.run(random.key(21), x, y)
+    samples_by_chain = mcmc.get_samples(group_by_chain=True)
+    assert samples_by_chain["a"].shape == (2, 200)
+    assert samples_by_chain["mu"].shape == (2, 200, x.shape[0])
+    # Different chains should explore differently — at least their means
+    # shouldn't be identical to machine precision.
+    chain_means = samples_by_chain["a"].mean(axis=1)
+    assert float(jnp.abs(chain_means[0] - chain_means[1])) > 1e-6

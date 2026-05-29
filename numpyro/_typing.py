@@ -35,4 +35,13 @@ PyTree: TypeAlias = Any
 """A generic type for a pytree, i.e. a nested structure of lists, tuples, dicts, and arrays."""
 
 
+PositionDict: TypeAlias = dict[str, jax.Array]
+"""An unconstrained position dict keyed by sample-site name.
+
+Used as the canonical input/output type for log-density and postprocess
+callables exposed to external samplers (see
+:class:`~numpyro.infer.LogDensityInfo` and
+:class:`~numpyro.infer.ExternalKernel`)."""
+
+
 NumLikeT = TypeVar("NumLikeT", bound=NumLike)

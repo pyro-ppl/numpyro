@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
-from numpyro._typing import TraceT
+from numpyro._typing import PositionDict, TraceT
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -60,15 +60,15 @@ class LogDensityInfo(NamedTuple):
         (i.e. a log joint density that external samplers can maximize).
     :ivar init_position: dict of unconstrained initial values, ready to feed
         to the sampler's ``init``.
-    :ivar postprocess: single-position ``(position) -> dict`` callable that
+    :ivar postprocess_fn: single-position ``(position) -> dict`` callable that
         converts unconstrained back to constrained space and includes
         ``deterministic`` sites. ``model_args`` / ``model_kwargs`` are bound.
     :ivar model_info: underlying :class:`ModelInfo` for power users.
     """
 
-    logdensity_fn: Callable[[dict], jax.Array]
-    init_position: dict
-    postprocess: Callable[[dict], dict]
+    logdensity_fn: Callable[[PositionDict], jax.Array]
+    init_position: PositionDict
+    postprocess_fn: Callable[[PositionDict], PositionDict]
     model_info: ModelInfo
 
 
@@ -867,7 +867,9 @@ def get_log_density_fn(
         kernel = blackjax.nuts(info.logdensity_fn, step_size, inverse_mass_matrix)
         state = kernel.init(info.init_position)
     """
-    model_kwargs = {} if model_kwargs is None else model_kwargs
+    # Defensive copy: callers may mutate their kwargs dict after this call;
+    # the returned closures must not observe those mutations.
+    model_kwargs = dict(model_kwargs) if model_kwargs else {}
     model_info = initialize_model(
         rng_key,
         model,
@@ -881,13 +883,13 @@ def get_log_density_fn(
     bound_potential = model_info.potential_fn(*model_args, **model_kwargs)
     bound_postprocess = model_info.postprocess_fn(*model_args, **model_kwargs)
 
-    def logdensity_fn(position: dict) -> jax.Array:
+    def logdensity_fn(position: PositionDict) -> jax.Array:
         return -bound_potential(position)
 
     return LogDensityInfo(
         logdensity_fn=logdensity_fn,
         init_position=model_info.param_info.z,
-        postprocess=bound_postprocess,
+        postprocess_fn=bound_postprocess,
         model_info=model_info,
     )
 
@@ -940,9 +942,10 @@ def constrain_samples(
         raise ValueError(
             f"batch_ndims must be a non-negative integer, got {batch_ndims}."
         )
-    model_kwargs = {} if model_kwargs is None else model_kwargs
+    # Defensive copy (same reason as in `get_log_density_fn`).
+    model_kwargs = dict(model_kwargs) if model_kwargs else {}
 
-    def single(position: dict) -> dict:
+    def single(position: PositionDict) -> PositionDict:
         return constrain_fn(
             model,
             model_args,
