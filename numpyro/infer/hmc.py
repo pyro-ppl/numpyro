@@ -692,6 +692,7 @@ class HMC(MCMCKernel):
                 potential_fn,
                 postprocess_fn,
                 model_trace,
+                *_,
             ) = initialize_model(
                 rng_key,
                 self._model,

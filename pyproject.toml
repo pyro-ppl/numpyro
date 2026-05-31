@@ -106,6 +106,7 @@ module = [
     "numpyro.diagnostics.*",
     "numpyro.handlers.*",
     "numpyro.infer.elbo.*",
+    "numpyro.infer.util.*",
     "numpyro.optim.*",
     "numpyro.primitives.*",
     "numpyro.patch.*",

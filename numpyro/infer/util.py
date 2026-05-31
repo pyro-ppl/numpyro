@@ -5,7 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, NamedTuple, Optional
 import warnings
 
 import numpy as np
@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
-from numpyro._typing import TraceT
+from numpyro._typing import PositionDict, TraceT
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -35,19 +35,47 @@ from numpyro.util import (
 )
 
 __all__ = [
+    "constrain_samples",
     "find_valid_initial_params",
+    "get_log_density_fn",
     "get_potential_fn",
     "log_density",
     "log_likelihood",
     "potential_energy",
     "initialize_model",
+    "LogDensityInfo",
     "Predictive",
 ]
 
 ModelInfo = namedtuple(
-    "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
+    "ModelInfo",
+    ["param_info", "potential_fn", "postprocess_fn", "model_trace", "logdensity_fn"],
 )
+# `logdensity_fn` is only populated when `initialize_model(..., bound=True)`;
+# default to `None` so existing 4-field attribute/keyword access keeps working.
+ModelInfo.__new__.__defaults__ = (None,)
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
+
+
+class LogDensityInfo(NamedTuple):
+    """Return value of :func:`get_log_density_fn`.
+
+    The callable fields (``logdensity_fn``, ``postprocess_fn``) have their model
+    arguments pre-bound; the caller does not need to repeat ``model_args`` /
+    ``model_kwargs`` or remember to negate.
+
+    :ivar logdensity_fn: negated potential energy (a log joint density).
+    :ivar init_position: unconstrained initial values from
+        :func:`find_valid_initial_params`.
+    :ivar postprocess_fn: single-position transform back to constrained space,
+        with ``deterministic`` sites included.
+    :ivar model_info: underlying :class:`ModelInfo` for power users.
+    """
+
+    logdensity_fn: Callable[[PositionDict], jax.Array]
+    init_position: PositionDict
+    postprocess_fn: Callable[[PositionDict], PositionDict]
+    model_info: ModelInfo
 
 
 class _substitute_default_key(Messenger):
@@ -191,44 +219,74 @@ def transform_fn(transforms, params, invert=False):
     return {k: transforms[k](v) if k in transforms else v for k, v in params.items()}
 
 
-def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=False):
+def constrain_fn(
+    model,
+    model_args,
+    model_kwargs,
+    params,
+    return_deterministic=False,
+    batch_ndims=0,
+):
     """
     (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
-    unconstrained parameters `params`. The `transforms` is used to transform these
-    unconstrained parameters to base values of the corresponding priors in `model`.
-    If a prior is a transformed distribution, the corresponding base value lies in
-    the support of base distribution. Otherwise, the base value lies in the support
-    of the distribution.
+    unconstrained parameters `params`. Each unconstrained value is pushed through
+    the inverse bijection of the corresponding prior's support to recover the
+    constrained value. If a prior is a transformed distribution, the corresponding
+    base value lies in the support of the base distribution. Otherwise, the base
+    value lies in the support of the distribution.
+
+    ``batch_ndims`` declares how many leading sample dimensions each leaf of
+    ``params`` carries, so the transforms are ``jax.vmap``-ed the correct number
+    of times. The common layouts are: ``batch_ndims=0`` (a single unconstrained
+    position, the default), ``batch_ndims=1`` (a single chain of samples), and
+    ``batch_ndims=2`` (``num_chains x num_samples``, matching
+    :meth:`MCMC.get_samples(group_by_chain=True)
+    <numpyro.infer.MCMC.get_samples>`). This is useful to map a batch of
+    unconstrained samples produced by an external sampler back to the
+    constrained space.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of unconstrained values keyed by site
-        names.
+        names. Leading dimensions are batch dimensions (see ``batch_ndims``).
     :param bool return_deterministic: whether to return the value of `deterministic`
         sites from the model. Defaults to `False`.
+    :param int batch_ndims: number of leading batch dimensions on each leaf of
+        ``params``. Defaults to ``0`` (a single position).
     :return: `dict` of transformed params.
     """
+    if batch_ndims < 0:
+        raise ValueError(
+            f"batch_ndims must be a non-negative integer, got {batch_ndims}."
+        )
 
-    def substitute_fn(site):
-        if site["name"] in params:
-            if site["type"] == "sample":
-                with helpful_support_errors(site):
-                    return biject_to(site["fn"].support)(params[site["name"]])
-            elif site["type"] == "param":
-                constraint = site["kwargs"].pop("constraint", constraints.real)
-                with helpful_support_errors(site):
-                    return biject_to(constraint)(params[site["name"]])
-            else:
-                return params[site["name"]]
+    def single(position):
+        def substitute_fn(site):
+            if site["name"] in position:
+                if site["type"] == "sample":
+                    with helpful_support_errors(site):
+                        return biject_to(site["fn"].support)(position[site["name"]])
+                elif site["type"] == "param":
+                    constraint = site["kwargs"].pop("constraint", constraints.real)
+                    with helpful_support_errors(site):
+                        return biject_to(constraint)(position[site["name"]])
+                else:
+                    return position[site["name"]]
 
-    substituted_model = substitute(model, substitute_fn=substitute_fn)
-    model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    return {
-        k: v["value"]
-        for k, v in model_trace.items()
-        if (k in params) or (return_deterministic and (v["type"] == "deterministic"))
-    }
+        substituted_model = substitute(model, substitute_fn=substitute_fn)
+        model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
+        return {
+            k: v["value"]
+            for k, v in model_trace.items()
+            if (k in position)
+            or (return_deterministic and (v["type"] == "deterministic"))
+        }
+
+    fn = single
+    for _ in range(batch_ndims):
+        fn = jax.vmap(fn)
+    return fn(params)
 
 
 def get_transforms(model, model_args, model_kwargs, params):
@@ -640,6 +698,7 @@ def initialize_model(
     model_kwargs=None,
     forward_mode_differentiation=False,
     validate_grad=True,
+    bound=False,
 ):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
@@ -667,15 +726,31 @@ def initialize_model(
         for more information.
     :param bool validate_grad: whether to validate gradient of the initial params.
         Defaults to True.
-    :return: a namedtupe `ModelInfo` which contains the fields
-        (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
+    :param bool bound: if `True`, populate the `logdensity_fn` field of the
+        returned `ModelInfo` with the negated potential energy, i.e. a log joint
+        density `(position) -> log_density` that external samplers (e.g.
+        ``blackjax`` or ``flowMC``) can maximize. Because `dynamic_args=False`,
+        `potential_fn` and `postprocess_fn` are already single-position callables
+        with the model arguments bound in. Mutually exclusive with
+        `dynamic_args`. Expects a single, non-batched `rng_key`. Defaults to
+        `False`.
+    :return: a namedtuple `ModelInfo` which contains the fields
+        (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`,
+        `logdensity_fn`), where
         `param_info` is a namedtuple `ParamInfo` containing values from the prior
         used to initiate MCMC, their corresponding potential energy, and their gradients;
         `postprocess_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support, in addition to returning values
-        at `deterministic` sites in the model.
+        at `deterministic` sites in the model. `logdensity_fn` is `None` unless
+        `bound=True` (see above).
     """
+    if bound and dynamic_args:
+        raise ValueError(
+            "`bound=True` is incompatible with `dynamic_args=True`: `bound` "
+            "exposes a single-position `logdensity_fn` (with the model arguments "
+            "already bound in), while `dynamic_args` keeps them as free arguments."
+        )
     model_kwargs = {} if model_kwargs is None else model_kwargs
     substituted_model = substitute(
         seed(model, rng_key if is_prng_key(rng_key) else rng_key[0]),
@@ -796,8 +871,149 @@ def initialize_model(
             raise RuntimeError(
                 "Cannot find valid initial parameters. Please check your model again."
             )
+    logdensity_fn = None
+    if bound:
+        # With `dynamic_args=False` (enforced above), `potential_fn` and
+        # `postprocess_fn` are already single-position callables. Expose the
+        # negated potential as a log joint density for external samplers.
+        def logdensity_fn(position):
+            return -potential_fn(position)
+
     return ModelInfo(
-        ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace
+        ParamInfo(init_params, pe, grad),
+        potential_fn,
+        postprocess_fn,
+        model_trace,
+        logdensity_fn,
+    )
+
+
+def get_log_density_fn(
+    rng_key: jax.Array,
+    model: Callable[..., Any],
+    *,
+    model_args: tuple[Any, ...] = (),
+    model_kwargs: Optional[dict[str, Any]] = None,
+    init_strategy: Callable[..., Any] = init_to_uniform,
+    forward_mode_differentiation: bool = False,
+    validate_grad: bool = True,
+) -> LogDensityInfo:
+    """
+    (EXPERIMENTAL INTERFACE) Convenience entry point that wraps
+    :func:`initialize_model` for use with external samplers (e.g. ``blackjax``,
+    ``flowMC``).
+
+    The returned :class:`LogDensityInfo` carries a ``logdensity_fn`` that is
+    already the *negated* potential energy (i.e. a log joint density that
+    external samplers can maximize), an unconstrained ``init_position``, and a
+    single-position ``postprocess_fn`` callable with ``model_args`` /
+    ``model_kwargs`` already bound; the caller does not have to repeat them or
+    remember to negate by hand.
+
+    :param jax.Array rng_key: PRNG key used to sample the initial position
+        from the prior.
+    :param Callable model: a Python callable containing NumPyro primitives.
+    :param tuple model_args: positional arguments passed to ``model``.
+    :param dict model_kwargs: keyword arguments passed to ``model``.
+    :param Callable init_strategy: a per-site initialization function. See
+        :ref:`init_strategy` section for available functions.
+    :param bool forward_mode_differentiation: whether to use forward-mode
+        differentiation when validating initial parameters.
+    :param bool validate_grad: whether to validate gradients of the initial
+        params.
+    :returns: a :class:`LogDensityInfo`.
+    :rtype: LogDensityInfo
+
+    **Example**::
+
+        info = get_log_density_fn(rng_key, model, model_args=(x, y))
+        kernel = blackjax.nuts(info.logdensity_fn, step_size, inverse_mass_matrix)
+        state = kernel.init(info.init_position)
+    """
+    # Defensive copy: callers may mutate their kwargs dict after this call;
+    # the returned closures must not observe those mutations.
+    model_kwargs = dict(model_kwargs) if model_kwargs else {}
+    model_info = initialize_model(
+        rng_key,
+        model,
+        init_strategy=init_strategy,
+        bound=True,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
+        forward_mode_differentiation=forward_mode_differentiation,
+        validate_grad=validate_grad,
+    )
+    return LogDensityInfo(
+        logdensity_fn=model_info.logdensity_fn,
+        init_position=model_info.param_info.z,
+        postprocess_fn=model_info.postprocess_fn,
+        model_info=model_info,
+    )
+
+
+def constrain_samples(
+    samples: PositionDict,
+    model: Callable[..., Any],
+    *,
+    model_args: tuple[Any, ...] = (),
+    model_kwargs: Optional[dict[str, Any]] = None,
+    return_deterministic: bool = True,
+    batch_ndims: int = 1,
+) -> PositionDict:
+    """
+    (EXPERIMENTAL INTERFACE) Apply inverse transforms (and optionally include
+    ``deterministic`` sites) across a batched ``dict`` of unconstrained samples.
+
+    External samplers operate in the unconstrained reparameterised space and
+    return samples there; this helper folds in the inverse bijections and the
+    model's deterministic sites so the result is ready to feed into
+    :class:`~numpyro.infer.util.Predictive` or ``arviz``.
+
+    This is a thin convenience wrapper over :func:`constrain_fn`: the
+    samples-first, keyword-arguments face of it, with external-sampler-friendly
+    defaults (``batch_ndims=1`` and ``return_deterministic=True``).
+    ``batch_ndims`` declares how many leading
+    sample dimensions the input arrays carry. The three common layouts are:
+    ``batch_ndims=0`` (a single unconstrained position), ``batch_ndims=1`` (a
+    single chain of samples, the default), and ``batch_ndims=2``
+    (``num_chains x num_samples``, matching
+    :meth:`MCMC.get_samples(group_by_chain=True)
+    <numpyro.infer.MCMC.get_samples>`).
+
+    :param dict samples: dict of unconstrained sample arrays keyed by site
+        name. Leading dimensions are batch dimensions.
+    :param Callable model: a Python callable containing NumPyro primitives.
+    :param tuple model_args: positional arguments passed to ``model``.
+    :param dict model_kwargs: keyword arguments passed to ``model``.
+    :param bool return_deterministic: include ``deterministic`` site values.
+    :param int batch_ndims: number of leading batch dimensions on each leaf
+        of ``samples``. Defaults to ``1``.
+    :returns: dict of constrained sample arrays with the same leading batch
+        dimensions, optionally augmented with deterministic sites.
+    :rtype: dict
+
+    **Example** (concrete Blackjax NUTS loop)::
+
+        info = get_log_density_fn(rng_key, model, model_args=(x, y))
+        kernel = blackjax.nuts(info.logdensity_fn, step_size, mass_matrix)
+        state = kernel.init(info.init_position)
+
+        def body(state, k):
+            state, _ = kernel.step(k, state)
+            return state, state.position
+
+        _, raw = jax.lax.scan(body, state, jax.random.split(rng_key, 1_000))
+        samples = constrain_samples(raw, model, model_args=(x, y), batch_ndims=1)
+        predictive = Predictive(model, posterior_samples=samples)(rng_key, x)
+    """
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    return constrain_fn(
+        model,
+        model_args,
+        model_kwargs,
+        samples,
+        return_deterministic=return_deterministic,
+        batch_ndims=batch_ndims,
     )
 
 
