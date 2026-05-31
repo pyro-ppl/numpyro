@@ -1532,6 +1532,287 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
+class HurdleProbs(Distribution):
+    r"""Generic hurdle distribution parameterized by a probability :math:`g` (``gate``)
+    of the structural zero and an arbitrary base distribution.
+
+    **Hurdle mechanism.** A hurdle model is a two-part model. A Bernoulli "hurdle"
+    decides whether the outcome is zero (with probability :math:`g`, the *gate*) or
+    strictly positive (with probability :math:`1 - g`). Conditional on the outcome
+    being positive, the magnitude is drawn from the base distribution -
+    *zero-truncated* in the discrete case so the base distribution cannot itself
+    produce a zero. With :math:`B` denoting the base PMF/PDF:
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{B(k)}{1 - B(0)} \;\text{for } k \geq 1
+        \;\text{(discrete base)}
+
+    For a continuous base on :math:`\mathbb{R}_{>0}` the truncation factor
+    :math:`1 - B(0)` equals 1 and the formula simplifies to a point mass at 0 with
+    weight :math:`g` mixed with :math:`(1 - g) \, b(x)` on :math:`x > 0`.
+
+    **Assumptions.**
+
+    1. *All zeros are structural* - they originate exclusively from the hurdle
+       process. This contrasts with zero-inflated models, which mix structural
+       zeros with sampling zeros from the base distribution.
+    2. The hurdle decision (zero vs. positive) and the magnitude (given positive)
+       are *conditionally independent* given the parameters.
+    3. For a discrete base, :math:`P(\text{base} = 0) < 1` so the truncation
+       factor :math:`1 - B(0)` is well-defined. For a continuous base supported
+       on :math:`\mathbb{R}_{>0}`, :math:`P(\text{base} = 0) = 0` and no
+       truncation is needed.
+
+    .. note::
+        ``gate`` is the probability of a structural zero. This matches the convention
+        used by :class:`ZeroInflatedDistribution`, and corresponds to ``1 - psi`` in
+        PyMC's hurdle distributions.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate: probability of a structural zero, in :math:`[0, 1]`.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {"gate": constraints.unit_interval}
+    pytree_data_fields = ("base_dist", "gate")
+    pytree_aux_fields = ("_is_discrete",)
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate,) = promote_shapes(gate, shape=batch_shape)
+        if base_dist.event_shape:
+            raise ValueError(
+                "HurdleProbs expected empty base_dist.event_shape but got {}".format(
+                    base_dist.event_shape
+                )
+            )
+        self.base_dist = base_dist.expand(batch_shape)
+        self._is_discrete = base_dist.support.is_discrete
+        super(HurdleProbs, self).__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property
+    def support(self) -> constraints.Constraint:
+        return self.base_dist.support
+
+    def _log_one_minus_p_zero(self) -> ArrayLike:
+        # log(1 - B(0)) for the discrete base, used to renormalize the truncated PMF.
+        log_p0 = self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+        return jax.nn.log1mexp(-log_p0)
+
+    def _log_gate(self) -> ArrayLike:
+        return jnp.log(self.gate)
+
+    def _log_one_minus_gate(self) -> ArrayLike:
+        return jnp.log1p(-self.gate)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        key_bern, key_base = random.split(key)
+        shape = sample_shape + self.batch_shape
+        zero_mask = random.bernoulli(key_bern, self.gate, shape)
+        if self._is_discrete:
+            samples = self._sample_truncated(key_base, sample_shape)
+        else:
+            samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
+        return jnp.where(zero_mask, jnp.zeros_like(samples), samples)
+
+    def _sample_truncated(
+        self, key: jax.Array, sample_shape: tuple[int, ...]
+    ) -> ArrayLike:
+        # Rejection sampling from the zero-truncated base distribution: redraw any
+        # element that came back as 0 until all elements are strictly positive.
+        first = self.base_dist(rng_key=key, sample_shape=sample_shape)
+
+        def cond_fun(state: tuple) -> ArrayLike:
+            _, current = state
+            return jnp.any(current == 0)
+
+        def body_fun(state: tuple) -> tuple:
+            k, current = state
+            k, sub = random.split(k)
+            candidate = self.base_dist(rng_key=sub, sample_shape=sample_shape)
+            current = jnp.where(current == 0, candidate, current)
+            return (k, current)
+
+        _, samples = lax.while_loop(cond_fun, body_fun, (key, first))
+        return samples
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        log_gate = self._log_gate()
+        log_one_minus_gate = self._log_one_minus_gate()
+        # Replace zeros with ones before evaluating the base log_prob to avoid
+        # -inf / NaN gradients when the base PDF is undefined at 0 (e.g. Gamma).
+        safe_value = jnp.where(value == 0, jnp.ones_like(value), value)
+        log_prob_base = self.base_dist.log_prob(safe_value)
+        if self._is_discrete:
+            log_nonzero = (
+                log_one_minus_gate + log_prob_base - self._log_one_minus_p_zero()
+            )
+        else:
+            log_nonzero = log_one_minus_gate + log_prob_base
+        return jnp.where(value == 0, log_gate, log_nonzero)
+
+    @lazy_property
+    def mean(self) -> ArrayLike:
+        if self._is_discrete:
+            trunc = -jnp.expm1(
+                self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+            )
+            return (1 - self.gate) * self.base_dist.mean / trunc
+        return (1 - self.gate) * self.base_dist.mean
+
+    @lazy_property
+    def variance(self) -> ArrayLike:
+        if self._is_discrete:
+            trunc = -jnp.expm1(
+                self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+            )
+            second_moment_trunc = (
+                self.base_dist.mean**2 + self.base_dist.variance
+            ) / trunc
+            return (1 - self.gate) * second_moment_trunc - self.mean**2
+        return (1 - self.gate) * (
+            self.base_dist.mean**2 + self.base_dist.variance
+        ) - self.mean**2
+
+
+class HurdleLogits(HurdleProbs):
+    r"""Hurdle distribution parameterized by ``gate_logits`` (the log-odds of the
+    structural zero) instead of a probability.
+
+    Like :class:`HurdleProbs`, this is a two-part model where a Bernoulli
+    "hurdle" - here parameterized in logit space - selects between an exact
+    zero and a positive draw from the (zero-truncated, for discrete bases) base
+    distribution. See :class:`HurdleProbs` for the full mechanism, assumptions,
+    and underlying PMF/PDF.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate_logits: log-odds of a structural zero,
+        :math:`\mathrm{logit}(g) = \log\frac{g}{1 - g}`.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {"gate_logits": constraints.real}
+    pytree_data_fields = ("base_dist", "gate_logits")
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate_logits: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        gate = _to_probs_bernoulli(gate_logits)
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
+        super().__init__(base_dist, gate, validate_args=validate_args)
+
+    def _log_gate(self) -> ArrayLike:
+        return -softplus(-self.gate_logits)
+
+    def _log_one_minus_gate(self) -> ArrayLike:
+        return -softplus(self.gate_logits)
+
+
+def HurdleDistribution(
+    base_dist: Distribution,
+    *,
+    gate: Optional[ArrayLike] = None,
+    gate_logits: Optional[ArrayLike] = None,
+    validate_args: Optional[bool] = None,
+) -> Union[HurdleProbs, HurdleLogits]:
+    r"""Generic hurdle distribution.
+
+    A hurdle model is a two-part model: a Bernoulli "hurdle" selects between an
+    exact zero (with probability ``gate``) and a positive draw from the
+    (zero-truncated, for discrete bases) base distribution. Returns a
+    :class:`HurdleProbs` if ``gate`` is supplied, or a :class:`HurdleLogits` if
+    ``gate_logits`` is supplied. Exactly one of the two must be provided. See
+    :class:`HurdleProbs` for the full mechanism, assumptions, and PMF/PDF.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate: probability of a structural zero.
+    :param ArrayLike gate_logits: log-odds of a structural zero.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+    assert_one_of(gate=gate, gate_logits=gate_logits)
+    if gate is not None:
+        return HurdleProbs(base_dist, gate, validate_args=validate_args)
+    return HurdleLogits(base_dist, gate_logits, validate_args=validate_args)
+
+
+class HurdlePoisson(HurdleProbs):
+    r"""A hurdle Poisson distribution: a two-part model in which structural zeros
+    are produced by a Bernoulli "hurdle" with probability :math:`g` and positive
+    counts follow a zero-truncated :math:`\mathrm{Poisson}(\lambda)`. The hurdle
+    and the magnitude (given a positive count) are conditionally independent;
+    see :class:`HurdleProbs` for the full mechanism and assumptions.
+
+    The probability mass function is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{\lambda^{k} e^{-\lambda} / k!}{1 - e^{-\lambda}}
+        \;\text{for } k \geq 1.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike rate: rate :math:`\lambda > 0` of the underlying Poisson.
+
+    **References:**
+
+    1. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    2. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    """
+
+    arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
+    support = constraints.nonnegative_integer
+    pytree_data_fields = ("rate",)
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.rate = promote_shapes(gate, rate)
+        super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
+
+
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer

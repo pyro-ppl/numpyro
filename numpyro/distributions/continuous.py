@@ -56,7 +56,7 @@ from jax.scipy.stats import norm as jax_norm
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
-from numpyro.distributions.discrete import _to_logits_bernoulli
+from numpyro.distributions.discrete import HurdleProbs, _to_logits_bernoulli
 from numpyro.distributions.distribution import (
     Distribution,
     TransformedDistribution,
@@ -4502,3 +4502,107 @@ class Dagum(Distribution):
             - jnp.square(self.mean),
             jnp.inf,
         )
+
+
+class HurdleGamma(HurdleProbs):
+    r"""A hurdle Gamma distribution: a two-part model in which a structural zero
+    occurs with probability :math:`g` and, conditional on a positive outcome,
+    the magnitude is drawn from :math:`\mathrm{Gamma}(\alpha, \lambda)`. The
+    hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    Because :math:`P(X = 0) = 0` under a Gamma density, no truncation factor is
+    needed and the PDF is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        f(x) = (1 - g) \,
+        \frac{\lambda^{\alpha} x^{\alpha - 1} e^{-\lambda x}}{\Gamma(\alpha)}
+        \;\text{for } x > 0.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike concentration: shape parameter :math:`\alpha > 0` of the Gamma.
+    :param ArrayLike rate: rate parameter :math:`\lambda > 0` of the Gamma.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {
+        "gate": constraints.unit_interval,
+        "concentration": constraints.positive,
+        "rate": constraints.positive,
+    }
+    support = constraints.nonnegative
+    pytree_data_fields = ("concentration", "rate")
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.concentration, self.rate = promote_shapes(gate, concentration, rate)
+        super().__init__(Gamma(concentration, rate), gate, validate_args=validate_args)
+
+
+class HurdleLogNormal(HurdleProbs):
+    r"""A hurdle Log-Normal distribution: a two-part model in which a structural
+    zero occurs with probability :math:`g` and, conditional on a positive
+    outcome, the magnitude is drawn from :math:`\mathrm{LogNormal}(\mu, \sigma)`.
+    The hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    Because :math:`P(X = 0) = 0` under a Log-Normal density, no truncation factor is
+    needed and the PDF is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        f(x) = (1 - g) \, \frac{1}{x \sigma \sqrt{2 \pi}}
+        \exp\!\left( -\frac{(\ln x - \mu)^2}{2 \sigma^2} \right)
+        \;\text{for } x > 0.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike loc: location parameter :math:`\mu \in \mathbb{R}`
+        (mean of :math:`\ln X` given :math:`X > 0`).
+    :param ArrayLike scale: scale parameter :math:`\sigma > 0`
+        (std-dev of :math:`\ln X` given :math:`X > 0`).
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {
+        "gate": constraints.unit_interval,
+        "loc": constraints.real,
+        "scale": constraints.positive,
+    }
+    support = constraints.nonnegative
+    pytree_data_fields = ("loc", "scale")
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.loc, self.scale = promote_shapes(gate, loc, scale)
+        super().__init__(LogNormal(loc, scale), gate, validate_args=validate_args)
