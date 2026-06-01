@@ -1,8 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 import os
-from subprocess import check_call
+from subprocess import PIPE, CalledProcessError, check_output
 import sys
 
 import pytest
@@ -80,9 +81,15 @@ EXAMPLES = [
 @pytest.mark.parametrize("example", EXAMPLES)
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
 @pytest.mark.filterwarnings("ignore:Higgs is a 2.6 GB dataset:UserWarning")
-def test_cpu(example):
+def test_cpu(request: pytest.FixtureRequest, example):
     print("Running:\npython examples/{}".format(example))
     example = example.split()
     filename, args = example[0], example[1:]
     filename = os.path.join(EXAMPLES_DIR, filename)
-    check_call([sys.executable, filename] + args)
+    try:
+        check_output([sys.executable, filename] + args, text=True, stderr=PIPE)
+    except CalledProcessError as ex:
+        logger = logging.getLogger(request.node.name)
+        logger.error("stdout:\n%s", ex.stdout)
+        logger.error("stderr:\n%s", ex.stderr)
+        raise
