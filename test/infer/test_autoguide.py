@@ -1378,3 +1378,15 @@ def test_subsample(guide_cls) -> None:
     )
     state = svi.init(jax.random.key(2), x=x)
     svi.update(state, x=subset)
+
+
+@pytest.mark.parametrize("auto_class", [AutoNormal, AutoDelta])
+def test_autoguide_forward_mode_differentiation(auto_class):
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
+        numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
+
+    guide = auto_class(model, forward_mode_differentiation=True)
+    svi = SVI(model, guide, optim.Adam(0.01), loss=Trace_ELBO())
+    svi.run(random.key(0), 10, forward_mode_differentiation=True)

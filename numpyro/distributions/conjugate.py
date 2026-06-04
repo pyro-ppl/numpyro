@@ -15,6 +15,7 @@ from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
 from numpyro.distributions.discrete import (
     BinomialProbs,
+    HurdleProbs,
     MultinomialProbs,
     Poisson,
     ZeroInflatedDistribution,
@@ -25,7 +26,7 @@ from numpyro.util import is_prng_key
 
 
 def _log_beta_1(alpha, value):
-    # XXX: support sparse `value`
+    # Note: support sparse `value`
     return gammaln(1 + value) + gammaln(alpha) - gammaln(value + alpha)
 
 
@@ -56,7 +57,7 @@ class BetaBinomial(Distribution):
         self,
         concentration1: ArrayLike,
         concentration0: ArrayLike,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -71,9 +72,7 @@ class BetaBinomial(Distribution):
         self._beta = Beta(concentration1, concentration0)
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -162,9 +161,7 @@ class BetaNegativeBinomial(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the sampling
         procedure is:
 
@@ -267,7 +264,7 @@ class DirichletMultinomial(Distribution):
     def __init__(
         self,
         concentration: ArrayLike,
-        total_count: int = 1,
+        total_count: ArrayLike = 1,
         *,
         total_count_max: Optional[int] = None,
         validate_args: Optional[bool] = None,
@@ -292,9 +289,7 @@ class DirichletMultinomial(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
@@ -367,9 +362,7 @@ class GammaPoisson(Distribution):
             self._gamma.batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the sampling
         procedure is:
 
@@ -391,7 +384,7 @@ class GammaPoisson(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the log
+        r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the
         probability mass function is:
 
         .. math::
@@ -439,7 +432,7 @@ class GammaPoisson(Distribution):
 
 
 def NegativeBinomial(
-    total_count: int,
+    total_count: ArrayLike,
     probs: Optional[ArrayLike] = None,
     logits: Optional[ArrayLike] = None,
     *,
@@ -481,7 +474,7 @@ class NegativeBinomialProbs(GammaPoisson):
 
     def __init__(
         self,
-        total_count: int,
+        total_count: ArrayLike,
         probs: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -510,7 +503,7 @@ class NegativeBinomialLogits(GammaPoisson):
 
     def __init__(
         self,
-        total_count: int,
+        total_count: ArrayLike,
         logits: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
@@ -575,5 +568,51 @@ def ZeroInflatedNegativeBinomial2(
         NegativeBinomial2(mean, concentration, validate_args=validate_args),
         gate=gate,
         gate_logits=gate_logits,
+        validate_args=validate_args,
+    )
+
+
+def HurdleNegativeBinomial2(
+    gate: ArrayLike,
+    mean: ArrayLike,
+    concentration: ArrayLike,
+    *,
+    validate_args: Optional[bool] = None,
+) -> HurdleProbs:
+    r"""A hurdle Negative Binomial distribution (NB2 / mean-dispersion
+    parameterization): a two-part model in which structural zeros are produced
+    by a Bernoulli "hurdle" with probability :math:`g` and positive counts
+    follow a zero-truncated :math:`\mathrm{NegativeBinomial2}(\mu, \alpha)`.
+    The hurdle and the magnitude (given a positive count) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions. Compared to a Hurdle Poisson, NB2 accommodates count data
+    that is over-dispersed (variance greater than the mean).
+
+    The probability mass function is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{\mathrm{NB2}(k\mid\mu, \alpha)}
+        {1 - \mathrm{NB2}(0\mid\mu, \alpha)} \;\text{for } k \geq 1,
+
+    where :math:`\mathrm{NB2}(\cdot\mid\mu, \alpha)` is the PMF of a Negative Binomial
+    distribution with mean :math:`\mu` and concentration (dispersion) :math:`\alpha`.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike mean: mean :math:`\mu > 0` of the underlying NegativeBinomial2.
+    :param ArrayLike concentration: concentration :math:`\alpha > 0`.
+
+    **References:**
+
+    1. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    2. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    """
+    return HurdleProbs(
+        NegativeBinomial2(mean, concentration, validate_args=validate_args),
+        gate,
         validate_args=validate_args,
     )

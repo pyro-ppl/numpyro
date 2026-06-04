@@ -21,7 +21,7 @@ try:
     from jaxns.public import DefaultNestedSampler
     from jaxns.utils import NestedSamplerResults
 
-except ImportError as e:
+except (ImportError, AttributeError) as e:
     raise ImportError(
         f"{e} \n "
         f"To use this module, please install `jaxns>2.5` package. It can be"

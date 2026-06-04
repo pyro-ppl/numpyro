@@ -11,14 +11,14 @@ classifiers = [
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
-    "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-keywords = ["probabilistic", "machine learning", "bayesian", "statistics"]
+keywords = ["bayesian", "machine learning", "probabilistic", "statistics"]
 dependencies = [
     "jax>=0.7.0",
     "jaxlib>=0.7.0",
@@ -27,28 +27,55 @@ dependencies = [
     "tqdm",
 ]
 
-[tool.setuptools.dynamic]
-version = { attr = "numpyro.version.__version__" }
+[project.urls]
+Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
+Discussion = "https://github.com/pyro-ppl/numpyro/discussions"
+Homepage = "https://github.com/pyro-ppl/numpyro"
+Issues = "https://github.com/pyro-ppl/numpyro/issues"
 
 [project.optional-dependencies]
 cpu = ["jax[cpu]>=0.7.0"]
 cuda12 = ["jax[cuda12]>=0.7.0"]
 cuda13 = ["jax[cuda13]>=0.7.0"]
 tpu = ["jax[tpu]>=0.7.0"]
+
+[dependency-groups]
 dev = [
-    "dm-haiku>=0.0.14",
     "equinox",
     "flax",
     "funsor>=0.4.1",
+    "gpjax>=0.14.0",
     "graphviz",
     "jaxns>=2.6.3,<=2.6.9",
     "matplotlib",
     "optax>=0.0.6",
-    "pylab-sdk",            # jaxns dependency
+    "pylab-sdk",                         # jaxns dependency
     "pytest-cov",
-    "pyyaml",               # flax dependency
-    "requests",             # pylab dependency
+    "pyyaml",                            # flax dependency
+    "requests",                          # pylab dependency
     "tfp-nightly",
+]
+ci = [
+    "coverage>=7.13.5",
+    "coveralls>=4.1.0",
+    "funsor",
+]
+docs = [
+    "ipython",                           # sphinx needs this to render codes
+    "nbsphinx>=0.8.9",
+    "readthedocs-sphinx-search>=0.3.2",
+    "sphinx>=5",
+    "sphinx-gallery",
+    "sphinx-rtd-theme",
+]
+examples = [
+    "arviz",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "scikit-learn",
+    "seaborn",
+    "wordcloud",
 ]
 test = [
     "importlib-metadata<5.0",
@@ -60,40 +87,53 @@ test = [
     "scipy>=1.9",
     "ty>=0.0.4",
 ]
-doc = [
-    "ipython",                          # sphinx needs this to render codes
-    "nbsphinx>=0.8.9",
-    "readthedocs-sphinx-search>=0.3.2",
-    "sphinx_rtd_theme",
-    "sphinx-gallery",
-    "sphinx>=5",
-]
-examples = [
-    "arviz",
-    "jupyter",
-    "matplotlib",
-    "pandas",
-    "scikit-learn",
-    "seaborn",
-    "wordcloud",
-]
-
-[project.urls]
-Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
-Discussion = "https://github.com/pyro-ppl/numpyro/discussions"
-Homepage = "https://github.com/pyro-ppl/numpyro"
-Issues = "https://github.com/pyro-ppl/numpyro/issues"
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# NOTE: this can be simplified using src-layout
-[tool.setuptools.packages.find]
-include = ["numpyro*"]
+[tool.mypy]
+ignore_errors = true
+ignore_missing_imports = true
 
-[tool.setuptools]
-include-package-data = true
+[[tool.mypy.overrides]]
+module = [
+    "examples.datasets",
+    "numpyro.contrib.control_flow.*",        # types missing
+    "numpyro.contrib.funsor.*",              # types missing
+    "numpyro.contrib.hsgp.*",
+    "numpyro.contrib.stochastic_support.*",
+    "numpyro.diagnostics.*",
+    "numpyro.handlers.*",
+    "numpyro.infer.elbo.*",
+    "numpyro.optim.*",
+    "numpyro.primitives.*",
+    "numpyro.patch.*",
+    "numpyro.util.*",
+    "numpyro.distributions.constraints",
+    "numpyro.distributions.distribution",
+    "numpyro.distributions.transforms",
+]
+ignore_errors = false
+
+[tool.pytest.ini_options]
+addopts = ["-v", "--color=yes"]
+doctest_optionflags = [
+    "ELLIPSIS",
+    "NORMALIZE_WHITESPACE",
+    "IGNORE_EXCEPTION_DETAIL",
+]
+filterwarnings = [
+    "error",
+    "ignore:.*Attempting to hash a tracer:FutureWarning",
+    "ignore:numpy.ufunc size changed,:RuntimeWarning",
+    "ignore:Using a non-tuple sequence:FutureWarning",
+    "ignore:jax.tree_structure is deprecated:FutureWarning",
+    "ignore:numpy.linalg support is experimental:UserWarning",
+    "ignore:scipy.linalg support is experimental:UserWarning",
+    "once:No GPU:UserWarning",
+    "once::DeprecationWarning",
+]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -135,10 +175,10 @@ extend-include = ["*.ipynb"]
 [tool.ruff.lint]
 select = ["ANN", "E", "F", "I", "W"]
 ignore = [
-    "ANN002", # missing args type annotation
-    "ANN003", # missing kwargs type annotation
-    "ANN204", # missing type annotation for __call__
-    "ANN401", # function arguments are annotated with a more specific type than Any.
+    "ANN002",                         # missing args type annotation
+    "ANN003",                         # missing kwargs type annotation
+    "ANN204",                         # missing type annotation for __call__
+    "ANN401",                         # function arguments are annotated with a more specific type than Any.
     "E203",
 ]
 
@@ -152,23 +192,10 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 [tool.ruff.lint.pycodestyle]
 max-line-length = 120
 
-[tool.ruff.format]
-# Like Black, use double quotes for strings.
-quote-style = "double"
-
-# Like Black, indent with spaces, rather than tabs.
-indent-style = "space"
-
-# Like Black, respect magic trailing commas.
-skip-magic-trailing-comma = false
-
-# Like Black, automatically detect the appropriate line ending.
-line-ending = "auto"
-
 [tool.ruff.lint.per-file-ignores]
 "!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py,distributions/distribution.py}" = [
     "ANN",
-] # require type annotations in typed modules
+]                                                                                                                        # require type annotations in typed modules
 
 [tool.ruff.lint.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
@@ -189,47 +216,30 @@ section-order = [
 ]
 
 [tool.ruff.lint.isort.sections]
-known-jax = ["flax", "haiku", "jax", "optax", "tensorflow_probability"]
+known-jax = ["flax", "jax", "optax", "tensorflow_probability"]
 
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
 
-[tool.pytest.ini_options]
-addopts = ["-v", "--color=yes"]
-filterwarnings = [
-    "error",
-    "ignore:.*Attempting to hash a tracer:FutureWarning",
-    "ignore:numpy.ufunc size changed,:RuntimeWarning",
-    "ignore:Using a non-tuple sequence:FutureWarning",
-    "ignore:jax.tree_structure is deprecated:FutureWarning",
-    "ignore:numpy.linalg support is experimental:UserWarning",
-    "ignore:scipy.linalg support is experimental:UserWarning",
-    "once:No GPU:UserWarning",
-    "once::DeprecationWarning",
-]
-doctest_optionflags = [
-    "ELLIPSIS",
-    "NORMALIZE_WHITESPACE",
-    "IGNORE_EXCEPTION_DETAIL",
-]
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
 
-[tool.mypy]
-ignore_errors = true
-ignore_missing_imports = true
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
 
-[[tool.mypy.overrides]]
-module = [
-    "numpyro.contrib.control_flow.*",       # types missing
-    "numpyro.contrib.funsor.*",             # types missing
-    "numpyro.contrib.hsgp.*",
-    "numpyro.contrib.stochastic_support.*",
-    "numpyro.diagnostics.*",
-    "numpyro.handlers.*",
-    "numpyro.infer.elbo.*",
-    "numpyro.optim.*",
-    "numpyro.primitives.*",
-    "numpyro.patch.*",
-    "numpyro.util.*",
-    "numpyro.distributions.constraints",
-    "numpyro.distributions.distribution",
-    "numpyro.distributions.transforms",
-]
-ignore_errors = false
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "numpyro.version.__version__" }
+
+# NOTE: this can be simplified using src-layout
+[tool.setuptools.packages.find]
+include = ["numpyro*"]
+
+[tool.uv.sources]
+funsor = { git = "https://github.com/pyro-ppl/funsor.git" }

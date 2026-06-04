@@ -203,7 +203,7 @@ class EnsembleSampler(MCMCKernel, ABC):
             active, inactive = jax.lax.cond(
                 i == 0,
                 lambda x: (x[:split_ind], x[split_ind:]),
-                lambda x: (x[split_ind:], x[split_ind:]),
+                lambda x: (x[split_ind:], x[:split_ind]),
                 z_flat,
             )
 
@@ -307,7 +307,7 @@ class AIES(EnsembleSampler):
         return "acc. prob={:.2f}".format(state.inner_state.mean_accept_prob)
 
     def init_inner_state(self, rng_key):
-        # XXX hack -- we don't know num_chains until we init the inner state
+        # Note: hack -- we don't know num_chains until we init the inner state
         self._moves = [
             move(self._num_chains) if move.__name__ == "make_de_move" else move
             for move in self._moves
@@ -370,7 +370,7 @@ class AIES(EnsembleSampler):
                 pairs_key, gamma_key = random.split(rng_key)
                 n_active_chains, n_params = inactive.shape
 
-                # XXX: if we pass in n_params to parent scope we don't need to
+                # Note: if we pass in n_params to parent scope we don't need to
                 # recompute this each time
                 g = 2.38 / jnp.sqrt(2.0 * n_params) if not g0 else g0
 
@@ -535,7 +535,7 @@ class ESS(EnsembleSampler):
     def init_inner_state(self, rng_key):
         self.batch_log_density = lambda x: self._batch_log_density(x)[:, jnp.newaxis]
 
-        # XXX hack -- we don't know num_chains until we init the inner state
+        # Note: hack -- we don't know num_chains until we init the inner state
         self._moves = [
             move(self._num_chains)
             if move.__name__ == "make_differential_move"

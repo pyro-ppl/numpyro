@@ -4,7 +4,12 @@
 import jax
 from jax.api_util import debug_info, flatten_fun, shaped_abstractify
 from jax.extend.core import Literal
-from jax.extend.core.primitives import call_p, closed_call_p, jit_p, xla_pmap_p
+from jax.extend.core.primitives import call_p, closed_call_p, jit_p
+
+try:
+    from jax.extend.core.primitives import xla_pmap_p
+except ImportError:
+    xla_pmap_p = None
 import jax.extend.linear_util as lu
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 
@@ -49,7 +54,7 @@ def eval_provenance(fn, **kwargs):
     wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn, **fn_info), in_tree)
     # Abstract eval to get output pytree
     avals = _safe_map(shaped_abstractify, args)
-    # XXX: we split out the process of abstract evaluation and provenance tracking
+    # Note: we split out the process of abstract evaluation and provenance tracking
     # for simplicity. In principle, they can be merged so that we only need to walk
     # through the equations once.
 
@@ -103,7 +108,7 @@ def track_deps_jaxpr(jaxpr, provenance_inputs):
 track_deps_rules = {}
 
 
-# XXX: Currently, we use default rule for scan_p, cond_p, while_p, remat_p
+# Note: Currently, we use default rule for scan_p, cond_p, while_p, remat_p
 def _default_track_deps_rules(eqn, provenance_inputs):
     provenance_outputs = frozenset().union(*provenance_inputs)
     return [provenance_outputs] * len(eqn.outvars)
@@ -114,7 +119,8 @@ def track_deps_call_rule(eqn, provenance_inputs):
 
 
 track_deps_rules[call_p] = track_deps_call_rule
-track_deps_rules[xla_pmap_p] = track_deps_call_rule
+if xla_pmap_p is not None:
+    track_deps_rules[xla_pmap_p] = track_deps_call_rule
 
 
 def track_deps_closed_call_rule(eqn, provenance_inputs):

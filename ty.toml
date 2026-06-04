@@ -6,20 +6,20 @@ python-version = "3.13"
 # To match mypy's "passing" behavior, we disable ty's stricter rules that mypy doesn't catch.
 [rules]
 unresolved-import = "ignore"
-unused-ignore-comment = "ignore"    # Needed for mypy compatibility
+unused-ignore-comment = "ignore"          # Needed for mypy compatibility
 # Rules that ty catches but mypy doesn't (needed to match mypy's passing behavior)
-invalid-type-form = "ignore"        # ParamSpec usage patterns
-not-subscriptable = "ignore"        # ModelT[P] subscripting
-invalid-assignment = "ignore"       # Implicit shadowing
-possibly-missing-attribute = "warn" # Nullable attribute access
-not-iterable = "ignore"             # Iterator type inference
-invalid-argument-type = "ignore"    # Stricter arg type checking
-no-matching-overload = "ignore"     # Overload resolution
-invalid-return-type = "ignore"      # Return type mismatches
-unresolved-attribute = "ignore"     # Attribute resolution
-invalid-method-override = "ignore"  # Liskov substitution violations
-call-non-callable = "ignore"        # Callable type inference
-unsupported-operator = "ignore"     # Operator type checking
+invalid-type-form = "ignore"              # ParamSpec usage patterns
+not-subscriptable = "ignore"              # ModelT[P] subscripting
+invalid-assignment = "ignore"             # Implicit shadowing
+possibly-missing-attribute = "warn"       # Nullable attribute access
+not-iterable = "ignore"                   # Iterator type inference
+invalid-argument-type = "ignore"          # Stricter arg type checking
+no-matching-overload = "ignore"           # Overload resolution
+invalid-return-type = "ignore"            # Return type mismatches
+unresolved-attribute = "ignore"           # Attribute resolution
+invalid-method-override = "ignore"        # Liskov substitution violations
+call-non-callable = "ignore"              # Callable type inference
+unsupported-operator = "ignore"           # Operator type checking
 too-many-positional-arguments = "ignore"  # Argument count checking
 
 # Check the same modules mypy checks (ignore_errors = false in pyproject.toml)

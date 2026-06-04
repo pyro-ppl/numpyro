@@ -270,7 +270,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
        that site;
     -  "param_constraint" maps each param site to the name of the constraints at
        that site;
-    -  "plate_sample" maps each plate name to a lists of the sample sites
+    -  "plate_sample" maps each plate name to a list of the sample sites
        within that plate; and
     -  "observe" is a list of observed sample sites.
 

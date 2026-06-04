@@ -14,7 +14,7 @@ import numpyro.distributions as dist
 from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple("AdaptWindow", ["start", "end"])
-# XXX: we need to store rng_key here in case we use find_reasonable_step_size functionality
+# Note: we need to store rng_key here in case we use find_reasonable_step_size functionality
 HMCAdaptState = namedtuple(
     "HMCAdaptState",
     [
@@ -214,7 +214,7 @@ def welford_covariance(diagonal=True):
             return cov, cov_inv_sqrt, tril_inv
 
         mean, m2, n = state
-        # XXX it is not necessary to check for the case n=1
+        # Note: it is not necessary to check for the case n=1
         cov = m2 / (n - 1)
         if regularize:
             # Regularization from Stan
@@ -953,7 +953,7 @@ def _leaf_idx_to_ckpt_idxs(n):
     # turning condition;
     # however, we can check the turning condition of the subtree 0 -> 5, which
     # likely satisfies turning condition because its trajectory 3/4 of a circle.
-    # XXX: make sure that detailed balance is satisfied if we follow this direction
+    # Note: make sure that detailed balance is satisfied if we follow this direction
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 

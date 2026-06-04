@@ -222,7 +222,7 @@ def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support
 
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
     # Here we loop over the support of z_flat[idx] to get z_new
-    # XXX: we can't vmap potential_fn over all proposals and sample from the conditional
+    # Note: we can't vmap potential_fn over all proposals and sample from the conditional
     # categorical distribution because support_size is a traced value, i.e. its value
     # might change across different discrete variables;
     # so here we will loop over all proposals and use an online scheme to sample from

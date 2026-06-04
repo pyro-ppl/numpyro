@@ -971,6 +971,8 @@ class substitute(Messenger):
             value = self.substitute_fn(msg)
 
         if value is not None:
+            if msg["type"] == "mutable" and isinstance(value, dict):
+                value = value.copy()
             msg["value"] = value
 
 

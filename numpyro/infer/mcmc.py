@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 from numpyro.diagnostics import print_summary
 from numpyro.util import (
+    _is_under_jax_transform,
     cached_by,
     find_stack_level,
     fori_collect,
@@ -213,7 +214,7 @@ def _collect_and_postprocess(postprocess_fn, collect_fields, remove_sites):
     return collect_and_postprocess
 
 
-# XXX: Is there a better hash key that we can use?
+# Note: Is there a better hash key that we can use?
 def _hashable(x):
     # NOTE: When the arguments are JITed, ShapedArray is hashable.
     if isinstance(x, (np.ndarray, jnp.ndarray)):
@@ -287,6 +288,8 @@ class MCMC(object):
         drawing method, hence allowing us to collect samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
+    :param int progress_rate: Number of iterations per progress bar update. Defaults to None, which is
+        5% of total iterations when there are more than 20 iterations, otherwise every iteration.
     :param bool jit_model_args: If set to `True`, this will compile the potential energy
         computation as a function of model arguments. As such, calling `MCMC.run` again
         on a same sized but different dataset will not result in additional compilation cost.
@@ -331,6 +334,7 @@ class MCMC(object):
         postprocess_fn=None,
         chain_method="parallel",
         progress_bar=True,
+        progress_rate=None,
         jit_model_args=False,
     ):
         self.sampler = sampler
@@ -374,6 +378,7 @@ class MCMC(object):
         self.progress_bar = progress_bar
         if "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
+        self.progress_rate = progress_rate
         self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
@@ -443,7 +448,7 @@ class MCMC(object):
                 )
 
             fns = sample_fn, postprocess_fn
-            if key is not None:
+            if key is not None and not _is_under_jax_transform():
                 self._cache[key] = fns
         return fns
 
@@ -497,6 +502,7 @@ class MCMC(object):
                 postprocess_fn, collect_fields, remove_sites
             ),
             progbar=self.progress_bar,
+            progress_rate=self.progress_rate,
             return_last_val=True,
             thinning=self.thinning,
             collection_size=collection_size,
@@ -534,7 +540,8 @@ class MCMC(object):
         kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
         key = rng_key + args + kwargs
         try:
-            self._init_state_cache[key] = self._last_state
+            if not _is_under_jax_transform():
+                self._init_state_cache[key] = self._last_state
         # If unhashable arguments are provided, return None
         except TypeError:
             pass
@@ -771,7 +778,7 @@ class MCMC(object):
         sites = self._states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
             state_sample_field = attrgetter(self._sample_field)(self._last_state)
-            # XXX: there might be the case that state.z is not a dictionary but
+            # Note: there might be the case that state.z is not a dictionary but
             # its postprocessed value `sites` is a dictionary.
             # TODO: in general, when both `sites` and `state.z` are dictionaries,
             # they can have different key names, not necessary due to deterministic

@@ -123,9 +123,7 @@ class VonMises(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         """Generate sample from von Mises distribution
 
         :param key: random number generator key
@@ -267,9 +265,7 @@ class SineSkewed(Distribution):
             + ")"
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         base_key, skew_key = random.split(key)
         bd = self.base_dist
         ys = bd.sample(base_key, sample_shape)
@@ -447,9 +443,7 @@ class SineBivariateVonMises(Distribution):
         )
         return indv + corr - self.norm_const
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         """
         ** References: **
             1. A New Unified Approach for the Simulation of a Wide Class of Directional Distributions
@@ -613,9 +607,7 @@ class ProjectedNormal(Distribution):
     def mode(self):
         return safe_normalize(self.concentration)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
         return safe_normalize(self.concentration + eps)

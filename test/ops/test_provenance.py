@@ -3,6 +3,7 @@
 
 import inspect
 
+from packaging.version import Version
 import pytest
 
 import jax
@@ -17,6 +18,14 @@ except ImportError:
     debug_info = None
 
 from numpyro.ops.provenance import eval_provenance
+
+_JAX_SUBFUNS_API = Version(jax.__version__) >= Version("0.9.2")
+
+
+def _call_bind(primitive, fn, *args):
+    if _JAX_SUBFUNS_API:
+        return primitive.bind(*args, subfuns=(fn,))
+    return primitive.bind(fn, *args)
 
 
 @pytest.mark.parametrize(
@@ -84,7 +93,7 @@ def test_provenance_call():
             else {}
         )
         fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(id_fn, **id_info), in_tree)
-        out = call_p.bind(fn, *args)
+        out = _call_bind(call_p, fn, *args)
         return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}
@@ -99,7 +108,7 @@ def test_provenance_closed_call():
             else {}
         )
         fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(id_fn, **id_info), in_tree)
-        out = closed_call_p.bind(fn, *args)
+        out = _call_bind(closed_call_p, fn, *args)
         return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}

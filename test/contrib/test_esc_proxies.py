@@ -3,11 +3,12 @@
 
 import pytest
 
+import flax.linen as nn
 from jax import numpy as jnp, random
 
 from numpyro import plate, prng_key, sample
 from numpyro.contrib.ecs_proxies import block_update
-from numpyro.contrib.module import random_haiku_module
+from numpyro.contrib.module import random_flax_module
 from numpyro.distributions import Cauchy, Normal
 from numpyro.handlers import seed
 from numpyro.infer import HMC, HMCECS, MCMC, SVI, Trace_ELBO
@@ -35,40 +36,35 @@ def test_block_update_partitioning(num_blocks):
     assert gibbs_state == new_gibbs_state
 
 
-def test_haiku_compatible():
-    try:
-        import haiku as hk  # noqa: F401
+def test_flax_compatible():
+    data_points = 6
+    x_dim = 4
 
-        data_points = 6
-        x_dim = 4
+    def model(x, y):
+        net = random_flax_module(
+            "net",
+            nn.Dense(features=1),
+            prior={"bias": Cauchy(), "kernel": Normal()},
+            input_shape=(1, x_dim),
+        )
 
-        def model(x, y):
-            net = random_haiku_module(
-                "net",
-                hk.transform(lambda x: hk.Linear(1)(x)),
-                prior={"linear.b": Cauchy(), "linear.w": Normal()},
-                input_shape=(1, x_dim),
-            )
+        with plate("data", data_points, subsample_size=2) as idx:
+            yb = y[idx]
+            xb = x[idx]
+            sample("y", Normal(net(xb).squeeze()), obs=yb)
 
-            with plate("data", data_points, subsample_size=2) as idx:
-                yb = y[idx]
-                xb = x[idx]
-                sample("y", Normal(net(xb).squeeze()), obs=yb)
+    x = jnp.ones((data_points, x_dim))
+    y = jnp.array((data_points, 0))
 
-        x = jnp.ones((data_points, x_dim))
-        y = jnp.array((data_points, 0))
+    with seed(rng_seed=0):
+        svi = SVI(model, AutoDelta(model), Adam(step_size=1e-3), Trace_ELBO())
+        svi_result = svi.run(prng_key(), 1, x, y)
+        ref_params = {
+            k.removesuffix("_auto_loc"): v for k, v in svi_result.params.items()
+        }
 
-        with seed(rng_seed=0):
-            svi = SVI(model, AutoDelta(model), Adam(step_size=1e-3), Trace_ELBO())
-            svi_result = svi.run(prng_key(), 1, x, y)
-            ref_params = {
-                k.removesuffix("_auto_loc"): v for k, v in svi_result.params.items()
-            }
+        proxy = HMCECS.taylor_proxy(ref_params, degree=2)
+        kernel = HMCECS(HMC(model), num_blocks=2, proxy=proxy)
 
-            proxy = HMCECS.taylor_proxy(ref_params, degree=2)
-            kernel = HMCECS(HMC(model), num_blocks=2, proxy=proxy)
-
-            mcmc = MCMC(kernel, num_warmup=2, num_samples=2)
-            mcmc.run(prng_key(), x, y)
-    except ImportError:
-        pass
+        mcmc = MCMC(kernel, num_warmup=2, num_samples=2)
+        mcmc.run(prng_key(), x, y)

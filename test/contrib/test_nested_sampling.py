@@ -11,22 +11,23 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
+import numpyro.distributions as dist
+from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
+_jaxns_available = True
 try:
     if os.environ.get("JAX_ENABLE_X64"):
         from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
 
 except ImportError:
-    pytestmark = pytest.mark.skip(reason="jaxns is not installed")
+    _jaxns_available = False
 
-import numpyro.distributions as dist
-from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning"),
     pytest.mark.filterwarnings("ignore:JAX x64"),
     pytest.mark.skipif(
-        not os.environ.get("JAX_ENABLE_X64"),
+        not os.environ.get("JAX_ENABLE_X64") or not _jaxns_available,
         reason="test suite for jaxns requires double precision",
     ),
 ]

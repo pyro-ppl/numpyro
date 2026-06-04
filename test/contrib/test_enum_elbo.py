@@ -2493,3 +2493,31 @@ def test_guide_plate_contraction():
 
     assert_equal(enum_loss, graph_loss, prec=1e-3)
     assert_equal(enum_grads, graph_grads, prec=2e-2)
+
+
+def test_trace_enum_elbo_with_auxiliary_site():
+    """Regression test for https://github.com/pyro-ppl/numpyro/issues/2013.
+    TraceEnum_ELBO should handle guide sites marked with is_auxiliary=True
+    that have no corresponding site in the model.
+    """
+
+    def model():
+        loc = pyro.sample("loc", dist.Normal(0.0, 1.0))
+        x = pyro.sample(
+            "x",
+            dist.Categorical(jnp.array([0.3, 0.7])),
+            infer={"enumerate": "parallel"},
+        )
+        pyro.sample("obs", dist.Normal(loc + x, 1.0), obs=jnp.array(1.5))
+
+    def guide():
+        aux = pyro.sample(
+            "aux",
+            dist.Normal(jnp.zeros(2), jnp.ones(2)).to_event(1),
+            infer={"is_auxiliary": True},
+        )
+        pyro.sample("loc", dist.Delta(aux[0]))
+
+    elbo = infer.TraceEnum_ELBO()
+    loss = elbo.loss(random.key(0), {}, model, guide)
+    assert jnp.isfinite(loss), f"Expected finite loss, got {loss}"

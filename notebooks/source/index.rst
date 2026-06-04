@@ -18,6 +18,7 @@ Welcome to NumPyro Tutorials!
    bayesian_hierarchical_linear_regression
    discrete_imputation
    model_rendering
+   gpjax_example
    truncated_distributions
 
 

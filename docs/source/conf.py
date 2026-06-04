@@ -95,7 +95,7 @@ autodoc_inherit_docstrings = True
 templates_path = ["_templates"]
 
 # The suffix(es) of source filenames.
-# You can specify multiple suffix as a list of string:
+# You can specify multiple suffixes as a list of strings:
 #
 # source_suffix = ['.rst', '.md']
 # NOTE: `.rst` is the default suffix of sphinx, and nbsphinx will
@@ -325,3 +325,7 @@ intersphinx_mapping = {
 # -- Suppress warnings in Sphinx 7.3.5
 
 suppress_warnings = ["config.cache"]
+
+# Show both class docstring and __init__ docstring in the documentation.
+# source: https://stackoverflow.com/questions/5599254/how-to-use-sphinxs-autodoc-to-document-a-classs-init-self-method
+autoclass_content = "both"

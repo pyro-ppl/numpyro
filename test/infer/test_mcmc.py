@@ -605,10 +605,6 @@ def test_chain(use_init_params, chain_method):
 @pytest.mark.skipif(
     "CI" in os.environ, reason="Compiling time the whole sampling process is slow."
 )
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
-    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
-)
 def test_chain_inside_jit(kernel_cls, chain_method):
     # NB: this feature is useful for consensus MC.
     # Caution: compiling time will be slow (~ 90s)
@@ -664,10 +660,6 @@ def test_chain_inside_jit(kernel_cls, chain_method):
 @pytest.mark.parametrize("compile_args", [False, True])
 @pytest.mark.skipif(
     "CI" in os.environ, reason="Compiling time the whole sampling process is slow."
-)
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
-    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
 )
 def test_chain_jit_args_smoke(chain_method, compile_args):
     def model(data):
@@ -782,10 +774,6 @@ def test_functional_map(algo, map_fn):
 
 @pytest.mark.parametrize("jit_args", [False, True])
 @pytest.mark.parametrize("shape", [50, 100])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
-    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
-)
 def test_reuse_mcmc_run(jit_args, shape):
     y1 = np.random.normal(3, 0.1, (100,))
     y2 = np.random.normal(-3, 0.1, (shape,))
@@ -806,10 +794,6 @@ def test_reuse_mcmc_run(jit_args, shape):
 
 
 @pytest.mark.parametrize("jit_args", [False, True])
-@pytest.mark.xfail(
-    os.getenv("JAX_CHECK_TRACER_LEAKS") == "1",
-    reason="Expected tracer leak: https://github.com/pyro-ppl/numpyro/issues/2000",
-)
 def test_model_with_multiple_exec_paths(jit_args):
     def model(a=None, b=None, z=None):
         int_term = numpyro.sample("a", dist.Normal(0.0, 0.2))
@@ -837,6 +821,46 @@ def test_model_with_multiple_exec_paths(jit_args):
     assert set(mcmc.get_samples()) == {"a", "y", "sigma"}
     mcmc.run(random.key(3), a=a, b=b, z=z)
     assert set(mcmc.get_samples()) == {"a", "x", "y", "sigma"}
+
+
+def test_mcmc_inside_jit_no_tracer_leak():
+    """Regression test for https://github.com/pyro-ppl/numpyro/issues/2000"""
+    from numpyro.infer.mcmc import _collect_and_postprocess
+    from numpyro.util import fori_collect
+
+    def model(data):
+        concentration = jnp.array([1.0, 1.0, 1.0])
+        p_latent = numpyro.sample("p_latent", dist.Dirichlet(concentration))
+        numpyro.sample("obs", dist.Categorical(p_latent), obs=data)
+
+    @jit
+    def get_samples(rng_key, data):
+        kernel = HMC(
+            model, step_size=1.0, trajectory_length=1.0, target_accept_prob=0.8
+        )
+        mcmc = MCMC(
+            kernel,
+            num_warmup=5,
+            num_samples=10,
+            num_chains=1,
+            chain_method="sequential",
+            progress_bar=False,
+        )
+        mcmc.run(rng_key, data)
+        return mcmc.get_samples()
+
+    data = dist.Categorical(jnp.array([0.1, 0.6, 0.3])).sample(random.key(1), (100,))
+    samples = get_samples(random.key(2), data)
+    assert "p_latent" in samples
+
+    # Verify no traced values leaked into module-level caches
+    for cached_fn in [_collect_and_postprocess, fori_collect]:
+        cache = getattr(cached_fn, "_cache", {})
+        leaves = jax.tree.leaves(list(cache.keys()) + list(cache.values()))
+        for leaf in leaves:
+            assert not isinstance(leaf, jax.core.Tracer), (
+                f"Tracer leaked into {cached_fn.__name__}._cache"
+            )
 
 
 @pytest.mark.parametrize("num_chains", [1, 2])

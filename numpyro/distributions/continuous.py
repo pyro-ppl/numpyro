@@ -56,7 +56,7 @@ from jax.scipy.stats import norm as jax_norm
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
-from numpyro.distributions.discrete import _to_logits_bernoulli
+from numpyro.distributions.discrete import HurdleProbs, _to_logits_bernoulli
 from numpyro.distributions.distribution import (
     Distribution,
     TransformedDistribution,
@@ -135,9 +135,7 @@ class AsymmetricLaplace(Distribution):
         z = -jnp.abs(z) / jnp.where(z < 0, self.left_scale, self.right_scale)
         return z - jnp.log(self.left_scale + self.right_scale)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         shape = (2,) + sample_shape + self.batch_shape + self.event_shape
         u, v = random.exponential(key, shape=shape)
@@ -179,6 +177,25 @@ class AsymmetricLaplace(Distribution):
 
 
 class Beta(Distribution):
+    r"""Beta distribution parameterized by concentration parameters alpha (:attr:`concentration1`)
+    and beta (:attr:`concentration0`), on the unit interval :math:`[0,1]`.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \alpha, \beta) = \frac{x^{\alpha - 1} (1 - x)^{\beta - 1}}{\text{B}(\alpha, \beta)}
+
+    Where, :math:`x \in [0, 1]`, :math:`\alpha > 0`, :math:`\beta > 0`,
+    and :math:`\text{B}(\alpha, \beta)` is the Beta function.
+
+    :param concentration1: Alpha parameter (1st shape parameter).
+    :type concentration1: ArrayLike
+    :param concentration0: Beta parameter (2nd shape parameter).
+    :type concentration0: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -207,14 +224,37 @@ class Beta(Distribution):
             jnp.stack([concentration1, concentration0], axis=-1)
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples from the distribution using the underlying Dirichlet implementation.
+
+        Since a :math:`\mathrm{Beta}(\alpha, \beta)` distribution is equivalent to a
+        2-category :math:`\mathrm{Dirichlet}(\alpha, \beta)`, this method samples from
+        the Dirichlet and slices the first component.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Beta distribution of shape ``sample_shape + batch_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         return self._dirichlet.sample(key, sample_shape)[..., 0]
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log of the probability density function.
+
+        To avoid `NaN` gradients at the boundaries :math:`x=0` or :math:`x=1`, this
+        implementation masks boundary values with a safe constant (0.5) during the
+        differentiation path. The forward pass value is then corrected using
+        :func:`~jax.lax.stop_gradient` to ensure numerical stability without sacrificing accuracy.
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: ArrayLike
+        """
         # Use double-where trick to avoid NaN gradients at boundary conditions
         # Reference: https://github.com/tensorflow/probability/blob/main/discussion/where-nan.pdf
         is_boundary = (value == 0.0) | (value == 1.0)
@@ -242,20 +282,48 @@ class Beta(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \frac{\alpha}{\alpha + \beta}
+        """
         return self.concentration1 / (self.concentration1 + self.concentration0)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Calculates the analytical variance.
+
+        .. math:: Var(X) = \frac{\alpha \beta}{(\alpha + \beta)^2 (\alpha + \beta + 1)}
+        """
         total = self.concentration1 + self.concentration0
         return self.concentration1 * self.concentration0 / (total**2 * (total + 1))
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative distribution function using the regularized incomplete beta function.
+
+        .. math:: I_x(\alpha, \beta) = \frac{\text{B}(x; \alpha, \beta)}{\text{B}(\alpha, \beta)}
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return betainc(self.concentration1, self.concentration0, value)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return betaincinv(self.concentration1, self.concentration0, q)
 
     def entropy(self) -> ArrayLike:
+        r"""Entropy of the Beta distribution.
+
+        .. math::
+           H(X) = \ln \text{B}(\alpha, \beta) - (\alpha - 1)\psi(\alpha) -
+           (\beta - 1)\psi(\beta) + (\alpha + \beta - 2)\psi(\alpha + \beta)
+
+        where :math:`\psi` is the digamma function.
+        """
         total = self.concentration0 + self.concentration1
         return (
             betaln(self.concentration0, self.concentration1)
@@ -266,6 +334,27 @@ class Beta(Distribution):
 
 
 class Cauchy(Distribution):
+    r"""Cauchy distribution parameterized by location (:attr:`loc`) and
+    scale (:attr:`scale`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; x_0, \gamma) = \frac{1}{\pi \gamma \left[1 +
+       \left(\frac{x - x_0}{\gamma}\right)^2\right]}
+
+    where :math:`x \in \mathbb{R}`, :math:`x_0 \in \mathbb{R}` is the location,
+    and :math:`\gamma > 0` is the scale. The Cauchy distribution has no finite
+    mean or variance.
+
+    :param loc: Location parameter (:math:`x_0`).
+    :type loc: ArrayLike
+    :param scale: Scale parameter (:math:`\gamma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -283,15 +372,33 @@ class Cauchy(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples using the inverse CDF method via :func:`~jax.random.cauchy`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Cauchy distribution of shape ``sample_shape + batch_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; x_0, \gamma) = -\log(\pi) - \log(\gamma)
+           - \log\!\left[1 + \left(\frac{x - x_0}{\gamma}\right)^2\right]
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: ArrayLike
+        """
         return (
             -jnp.log(jnp.pi)
             - jnp.log(self.scale)
@@ -300,20 +407,51 @@ class Cauchy(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""The mean of the Cauchy distribution is undefined.
+
+        Returns ``NaN`` for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.nan)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""The variance of the Cauchy distribution is undefined.
+
+        Returns ``NaN`` for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.nan)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; x_0, \gamma) = \frac{1}{\pi}\arctan\!\left(\frac{x - x_0}{\gamma}\right)
+           + \frac{1}{2}
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         scaled = (value - self.loc) / self.scale
         return jnp.arctan(scaled) / jnp.pi + 0.5
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; x_0, \gamma) = x_0 + \gamma \tan\!\left[\pi\!\left(q
+           - \frac{1}{2}\right)\right]
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
 
     def entropy(self) -> ArrayLike:
+        r"""Entropy of the Cauchy distribution.
+
+        .. math::
+           H(X) = \log(4\pi\gamma)
+        """
         return jnp.broadcast_to(jnp.log(4 * np.pi * self.scale), self.batch_shape)
 
 
@@ -342,13 +480,13 @@ class Dirichlet(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape
         samples = random.dirichlet(key, self.concentration, shape=shape)
-        return jnp.clip(samples, jnp.finfo(samples).tiny, 1 - jnp.finfo(samples).eps)
+        return jnp.clip(
+            samples, jnp.finfo(samples.dtype).tiny, 1 - jnp.finfo(samples.dtype).eps
+        )
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
@@ -431,9 +569,7 @@ class EulerMaruyama(Distribution):
     def support(self) -> constraints.Constraint:
         return constraints.independent(constraints.real, self.event_dim)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         batch_shape = sample_shape + self.batch_shape
 
@@ -525,6 +661,21 @@ class EulerMaruyama(Distribution):
 
 
 class Exponential(Distribution):
+    r"""Exponential distribution parameterized by rate (:attr:`rate`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \lambda) = \lambda e^{-\lambda x}
+
+    where :math:`x \geq 0` and :math:`\lambda > 0` is the rate parameter.
+
+    :param rate: Rate parameter (:math:`\lambda`), the inverse of the mean.
+    :type rate: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     reparametrized_params = ["rate"]
     arg_constraints = {"rate": constraints.positive}
     support = constraints.positive
@@ -540,9 +691,17 @@ class Exponential(Distribution):
             batch_shape=jnp.shape(rate), validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples by scaling standard exponential draws by the
+        inverse rate: :math:`X = E / \lambda`, where :math:`E \sim \mathrm{Exp}(1)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Exponential distribution of shape ``sample_shape + batch_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         return (
             random.exponential(key, shape=sample_shape + self.batch_shape) / self.rate
@@ -550,23 +709,62 @@ class Exponential(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \lambda) = \log \lambda - \lambda x
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: ArrayLike
+        """
         return jnp.log(self.rate) - self.rate * value
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \frac{1}{\lambda}
+        """
         return jnp.reciprocal(self.rate)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = \frac{1}{\lambda^2}
+        """
         return jnp.reciprocal(self.rate**2)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \lambda) = 1 - e^{-\lambda x}
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return -jnp.expm1(-self.rate * value)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \lambda) = -\frac{\ln(1 - q)}{\lambda}
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return -jnp.log1p(-q) / self.rate
 
     def entropy(self) -> ArrayLike:
+        r"""Entropy of the Exponential distribution.
+
+        .. math::
+           H(X) = 1 - \ln \lambda
+        """
         return 1 - jnp.log(self.rate)
 
 
@@ -599,9 +797,7 @@ class Gamma(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         r"""Method to generate samples :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`.
         It uses :func:`~jax.random.gamma` under the hood to generate samples.
         """
@@ -645,7 +841,7 @@ class Gamma(Distribution):
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
-            \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}
+            \mathrm{Var}(X) = \frac{\alpha}{\lambda^2}
         """
         return self.concentration / jnp.power(self.rate, 2)
 
@@ -694,10 +890,37 @@ class Gamma(Distribution):
 
 
 class Chi2(Gamma):
+    r"""A chi-square continuous random variable, parameterized by the degrees of
+    freedom :math:`k`.
+
+    The Probability Density Function (PDF) of the chi-square distribution with
+    :math:`k` degrees of freedom is defined as:
+
+    .. math::
+        f(x; k) = \frac{x^{k/2 - 1} e^{-x/2}}{2^{k/2}\,\Gamma(k/2)},
+        \quad x > 0
+
+    Where, :math:`k` represents the degrees of freedom (:attr:`df`),
+    :math:`\Gamma(\cdot)` is the gamma function, and :math:`x` is the observed value.
+    The support domain is :math:`x \in (0, \infty)`.
+
+    The chi-square distribution is a special case of the Gamma distribution:
+
+    .. math::
+        \chi^2(k) \equiv \mathrm{Gamma}(k/2,\; 1/2)
+
+    so this class inherits sampling, log-probability, mean, variance, and entropy
+    implementations from :class:`Gamma`.
+    """
+
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
 
     def __init__(self, df: ArrayLike, *, validate_args: Optional[bool] = None) -> None:
+        r"""
+        :param df: Degrees of freedom parameter :math:`k > 0` (:attr:`df`).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
@@ -863,9 +1086,7 @@ class GaussianRandomWalk(Distribution):
             batch_shape, event_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
@@ -908,9 +1129,7 @@ class HalfCauchy(Distribution):
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         return jnp.abs(self._cauchy.sample(key, sample_shape))
 
@@ -951,9 +1170,7 @@ class HalfNormal(Distribution):
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         return jnp.abs(self._normal.sample(key, sample_shape))
 
@@ -1061,9 +1278,7 @@ class Gompertz(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         random_shape = sample_shape + self.batch_shape + self.event_shape
         unifs = random.uniform(key, shape=random_shape)
@@ -1091,6 +1306,22 @@ class Gompertz(Distribution):
 
 
 class Gumbel(Distribution):
+    r"""The Gumbel (maximum) distribution, a continuous real-valued
+    distribution parameterized by location :math:`\mu` and scale :math:`\beta > 0`.
+    It is the limiting distribution of the maximum of a large number of i.i.d.
+    samples from an exponential-tailed distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \beta) = \frac{1}{\beta} \exp\!\left(
+            -\frac{x - \mu}{\beta} - \exp\!\left(-\frac{x - \mu}{\beta}\right)
+        \right), \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`\beta > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -1102,6 +1333,11 @@ class Gumbel(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`\beta > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
 
@@ -1109,9 +1345,16 @@ class Gumbel(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples from the Gumbel distribution via the location-scale
+        transform :math:`X = \mu + \beta Z`, where
+        :math:`Z \sim \mathrm{Gumbel}(0, 1)` is drawn from
+        :func:`~jax.random.gumbel`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Gumbel distribution.
+        """
         assert is_prng_key(key)
         standard_gumbel_sample = random.gumbel(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1120,23 +1363,63 @@ class Gumbel(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability density function at ``value``.
+
+        Letting :math:`z = (x - \mu)/\beta`,
+
+        .. math::
+            \ln f(x \mid \mu, \beta) = -z - e^{-z} - \ln \beta
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Gumbel distribution.
+        """
         z = (value - self.loc) / self.scale
         return -(z + jnp.exp(-z)) - jnp.log(self.scale)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Mean of the Gumbel distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \beta \gamma
+
+        where :math:`\gamma \approx 0.5772\ldots` is the Euler-Mascheroni constant,
+        available at, :data:`~jax.numpy.euler_gamma`.
+        """
         return jnp.broadcast_to(
             self.loc + self.scale * jnp.euler_gamma, self.batch_shape
         )
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Variance of the Gumbel distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\pi^2}{6} \beta^2
+        """
         return jnp.broadcast_to(jnp.pi**2 / 6.0 * self.scale**2, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative Distribution Function (CDF) of the Gumbel distribution:
+
+        .. math::
+            F(x \mid \mu, \beta) = \exp\!\left(-\exp\!\left(-\frac{x - \mu}{\beta}\right)\right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse CDF (quantile function) of the Gumbel distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, \beta) = \mu - \beta \ln(-\ln q),
+            \quad q \in (0, 1)
+
+        :param q: Quantile values in :math:`(0, 1)`.
+        :return: Real-valued quantiles of the Gumbel distribution at ``q``.
+        """
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
@@ -1169,9 +1452,7 @@ class Kumaraswamy(Distribution):
         )
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         finfo = jnp.finfo(jnp.result_type(float))
         u = random.uniform(
@@ -1204,6 +1485,22 @@ class Kumaraswamy(Distribution):
 
 
 class Laplace(Distribution):
+    r"""The Laplace (double-exponential) distribution, a continuous real-valued
+    distribution parameterized by location :math:`\mu` and scale :math:`b > 0`.
+    It is the distribution of the difference of two i.i.d. exponential variates
+    and has heavier tails than the Normal distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, b) = \frac{1}{2 b}
+            \exp\!\left(-\frac{|x - \mu|}{b}\right),
+            \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`b > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -1215,15 +1512,26 @@ class Laplace(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`b > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Laplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples via the location-scale transform
+        :math:`X = \mu + b Z`, where :math:`Z \sim \mathrm{Laplace}(0, 1)` is
+        drawn from :func:`~jax.random.laplace`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Laplace distribution.
+        """
         assert is_prng_key(key)
         eps = random.laplace(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1232,27 +1540,73 @@ class Laplace(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x \mid \mu, b) = -\frac{|x - \mu|}{b} - \ln(2 b)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Laplace distribution.
+        """
         normalize_term = jnp.log(2 * self.scale)
         value_scaled = jnp.abs(value - self.loc) / self.scale
         return -value_scaled - normalize_term
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Mean of the Laplace distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Variance of the Laplace distribution:
+
+        .. math::
+            \mathrm{Var}(X) = 2 b^2
+        """
         return jnp.broadcast_to(2 * self.scale**2, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative Distribution Function (CDF) of the Laplace distribution.
+        Letting :math:`z = (x - \mu)/b`,
+
+        .. math::
+            F(x \mid \mu, b) = \frac{1}{2} - \frac{1}{2}\,
+                \operatorname{sgn}(z)\,\left(e^{-|z|} - 1\right)
+
+        The implementation uses :func:`~jax.numpy.expm1` for numerical
+        stability near :math:`z = 0`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         scaled = (value - self.loc) / self.scale
         return 0.5 - 0.5 * jnp.sign(scaled) * jnp.expm1(-jnp.abs(scaled))
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse CDF (quantile function) of the Laplace distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, b) = \mu - b\,\mathrm{sgn}\left(q - \frac{1}{2}\right)\,
+                \ln\!\left(1 - 2 \left| q - \frac{1}{2} \right| \right),
+            \quad q \in [0, 1]
+
+        :param q: Quantile values in :math:`[0, 1]`.
+        :return: Real-valued quantiles of the Laplace distribution at ``q``.
+        """
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
 
     def entropy(self) -> ArrayLike:
+        r"""Differential entropy of the Laplace distribution:
+
+        .. math::
+            H(X) = \ln(2 b) + 1
+        """
         return jnp.log(2 * self.scale) + 1
 
 
@@ -1442,7 +1796,7 @@ class LKJCholesky(Distribution):
             validate_args=validate_args,
         )
 
-    def _cvine(self, key: jax.dtypes.prng_key, size):
+    def _cvine(self, key: jax.Array, size):
         # C-vine method first uses beta_dist to generate partial correlations,
         # then apply signed stick breaking to transform to cholesky factor.
         # Here is an attempt to prove that using signed stick breaking to
@@ -1463,7 +1817,7 @@ class LKJCholesky(Distribution):
         partial_correlation = 2 * beta_sample - 1  # scale to domain to (-1, 1)
         return signed_stick_breaking_tril(partial_correlation)
 
-    def _onion(self, key: jax.dtypes.prng_key, size):
+    def _onion(self, key: jax.Array, size):
         key_beta, key_normal = random.split(key)
         # Now we generate w term in Algorithm 3.2 of [1].
         beta_sample = self._beta.sample(key_beta, size)
@@ -1489,9 +1843,7 @@ class LKJCholesky(Distribution):
         diag = jnp.ones(cholesky.shape[:-1]).at[..., 1:].set(jnp.sqrt(1 - beta_sample))
         return add_diag(cholesky, diag)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         if self.sample_method == "onion":
             return self._onion(key, sample_shape)
@@ -1575,6 +1927,25 @@ class LogNormal(TransformedDistribution):
 
 
 class Logistic(Distribution):
+    r"""The Logistic distribution, a continuous real-valued distribution
+    parameterized by location :math:`\mu` and scale :math:`s > 0`. Its CDF is
+    the standard logistic (sigmoid) function shifted and scaled to :math:`\mu`,
+    :math:`s`, which makes it the natural latent distribution underlying
+    logistic regression.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, s) = \frac{
+            \exp\!\left(-\displaystyle\frac{x - \mu}{s}\right)
+        }{
+            s \left(1 + \exp\!\left(-\displaystyle\frac{x - \mu}{s}\right)\right)^{2}
+        }, \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`s > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -1586,13 +1957,24 @@ class Logistic(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`s > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Draw samples via the location-scale transform
+        :math:`X = \mu + s Z`, where :math:`Z \sim \mathrm{Logistic}(0, 1)` is
+        drawn from :func:`~jax.random.logistic`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Logistic distribution.
+        """
         assert is_prng_key(key)
         z = random.logistic(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -1601,27 +1983,79 @@ class Logistic(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability density function at ``value``.
+
+        Letting :math:`u = (\mu - x)/s`, the log PDF is
+
+        .. math::
+            \ln f(x \mid \mu, s) = u - \ln s - 2 \ln(1 + e^{u})
+
+        The implementation uses :func:`~jax.nn.softplus` for
+        :math:`\ln(1 + e^{u})`, which is numerically stable for both large
+        positive and large negative values of :math:`u`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Logistic distribution.
+        """
         log_exponent = (self.loc - value) / self.scale
         log_denominator = jnp.log(self.scale) + 2 * nn.softplus(log_exponent)
         return log_exponent - log_denominator
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Mean of the Logistic distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Variance of the Logistic distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\pi^2 s^2}{3}
+        """
         var = (self.scale**2) * (jnp.pi**2) / 3
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative Distribution Function (CDF) of the Logistic distribution.
+        Letting :math:`z = (x - \mu)/s`,
+
+        .. math::
+            F(x \mid \mu, s) = \sigma(z) = \frac{1}{1 + e^{-z}}
+
+        where :math:`\sigma` is the logistic sigmoid, computed via
+        :func:`~jax.scipy.special.expit`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         scaled = (value - self.loc) / self.scale
         return expit(scaled)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse CDF (quantile function) of the Logistic distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, s) = \mu + s\,\operatorname{logit}(q),
+            \quad q \in [0, 1]
+
+        where :math:`\operatorname{logit}(q) = \ln(q / (1 - q))`.
+
+        :param q: Quantile values in :math:`[0, 1]`.
+        :return: Real-valued quantiles of the Logistic distribution at ``q``.
+        """
         return self.loc + self.scale * logit(q)
 
     def entropy(self) -> ArrayLike:
+        r"""Differential entropy of the Logistic distribution:
+
+        .. math::
+            H(X) = \ln(s) + 2
+        """
         return jnp.broadcast_to(jnp.log(self.scale) + 2, self.batch_shape)
 
 
@@ -1773,9 +2207,7 @@ class MatrixNormal(Distribution):
     def mean(self) -> ArrayLike:
         return jnp.broadcast_to(self.loc, self.shape())
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
@@ -1906,9 +2338,7 @@ class MultivariateNormal(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -2086,9 +2516,7 @@ class CAR(Distribution):
                     self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
                 ), "adjacency matrix must be symmetric"
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         # TODO: look into a sparse sampling method
         mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
         return mvn.sample(key, sample_shape=sample_shape)
@@ -2227,9 +2655,7 @@ class MultivariateStudentT(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(
@@ -2439,9 +2865,7 @@ class LowRankMultivariateNormal(Distribution):
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
         return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         key_W, key_D = random.split(key)
         batch_shape = sample_shape + self.batch_shape
@@ -2481,6 +2905,26 @@ class LowRankMultivariateNormal(Distribution):
 
 
 class Normal(Distribution):
+    r"""Normal (Gaussian) distribution parameterized by mean (:attr:`loc`) and
+    standard deviation (:attr:`scale`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \mu, \sigma) = \frac{1}{\sigma \sqrt{2\pi}}
+       \exp\!\left( -\frac{(x - \mu)^2}{2\sigma^2} \right)
+
+    where :math:`x \in \mathbb{R}`, :math:`\mu \in \mathbb{R}` is the mean,
+    and :math:`\sigma > 0` is the standard deviation.
+
+    :param loc: Mean of the distribution (:math:`\mu`).
+    :type loc: ArrayLike
+    :param scale: Standard deviation of the distribution (:math:`\sigma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
@@ -2498,9 +2942,17 @@ class Normal(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples via the reparameterization trick:
+        :math:`X = \mu + \sigma \epsilon`, where :math:`\epsilon \sim \mathcal{N}(0,1)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Normal distribution of shape ``sample_shape + batch_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -2509,29 +2961,83 @@ class Normal(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \mu, \sigma) = -\frac{(x - \mu)^2}{2\sigma^2}
+           - \log(\sigma \sqrt{2\pi})
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: ArrayLike
+        """
         normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled**2 - normalize_term
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \mu, \sigma) = \Phi\!\left(\frac{x-\mu}{\sigma}\right)
+
+        where, :math:`\Phi` is the
+        `cumulative distribution function of standard normal distribution <https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function>`_.
+        Implementation uses :func:`jax.scipy.special.ndtr` for :math:`\Phi`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         scaled = (value - self.loc) / self.scale
         return ndtr(scaled)
 
     def log_cdf(self, value: ArrayLike) -> ArrayLike:
+        r"""Log of the cumulative distribution function. Implementation
+        calls :func:`jax.scipy.stats.norm.logcdf`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return jax_norm.logcdf(value, loc=self.loc, scale=self.scale)
 
     def icdf(self, q: ArrayLike) -> ArrayLike:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \mu, \sigma) = \mu + \sigma\,\Phi^{-1}(q)
+
+        where, :math:`\mathrm{\Phi^{-1}}` is inverse
+        `cumulative distribution function of standard normal distribution <https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function>`_.
+        Implementation uses :func:`jax.scipy.special.ndtri` for :math:`\Phi^{-1}`.
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self.loc + self.scale * ndtri(q)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = \sigma^2
+        """
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
 
     def entropy(self) -> ArrayLike:
+        r"""Entropy of the Normal distribution.
+
+        .. math::
+           H(X) = \frac{1}{2} \ln(2\pi e \sigma^2)
+        """
         return jnp.broadcast_to(
             (jnp.log(2 * np.pi * self.scale**2) + 1) / 2, self.batch_shape
         )
@@ -2646,9 +3152,7 @@ class SoftLaplace(Distribution):
         z = (value - self.loc) / self.scale
         return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -2701,9 +3205,7 @@ class StudentT(Distribution):
         self._chi2 = Chi2(df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(key_normal, shape=sample_shape + self.batch_shape)
@@ -2793,9 +3295,7 @@ class Uniform(Distribution):
     def support(self) -> constraints.Constraint:
         return self._support
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         shape = sample_shape + self.batch_shape
         return random.uniform(key, shape=shape, minval=self.low, maxval=self.high)
 
@@ -2850,9 +3350,7 @@ class Weibull(Distribution):
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         return random.weibull_min(
             key,
@@ -2892,14 +3390,32 @@ class Weibull(Distribution):
 
 
 class BetaProportion(Beta):
-    """
-    The BetaProportion distribution is a reparameterization of the conventional
-    Beta distribution in terms of a the variate mean and a
-    precision parameter.
+    r"""Beta distribution reparameterized in terms of a mean (:attr:`mean`) and a
+    precision (:attr:`concentration`).
 
-    **Reference:**
-     `Beta regression for modelling rates and proportion`, Ferrari Silvia, and
-      Francisco Cribari-Neto. Journal of Applied Statistics  31.7 (2004): 799-815.
+    Given mean :math:`\mu` and precision :math:`\phi`, the standard Beta
+    parameters are derived as:
+
+    .. math::
+       \alpha = \mu \phi, \quad \beta = (1 - \mu) \phi
+
+    The resulting PDF is:
+
+    .. math::
+       f(x; \mu, \phi) =
+       \frac{x^{\mu\phi - 1} (1 - x)^{(1 - \mu)\phi - 1}}{\text{B}(\mu\phi, (1 - \mu)\phi)}
+
+    **Reference**
+
+    Ferrari, Silvia, and Francisco Cribari-Neto. "Beta regression for modelling
+    rates and proportions." *Journal of Applied Statistics* 31.7 (2004): 799-815.
+
+    :param mean: Mean of the distribution, restricted to the open interval (0, 1).
+    :type mean: ArrayLike
+    :param concentration: Precision parameter (:math:`\phi`), must be positive.
+    :type concentration: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
     """
 
     arg_constraints = {
@@ -2978,9 +3494,7 @@ class AsymmetricLaplaceQuantile(Distribution):
             self._validate_sample(value)
         return self._ald.log_prob(value)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         return self._ald.sample(key, sample_shape=sample_shape)
 
     @property
@@ -3294,9 +3808,7 @@ class WishartCholesky(Distribution):
         )
         return cho_solve((self.scale_tril, True), identity)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         # Sample using the Bartlett decomposition
         # (https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition).
@@ -3586,9 +4098,7 @@ class InverseWishartCholesky(Distribution):
         )
         return cho_solve((self.scale_tril, True), identity)
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         assert is_prng_key(key)
         # Sample from standard InverseWishartCholesky using Bartlett decomposition
         # Ref: https://nbviewer.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
@@ -3968,9 +4478,7 @@ class Dagum(Distribution):
         q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
         return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
 
-    def sample(
-        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
-    ) -> jnp.ndarray:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> jnp.ndarray:
         assert is_prng_key(key)
         return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
 
@@ -3994,3 +4502,107 @@ class Dagum(Distribution):
             - jnp.square(self.mean),
             jnp.inf,
         )
+
+
+class HurdleGamma(HurdleProbs):
+    r"""A hurdle Gamma distribution: a two-part model in which a structural zero
+    occurs with probability :math:`g` and, conditional on a positive outcome,
+    the magnitude is drawn from :math:`\mathrm{Gamma}(\alpha, \lambda)`. The
+    hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    Because :math:`P(X = 0) = 0` under a Gamma density, no truncation factor is
+    needed and the PDF is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        f(x) = (1 - g) \,
+        \frac{\lambda^{\alpha} x^{\alpha - 1} e^{-\lambda x}}{\Gamma(\alpha)}
+        \;\text{for } x > 0.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike concentration: shape parameter :math:`\alpha > 0` of the Gamma.
+    :param ArrayLike rate: rate parameter :math:`\lambda > 0` of the Gamma.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {
+        "gate": constraints.unit_interval,
+        "concentration": constraints.positive,
+        "rate": constraints.positive,
+    }
+    support = constraints.nonnegative
+    pytree_data_fields = ("concentration", "rate")
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.concentration, self.rate = promote_shapes(gate, concentration, rate)
+        super().__init__(Gamma(concentration, rate), gate, validate_args=validate_args)
+
+
+class HurdleLogNormal(HurdleProbs):
+    r"""A hurdle Log-Normal distribution: a two-part model in which a structural
+    zero occurs with probability :math:`g` and, conditional on a positive
+    outcome, the magnitude is drawn from :math:`\mathrm{LogNormal}(\mu, \sigma)`.
+    The hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    Because :math:`P(X = 0) = 0` under a Log-Normal density, no truncation factor is
+    needed and the PDF is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        f(x) = (1 - g) \, \frac{1}{x \sigma \sqrt{2 \pi}}
+        \exp\!\left( -\frac{(\ln x - \mu)^2}{2 \sigma^2} \right)
+        \;\text{for } x > 0.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike loc: location parameter :math:`\mu \in \mathbb{R}`
+        (mean of :math:`\ln X` given :math:`X > 0`).
+    :param ArrayLike scale: scale parameter :math:`\sigma > 0`
+        (std-dev of :math:`\ln X` given :math:`X > 0`).
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {
+        "gate": constraints.unit_interval,
+        "loc": constraints.real,
+        "scale": constraints.positive,
+    }
+    support = constraints.nonnegative
+    pytree_data_fields = ("loc", "scale")
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.loc, self.scale = promote_shapes(gate, loc, scale)
+        super().__init__(LogNormal(loc, scale), gate, validate_args=validate_args)

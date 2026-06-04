@@ -393,7 +393,7 @@ def find_valid_initial_params(
         key, subkey = random.split(key)
 
         if radius is None or prototype_params is None:
-            # XXX: we don't want to apply enum to draw latent samples
+            # Note: we don't want to apply enum to draw latent samples
             model_ = model
             if enum:
                 from numpyro.contrib.funsor import enum as enum_handler
@@ -461,7 +461,7 @@ def find_valid_initial_params(
                 if device_get(is_valid):
                     return (init_params, pe, z_grad), is_valid
 
-        # XXX: this requires compiling the model, so for multi-chain, we trace the model 2-times
+        # Note: this requires compiling the model, so for multi-chain, we trace the model 2-times
         # even if the init_state is a valid result
         _, _, (init_params, pe, z_grad), is_valid = while_loop(
             cond_fn, body_fn, init_state
@@ -516,7 +516,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                 support = v["fn"].support
                 with helpful_support_errors(v, raise_warnings=True):
                     inv_transforms[k] = biject_to(support)
-                # XXX: the following code filters out most situations with dynamic supports
+                # Note: the following code filters out most situations with dynamic supports
                 args = ()
                 if isinstance(support, constraints._GreaterThan):
                     args = ("lower_bound",)
@@ -582,7 +582,7 @@ def get_potential_fn(
             _partial_args_kwargs, partial(potential_energy, model, enum=enum)
         )
         if replay_model:
-            # XXX: we seed to sample discrete sites (but not collect them)
+            # Note: we seed to sample discrete sites (but not collect them)
             model_ = seed(model.fn, 0) if enum else model
             postprocess_fn = partial(
                 _partial_args_kwargs,

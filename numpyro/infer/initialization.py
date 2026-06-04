@@ -114,7 +114,7 @@ def init_to_uniform(site=None, radius=2):
             )
             return site["value"]
 
-        # XXX: we import here to avoid circular import
+        # Note: we import here to avoid circular import
         from numpyro.infer.util import helpful_support_errors
 
         rng_key = site["kwargs"].get("rng_key")
