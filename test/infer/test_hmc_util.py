@@ -468,8 +468,13 @@ def test_gaussian_subposterior(method, diagonal):
 
 @pytest.mark.parametrize("method", [consensus, parametric_draws])
 def test_subposterior_structure(method):
+    # use non-degenerate draws so the per-subposterior covariance is invertible
     subposteriors = [
-        {"x": jnp.ones((100, 3)), "y": jnp.zeros((100,))} for i in range(10)
+        {
+            "x": random.normal(random.key(i), (100, 3)),
+            "y": random.normal(random.key(10 + i), (100,)),
+        }
+        for i in range(10)
     ]
     draws = method(subposteriors, num_draws=9)
     assert draws["x"].shape == (9, 3)

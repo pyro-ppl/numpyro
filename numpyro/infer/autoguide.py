@@ -2243,7 +2243,12 @@ class AutoLaplaceApproximation(AutoContinuous):
         Returns a multivariate Normal posterior distribution.
         """
         transform = self.get_transform(params)
-        return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
+        # When the Hessian at the MAP point is singular, ``get_transform`` warns
+        # and falls back to a zeroed ``scale_tril`` (a degenerate, constant
+        # posterior). That fallback is intentional, so skip argument validation.
+        return dist.MultivariateNormal(
+            transform.loc, scale_tril=transform.scale_tril, validate_args=False
+        )
 
     def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         latent_sample = self.get_posterior(params).sample(rng_key, sample_shape)

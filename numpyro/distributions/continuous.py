@@ -654,7 +654,12 @@ class EulerMaruyama(Distribution):
         mu = xtm1 + dt * f
         sigma = jnp.sqrt(dt) * g
 
-        sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
+        # ``mu``/``sigma`` are derived from ``value``; out-of-support values
+        # would make them invalid, so skip validation of this internal
+        # distribution. The public log_prob already validates ``value``.
+        sde_log_prob = (
+            Normal(mu, sigma, validate_args=False).to_event(self.event_dim).log_prob(xt)
+        )
         init_log_prob = self.init_dist.log_prob(value0)
 
         return sde_log_prob + init_log_prob
@@ -1094,9 +1099,14 @@ class GaussianRandomWalk(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
+        # the step distribution uses ``value`` as its location, so out-of-support
+        # values would make it invalid; skip validation of these internal
+        # distributions since the public log_prob already validates ``value``.
+        init_prob = Normal(0.0, self.scale, validate_args=False).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
-        step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
+        step_probs = Normal(value[..., :-1], scale, validate_args=False).log_prob(
+            value[..., 1:]
+        )
         return init_prob + jnp.sum(step_probs, axis=-1)
 
     @property

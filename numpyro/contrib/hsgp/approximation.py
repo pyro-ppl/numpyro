@@ -31,7 +31,12 @@ def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
 
 def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     with numpyro.plate("basis", m):
-        beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
+        # ``spd`` is the square root of the spectral density and can underflow to
+        # exactly 0 for high-frequency basis functions, yielding a benign
+        # zero-variance (degenerate) coefficient. Skip validation for that edge.
+        beta = numpyro.sample(
+            "beta", dist.Normal(loc=0.0, scale=spd, validate_args=False)
+        )
 
     return phi @ beta
 

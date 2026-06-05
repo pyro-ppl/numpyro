@@ -746,7 +746,7 @@ def test_elbo_enumerate_plate_7(scale):
         [[[0.4, 0.6], [0.3, 0.7]], [[0.3, 0.7], [0.2, 0.8]]]
     )
     params["model_probs_e"] = jnp.array([[0.75, 0.25], [0.55, 0.45]])
-    params["guide_probs_a"] = jnp.array([0.35, 0.64])
+    params["guide_probs_a"] = jnp.array([0.35, 0.65])
     params["guide_probs_c"] = jnp.array([[0.0, 1.0], [1.0, 0.0]])  # deterministic
 
     @handlers.scale(scale=scale)
@@ -773,20 +773,18 @@ def test_elbo_enumerate_plate_7(scale):
             constraint=constraints.simplex,
         )
 
-        # Categorical distributions are not normalized here
-        with numpyro.validation_enabled(False):
-            a = pyro.sample("a", dist.Categorical(probs_a))
-            b = pyro.sample(
-                "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
+        a = pyro.sample("a", dist.Categorical(probs_a))
+        b = pyro.sample(
+            "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
+        )
+        with pyro.plate("data", 2):
+            c = pyro.sample("c", dist.Categorical(probs_c[a]))
+            d = pyro.sample(
+                "d",
+                dist.Categorical(Vindex(probs_d)[b, c]),
+                infer={"enumerate": "parallel"},
             )
-            with pyro.plate("data", 2):
-                c = pyro.sample("c", dist.Categorical(probs_c[a]))
-                d = pyro.sample(
-                    "d",
-                    dist.Categorical(Vindex(probs_d)[b, c]),
-                    infer={"enumerate": "parallel"},
-                )
-                pyro.sample("obs", dist.Categorical(probs_e[d]), obs=data)
+            pyro.sample("obs", dist.Categorical(probs_e[d]), obs=data)
 
     @handlers.scale(scale=scale)
     def auto_guide(data, params):
@@ -797,13 +795,9 @@ def test_elbo_enumerate_plate_7(scale):
             "guide_probs_c", params["guide_probs_c"], constraint=constraints.simplex
         )
 
-        # Categorical distributions are not normalized here
-        with numpyro.validation_enabled(False):
-            a = pyro.sample(
-                "a", dist.Categorical(probs_a), infer={"enumerate": "parallel"}
-            )
-            with pyro.plate("data", 2):
-                pyro.sample("c", dist.Categorical(probs_c[a]))
+        a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
+        with pyro.plate("data", 2):
+            pyro.sample("c", dist.Categorical(probs_c[a]))
 
     @handlers.scale(scale=scale)
     def hand_model(data, params):
@@ -829,20 +823,18 @@ def test_elbo_enumerate_plate_7(scale):
             constraint=constraints.simplex,
         )
 
-        # Categorical distributions are not normalized here
-        with numpyro.validation_enabled(False):
-            a = pyro.sample("a", dist.Categorical(probs_a))
-            b = pyro.sample(
-                "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
+        a = pyro.sample("a", dist.Categorical(probs_a))
+        b = pyro.sample(
+            "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
+        )
+        for i in range(2):
+            c = pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
+            d = pyro.sample(
+                f"d_{i}",
+                dist.Categorical(Vindex(probs_d)[b, c]),
+                infer={"enumerate": "parallel"},
             )
-            for i in range(2):
-                c = pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
-                d = pyro.sample(
-                    f"d_{i}",
-                    dist.Categorical(Vindex(probs_d)[b, c]),
-                    infer={"enumerate": "parallel"},
-                )
-                pyro.sample(f"obs_{i}", dist.Categorical(probs_e[d]), obs=data[i])
+            pyro.sample(f"obs_{i}", dist.Categorical(probs_e[d]), obs=data[i])
 
     @handlers.scale(scale=scale)
     def hand_guide(data, params):
@@ -853,13 +845,9 @@ def test_elbo_enumerate_plate_7(scale):
             "guide_probs_c", params["guide_probs_c"], constraint=constraints.simplex
         )
 
-        # Categorical distributions are not normalized here
-        with numpyro.validation_enabled(False):
-            a = pyro.sample(
-                "a", dist.Categorical(probs_a), infer={"enumerate": "parallel"}
-            )
-            for i in range(2):
-                pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
+        a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
+        for i in range(2):
+            pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
 
     data = jnp.array([0, 0])
 
