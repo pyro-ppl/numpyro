@@ -654,12 +654,11 @@ class EulerMaruyama(Distribution):
         mu = xtm1 + dt * f
         sigma = jnp.sqrt(dt) * g
 
-        # ``mu``/``sigma`` are derived from ``value``; out-of-support values
-        # would make them invalid, so skip validation of this internal
-        # distribution. The public log_prob already validates ``value``.
-        sde_log_prob = (
-            Normal(mu, sigma, validate_args=False).to_event(self.event_dim).log_prob(xt)
-        )
+        # Normal is location-invariant, so evaluate the residual under a
+        # zero-mean Normal. This keeps the loc valid even for out-of-support
+        # ``value`` (where ``mu`` would be NaN); the public log_prob's
+        # @validate_sample still warns about out-of-support values.
+        sde_log_prob = Normal(0.0, sigma).to_event(self.event_dim).log_prob(xt - mu)
         init_log_prob = self.init_dist.log_prob(value0)
 
         return sde_log_prob + init_log_prob
@@ -1099,14 +1098,13 @@ class GaussianRandomWalk(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        # the step distribution uses ``value`` as its location, so out-of-support
-        # values would make it invalid; skip validation of these internal
-        # distributions since the public log_prob already validates ``value``.
-        init_prob = Normal(0.0, self.scale, validate_args=False).log_prob(value[..., 0])
+        init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
-        step_probs = Normal(value[..., :-1], scale, validate_args=False).log_prob(
-            value[..., 1:]
-        )
+        # Normal is location-invariant, so evaluate the increments under a
+        # zero-mean Normal. This keeps the loc valid even for out-of-support
+        # ``value``; the public log_prob's @validate_sample still warns about
+        # out-of-support values.
+        step_probs = Normal(0.0, scale).log_prob(value[..., 1:] - value[..., :-1])
         return init_prob + jnp.sum(step_probs, axis=-1)
 
     @property
