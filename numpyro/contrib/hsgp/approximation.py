@@ -33,7 +33,7 @@ def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     # ``spd`` is the square root of the spectral density and can underflow to
     # exactly 0 for high-frequency basis functions; floor it to a tiny positive
     # value so the (degenerate) coefficient keeps a valid positive scale.
-    spd = jnp.clip(spd, min=jnp.finfo(spd.dtype).tiny)
+    spd = jnp.clip(spd, jnp.finfo(spd.dtype).tiny)
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
 
