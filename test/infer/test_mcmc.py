@@ -738,7 +738,9 @@ def test_functional_map(algo, map_fn):
         pytest.skip("pmap test requires device_count greater than 1.")
 
     true_mean, true_std = 1.0, 2.0
-    num_warmup, num_samples = 2000, 10_000
+    # enough samples so the Monte Carlo error on the mean stays within tolerance
+    # for every map_fn (pmap and vmap accumulate floats differently).
+    num_warmup, num_samples = 2000, 15_000
 
     def potential_fn(z):
         return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
