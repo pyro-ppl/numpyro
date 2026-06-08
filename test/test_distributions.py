@@ -2279,6 +2279,23 @@ def test_mean_var(jax_dist, sp_dist, params):
         else 200000
     )
     d_jax = jax_dist(*params)
+
+    # `mean` and `variance`, where implemented, must be arrays whose shape is exactly
+    # `batch_shape + event_shape` -- the same contract `test_dist_shape` enforces for
+    # samples. Checked uniformly here (not per scipy/family branch below) so every
+    # distribution is held to it. Distributions without a closed-form moment raise
+    # `NotImplementedError` and are skipped (e.g. CAR/Gompertz have no `variance`).
+    expected_moment_shape = d_jax.batch_shape + d_jax.event_shape
+    for moment in ("mean", "variance"):
+        try:
+            value = getattr(d_jax, moment)
+        except NotImplementedError:
+            continue
+        assert jnp.shape(value) == expected_moment_shape, (
+            f"{jax_dist.__name__}.{moment} has shape {jnp.shape(value)}, "
+            f"expected batch_shape + event_shape = {expected_moment_shape}"
+        )
+
     k = random.key(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
