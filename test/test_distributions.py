@@ -1664,8 +1664,12 @@ def test_sample_gradient(jax_dist, sp_dist, params):
             continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(repara_params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(repara_params)]
-        fn_lhs = fn(args_lhs)
-        fn_rhs = fn(args_rhs)
+        # the finite-difference reference perturbs parameters off their
+        # constraint manifold (e.g. scale_tril, simplex probs), so disable
+        # validation here; jax.grad above traces and is unaffected.
+        with numpyro.validation_enabled(False):
+            fn_lhs = fn(args_lhs)
+            fn_rhs = fn(args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
@@ -2062,8 +2066,8 @@ def test_beta_binomial_log_prob(total_count, shape):
 @pytest.mark.parametrize("n", [1, 2, 5, 10])
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
 def test_beta_negative_binomial_log_prob(n, shape):
-    concentration0 = np.exp(np.random.normal(size=shape))
-    concentration1 = np.exp(np.random.normal(size=shape))
+    concentration0 = 1 + np.exp(np.random.normal(size=shape))
+    concentration1 = 1 + np.exp(np.random.normal(size=shape))
     value = jnp.arange(15)
 
     num_samples = 300000
@@ -2201,8 +2205,12 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         actual_grad = jax.grad(fn, i)(*params)
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
-        fn_lhs = fn(*args_lhs)
-        fn_rhs = fn(*args_rhs)
+        # the finite-difference reference perturbs parameters off their
+        # constraint manifold (e.g. scale_tril, simplex probs), so disable
+        # validation here; jax.grad above traces and is unaffected.
+        with numpyro.validation_enabled(False):
+            fn_lhs = fn(*args_lhs)
+            fn_rhs = fn(*args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad) == jnp.shape(params[i])
@@ -2503,7 +2511,12 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             # a > 0 and b > 0. Then, make b = a + b.
             valid_params[1] += valid_params[0]
 
-    assert jax_dist(*oob_params)
+    # Out-of-bounds params must still construct when validation is off. Use the
+    # context manager (not the validate_args kwarg) so that compound
+    # distributions, which build internal distributions without forwarding
+    # validate_args, also skip validation.
+    with numpyro.validation_enabled(False):
+        assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
     if not dependent_constraint and (
