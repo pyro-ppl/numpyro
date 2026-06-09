@@ -61,9 +61,15 @@ class BetaBinomial(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        # NB: `total_count` is kept concrete (not coerced to a jax array) because
+        # `enumerate_support` (reused from `BinomialProbs`) needs it concrete; a jax
+        # array becomes a tracer under enumeration / multi-chain `vmap`. The
+        # concentrations are numeric parameters and are coerced.
         self.concentration1, self.concentration0, self.total_count = promote_shapes(
-            concentration1, concentration0, total_count, promote_array=True
+            concentration1, concentration0, total_count
         )
+        self.concentration1 = jnp.asarray(self.concentration1)
+        self.concentration0 = jnp.asarray(self.concentration0)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0), jnp.shape(total_count)
         )

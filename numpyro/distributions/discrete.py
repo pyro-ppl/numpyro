@@ -371,9 +371,13 @@ class BinomialProbs(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.probs, self.total_count = promote_shapes(
-            probs, total_count, promote_array=True
-        )
+        # NB: do not coerce `total_count` to a jax array. `enumerate_support` needs
+        # it concrete (`jnp.arange(total_count + 1)`); a jax array becomes a tracer
+        # under enumeration / multi-chain `vmap` and breaks discrete inference.
+        # `probs` is a numeric parameter and is coerced; the shapes are promoted
+        # jointly so the two still broadcast against each other.
+        self.probs, self.total_count = promote_shapes(probs, total_count)
+        self.probs = jnp.asarray(self.probs)
         batch_shape = lax.broadcast_shapes(jnp.shape(probs), jnp.shape(total_count))
         super(BinomialProbs, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -518,9 +522,10 @@ class BinomialLogits(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.logits, self.total_count = promote_shapes(
-            logits, total_count, promote_array=True
-        )
+        # NB: `total_count` is kept concrete for `enumerate_support` (see
+        # `BinomialProbs`); only `logits` is coerced to a jax array.
+        self.logits, self.total_count = promote_shapes(logits, total_count)
+        self.logits = jnp.asarray(self.logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -963,7 +968,11 @@ class DiscreteUniform(Distribution):
             ``high >= low``. Default is 1.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.low, self.high = promote_shapes(low, high, promote_array=True)
+        # NB: do not coerce `low`/`high` to jax arrays. `enumerate_support` needs
+        # them concrete (it builds the integer range from their values and rejects
+        # tracers); coercing scalar bounds to arrays makes them tracers under
+        # enumeration/`vmap` (e.g. parallel-enumerated `DiscreteUniform`).
+        self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         self._support = constraints.integer_interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
@@ -1043,7 +1052,9 @@ class DiscreteUniform(Distribution):
 
         :return: The mean of the discrete uniform distribution.
         """
-        return self.low + (self.high - self.low) / 2.0
+        # `low`/`high` are kept concrete (not coerced) for `enumerate_support`, so
+        # coerce the result to a jax array here.
+        return jnp.asarray(self.low + (self.high - self.low) / 2.0)
 
     @property
     def variance(self) -> Array:
@@ -1054,7 +1065,7 @@ class DiscreteUniform(Distribution):
 
         :return: The variance of the discrete uniform distribution.
         """
-        return ((self.high - self.low + 1) ** 2 - 1) / 12.0
+        return jnp.asarray(((self.high - self.low + 1) ** 2 - 1) / 12.0)
 
     def enumerate_support(self, expand: bool = True) -> Array:
         r"""Enumerate all values in the support of the discrete uniform distribution.

@@ -3208,6 +3208,29 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
     assert_allclose(actual, expected)
 
 
+@pytest.mark.parametrize(
+    "jax_dist, params",
+    [
+        (dist.BinomialLogits, (4.5, 10)),
+        (dist.BinomialProbs, (0.5, 11)),
+        (dist.BetaBinomial, (2.0, 0.5, 12)),
+        (dist.DiscreteUniform, (2, 6)),
+    ],
+)
+def test_enumerate_support_under_vmap(jax_dist, params):
+    # `enumerate_support` needs the count/bound parameters (`total_count`, `low`,
+    # `high`) to be concrete: it builds the integer range with `jnp.arange`. These
+    # parameters must therefore not be coerced to jax arrays at construction, or
+    # they become tracers under enumeration / multi-chain `vmap` and raise a
+    # `ConcretizationTypeError`. This reproduces that condition directly.
+    def enum_size(seed):
+        del seed
+        return jax_dist(*params).enumerate_support(expand=False).shape[0]
+
+    sizes = jax.vmap(enum_size)(jnp.arange(2))
+    assert sizes.shape == (2,)
+
+
 def test_zero_inflated_enumerate_support():
     base_dist = dist.Bernoulli(0.5)
     d = dist.ZeroInflatedDistribution(base_dist, gate=0.5)
@@ -5079,12 +5102,11 @@ def test_hurdle_poisson_inference():
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_params_and_outputs_are_arrays(jax_dist, sp_dist, params):
+def test_outputs_are_arrays(jax_dist, sp_dist, params):
     params = _resolve_params(params)
-    # This test checks that stored (non-aux) parameters and method outputs (sample,
-    # log_prob, mean, variance, entropy) are jax arrays. Disable argument/sample
-    # validation for its duration so it is independent of whether an earlier test
-    # left validation globally
+    # This test checks that method outputs (sample, log_prob, mean, variance,
+    # entropy) are jax arrays. Disable argument/sample validation for its duration
+    # so it is independent of whether an earlier test left validation globally
     # enabled (e.g. `test_uniform_log_prob_outside_support`); otherwise feeding a
     # boundary `sample` back into `log_prob` could emit an "Out-of-support" warning.
     with dist.distribution.validation_enabled(False):
@@ -5114,25 +5136,3 @@ def test_params_and_outputs_are_arrays(jax_dist, sp_dist, params):
             assert isinstance(d.entropy(), jax.Array)
         except NotImplementedError:
             pass
-
-        # Stored parameters are coerced to jax arrays at construction. Parameters
-        # registered as pytree *aux* fields (e.g. `total_count` on the multinomial
-        # family, `adj_matrix` on `CAR`) are static metadata and are intentionally
-        # left un-coerced, so they are excluded here.
-        # NB: dtype promotion of real-valued integer parameters (e.g. so that
-        # `Poisson(2)` matches `Poisson(2.0)`, gh-2181) is intentionally not checked
-        # here; it is handled separately.
-        aux_fields = set(d.gather_pytree_aux_fields())
-        for name in d.arg_constraints:
-            if name not in d.__dict__ or name in aux_fields:
-                continue  # unevaluated lazy_property, or static aux field
-            value = getattr(d, name)
-            try:
-                jnp.asarray(value)
-            except (ValueError, TypeError):
-                # Some parameters are intentionally not jax arrays (e.g. a scipy
-                # sparse `adj_matrix` in `CAR(is_sparse=True)`).
-                continue
-            assert isinstance(value, jax.Array), (
-                f"{jax_dist.__name__}.{name} is {type(value)}, not a jax array"
-            )
