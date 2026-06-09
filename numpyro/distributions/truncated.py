@@ -52,7 +52,7 @@ class LeftTruncatedDistribution(Distribution):
         self.base_dist: Union[
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
-        (self.low,) = promote_shapes(low, shape=batch_shape)
+        (self.low,) = promote_shapes(low, shape=batch_shape, promote_array=True)
         self._support = constraints.greater_than(low)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -155,7 +155,7 @@ class RightTruncatedDistribution(Distribution):
         self.base_dist: Union[
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
-        (self.high,) = promote_shapes(high, shape=batch_shape)
+        (self.high,) = promote_shapes(high, shape=batch_shape, promote_array=True)
         self._support = constraints.less_than(high)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -249,8 +249,8 @@ class TwoSidedTruncatedDistribution(Distribution):
         self.base_dist: Union[
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
-        (self.low,) = promote_shapes(low, shape=batch_shape)
-        (self.high,) = promote_shapes(high, shape=batch_shape)
+        (self.low,) = promote_shapes(low, shape=batch_shape, promote_array=True)
+        (self.high,) = promote_shapes(high, shape=batch_shape, promote_array=True)
         self._support = constraints.interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -511,7 +511,9 @@ class DoublyTruncatedPowerLaw(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
-        self.alpha, self.low, self.high = promote_shapes(alpha, low, high)
+        self.alpha, self.low, self.high = promote_shapes(
+            alpha, low, high, promote_array=True
+        )
         self._support = constraints.interval(low, high)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(alpha), jnp.shape(low), jnp.shape(high)
@@ -986,7 +988,7 @@ class LowerTruncatedPowerLaw(Distribution):
     def __init__(
         self, alpha: ArrayLike, low: ArrayLike, *, validate_args: Optional[bool] = None
     ):
-        self.alpha, self.low = promote_shapes(alpha, low)
+        self.alpha, self.low = promote_shapes(alpha, low, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(alpha), jnp.shape(low))
         self._support = constraints.greater_than(low)
         super(LowerTruncatedPowerLaw, self).__init__(

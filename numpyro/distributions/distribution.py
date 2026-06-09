@@ -116,7 +116,7 @@ class DistributionMeta(type):
         cls,
         *args: Any,
         **kwargs: Any,
-    ) -> Any:
+    ) -> "Distribution":
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
@@ -276,71 +276,7 @@ class Distribution(metaclass=DistributionMeta):
             self._validate_args = validate_args
         if self._validate_args:
             self.validate_args(strict=False)
-        # Normalize *after* validation: validation of constant parameters relies on
-        # them constant-folding under jit, which only happens while they are still
-        # Python scalars/lists rather than traced jax arrays.
-        self._normalize_args()
         super(Distribution, self).__init__()
-
-    def _normalize_args(self) -> None:
-        """
-        Normalize stored parameters so that every distribution exposes its
-        arguments (and hence ``mean``, ``variance``, ``sample``, ``log_prob`` …)
-        as :class:`jax.Array` rather than Python scalars, lists, or numpy arrays.
-
-        Real-valued (non-discrete) integer parameters are additionally promoted to
-        a floating-point dtype so that, e.g., ``Poisson(2)`` behaves identically to
-        ``Poisson(2.0)`` (see https://github.com/pyro-ppl/numpyro/issues/2181).
-        Parameters constrained to be discrete (counts such as ``total_count``,
-        boolean flags, integer-valued supports) keep their integer/boolean dtype.
-        """
-        float_dtype = jnp.result_type(float)
-        # Parameters registered as pytree *aux* fields are static metadata (e.g.
-        # ``total_count`` on the multinomial family); they must stay hashable and
-        # are not traced, so converting them to jax arrays breaks ``jit``/``vmap``.
-        aux_fields = set(self.gather_pytree_aux_fields())
-        for param, constraint in self._mro_arg_constraints().items():
-            # Only normalize parameters that are stored as plain instance
-            # attributes; skip unevaluated ``lazy_property`` parameters (e.g. the
-            # ``probs``/``logits`` pair) so we neither force their computation nor
-            # shadow the property with a stored value.
-            if param not in self.__dict__ or param in aux_fields:
-                continue
-            try:
-                value = jnp.asarray(getattr(self, param))
-            except (ValueError, TypeError):
-                # Some parameters are intentionally not jax arrays (e.g. a scipy
-                # sparse ``adj_matrix`` in ``CAR(is_sparse=True)``); leave those
-                # untouched rather than fail construction.
-                continue
-            # Promote integer real-valued parameters to float. Discreteness of a
-            # ``dependent`` constraint may be unknown (``is_discrete`` raises); in
-            # that case leave the dtype untouched.
-            try:
-                if not constraint.is_discrete and jnp.issubdtype(
-                    value.dtype, jnp.integer
-                ):
-                    value = value.astype(float_dtype)
-            except NotImplementedError:
-                pass
-            setattr(self, param, value)
-
-    def _mro_arg_constraints(self) -> dict:
-        """
-        Collect ``arg_constraints`` across the full method-resolution order.
-
-        Reparametrizing subclasses (e.g. ``Chi2(Gamma)``,
-        ``NegativeBinomialProbs(GammaPoisson)``) declare their own ``df`` /
-        ``total_count`` constraints but also store the parent's parameters
-        (``concentration``/``rate``) without listing them. Walk the MRO so those
-        inherited parameters are normalized too. Keys seen in a more-derived class
-        take precedence over the same key in a base class.
-        """
-        merged: dict = {}
-        for klass in type(self).__mro__:
-            for param, constraint in getattr(klass, "arg_constraints", {}).items():
-                merged.setdefault(param, constraint)
-        return merged
 
     def get_args(self) -> dict[str, Any]:
         """
@@ -1424,7 +1360,9 @@ class Delta(Distribution):
         event_shape = jnp.shape(v)[batch_dim:]
         self.v = jnp.asarray(v)
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
-        self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
+        self.log_density = promote_shapes(
+            log_density, shape=batch_shape, promote_array=True
+        )[0]
         super(Delta, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
@@ -1474,7 +1412,7 @@ class Unit(Distribution):
     def __init__(self, log_factor: ArrayLike, *, validate_args: bool = False):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
-        self.log_factor = log_factor
+        self.log_factor = jnp.asarray(log_factor)
         super(Unit, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )

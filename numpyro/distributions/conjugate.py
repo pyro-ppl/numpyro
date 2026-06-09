@@ -62,7 +62,7 @@ class BetaBinomial(Distribution):
         validate_args: Optional[bool] = None,
     ):
         self.concentration1, self.concentration0, self.total_count = promote_shapes(
-            concentration1, concentration0, total_count
+            concentration1, concentration0, total_count, promote_array=True
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0), jnp.shape(total_count)
@@ -149,7 +149,7 @@ class BetaNegativeBinomial(Distribution):
         validate_args: Optional[bool] = None,
     ):
         self.concentration1, self.concentration0, self.n = promote_shapes(
-            concentration1, concentration0, n
+            concentration1, concentration0, n, promote_array=True
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0), jnp.shape(n)
@@ -278,7 +278,9 @@ class DirichletMultinomial(Distribution):
             jnp.shape(concentration)[:-1], jnp.shape(total_count)
         )
         concentration_shape = batch_shape + jnp.shape(concentration)[-1:]
-        (self.concentration,) = promote_shapes(concentration, shape=concentration_shape)
+        (self.concentration,) = promote_shapes(
+            concentration, shape=concentration_shape, promote_array=True
+        )
         (self.total_count,) = promote_shapes(total_count, shape=batch_shape)
         self.total_count_max = total_count_max
         concentration = jnp.broadcast_to(self.concentration, concentration_shape)
@@ -356,7 +358,9 @@ class GammaPoisson(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
-        self.concentration, self.rate = promote_shapes(concentration, rate)
+        self.concentration, self.rate = promote_shapes(
+            concentration, rate, promote_array=True
+        )
         self._gamma = Gamma(concentration, rate)
         super(GammaPoisson, self).__init__(
             self._gamma.batch_shape, validate_args=validate_args
@@ -479,7 +483,9 @@ class NegativeBinomialProbs(GammaPoisson):
         *,
         validate_args: Optional[bool] = None,
     ):
-        self.total_count, self.probs = promote_shapes(total_count, probs)
+        self.total_count, self.probs = promote_shapes(
+            total_count, probs, promote_array=True
+        )
         concentration = total_count
         rate = 1.0 / probs - 1.0
         super().__init__(concentration, rate, validate_args=validate_args)
@@ -508,7 +514,9 @@ class NegativeBinomialLogits(GammaPoisson):
         *,
         validate_args: Optional[bool] = None,
     ):
-        self.total_count, self.logits = promote_shapes(total_count, logits)
+        self.total_count, self.logits = promote_shapes(
+            total_count, logits, promote_array=True
+        )
         concentration = total_count
         rate = jnp.exp(-logits)
         super().__init__(concentration, rate, validate_args=validate_args)

@@ -430,7 +430,7 @@ class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
     pytree_data_fields = ("rate",)
 
     def __init__(self, rate, gate_logits, *, validate_args=None):
-        self.rate = rate
+        self.rate = jnp.asarray(rate)
         super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
 
 
@@ -457,8 +457,8 @@ class FoldedNormal(dist.FoldedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
 
     def __init__(self, loc, scale, validate_args=None):
-        self.loc = loc
-        self.scale = scale
+        self.loc = jnp.asarray(loc)
+        self.scale = jnp.asarray(scale)
         super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
 
 
@@ -3402,6 +3402,41 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
 
+def test_multinomial_total_count_static_under_jit():
+    # `total_count` is a static (pytree aux) parameter so that constructing a
+    # Multinomial inside `jit` keeps it concrete. The sampler needs a concrete
+    # `int(np.max(total_count))` to bound its computation and otherwise raises
+    # "Please specify total_count_max". Coercing `total_count` to a jax array at
+    # construction would make it a tracer under `jit` and break this realistic
+    # usage, so this guards against that regression.
+    probs = jnp.array([0.2, 0.3, 0.5])
+
+    @jax.jit
+    def sample(key):
+        return dist.MultinomialProbs(probs, total_count=10).sample(key)
+
+    sample(random.key(0))  # must not raise
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_aux_fields_are_not_jax_arrays(jax_dist, sp_dist, params):
+    # Pytree *aux* fields are static metadata; a jax array stored in one becomes a
+    # tracer under `jit`/`vmap` (and is unhashable), which breaks constructing the
+    # distribution inside a trace. Concrete (numpy/int/...) values are fine -- only
+    # jax arrays are disallowed. This generalizes the multinomial-specific check
+    # above to every distribution.
+    params = _resolve_params(params)
+    d = jax_dist(*params)
+    for name in d.gather_pytree_aux_fields():
+        value = getattr(d, name, None)
+        assert not isinstance(value, jax.Array), (
+            f"{jax_dist.__name__}.{name} is a jax.Array but is a pytree aux field; "
+            f"aux fields must stay concrete (numpy/int/...)."
+        )
+
+
 @pytest.mark.parametrize(
     "method, arg", [("to_event", 1), ("mask", False), ("expand", [5])]
 )
@@ -5092,14 +5127,15 @@ def test_outputs_are_arrays(jax_dist, sp_dist, params):
         except NotImplementedError:
             pass
 
-        # Stored parameters are normalized to jax arrays at construction, and
-        # real-valued (non-discrete) parameters are promoted to a floating-point
-        # dtype so that e.g. `Poisson(2)` matches `Poisson(2.0)` (gh-2181).
-        # Parameters registered as pytree *aux* fields (e.g. `total_count` on the
-        # multinomial family, `adj_matrix` on `CAR`) are static metadata and are
-        # intentionally left un-normalized, so they are excluded here too.
+        # Stored parameters are coerced to jax arrays at construction. Parameters
+        # registered as pytree *aux* fields (e.g. `total_count` on the multinomial
+        # family, `adj_matrix` on `CAR`) are static metadata and are intentionally
+        # left un-coerced, so they are excluded here.
+        # NB: dtype promotion of real-valued integer parameters (e.g. so that
+        # `Poisson(2)` matches `Poisson(2.0)`, gh-2181) is intentionally not checked
+        # here; it is handled separately.
         aux_fields = set(d.gather_pytree_aux_fields())
-        for name, constraint in d.arg_constraints.items():
+        for name in d.arg_constraints:
             if name not in d.__dict__ or name in aux_fields:
                 continue  # unevaluated lazy_property, or static aux field
             value = getattr(d, name)
@@ -5107,18 +5143,8 @@ def test_outputs_are_arrays(jax_dist, sp_dist, params):
                 jnp.asarray(value)
             except (ValueError, TypeError):
                 # Some parameters are intentionally not jax arrays (e.g. a scipy
-                # sparse `adj_matrix` in `CAR(is_sparse=True)`); normalization
-                # skips these, so we do too.
+                # sparse `adj_matrix` in `CAR(is_sparse=True)`).
                 continue
             assert isinstance(value, jax.Array), (
                 f"{jax_dist.__name__}.{name} is {type(value)}, not a jax array"
             )
-            try:
-                is_discrete = constraint.is_discrete
-            except NotImplementedError:
-                continue
-            if not is_discrete:
-                assert jnp.issubdtype(value.dtype, jnp.floating), (
-                    f"{jax_dist.__name__}.{name} has non-float dtype {value.dtype} "
-                    f"despite a continuous constraint"
-                )

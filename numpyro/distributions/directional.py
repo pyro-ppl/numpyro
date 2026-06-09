@@ -115,7 +115,9 @@ class VonMises(Distribution):
         :param loc: center of distribution
         :param concentration: concentration of distribution
         """
-        self.loc, self.concentration = promote_shapes(loc, concentration)
+        self.loc, self.concentration = promote_shapes(
+            loc, concentration, promote_array=True
+        )
 
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(loc))
 
@@ -380,6 +382,7 @@ class SineBivariateVonMises(Distribution):
             correlation = weighted_correlation * jnp.sqrt(
                 phi_concentration * psi_concentration
             )
+        assert correlation  # guaranteed true but required for type narrowing
 
         batch_shape = lax.broadcast_shapes(
             jnp.shape(phi_loc),
@@ -591,7 +594,7 @@ class ProjectedNormal(Distribution):
 
     def __init__(self, concentration: Array, *, validate_args: Optional[bool] = None):
         assert jnp.ndim(concentration) >= 1
-        self.concentration = concentration
+        self.concentration = jnp.asarray(concentration)
         batch_shape = concentration.shape[:-1]
         event_shape = concentration.shape[-1:]
         super().__init__(batch_shape, event_shape, validate_args=validate_args)

@@ -97,7 +97,7 @@ class BernoulliProbs(Distribution):
         :param probs: Success probability in the interval :math:`[0, 1]`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.probs = probs
+        self.probs = jnp.asarray(probs)
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -218,7 +218,7 @@ class BernoulliLogits(Distribution):
         :param logits: Log-odds parameter spanning the full real line :math:`\alpha \in \mathbb{R}`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.logits = logits
+        self.logits = jnp.asarray(logits)
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -371,7 +371,9 @@ class BinomialProbs(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.probs, self.total_count = promote_shapes(probs, total_count)
+        self.probs, self.total_count = promote_shapes(
+            probs, total_count, promote_array=True
+        )
         batch_shape = lax.broadcast_shapes(jnp.shape(probs), jnp.shape(total_count))
         super(BinomialProbs, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -516,7 +518,9 @@ class BinomialLogits(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.logits, self.total_count = promote_shapes(logits, total_count)
+        self.logits, self.total_count = promote_shapes(
+            logits, total_count, promote_array=True
+        )
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -667,7 +671,7 @@ class CategoricalProbs(Distribution):
         """
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
-        self.probs = probs
+        self.probs = jnp.asarray(probs)
         super(CategoricalProbs, self).__init__(
             batch_shape=jnp.shape(self.probs)[:-1], validate_args=validate_args
         )
@@ -800,7 +804,7 @@ class CategoricalLogits(Distribution):
         """
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
-        self.logits = logits
+        self.logits = jnp.asarray(logits)
         super(CategoricalLogits, self).__init__(
             batch_shape=jnp.shape(logits)[:-1], validate_args=validate_args
         )
@@ -959,7 +963,7 @@ class DiscreteUniform(Distribution):
             ``high >= low``. Default is 1.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.low, self.high = promote_shapes(low, high)
+        self.low, self.high = promote_shapes(low, high, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         self._support = constraints.integer_interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
@@ -1125,7 +1129,9 @@ class OrderedLogistic(CategoricalProbs):
             (predictor,) = promote_shapes(predictor, shape=(1,))
         else:
             predictor = predictor[..., None]
-        predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
+        predictor, self.cutpoints = promote_shapes(
+            predictor, cutpoints, promote_array=True
+        )
         self.predictor = predictor[..., 0]
         probs = transforms.SimplexToOrderedTransform(self.predictor).inv(self.cutpoints)
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
@@ -1161,7 +1167,9 @@ class MultinomialProbs(Distribution):
         batch_shape, event_shape = self.infer_shapes(
             jnp.shape(probs), jnp.shape(total_count)
         )
-        self.probs = promote_shapes(probs, shape=batch_shape + jnp.shape(probs)[-1:])[0]
+        self.probs = promote_shapes(
+            probs, shape=batch_shape + jnp.shape(probs)[-1:], promote_array=True
+        )[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         self.total_count_max = total_count_max
         super(MultinomialProbs, self).__init__(
@@ -1234,7 +1242,7 @@ class MultinomialLogits(Distribution):
             jnp.shape(logits), jnp.shape(total_count)
         )
         self.logits = promote_shapes(
-            logits, shape=batch_shape + jnp.shape(logits)[-1:]
+            logits, shape=batch_shape + jnp.shape(logits)[-1:], promote_array=True
         )[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         self.total_count_max = total_count_max
@@ -1349,7 +1357,7 @@ class Poisson(Distribution):
         is_sparse: bool = False,
         validate_args: Optional[bool] = None,
     ):
-        self.rate = rate
+        self.rate = jnp.asarray(rate)
         self.is_sparse = is_sparse
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
@@ -1414,7 +1422,7 @@ class ZeroInflatedProbs(Distribution):
         validate_args: Optional[bool] = None,
     ):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
-        (self.gate,) = promote_shapes(gate, shape=batch_shape)
+        (self.gate,) = promote_shapes(gate, shape=batch_shape, promote_array=True)
         assert base_dist.support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
@@ -1476,7 +1484,9 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
     ):
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
-        (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
+        (self.gate_logits,) = promote_shapes(
+            gate_logits, shape=batch_shape, promote_array=True
+        )
         super().__init__(base_dist, gate, validate_args=validate_args)
 
     @validate_sample
@@ -1530,7 +1540,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(gate, rate, promote_array=True)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -1596,7 +1606,7 @@ class HurdleProbs(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
-        (self.gate,) = promote_shapes(gate, shape=batch_shape)
+        (self.gate,) = promote_shapes(gate, shape=batch_shape, promote_array=True)
         if base_dist.event_shape:
             raise ValueError(
                 "HurdleProbs expected empty base_dist.event_shape but got {}".format(
@@ -1727,7 +1737,9 @@ class HurdleLogits(HurdleProbs):
     ) -> None:
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
-        (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
+        (self.gate_logits,) = promote_shapes(
+            gate_logits, shape=batch_shape, promote_array=True
+        )
         super().__init__(base_dist, gate, validate_args=validate_args)
 
     def _log_gate(self) -> Array:
@@ -1809,7 +1821,7 @@ class HurdlePoisson(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(gate, rate, promote_array=True)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -1818,7 +1830,7 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.probs = probs
+        self.probs = jnp.asarray(probs)
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -1859,7 +1871,7 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.logits = logits
+        self.logits = jnp.asarray(logits)
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )

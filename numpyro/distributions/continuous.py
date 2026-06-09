@@ -114,7 +114,7 @@ class AsymmetricLaplace(Distribution):
             jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
         )
         self.loc, self.scale, self.asymmetry = promote_shapes(
-            loc, scale, asymmetry, shape=batch_shape
+            loc, scale, asymmetry, shape=batch_shape, promote_array=True
         )
         super(AsymmetricLaplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -212,7 +212,7 @@ class Beta(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         self.concentration1, self.concentration0 = promote_shapes(
-            concentration1, concentration0
+            concentration1, concentration0, promote_array=True
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0)
@@ -366,7 +366,7 @@ class Cauchy(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Cauchy, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -472,7 +472,7 @@ class Dirichlet(Distribution):
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."
             )
-        self.concentration = concentration
+        self.concentration = jnp.asarray(concentration)
         batch_shape, event_shape = concentration.shape[:-1], concentration.shape[-1:]
         super(Dirichlet, self).__init__(
             batch_shape=batch_shape,
@@ -550,7 +550,7 @@ class EulerMaruyama(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.t = t
+        self.t = jnp.asarray(t)
         self.sde_fn = sde_fn
         self.init_dist = init_dist
 
@@ -686,7 +686,7 @@ class Exponential(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.rate = rate
+        self.rate = jnp.asarray(rate)
         super(Exponential, self).__init__(
             batch_shape=jnp.shape(rate), validate_args=validate_args
         )
@@ -791,7 +791,9 @@ class Gamma(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.concentration, self.rate = promote_shapes(concentration, rate)
+        self.concentration, self.rate = promote_shapes(
+            concentration, rate, promote_array=True
+        )
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
         super(Gamma, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -921,7 +923,7 @@ class Chi2(Gamma):
         :param df: Degrees of freedom parameter :math:`k > 0` (:attr:`df`).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.df = df
+        self.df = jnp.asarray(df)
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
@@ -979,7 +981,7 @@ class GaussianStateSpace(TransformedDistribution):
         assert transition_matrix.ndim == 2, (
             "`transition_matrix` argument should be a square matrix"
         )
-        self.transition_matrix = transition_matrix
+        self.transition_matrix = jnp.asarray(transition_matrix)
         self._initial_value = initial_value
         # Expand the covariance/precision/scale matrices to the right number of steps.
         args = {
@@ -1079,7 +1081,7 @@ class GaussianRandomWalk(Distribution):
         assert isinstance(num_steps, int) and num_steps > 0, (
             "`num_steps` argument should be a positive integer."
         )
-        self.scale = scale
+        self.scale = jnp.asarray(scale)
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
         super(GaussianRandomWalk, self).__init__(
@@ -1125,7 +1127,7 @@ class HalfCauchy(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         self._cauchy = Cauchy(0.0, scale)
-        self.scale = scale
+        self.scale = jnp.asarray(scale)
         super(HalfCauchy, self).__init__(
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
@@ -1166,7 +1168,7 @@ class HalfNormal(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         self._normal = Normal(0.0, scale)
-        self.scale = scale
+        self.scale = jnp.asarray(scale)
         super(HalfNormal, self).__init__(
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
@@ -1273,7 +1275,9 @@ class Gompertz(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.concentration, self.rate = promote_shapes(concentration, rate)
+        self.concentration, self.rate = promote_shapes(
+            concentration, rate, promote_array=True
+        )
         super(Gompertz, self).__init__(
             batch_shape=lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate)),
             validate_args=validate_args,
@@ -1339,7 +1343,7 @@ class Gumbel(Distribution):
         :param scale: Scale parameter :math:`\beta > 0`. Defaults to ``1.0``.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
 
         super(Gumbel, self).__init__(
@@ -1446,7 +1450,7 @@ class Kumaraswamy(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         self.concentration1, self.concentration0 = promote_shapes(
-            concentration1, concentration0
+            concentration1, concentration0, promote_array=True
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0)
@@ -1518,7 +1522,7 @@ class Laplace(Distribution):
         :param scale: Scale parameter :math:`b > 0`. Defaults to ``1.0``.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Laplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -1757,7 +1761,7 @@ class LKJCholesky(Distribution):
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
         self.dimension = dimension
-        self.concentration = concentration
+        self.concentration = jnp.asarray(concentration)
         batch_shape = jnp.shape(concentration)
         event_shape = (dimension, dimension)
 
@@ -1963,7 +1967,7 @@ class Logistic(Distribution):
         :param scale: Scale parameter :math:`s > 0`. Defaults to ``1.0``.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
@@ -2073,7 +2077,7 @@ class LogUniform(TransformedDistribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         base_dist = Uniform(jnp.log(low), jnp.log(high))
-        self.low, self.high = promote_shapes(low, high)
+        self.low, self.high = promote_shapes(low, high, promote_array=True)
         self._support = constraints.interval(self.low, self.high)
         super(LogUniform, self).__init__(
             base_dist, ExpTransform(), validate_args=validate_args
@@ -2191,12 +2195,18 @@ class MatrixNormal(Distribution):
             jnp.shape(scale_tril_row)[:-2],
             jnp.shape(scale_tril_column)[:-2],
         )
-        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-2:])
+        (self.loc,) = promote_shapes(
+            loc, shape=batch_shape + loc.shape[-2:], promote_array=True
+        )
         (self.scale_tril_row,) = promote_shapes(
-            scale_tril_row, shape=batch_shape + scale_tril_row.shape[-2:]
+            scale_tril_row,
+            shape=batch_shape + scale_tril_row.shape[-2:],
+            promote_array=True,
         )
         (self.scale_tril_column,) = promote_shapes(
-            scale_tril_column, shape=batch_shape + scale_tril_column.shape[-2:]
+            scale_tril_column,
+            shape=batch_shape + scale_tril_column.shape[-2:],
+            promote_array=True,
         )
         super(MatrixNormal, self).__init__(
             batch_shape=batch_shape,
@@ -2321,13 +2331,17 @@ class MultivariateNormal(Distribution):
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
         if covariance_matrix is not None:
-            loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
+            loc, self.covariance_matrix = promote_shapes(
+                loc, covariance_matrix, promote_array=True
+            )
             self.scale_tril = jnp.linalg.cholesky(self.covariance_matrix)
         elif precision_matrix is not None:
-            loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
+            loc, self.precision_matrix = promote_shapes(
+                loc, precision_matrix, promote_array=True
+            )
             self.scale_tril = cholesky_of_inverse(self.precision_matrix)
         elif scale_tril is not None:
-            loc, self.scale_tril = promote_shapes(loc, scale_tril)
+            loc, self.scale_tril = promote_shapes(loc, scale_tril, promote_array=True)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
         )
@@ -2492,9 +2506,11 @@ class CAR(Distribution):
             )
 
         event_shape = jnp.shape(self.adj_matrix)[-1:]
-        (self.loc,) = promote_shapes(loc, shape=batch_shape + event_shape)
+        (self.loc,) = promote_shapes(
+            loc, shape=batch_shape + event_shape, promote_array=True
+        )
         self.correlation, self.conditional_precision = promote_shapes(
-            correlation, conditional_precision, shape=batch_shape
+            correlation, conditional_precision, shape=batch_shape, promote_array=True
         )
 
         super(CAR, self).__init__(
@@ -2643,10 +2659,12 @@ class MultivariateStudentT(Distribution):
         batch_shape = lax.broadcast_shapes(
             jnp.shape(df), jnp.shape(loc)[:-1], jnp.shape(scale_tril)[:-2]
         )
-        (self.df,) = promote_shapes(df, shape=batch_shape)
-        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-1:])
+        (self.df,) = promote_shapes(df, shape=batch_shape, promote_array=True)
+        (self.loc,) = promote_shapes(
+            loc, shape=batch_shape + loc.shape[-1:], promote_array=True
+        )
         (self.scale_tril,) = promote_shapes(
-            scale_tril, shape=batch_shape + scale_tril.shape[-2:]
+            scale_tril, shape=batch_shape + scale_tril.shape[-2:], promote_array=True
         )
         event_shape = jnp.shape(self.scale_tril)[-1:]
         self._chi2 = Chi2(self.df)
@@ -2807,15 +2825,18 @@ class LowRankMultivariateNormal(Distribution):
             )
 
         loc, cov_factor, cov_diag = promote_shapes(
-            loc[..., jnp.newaxis], cov_factor, cov_diag[..., jnp.newaxis]
+            loc[..., jnp.newaxis],
+            cov_factor,
+            cov_diag[..., jnp.newaxis],
+            promote_array=True,
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(cov_factor), jnp.shape(cov_diag)
         )[:-2]
         self.loc = loc[..., 0]
-        self.cov_factor = cov_factor
+        self.cov_factor = jnp.asarray(cov_factor)
         cov_diag = cov_diag[..., 0]
-        self.cov_diag = cov_diag
+        self.cov_diag = jnp.asarray(cov_diag)
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
         super(LowRankMultivariateNormal, self).__init__(
             batch_shape=batch_shape,
@@ -2937,7 +2958,7 @@ class Normal(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -3055,7 +3076,7 @@ class Pareto(TransformedDistribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.scale, self.alpha = promote_shapes(scale, alpha)
+        self.scale, self.alpha = promote_shapes(scale, alpha, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
         scale, alpha = (
             jnp.broadcast_to(scale, batch_shape),
@@ -3099,7 +3120,9 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.temperature, self.logits = promote_shapes(temperature, logits)
+        self.temperature, self.logits = promote_shapes(
+            temperature, logits, promote_array=True
+        )
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
@@ -3144,7 +3167,7 @@ class SoftLaplace(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
@@ -3200,7 +3223,7 @@ class StudentT(Distribution):
             jnp.shape(df), jnp.shape(loc), jnp.shape(scale)
         )
         self.df, self.loc, self.scale = promote_shapes(
-            df, loc, scale, shape=batch_shape
+            df, loc, scale, shape=batch_shape, promote_array=True
         )
         df = jnp.broadcast_to(df, batch_shape)
         self._chi2 = Chi2(df)
@@ -3287,7 +3310,7 @@ class Uniform(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.low, self.high = promote_shapes(low, high)
+        self.low, self.high = promote_shapes(low, high, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         self._support = constraints.interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
@@ -3347,7 +3370,9 @@ class Weibull(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.concentration, self.scale = promote_shapes(concentration, scale)
+        self.concentration, self.scale = promote_shapes(
+            concentration, scale, promote_array=True
+        )
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
@@ -3481,7 +3506,7 @@ class AsymmetricLaplaceQuantile(Distribution):
             jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
         )
         self.loc, self.scale, self.quantile = promote_shapes(
-            loc, scale, quantile, shape=batch_shape
+            loc, scale, quantile, shape=batch_shape, promote_array=True
         )
         super(AsymmetricLaplaceQuantile, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
@@ -3587,7 +3612,7 @@ class ZeroSumNormal(TransformedDistribution):
     ) -> None:
         event_ndim = len(event_shape)
         transformed_shape = tuple(size - 1 for size in event_shape)
-        self.scale = scale
+        self.scale = jnp.asarray(scale)
         super().__init__(
             Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
             ZeroSumTransform(event_ndim),
@@ -3750,15 +3775,17 @@ class WishartCholesky(Distribution):
         concentration = jnp.asarray(concentration)[..., None, None]
         if scale_matrix is not None:
             concentration, self.scale_matrix = promote_shapes(
-                concentration, scale_matrix
+                concentration, scale_matrix, promote_array=True
             )
             self.scale_tril = jnp.linalg.cholesky(self.scale_matrix)
         elif rate_matrix is not None:
-            concentration, self.rate_matrix = promote_shapes(concentration, rate_matrix)
+            concentration, self.rate_matrix = promote_shapes(
+                concentration, rate_matrix, promote_array=True
+            )
             self.scale_tril = cholesky_of_inverse(self.rate_matrix)
         elif scale_tril is not None:
             concentration, self.scale_tril = promote_shapes(
-                concentration, jnp.asarray(scale_tril)
+                concentration, jnp.asarray(scale_tril), promote_array=True
             )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration)[:-2], jnp.shape(self.scale_tril)[:-2]
@@ -4045,15 +4072,17 @@ class InverseWishartCholesky(Distribution):
         concentration = jnp.asarray(concentration)[..., None, None]
         if scale_matrix is not None:
             concentration, self.scale_matrix = promote_shapes(
-                concentration, scale_matrix
+                concentration, scale_matrix, promote_array=True
             )
             self.scale_tril = jnp.linalg.cholesky(self.scale_matrix)
         elif rate_matrix is not None:
-            concentration, self.rate_matrix = promote_shapes(concentration, rate_matrix)
+            concentration, self.rate_matrix = promote_shapes(
+                concentration, rate_matrix, promote_array=True
+            )
             self.scale_tril = cholesky_of_inverse(self.rate_matrix)
         elif scale_tril is not None:
             concentration, self.scale_tril = promote_shapes(
-                concentration, jnp.asarray(scale_tril)
+                concentration, jnp.asarray(scale_tril), promote_array=True
             )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration)[:-2], jnp.shape(self.scale_tril)[:-2]
@@ -4194,7 +4223,7 @@ class Levy(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        self.loc, self.scale = promote_shapes(loc, scale)
+        self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         self._support = constraints.greater_than(loc)
         super(Levy, self).__init__(batch_shape, validate_args=validate_args)
@@ -4335,9 +4364,11 @@ class CirculantNormal(TransformedDistribution):
         if covariance_rfft is None:
             # Evaluate `covariance_rfft` if not provided and validate.
             assert covariance_row.shape[-1] == n
-            loc, covariance_row = promote_shapes(loc, covariance_row)
+            loc, covariance_row = promote_shapes(
+                loc, covariance_row, promote_array=True
+            )
             covariance_rfft = jnp.fft.rfft(covariance_row).real
-            self.covariance_row = covariance_row
+            self.covariance_row = jnp.asarray(covariance_row)
         else:
             # The `covariance_rfft` and `loc` are not promotable because the trailing
             # dimension does not match. We manually retrieve the shapes and then
@@ -4350,8 +4381,8 @@ class CirculantNormal(TransformedDistribution):
                 covariance_rfft, covariance_rfft_shape + (n_rfft,)
             )
 
-        self.loc = loc
-        self.covariance_rfft = covariance_rfft
+        self.loc = jnp.asarray(loc)
+        self.covariance_rfft = jnp.asarray(covariance_rfft)
 
         # Construct the base distribution.
         n_imag = n - n_rfft
@@ -4449,7 +4480,7 @@ class Dagum(Distribution):
            https://en.wikipedia.org/wiki/Dagum_distribution
         """
         self.concentration, self.sharpness, self.scale = promote_shapes(
-            concentration, sharpness, scale
+            concentration, sharpness, scale, promote_array=True
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration), jnp.shape(sharpness), jnp.shape(scale)
@@ -4552,7 +4583,9 @@ class HurdleGamma(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.concentration, self.rate = promote_shapes(gate, concentration, rate)
+        _, self.concentration, self.rate = promote_shapes(
+            gate, concentration, rate, promote_array=True
+        )
         super().__init__(Gamma(concentration, rate), gate, validate_args=validate_args)
 
 
@@ -4605,5 +4638,5 @@ class HurdleLogNormal(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.loc, self.scale = promote_shapes(gate, loc, scale)
+        _, self.loc, self.scale = promote_shapes(gate, loc, scale, promote_array=True)
         super().__init__(LogNormal(loc, scale), gate, validate_args=validate_args)
