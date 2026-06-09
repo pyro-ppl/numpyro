@@ -128,27 +128,27 @@ class AsymmetricLaplace(Distribution):
     def right_scale(self):
         return self.scale / self.asymmetry
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         if self._validate_args:
             self._validate_sample(value)
         z = value - self.loc
         z = -jnp.abs(z) / jnp.where(z < 0, self.left_scale, self.right_scale)
         return z - jnp.log(self.left_scale + self.right_scale)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         shape = (2,) + sample_shape + self.batch_shape + self.event_shape
         u, v = random.exponential(key, shape=shape)
         return self.loc - self.left_scale * u + self.right_scale * v
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         total_scale = self.left_scale + self.right_scale
         mean = self.loc + (self.right_scale**2 - self.left_scale**2) / total_scale
         return jnp.broadcast_to(mean, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         left = self.left_scale
         right = self.right_scale
         total = left + right
@@ -157,7 +157,7 @@ class AsymmetricLaplace(Distribution):
         variance = p * left**2 + q * right**2 + p * q * total**2
         return jnp.broadcast_to(variance, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         z = value - self.loc
         k = self.asymmetry
         return jnp.where(
@@ -166,7 +166,7 @@ class AsymmetricLaplace(Distribution):
             k**2 / (1 + k**2) * jnp.exp(-jnp.abs(z) / self.left_scale),
         )
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         k = self.asymmetry
         temp = k**2 / (1 + k**2)
         return jnp.where(
@@ -224,7 +224,7 @@ class Beta(Distribution):
             jnp.stack([concentration1, concentration0], axis=-1)
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Generates samples from the distribution using the underlying Dirichlet implementation.
 
         Since a :math:`\mathrm{Beta}(\alpha, \beta)` distribution is equivalent to a
@@ -236,13 +236,13 @@ class Beta(Distribution):
         :param sample_shape: The shape of the samples to be generated.
         :type sample_shape: tuple[int, ...]
         :return: Samples from the Beta distribution of shape ``sample_shape + batch_shape``.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         assert is_prng_key(key)
         return self._dirichlet.sample(key, sample_shape)[..., 0]
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Calculates the log of the probability density function.
 
         To avoid `NaN` gradients at the boundaries :math:`x=0` or :math:`x=1`, this
@@ -253,7 +253,7 @@ class Beta(Distribution):
         :param value: Values at which to evaluate the log density.
         :type value: ArrayLike
         :return: Log probability density.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         # Use double-where trick to avoid NaN gradients at boundary conditions
         # Reference: https://github.com/tensorflow/probability/blob/main/discussion/where-nan.pdf
@@ -281,7 +281,7 @@ class Beta(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Calculates the analytical mean.
 
         .. math:: E[X] = \frac{\alpha}{\alpha + \beta}
@@ -289,7 +289,7 @@ class Beta(Distribution):
         return self.concentration1 / (self.concentration1 + self.concentration0)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Calculates the analytical variance.
 
         .. math:: Var(X) = \frac{\alpha \beta}{(\alpha + \beta)^2 (\alpha + \beta + 1)}
@@ -297,7 +297,7 @@ class Beta(Distribution):
         total = self.concentration1 + self.concentration0
         return self.concentration1 * self.concentration0 / (total**2 * (total + 1))
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function using the regularized incomplete beta function.
 
         .. math:: I_x(\alpha, \beta) = \frac{\text{B}(x; \alpha, \beta)}{\text{B}(\alpha, \beta)}
@@ -307,7 +307,7 @@ class Beta(Distribution):
         """
         return betainc(self.concentration1, self.concentration0, value)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         :param q: Probability value in :math:`[0,1]`.
@@ -315,7 +315,7 @@ class Beta(Distribution):
         """
         return betaincinv(self.concentration1, self.concentration0, q)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""Entropy of the Beta distribution.
 
         .. math::
@@ -372,7 +372,7 @@ class Cauchy(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Generates samples using the inverse CDF method via :func:`~jax.random.cauchy`.
 
         :param key: JAX PRNGKey for reproducibility.
@@ -380,14 +380,14 @@ class Cauchy(Distribution):
         :param sample_shape: The shape of the samples to be generated.
         :type sample_shape: tuple[int, ...]
         :return: Samples from the Cauchy distribution of shape ``sample_shape + batch_shape``.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         assert is_prng_key(key)
         eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Calculates the log of the probability density function.
 
         .. math::
@@ -397,7 +397,7 @@ class Cauchy(Distribution):
         :param value: Values at which to evaluate the log density.
         :type value: ArrayLike
         :return: Log probability density.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         return (
             -jnp.log(jnp.pi)
@@ -406,7 +406,7 @@ class Cauchy(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""The mean of the Cauchy distribution is undefined.
 
         Returns ``NaN`` for all batch elements.
@@ -414,14 +414,14 @@ class Cauchy(Distribution):
         return jnp.full(self.batch_shape, jnp.nan)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""The variance of the Cauchy distribution is undefined.
 
         Returns ``NaN`` for all batch elements.
         """
         return jnp.full(self.batch_shape, jnp.nan)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function.
 
         .. math::
@@ -434,7 +434,7 @@ class Cauchy(Distribution):
         scaled = (value - self.loc) / self.scale
         return jnp.arctan(scaled) / jnp.pi + 0.5
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         .. math::
@@ -446,7 +446,7 @@ class Cauchy(Distribution):
         """
         return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""Entropy of the Cauchy distribution.
 
         .. math::
@@ -480,7 +480,7 @@ class Dirichlet(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape
         samples = random.dirichlet(key, self.concentration, shape=shape)
@@ -489,7 +489,7 @@ class Dirichlet(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         normalize_term = jnp.sum(gammaln(self.concentration), axis=-1) - gammaln(
             jnp.sum(self.concentration, axis=-1)
         )
@@ -499,11 +499,11 @@ class Dirichlet(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.concentration / jnp.sum(self.concentration, axis=-1, keepdims=True)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
         return self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
 
@@ -513,7 +513,7 @@ class Dirichlet(Distribution):
         event_shape = concentration[-1:]
         return batch_shape, event_shape
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         (n,) = self.event_shape
         total = self.concentration.sum(axis=-1)
         return (
@@ -569,7 +569,7 @@ class EulerMaruyama(Distribution):
     def support(self) -> constraints.Constraint:
         return constraints.independent(constraints.real, self.event_dim)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         batch_shape = sample_shape + self.batch_shape
 
@@ -609,7 +609,7 @@ class EulerMaruyama(Distribution):
         return sde_out
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         sample_shape = lax.broadcast_shapes(
             value.shape[: -self.event_dim], self.batch_shape
         )
@@ -691,7 +691,7 @@ class Exponential(Distribution):
             batch_shape=jnp.shape(rate), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Generates samples by scaling standard exponential draws by the
         inverse rate: :math:`X = E / \lambda`, where :math:`E \sim \mathrm{Exp}(1)`.
 
@@ -700,7 +700,7 @@ class Exponential(Distribution):
         :param sample_shape: The shape of the samples to be generated.
         :type sample_shape: tuple[int, ...]
         :return: Samples from the Exponential distribution of shape ``sample_shape + batch_shape``.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         assert is_prng_key(key)
         return (
@@ -708,7 +708,7 @@ class Exponential(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Calculates the log of the probability density function.
 
         .. math::
@@ -717,12 +717,12 @@ class Exponential(Distribution):
         :param value: Values at which to evaluate the log density.
         :type value: ArrayLike
         :return: Log probability density.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         return jnp.log(self.rate) - self.rate * value
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Calculates the analytical mean.
 
         .. math:: E[X] = \frac{1}{\lambda}
@@ -730,14 +730,14 @@ class Exponential(Distribution):
         return jnp.reciprocal(self.rate)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Calculates the analytical variance.
 
         .. math:: \mathrm{Var}(X) = \frac{1}{\lambda^2}
         """
         return jnp.reciprocal(self.rate**2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function.
 
         .. math::
@@ -748,7 +748,7 @@ class Exponential(Distribution):
         """
         return -jnp.expm1(-self.rate * value)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         .. math::
@@ -759,7 +759,7 @@ class Exponential(Distribution):
         """
         return -jnp.log1p(-q) / self.rate
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""Entropy of the Exponential distribution.
 
         .. math::
@@ -797,7 +797,7 @@ class Gamma(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Method to generate samples :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`.
         It uses :func:`~jax.random.gamma` under the hood to generate samples.
         """
@@ -806,7 +806,7 @@ class Gamma(Distribution):
         return random.gamma(key, self.concentration, shape=shape) / self.rate
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -828,7 +828,7 @@ class Gamma(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -837,7 +837,7 @@ class Gamma(Distribution):
         return self.concentration / self.rate
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -858,7 +858,7 @@ class Gamma(Distribution):
         """
         return gammainc(self.concentration, self.rate * x)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -871,7 +871,7 @@ class Gamma(Distribution):
         """
         return gammaincinv(self.concentration, q) / self.rate
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -1014,7 +1014,7 @@ class GaussianStateSpace(TransformedDistribution):
         return self._initial_value
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # If there's no initial value, the mean is zero (base distribution mean).
         if self._initial_value is None:
             return self.base_dist.mean
@@ -1031,7 +1031,7 @@ class GaussianStateSpace(TransformedDistribution):
         return jnp.moveaxis(means, 0, -2)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         # Given z_t = z_0 + \sum_{k=1}^t A^{t-k} \epsilon_t, the covariance of the state
         # vector at step t is E[z_t transpose(z_t)] = \sum_{k,k'}^t A^{t-k}
         # E[\epsilon_k transpose(\epsilon_{k'})] transpose(A^{t-k'}). We only have
@@ -1086,25 +1086,25 @@ class GaussianRandomWalk(Distribution):
             batch_shape, event_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
         return jnp.cumsum(walks, axis=-1) * jnp.expand_dims(self.scale, axis=-1)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
         step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
         return init_prob + jnp.sum(step_probs, axis=-1)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(
             jnp.expand_dims(self.scale, -1) ** 2 * jnp.arange(1, self.num_steps + 1),
             self.batch_shape + self.event_shape,
@@ -1129,26 +1129,26 @@ class HalfCauchy(Distribution):
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         return jnp.abs(self._cauchy.sample(key, sample_shape))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         return self._cauchy.log_prob(value) + jnp.log(2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return self._cauchy.cdf(value) * 2 - 1
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         return self._cauchy.icdf((q + 1) / 2)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.full(self.batch_shape, jnp.inf)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.full(self.batch_shape, jnp.inf)
 
 
@@ -1175,21 +1175,21 @@ class HalfNormal(Distribution):
         return jnp.abs(self._normal.sample(key, sample_shape))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         return self._normal.log_prob(value) + jnp.log(2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return self._normal.cdf(value) * 2 - 1
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         return self._normal.icdf((q + 1) / 2)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.sqrt(2 / jnp.pi) * self.scale
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (1 - 2 / jnp.pi) * self.scale**2
 
 
@@ -1222,18 +1222,18 @@ class InverseGamma(TransformedDistribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # mean is inf for alpha <= 1
         a = self.rate / (self.concentration - 1)
         return jnp.where(self.concentration <= 1, jnp.inf, a)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return (
             self.concentration
             + jnp.log(self.rate)
@@ -1278,14 +1278,14 @@ class Gompertz(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         random_shape = sample_shape + self.batch_shape + self.event_shape
         unifs = random.uniform(key, shape=random_shape)
         return self.icdf(unifs)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         scaled_value = value * self.rate
         return (
             jnp.log(self.concentration)
@@ -1294,14 +1294,14 @@ class Gompertz(Distribution):
             - self.concentration * jnp.expm1(scaled_value)
         )
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         return jnp.log1p(-jnp.log1p(-q) / self.concentration) / self.rate
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
 
@@ -1345,7 +1345,7 @@ class Gumbel(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Gumbel distribution via the location-scale
         transform :math:`X = \mu + \beta Z`, where
         :math:`Z \sim \mathrm{Gumbel}(0, 1)` is drawn from
@@ -1362,7 +1362,7 @@ class Gumbel(Distribution):
         return self.loc + self.scale * standard_gumbel_sample
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability density function at ``value``.
 
         Letting :math:`z = (x - \mu)/\beta`,
@@ -1377,7 +1377,7 @@ class Gumbel(Distribution):
         return -(z + jnp.exp(-z)) - jnp.log(self.scale)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Mean of the Gumbel distribution:
 
         .. math::
@@ -1391,7 +1391,7 @@ class Gumbel(Distribution):
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Variance of the Gumbel distribution:
 
         .. math::
@@ -1399,7 +1399,7 @@ class Gumbel(Distribution):
         """
         return jnp.broadcast_to(jnp.pi**2 / 6.0 * self.scale**2, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative Distribution Function (CDF) of the Gumbel distribution:
 
         .. math::
@@ -1410,7 +1410,7 @@ class Gumbel(Distribution):
         """
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse CDF (quantile function) of the Gumbel distribution:
 
         .. math::
@@ -1452,7 +1452,7 @@ class Kumaraswamy(Distribution):
         )
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         finfo = jnp.finfo(jnp.result_type(float))
         u = random.uniform(
@@ -1463,7 +1463,7 @@ class Kumaraswamy(Distribution):
         return jnp.clip(jnp.exp(log_sample), finfo.tiny, 1 - finfo.eps)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         finfo = jnp.finfo(jnp.result_type(float))
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
         value_con1 = jnp.clip(value**self.concentration1, None, 1 - finfo.eps)
@@ -1474,12 +1474,12 @@ class Kumaraswamy(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         log_beta = betaln(1 + 1 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
 
@@ -1523,7 +1523,7 @@ class Laplace(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples via the location-scale transform
         :math:`X = \mu + b Z`, where :math:`Z \sim \mathrm{Laplace}(0, 1)` is
         drawn from :func:`~jax.random.laplace`.
@@ -1539,7 +1539,7 @@ class Laplace(Distribution):
         return self.loc + eps * self.scale
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability density function at ``value``:
 
         .. math::
@@ -1553,7 +1553,7 @@ class Laplace(Distribution):
         return -value_scaled - normalize_term
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Mean of the Laplace distribution:
 
         .. math::
@@ -1562,7 +1562,7 @@ class Laplace(Distribution):
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Variance of the Laplace distribution:
 
         .. math::
@@ -1570,7 +1570,7 @@ class Laplace(Distribution):
         """
         return jnp.broadcast_to(2 * self.scale**2, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative Distribution Function (CDF) of the Laplace distribution.
         Letting :math:`z = (x - \mu)/b`,
 
@@ -1587,7 +1587,7 @@ class Laplace(Distribution):
         scaled = (value - self.loc) / self.scale
         return 0.5 - 0.5 * jnp.sign(scaled) * jnp.expm1(-jnp.abs(scaled))
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse CDF (quantile function) of the Laplace distribution:
 
         .. math::
@@ -1601,7 +1601,7 @@ class Laplace(Distribution):
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""Differential entropy of the Laplace distribution:
 
         .. math::
@@ -1681,7 +1681,7 @@ class LKJ(TransformedDistribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(
             jnp.identity(self.dimension),
             self.batch_shape + (self.dimension, self.dimension),
@@ -1843,7 +1843,7 @@ class LKJCholesky(Distribution):
         diag = jnp.ones(cholesky.shape[:-1]).at[..., 1:].set(jnp.sqrt(1 - beta_sample))
         return add_diag(cholesky, diag)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         if self.sample_method == "onion":
             return self._onion(key, sample_shape)
@@ -1851,7 +1851,7 @@ class LKJCholesky(Distribution):
             return self._cvine(key, sample_shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # Note about computing Jacobian of the transformation from Cholesky factor to
         # correlation matrix:
         #
@@ -1915,14 +1915,14 @@ class LogNormal(TransformedDistribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.exp(self.loc + self.scale**2 / 2)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return (1 + jnp.log(2 * jnp.pi)) / 2 + self.loc + jnp.log(self.scale)
 
 
@@ -1966,7 +1966,7 @@ class Logistic(Distribution):
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples via the location-scale transform
         :math:`X = \mu + s Z`, where :math:`Z \sim \mathrm{Logistic}(0, 1)` is
         drawn from :func:`~jax.random.logistic`.
@@ -1982,7 +1982,7 @@ class Logistic(Distribution):
         return self.loc + z * self.scale
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability density function at ``value``.
 
         Letting :math:`u = (\mu - x)/s`, the log PDF is
@@ -2002,7 +2002,7 @@ class Logistic(Distribution):
         return log_exponent - log_denominator
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Mean of the Logistic distribution:
 
         .. math::
@@ -2011,7 +2011,7 @@ class Logistic(Distribution):
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Variance of the Logistic distribution:
 
         .. math::
@@ -2020,7 +2020,7 @@ class Logistic(Distribution):
         var = (self.scale**2) * (jnp.pi**2) / 3
         return jnp.broadcast_to(var, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative Distribution Function (CDF) of the Logistic distribution.
         Letting :math:`z = (x - \mu)/s`,
 
@@ -2036,7 +2036,7 @@ class Logistic(Distribution):
         scaled = (value - self.loc) / self.scale
         return expit(scaled)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse CDF (quantile function) of the Logistic distribution:
 
         .. math::
@@ -2050,7 +2050,7 @@ class Logistic(Distribution):
         """
         return self.loc + self.scale * logit(q)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""Differential entropy of the Logistic distribution:
 
         .. math::
@@ -2083,17 +2083,17 @@ class LogUniform(TransformedDistribution):
         return self._support
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return (self.high - self.low) / jnp.log(self.high / self.low)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         log_low = jnp.log(self.low)
         log_high = jnp.log(self.high)
         return (log_low + log_high) / 2 + jnp.log(log_high - log_low)
@@ -2204,10 +2204,10 @@ class MatrixNormal(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.loc, self.shape())
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
@@ -2338,7 +2338,7 @@ class MultivariateNormal(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
@@ -2348,7 +2348,7 @@ class MultivariateNormal(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
         half_log_det = tri_logabsdet(self.scale_tril)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * jnp.log(
@@ -2368,11 +2368,11 @@ class MultivariateNormal(Distribution):
         return cho_solve((self.scale_tril, True), identity)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.loc, self.shape())
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(
             jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
@@ -2393,7 +2393,7 @@ class MultivariateNormal(Distribution):
                 event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
                 return batch_shape, event_shape
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         (n,) = self.event_shape
         half_log_det = tri_logabsdet(self.scale_tril)
         return n * (jnp.log(2 * np.pi) + 1) / 2 + half_log_det
@@ -2516,13 +2516,13 @@ class CAR(Distribution):
                     self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
                 ), "adjacency matrix must be symmetric"
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         # TODO: look into a sparse sampling method
         mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
         return mvn.sample(key, sample_shape=sample_shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         phi = value - self.loc
         adj_matrix = self.adj_matrix
 
@@ -2569,7 +2569,7 @@ class CAR(Distribution):
         return 0.5 * (-n * jnp.log(2 * jnp.pi) + logprec + logdet - logquad)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.loc, self.shape())
 
     @lazy_property
@@ -2655,7 +2655,7 @@ class MultivariateStudentT(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(
@@ -2669,7 +2669,7 @@ class MultivariateStudentT(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         n = self.scale_tril.shape[-1]
         Z = (
             tri_logabsdet(self.scale_tril)
@@ -2695,7 +2695,7 @@ class MultivariateStudentT(Distribution):
         return cho_solve((self.scale_tril, True), identity)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
             jnp.where(jnp.expand_dims(self.df, -1) <= 1, jnp.inf, self.loc),
@@ -2703,7 +2703,7 @@ class MultivariateStudentT(Distribution):
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         df = jnp.expand_dims(self.df, -1)
         var = jnp.power(self.scale_tril, 2).sum(-1) * (df / (df - 2))
         var = jnp.where(df > 2, var, jnp.inf)
@@ -2865,7 +2865,7 @@ class LowRankMultivariateNormal(Distribution):
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
         return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         key_W, key_D = random.split(key)
         batch_shape = sample_shape + self.batch_shape
@@ -2880,7 +2880,7 @@ class LowRankMultivariateNormal(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         diff = value - self.loc
         M = _batch_lowrank_mahalanobis(
             self.cov_factor, self.cov_diag, diff, self._capacitance_tril
@@ -2890,7 +2890,7 @@ class LowRankMultivariateNormal(Distribution):
         )
         return -0.5 * (self.loc.shape[-1] * jnp.log(2 * jnp.pi) + log_det + M)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         log_det = _batch_lowrank_logdet(
             self.cov_factor, self.cov_diag, self._capacitance_tril
         )
@@ -2942,7 +2942,7 @@ class Normal(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Generates samples via the reparameterization trick:
         :math:`X = \mu + \sigma \epsilon`, where :math:`\epsilon \sim \mathcal{N}(0,1)`.
 
@@ -2951,7 +2951,7 @@ class Normal(Distribution):
         :param sample_shape: The shape of the samples to be generated.
         :type sample_shape: tuple[int, ...]
         :return: Samples from the Normal distribution of shape ``sample_shape + batch_shape``.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         assert is_prng_key(key)
         eps = random.normal(
@@ -2960,7 +2960,7 @@ class Normal(Distribution):
         return self.loc + eps * self.scale
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Calculates the log of the probability density function.
 
         .. math::
@@ -2970,13 +2970,13 @@ class Normal(Distribution):
         :param value: Values at which to evaluate the log density.
         :type value: ArrayLike
         :return: Log probability density.
-        :rtype: ArrayLike
+        :rtype: Array
         """
         normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled**2 - normalize_term
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function.
 
         .. math::
@@ -2992,7 +2992,7 @@ class Normal(Distribution):
         scaled = (value - self.loc) / self.scale
         return ndtr(scaled)
 
-    def log_cdf(self, value: ArrayLike) -> ArrayLike:
+    def log_cdf(self, value: ArrayLike) -> Array:
         r"""Log of the cumulative distribution function. Implementation
         calls :func:`jax.scipy.stats.norm.logcdf`.
 
@@ -3001,7 +3001,7 @@ class Normal(Distribution):
         """
         return jax_norm.logcdf(value, loc=self.loc, scale=self.scale)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         .. math::
@@ -3017,7 +3017,7 @@ class Normal(Distribution):
         return self.loc + self.scale * ndtri(q)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Calculates the analytical mean.
 
         .. math:: E[X] = \mu
@@ -3025,14 +3025,14 @@ class Normal(Distribution):
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Calculates the analytical variance.
 
         .. math:: \mathrm{Var}(X) = \sigma^2
         """
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""Entropy of the Normal distribution.
 
         .. math::
@@ -3065,13 +3065,13 @@ class Pareto(TransformedDistribution):
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # mean is inf for alpha <= 1
         a = jnp.divide(self.alpha * self.scale, (self.alpha - 1))
         return jnp.where(self.alpha <= 1, jnp.inf, a)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         # var is inf for alpha <= 2
         a = jnp.divide(
             (self.scale**2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
@@ -3083,7 +3083,7 @@ class Pareto(TransformedDistribution):
     def support(self) -> constraints.Constraint:
         return constraints.greater_than(self.scale)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return jnp.log(self.scale / self.alpha) + 1 + 1 / self.alpha
 
 
@@ -3148,11 +3148,11 @@ class SoftLaplace(Distribution):
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         z = (value - self.loc) / self.scale
         return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -3161,19 +3161,19 @@ class SoftLaplace(Distribution):
         return self.icdf(u)
 
     # TODO: refactor validate_sample to only does validation check and use it here
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         z = (value - self.loc) / self.scale
         return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         return jnp.log(jnp.tan(value * (jnp.pi / 2))) * self.scale + self.loc
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.loc
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (jnp.pi / 2 * self.scale) ** 2
 
 
@@ -3205,7 +3205,7 @@ class StudentT(Distribution):
         self._chi2 = Chi2(df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(key_normal, shape=sample_shape + self.batch_shape)
@@ -3214,7 +3214,7 @@ class StudentT(Distribution):
         return self.loc + self.scale * y
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         y = (value - self.loc) / self.scale
         z = (
             jnp.log(self.scale)
@@ -3226,21 +3226,21 @@ class StudentT(Distribution):
         return -0.5 * (self.df + 1.0) * jnp.log1p(y**2.0 / self.df) - z
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
             jnp.where(self.df <= 1, jnp.inf, self.loc), self.batch_shape
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         var = jnp.where(
             self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
         )
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
         # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
         scaled = (value - self.loc) / self.scale
@@ -3255,13 +3255,13 @@ class StudentT(Distribution):
             - jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
         scaled_squared = self.df * (1 / beta_value - 1)
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
         return scaled * self.scale + self.loc
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return jnp.broadcast_to(
             (self.df + 1) / 2 * (digamma((self.df + 1) / 2) - digamma(self.df / 2))
             + jnp.log(self.df) / 2
@@ -3295,28 +3295,28 @@ class Uniform(Distribution):
     def support(self) -> constraints.Constraint:
         return self._support
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         shape = sample_shape + self.batch_shape
         return random.uniform(key, shape=shape, minval=self.low, maxval=self.high)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         cdf = (value - self.low) / (self.high - self.low)
         return jnp.clip(cdf, 0.0, 1.0)
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         return self.low + value * (self.high - self.low)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.low + (self.high - self.low) / 2.0
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (self.high - self.low) ** 2 / 12.0
 
     @staticmethod
@@ -3327,7 +3327,7 @@ class Uniform(Distribution):
         event_shape: tuple[int, ...] = ()
         return batch_shape, event_shape
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return jnp.log(self.high - self.low)
 
 
@@ -3350,7 +3350,7 @@ class Weibull(Distribution):
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         return random.weibull_min(
             key,
@@ -3360,28 +3360,28 @@ class Weibull(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         ll = -jnp.power(value / self.scale, self.concentration)
         ll += jnp.log(self.concentration)
         ll += (self.concentration - 1.0) * jnp.log(value)
         ll -= self.concentration * jnp.log(self.scale)
         return ll
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return 1 - jnp.exp(-((value / self.scale) ** self.concentration))
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.scale * jnp.exp(gammaln(1.0 + 1.0 / self.concentration))
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return self.scale**2 * (
             jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return (
             jnp.euler_gamma * (1 - 1 / self.concentration)
             + jnp.log(self.scale / self.concentration)
@@ -3489,26 +3489,26 @@ class AsymmetricLaplaceQuantile(Distribution):
         scale_classic = scale * asymmetry / quantile
         self._ald = AsymmetricLaplace(loc=loc, scale=scale_classic, asymmetry=asymmetry)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         if self._validate_args:
             self._validate_sample(value)
         return self._ald.log_prob(value)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         return self._ald.sample(key, sample_shape=sample_shape)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self._ald.mean
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return self._ald.variance
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return self._ald.cdf(value)
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         return self._ald.icdf(value)
 
 
@@ -3598,11 +3598,11 @@ class ZeroSumNormal(TransformedDistribution):
         return constraints.zero_sum(len(self.event_shape))
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         event_ndim = len(self.event_shape)
         zero_sum_axes = tuple(range(-event_ndim, 0))
         theoretical_var = jnp.square(self.scale)
@@ -3676,11 +3676,11 @@ class Wishart(TransformedDistribution):
         return self.base_dist.scale_tril
 
     @lazy_property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.concentration[..., None, None] * self.scale_matrix
 
     @lazy_property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         diag = jnp.diagonal(self.scale_matrix, axis1=-1, axis2=-2)
         return self.concentration[..., None, None] * (
             self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
@@ -3694,7 +3694,7 @@ class Wishart(TransformedDistribution):
             concentration, scale_matrix, rate_matrix, scale_tril
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         p = self.event_shape[-1]
         return (
             (p + 1) * tri_logabsdet(self.scale_tril)
@@ -3771,7 +3771,7 @@ class WishartCholesky(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # The log density of the Wishart distribution includes a term
         # t = trace(rate_matrix @ cov). Here, value = cholesky(cov) such that
         # t = trace(value.T @ rate_matrix @ value) by the cyclical property of the
@@ -3808,7 +3808,7 @@ class WishartCholesky(Distribution):
         )
         return cho_solve((self.scale_tril, True), identity)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         # Sample using the Bartlett decomposition
         # (https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition).
@@ -3831,7 +3831,7 @@ class WishartCholesky(Distribution):
         return jnp.matmul(*jnp.broadcast_arrays(self.scale_tril, latent))
 
     @lazy_property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # The mean follows from the Bartlett decomposition sampling. All off-diagonal
         # elements of the latent variable have zero expectation. The diagonal are the
         # expected square roots of chi^2 variables which can be expressed in terms of
@@ -3842,7 +3842,7 @@ class WishartCholesky(Distribution):
         return self.scale_tril * sqrtchi2[..., None, :]
 
     @lazy_property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         # We have the same as for the mean except now the lower off-diagonals are one
         # due to the standard normal noise, and the diagonals are equal to the dof of
         # the chi^2 variables.
@@ -3958,7 +3958,7 @@ class InverseWishart(TransformedDistribution):
         return self.base_dist.scale_tril
 
     @lazy_property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # Mean exists only when concentration > p + 1
         p = self.scale_matrix.shape[-1]
         return jnp.where(
@@ -3968,12 +3968,12 @@ class InverseWishart(TransformedDistribution):
         )
 
     @lazy_property
-    def mode(self) -> ArrayLike:
+    def mode(self) -> Array:
         p = self.scale_matrix.shape[-1]
         return self.scale_matrix / (self.concentration[..., None, None] + p + 1)
 
     @lazy_property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         # Variance of entry (i,j) for nu > p + 3
         # Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
         p = self.scale_matrix.shape[-1]
@@ -4066,7 +4066,7 @@ class InverseWishartCholesky(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # L = value (Cholesky factor), X = L @ L^T ~ InverseWishart(Psi, nu)
         # log p(X) = (nu/2) log|Psi| - (nu*p/2) log(2) - log Gamma_p(nu/2)
         #            - ((nu+p+1)/2) log|X| - tr(Psi @ X^{-1}) / 2
@@ -4098,7 +4098,7 @@ class InverseWishartCholesky(Distribution):
         )
         return cho_solve((self.scale_tril, True), identity)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         # Sample from standard InverseWishartCholesky using Bartlett decomposition
         # Ref: https://nbviewer.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
@@ -4128,7 +4128,7 @@ class InverseWishartCholesky(Distribution):
         return jnp.matmul(self.scale_tril, L_inv_std)
 
     @lazy_property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         # Approximate: chol(E[X]) where E[X] = Psi / (nu - p - 1) for nu > p + 1
         p = self.scale_tril.shape[-1]
         mean_x = jnp.where(
@@ -4145,7 +4145,7 @@ class InverseWishartCholesky(Distribution):
         )
 
     @lazy_property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         # Variance of Cholesky factor is complex; return NaN for now
         return jnp.full(self.batch_shape + self.event_shape, jnp.nan)
 
@@ -4203,7 +4203,7 @@ class Levy(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Compute the log probability density function of the Lévy distribution.
 
         .. math::
@@ -4219,12 +4219,12 @@ class Levy(Distribution):
             jnp.log(2.0 * jnp.pi) - jnp.log(self.scale) + self.scale / shifted_value
         ) - 1.5 * jnp.log(shifted_value)
 
-    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: ArrayLike, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         u = random.uniform(key, shape=sample_shape + self.batch_shape)
         return self.icdf(u)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""
         The inverse cumulative distribution function of Lévy distribution is given by,
 
@@ -4238,7 +4238,7 @@ class Levy(Distribution):
         """
         return self.loc + self.scale * jnp.power(ndtri(1 - 0.5 * q), -2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""The cumulative distribution function of Lévy distribution is given by,
 
         .. math::
@@ -4253,14 +4253,14 @@ class Levy(Distribution):
         return 2.0 - 2.0 * ndtr(jnp.sqrt(inv_standardized))
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(jnp.inf, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(jnp.inf, self.batch_shape)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""If :math:`X \sim \text{Levy}(\mu, c)`, then the entropy of :math:`X` is given by,
 
         .. math::
@@ -4373,15 +4373,15 @@ class CirculantNormal(TransformedDistribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.loc, self.shape())
 
     @lazy_property
-    def covariance_row(self) -> ArrayLike:
+    def covariance_row(self) -> Array:
         return jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1])
 
     @lazy_property
-    def covariance_matrix(self) -> ArrayLike:
+    def covariance_matrix(self) -> Array:
         *leading_shape, n = self.covariance_row.shape
         if leading_shape:
             # `toeplitz` flattens the input, and we need to broadcast manually.
@@ -4393,7 +4393,7 @@ class CirculantNormal(TransformedDistribution):
             return toeplitz(self.covariance_row)
 
     @lazy_property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(self.covariance_row[..., 0, None], self.shape())
 
     @staticmethod
@@ -4409,7 +4409,7 @@ class CirculantNormal(TransformedDistribution):
                 event_shape = loc[-1:]
                 return batch_shape, event_shape
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         (n,) = self.event_shape
         log_abs_det_jacobian = 2 * jnp.log(2) * ((n - 1) // 2) - jnp.log(n) * n
         return self.base_dist.entropy() + log_abs_det_jacobian / 2
@@ -4456,7 +4456,7 @@ class Dagum(Distribution):
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         a_ln_x_m_ln_b = xlogy(self.sharpness, value) - xlogy(self.sharpness, self.scale)
         return (
             jnp.log(self.sharpness)
@@ -4466,7 +4466,7 @@ class Dagum(Distribution):
             - (self.concentration + 1.0) * nn.softplus(a_ln_x_m_ln_b)
         )
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return jnp.exp(
             -self.concentration
             * nn.softplus(
@@ -4474,7 +4474,7 @@ class Dagum(Distribution):
             )
         )
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
         return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
 
@@ -4483,7 +4483,7 @@ class Dagum(Distribution):
         return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         safe_a = jnp.where(self.sharpness > 1.0, self.sharpness, 2.0)
         return jnp.where(
             self.sharpness > 1.0,
@@ -4493,7 +4493,7 @@ class Dagum(Distribution):
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         safe_a = jnp.where(self.sharpness > 2.0, self.sharpness, 3.0)
         return jnp.where(
             self.sharpness > 2.0,

@@ -8,7 +8,7 @@ import warnings
 import numpy as np
 
 import jax
-from jax import lax
+from jax import Array, lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
@@ -112,7 +112,7 @@ class LeftCensoredDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -120,7 +120,7 @@ class LeftCensoredDistribution(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         dtype = jnp.result_type(value, float)
         minval = 100.0 * jnp.finfo(dtype).tiny
 
@@ -228,7 +228,7 @@ class RightCensoredDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -236,7 +236,7 @@ class RightCensoredDistribution(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         dtype = jnp.result_type(value, float)
         eps = jnp.finfo(dtype).eps
 
@@ -363,7 +363,7 @@ class IntervalCensoredDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.expand(self.batch_shape).sample(key, sample_shape)
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
