@@ -5,7 +5,7 @@ import inspect
 
 import numpy as np
 import pytest
-from test_distributions import CONTINUOUS, DIRECTIONAL
+from test_distributions import CONTINUOUS, DIRECTIONAL, _resolve_params
 
 import jax.random as random
 
@@ -21,6 +21,9 @@ def test_gof(jax_dist, sp_dist, params):
         pytest.skip("distribution has improper .log_prob()")
     if "LKJ" in jax_dist.__name__ or "Wishart" in jax_dist.__name__:
         pytest.xfail("incorrect submanifold scaling")
+    # Resolve any LazyDist parameters (e.g. the base distribution of
+    # EulerMaruyama) to concrete distributions before construction.
+    params = _resolve_params(params)
     if jax_dist is dist.EulerMaruyama:
         d = jax_dist(*params)
         if d.event_dim > 1:
