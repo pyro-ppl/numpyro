@@ -611,7 +611,7 @@ class EulerMaruyama(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
         sample_shape = lax.broadcast_shapes(
-            value.shape[: -self.event_dim], self.batch_shape
+            jnp.shape(value)[: -self.event_dim], self.batch_shape
         )
         value = jnp.broadcast_to(value, sample_shape + self.event_shape)
 
@@ -1094,6 +1094,7 @@ class GaussianRandomWalk(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        value = jnp.asarray(value)
         init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
         step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
@@ -3783,7 +3784,7 @@ class WishartCholesky(Distribution):
         # trace(x @ x.T) is equal to the sum of squares of elements.
         x = solve_triangular(*jnp.broadcast_arrays(self.scale_tril, value), lower=True)
         trace = jnp.square(x).sum(axis=(-1, -2))
-        p = value.shape[-1]
+        p = jnp.shape(value)[-1]
         return (
             (self.concentration - p - 1) * tri_logabsdet(value)
             - trace / 2
@@ -4074,7 +4075,7 @@ class InverseWishartCholesky(Distribution):
         x = solve_triangular(*jnp.broadcast_arrays(value, self.scale_tril), lower=True)
         trace = jnp.square(x).sum(axis=(-1, -2))
 
-        p = value.shape[-1]
+        p = jnp.shape(value)[-1]
         log_diag = jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1))
         return (
             self.concentration * tri_logabsdet(self.scale_tril)  # (nu/2) log|Psi|

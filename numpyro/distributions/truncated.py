@@ -458,7 +458,7 @@ class TruncatedPolyaGamma(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        value = value[..., None]
+        value = jnp.asarray(value)[..., None]
         all_indices = jnp.arange(0, self.num_log_prob_terms)
         two_n_plus_one = 2.0 * all_indices + 1.0
         log_terms = (

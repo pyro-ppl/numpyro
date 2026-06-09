@@ -302,7 +302,7 @@ class DirichletMultinomial(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
         alpha = self.concentration
-        return _log_beta_1(alpha.sum(-1), value.sum(-1)) - _log_beta_1(
+        return _log_beta_1(alpha.sum(-1), jnp.sum(value, -1)) - _log_beta_1(
             alpha, value
         ).sum(-1)
 

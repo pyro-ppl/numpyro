@@ -433,6 +433,7 @@ class SineBivariateVonMises(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        value = jnp.asarray(value)
         indv = self.phi_concentration * jnp.cos(
             value[..., 0] - self.phi_loc
         ) + self.psi_concentration * jnp.cos(value[..., 1] - self.psi_loc)
@@ -614,7 +615,7 @@ class ProjectedNormal(Distribution):
 
     def log_prob(self, value: ArrayLike) -> Array:
         if self._validate_args:
-            event_shape = value.shape[-1:]
+            event_shape = jnp.shape(value)[-1:]
             if event_shape != self.event_shape:
                 raise ValueError(
                     f"Expected event shape {self.event_shape}, but got {event_shape}"

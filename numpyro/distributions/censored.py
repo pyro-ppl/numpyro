@@ -441,10 +441,11 @@ class IntervalCensoredDistribution(Distribution):
         logp = jnp.where(m_double, lp_double, logp)
         return logp
 
-    def _validate_sample(self, value: ArrayLike) -> None:
-        if value.shape[-1] != 2:
+    def _validate_sample(self, value: ArrayLike) -> ArrayLike:
+        if jnp.shape(value)[-1] != 2:
             raise ValueError(
-                f"Expected last dimension of `value` to be 2 (lower, upper), but got shape {value.shape}"
+                "Expected last dimension of `value` to be 2 (lower, upper), but got "
+                f"shape {jnp.shape(value)}"
             )
         x1 = jnp.take(value, 0, axis=-1)  # left bound
         x2 = jnp.take(value, 1, axis=-1)  # right bound
