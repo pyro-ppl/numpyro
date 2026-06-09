@@ -39,6 +39,7 @@ from typing import (
     Literal,
     Optional,
     Sequence,
+    TypeVar,
     Union,
     cast,
     overload,
@@ -100,6 +101,10 @@ def validation_enabled(is_validate: bool = True) -> Generator[None, None, None]:
 
 COERCIONS: list[Any] = []
 
+# Bound to the concrete class being constructed so that ``Normal(...)`` is typed
+# as ``Normal`` rather than the base ``Distribution`` (see ``DistributionMeta``).
+_DistributionT = TypeVar("_DistributionT", bound="Distribution")
+
 
 class DistributionMeta(type):
     def __init__(
@@ -112,16 +117,25 @@ class DistributionMeta(type):
         cls.__signature__ = signature
         return super().__init__(*args, **kwargs)
 
-    def __call__(
-        cls,
+    # Typed so that `Normal(...)` is inferred as `Normal` rather than the base
+    # `Distribution`. `cls` here is genuinely both a `DistributionMeta` instance
+    # and a `type[Distribution]` (they describe the same value), but mypy models
+    # those as unrelated types. The two `type: ignore`s work around known mypy
+    # gaps with typed metaclass `__call__`; `ty`/pyright accept the code as-is
+    # given the bound on `_DistributionT`.
+    # - self-type rejected as unsound: https://github.com/python/mypy/issues/3625
+    def __call__(  # type: ignore[misc]
+        cls: type[_DistributionT],
         *args: Any,
         **kwargs: Any,
-    ) -> "Distribution":
+    ) -> _DistributionT:
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
-                return result
-        return super().__call__(*args, **kwargs)
+                return cast(_DistributionT, result)
+        # - TypeVar self breaks `super()`: https://github.com/python/mypy/issues/11678
+        instance = super().__call__(*args, **kwargs)  # type: ignore[misc]
+        return cast(_DistributionT, instance)
 
 
 class Distribution(metaclass=DistributionMeta):

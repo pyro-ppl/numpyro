@@ -3402,22 +3402,6 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
 
-def test_multinomial_total_count_static_under_jit():
-    # `total_count` is a static (pytree aux) parameter so that constructing a
-    # Multinomial inside `jit` keeps it concrete. The sampler needs a concrete
-    # `int(np.max(total_count))` to bound its computation and otherwise raises
-    # "Please specify total_count_max". Coercing `total_count` to a jax array at
-    # construction would make it a tracer under `jit` and break this realistic
-    # usage, so this guards against that regression.
-    probs = jnp.array([0.2, 0.3, 0.5])
-
-    @jax.jit
-    def sample(key):
-        return dist.MultinomialProbs(probs, total_count=10).sample(key)
-
-    sample(random.key(0))  # must not raise
-
-
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
@@ -3425,8 +3409,10 @@ def test_aux_fields_are_not_jax_arrays(jax_dist, sp_dist, params):
     # Pytree *aux* fields are static metadata; a jax array stored in one becomes a
     # tracer under `jit`/`vmap` (and is unhashable), which breaks constructing the
     # distribution inside a trace. Concrete (numpy/int/...) values are fine -- only
-    # jax arrays are disallowed. This generalizes the multinomial-specific check
-    # above to every distribution.
+    # jax arrays are disallowed. For example `total_count` on the multinomial
+    # family must stay a concrete int so the sampler can read
+    # `int(np.max(total_count))`; coercing it to a jax array would make a jitted
+    # `MultinomialProbs(...).sample(key)` raise "Please specify total_count_max".
     params = _resolve_params(params)
     d = jax_dist(*params)
     for name in d.gather_pytree_aux_fields():
@@ -5093,10 +5079,12 @@ def test_hurdle_poisson_inference():
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_outputs_are_arrays(jax_dist, sp_dist, params):
+def test_params_and_outputs_are_arrays(jax_dist, sp_dist, params):
     params = _resolve_params(params)
-    # This test only checks output *types*. Disable argument/sample validation for its
-    # duration so it is independent of whether an earlier test left validation globally
+    # This test checks that stored (non-aux) parameters and method outputs (sample,
+    # log_prob, mean, variance, entropy) are jax arrays. Disable argument/sample
+    # validation for its duration so it is independent of whether an earlier test
+    # left validation globally
     # enabled (e.g. `test_uniform_log_prob_outside_support`); otherwise feeding a
     # boundary `sample` back into `log_prob` could emit an "Out-of-support" warning.
     with dist.distribution.validation_enabled(False):

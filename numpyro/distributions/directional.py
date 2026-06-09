@@ -382,7 +382,11 @@ class SineBivariateVonMises(Distribution):
             correlation = weighted_correlation * jnp.sqrt(
                 phi_concentration * psi_concentration
             )
-        assert correlation  # guaranteed true but required for type narrowing
+        # `correlation` is non-None here (guaranteed by `assert_one_of` plus the
+        # branch above); assert that explicitly for the type checker. Avoid a bare
+        # `assert correlation`, which evaluates the array's truth value and raises
+        # for multi-element arrays.
+        assert correlation is not None
 
         batch_shape = lax.broadcast_shapes(
             jnp.shape(phi_loc),

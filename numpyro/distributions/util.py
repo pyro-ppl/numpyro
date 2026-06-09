@@ -374,7 +374,12 @@ def promote_shapes(*args, shape=(), promote_array=False, return_shapes=False):
             _reshape(arg, shape) if jnp.ndim(arg) < len(shape) else arg
             for arg, shape in zip(args, shapes)
         ]
-    return [jnp.asarray(arg) for arg in promoted] if promote_array else promoted
+    if not promote_array:
+        return promoted
+    # Avoid a `jnp.asarray` dispatch for arguments that are already jax arrays
+    # (the common case in performance-sensitive code), which is otherwise a
+    # ~2.5us no-op per argument.
+    return [arg if isinstance(arg, jax.Array) else jnp.asarray(arg) for arg in promoted]
 
 
 def sum_rightmost(x, dim):
