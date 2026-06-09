@@ -6,12 +6,13 @@ from collections import namedtuple
 import functools as ft
 from functools import partial, update_wrapper
 import math
+from typing import Literal, overload
 import warnings
 
 import numpy as np
 
 import jax
-from jax import jit, lax, random, vmap
+from jax import Array, jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import digamma
@@ -327,29 +328,58 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
-def promote_shapes(*args, shape=(), return_shapes: bool = False):
+@overload
+def promote_shapes(
+    *args: ArrayLike, shape: tuple[int, ...] = (), promote_array: Literal[True]
+) -> list[Array]: ...
+@overload
+def promote_shapes(
+    *args: ArrayLike,
+    shape: tuple[int, ...] = (),
+    promote_array: bool = ...,
+    return_shapes: Literal[True],
+) -> list[tuple[int, ...]]: ...
+@overload
+def promote_shapes(
+    *args: ArrayLike, shape: tuple[int, ...] = ()
+) -> list[ArrayLike]: ...
+def promote_shapes(*args, shape=(), promote_array=False, return_shapes=False):
     """
     Promote the shapes of arrays so they have the same number of dimensions and are
     broadcastable.
 
+    By default, argument types are preserved (numpy stays numpy, jax stays jax) and
+    inputs are not coerced to :class:`jax.Array`. Pass ``promote_array=True`` to
+    coerce the results to :class:`jax.Array` (and have them statically typed as
+    such), e.g. ``self.loc, self.scale = promote_shapes(loc, scale, promote_array=True)``.
+
     :param *args: Arrays to promote.
     :param shape: Leading shape to add to arrays.
+    :param promote_array: Coerce the shape-promoted results to ``jax.Array``.
     :param return_shapes: Return the shapes of arrays instead of the shape-promoted
         arrays.
     """
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:
-        return [jnp.shape(arg) for arg in args] if return_shapes else args
+        if return_shapes:
+            return [jnp.shape(arg) for arg in args]
+        promoted = list(args)
     else:
         shapes = [jnp.shape(arg) for arg in args]
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
         shapes = [(1,) * (num_dims - len(shape)) + shape for shape in shapes]
         if return_shapes:
             return shapes
-        return [
+        promoted = [
             _reshape(arg, shape) if jnp.ndim(arg) < len(shape) else arg
             for arg, shape in zip(args, shapes)
         ]
+    if not promote_array:
+        return promoted
+    # Avoid a `jnp.asarray` dispatch for arguments that are already jax arrays
+    # (the common case in performance-sensitive code), which is otherwise a
+    # ~2.5us no-op per argument.
+    return [arg if isinstance(arg, jax.Array) else jnp.asarray(arg) for arg in promoted]
 
 
 def sum_rightmost(x, dim):

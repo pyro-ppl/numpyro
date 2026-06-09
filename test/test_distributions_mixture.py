@@ -179,29 +179,35 @@ def _test_mixture(mixing_distribution, component_distribution):
         assert cdf.shape == (*sample_shape, *mixture.shape())
 
 
+# The component distributions are built lazily (inside the tests) so that no jax
+# arrays are created at import time -- distribution parameters are coerced to jax
+# arrays at construction, and module-level instances would trip the
+# `jax.live_arrays()` guard in conftest.
 @pytest.mark.parametrize(
-    "component_dist",
+    "get_component_dist",
     [
-        dist.Uniform(low=np.array([0.0, 5.0]), high=np.array([1.0, 10.0])),
-        dist.TruncatedNormal(loc=np.zeros(2), scale=np.ones(2), low=0.0, high=1.0),
+        lambda: dist.Uniform(low=np.array([0.0, 5.0]), high=np.array([1.0, 10.0])),
+        lambda: dist.TruncatedNormal(
+            loc=np.zeros(2), scale=np.ones(2), low=0.0, high=1.0
+        ),
     ],
 )
-def test_mixture_rejects_parameter_dependent_components(component_dist):
+def test_mixture_rejects_parameter_dependent_components(get_component_dist):
     mixing_dist = dist.Categorical(probs=np.array([0.5, 0.5]))
     with pytest.raises(
         AssertionError, match="expected ParameterFreeConstraint, but found "
     ):
-        dist.MixtureSameFamily(mixing_dist, component_dist)
+        dist.MixtureSameFamily(mixing_dist, get_component_dist())
 
 
 @pytest.mark.parametrize(
-    "component_dist",
+    "get_component_dist",
     [
-        dist.Normal(np.zeros(2), np.ones(2)),
-        dist.Exponential(np.ones(2)),
-        dist.Bernoulli(probs=np.array([0.5, 0.5])),
+        lambda: dist.Normal(np.zeros(2), np.ones(2)),
+        lambda: dist.Exponential(np.ones(2)),
+        lambda: dist.Bernoulli(probs=np.array([0.5, 0.5])),
     ],
 )
-def test_mixture_accepts_parameter_free_components(component_dist):
+def test_mixture_accepts_parameter_free_components(get_component_dist):
     mixing_dist = dist.Categorical(probs=np.array([0.3, 0.7]))
-    dist.MixtureSameFamily(mixing_dist, component_dist)
+    dist.MixtureSameFamily(mixing_dist, get_component_dist())

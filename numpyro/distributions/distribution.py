@@ -39,6 +39,7 @@ from typing import (
     Literal,
     Optional,
     Sequence,
+    TypeVar,
     Union,
     cast,
     overload,
@@ -100,6 +101,10 @@ def validation_enabled(is_validate: bool = True) -> Generator[None, None, None]:
 
 COERCIONS: list[Any] = []
 
+# Bound to the concrete class being constructed so that ``Normal(...)`` is typed
+# as ``Normal`` rather than the base ``Distribution`` (see ``DistributionMeta``).
+_DistributionT = TypeVar("_DistributionT", bound="Distribution")
+
 
 class DistributionMeta(type):
     def __init__(
@@ -112,16 +117,25 @@ class DistributionMeta(type):
         cls.__signature__ = signature
         return super().__init__(*args, **kwargs)
 
-    def __call__(
-        cls,
+    # Typed so that `Normal(...)` is inferred as `Normal` rather than the base
+    # `Distribution`. `cls` here is genuinely both a `DistributionMeta` instance
+    # and a `type[Distribution]` (they describe the same value), but mypy models
+    # those as unrelated types. The two `type: ignore`s work around known mypy
+    # gaps with typed metaclass `__call__`; `ty`/pyright accept the code as-is
+    # given the bound on `_DistributionT`.
+    # - self-type rejected as unsound: https://github.com/python/mypy/issues/3625
+    def __call__(  # type: ignore[misc]
+        cls: type[_DistributionT],
         *args: Any,
         **kwargs: Any,
-    ) -> Any:
+    ) -> _DistributionT:
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
-                return result
-        return super().__call__(*args, **kwargs)
+                return cast(_DistributionT, result)
+        # - TypeVar self breaks `super()`: https://github.com/python/mypy/issues/11678
+        instance = super().__call__(*args, **kwargs)  # type: ignore[misc]
+        return cast(_DistributionT, instance)
 
 
 class Distribution(metaclass=DistributionMeta):
@@ -346,7 +360,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
@@ -369,7 +383,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         """
         Returns a sample from the distribution having shape given by
         `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
@@ -385,7 +399,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[ArrayLike, list[Any]]:
+    ) -> tuple[Array, list[Any]]:
         """
         Same as ``sample`` except that any intermediate computations are
         returned (useful for `TransformedDistribution`).
@@ -397,32 +411,36 @@ class Distribution(metaclass=DistributionMeta):
         """
         return self.sample(key, sample_shape=sample_shape), []
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         """
         Evaluates the log probability density for a batch of samples given by
         `value`.
 
         :param value: A batch of samples from the distribution.
         :return: an array with shape `value.shape[:-self.event_shape]`
-        :rtype: ArrayLike
+        :rtype: Array
         """
         raise NotImplementedError
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         """
         Mean of the distribution.
         """
         raise NotImplementedError
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         """
         Variance of the distribution.
         """
         raise NotImplementedError
 
     def _validate_sample(self, value: ArrayLike) -> ArrayLike:
+        # NB: the return type is ArrayLike (not Array): the support constraint
+        # returns an ArrayLike, and crucially a concrete numpy mask must NOT be
+        # coerced to a jax array here -- doing so would turn it into a tracer
+        # under jit and defeat the `not_jax_tracer` check below (gh-2181 follow-up).
         assert self.support is not None
         mask = self.support(value)
         if not_jax_tracer(mask):
@@ -442,7 +460,7 @@ class Distribution(metaclass=DistributionMeta):
         sample_shape: tuple[int, ...] = ...,
         sample_intermediates: Literal[False] = ...,
         **kwargs: Any,
-    ) -> ArrayLike: ...
+    ) -> Array: ...
 
     @overload
     def __call__(
@@ -452,13 +470,13 @@ class Distribution(metaclass=DistributionMeta):
         sample_shape: tuple[int, ...] = ...,
         sample_intermediates: Literal[True] = ...,
         **kwargs: Any,
-    ) -> tuple[ArrayLike, list[Any]]: ...
+    ) -> tuple[Array, list[Any]]: ...
 
     def __call__(
         self,
         *args: Any,
         **kwargs: Any,
-    ) -> Union[ArrayLike, tuple[ArrayLike, list[Any]]]:
+    ) -> Union[Array, tuple[Array, list[Any]]]:
         key = kwargs.pop("rng_key")
         sample_intermediates = kwargs.pop("sample_intermediates", False)
         if sample_intermediates:
@@ -483,14 +501,14 @@ class Distribution(metaclass=DistributionMeta):
             return self
         return Independent(self, reinterpreted_batch_ndims)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         """
         Returns an array with shape `len(support) x batch_shape`
         containing all values in the support.
         """
         raise NotImplementedError
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         """
         Returns the entropy of the distribution.
         """
@@ -627,7 +645,7 @@ class Distribution(metaclass=DistributionMeta):
         event_shape = ()
         return batch_shape, event_shape
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         """
         The cumulative distribution function of this distribution.
 
@@ -636,7 +654,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         """
         The inverse cumulative distribution function of this distribution.
 
@@ -731,10 +749,10 @@ class ExpandedDistribution(Distribution):
 
     def _sample(
         self,
-        sample_fn: Callable[..., tuple[ArrayLike, list[ArrayLike]]],
+        sample_fn: Callable[..., tuple[Array, list[Array]]],
         key: Optional[jax.Array],
         sample_shape: tuple[int, ...] = (),
-    ) -> tuple[ArrayLike, list[ArrayLike]]:
+    ) -> tuple[Array, list[Array]]:
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
@@ -755,7 +773,7 @@ class ExpandedDistribution(Distribution):
         for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
             permutation[dim1], permutation[dim2] = permutation[dim2], permutation[dim1]
 
-        def reshape_sample(x: ArrayLike) -> ArrayLike:
+        def reshape_sample(x: ArrayLike) -> Array:
             """
             Reshapes samples and intermediates to ensure that the output
             shape is correct: This implicitly replaces the interstitial dims
@@ -772,7 +790,7 @@ class ExpandedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
@@ -786,17 +804,17 @@ class ExpandedDistribution(Distribution):
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[ArrayLike, list[ArrayLike]]:
+    ) -> tuple[Array, list[Array]]:
         return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.sample_with_intermediates(key, sample_shape)[0]
 
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
-    ) -> ArrayLike:
+    ) -> Array:
         # TODO: utilize `intermediates`
         shape = lax.broadcast_shapes(
             self.batch_shape,
@@ -805,7 +823,7 @@ class ExpandedDistribution(Distribution):
         log_prob = self.base_dist.log_prob(value)
         return jnp.broadcast_to(log_prob, shape)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         samples = jnp.asarray(self.base_dist.enumerate_support(expand=False))
         enum_shape = samples.shape[:1]
         samples = samples.reshape(enum_shape + (1,) * len(self.batch_shape))
@@ -816,18 +834,18 @@ class ExpandedDistribution(Distribution):
         return samples
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(
             self.base_dist.mean, self.batch_shape + self.event_shape
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(
             self.base_dist.variance, self.batch_shape + self.event_shape
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return jnp.broadcast_to(self.base_dist.entropy(), self.batch_shape)
 
 
@@ -900,7 +918,7 @@ class ImproperUniform(Distribution):
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         batch_shape = jnp.shape(value)[: jnp.ndim(value) - len(self.event_shape)]
         batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
         return jnp.zeros(batch_shape)
@@ -975,11 +993,11 @@ class Independent(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.base_dist.mean
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return self.base_dist.variance
 
     @property
@@ -988,15 +1006,15 @@ class Independent(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         log_prob = self.base_dist.log_prob(value)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
@@ -1009,7 +1027,7 @@ class Independent(Distribution):
             self.reinterpreted_batch_ndims
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         axes = range(-self.reinterpreted_batch_ndims, 0)
         return jnp.asarray(self.base_dist.entropy()).sum(axes)
 
@@ -1053,7 +1071,7 @@ class MaskedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
@@ -1063,10 +1081,10 @@ class MaskedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return self.base_dist.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         if self._mask is False:
             shape = lax.broadcast_shapes(
                 tuple(self.base_dist.batch_shape),
@@ -1087,15 +1105,15 @@ class MaskedDistribution(Distribution):
             value = jnp.where(mask, value, default_value)
         return jnp.where(self._mask, self.base_dist.log_prob(value), 0.0)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         return self.base_dist.enumerate_support(expand=expand)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.base_dist.mean
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return self.base_dist.variance
 
     def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
@@ -1213,10 +1231,10 @@ class TransformedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         x = self.base_dist.rsample(key, sample_shape=sample_shape)
         for transform in self.transforms:
-            x = transform(x)
+            x = jnp.asarray(transform(x))
         return x
 
     @property
@@ -1233,27 +1251,28 @@ class TransformedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
-            x = transform(x)
+            x = jnp.asarray(transform(x))
         return x
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[ArrayLike, list[Any]]:
+    ) -> tuple[Array, list[Any]]:
         x = self.base_dist.sample(key, sample_shape)
         intermediates: list[Any] = []
         for transform in self.transforms:
             x_tmp = x
-            x, t_inter = transform.call_with_intermediates(x)
+            x_next, t_inter = transform.call_with_intermediates(x)
+            x = jnp.asarray(x_next)
             intermediates.append([x_tmp, t_inter])
         return x, intermediates
 
     @validate_sample
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
-    ) -> ArrayLike:
+    ) -> Array:
         if intermediates is not None:
             if len(intermediates) != len(self.transforms):
                 raise ValueError(
@@ -1279,14 +1298,14 @@ class TransformedDistribution(Distribution):
         return log_prob
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         raise NotImplementedError
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         raise NotImplementedError
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         sign: Any = 1
         for transform in reversed(self.transforms):
             sign = sign * transform.sign
@@ -1294,14 +1313,14 @@ class TransformedDistribution(Distribution):
         q = self.base_dist.cdf(value)
         return jnp.where(sign < 0, 1 - q, q)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         sign: Any = 1
         for transform in self.transforms:
             sign = sign * transform.sign
         q = jnp.where(sign < 0, 1 - q, q)
         value = self.base_dist.icdf(q)
         for transform in self.transforms:
-            value = transform(value)
+            value = jnp.asarray(transform(value))
         return value
 
 
@@ -1323,7 +1342,7 @@ class FoldedDistribution(TransformedDistribution):
         super().__init__(base_dist, AbsTransform(), validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         dim = max(len(self.batch_shape), jnp.ndim(value))
         plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
@@ -1353,9 +1372,11 @@ class Delta(Distribution):
         batch_dim = jnp.ndim(v) - event_dim
         batch_shape = jnp.shape(v)[:batch_dim]
         event_shape = jnp.shape(v)[batch_dim:]
-        self.v = v
+        self.v = jnp.asarray(v)
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
-        self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
+        self.log_density = promote_shapes(
+            log_density, shape=batch_shape, promote_array=True
+        )[0]
         super(Delta, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
@@ -1366,27 +1387,27 @@ class Delta(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         if not sample_shape:
             return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
         return jnp.broadcast_to(self.v, shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.v
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.zeros(self.batch_shape + self.event_shape)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return -jnp.broadcast_to(self.log_density, self.batch_shape)
 
 
@@ -1405,16 +1426,16 @@ class Unit(Distribution):
     def __init__(self, log_factor: ArrayLike, *, validate_args: bool = False):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
-        self.log_factor = log_factor
+        self.log_factor = jnp.asarray(log_factor)
         super(Unit, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value)[:-1])
         return jnp.broadcast_to(self.log_factor, shape)

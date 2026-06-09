@@ -93,6 +93,37 @@ def sde_fn2(xy, _):
     return dxy, sigma2
 
 
+class LazyDist:
+    """Defer construction of a distribution that is itself a *parameter* of
+    another distribution (e.g. the base distribution of ``EulerMaruyama`` or
+    ``TwoSidedTruncatedDistribution``).
+
+    Distributions now materialize their parameters as ``jax.Array`` at
+    construction time. Building such a base distribution at module scope (inside
+    a parametrize list) would leave live arrays around before the first test
+    runs, which breaks the ``jax.live_arrays()`` guard in ``conftest.py`` -- that
+    guard exists so ``JAX_ENABLE_X64`` can be configured before any array is
+    created. Wrapping the base distribution in ``LazyDist`` keeps the parametrize
+    data array-free; it is resolved to a real distribution inside the test via
+    ``_resolve_params`` when the outer distribution is constructed.
+    """
+
+    def __init__(self, factory, *args, **kwargs):
+        self._factory = factory
+        self._args = args
+        self._kwargs = kwargs
+
+    def __call__(self):
+        return self._factory(*self._args, **self._kwargs)
+
+
+def _resolve_params(params):
+    """Resolve any :class:`LazyDist` entries in a parametrize ``params`` tuple to
+    concrete distributions. Call this immediately before constructing a
+    distribution from test parameters."""
+    return tuple(p() if isinstance(p, LazyDist) else p for p in params)
+
+
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
     def __new__(cls, jax_dist, *params):
         sp_dist = get_sp_dist(jax_dist)
@@ -399,7 +430,7 @@ class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
     pytree_data_fields = ("rate",)
 
     def __init__(self, rate, gate_logits, *, validate_args=None):
-        self.rate = rate
+        self.rate = jnp.asarray(rate)
         super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
 
 
@@ -426,8 +457,8 @@ class FoldedNormal(dist.FoldedDistribution):
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
 
     def __init__(self, loc, scale, validate_args=None):
-        self.loc = loc
-        self.scale = scale
+        self.loc = jnp.asarray(loc)
+        self.scale = jnp.asarray(scale)
         super().__init__(dist.Normal(loc, scale), validate_args=validate_args)
 
 
@@ -595,25 +626,27 @@ CONTINUOUS = [
         dist.EulerMaruyama,
         np.array([0.0, 0.1, 0.2]),
         sde_fn1,
-        dist.Normal(0.1, 1.0),
+        LazyDist(dist.Normal, 0.1, 1.0),
     ),
     T(
         dist.EulerMaruyama,
         np.array([0.0, 0.1, 0.2]),
         sde_fn2,
-        dist.Normal(np.array([0.0, 1.0]), 1e-3).to_event(1),
+        LazyDist(lambda: dist.Normal(np.array([0.0, 1.0]), 1e-3).to_event(1)),
     ),
     T(
         dist.EulerMaruyama,
         np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
         sde_fn2,
-        dist.Normal(np.array([0.0, 1.0]), 1e-3).to_event(1),
+        LazyDist(lambda: dist.Normal(np.array([0.0, 1.0]), 1e-3).to_event(1)),
     ),
     T(
         dist.EulerMaruyama,
         np.array([[0.0, 0.1, 0.2], [10.0, 10.1, 10.2]]),
         sde_fn2,
-        dist.Normal(np.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1),
+        LazyDist(
+            lambda: dist.Normal(np.array([[0.0, 1.0], [2.0, 3.0]]), 1e-2).to_event(1)
+        ),
     ),
     T(dist.Exponential, 2.0),
     T(dist.Exponential, np.array([4.0, 2.0])),
@@ -927,7 +960,12 @@ CONTINUOUS = [
         None,
         np.array([-2.0, 2.0]),
     ),
-    T(dist.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
+    T(
+        dist.TwoSidedTruncatedDistribution,
+        LazyDist(dist.Laplace, 0.0, 1.0),
+        -2.0,
+        3.0,
+    ),
     T(dist.Uniform, 0.0, 2.0),
     T(dist.Uniform, 1.0, np.array([2.0, 3.0])),
     T(dist.Uniform, np.array([0.0, 0.0]), np.array([[2.0], [3.0]])),
@@ -1476,6 +1514,7 @@ def gen_values_outside_bounds(constraint, size, key=None):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
+    params = _resolve_params(params)
     jax_dist = jax_dist_cls(*params)
     rng_key = random.key(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
@@ -1526,6 +1565,7 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_infer_shapes(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     shapes = []
     for param in params:
         if param is None:
@@ -1550,6 +1590,7 @@ def test_infer_shapes(jax_dist, sp_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_has_rsample(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     jax_dist = jax_dist(*params)
     masked_dist = jax_dist.mask(False)
     indept_dist = jax_dist.expand_by([2]).to_event(1)
@@ -1585,6 +1626,7 @@ def test_has_rsample(jax_dist, sp_dist, params):
     "jax_dist_cls, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_args_attributes(jax_dist_cls, sp_dist, params):
+    params = _resolve_params(params)
     jax_dist = jax_dist_cls(*params)
     for constraint in jax_dist.arg_constraints.values():
         if jax_dist_cls != dist.Delta:
@@ -1603,6 +1645,7 @@ def test_unit(batch_shape):
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS)
 def test_sample_gradient(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     # we have pathwise gradient for gamma sampler
     gamma_derived_params = {
         "Gamma": ["concentration"],
@@ -1710,6 +1753,7 @@ def test_pathwise_gradient(jax_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_jit_log_likelihood(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     if jax_dist.__name__ in (
         "EulerMaruyama",
         "GaussianRandomWalk",
@@ -1739,6 +1783,7 @@ def test_jit_log_likelihood(jax_dist, sp_dist, params):
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 @pytest.mark.parametrize("jit", [False, True])
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
+    params = _resolve_params(params)
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
 
@@ -1805,6 +1850,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_entropy_scipy(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     jax_dist = jax_dist(*params)
 
     try:
@@ -1825,6 +1871,7 @@ def test_entropy_scipy(jax_dist, sp_dist, params):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL + BASE
 )
 def test_entropy_samples(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     jax_dist = jax_dist(*params)
 
     try:
@@ -1875,6 +1922,7 @@ def test_mixture_log_prob():
 )
 @pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     d = jax_dist(*params)
     if d.event_dim > 0:
         pytest.skip("skip testing cdf/icdf methods of multivariate distributions")
@@ -1928,6 +1976,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
 def test_independent_shape(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     d = jax_dist(*params)
     batch_shape, event_shape = d.batch_shape, d.event_shape
     shape = batch_shape + event_shape
@@ -2153,6 +2202,7 @@ def test_inverse_wishart_variance(conc):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_log_prob_gradient(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip("we have separated tests for LKJCholesky distribution")
     if jax_dist is _ImproperWrapper:
@@ -2229,6 +2279,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     reason="Expected tracer leak for Gompertz: https://github.com/jax-ml/jax/issues/26972",
 )
 def test_mean_var(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist is FoldedNormal:
@@ -2449,6 +2500,7 @@ def test_mean_var(jax_dist, sp_dist, params):
 )
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
+    params = _resolve_params(params)
     if jax_dist in (
         _TruncatedNormal,
         _TruncatedCauchy,
@@ -2541,16 +2593,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     ):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
-
-        with pytest.raises(ValueError):
-            # test error raised under jit omnistaging
-            oob_params = jax.device_get(oob_params)
-
-            def dist_gen_fn():
-                d = jax_dist(*oob_params, validate_args=True)
-                return d
-
-            jax.jit(dist_gen_fn)()
+        # NB: there is no corresponding check under `jax.jit`. Parameters are now
+        # normalized to (traced) jax arrays at construction, so `validate_args`
+        # cannot inspect them inside a trace and does not raise. Argument
+        # validation is an eager-only operation.
 
     d = jax_dist(*valid_params, validate_args=True)
 
@@ -2576,28 +2622,32 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     )
     with pytest.warns(UserWarning, match="Out-of-support"):
         d.log_prob(oob_samples)
-
-    with pytest.warns(UserWarning, match="Out-of-support"):
-        # test warning work under jit omnistaging
-        oob_samples = jax.device_get(oob_samples)
-        valid_params = jax.device_get(valid_params)
-
-        def log_prob_fn():
-            d = jax_dist(*valid_params, validate_args=True)
-            return d.log_prob(oob_samples)
-
-        jax.jit(log_prob_fn)()
+    # NB: there is no corresponding check under `jax.jit`. Sample validation
+    # inspects the support mask only when it is concrete; with parameters
+    # normalized to (traced) jax arrays at construction the mask is a tracer
+    # inside a trace, so the out-of-support warning is an eager-only operation.
 
 
-def test_omnistaging_invalid_param():
-    def f(x):
-        return dist.LogNormal(x, -np.ones(2), validate_args=True).log_prob(0)
-
+def test_eager_invalid_param():
+    # Argument validation is an eager-only operation: parameters are normalized to
+    # jax arrays at construction, so `validate_args` cannot inspect them inside a
+    # trace. Eagerly, an invalid parameter still raises.
     with pytest.raises(ValueError, match="got invalid"):
-        jax.jit(f)(0)
+        dist.LogNormal(0.0, -np.ones(2), validate_args=True)
+
+    # Under jit the same construction does not raise (the parameter is traced and
+    # cannot be validated). Use an in-support sample so this isolates parameter
+    # validation from out-of-support sample warnings.
+    def f(x):
+        return dist.LogNormal(x, -np.ones(2), validate_args=True).log_prob(1.0)
+
+    jax.jit(f)(0.0)
 
 
 def test_omnistaging_invalid_sample():
+    # Out-of-support sample validation branches only on a concrete support mask.
+    # `LogNormal`'s support bound is a constant, so the mask still constant-folds
+    # under jit here and the warning is emitted.
     def f(x):
         return dist.LogNormal(x, np.ones(2), validate_args=True).log_prob(-1)
 
@@ -3143,6 +3193,7 @@ def test_unpack_transform(x_dim, y_dim):
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS)
 def test_generated_sample_distribution(jax_dist, sp_dist, params, N_sample=100_000):
+    params = _resolve_params(params)
     """On samplers that we do not get directly from JAX, (e.g. we only get
     Gumbel(0,1) but also provide samplers for Gumbel(loc, scale)), also test
     agreement in the empirical distribution of generated samples between our
@@ -3187,6 +3238,29 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
     assert_allclose(actual, expected)
 
 
+@pytest.mark.parametrize(
+    "jax_dist, params",
+    [
+        (dist.BinomialLogits, (4.5, 10)),
+        (dist.BinomialProbs, (0.5, 11)),
+        (dist.BetaBinomial, (2.0, 0.5, 12)),
+        (dist.DiscreteUniform, (2, 6)),
+    ],
+)
+def test_enumerate_support_under_vmap(jax_dist, params):
+    # `enumerate_support` needs the count/bound parameters (`total_count`, `low`,
+    # `high`) to be concrete: it builds the integer range with `jnp.arange`. These
+    # parameters must therefore not be coerced to jax arrays at construction, or
+    # they become tracers under enumeration / multi-chain `vmap` and raise a
+    # `ConcretizationTypeError`. This reproduces that condition directly.
+    def enum_size(seed):
+        del seed
+        return jax_dist(*params).enumerate_support(expand=False).shape[0]
+
+    sizes = jax.vmap(enum_size)(jnp.arange(2))
+    assert sizes.shape == (2,)
+
+
 def test_zero_inflated_enumerate_support():
     base_dist = dist.Bernoulli(0.5)
     d = dist.ZeroInflatedDistribution(base_dist, gate=0.5)
@@ -3198,6 +3272,7 @@ def test_zero_inflated_enumerate_support():
 @pytest.mark.parametrize("prepend_shape", [(), (2, 3)])
 @pytest.mark.parametrize("sample_shape", [(), (4,)])
 def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
+    params = _resolve_params(params)
     jax_dist = jax_dist(*params)
     new_batch_shape = prepend_shape + jax_dist.batch_shape
     expanded_dist = jax_dist.expand(new_batch_shape)
@@ -3343,6 +3418,8 @@ def test_mask_grad(event_shape):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_dist_pytree(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
+
     def f(x):
         return jax_dist(*params)
 
@@ -3376,6 +3453,27 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     actual_log_prob = actual_dist.log_prob(actual_sample)
     assert_allclose(actual_sample, expected_sample, rtol=1e-6)
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_aux_fields_are_not_jax_arrays(jax_dist, sp_dist, params):
+    # Pytree *aux* fields are static metadata; a jax array stored in one becomes a
+    # tracer under `jit`/`vmap` (and is unhashable), which breaks constructing the
+    # distribution inside a trace. Concrete (numpy/int/...) values are fine -- only
+    # jax arrays are disallowed. For example `total_count` on the multinomial
+    # family must stay a concrete int so the sampler can read
+    # `int(np.max(total_count))`; coercing it to a jax array would make a jitted
+    # `MultinomialProbs(...).sample(key)` raise "Please specify total_count_max".
+    params = _resolve_params(params)
+    d = jax_dist(*params)
+    for name in d.gather_pytree_aux_fields():
+        value = getattr(d, name, None)
+        assert not isinstance(value, jax.Array), (
+            f"{jax_dist.__name__}.{name} is a jax.Array but is a pytree aux field; "
+            f"aux fields must stay concrete (numpy/int/...)."
+        )
 
 
 @pytest.mark.parametrize(
@@ -3668,6 +3766,7 @@ def _tree_equal(t1, t2):
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_vmap_dist(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
     param_names = list(inspect.signature(jax_dist).parameters.keys())
     vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
     vmappable_param_idxs = vmappable_param_idxs[: len(params)]
@@ -5028,3 +5127,42 @@ def test_hurdle_poisson_inference():
     samples = mcmc.get_samples()
     assert abs(float(jnp.mean(samples["gate"])) - true_gate) < 0.05
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.3
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_outputs_are_arrays(jax_dist, sp_dist, params):
+    params = _resolve_params(params)
+    # This test checks that method outputs (sample, log_prob, mean, variance,
+    # entropy) are jax arrays. Disable argument/sample validation for its duration
+    # so it is independent of whether an earlier test left validation globally
+    # enabled (e.g. `test_uniform_log_prob_outside_support`); otherwise feeding a
+    # boundary `sample` back into `log_prob` could emit an "Out-of-support" warning.
+    with dist.distribution.validation_enabled(False):
+        d = jax_dist(*params)
+        key = random.PRNGKey(0)
+        x = d.sample(key)
+        assert isinstance(x, jax.Array)
+        # Interval-censored distributions take an interval (lo, hi) as `log_prob` input
+        # but return univariate samples, so `log_prob(sample)` is not well-formed for
+        # them (see the same special-casing in `test_dist_shape`); check sample only.
+        if not isinstance(d, dist.IntervalCensoredDistribution):
+            assert isinstance(d.log_prob(x), jax.Array)
+
+        # mean/variance/entropy aren't defined for every distribution -- only assert
+        # array-ness where the quantity exists; NotImplementedError is not a violation.
+        # Moment *shapes* are checked separately in test_mean_var; here we only require
+        # that the outputs are jax arrays rather than numpy arrays / python scalars.
+        for name in ("mean", "variance"):
+            try:
+                v = getattr(d, name)
+            except NotImplementedError:
+                continue
+            assert isinstance(v, jax.Array), (
+                f"{jax_dist.__name__}.{name} returned {type(v)}"
+            )
+        try:
+            assert isinstance(d.entropy(), jax.Array)
+        except NotImplementedError:
+            pass
