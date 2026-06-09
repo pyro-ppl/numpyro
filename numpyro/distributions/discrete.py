@@ -1359,11 +1359,13 @@ class Poisson(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        # Using an integer vs. floating-point `rate` leads to differing results.
-        # To ensure consistent behavior, `rate` is explicitly cast to a floating-point type.
+        # `self.rate` is normalized to a floating-point array at construction (its
+        # constraint is non-discrete), so an integer vs. floating-point `rate`
+        # argument yields identical results. The `value` argument is still cast to
+        # float below since it is not a stored parameter.
         # See: https://github.com/pyro-ppl/numpyro/issues/2181
         ftype = jnp.result_type(float)
-        rate = jnp.astype(self.rate, ftype)
+        rate = self.rate
 
         if (
             self.is_sparse

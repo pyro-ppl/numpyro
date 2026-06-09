@@ -78,6 +78,25 @@ from numpyro._typing import NonScalarArray, NumLike, NumLikeT
 from numpyro.distributions.util import array_equiv
 
 
+def _xp(constraint, x):
+    """
+    Select the array module (``jax.numpy`` or ``numpy``) for a constraint check.
+
+    A constraint compares the checked value ``x`` against its bounds. Either ``x``
+    or a bound may be a jax array -- in particular the bounds, which are derived
+    from distribution parameters that are normalized to jax arrays at construction.
+    Use ``jax.numpy`` if any of them is a jax array so a concrete value is not
+    passed to a numpy op together with a traced bound (which would raise under
+    ``jit``).
+    """
+    operands = (
+        x,
+        getattr(constraint, "lower_bound", None),
+        getattr(constraint, "upper_bound", None),
+    )
+    return jnp if any(isinstance(o, jax.Array) for o in operands) else np
+
+
 class Constraint(Generic[NumLikeT]):
     """
     Abstract base class for constraints.
@@ -155,7 +174,7 @@ class _Boolean(_SingletonConstraint[NumLike]):
     is_discrete = True
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.equal(x, 0) | xp.equal(x, 1)
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
@@ -295,7 +314,7 @@ class _GreaterThan(Constraint[NumLike]):
         self.lower_bound = lower_bound
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.greater(x, self.lower_bound)
 
     def __repr__(self) -> str:
@@ -317,7 +336,7 @@ class _GreaterThan(Constraint[NumLike]):
 
 class _GreaterThanEq(_GreaterThan):
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.greater_equal(x, self.lower_bound)
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:
@@ -438,7 +457,7 @@ class _LessThan(Constraint[NumLike]):
         self.upper_bound = upper_bound
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.less(x, self.upper_bound)
 
     def __repr__(self) -> str:
@@ -460,7 +479,7 @@ class _LessThan(Constraint[NumLike]):
 
 class _LessThanEq(_LessThan):
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.less_equal(x, self.upper_bound)
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:
@@ -477,7 +496,7 @@ class _IntegerInterval(Constraint[NumLike]):
         self.upper_bound = upper_bound
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return (
             xp.greater_equal(x, self.lower_bound)
             & xp.less_equal(x, self.upper_bound)
@@ -515,7 +534,7 @@ class _IntegerGreaterThan(Constraint[NumLike]):
         self.lower_bound = lower_bound
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return (xp.mod(x, 1) == 0) & xp.greater_equal(x, self.lower_bound)
 
     def __repr__(self) -> str:
@@ -563,7 +582,7 @@ class _Interval(Constraint[NumLike]):
         self.upper_bound = upper_bound
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.greater_equal(x, self.lower_bound) & xp.less_equal(
             x, self.upper_bound
         )
@@ -618,7 +637,7 @@ class _UnitInterval(_Interval, _SingletonConstraint[NumLike]):
 
 class _OpenInterval(_Interval):
     def __call__(self, x: NumLike) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return xp.greater(x, self.lower_bound) & xp.less(x, self.upper_bound)
 
     def __repr__(self) -> str:
@@ -651,7 +670,7 @@ class _Multinomial(Constraint[NonScalarArray]):
         self.upper_bound = upper_bound
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return (x >= 0).all(axis=-1) & xp.equal(x.sum(axis=-1), self.upper_bound)
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
@@ -762,7 +781,7 @@ class _PositiveOrderedVector(_SingletonConstraint[NonScalarArray]):
 class _Complex(_SingletonConstraint[NumLike]):
     def __call__(self, x: NumLike) -> ArrayLike:
         # XXX: consider to relax this condition to [-inf, inf] interval
-        xp = jnp if isinstance(x, jax.Array) else np
+        xp = _xp(self, x)
         return (
             xp.equal(x, x)
             & xp.not_equal(x, float("inf"))
