@@ -154,7 +154,6 @@ class BarkerMH(MCMCKernel):
                 potential_fn_gen,
                 self._postprocess_fn,
                 model_trace,
-                *_,
             ) = initialize_model(
                 rng_key,
                 self._model,

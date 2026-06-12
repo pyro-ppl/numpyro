@@ -30,7 +30,6 @@ from numpyro.infer.svi import SVI
 from numpyro.infer.util import (
     LogDensityInfo,
     Predictive,
-    constrain_samples,
     get_log_density_fn,
     initialize_model,
     log_likelihood,
@@ -42,7 +41,6 @@ __all__ = [
     "AIES",
     "autoguide",
     "calibration",
-    "constrain_samples",
     "get_log_density_fn",
     "init_to_feasible",
     "init_to_mean",
