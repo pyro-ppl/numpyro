@@ -449,7 +449,7 @@ def test_initialize_model_change_point(init_strategy):
     # fmt: on
 
     rng_keys = random.split(random.key(1), 2)
-    init_params, _, _, _, _ = initialize_model(
+    init_params, _, _, _ = initialize_model(
         rng_keys, model, init_strategy=init_strategy, model_args=(count_data,)
     )
     if isinstance(init_strategy, partial) and init_strategy.func is init_to_value:
@@ -458,7 +458,7 @@ def test_initialize_model_change_point(init_strategy):
         )
         assert_allclose(init_params[0]["tau"], jnp.repeat(expected, 2))
     for i in range(2):
-        init_params_i, _, _, _, _ = initialize_model(
+        init_params_i, _, _, _ = initialize_model(
             rng_keys[i], model, init_strategy=init_strategy, model_args=(count_data,)
         )
         for name, p in init_params[0].items():
@@ -486,11 +486,11 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
     data = dist.Categorical(true_probs).sample(random.key(1), (2000,))
 
     rng_keys = random.split(random.key(1), 2)
-    init_params, _, _, _, _ = initialize_model(
+    init_params, _, _, _ = initialize_model(
         rng_keys, model, init_strategy=init_strategy, model_args=(data,)
     )
     for i in range(2):
-        init_params_i, _, _, _, _ = initialize_model(
+        init_params_i, _, _, _ = initialize_model(
             rng_keys[i], model, init_strategy=init_strategy, model_args=(data,)
         )
         for name, p in init_params[0].items():

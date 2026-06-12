@@ -60,10 +60,6 @@ unconstrain_fn
 --------------
 .. autofunction:: numpyro.infer.util.unconstrain_fn
 
-constrain_samples
------------------
-.. autofunction:: numpyro.infer.util.constrain_samples
-
 get_log_density_fn
 ------------------
 .. autofunction:: numpyro.infer.util.get_log_density_fn

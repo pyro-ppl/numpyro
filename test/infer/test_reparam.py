@@ -203,8 +203,8 @@ def test_reparam_log_joint(model, kwargs):
     params = svi.get_params(svi_state)
     neutra = NeuTraReparam(guide, params)
     reparam_model = neutra.reparam(model)
-    _, pe_fn, _, _, _ = initialize_model(random.key(1), model, model_kwargs=kwargs)
-    init_params, pe_fn_neutra, _, _, _ = initialize_model(
+    _, pe_fn, _, _ = initialize_model(random.key(1), model, model_kwargs=kwargs)
+    init_params, pe_fn_neutra, _, _ = initialize_model(
         random.key(2), reparam_model, model_kwargs=kwargs
     )
     latent_x = list(init_params[0].values())[0]

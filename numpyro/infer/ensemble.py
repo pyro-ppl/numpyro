@@ -121,7 +121,6 @@ class EnsembleSampler(MCMCKernel, ABC):
                 potential_fn_gen,
                 self._postprocess_fn,
                 _,
-                *_,
             ) = initialize_model(
                 rng_key,
                 self._model,

@@ -17,12 +17,16 @@ from numpyro.distributions import constraints
 from numpyro.infer import (
     MCMC,
     Predictive,
-    constrain_samples,
     get_log_density_fn,
 )
 from numpyro.infer.initialization import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import constrain_fn, initialize_model, potential_energy
+from numpyro.infer.util import (
+    ModelInfo,
+    constrain_fn,
+    initialize_model,
+    potential_energy,
+)
 
 
 def _linreg_model(x, y=None):
@@ -43,54 +47,22 @@ def _linreg_data(seed=0, n=80):
     return x, y
 
 
-def test_initialize_model_bound_populates_logdensity_fn():
-    """`bound=True` binds the model args and exposes a negated potential."""
-    x, y = _linreg_data()
-    info = initialize_model(random.key(0), _linreg_model, bound=True, model_args=(x, y))
-    position = info.param_info.z
-    # potential_fn is now a single-position callable.
-    pe = potential_energy(_linreg_model, (x, y), {}, position)
-    assert_allclose(info.potential_fn(position), pe, rtol=1e-5)
-    # logdensity_fn is exactly the negation.
-    assert info.logdensity_fn is not None
-    assert_allclose(
-        info.logdensity_fn(position), -info.potential_fn(position), rtol=1e-5
+def test_initialize_model_stays_four_fields():
+    """Regression guard for the external-sampler integration: ``ModelInfo`` keeps
+    exactly four fields so existing four-tuple unpacking of ``initialize_model``
+    (used across NumPyro and in user code) does not break."""
+    assert ModelInfo._fields == (
+        "param_info",
+        "potential_fn",
+        "postprocess_fn",
+        "model_trace",
     )
-
-
-def test_initialize_model_default_has_no_logdensity_fn():
-    """Without `bound`, behavior is unchanged and `logdensity_fn` is None."""
     x, y = _linreg_data()
-    info = initialize_model(random.key(0), _linreg_model, model_args=(x, y))
-    assert info.logdensity_fn is None
-    # With dynamic_args=False, postprocess_fn is already a single-position callable.
-    out = info.postprocess_fn(info.param_info.z)
-    assert "mu" in out
-
-
-def test_initialize_model_bound_with_model_kwargs():
-    """`bound=True` also works when the model is fed through `model_kwargs`."""
-    x, y = _linreg_data()
-    info = initialize_model(
-        random.key(0), _linreg_model, bound=True, model_kwargs={"x": x, "y": y}
+    # `a, b, c, d = initialize_model(...)` must keep working.
+    param_info, potential_fn, postprocess_fn, model_trace = initialize_model(
+        random.key(0), _linreg_model, model_args=(x, y)
     )
-    position = info.param_info.z
-    pe = potential_energy(_linreg_model, (), {"x": x, "y": y}, position)
-    assert_allclose(info.logdensity_fn(position), -pe, rtol=1e-5)
-    out = info.postprocess_fn(position)
-    assert out["mu"].shape == x.shape
-
-
-def test_initialize_model_bound_rejects_dynamic_args():
-    x, y = _linreg_data()
-    with pytest.raises(ValueError, match="incompatible"):
-        initialize_model(
-            random.key(0),
-            _linreg_model,
-            bound=True,
-            dynamic_args=True,
-            model_args=(x, y),
-        )
+    assert set(model_trace.keys()) >= {"a", "b", "sigma"}
 
 
 def test_get_log_density_fn_negates_potential():
@@ -113,24 +85,30 @@ def test_get_log_density_fn_postprocess_includes_deterministics():
     assert out["mu"].shape == x.shape
 
 
-@pytest.mark.parametrize("wrapper", [False, True])
-def test_constrain_single_position(wrapper):
+def test_get_log_density_fn_with_model_kwargs():
+    """`get_log_density_fn` also works when the model is fed through `model_kwargs`."""
+    x, y = _linreg_data()
+    info = get_log_density_fn(
+        random.key(0), _linreg_model, model_kwargs={"x": x, "y": y}
+    )
+    pe = potential_energy(_linreg_model, (), {"x": x, "y": y}, info.init_position)
+    assert_allclose(info.logdensity_fn(info.init_position), -pe, rtol=1e-5)
+    out = info.postprocess_fn(info.init_position)
+    assert out["mu"].shape == x.shape
+
+
+def test_constrain_single_position():
     """batch_ndims=0 applies a single constrain without vmap."""
     x, y = _linreg_data()
     info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
-    if wrapper:
-        out = constrain_samples(
-            info.init_position, _linreg_model, model_args=(x, y), batch_ndims=0
-        )
-    else:
-        out = constrain_fn(
-            _linreg_model,
-            (x, y),
-            {},
-            info.init_position,
-            return_deterministic=True,
-            batch_ndims=0,
-        )
+    out = constrain_fn(
+        _linreg_model,
+        (x, y),
+        {},
+        info.init_position,
+        return_deterministic=True,
+        batch_ndims=0,
+    )
     assert set(out.keys()) >= {"a", "b", "sigma", "mu"}
     assert out["sigma"].shape == ()  # scalar, no leading batch dim
     assert out["mu"].shape == x.shape
@@ -196,7 +174,7 @@ def test_constrain_fn_batched_param_site():
         assert_allclose(out["loc"][i], single["loc"], rtol=1e-5)
 
 
-def test_constrain_samples_two_batch_dims():
+def test_constrain_fn_two_batch_dims():
     """batch_ndims=2 vmaps twice (chains x samples) with distinct per-cell values."""
     x, y = _linreg_data()
     info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
@@ -208,7 +186,9 @@ def test_constrain_samples_two_batch_dims():
         k: v + 0.1 * offsets.reshape((chains, draws) + (1,) * jnp.ndim(v))
         for k, v in info.init_position.items()
     }
-    out = constrain_samples(raw, _linreg_model, model_args=(x, y), batch_ndims=2)
+    out = constrain_fn(
+        _linreg_model, (x, y), {}, raw, return_deterministic=True, batch_ndims=2
+    )
     assert out["sigma"].shape == (chains, draws)
     assert out["mu"].shape == (chains, draws, x.shape[0])
     # Match an explicit chain x draw loop of the single-position constrain.
@@ -226,17 +206,11 @@ def test_constrain_samples_two_batch_dims():
             assert_allclose(out["mu"][c, d], single["mu"], rtol=1e-5)
 
 
-@pytest.mark.parametrize("fn", ["constrain_fn", "constrain_samples"])
-def test_constrain_rejects_negative_ndims(fn):
+def test_constrain_fn_rejects_negative_ndims():
     x, y = _linreg_data()
     info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
     with pytest.raises(ValueError):
-        if fn == "constrain_fn":
-            constrain_fn(_linreg_model, (x, y), {}, info.init_position, batch_ndims=-1)
-        else:
-            constrain_samples(
-                info.init_position, _linreg_model, model_args=(x, y), batch_ndims=-1
-            )
+        constrain_fn(_linreg_model, (x, y), {}, info.init_position, batch_ndims=-1)
 
 
 _RWState = namedtuple("_RWState", ["position", "logdensity", "rng_key"])
@@ -245,9 +219,9 @@ _RWState = namedtuple("_RWState", ["position", "logdensity", "rng_key"])
 class _RandomWalkKernel(MCMCKernel):
     """Minimal :class:`MCMCKernel` driving a random-walk Metropolis sampler.
 
-    Mirrors the notebook pattern (build the bound log-density and postprocess
-    via ``initialize_model(bound=True)`` in :meth:`init`) without depending on
-    an external sampler library.
+    Mirrors the notebook pattern (build the log-density and postprocess via
+    ``get_log_density_fn`` in :meth:`init`) without depending on an external
+    sampler library.
     """
 
     def __init__(self, model, step_size=0.2, init_strategy=init_to_uniform):
@@ -265,17 +239,16 @@ class _RandomWalkKernel(MCMCKernel):
         return self._postprocess_fn
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        info = initialize_model(
+        info = get_log_density_fn(
             rng_key,
             self._model,
-            bound=True,
             init_strategy=self._init_strategy,
             model_args=model_args,
             model_kwargs=model_kwargs,
         )
         self._logdensity_fn = info.logdensity_fn
         self._postprocess_fn = info.postprocess_fn
-        position = info.param_info.z if init_params is None else init_params
+        position = info.init_position if init_params is None else init_params
         return _RWState(position, info.logdensity_fn(position), rng_key)
 
     def sample(self, state, model_args, model_kwargs):
