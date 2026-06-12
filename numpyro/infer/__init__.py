@@ -27,7 +27,13 @@ from numpyro.infer.mcmc import MCMC
 from numpyro.infer.mixed_hmc import MixedHMC
 from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
-from numpyro.infer.util import Predictive, log_likelihood
+from numpyro.infer.util import (
+    LogDensityInfo,
+    Predictive,
+    get_log_density_fn,
+    initialize_model,
+    log_likelihood,
+)
 
 from . import autoguide, calibration, reparam
 
@@ -35,12 +41,14 @@ __all__ = [
     "AIES",
     "autoguide",
     "calibration",
+    "get_log_density_fn",
     "init_to_feasible",
     "init_to_mean",
     "init_to_median",
     "init_to_sample",
     "init_to_uniform",
     "init_to_value",
+    "initialize_model",
     "log_likelihood",
     "psis_diagnostic",
     "reparam",
@@ -51,6 +59,7 @@ __all__ = [
     "HMC",
     "HMCECS",
     "HMCGibbs",
+    "LogDensityInfo",
     "MCMC",
     "MixedHMC",
     "NUTS",
