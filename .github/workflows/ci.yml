@@ -19,7 +19,7 @@ jobs:
       - name: prek check
         uses: j178/prek-action@v1
         with:
-          extra-args: --all-files --skip ruff --skip ruff-format --skip ty --skip mypy
+          extra-args: --all-files --skip ruff --skip ruff-format
 
   lint:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
             --group docs \
             --group test
           uv pip freeze
-      - name: Lint with mypy and ruff
+      - name: Lint with ty and ruff
         run: |
           uv run make lint
       - name: Build documentation

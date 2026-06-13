@@ -37,10 +37,10 @@ def plate_to_enum_plate():
 
     """
     try:
-        numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)
+        numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)  # ty: ignore[invalid-assignment]
         yield
     finally:
-        numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
+        numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)  # ty: ignore[invalid-assignment]
 
 
 def _config_enumerate_fn(site, default):

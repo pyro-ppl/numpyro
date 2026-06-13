@@ -7,7 +7,7 @@ This provides a small set of utilities in NumPyro that are used to diagnose post
 
 from collections import OrderedDict
 from itertools import product
-from typing import Union
+from typing import Union, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -257,6 +257,7 @@ def summary(
         samples = {
             "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
+    samples = cast(dict[str, np.ndarray], samples)
 
     summary_dict = {}
     for name, value in samples.items():
@@ -311,6 +312,7 @@ def print_summary(
         samples = {
             "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
+    samples = cast(dict[str, np.ndarray], samples)
     summary_dict = summary(samples, prob, group_by_chain=True)
     if not summary_dict:
         return

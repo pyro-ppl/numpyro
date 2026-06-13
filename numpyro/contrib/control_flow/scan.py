@@ -137,6 +137,9 @@ def scan_enum(
         trace as packed_trace,
     )
 
+    if substitute_stack is None:
+        substitute_stack = []
+
     # amount number of steps to unroll
     history = min(history, length)
     unroll_steps = min(2 * history - 1, length)
@@ -189,7 +192,7 @@ def scan_enum(
             # store shape of new_carry at a global variable
             if len(carry_shapes) < (history + 1):
                 carry_shapes.append(
-                    [jnp.shape(x) for x in jax.tree.flatten(new_carry)[0]]
+                    [jnp.shape(x) for x in jax.tree.flatten(new_carry)[0]]  # ty: ignore[invalid-argument-type]
                 )
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?

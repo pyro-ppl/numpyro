@@ -4,8 +4,7 @@ lint: FORCE
 	ruff check .
 	ruff format . --check
 	python scripts/update_headers.py --check
-	mypy --install-types --non-interactive numpyro
-	ty check -vvv --config-file ty.toml --exit-zero
+	ty check
 
 license: FORCE
 	python scripts/update_headers.py
