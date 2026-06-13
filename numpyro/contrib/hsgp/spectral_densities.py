@@ -122,7 +122,10 @@ def diag_spectral_density_squared_exponential(
 
     def _spectral_density(w):
         return spectral_density_squared_exponential(
-            dim=dim, w=w, alpha=alpha, length=length
+            dim=dim,
+            w=w,
+            alpha=alpha,
+            length=length,  # ty: ignore[invalid-argument-type]
         )
 
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x m
@@ -329,7 +332,11 @@ def diag_spectral_density_rational_quadratic(
 
     def _spectral_density(w):
         return spectral_density_rational_quadratic(
-            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
+            dim=dim,
+            w=w,
+            alpha=alpha,
+            length=length,  # ty: ignore[invalid-argument-type]
+            scale_mixture=scale_mixture,
         )
 
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)

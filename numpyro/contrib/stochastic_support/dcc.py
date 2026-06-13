@@ -217,7 +217,7 @@ class DCC(StochasticSupportInference):
         Run MCMC on the model conditioned on the given branching trace.
         """
         slp_model = condition(self.model, data=branching_trace)
-        kernel = self.kernel_cls(slp_model)  # type: ignore[call-arg]
+        kernel = self.kernel_cls(slp_model)  # ty: ignore[too-many-positional-arguments]
         mcmc = MCMC(kernel, **self.mcmc_kwargs)
         mcmc.run(rng_key, *args, **kwargs)
 

@@ -606,7 +606,7 @@ class Distribution(metaclass=DistributionMeta):
         if (
             cls.support is not None
             and hasattr(cls.support, "event_dim")
-            and cls.support.event_dim > 0
+            and cast(int, cls.support.event_dim) > 0
         ):
             raise NotImplementedError
 
