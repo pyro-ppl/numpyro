@@ -2221,6 +2221,85 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=rtol, atol=atol)
 
 
+# Methods that do not yet return a jax array because they hand back a stored
+# parameter directly (e.g. ``Poisson.mean`` is ``self.rate``) or compute via plain
+# python arithmetic (e.g. ``Beta.mean`` is ``c1 / (c1 + c0)``). Their output type
+# tracks the input; the suite constructs these with python/numpy params, so the result
+# is consistently a non-array and the ``xfail`` is ``strict`` (it will flag the day one
+# of them starts returning a jax array, keeping this dict honest). Narrowing the return
+# to ``Array`` is tracked separately. Keyed by the distribution class used in the
+# parametrize lists above.
+OUTPUT_TYPE_XFAIL = {
+    dist.BernoulliProbs: {"mean", "variance"},
+    dist.Beta: {"mean", "variance"},
+    dist.BetaProportion: {"mean", "variance"},
+    dist.Chi2: {"mean"},
+    dist.Delta: {"mean", "sample"},
+    dist.DiscreteUniform: {"mean", "variance"},
+    dist.Gamma: {"mean"},
+    dist.GammaPoisson: {"mean"},
+    dist.GeometricProbs: {"mean", "variance"},
+    dist.HalfNormal: {"variance"},
+    dist.HurdleGamma: {"mean"},
+    dist.LowRankMultivariateNormal: {"mean"},
+    dist.NegativeBinomial2: {"mean"},
+    dist.NegativeBinomialProbs: {"mean"},
+    dist.Poisson: {"mean", "variance"},
+    SineSkewedUniform: {"mean"},
+    dist.SoftLaplace: {"mean", "variance"},
+    SparsePoisson: {"mean", "variance"},
+    dist.Uniform: {"mean", "variance"},
+    dist.ZeroInflatedPoisson: {"mean", "variance"},
+}
+
+
+@pytest.mark.parametrize(
+    "method", ["sample", "log_prob", "mean", "variance", "entropy"]
+)
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_output_is_array(jax_dist, sp_dist, params, method, request):
+    # Distribution methods should return jax arrays so that consumers can index,
+    # reshape, and compare the result without tripping a type checker (``ArrayLike``
+    # admits python/numpy scalars that are not indexable and have no ``.shape``).
+    # Validation is disabled so the test is independent of global validation state.
+    if method in OUTPUT_TYPE_XFAIL.get(jax_dist, ()):
+        request.applymarker(
+            pytest.mark.xfail(
+                strict=True,
+                reason=f"{jax_dist.__name__}.{method} returns a stored param / "
+                "python scalar rather than a jax array",
+            )
+        )
+    with dist.distribution.validation_enabled(False):
+        d = jax_dist(*params)
+        if method == "sample":
+            out = d.sample(random.PRNGKey(0))
+        elif method == "log_prob":
+            # IntervalCensoredDistribution takes an interval (lo, hi) as log_prob
+            # input but returns univariate samples, so log_prob(sample) is not
+            # well-formed for it (mirrors the special-casing in test_dist_shape).
+            if isinstance(d, dist.IntervalCensoredDistribution):
+                pytest.skip(
+                    "log_prob(sample) is ill-formed for interval-censored dists"
+                )
+            out = d.log_prob(d.sample(random.PRNGKey(0)))
+        elif method == "entropy":
+            try:
+                out = d.entropy()
+            except NotImplementedError:
+                pytest.skip(f"{jax_dist.__name__}.entropy() is not implemented")
+        else:
+            try:
+                out = getattr(d, method)
+            except NotImplementedError:
+                pytest.skip(f"{jax_dist.__name__}.{method} is not implemented")
+    assert isinstance(out, jax.Array), (
+        f"{jax_dist.__name__}.{method} returned {type(out)}"
+    )
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
