@@ -5,7 +5,7 @@
 from typing import Optional, Union
 
 import jax
-from jax import lax
+from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
@@ -72,7 +72,7 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -103,14 +103,14 @@ class LeftTruncatedDistribution(Distribution):
         return result
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         sign = jnp.where(self.base_dist.loc >= self.low, 1.0, -1.0)
         return self.base_dist.log_prob(value) - jnp.log(
             sign * (self._tail_prob_at_high - self._tail_prob_at_low)
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             return self.base_dist.loc + low_prob * self.base_dist.scale**2
@@ -167,7 +167,7 @@ class RightTruncatedDistribution(Distribution):
     def _cdf_at_high(self) -> ArrayLike:
         return self.base_dist.cdf(self.high)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -194,11 +194,11 @@ class RightTruncatedDistribution(Distribution):
         return result
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             high_prob = jnp.exp(self.log_prob(self.high))
             return self.base_dist.loc - high_prob * self.base_dist.scale**2
@@ -289,7 +289,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             sign = jnp.where(loc >= self.low, 1.0, -1.0)
             return jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -334,7 +334,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         return result
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # NB: we use a more numerically stable formula for a symmetric base distribution
         # if low < loc
         #   cdf(high) - cdf(low) = as-is
@@ -343,7 +343,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
@@ -525,7 +525,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Logarithmic probability distribution:
 
         Z inequal minus one:
@@ -950,7 +950,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         return f(q, self.alpha, self.low, self.high)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)
@@ -1004,7 +1004,7 @@ class LowerTruncatedPowerLaw(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         one_more_alpha = 1.0 + self.alpha
         return (
             self.alpha * jnp.log(value)
@@ -1029,7 +1029,7 @@ class LowerTruncatedPowerLaw(Distribution):
             self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 + self.alpha)),
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)

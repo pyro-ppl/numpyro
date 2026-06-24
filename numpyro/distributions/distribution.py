@@ -900,7 +900,7 @@ class ImproperUniform(Distribution):
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         batch_shape = jnp.shape(value)[: jnp.ndim(value) - len(self.event_shape)]
         batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
         return jnp.zeros(batch_shape)
@@ -1233,11 +1233,13 @@ class TransformedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
             x = transform(x)
-        return x
+        # ``Transform.__call__`` is typed to return the wide ``ArrayLike``, so ``x`` is
+        # widened here even though it is a jax array at runtime.
+        return x  # type: ignore[return-value]
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -1253,7 +1255,7 @@ class TransformedDistribution(Distribution):
     @validate_sample
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
-    ) -> ArrayLike:
+    ) -> Array:
         if intermediates is not None:
             if len(intermediates) != len(self.transforms):
                 raise ValueError(
@@ -1323,7 +1325,7 @@ class FoldedDistribution(TransformedDistribution):
         super().__init__(base_dist, AbsTransform(), validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         dim = max(len(self.batch_shape), jnp.ndim(value))
         plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
@@ -1373,7 +1375,7 @@ class Delta(Distribution):
         return jnp.broadcast_to(self.v, shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
@@ -1383,10 +1385,10 @@ class Delta(Distribution):
         return self.v
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.zeros(self.batch_shape + self.event_shape)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return -jnp.broadcast_to(self.log_density, self.batch_shape)
 
 

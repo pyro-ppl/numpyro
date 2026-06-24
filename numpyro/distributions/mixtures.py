@@ -100,14 +100,14 @@ class _MixtureBase(Distribution):
         return -self.event_dim - 1
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         probs = self.mixing_distribution.probs
         probs = probs.reshape(probs.shape + (1,) * self.event_dim)
         weighted_component_means = probs * self.component_mean
         return jnp.sum(weighted_component_means, axis=self.mixture_dim)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         probs = self.mixing_distribution.probs
         probs = probs.reshape(probs.shape + (1,) * self.event_dim)
         mean_cond_var = jnp.sum(probs * self.component_variance, axis=self.mixture_dim)
@@ -161,11 +161,11 @@ class _MixtureBase(Distribution):
         # Final sample shape (*sample_shape, *batch_shape, *event_shape)
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
     @validate_sample
-    def log_prob(self, value: ArrayLike, intermediates=None) -> ArrayLike:
+    def log_prob(self, value: ArrayLike, intermediates=None) -> Array:
         del intermediates
         sum_log_probs = self.component_log_probs(value)
         safe_sum_log_probs = jnp.where(

@@ -102,7 +102,7 @@ class BernoulliProbs(Distribution):
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Bernoulli distribution.
 
         This method invokes :func:`~jax.random.bernoulli` directly, which generates
@@ -120,7 +120,7 @@ class BernoulliProbs(Distribution):
         return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified binary
         configurations.
 
@@ -184,7 +184,7 @@ class BernoulliProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""The entropy of the Bernoulli distribution is given by:
 
         .. math::
@@ -223,7 +223,7 @@ class BernoulliLogits(Distribution):
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Bernoulli distribution.
 
         The method first converts :attr:`logits` to probabilities via the sigmoid
@@ -241,7 +241,7 @@ class BernoulliLogits(Distribution):
         return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified binary configurations.
 
         The log probability mass function leverages the numerically-stable
@@ -273,7 +273,7 @@ class BernoulliLogits(Distribution):
         return _to_probs_bernoulli(self.logits)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""The mean of the Bernoulli distribution is given by the sigmoid of the
         log-odds parameter:
 
@@ -283,7 +283,7 @@ class BernoulliLogits(Distribution):
         return self.probs
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""The variance of the Bernoulli distribution is given by:
 
         .. math::
@@ -297,7 +297,7 @@ class BernoulliLogits(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""The entropy of the Bernoulli distribution is given by:
 
         .. math::
@@ -377,7 +377,7 @@ class BinomialProbs(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Binomial distribution.
 
         This method uses the internal :func:`~numpyro.distributions.util.binomial`
@@ -393,7 +393,7 @@ class BinomialProbs(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified count configurations.
 
         The log probability mass function is fully evaluated in log-space to prevent
@@ -440,7 +440,7 @@ class BinomialProbs(Distribution):
         return _to_logits_bernoulli(self.probs)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""The mean of the Binomial distribution is given by:
 
         .. math::
@@ -449,7 +449,7 @@ class BinomialProbs(Distribution):
         return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""The variance of the Binomial distribution is given by:
 
         .. math::
@@ -522,7 +522,7 @@ class BinomialLogits(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Binomial distribution.
 
         The method first converts :attr:`logits` to probabilities via the sigmoid function
@@ -539,7 +539,7 @@ class BinomialLogits(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified count
         configurations.
 
@@ -586,7 +586,7 @@ class BinomialLogits(Distribution):
         return _to_probs_bernoulli(self.logits)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""The mean of the Binomial distribution is given by:
 
         .. math::
@@ -595,7 +595,7 @@ class BinomialLogits(Distribution):
         return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""The variance of the Binomial distribution is given by:
 
         .. math::
@@ -672,7 +672,7 @@ class CategoricalProbs(Distribution):
             batch_shape=jnp.shape(self.probs)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Categorical distribution.
 
         This method delegates to :func:`~numpyro.distributions.util.categorical`, which
@@ -688,7 +688,7 @@ class CategoricalProbs(Distribution):
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified category indices.
 
         .. math::
@@ -719,7 +719,7 @@ class CategoricalProbs(Distribution):
         return _to_logits_multinom(self.probs)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""The mean of a Categorical distribution over arbitrary unordered categories
         is not well-defined. This property therefore returns ``NaN``.
 
@@ -728,7 +728,7 @@ class CategoricalProbs(Distribution):
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""The variance of a Categorical distribution over arbitrary unordered
         categories is not well-defined. This property therefore returns ``NaN``.
 
@@ -759,7 +759,7 @@ class CategoricalProbs(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""The entropy of the Categorical distribution is given by:
 
         .. math::
@@ -805,7 +805,7 @@ class CategoricalLogits(Distribution):
             batch_shape=jnp.shape(logits)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the Categorical distribution.
 
         This method invokes :func:`~jax.random.categorical` directly, which samples in
@@ -823,7 +823,7 @@ class CategoricalLogits(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified category indices.
 
         .. math::
@@ -858,7 +858,7 @@ class CategoricalLogits(Distribution):
         return _to_probs_multinom(self.logits)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""The mean of a Categorical distribution over arbitrary unordered categories
         is not well-defined. This property therefore returns ``NaN``.
 
@@ -867,7 +867,7 @@ class CategoricalLogits(Distribution):
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""The variance of a Categorical distribution over arbitrary unordered
         categories is not well-defined. This property therefore returns ``NaN``.
 
@@ -898,7 +898,7 @@ class CategoricalLogits(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""The entropy of the Categorical distribution is given by:
 
         .. math::
@@ -971,7 +971,7 @@ class DiscreteUniform(Distribution):
         """
         return self._support
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         r"""Draw samples from the discrete uniform distribution.
 
         This method invokes :func:`~jax.random.randint` directly, which generates
@@ -987,7 +987,7 @@ class DiscreteUniform(Distribution):
         return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Evaluate the log probability mass function at specified integer values.
 
         .. math::
@@ -1084,7 +1084,7 @@ class DiscreteUniform(Distribution):
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         r"""The entropy of the discrete uniform distribution is given by:
 
         .. math::
@@ -1170,7 +1170,7 @@ class MultinomialProbs(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         return multinomial(
             key,
@@ -1181,7 +1181,7 @@ class MultinomialProbs(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         value = jnp.array(value, jnp.result_type(float))
         return gammaln(self.total_count + 1) + jnp.sum(
             xlogy(value, self.probs) - gammaln(value + 1), axis=-1
@@ -1192,11 +1192,11 @@ class MultinomialProbs(Distribution):
         return _to_logits_multinom(self.probs)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.probs * jnp.expand_dims(self.total_count, -1)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
@@ -1244,7 +1244,7 @@ class MultinomialLogits(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         return multinomial(
             key,
@@ -1255,7 +1255,7 @@ class MultinomialLogits(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         if self._validate_args:
             self._validate_sample(value)
         normalize_term = self.total_count * logsumexp(self.logits, axis=-1) - gammaln(
@@ -1270,11 +1270,11 @@ class MultinomialLogits(Distribution):
         return _to_probs_multinom(self.logits)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.expand_dims(self.total_count, -1) * self.probs
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
@@ -1353,12 +1353,12 @@ class Poisson(Distribution):
         self.is_sparse = is_sparse
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # Using an integer vs. floating-point `rate` leads to differing results.
         # To ensure consistent behavior, `rate` is explicitly cast to a floating-point type.
         # See: https://github.com/pyro-ppl/numpyro/issues/2181
@@ -1427,7 +1427,7 @@ class ZeroInflatedProbs(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
@@ -1436,7 +1436,7 @@ class ZeroInflatedProbs(Distribution):
         return jnp.where(mask, 0, samples)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
         return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
 
@@ -1478,7 +1478,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         super().__init__(base_dist, gate, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         log_prob_minus_log_gate = -self.gate_logits + self.base_dist.log_prob(value)
         log_gate = -softplus(-self.gate_logits)
         log_prob = log_prob_minus_log_gate + log_gate
@@ -1620,7 +1620,7 @@ class HurdleProbs(Distribution):
     def _log_one_minus_gate(self) -> ArrayLike:
         return jnp.log1p(-self.gate)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
@@ -1653,7 +1653,7 @@ class HurdleProbs(Distribution):
         return samples
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         log_gate = self._log_gate()
         log_one_minus_gate = self._log_one_minus_gate()
         # Replace zeros with ones before evaluating the base log_prob to avoid
@@ -1678,7 +1678,7 @@ class HurdleProbs(Distribution):
         return (1 - self.gate) * self.base_dist.mean
 
     @lazy_property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         if self._is_discrete:
             trunc = -jnp.expm1(
                 self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
@@ -1823,7 +1823,7 @@ class GeometricProbs(Distribution):
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         probs = self.probs
         dtype = jnp.result_type(probs)
@@ -1832,7 +1832,7 @@ class GeometricProbs(Distribution):
         return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
         return value * jnp.log1p(-probs) + jnp.log(probs)
 
@@ -1848,7 +1848,7 @@ class GeometricProbs(Distribution):
     def variance(self) -> ArrayLike:
         return (1.0 / self.probs - 1.0) / self.probs
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return -(1 - self.probs) * jnp.log1p(-self.probs) / self.probs - jnp.log(
             self.probs
         )
@@ -1868,7 +1868,7 @@ class GeometricLogits(Distribution):
     def probs(self) -> ArrayLike:
         return _to_probs_bernoulli(self.logits)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         logits = self.logits
         dtype = jnp.result_type(logits)
@@ -1877,18 +1877,18 @@ class GeometricLogits(Distribution):
         return jnp.floor(jnp.log1p(-u) / -softplus(logits))
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         return (-value - 1) * softplus(self.logits) + self.logits
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return 1.0 / self.probs - 1.0
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (1.0 / self.probs - 1.0) / self.probs
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         logq = -jax.nn.softplus(self.logits)
         logp = -jax.nn.softplus(-self.logits)
         p = jax.scipy.special.expit(self.logits)
