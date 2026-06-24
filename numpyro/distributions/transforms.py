@@ -17,7 +17,7 @@ import jax.scipy.fft
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
-from jax.typing import ArrayLike
+from jax.typing import ArrayLike, DTypeLike
 
 from numpyro._typing import (
     NonScalarArray,
@@ -1928,6 +1928,7 @@ class HaarTransform(Transform[NonScalarArray]):
         return constraints.independent(constraints.real, -self.dim)
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        self.forward_shape(jnp.shape(x))
         if self.dim != -1:
             x = jnp.swapaxes(x, self.dim, -1)
         if self.flip:
@@ -1938,6 +1939,7 @@ class HaarTransform(Transform[NonScalarArray]):
         return y
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        self.inverse_shape(jnp.shape(y))
         if self.dim != -1:
             y = jnp.swapaxes(y, self.dim, -1)
         x = _haar_inverse(y)
@@ -2011,22 +2013,26 @@ class DiscreteCosineTransform(Transform[NonScalarArray]):
     def codomain(self) -> Constraint:
         return constraints.independent(constraints.real, -self.dim)
 
-    def _weight(self, size: int, dtype) -> Array:
+    def _weight(self, size: int, dtype: DTypeLike) -> Array:
         # Weight by frequency**smooth, where the DCT-II frequencies are
         # ``linspace(0.5, size - 0.5, size)``. The weights are normalized so
-        # that their geometric mean is one, ensuring ``|jacobian| = 1``.
+        # that their geometric mean is one, ensuring ``|jacobian| = 1``. The
+        # result depends only on the static ``size`` and ``smooth``, so it is
+        # constant-folded under ``jit`` and contributes zero gradient.
         freq = jnp.linspace(0.5, size - 0.5, size, dtype=dtype)
         w = freq**self.smooth
         w = w / jnp.exp(jnp.mean(jnp.log(w)))
         return w.reshape((size,) + (1,) * (-self.dim - 1))
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        self.forward_shape(jnp.shape(x))
         y = jax.scipy.fft.dct(x, type=2, norm="ortho", axis=self.dim)
         if self.smooth:
             y = y * self._weight(x.shape[self.dim], y.dtype)
         return y
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        self.inverse_shape(jnp.shape(y))
         if self.smooth:
             y = y / self._weight(y.shape[self.dim], y.dtype)
         return jax.scipy.fft.idct(y, type=2, norm="ortho", axis=self.dim)

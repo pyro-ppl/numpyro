@@ -48,6 +48,7 @@ from numpyro.distributions.transforms import (
     StickBreakingTransform,
     UnpackTransform,
     ZeroSumTransform,
+    _haar_forward,
     biject_to,
 )
 
@@ -521,3 +522,57 @@ def test_time_transform_requires_negative_dim(transform_cls):
         transform_cls(dim=0)
     with pytest.raises(AssertionError):
         transform_cls(dim=1)
+
+
+@pytest.mark.parametrize("T", [2, 4, 5, 7, 8, 16])
+@pytest.mark.parametrize(
+    "transform", [HaarTransform(), DiscreteCosineTransform()], ids=["haar", "dct"]
+)
+def test_time_transform_orthonormal(transform, T):
+    # Building the transform matrix by applying it to the identity basis should
+    # give an orthonormal matrix (H @ H.T == I), i.e. the transform is a
+    # volume-preserving rotation/reflection.
+    matrix = vmap(transform)(jnp.eye(T))
+    assert jnp.allclose(matrix @ matrix.T, jnp.eye(T), atol=1e-5)
+
+
+def test_haar_transform_ground_truth():
+    # Locks the orthonormal Haar convention and the output ordering
+    # [dc, hi_coarsest, ..., hi_finest].
+    x = jnp.array([1.0, 2.0, 3.0, 4.0])
+    expected = jnp.array([5.0, -2.0, -1.0 / np.sqrt(2.0), -1.0 / np.sqrt(2.0)])
+    assert jnp.allclose(_haar_forward(x), expected, atol=1e-6)
+
+
+def test_haar_transform_autodiff():
+    # Haar is orthonormal, so d/dx ||Haar(x)||^2 == 2x.
+    x = jnp.arange(8.0)
+    grad_energy = jax.grad(lambda x: jnp.sum(HaarTransform()(x) ** 2))(x)
+    assert jnp.allclose(grad_energy, 2 * x, atol=1e-5)
+
+
+@pytest.mark.parametrize("smooth", [0.0, 1.0, 2.0])
+def test_discrete_cosine_transform_autodiff(smooth):
+    x = jnp.arange(8.0)
+    grad_energy = jax.grad(
+        lambda x: jnp.sum(DiscreteCosineTransform(smooth=smooth)(x) ** 2)
+    )(x)
+    assert jnp.all(jnp.isfinite(grad_energy))
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [HaarTransform(), DiscreteCosineTransform(smooth=1.5)],
+    ids=["haar", "dct"],
+)
+def test_time_transform_dtype(transform):
+    # The transform preserves the input floating dtype.
+    x = random.normal(random.key(0), (13,))
+    y = transform(x)
+    assert y.dtype == x.dtype
+    assert transform.inv(y).dtype == x.dtype
+    if jax.config.read("jax_enable_x64"):
+        x64 = x.astype(jnp.float64)
+        y64 = transform(x64)
+        assert y64.dtype == jnp.float64
+        assert jnp.allclose(transform.inv(y64), x64, atol=1e-12)

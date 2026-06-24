@@ -419,6 +419,13 @@ class UnitJacobianReparam(Reparam):
     unchanged. This reparameterization works only for latent variables, not
     likelihoods. The targeted (e.g. time) axis must be an event dimension.
 
+    This is intended for latent variables with real or independent positive
+    support (the transform is applied in the unconstrained representation, via
+    ``biject_to(support).inv``). It is not meaningful for non-trivial
+    constrained supports such as simplex, ordered, or correlation matrices,
+    where the axis-wise transform does not correspond to a useful change of
+    geometry.
+
     :param transform: A transform whose Jacobian has determinant one.
     :param str suffix: A suffix to append to the auxiliary site name.
     """
