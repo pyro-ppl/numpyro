@@ -2253,18 +2253,24 @@ OUTPUT_TYPE_XFAIL = {
 }
 
 
+@pytest.mark.parametrize("jit", [False, True])
 @pytest.mark.parametrize(
     "method", ["sample", "log_prob", "mean", "variance", "entropy"]
 )
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-def test_output_is_array(jax_dist, sp_dist, params, method, request):
+def test_output_is_array(jax_dist, sp_dist, params, method, jit, request):
     # Distribution methods should return jax arrays so that consumers can index,
     # reshape, and compare the result without tripping a type checker (``ArrayLike``
     # admits python/numpy scalars that are not indexable and have no ``.shape``).
     # Validation is disabled so the test is independent of global validation state.
-    if method in OUTPUT_TYPE_XFAIL.get(jax_dist, ()):
+    #
+    # Without ``jit`` a handful of moments pass a stored param / python scalar
+    # straight through and so are not jax arrays (see ``OUTPUT_TYPE_XFAIL``). Under
+    # ``jit`` every output is materialised as a jax array, so the exceptions vanish
+    # and all methods must return an array.
+    if not jit and method in OUTPUT_TYPE_XFAIL.get(jax_dist, ()):
         request.applymarker(
             pytest.mark.xfail(
                 strict=True,
@@ -2275,7 +2281,7 @@ def test_output_is_array(jax_dist, sp_dist, params, method, request):
     with dist.distribution.validation_enabled(False):
         d = jax_dist(*params)
         if method == "sample":
-            out = d.sample(random.PRNGKey(0))
+            fn = lambda: d.sample(random.PRNGKey(0))  # noqa: E731
         elif method == "log_prob":
             # IntervalCensoredDistribution takes an interval (lo, hi) as log_prob
             # input but returns univariate samples, so log_prob(sample) is not
@@ -2284,17 +2290,16 @@ def test_output_is_array(jax_dist, sp_dist, params, method, request):
                 pytest.skip(
                     "log_prob(sample) is ill-formed for interval-censored dists"
                 )
-            out = d.log_prob(d.sample(random.PRNGKey(0)))
+            value = d.sample(random.PRNGKey(0))
+            fn = lambda: d.log_prob(value)  # noqa: E731
         elif method == "entropy":
-            try:
-                out = d.entropy()
-            except NotImplementedError:
-                pytest.skip(f"{jax_dist.__name__}.entropy() is not implemented")
+            fn = lambda: d.entropy()  # noqa: E731
         else:
-            try:
-                out = getattr(d, method)
-            except NotImplementedError:
-                pytest.skip(f"{jax_dist.__name__}.{method} is not implemented")
+            fn = lambda: getattr(d, method)  # noqa: E731
+        try:
+            out = jax.jit(fn)() if jit else fn()
+        except NotImplementedError:
+            pytest.skip(f"{jax_dist.__name__}.{method} is not implemented")
     assert isinstance(out, jax.Array), (
         f"{jax_dist.__name__}.{method} returned {type(out)}"
     )
