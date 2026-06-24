@@ -2026,16 +2026,16 @@ class DiscreteCosineTransform(Transform[NonScalarArray]):
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:
         self.forward_shape(jnp.shape(x))
-        y = jax.scipy.fft.dct(x, type=2, norm="ortho", axis=self.dim)
+        y = jax.scipy.fft.dct(jnp.asarray(x), type=2, norm="ortho", axis=self.dim)
         if self.smooth:
-            y = y * self._weight(x.shape[self.dim], y.dtype)
+            y = y * self._weight(jnp.shape(x)[self.dim], y.dtype)
         return y
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         self.inverse_shape(jnp.shape(y))
         if self.smooth:
-            y = y / self._weight(y.shape[self.dim], y.dtype)
-        return jax.scipy.fft.idct(y, type=2, norm="ortho", axis=self.dim)
+            y = y / self._weight(jnp.shape(y)[self.dim], y.dtype)
+        return jax.scipy.fft.idct(jnp.asarray(y), type=2, norm="ortho", axis=self.dim)
 
     def log_abs_det_jacobian(
         self,
