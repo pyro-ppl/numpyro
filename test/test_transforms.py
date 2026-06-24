@@ -25,7 +25,9 @@ from numpyro.distributions.transforms import (
     ComposeTransform,
     CorrCholeskyTransform,
     CorrMatrixCholeskyTransform,
+    DiscreteCosineTransform,
     ExpTransform,
+    HaarTransform,
     IdentityTransform,
     IndependentTransform,
     L1BallTransform,
@@ -116,7 +118,13 @@ TRANSFORMS = {
     "complex": T(ComplexTransform, (), dict()),
     "corr_chol": T(CorrCholeskyTransform, (), dict()),
     "corr_matrix_chol": T(CorrMatrixCholeskyTransform, (), dict()),
+    "dct": T(DiscreteCosineTransform, (), dict()),
+    "dct_smooth": T(DiscreteCosineTransform, (), dict(smooth=1.0)),
+    "dct_dim": T(DiscreteCosineTransform, (), dict(dim=-2)),
     "exp": T(ExpTransform, (), dict()),
+    "haar": T(HaarTransform, (), dict()),
+    "haar_flip": T(HaarTransform, (), dict(flip=True)),
+    "haar_dim": T(HaarTransform, (), dict(dim=-2)),
     "identity": T(IdentityTransform, (), dict()),
     "l1_ball": T(L1BallTransform, (), dict()),
     "lower_cholesky": T(LowerCholeskyTransform, (), dict()),
@@ -282,7 +290,16 @@ def test_real_fast_fourier_transform(input_shape, shape, ndims):
         (ComposeTransform([SoftplusTransform(), SigmoidTransform()]), ()),
         (CorrCholeskyTransform(), (15,)),
         (CorrMatrixCholeskyTransform(), (15,)),
+        (DiscreteCosineTransform(), (8,)),
+        (DiscreteCosineTransform(), (5,)),
+        (DiscreteCosineTransform(smooth=1.0), (8,)),
+        (DiscreteCosineTransform(smooth=2.0), (6,)),
+        (DiscreteCosineTransform(dim=-2), (4, 5)),
         (ExpTransform(), ()),
+        (HaarTransform(), (8,)),
+        (HaarTransform(), (5,)),
+        (HaarTransform(flip=True), (8,)),
+        (HaarTransform(dim=-2), (4, 5)),
         (IdentityTransform(), ()),
         (IndependentTransform(ExpTransform(), 2), (3, 4)),
         (L1BallTransform(), (9,)),
@@ -447,3 +464,60 @@ def test_compose_sequence_domain_codomain():
         assert y.ndim == event_dim
         assert composed.codomain.event_dim == event_dim
         assert composed.domain.event_dim == 1
+
+
+@pytest.mark.parametrize("T", [1, 2, 3, 4, 5, 8, 10, 16, 17])
+@pytest.mark.parametrize("flip", [False, True])
+def test_haar_transform_roundtrip_and_energy(T, flip):
+    transform = HaarTransform(flip=flip)
+    x = random.normal(random.key(0), (3, T))
+    y = transform(x)
+    # Round-trip.
+    assert jnp.allclose(transform.inv(y), x, atol=1e-5)
+    # Orthonormal transforms preserve energy.
+    assert jnp.allclose(jnp.sum(y**2, -1), jnp.sum(x**2, -1), atol=1e-4)
+    # Unit Jacobian.
+    assert jnp.allclose(transform.log_abs_det_jacobian(x, y), 0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("T", [1, 2, 3, 4, 5, 8, 10, 16, 17])
+@pytest.mark.parametrize("smooth", [0.0, 1.0, 2.0, -1.0])
+def test_discrete_cosine_transform_roundtrip(T, smooth):
+    transform = DiscreteCosineTransform(smooth=smooth)
+    x = random.normal(random.key(0), (3, T))
+    y = transform(x)
+    assert jnp.allclose(transform.inv(y), x, atol=1e-5)
+    # Unit Jacobian holds even with smoothing (geometric-mean normalized weights).
+    assert jnp.allclose(transform.log_abs_det_jacobian(x, y), 0.0, atol=1e-6)
+    if smooth == 0.0:
+        # Matches the orthonormal DCT-II directly.
+        expected = jax.scipy.fft.dct(x, type=2, norm="ortho", axis=-1)
+        assert jnp.allclose(y, expected, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "transform_cls, kwargs",
+    [
+        (HaarTransform, dict()),
+        (HaarTransform, dict(flip=True)),
+        (DiscreteCosineTransform, dict()),
+        (DiscreteCosineTransform, dict(smooth=1.0)),
+    ],
+)
+def test_time_transform_dim(transform_cls, kwargs):
+    # Transforming along dim=-2 matches transforming along dim=-1 of the
+    # axis-swapped input.
+    x = random.normal(random.key(0), (6, 5))
+    y_dim = transform_cls(dim=-2, **kwargs)(x)
+    y_ref = jnp.swapaxes(
+        transform_cls(dim=-1, **kwargs)(jnp.swapaxes(x, -2, -1)), -2, -1
+    )
+    assert jnp.allclose(y_dim, y_ref, atol=1e-5)
+
+
+@pytest.mark.parametrize("transform_cls", [HaarTransform, DiscreteCosineTransform])
+def test_time_transform_requires_negative_dim(transform_cls):
+    with pytest.raises(AssertionError):
+        transform_cls(dim=0)
+    with pytest.raises(AssertionError):
+        transform_cls(dim=1)

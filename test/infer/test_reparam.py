@@ -18,13 +18,15 @@ from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDiagonalNormal, AutoIAFNormal
 from numpyro.infer.reparam import (
     CircularReparam,
+    DiscreteCosineReparam,
     ExplicitReparam,
+    HaarReparam,
     LocScaleReparam,
     NeuTraReparam,
     ProjectedNormalReparam,
     TransformReparam,
 )
-from numpyro.infer.util import initialize_model
+from numpyro.infer.util import initialize_model, log_density
 from numpyro.optim import Adam
 
 
@@ -439,3 +441,95 @@ def test_explicit_reparam():
     mcmc.run(random.key(2))
     samples = mcmc.get_samples()
     assert abs(samples["x"].mean() - 1) < 0.1
+
+
+# (reparam class, kwargs, auxiliary-site suffix) for the time reparameterizers.
+TIME_REPARAMS = [
+    (HaarReparam, {}, "haar"),
+    (HaarReparam, {"flip": True}, "haar"),
+    (DiscreteCosineReparam, {}, "dct"),
+    (DiscreteCosineReparam, {"smooth": 1.0}, "dct"),
+]
+
+
+@pytest.mark.parametrize("reparam_cls, kwargs, suffix", TIME_REPARAMS)
+def test_time_reparam_moments(reparam_cls, kwargs, suffix):
+    T = 6
+    loc = np.linspace(-1.0, 1.0, T)
+    scale = np.linspace(0.5, 1.5, T)
+
+    def model():
+        with numpyro.plate("particles", 100000):
+            return numpyro.sample("x", dist.Normal(loc, scale).to_event(1))
+
+    value = handlers.seed(model, 0)()
+    expected_moments = get_moments(value)
+
+    reparam = reparam_cls(**kwargs)
+    with numpyro.handlers.reparam(config={"x": reparam}):
+        with handlers.trace() as tr:
+            value = handlers.seed(model, 0)()
+    # The original site becomes deterministic and an auxiliary site is added.
+    assert tr["x"]["type"] == "deterministic"
+    assert tr[f"x_{suffix}"]["type"] == "sample"
+    actual_moments = get_moments(value)
+    assert_allclose(actual_moments, expected_moments, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("reparam_cls, kwargs, suffix", TIME_REPARAMS)
+def test_time_reparam_log_joint(reparam_cls, kwargs, suffix):
+    T = 8
+
+    def model():
+        numpyro.sample("x", dist.Normal(0.0, 1.0).expand([T]).to_event(1))
+
+    reparam = reparam_cls(**kwargs)
+    reparam_model = handlers.reparam(model, config={"x": reparam})
+    aux = random.normal(random.key(1), (T,))
+
+    # Log density of the reparameterized model at the auxiliary value.
+    log_prob_reparam, _ = log_density(reparam_model, (), {}, {f"x_{suffix}": aux})
+
+    # Recover the latent value and evaluate the original model density.
+    with handlers.trace() as tr, handlers.substitute(data={f"x_{suffix}": aux}):
+        handlers.seed(reparam_model, 0)()
+    x_value = tr["x"]["value"]
+    log_prob_original, _ = log_density(model, (), {}, {"x": x_value})
+
+    # The transform has unit Jacobian, so the log density is unchanged.
+    assert_allclose(log_prob_reparam, log_prob_original, atol=1e-4)
+
+
+@pytest.mark.parametrize("reparam_cls", [HaarReparam, DiscreteCosineReparam])
+def test_time_reparam_nuts_smoke(reparam_cls):
+    T = 10
+    data = np.linspace(-1.0, 1.0, T)
+
+    def model(data):
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0).expand([T]).to_event(1))
+        numpyro.sample("obs", dist.Normal(x, 0.5).to_event(1), obs=data)
+
+    reparam_model = handlers.reparam(model, config={"x": reparam_cls()})
+    mcmc = MCMC(
+        NUTS(reparam_model),
+        num_warmup=200,
+        num_samples=200,
+        num_chains=1,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0), data=data)
+    samples = mcmc.get_samples()["x"]
+    assert samples.shape == (200, T)
+    # Conjugate posterior mean is data * (1 / 0.25) / (1 + 1 / 0.25) = 0.8 * data.
+    assert_allclose(samples.mean(0), 0.8 * data, atol=0.3)
+
+
+def test_time_reparam_does_not_support_obs():
+    def model():
+        numpyro.sample(
+            "x", dist.Normal(0.0, 1.0).expand([4]).to_event(1), obs=jnp.zeros(4)
+        )
+
+    reparam_model = handlers.reparam(model, config={"x": HaarReparam()})
+    with pytest.raises(AssertionError):
+        handlers.seed(reparam_model, 0)()
