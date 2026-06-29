@@ -87,6 +87,9 @@ class Transform(Generic[NumLikeT]):
         super().__init_subclass__(**kwargs)
         register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
+    def tree_flatten(self):
+        raise NotImplementedError
+
     @property
     def inv(self) -> "Transform":
         inv = None
@@ -582,8 +585,8 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
     correlation matrix.
     """
 
-    domain = constraints.corr_matrix  # type: ignore[assignment]
-    codomain = constraints.corr_cholesky  # type: ignore[assignment]
+    domain = constraints.corr_matrix
+    codomain = constraints.corr_cholesky
 
     def log_abs_det_jacobian(
         self,

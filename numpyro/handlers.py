@@ -95,7 +95,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from types import TracebackType
-from typing import Callable, Optional, Union
+from typing import TYPE_CHECKING, Callable, Optional, Union, cast
 import warnings
 
 import numpy as np
@@ -115,6 +115,9 @@ from numpyro.primitives import (
     plate,
 )
 from numpyro.util import find_stack_level, is_prng_key, not_jax_tracer
+
+if TYPE_CHECKING:
+    from numpyro.infer.reparam import Reparam
 
 __all__ = [
     "block",
@@ -674,10 +677,14 @@ class reparam(Messenger):
     def __init__(
         self,
         fn: Optional[Callable] = None,
-        config: Optional[Union[dict, Callable]] = None,
+        config: Optional[
+            Union[dict[str, "Reparam"], Callable[[Message], Optional["Reparam"]]]
+        ] = None,
     ) -> None:
         assert isinstance(config, dict) or callable(config)
-        self.config = config
+        self.config: Optional[
+            Union[dict[str, "Reparam"], Callable[[Message], Optional["Reparam"]]]
+        ] = config
         super().__init__(fn)
 
     def process_message(self, msg: Message) -> None:
@@ -686,11 +693,14 @@ class reparam(Messenger):
 
         if isinstance(self.config, dict):
             reparam = self.config.get(msg["name"])
-        else:
+        elif self.config is not None:
             reparam = self.config(msg)
+        else:
+            return
         if reparam is None:
             return
 
+        reparam = cast("Reparam", reparam)
         new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
 
         if value is not None:

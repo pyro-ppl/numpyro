@@ -526,7 +526,7 @@ class plate(GlobalNamedMessenger):
             plate_to_scale[self.name] = (
                 self.size / self.subsample_size if self.subsample_size else 1
             )
-        return OrigPlateMessenger.process_message(self, msg)
+        return OrigPlateMessenger.process_message(self, msg)  # ty: ignore[invalid-argument-type]
 
     def postprocess_message(self, msg):
         if msg["type"] in ["to_funsor", "to_data"]:

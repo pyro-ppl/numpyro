@@ -7,9 +7,8 @@ sourced from :mod:`jax.example_libraries.optimizers` with an interface that is b
 suited for working with NumPyro inference algorithms.
 """
 
-from collections import namedtuple
 from collections.abc import Callable
-from typing import Any, Literal, Optional, Protocol
+from typing import Any, Literal, NamedTuple, Optional, Protocol
 
 import jax
 from jax import jacfwd, lax, value_and_grad
@@ -254,7 +253,7 @@ class SM3(_NumPyroOptim):
 # and pass `unravel_fn` around.
 # When arbitrary pytree is supported in JAX, we can just simply use
 # identity functions for `init_fn` and `get_params`.
-class _MinimizeState(namedtuple("_MinimizeState", ["flat_params", "unravel_fn"])):
+class _MinimizeState(NamedTuple):
     flat_params: ArrayLike
     unravel_fn: Callable[[ArrayLike], _Params]
 
@@ -273,7 +272,7 @@ def _minimize_wrapper() -> tuple[
 ]:
     def init_fn(params: _Params) -> _MinimizeState:
         flat_params, unravel_fn = ravel_pytree(params)
-        return _MinimizeState(flat_params, unravel_fn)
+        return _MinimizeState(flat_params, unravel_fn)  # ty: ignore[invalid-argument-type]
 
     def update_fn(
         i: ArrayLike, grad_tree: ArrayLike, opt_state: _MinimizeState

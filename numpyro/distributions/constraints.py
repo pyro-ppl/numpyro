@@ -65,7 +65,7 @@ __all__ = [
 ]
 
 import math
-from typing import Generic, Optional, cast
+from typing import ClassVar, Generic, Optional, cast
 
 import numpy as np
 
@@ -92,6 +92,9 @@ class Constraint(Generic[NumLikeT]):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
+
+    def tree_flatten(self):
+        raise NotImplementedError
 
     def __call__(self, x: NumLikeT) -> ArrayLike:
         raise NotImplementedError
@@ -143,6 +146,8 @@ class _SingletonConstraint(ParameterFreeConstraint[NumLikeT]):
     A constraint type which has only one canonical instance, like constraints.real,
     and unlike constraints.interval.
     """
+
+    _instance: ClassVar["_SingletonConstraint"]
 
     def __new__(cls):
         if (not hasattr(cls, "_instance")) or (type(cls._instance) is not cls):
@@ -212,20 +217,23 @@ class _Dependent(Constraint[NumLike]):
     """
 
     def __init__(
-        self, *, is_discrete: bool = NotImplemented, event_dim: int = NotImplemented
+        self,
+        *,
+        is_discrete: bool = NotImplemented,  # ty: ignore[invalid-parameter-default]
+        event_dim: int = NotImplemented,  # ty: ignore[invalid-parameter-default]
     ):
         self._is_discrete = is_discrete
         self._event_dim = event_dim
         super().__init__()
 
     @property
-    def is_discrete(self) -> bool:  # type: ignore[override]
+    def is_discrete(self) -> bool:
         if self._is_discrete is NotImplemented:
             raise NotImplementedError(".is_discrete cannot be determined statically")
         return self._is_discrete
 
     @property
-    def event_dim(self) -> int:  # type: ignore[override]
+    def event_dim(self) -> int:
         if self._event_dim is NotImplemented:
             raise NotImplementedError(".event_dim cannot be determined statically")
         return self._event_dim
@@ -234,8 +242,8 @@ class _Dependent(Constraint[NumLike]):
         self,
         x: Optional[NumLike] = None,
         *,
-        is_discrete: bool = NotImplemented,
-        event_dim: int = NotImplemented,
+        is_discrete: bool = NotImplemented,  # ty: ignore[invalid-parameter-default]
+        event_dim: int = NotImplemented,  # ty: ignore[invalid-parameter-default]
     ):
         if x is not None:
             raise ValueError("Cannot determine validity of dependent constraint")
@@ -273,7 +281,7 @@ class dependent_property(property, _Dependent):
         self._is_discrete = is_discrete
         self._event_dim = event_dim
 
-    def __call__(self, x):
+    def __call__(self, x):  # ty: ignore[invalid-method-override]
         if not callable(x):
             return super().__call__(x)
 
@@ -371,21 +379,21 @@ class _IndependentConstraint(Constraint[NumLikeT]):
         super().__init__()
 
     @property
-    def is_discrete(self) -> bool:  # type: ignore[override]
+    def is_discrete(self) -> bool:
         return self.base_constraint.is_discrete
 
     @property
-    def event_dim(self) -> int:  # type: ignore[override]
+    def event_dim(self) -> int:
         return self.base_constraint.event_dim + self.reinterpreted_batch_ndims
 
-    def __call__(self, value: NumLikeT) -> ArrayLike:
-        result = self.base_constraint(value)
+    def __call__(self, x: NumLikeT) -> ArrayLike:
+        result = self.base_constraint(x)
         if self.reinterpreted_batch_ndims == 0:
             return result
         elif jnp.ndim(result) < self.reinterpreted_batch_ndims:
             expected = self.event_dim
             raise ValueError(
-                f"Expected value.dim() >= {expected} but got {jnp.ndim(value)}"
+                f"Expected value.dim() >= {expected} but got {jnp.ndim(x)}"
             )
         result = jnp.reshape(
             result,
@@ -837,7 +845,7 @@ class _ZeroSum(Constraint[NonScalarArray]):
         super().__init__()
 
     @property
-    def event_dim(self) -> int:  # type: ignore[override]
+    def event_dim(self) -> int:
         return self._event_dim
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
