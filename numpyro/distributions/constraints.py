@@ -688,7 +688,8 @@ class _L1Ball(_SingletonConstraint[NumLike]):
 
     def __call__(self, x: NumLike) -> ArrayLike:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
-        eps = xp.finfo(x.dtype if isinstance(x, xp.ndarray) else type(x)).eps
+        dtype = x.dtype if isinstance(x, xp.ndarray) else type(x)
+        eps = jnp.finfo(dtype).eps
         return xp.abs(x).sum(axis=-1) < 1 + self.reltol * eps
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
