@@ -17,7 +17,6 @@ from numpyro.distributions import constraints
 from numpyro.infer import (
     MCMC,
     Predictive,
-    get_log_density_fn,
 )
 from numpyro.infer.initialization import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
@@ -65,47 +64,32 @@ def test_initialize_model_stays_four_fields():
     assert set(model_trace.keys()) >= {"a", "b", "sigma"}
 
 
-def test_get_log_density_fn_negates_potential():
-    """logdensity_fn returns exactly the negation of potential_energy."""
+def test_initialize_model_inline_logdensity_negates_potential():
+    """The inlined `-potential_fn(position)` pattern (used in the notebook in
+    place of the removed `get_log_density_fn`) matches `potential_energy`."""
     x, y = _linreg_data()
-    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
-    pe = potential_energy(_linreg_model, (x, y), {}, info.init_position)
-    assert_allclose(info.logdensity_fn(info.init_position), -pe, rtol=1e-5)
-
-
-def test_get_log_density_fn_postprocess_includes_deterministics():
-    """postprocess maps unconstrained to constrained and includes deterministics."""
-    x, y = _linreg_data()
-    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
-    out = info.postprocess_fn(info.init_position)
+    model_info = initialize_model(random.key(0), _linreg_model, model_args=(x, y))
+    init_position = model_info.param_info.z
+    pe = potential_energy(_linreg_model, (x, y), {}, init_position)
+    assert_allclose(-model_info.potential_fn(init_position), -pe, rtol=1e-5)
+    # postprocess maps unconstrained -> constrained and includes deterministics.
+    out = model_info.postprocess_fn(init_position)
     assert set(out.keys()) >= {"a", "b", "sigma", "mu"}
-    # sigma has an Exponential prior -> constrained to be positive.
-    assert float(out["sigma"]) > 0.0
-    # mu (deterministic) shape follows x.
-    assert out["mu"].shape == x.shape
-
-
-def test_get_log_density_fn_with_model_kwargs():
-    """`get_log_density_fn` also works when the model is fed through `model_kwargs`."""
-    x, y = _linreg_data()
-    info = get_log_density_fn(
-        random.key(0), _linreg_model, model_kwargs={"x": x, "y": y}
-    )
-    pe = potential_energy(_linreg_model, (), {"x": x, "y": y}, info.init_position)
-    assert_allclose(info.logdensity_fn(info.init_position), -pe, rtol=1e-5)
-    out = info.postprocess_fn(info.init_position)
+    assert float(out["sigma"]) > 0.0  # Exponential prior -> positive
     assert out["mu"].shape == x.shape
 
 
 def test_constrain_single_position():
     """batch_ndims=0 applies a single constrain without vmap."""
     x, y = _linreg_data()
-    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
+    init_position = initialize_model(
+        random.key(0), _linreg_model, model_args=(x, y)
+    ).param_info.z
     out = constrain_fn(
         _linreg_model,
         (x, y),
         {},
-        info.init_position,
+        init_position,
         return_deterministic=True,
         batch_ndims=0,
     )
@@ -118,11 +102,13 @@ def test_constrain_single_position():
 def test_constrain_fn_batched_chain_matches_loop():
     """batch_ndims=1 vmaps over a chain and matches an explicit Python loop."""
     x, y = _linreg_data()
-    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
+    init_position = initialize_model(
+        random.key(0), _linreg_model, model_args=(x, y)
+    ).param_info.z
     n = 5
     raw = {
         k: v + 0.1 * jnp.arange(n).reshape((n,) + (1,) * jnp.ndim(v))
-        for k, v in info.init_position.items()
+        for k, v in init_position.items()
     }
     out = constrain_fn(
         _linreg_model, (x, y), {}, raw, return_deterministic=True, batch_ndims=1
@@ -177,14 +163,16 @@ def test_constrain_fn_batched_param_site():
 def test_constrain_fn_two_batch_dims():
     """batch_ndims=2 vmaps twice (chains x samples) with distinct per-cell values."""
     x, y = _linreg_data()
-    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
+    init_position = initialize_model(
+        random.key(0), _linreg_model, model_args=(x, y)
+    ).param_info.z
     chains, draws = 4, 3
     # Distinct value per (chain, draw) cell so a wrong vmap axis order would
     # mismatch the manual double loop below (broadcasting alone could not).
     offsets = jnp.arange(chains * draws).reshape(chains, draws)
     raw = {
         k: v + 0.1 * offsets.reshape((chains, draws) + (1,) * jnp.ndim(v))
-        for k, v in info.init_position.items()
+        for k, v in init_position.items()
     }
     out = constrain_fn(
         _linreg_model, (x, y), {}, raw, return_deterministic=True, batch_ndims=2
@@ -208,9 +196,11 @@ def test_constrain_fn_two_batch_dims():
 
 def test_constrain_fn_rejects_negative_ndims():
     x, y = _linreg_data()
-    info = get_log_density_fn(random.key(0), _linreg_model, model_args=(x, y))
+    init_position = initialize_model(
+        random.key(0), _linreg_model, model_args=(x, y)
+    ).param_info.z
     with pytest.raises(ValueError):
-        constrain_fn(_linreg_model, (x, y), {}, info.init_position, batch_ndims=-1)
+        constrain_fn(_linreg_model, (x, y), {}, init_position, batch_ndims=-1)
 
 
 _RWState = namedtuple("_RWState", ["position", "logdensity", "rng_key"])
@@ -219,9 +209,9 @@ _RWState = namedtuple("_RWState", ["position", "logdensity", "rng_key"])
 class _RandomWalkKernel(MCMCKernel):
     """Minimal :class:`MCMCKernel` driving a random-walk Metropolis sampler.
 
-    Mirrors the notebook pattern (build the log-density and postprocess via
-    ``get_log_density_fn`` in :meth:`init`) without depending on an external
-    sampler library.
+    Mirrors the notebook pattern (build the log-density and postprocess inline
+    from :func:`initialize_model` in :meth:`init`) without depending on an
+    external sampler library.
     """
 
     def __init__(self, model, step_size=0.2, init_strategy=init_to_uniform):
@@ -239,17 +229,21 @@ class _RandomWalkKernel(MCMCKernel):
         return self._postprocess_fn
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        info = get_log_density_fn(
+        model_info = initialize_model(
             rng_key,
             self._model,
             init_strategy=self._init_strategy,
             model_args=model_args,
             model_kwargs=model_kwargs,
         )
-        self._logdensity_fn = info.logdensity_fn
-        self._postprocess_fn = info.postprocess_fn
-        position = info.init_position if init_params is None else init_params
-        return _RWState(position, info.logdensity_fn(position), rng_key)
+
+        def logdensity_fn(position):
+            return -model_info.potential_fn(position)
+
+        self._logdensity_fn = logdensity_fn
+        self._postprocess_fn = model_info.postprocess_fn
+        position = model_info.param_info.z if init_params is None else init_params
+        return _RWState(position, logdensity_fn(position), rng_key)
 
     def sample(self, state, model_args, model_kwargs):
         rng_key, key_prop, key_accept = random.split(state.rng_key, 3)
