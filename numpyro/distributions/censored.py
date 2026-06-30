@@ -385,7 +385,7 @@ class IntervalCensoredDistribution(Distribution):
         return m_left, m_right, m_int, m_double, m_point
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value) -> Array:
         dtype = jnp.result_type(value, float)
         minval = 100.0 * jnp.finfo(dtype).tiny  # for values close to 0
         eps = jnp.finfo(dtype).eps  # otherwise
@@ -441,7 +441,7 @@ class IntervalCensoredDistribution(Distribution):
         logp = jnp.where(m_double, lp_double, logp)
         return logp
 
-    def _validate_sample(self, value: ArrayLike) -> None:
+    def _validate_sample(self, value: ArrayLike) -> Array:
         if value.shape[-1] != 2:
             raise ValueError(
                 f"Expected last dimension of `value` to be 2 (lower, upper), but got shape {value.shape}"

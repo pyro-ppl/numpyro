@@ -399,13 +399,13 @@ class GammaPoisson(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the mean is:
 
         .. math::
             \mathbb{E}[X] = \frac{\alpha}{\lambda}
         """
-        return self.concentration / self.rate
+        return jnp.asarray(self.concentration / self.rate)
 
     @property
     def variance(self) -> Array:
@@ -416,7 +416,7 @@ class GammaPoisson(Distribution):
         """
         return self.concentration / jnp.square(self.rate) * (1 + self.rate)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
         distribution function is:
 

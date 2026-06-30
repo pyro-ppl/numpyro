@@ -174,7 +174,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
     def tree_flatten(self):
         return (), ((), {"bn_arn": self.bn_arn})
 
-    def eq(self, other: Transform, static: bool = False) -> ArrayLike:
+    def eq(self, other: Transform, static: bool = False) -> bool:
         return (
             isinstance(other, BlockNeuralAutoregressiveTransform)
             and self.bn_arn is other.bn_arn

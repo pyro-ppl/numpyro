@@ -157,7 +157,7 @@ class AsymmetricLaplace(Distribution):
         variance = p * left**2 + q * right**2 + p * q * total**2
         return jnp.broadcast_to(variance, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         z = value - self.loc
         k = self.asymmetry
         return jnp.where(
@@ -166,7 +166,7 @@ class AsymmetricLaplace(Distribution):
             k**2 / (1 + k**2) * jnp.exp(-jnp.abs(z) / self.left_scale),
         )
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         k = self.asymmetry
         temp = k**2 / (1 + k**2)
         return jnp.where(
@@ -281,23 +281,27 @@ class Beta(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""Calculates the analytical mean.
 
         .. math:: E[X] = \frac{\alpha}{\alpha + \beta}
         """
-        return self.concentration1 / (self.concentration1 + self.concentration0)
+        return jnp.asarray(
+            self.concentration1 / (self.concentration1 + self.concentration0)
+        )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""Calculates the analytical variance.
 
         .. math:: Var(X) = \frac{\alpha \beta}{(\alpha + \beta)^2 (\alpha + \beta + 1)}
         """
         total = self.concentration1 + self.concentration0
-        return self.concentration1 * self.concentration0 / (total**2 * (total + 1))
+        return jnp.asarray(
+            self.concentration1 * self.concentration0 / (total**2 * (total + 1))
+        )
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function using the regularized incomplete beta function.
 
         .. math:: I_x(\alpha, \beta) = \frac{\text{B}(x; \alpha, \beta)}{\text{B}(\alpha, \beta)}
@@ -307,7 +311,7 @@ class Beta(Distribution):
         """
         return betainc(self.concentration1, self.concentration0, value)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         :param q: Probability value in :math:`[0,1]`.
@@ -421,7 +425,7 @@ class Cauchy(Distribution):
         """
         return jnp.full(self.batch_shape, jnp.nan)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function.
 
         .. math::
@@ -434,7 +438,7 @@ class Cauchy(Distribution):
         scaled = (value - self.loc) / self.scale
         return jnp.arctan(scaled) / jnp.pi + 0.5
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         .. math::
@@ -741,7 +745,7 @@ class Exponential(Distribution):
         """
         return jnp.reciprocal(self.rate**2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function.
 
         .. math::
@@ -752,7 +756,7 @@ class Exponential(Distribution):
         """
         return -jnp.expm1(-self.rate * value)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         .. math::
@@ -832,13 +836,13 @@ class Gamma(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
             \mathbb{E}[X] = \frac{\alpha}{\lambda}
         """
-        return self.concentration / self.rate
+        return jnp.asarray(self.concentration / self.rate)
 
     @property
     def variance(self) -> Array:
@@ -849,7 +853,7 @@ class Gamma(Distribution):
         """
         return self.concentration / jnp.power(self.rate, 2)
 
-    def cdf(self, x):
+    def cdf(self, x) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -862,7 +866,7 @@ class Gamma(Distribution):
         """
         return gammainc(self.concentration, self.rate * x)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
         .. math::
@@ -1149,10 +1153,10 @@ class HalfCauchy(Distribution):
     def log_prob(self, value: ArrayLike) -> Array:
         return self._cauchy.log_prob(value) + jnp.log(2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return self._cauchy.cdf(value) * 2 - 1
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         return self._cauchy.icdf((q + 1) / 2)
 
     @property
@@ -1190,10 +1194,10 @@ class HalfNormal(Distribution):
     def log_prob(self, value: ArrayLike) -> Array:
         return self._normal.log_prob(value) + jnp.log(2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return self._normal.cdf(value) * 2 - 1
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         return self._normal.icdf((q + 1) / 2)
 
     @property
@@ -1201,8 +1205,8 @@ class HalfNormal(Distribution):
         return jnp.sqrt(2 / jnp.pi) * self.scale
 
     @property
-    def variance(self) -> ArrayLike:
-        return (1 - 2 / jnp.pi) * self.scale**2
+    def variance(self) -> Array:
+        return jnp.asarray((1 - 2 / jnp.pi) * self.scale**2)
 
 
 class InverseGamma(TransformedDistribution):
@@ -1306,10 +1310,10 @@ class Gompertz(Distribution):
             - self.concentration * jnp.expm1(scaled_value)
         )
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         return jnp.log1p(-jnp.log1p(-q) / self.concentration) / self.rate
 
     @property
@@ -1411,7 +1415,7 @@ class Gumbel(Distribution):
         """
         return jnp.broadcast_to(jnp.pi**2 / 6.0 * self.scale**2, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative Distribution Function (CDF) of the Gumbel distribution:
 
         .. math::
@@ -1422,7 +1426,7 @@ class Gumbel(Distribution):
         """
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse CDF (quantile function) of the Gumbel distribution:
 
         .. math::
@@ -1582,7 +1586,7 @@ class Laplace(Distribution):
         """
         return jnp.broadcast_to(2 * self.scale**2, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative Distribution Function (CDF) of the Laplace distribution.
         Letting :math:`z = (x - \mu)/b`,
 
@@ -1599,7 +1603,7 @@ class Laplace(Distribution):
         scaled = (value - self.loc) / self.scale
         return 0.5 - 0.5 * jnp.sign(scaled) * jnp.expm1(-jnp.abs(scaled))
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse CDF (quantile function) of the Laplace distribution:
 
         .. math::
@@ -2032,7 +2036,7 @@ class Logistic(Distribution):
         var = (self.scale**2) * (jnp.pi**2) / 3
         return jnp.broadcast_to(var, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative Distribution Function (CDF) of the Logistic distribution.
         Letting :math:`z = (x - \mu)/s`,
 
@@ -2048,7 +2052,7 @@ class Logistic(Distribution):
         scaled = (value - self.loc) / self.scale
         return expit(scaled)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse CDF (quantile function) of the Logistic distribution:
 
         .. math::
@@ -2230,7 +2234,7 @@ class MatrixNormal(Distribution):
         return samples
 
     @validate_sample
-    def log_prob(self, values):
+    def log_prob(self, values) -> Array:
         n, p = self.event_shape
 
         row_log_det = tri_logabsdet(self.scale_tril_row)
@@ -2836,7 +2840,7 @@ class LowRankMultivariateNormal(Distribution):
 
     @property
     def mean(self) -> Array:
-        return self.loc
+        return jnp.asarray(self.loc)
 
     @lazy_property
     def variance(self) -> Array:
@@ -2988,7 +2992,7 @@ class Normal(Distribution):
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled**2 - normalize_term
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulative distribution function.
 
         .. math::
@@ -3004,7 +3008,7 @@ class Normal(Distribution):
         scaled = (value - self.loc) / self.scale
         return ndtr(scaled)
 
-    def log_cdf(self, value: ArrayLike) -> ArrayLike:
+    def log_cdf(self, value: ArrayLike) -> Array:
         r"""Log of the cumulative distribution function. Implementation
         calls :func:`jax.scipy.stats.norm.logcdf`.
 
@@ -3013,7 +3017,7 @@ class Normal(Distribution):
         """
         return jax_norm.logcdf(value, loc=self.loc, scale=self.scale)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
 
         .. math::
@@ -3173,20 +3177,20 @@ class SoftLaplace(Distribution):
         return self.icdf(u)
 
     # TODO: refactor validate_sample to only does validation check and use it here
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         z = (value - self.loc) / self.scale
         return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         return jnp.log(jnp.tan(value * (jnp.pi / 2))) * self.scale + self.loc
 
     @property
-    def mean(self) -> ArrayLike:
-        return self.loc
+    def mean(self) -> Array:
+        return jnp.asarray(self.loc)
 
     @property
-    def variance(self) -> ArrayLike:
-        return (jnp.pi / 2 * self.scale) ** 2
+    def variance(self) -> Array:
+        return jnp.asarray((jnp.pi / 2 * self.scale) ** 2)
 
 
 class StudentT(Distribution):
@@ -3252,7 +3256,7 @@ class StudentT(Distribution):
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
         # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
         scaled = (value - self.loc) / self.scale
@@ -3267,7 +3271,7 @@ class StudentT(Distribution):
             - jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
         scaled_squared = self.df * (1 / beta_value - 1)
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
@@ -3316,20 +3320,20 @@ class Uniform(Distribution):
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         cdf = (value - self.low) / (self.high - self.low)
         return jnp.clip(cdf, 0.0, 1.0)
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
-        return self.low + value * (self.high - self.low)
+    def icdf(self, value: ArrayLike) -> Array:
+        return jnp.asarray(self.low + value * (self.high - self.low))
 
     @property
-    def mean(self) -> ArrayLike:
-        return self.low + (self.high - self.low) / 2.0
+    def mean(self) -> Array:
+        return jnp.asarray(self.low + (self.high - self.low) / 2.0)
 
     @property
-    def variance(self) -> ArrayLike:
-        return (self.high - self.low) ** 2 / 12.0
+    def variance(self) -> Array:
+        return jnp.asarray((self.high - self.low) ** 2 / 12.0)
 
     @staticmethod
     def infer_shapes(
@@ -3379,7 +3383,7 @@ class Weibull(Distribution):
         ll -= self.concentration * jnp.log(self.scale)
         return ll
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return 1 - jnp.exp(-((value / self.scale) ** self.concentration))
 
     @property
@@ -3517,10 +3521,10 @@ class AsymmetricLaplaceQuantile(Distribution):
     def variance(self) -> Array:
         return self._ald.variance
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return self._ald.cdf(value)
 
-    def icdf(self, value: ArrayLike) -> ArrayLike:
+    def icdf(self, value: ArrayLike) -> Array:
         return self._ald.icdf(value)
 
 
@@ -3980,7 +3984,7 @@ class InverseWishart(TransformedDistribution):
         )
 
     @lazy_property
-    def mode(self) -> ArrayLike:
+    def mode(self) -> Array:
         p = self.scale_matrix.shape[-1]
         return self.scale_matrix / (self.concentration[..., None, None] + p + 1)
 
@@ -4236,7 +4240,7 @@ class Levy(Distribution):
         u = random.uniform(key, shape=sample_shape + self.batch_shape)
         return self.icdf(u)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""
         The inverse cumulative distribution function of Lévy distribution is given by,
 
@@ -4250,7 +4254,7 @@ class Levy(Distribution):
         """
         return self.loc + self.scale * jnp.power(ndtri(1 - 0.5 * q), -2)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""The cumulative distribution function of Lévy distribution is given by,
 
         .. math::
@@ -4389,11 +4393,11 @@ class CirculantNormal(TransformedDistribution):
         return jnp.broadcast_to(self.loc, self.shape())
 
     @lazy_property
-    def covariance_row(self) -> ArrayLike:
+    def covariance_row(self) -> Array:
         return jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1])
 
     @lazy_property
-    def covariance_matrix(self) -> ArrayLike:
+    def covariance_matrix(self) -> Array:
         *leading_shape, n = self.covariance_row.shape
         if leading_shape:
             # `toeplitz` flattens the input, and we need to broadcast manually.
@@ -4478,7 +4482,7 @@ class Dagum(Distribution):
             - (self.concentration + 1.0) * nn.softplus(a_ln_x_m_ln_b)
         )
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         return jnp.exp(
             -self.concentration
             * nn.softplus(
@@ -4486,7 +4490,7 @@ class Dagum(Distribution):
             )
         )
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
         return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
 

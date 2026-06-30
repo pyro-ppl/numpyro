@@ -296,7 +296,7 @@ class SineSkewed(Distribution):
         return self.base_dist.log_prob(value) + skew_prob
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         """Mean of the base distribution"""
         return self.base_dist.mean
 
@@ -604,7 +604,7 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     @property
-    def mode(self):
+    def mode(self) -> jax.Array:
         return safe_normalize(self.concentration)
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
@@ -661,7 +661,7 @@ def _projected_normal_log_prob_2(concentration, value):
 
 
 def _projected_normal_log_prob_3(concentration, value):
-    def _dot(x: Array, y: Array) -> ArrayLike:
+    def _dot(x: Array, y: Array) -> Array:
         return (x[..., None, :] @ y[..., None])[..., 0, 0]
 
     # We integrate along a ray, factorizing the integrand as a product of:

@@ -70,6 +70,7 @@ from typing import ClassVar, Generic, Optional, cast
 import numpy as np
 
 import jax
+from jax import Array
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
@@ -96,13 +97,13 @@ class Constraint(Generic[NumLikeT]):
     def tree_flatten(self):
         raise NotImplementedError
 
-    def __call__(self, x: NumLikeT) -> ArrayLike:
+    def __call__(self, x: NumLikeT) -> Array:
         raise NotImplementedError
 
     def __repr__(self) -> str:
         return self.__class__.__name__[1:] + "()"
 
-    def check(self, value: NumLikeT) -> ArrayLike:
+    def check(self, value: NumLikeT) -> Array:
         """
         Returns a byte tensor of `sample_shape + batch_shape` indicating
         whether each event in value satisfies this constraint.
@@ -115,7 +116,7 @@ class Constraint(Generic[NumLikeT]):
         """
         raise NotImplementedError
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return self is other
 
     def __eq__(self, other: object) -> bool:
@@ -137,7 +138,7 @@ class ParameterFreeConstraint(Constraint[NumLikeT]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return isinstance(other, type(self))
 
 
@@ -159,7 +160,7 @@ class _SingletonConstraint(ParameterFreeConstraint[NumLikeT]):
 class _Boolean(_SingletonConstraint[NumLike]):
     is_discrete = True
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
         return xp.equal(x, 0) | xp.equal(x, 1)
 
@@ -170,7 +171,7 @@ class _Boolean(_SingletonConstraint[NumLike]):
 class _CorrCholesky(_SingletonConstraint[NonScalarArray]):
     event_dim = 2
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         tril = xp.tril(x)
         lower_triangular = xp.all(xp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
@@ -187,7 +188,7 @@ class _CorrCholesky(_SingletonConstraint[NonScalarArray]):
 class _CorrMatrix(_SingletonConstraint[NonScalarArray]):
     event_dim = 2
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         # check for symmetric
         symmetric = xp.all(xp.isclose(x, xp.swapaxes(x, -2, -1)), axis=(-2, -1))
@@ -256,7 +257,7 @@ class _Dependent(Constraint[NumLike]):
             event_dim = self._event_dim
         return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _Dependent):
             return False
         return (
@@ -302,9 +303,9 @@ class _GreaterThan(Constraint[NumLike]):
     def __init__(self, lower_bound: NumLike) -> None:
         self.lower_bound = lower_bound
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
-        return xp.greater(x, self.lower_bound)
+        return xp.greater(x, self.lower_bound)  # type: ignore
 
     def __repr__(self) -> str:
         fmt_string = self.__class__.__name__[1:]
@@ -317,18 +318,18 @@ class _GreaterThan(Constraint[NumLike]):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _GreaterThan):
             return False
         return array_equiv(self.lower_bound, other.lower_bound, static=static)
 
 
 class _GreaterThanEq(_GreaterThan):
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
-        return xp.greater_equal(x, self.lower_bound)
+        return xp.greater_equal(x, self.lower_bound)  # type: ignore
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _GreaterThanEq):
             return False
         return array_equiv(self.lower_bound, other.lower_bound, static=static)
@@ -341,7 +342,7 @@ class _Positive(_GreaterThan, _SingletonConstraint[NumLike]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return _GreaterThan.eq(self, other, static=static)
 
 
@@ -352,7 +353,7 @@ class _Nonnegative(_GreaterThanEq, _SingletonConstraint[NumLike]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return _GreaterThanEq.eq(self, other, static=static)
 
 
@@ -386,7 +387,7 @@ class _IndependentConstraint(Constraint[NumLikeT]):
     def event_dim(self) -> int:
         return self.base_constraint.event_dim + self.reinterpreted_batch_ndims
 
-    def __call__(self, x: NumLikeT) -> ArrayLike:
+    def __call__(self, x: NumLikeT) -> Array:
         result = self.base_constraint(x)
         if self.reinterpreted_batch_ndims == 0:
             return result
@@ -419,7 +420,7 @@ class _IndependentConstraint(Constraint[NumLikeT]):
             {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
         )
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _IndependentConstraint):
             return False
         if self.reinterpreted_batch_ndims != other.reinterpreted_batch_ndims:
@@ -445,9 +446,9 @@ class _LessThan(Constraint[NumLike]):
     def __init__(self, upper_bound: NumLike) -> None:
         self.upper_bound = upper_bound
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
-        return xp.less(x, self.upper_bound)
+        return xp.less(x, self.upper_bound)  # type: ignore
 
     def __repr__(self) -> str:
         fmt_string = self.__class__.__name__[1:]
@@ -460,18 +461,18 @@ class _LessThan(Constraint[NumLike]):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _LessThan):
             return False
         return array_equiv(self.upper_bound, other.upper_bound, static=static)
 
 
 class _LessThanEq(_LessThan):
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
-        return xp.less_equal(x, self.upper_bound)
+        return xp.less_equal(x, self.upper_bound)  # type: ignore
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _LessThanEq):
             return False
         return array_equiv(self.upper_bound, other.upper_bound, static=static)
@@ -484,7 +485,7 @@ class _IntegerInterval(Constraint[NumLike]):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
         return (
             xp.greater_equal(x, self.lower_bound)
@@ -508,7 +509,7 @@ class _IntegerInterval(Constraint[NumLike]):
             dict(),
         )
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _IntegerInterval):
             return False
         return array_equiv(
@@ -522,7 +523,7 @@ class _IntegerGreaterThan(Constraint[NumLike]):
     def __init__(self, lower_bound: NumLike) -> None:
         self.lower_bound = lower_bound
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
         return (xp.mod(x, 1) == 0) & xp.greater_equal(x, self.lower_bound)
 
@@ -537,7 +538,7 @@ class _IntegerGreaterThan(Constraint[NumLike]):
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _IntegerGreaterThan):
             return False
         return array_equiv(self.lower_bound, other.lower_bound, static=static)
@@ -550,7 +551,7 @@ class _IntegerPositive(_IntegerGreaterThan, _SingletonConstraint[NumLike]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return _IntegerGreaterThan.eq(self, other, static=static)
 
 
@@ -561,7 +562,7 @@ class _IntegerNonnegative(_IntegerGreaterThan, _SingletonConstraint[NumLike]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return _IntegerGreaterThan.eq(self, other, static=static)
 
 
@@ -570,7 +571,7 @@ class _Interval(Constraint[NumLike]):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
         return xp.greater_equal(x, self.lower_bound) & xp.less_equal(
             x, self.upper_bound
@@ -588,7 +589,7 @@ class _Interval(Constraint[NumLike]):
             (self.lower_bound + self.upper_bound) / 2, jnp.shape(prototype)
         )
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _Interval):
             return False
         return array_equiv(
@@ -609,7 +610,7 @@ class _Circular(_Interval, _SingletonConstraint[NumLike]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return _Interval.eq(self, other, static=static)
 
 
@@ -620,12 +621,12 @@ class _UnitInterval(_Interval, _SingletonConstraint[NumLike]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         return _Interval.eq(self, other, static=static)
 
 
 class _OpenInterval(_Interval):
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
         return xp.greater(x, self.lower_bound) & xp.less(x, self.upper_bound)
 
@@ -640,7 +641,7 @@ class _OpenInterval(_Interval):
 class _LowerCholesky(_SingletonConstraint[NonScalarArray]):
     event_dim = 2
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         tril = xp.tril(x)
         lower_triangular = xp.all(xp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
@@ -658,9 +659,9 @@ class _Multinomial(Constraint[NonScalarArray]):
     def __init__(self, upper_bound: ArrayLike) -> None:
         self.upper_bound = upper_bound
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = jnp if isinstance(x, jax.Array) else np
-        return (x >= 0).all(axis=-1) & xp.equal(x.sum(axis=-1), self.upper_bound)
+        return (x >= 0).all(axis=-1) & xp.equal(x.sum(axis=-1), self.upper_bound)  # type: ignore
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         pad_width = ((0, 0),) * jnp.ndim(self.upper_bound) + (
@@ -672,7 +673,7 @@ class _Multinomial(Constraint[NonScalarArray]):
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _Multinomial):
             return False
         return array_equiv(self.upper_bound, other.upper_bound, static=static)
@@ -686,7 +687,7 @@ class _L1Ball(_SingletonConstraint[NumLike]):
     event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
 
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         dtype = x.dtype if isinstance(x, xp.ndarray) else type(x)
         eps = jnp.finfo(dtype).eps
@@ -699,8 +700,8 @@ class _L1Ball(_SingletonConstraint[NumLike]):
 class _OrderedVector(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
-        return (x[..., 1:] > x[..., :-1]).all(axis=-1)
+    def __call__(self, x: NonScalarArray) -> Array:
+        return (x[..., 1:] > x[..., :-1]).all(axis=-1)  # type: ignore
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.broadcast_to(jnp.arange(float(prototype.shape[-1])), prototype.shape)
@@ -709,7 +710,7 @@ class _OrderedVector(_SingletonConstraint[NonScalarArray]):
 class _PositiveDefinite(_SingletonConstraint[NonScalarArray]):
     event_dim = 2
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         # check for symmetric
         symmetric = xp.all(xp.isclose(x, xp.swapaxes(x, -2, -1)), axis=(-2, -1))
@@ -724,11 +725,11 @@ class _PositiveDefinite(_SingletonConstraint[NonScalarArray]):
 class _PositiveDefiniteCirculantVector(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         tol = 10 * xp.finfo(x.dtype).eps
         rfft = xp.fft.rfft(x)
-        return (xp.abs(rfft.imag) < tol) & (rfft.real > -tol)
+        return (xp.abs(rfft.imag) < tol) & (rfft.real > -tol)  # type: ignore
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.zeros_like(prototype).at[..., 0].set(1.0)
@@ -737,7 +738,7 @@ class _PositiveDefiniteCirculantVector(_SingletonConstraint[NonScalarArray]):
 class _PositiveSemiDefinite(_SingletonConstraint[NonScalarArray]):
     event_dim = 2
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         # check for symmetric
         symmetric = xp.all(xp.isclose(x, xp.swapaxes(x, -2, -1)), axis=(-2, -1))
@@ -757,7 +758,7 @@ class _PositiveOrderedVector(_SingletonConstraint[NonScalarArray]):
 
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         return jnp.logical_and(
             ordered_vector.check(x), jnp.all(positive.check(x), axis=-1)
         )
@@ -769,7 +770,7 @@ class _PositiveOrderedVector(_SingletonConstraint[NonScalarArray]):
 
 
 class _Complex(_SingletonConstraint[NumLike]):
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         # XXX: consider to relax this condition to [-inf, inf] interval
         xp = jnp if isinstance(x, jax.Array) else np
         return (
@@ -783,9 +784,9 @@ class _Complex(_SingletonConstraint[NumLike]):
 
 
 class _Real(_SingletonConstraint[NumLike]):
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         # XXX: consider to relax this condition to [-inf, inf] interval
-        return (x == x) & (x != float("inf")) & (x != float("-inf"))
+        return (x == x) & (x != float("inf")) & (x != float("-inf"))  # type: ignore
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.zeros_like(prototype)
@@ -794,9 +795,9 @@ class _Real(_SingletonConstraint[NumLike]):
 class _Simplex(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         x_sum = x.sum(axis=-1)
-        return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
+        return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)  # type: ignore
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.full_like(prototype, 1 / prototype.shape[-1])
@@ -829,7 +830,7 @@ class _Sphere(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
     reltol = 10.0  # Relative to finfo.eps.
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         eps = xp.finfo(x.dtype).eps
         norm = xp.linalg.norm(x, axis=-1)
@@ -849,15 +850,16 @@ class _ZeroSum(Constraint[NonScalarArray]):
     def event_dim(self) -> int:
         return self._event_dim
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
         tol = xp.finfo(x.dtype).eps * x.shape[-1] * 10
         zerosum_true = True
         for dim in range(-self.event_dim, 0):
             zerosum_true = zerosum_true & xp.allclose(x.sum(dim), 0, atol=tol)
-        return zerosum_true
+        # FIXME: shape must match batch shape of `x`, not be a literal boolean.
+        return zerosum_true  # type: ignore
 
-    def eq(self, other: object, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> bool:
         if not isinstance(other, _ZeroSum):
             return False
         return self.event_dim == other.event_dim

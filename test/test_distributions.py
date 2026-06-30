@@ -8,7 +8,7 @@ import inspect
 from itertools import product
 import math
 import os
-from typing import Callable
+from typing import Callable, get_type_hints
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -18,7 +18,7 @@ from scipy.sparse import csr_matrix
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import Array, grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
@@ -385,7 +385,7 @@ def _vmap_over_general_2d_mixture(self: _General2DMixture, locs=None):
 
 
 class _ImproperWrapper(dist.ImproperUniform):
-    def sample(self, key, sample_shape=()):
+    def sample(self, key, sample_shape=()) -> Array:
         transform = biject_to(self.support)
         prototype_value = jnp.zeros(self.event_shape)
         unconstrained_event_shape = jnp.shape(transform.inv(prototype_value))
@@ -2221,41 +2221,21 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=rtol, atol=atol)
 
 
-# Methods that do not yet return a jax array because they hand back a stored
-# parameter directly (e.g. ``Poisson.mean`` is ``self.rate``) or compute via plain
-# python arithmetic (e.g. ``Beta.mean`` is ``c1 / (c1 + c0)``). Their output type
-# tracks the input; the suite constructs these with python/numpy params, so the result
-# is consistently a non-array and the ``xfail`` is ``strict`` (it will flag the day one
-# of them starts returning a jax array, keeping this dict honest). Narrowing the return
-# to ``Array`` is tracked separately. Keyed by the distribution class used in the
-# parametrize lists above.
-OUTPUT_TYPE_XFAIL = {
-    dist.BernoulliProbs: {"mean", "variance"},
-    dist.Beta: {"mean", "variance"},
-    dist.BetaProportion: {"mean", "variance"},
-    dist.Chi2: {"mean"},
-    dist.Delta: {"mean", "sample"},
-    dist.DiscreteUniform: {"mean", "variance"},
-    dist.Gamma: {"mean"},
-    dist.GammaPoisson: {"mean"},
-    dist.GeometricProbs: {"mean", "variance"},
-    dist.HalfNormal: {"variance"},
-    dist.HurdleGamma: {"mean"},
-    dist.LowRankMultivariateNormal: {"mean"},
-    dist.NegativeBinomial2: {"mean"},
-    dist.NegativeBinomialProbs: {"mean"},
-    dist.Poisson: {"mean", "variance"},
-    SineSkewedUniform: {"mean"},
-    dist.SoftLaplace: {"mean", "variance"},
-    SparsePoisson: {"mean", "variance"},
-    dist.Uniform: {"mean", "variance"},
-    dist.ZeroInflatedPoisson: {"mean", "variance"},
-}
-
-
 @pytest.mark.parametrize("jit", [False, True])
 @pytest.mark.parametrize(
-    "method", ["sample", "log_prob", "mean", "variance", "entropy"]
+    "method",
+    [
+        "sample",
+        "log_prob",
+        "mean",
+        "variance",
+        "entropy",
+        "cdf",
+        "icdf",
+        "rsample",
+        "mode",
+        "enumerate_support",
+    ],
 )
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
@@ -2265,24 +2245,26 @@ def test_output_is_array(jax_dist, sp_dist, params, method, jit, request):
     # reshape, and compare the result without tripping a type checker (``ArrayLike``
     # admits python/numpy scalars that are not indexable and have no ``.shape``).
     # Validation is disabled so the test is independent of global validation state.
-    #
-    # Without ``jit`` a handful of moments pass a stored param / python scalar
-    # straight through and so are not jax arrays (see ``OUTPUT_TYPE_XFAIL``). Under
-    # ``jit`` every output is materialised as a jax array, so the exceptions vanish
-    # and all methods must return an array.
-    if not jit and method in OUTPUT_TYPE_XFAIL.get(jax_dist, ()):
-        request.applymarker(
-            pytest.mark.xfail(
-                strict=True,
-                reason=f"{jax_dist.__name__}.{method} returns a stored param / "
-                "python scalar rather than a jax array",
-            )
-        )
+
     with dist.distribution.validation_enabled(False):
         d = jax_dist(*params)
-        if method == "sample":
-            fn = lambda: d.sample(random.PRNGKey(0))  # noqa: E731
-        elif method == "log_prob":
+
+        cls = d.__class__
+        # Verify the correct annotation after unpacking.
+        impl = getattr(cls, method)
+        if isinstance(impl, property):
+            impl = impl.fget
+        while isinstance(impl, partial):
+            impl = impl.func
+        return_annotation = get_type_hints(impl).get("return")
+        assert return_annotation is jax.Array, (
+            f"{cls.__name__}.{method} ({impl.__code__.co_filename}:"
+            f"{impl.__code__.co_firstlineno}) is annotated with {return_annotation}"
+        )
+
+        if method in {"sample", "rsample"}:
+            fn = lambda: getattr(d, method)(random.PRNGKey(0))  # noqa: E731
+        elif method in {"log_prob", "cdf"}:
             # IntervalCensoredDistribution takes an interval (lo, hi) as log_prob
             # input but returns univariate samples, so log_prob(sample) is not
             # well-formed for it (mirrors the special-casing in test_dist_shape).
@@ -2291,18 +2273,22 @@ def test_output_is_array(jax_dist, sp_dist, params, method, jit, request):
                     "log_prob(sample) is ill-formed for interval-censored dists"
                 )
             value = d.sample(random.PRNGKey(0))
-            fn = lambda: d.log_prob(value)  # noqa: E731
+            fn = lambda: getattr(d, method)(value)  # noqa: E731
+        elif method == "icdf":
+            fn = lambda: d.icdf(0.3)  # noqa: E731
         elif method == "entropy":
             fn = lambda: d.entropy()  # noqa: E731
-        else:
+        elif method in {"mean", "mode", "variance"}:
             fn = lambda: getattr(d, method)  # noqa: E731
+        elif method == "enumerate_support":
+            fn = lambda: d.enumerate_support()  # noqa: E731
+        else:
+            raise RuntimeError(method)
         try:
             out = jax.jit(fn)() if jit else fn()
         except NotImplementedError:
-            pytest.skip(f"{jax_dist.__name__}.{method} is not implemented")
-    assert isinstance(out, jax.Array), (
-        f"{jax_dist.__name__}.{method} returned {type(out)}"
-    )
+            pytest.skip(f"{cls.__name__}.{method} is not implemented")
+    assert isinstance(out, jax.Array), f"{cls.__name__}.{method} returned {type(out)}"
 
 
 @pytest.mark.parametrize(
