@@ -4,7 +4,12 @@
 import jax
 from jax.api_util import debug_info, flatten_fun, shaped_abstractify
 from jax.extend.core import Literal
-from jax.extend.core.primitives import call_p, closed_call_p, jit_p, xla_pmap_p
+from jax.extend.core.primitives import call_p, closed_call_p, jit_p
+
+try:
+    from jax.extend.core.primitives import xla_pmap_p
+except ImportError:
+    xla_pmap_p = None
 import jax.extend.linear_util as lu
 from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 
@@ -114,7 +119,8 @@ def track_deps_call_rule(eqn, provenance_inputs):
 
 
 track_deps_rules[call_p] = track_deps_call_rule
-track_deps_rules[xla_pmap_p] = track_deps_call_rule
+if xla_pmap_p is not None:
+    track_deps_rules[xla_pmap_p] = track_deps_call_rule
 
 
 def track_deps_closed_call_rule(eqn, provenance_inputs):
