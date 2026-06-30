@@ -426,7 +426,7 @@ class Distribution(metaclass=DistributionMeta):
     def mode(self) -> Array:
         raise NotImplementedError
 
-    def _validate_sample(self, value: ArrayLike) -> Array:
+    def _validate_sample(self, value: ArrayLike) -> ArrayLike:
         assert self.support is not None
         mask = self.support(value)
         if not_jax_tracer(mask):
@@ -909,7 +909,7 @@ class ImproperUniform(Distribution):
         batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
         return jnp.zeros(batch_shape)
 
-    def _validate_sample(self, value: ArrayLike) -> Array:
+    def _validate_sample(self, value: ArrayLike) -> ArrayLike:
         mask = super(ImproperUniform, self)._validate_sample(value)
         batch_dim = jnp.ndim(value) - len(self.event_shape)
         if batch_dim < jnp.ndim(mask):
