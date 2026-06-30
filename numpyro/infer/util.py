@@ -5,7 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Any, Callable, NamedTuple, Optional
+from typing import Callable, Optional
 import warnings
 
 import numpy as np
@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
-from numpyro._typing import PositionDict, TraceT
+from numpyro._typing import TraceT
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -36,13 +36,11 @@ from numpyro.util import (
 
 __all__ = [
     "find_valid_initial_params",
-    "get_log_density_fn",
     "get_potential_fn",
     "log_density",
     "log_likelihood",
     "potential_energy",
     "initialize_model",
-    "LogDensityInfo",
     "Predictive",
 ]
 
@@ -50,27 +48,6 @@ ModelInfo = namedtuple(
     "ModelInfo", ["param_info", "potential_fn", "postprocess_fn", "model_trace"]
 )
 ParamInfo = namedtuple("ParamInfo", ["z", "potential_energy", "z_grad"])
-
-
-class LogDensityInfo(NamedTuple):
-    """Return value of :func:`get_log_density_fn`.
-
-    The callable fields (``logdensity_fn``, ``postprocess_fn``) have their model
-    arguments pre-bound; the caller does not need to repeat ``model_args`` /
-    ``model_kwargs`` or remember to negate.
-
-    :ivar logdensity_fn: negated potential energy (a log joint density).
-    :ivar init_position: unconstrained initial values from
-        :func:`find_valid_initial_params`.
-    :ivar postprocess_fn: single-position transform back to constrained space,
-        with ``deterministic`` sites included.
-    :ivar model_info: underlying :class:`ModelInfo` for power users.
-    """
-
-    logdensity_fn: Callable[[PositionDict], jax.Array]
-    init_position: PositionDict
-    postprocess_fn: Callable[[PositionDict], PositionDict]
-    model_info: ModelInfo
 
 
 class _substitute_default_key(Messenger):
@@ -832,6 +809,10 @@ def initialize_model(
                             site["fn"]._validate_sample(site["value"])
                         if len(ws) > 0:
                             for w in ws:
+                                # `catch_warnings(record=True)` stores `Warning`
+                                # instances; narrow the `Warning | str` type so
+                                # `.args` access type-checks.
+                                assert isinstance(w.message, Warning)
                                 # at site information to the warning message
                                 w.message.args = (
                                     "Site {}: {}".format(
@@ -851,77 +832,6 @@ def initialize_model(
             )
     return ModelInfo(
         ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace
-    )
-
-
-def get_log_density_fn(
-    rng_key: jax.Array,
-    model: Callable[..., Any],
-    *,
-    model_args: tuple[Any, ...] = (),
-    model_kwargs: Optional[dict[str, Any]] = None,
-    init_strategy: Callable[..., Any] = init_to_uniform,
-    forward_mode_differentiation: bool = False,
-    validate_grad: bool = True,
-) -> LogDensityInfo:
-    """
-    (EXPERIMENTAL INTERFACE) Convenience entry point that wraps
-    :func:`initialize_model` for use with external samplers (e.g. ``blackjax``,
-    ``flowMC``).
-
-    The returned :class:`LogDensityInfo` carries a ``logdensity_fn`` that is
-    already the *negated* potential energy (i.e. a log joint density that
-    external samplers can maximize), an unconstrained ``init_position``, and a
-    single-position ``postprocess_fn`` callable with ``model_args`` /
-    ``model_kwargs`` already bound; the caller does not have to repeat them or
-    remember to negate by hand.
-
-    :param jax.Array rng_key: PRNG key used to sample the initial position
-        from the prior.
-    :param Callable model: a Python callable containing NumPyro primitives.
-    :param tuple model_args: positional arguments passed to ``model``.
-    :param dict model_kwargs: keyword arguments passed to ``model``.
-    :param Callable init_strategy: a per-site initialization function. See
-        :ref:`init_strategy` section for available functions.
-    :param bool forward_mode_differentiation: whether to use forward-mode
-        differentiation when validating initial parameters.
-    :param bool validate_grad: whether to validate gradients of the initial
-        params.
-    :returns: a :class:`LogDensityInfo`.
-    :rtype: LogDensityInfo
-
-    **Example**::
-
-        info = get_log_density_fn(rng_key, model, model_args=(x, y))
-        kernel = blackjax.nuts(info.logdensity_fn, step_size, inverse_mass_matrix)
-        state = kernel.init(info.init_position)
-    """
-    # Defensive copy: callers may mutate their kwargs dict after this call;
-    # the returned closures must not observe those mutations.
-    model_kwargs = dict(model_kwargs) if model_kwargs else {}
-    model_info = initialize_model(
-        rng_key,
-        model,
-        init_strategy=init_strategy,
-        dynamic_args=False,
-        model_args=model_args,
-        model_kwargs=model_kwargs,
-        forward_mode_differentiation=forward_mode_differentiation,
-        validate_grad=validate_grad,
-    )
-    # With `dynamic_args=False`, `potential_fn` is a single-position callable
-    # `(position) -> potential_energy`. Expose its negation as a log joint
-    # density that external samplers (e.g. ``blackjax``, ``flowMC``) maximize.
-    potential_fn = model_info.potential_fn
-
-    def logdensity_fn(position: PositionDict) -> jax.Array:
-        return -potential_fn(position)
-
-    return LogDensityInfo(
-        logdensity_fn=logdensity_fn,
-        init_position=model_info.param_info.z,
-        postprocess_fn=model_info.postprocess_fn,
-        model_info=model_info,
     )
 
 
