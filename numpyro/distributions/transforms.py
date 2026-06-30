@@ -13,10 +13,11 @@ import jax
 from jax import Array, lax, vmap
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
+import jax.scipy.fft
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 from jax.tree_util import register_pytree_node
-from jax.typing import ArrayLike
+from jax.typing import ArrayLike, DTypeLike
 
 from numpyro._typing import (
     NonScalarArray,
@@ -45,7 +46,9 @@ __all__ = [
     "ComposeTransform",
     "CorrCholeskyTransform",
     "CorrMatrixCholeskyTransform",
+    "DiscreteCosineTransform",
     "ExpTransform",
+    "HaarTransform",
     "IdentityTransform",
     "L1BallTransform",
     "LowerCholeskyTransform",
@@ -1830,6 +1833,240 @@ class ComplexTransform(ParameterFreeTransform[NonScalarArray]):
 
     def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return shape + (2,)
+
+
+_ROOT_TWO_INVERSE: float = 1.0 / math.sqrt(2.0)
+
+
+def _haar_forward(x: NonScalarArray) -> NonScalarArray:
+    """
+    Orthonormal Haar transform along the last axis.
+
+    This matches the block-structured Haar transform used by Pyro for sequences
+    whose length is not a power of two, but it is implemented with a bounded
+    ``for`` loop over a statically known number of levels (no ``while`` loop and
+    no recursion), so it traces cleanly under ``jax.jit`` and ``jax.vmap``. The
+    output is ordered as ``[dc, hi_k, end_k, ..., hi_1, end_1]`` where ``end_i``
+    is the trailing odd element (if any) at level ``i``.
+    """
+    size = x.shape[-1]
+    num_levels = max(0, size.bit_length() - 1)
+    lo = x
+    his: list[NonScalarArray] = []
+    ends: list[NonScalarArray] = []
+    for _ in range(num_levels):
+        n = lo.shape[-1] // 2
+        even = lo[..., 0 : 2 * n : 2]
+        odd = lo[..., 1 : 2 * n : 2]
+        ends.append(lo[..., 2 * n :])
+        his.append(_ROOT_TWO_INVERSE * (even - odd))
+        lo = _ROOT_TWO_INVERSE * (even + odd)
+    parts = [lo]
+    for i in range(num_levels - 1, -1, -1):
+        parts.append(his[i])
+        parts.append(ends[i])
+    return jnp.concatenate(parts, axis=-1)
+
+
+def _haar_inverse(y: NonScalarArray) -> NonScalarArray:
+    """
+    Inverse of :func:`_haar_forward` along the last axis.
+
+    Like the forward transform, this uses a bounded ``for`` loop over a
+    statically known number of levels (no ``while`` loop and no recursion).
+    """
+    size = y.shape[-1]
+    num_levels = max(0, size.bit_length() - 1)
+    lengths: list[int] = []
+    length = size
+    for _ in range(num_levels):
+        lengths.append(length)
+        length = length // 2
+    lo = y[..., 0:1]  # dc coefficient
+    offset = 1
+    for i in range(num_levels - 1, -1, -1):  # coarsest to finest
+        level_size = lengths[i]
+        n = level_size // 2
+        e = level_size - 2 * n
+        hi = y[..., offset : offset + n]
+        offset += n
+        end = y[..., offset : offset + e]
+        offset += e
+        even = _ROOT_TWO_INVERSE * (lo + hi)
+        odd = _ROOT_TWO_INVERSE * (lo - hi)
+        even_odd = jnp.stack([even, odd], axis=-1).reshape(even.shape[:-1] + (2 * n,))
+        lo = jnp.concatenate([even_odd, end], axis=-1)
+    return lo
+
+
+class HaarTransform(Transform[NonScalarArray]):
+    """
+    Discrete Haar transform.
+
+    This computes the (orthonormal) Haar transform and its inverse along a
+    chosen axis. The Jacobian determinant is 1. For sequences with length ``T``
+    not a power of two, this implementation is equivalent to a block-structured
+    Haar transform in which block sizes decrease by factors of one half from
+    left to right.
+
+    :param dim: Dimension along which to transform. Must be negative. This is an
+        absolute dim counting from the right.
+    :param flip: Whether to flip the time axis before applying the Haar
+        transform. Defaults to False.
+    """
+
+    bijective = True
+
+    def __init__(self, dim: int = -1, flip: bool = False) -> None:
+        assert isinstance(dim, int) and dim < 0
+        self.dim = dim
+        self.flip = flip
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        self.forward_shape(jnp.shape(x))
+        if self.dim != -1:
+            x = jnp.swapaxes(x, self.dim, -1)
+        if self.flip:
+            x = jnp.flip(x, -1)
+        y = _haar_forward(x)
+        if self.dim != -1:
+            y = jnp.swapaxes(y, self.dim, -1)
+        return y
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        self.inverse_shape(jnp.shape(y))
+        if self.dim != -1:
+            y = jnp.swapaxes(y, self.dim, -1)
+        x = _haar_inverse(y)
+        if self.flip:
+            x = jnp.flip(x, -1)
+        if self.dim != -1:
+            x = jnp.swapaxes(x, self.dim, -1)
+        return x
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        return jnp.zeros(jnp.shape(x)[: self.dim])
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def tree_flatten(self):
+        return (), ((), {"dim": self.dim, "flip": self.flip})
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, HaarTransform)
+            and self.dim == other.dim
+            and self.flip == other.flip
+        )
+
+
+class DiscreteCosineTransform(Transform[NonScalarArray]):
+    """
+    Discrete Cosine Transform of type II.
+
+    This computes the orthonormal DCT and its inverse along a chosen axis using
+    :func:`jax.scipy.fft.dct` and :func:`jax.scipy.fft.idct`. The Jacobian
+    determinant is 1.
+
+    When reparameterizing variables that are approximately continuous along the
+    time dimension, set ``smooth=1``. For variables that are approximately
+    continuously differentiable along the time axis, set ``smooth=2``.
+
+    :param dim: Dimension along which to transform. Must be negative. This is an
+        absolute dim counting from the right.
+    :param smooth: Smoothing parameter. When 0, this transforms white noise to
+        white noise; when 1 this transforms Brownian noise to white noise; when
+        -1 this transforms violet noise to white noise; etc. Any real number is
+        allowed. See https://en.wikipedia.org/wiki/Colors_of_noise.
+    """
+
+    bijective = True
+
+    def __init__(self, dim: int = -1, smooth: float = 0.0) -> None:
+        assert isinstance(dim, int) and dim < 0
+        self.dim = dim
+        self.smooth = float(smooth)
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    def _weight(self, size: int, dtype: DTypeLike) -> Array:
+        # Weight by frequency**smooth, where the DCT-II frequencies are
+        # ``linspace(0.5, size - 0.5, size)``. The weights are normalized so
+        # that their geometric mean is one, ensuring ``|jacobian| = 1``. The
+        # result depends only on the static ``size`` and ``smooth``, so it is
+        # constant-folded under ``jit`` and contributes zero gradient.
+        freq = jnp.linspace(0.5, size - 0.5, size, dtype=dtype)
+        w = freq**self.smooth
+        w = w / jnp.exp(jnp.mean(jnp.log(w)))
+        return w.reshape((size,) + (1,) * (-self.dim - 1))
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        self.forward_shape(jnp.shape(x))
+        y = jax.scipy.fft.dct(jnp.asarray(x), type=2, norm="ortho", axis=self.dim)
+        if self.smooth:
+            y = y * self._weight(jnp.shape(x)[self.dim], y.dtype)
+        return y
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        self.inverse_shape(jnp.shape(y))
+        if self.smooth:
+            y = y / self._weight(jnp.shape(y)[self.dim], y.dtype)
+        return jax.scipy.fft.idct(jnp.asarray(y), type=2, norm="ortho", axis=self.dim)
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        return jnp.zeros(jnp.shape(x)[: self.dim])
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def tree_flatten(self):
+        return (), ((), {"dim": self.dim, "smooth": self.smooth})
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, DiscreteCosineTransform)
+            and self.dim == other.dim
+            and self.smooth == other.smooth
+        )
 
 
 ##########################################################
