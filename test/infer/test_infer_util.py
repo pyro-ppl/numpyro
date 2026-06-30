@@ -81,9 +81,8 @@ def linear_regression():
 
 
 def categorical_probs():
-    probs0 = 0.5
     nbatch0, nbatch1 = 2, 1
-    probs = jnp.ones((nbatch0, nbatch1, 3)) * probs0
+    probs = jnp.ones((nbatch0, nbatch1, 3)) / 3
 
     def model(probs):
         probs = numpyro.deterministic("probs", probs)

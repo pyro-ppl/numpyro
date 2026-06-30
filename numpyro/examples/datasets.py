@@ -194,9 +194,11 @@ def _download_with_retries(url: str, out_path: str) -> None:
                         type(detached_exc).__name__, delay
                     )
                 )
+                assert delay is not None
                 time.sleep(delay)
     if isinstance(last_exc, HTTPError):
         last_exc.close()
+    assert last_exc is not None
     raise last_exc
 
 
@@ -231,6 +233,7 @@ def _download(dset: dset) -> None:
         else:
             if isinstance(last_exc, HTTPError):
                 last_exc.close()
+            assert last_exc is not None
             raise last_exc
 
 
@@ -441,7 +444,7 @@ def _load_jsb_chorales() -> dict:
     return processed_dataset
 
 
-def _load_higgs(num_datapoints: int) -> dict:
+def _load_higgs(num_datapoints: int | None) -> dict:
     warnings.warn(
         "Higgs is a 2.6 GB dataset",
         stacklevel=find_stack_level(),
@@ -513,7 +516,7 @@ def _load_mortality() -> dict:
     }
 
 
-def _load(dset: dset, num_datapoints: int = -1) -> dict:
+def _load(dset: dset, num_datapoints: int | None = -1) -> dict:
     if dset == BASEBALL:
         return _load_baseball()
     elif dset == BOSTON_HOUSING:
@@ -586,7 +589,7 @@ def load_dataset(
         return tuple(
             np.take(a, ret_idx, axis=0)
             if isinstance(a, list)
-            else lax.index_take(a, (ret_idx,), axes=(0,))
+            else lax.index_take(a, (ret_idx,), axes=(0,))  # ty: ignore[invalid-argument-type]
             for a in arrays
         )
 

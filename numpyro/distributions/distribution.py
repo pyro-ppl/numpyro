@@ -155,7 +155,7 @@ class Distribution(metaclass=DistributionMeta):
 
     arg_constraints: dict[str, Any] = {}
     _support: Optional[constraints.Constraint] = None
-    _validate_args: bool = False
+    _validate_args: bool = _VALIDATION_ENABLED
     _arg_names: ClassVar[Optional[tuple[str, ...]]] = None
     pytree_data_fields: tuple[str, ...] = ()
     pytree_aux_fields: tuple[str, ...] = ("_batch_shape", "_event_shape")
@@ -606,7 +606,7 @@ class Distribution(metaclass=DistributionMeta):
         if (
             cls.support is not None
             and hasattr(cls.support, "event_dim")
-            and cls.support.event_dim > 0
+            and cast(int, cls.support.event_dim) > 0
         ):
             raise NotImplementedError
 

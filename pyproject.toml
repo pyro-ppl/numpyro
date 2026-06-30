@@ -79,43 +79,17 @@ examples = [
 ]
 test = [
     "importlib-metadata<5.0",
-    "mypy>=1.13",
     "pyro-api>=0.1.1",
     "pytest>=4.1",
     "ruff>=0.1.8",
     "scikit-learn",
     "scipy>=1.9",
-    "ty>=0.0.4",
+    "ty>=0.0.49",
 ]
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
-
-[tool.mypy]
-ignore_errors = true
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = [
-    "examples.datasets",
-    "numpyro.contrib.control_flow.*",        # types missing
-    "numpyro.contrib.funsor.*",              # types missing
-    "numpyro.contrib.hsgp.*",
-    "numpyro.contrib.stochastic_support.*",
-    "numpyro.diagnostics.*",
-    "numpyro.handlers.*",
-    "numpyro.infer.elbo.*",
-    "numpyro.infer.util.*",
-    "numpyro.optim.*",
-    "numpyro.primitives.*",
-    "numpyro.patch.*",
-    "numpyro.util.*",
-    "numpyro.distributions.constraints",
-    "numpyro.distributions.distribution",
-    "numpyro.distributions.transforms",
-]
-ignore_errors = false
 
 [tool.pytest.ini_options]
 addopts = ["-v", "--color=yes"]
@@ -146,7 +120,6 @@ exclude = [
     ".git-rewrite",
     ".hg",
     ".ipynb_checkpoints",
-    ".mypy_cache",
     ".nox",
     ".pants.d",
     ".pyenv",
@@ -241,6 +214,33 @@ version = { attr = "numpyro.version.__version__" }
 # NOTE: this can be simplified using src-layout
 [tool.setuptools.packages.find]
 include = ["numpyro*"]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+unresolved-import = "ignore"
+
+[tool.ty.src]
+include = [
+    "numpyro/contrib/control_flow",
+    "numpyro/contrib/funsor",
+    "numpyro/contrib/hsgp",
+    "numpyro/contrib/stochastic_support",
+    "numpyro/diagnostics.py",
+    "numpyro/distributions/constraints.py",
+    "numpyro/distributions/distribution.py",
+    "numpyro/distributions/transforms.py",
+    "numpyro/examples/datasets.py",
+    "numpyro/handlers.py",
+    "numpyro/infer/elbo.py",
+    "numpyro/infer/util.py",
+    "numpyro/optim.py",
+    "numpyro/primitives.py",
+    "numpyro/patch.py",
+    "numpyro/util.py",
+]
+respect-ignore-files = true
 
 [tool.uv.sources]
 funsor = { git = "https://github.com/pyro-ppl/funsor.git" }

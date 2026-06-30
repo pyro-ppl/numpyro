@@ -248,6 +248,22 @@ HalfNormal
     :show-inheritance:
     :member-order: bysource
 
+HurdleGamma
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.HurdleGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleLogNormal
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.HurdleLogNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 InverseGamma
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.InverseGamma
@@ -570,6 +586,38 @@ GeometricLogits
 GeometricProbs
 ^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.discrete.GeometricProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleDistribution
+^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.discrete.HurdleDistribution
+
+HurdleLogits
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdleLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleNegativeBinomial2
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.conjugate.HurdleNegativeBinomial2
+
+HurdlePoisson
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdlePoisson
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleProbs
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdleProbs
     :members:
     :undoc-members:
     :show-inheritance:
@@ -1016,9 +1064,25 @@ CorrMatrixCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+DiscreteCosineTransform
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.DiscreteCosineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ExpTransform
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.ExpTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HaarTransform
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.HaarTransform
     :members:
     :undoc-members:
     :show-inheritance:

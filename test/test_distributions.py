@@ -24,6 +24,7 @@ import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import (
     SineBivariateVonMises,
@@ -54,6 +55,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
+from numpyro.infer import MCMC, NUTS
 from numpyro.nn import AutoregressiveNN
 
 
@@ -1148,6 +1150,20 @@ CONTINUOUS = [
     T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
     T(dist.Dagum, 2.0, 3.0, np.array([0.5, 2.0, 1.0])),
     T(dist.Dagum, np.array([5.0, 2.0, 10.0]), 3.0, 5.0),
+    T(dist.HurdleGamma, 0.35, 2.0, 1.0),
+    T(
+        dist.HurdleGamma,
+        np.array([0.2, 0.5, 0.7]),
+        np.array([1.5, 2.0, 3.0]),
+        np.array([1.0, 0.8, 1.2]),
+    ),
+    T(dist.HurdleLogNormal, 0.45, 0.0, 1.0),
+    T(
+        dist.HurdleLogNormal,
+        np.array([0.1, 0.5, 0.8]),
+        np.array([0.0, 0.5, -0.3]),
+        np.array([1.0, 0.8, 1.2]),
+    ),
 ]
 
 DIRECTIONAL = [
@@ -1291,6 +1307,8 @@ DISCRETE = [
         np.array([0.2, 4.0, 0.3]),
         np.array([2.0, -3.0, 5.0]),
     ),
+    T(dist.HurdlePoisson, 0.6, 2.0),
+    T(dist.HurdlePoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
 ]
 
 BASE = [
@@ -1646,8 +1664,12 @@ def test_sample_gradient(jax_dist, sp_dist, params):
             continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(repara_params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(repara_params)]
-        fn_lhs = fn(args_lhs)
-        fn_rhs = fn(args_rhs)
+        # the finite-difference reference perturbs parameters off their
+        # constraint manifold (e.g. scale_tril, simplex probs), so disable
+        # validation here; jax.grad above traces and is unaffected.
+        with numpyro.validation_enabled(False):
+            fn_lhs = fn(args_lhs)
+            fn_rhs = fn(args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
@@ -2044,8 +2066,8 @@ def test_beta_binomial_log_prob(total_count, shape):
 @pytest.mark.parametrize("n", [1, 2, 5, 10])
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
 def test_beta_negative_binomial_log_prob(n, shape):
-    concentration0 = np.exp(np.random.normal(size=shape))
-    concentration1 = np.exp(np.random.normal(size=shape))
+    concentration0 = 1 + np.exp(np.random.normal(size=shape))
+    concentration1 = 1 + np.exp(np.random.normal(size=shape))
     value = jnp.arange(15)
 
     num_samples = 300000
@@ -2183,8 +2205,12 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         actual_grad = jax.grad(fn, i)(*params)
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
-        fn_lhs = fn(*args_lhs)
-        fn_rhs = fn(*args_rhs)
+        # the finite-difference reference perturbs parameters off their
+        # constraint manifold (e.g. scale_tril, simplex probs), so disable
+        # validation here; jax.grad above traces and is unaffected.
+        with numpyro.validation_enabled(False):
+            fn_lhs = fn(*args_lhs)
+            fn_rhs = fn(*args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad) == jnp.shape(params[i])
@@ -2261,6 +2287,23 @@ def test_mean_var(jax_dist, sp_dist, params):
         else 200000
     )
     d_jax = jax_dist(*params)
+
+    # `mean` and `variance`, where implemented, must be arrays whose shape is exactly
+    # `batch_shape + event_shape` -- the same contract `test_dist_shape` enforces for
+    # samples. Checked uniformly here (not per scipy/family branch below) so every
+    # distribution is held to it. Distributions without a closed-form moment raise
+    # `NotImplementedError` and are skipped (e.g. CAR/Gompertz have no `variance`).
+    expected_moment_shape = d_jax.batch_shape + d_jax.event_shape
+    for moment in ("mean", "variance"):
+        try:
+            value = getattr(d_jax, moment)
+        except NotImplementedError:
+            continue
+        assert jnp.shape(value) == expected_moment_shape, (
+            f"{jax_dist.__name__}.{moment} has shape {jnp.shape(value)}, "
+            f"expected batch_shape + event_shape = {expected_moment_shape}"
+        )
+
     k = random.key(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
@@ -2485,7 +2528,12 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             # a > 0 and b > 0. Then, make b = a + b.
             valid_params[1] += valid_params[0]
 
-    assert jax_dist(*oob_params)
+    # Out-of-bounds params must still construct when validation is off. Use the
+    # context manager (not the validate_args kwarg) so that compound
+    # distributions, which build internal distributions without forwarding
+    # validate_args, also skip validation.
+    with numpyro.validation_enabled(False):
+        assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
     if not dependent_constraint and (
@@ -4845,3 +4893,138 @@ def test_poisson_dtype_consistency(rate, value):
         assert jnp.allclose(res, ref), (
             f"Inconsistent results for rate={rate}, value={value}: {results}"
         )
+
+
+_HURDLE_DISCRETE_CASES = [
+    pytest.param(dist.HurdlePoisson, {"gate": 0.3, "rate": 2.0}, id="HurdlePoisson"),
+    pytest.param(
+        dist.HurdleNegativeBinomial2,
+        {"gate": 0.4, "mean": 3.0, "concentration": 1.5},
+        id="HurdleNegativeBinomial2",
+    ),
+]
+
+_HURDLE_CONTINUOUS_CASES = [
+    pytest.param(
+        dist.HurdleGamma,
+        {"gate": 0.35, "concentration": 2.0, "rate": 1.0},
+        id="HurdleGamma",
+    ),
+    pytest.param(
+        dist.HurdleLogNormal,
+        {"gate": 0.45, "loc": 0.0, "scale": 1.0},
+        id="HurdleLogNormal",
+    ),
+]
+
+_HURDLE_ALL_CASES = _HURDLE_DISCRETE_CASES + _HURDLE_CONTINUOUS_CASES
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_at_zero(dist_cls, params):
+    """log_prob(0) must equal log(gate) for every hurdle distribution."""
+    d = dist_cls(**params)
+    assert_allclose(d.log_prob(0.0), jnp.log(params["gate"]), rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_DISCRETE_CASES)
+def test_hurdle_discrete_log_prob_matches_truncated_base(dist_cls, params):
+    """For discrete hurdles, log_prob(k>0) = log(1-g) + base.log_prob(k) - log(1-B(0))."""
+    d = dist_cls(**params)
+    base = d.base_dist
+    values = jnp.arange(1, 12)
+    log_one_minus_p0 = jnp.log(-jnp.expm1(base.log_prob(0.0)))
+    expected = jnp.log1p(-params["gate"]) + base.log_prob(values) - log_one_minus_p0
+    assert_allclose(d.log_prob(values), expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_CONTINUOUS_CASES)
+def test_hurdle_continuous_log_prob_matches_scaled_base(dist_cls, params):
+    """For continuous hurdles, log_prob(x>0) = log(1-g) + base.log_prob(x)."""
+    d = dist_cls(**params)
+    values = jnp.array([0.1, 0.5, 1.0, 2.5, 10.0])
+    expected = jnp.log1p(-params["gate"]) + d.base_dist.log_prob(values)
+    assert_allclose(d.log_prob(values), expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_normalizes(dist_cls, params):
+    """The hurdle PMF/PDF must sum/integrate to 1."""
+    d = dist_cls(**params)
+    if d.support.is_discrete:
+        # Sum the PMF on {0, 1, ..., 200}; the tail is negligible for the test params.
+        values = jnp.arange(201)
+        total = jnp.exp(d.log_prob(values)).sum()
+    else:
+        # Riemann sum on a fine grid; add the point mass at 0 explicitly.
+        grid = jnp.linspace(1e-4, 50.0, 200_001)
+        dx = float(grid[1] - grid[0])
+        total = params["gate"] + jnp.exp(d.log_prob(grid)).sum() * dx
+    assert_allclose(total, 1.0, atol=1e-3)
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_sample_zero_fraction(dist_cls, params):
+    """Empirical P(X = 0) must match the gate."""
+    d = dist_cls(**params)
+    samples = d.sample(random.key(0), (50_000,))
+    empirical = float(jnp.mean(samples == 0))
+    assert abs(empirical - params["gate"]) < 0.01
+
+
+@pytest.mark.parametrize("dist_cls, params", _HURDLE_ALL_CASES)
+def test_hurdle_log_prob_safe_at_zero(dist_cls, params):
+    """log_prob(0) must be finite (no -inf from the underlying base PDF)."""
+    d = dist_cls(**params)
+    lp = d.log_prob(0.0)
+    assert jnp.isfinite(lp), f"log_prob(0)={lp} for {dist_cls.__name__}"
+
+
+@pytest.mark.parametrize("gate", [0.05, 0.3, 0.7, 0.95])
+def test_hurdle_logits_probs_agree(gate):
+    """HurdleLogits with logit(gate) must match HurdleProbs with gate."""
+    base = dist.Poisson(2.5)
+    gate_logits = float(jax.scipy.special.logit(gate))
+    hp = dist.HurdleDistribution(base, gate=gate)
+    hl = dist.HurdleDistribution(base, gate_logits=gate_logits)
+    values = jnp.arange(0, 15)
+    assert_allclose(hl.log_prob(values), hp.log_prob(values), rtol=1e-5, atol=1e-7)
+
+
+def test_hurdle_distribution_factory_dispatch():
+    base = dist.Poisson(2.0)
+    assert isinstance(dist.HurdleDistribution(base, gate=0.3), dist.HurdleProbs)
+    assert isinstance(dist.HurdleDistribution(base, gate_logits=0.5), dist.HurdleLogits)
+
+
+def test_hurdle_distribution_factory_requires_one_arg():
+    base = dist.Poisson(2.0)
+    with pytest.raises(ValueError):
+        dist.HurdleDistribution(base)
+    with pytest.raises(ValueError):
+        dist.HurdleDistribution(base, gate=0.3, gate_logits=0.5)
+
+
+def test_hurdle_rejects_non_empty_event_shape():
+    base = dist.Dirichlet(jnp.ones(3))
+    with pytest.raises(ValueError, match="event_shape"):
+        dist.HurdleProbs(base, gate=0.3)
+
+
+def test_hurdle_poisson_inference():
+    """End-to-end MCMC smoke test on HurdlePoisson recovers the gate and rate."""
+    true_gate = 0.4
+    true_rate = 3.0
+    key_data, key_mcmc = random.split(random.key(123))
+    data = dist.HurdlePoisson(true_gate, true_rate).sample(key_data, (500,))
+
+    def model(y):
+        gate = numpyro.sample("gate", dist.Beta(1.0, 1.0))
+        rate = numpyro.sample("rate", dist.Exponential(0.5))
+        numpyro.sample("y", dist.HurdlePoisson(gate, rate), obs=y)
+
+    mcmc = MCMC(NUTS(model), num_warmup=400, num_samples=400, progress_bar=False)
+    mcmc.run(key_mcmc, y=data)
+    samples = mcmc.get_samples()
+    assert abs(float(jnp.mean(samples["gate"])) - true_gate) < 0.05
+    assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.3
