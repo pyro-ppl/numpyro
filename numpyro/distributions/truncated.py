@@ -53,7 +53,7 @@ class LeftTruncatedDistribution(Distribution):
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.low,) = promote_shapes(low, shape=batch_shape)
-        self._support = constraints.greater_than(low)
+        self._support = constraints.greater_than_eq(low)
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -120,7 +120,7 @@ class LeftTruncatedDistribution(Distribution):
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
-    def var(self) -> ArrayLike:
+    def variance(self) -> ArrayLike:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             return (self.base_dist.scale**2) * (
@@ -131,7 +131,7 @@ class LeftTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            raise NotImplementedError("var only available for Normal and Cauchy")
+            raise NotImplementedError("variance only available for Normal and Cauchy")
 
 
 class RightTruncatedDistribution(Distribution):
@@ -156,7 +156,7 @@ class RightTruncatedDistribution(Distribution):
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.high,) = promote_shapes(high, shape=batch_shape)
-        self._support = constraints.less_than(high)
+        self._support = constraints.less_than_eq(high)
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -208,7 +208,7 @@ class RightTruncatedDistribution(Distribution):
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
-    def var(self) -> ArrayLike:
+    def variance(self) -> ArrayLike:
         if isinstance(self.base_dist, Normal):
             high_prob = jnp.exp(self.log_prob(self.high))
             return (self.base_dist.scale**2) * (
@@ -219,7 +219,7 @@ class RightTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            raise NotImplementedError("var only available for Normal and Cauchy")
+            raise NotImplementedError("variance only available for Normal and Cauchy")
 
 
 class TwoSidedTruncatedDistribution(Distribution):
@@ -354,7 +354,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
-    def var(self) -> ArrayLike:
+    def variance(self) -> ArrayLike:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
@@ -367,7 +367,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
-            raise NotImplementedError("var only available for Normal and Cauchy")
+            raise NotImplementedError("variance only available for Normal and Cauchy")
 
 
 def TruncatedDistribution(
