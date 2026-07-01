@@ -191,44 +191,74 @@ def transform_fn(transforms, params, invert=False):
     return {k: transforms[k](v) if k in transforms else v for k, v in params.items()}
 
 
-def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=False):
+def constrain_fn(
+    model,
+    model_args,
+    model_kwargs,
+    params,
+    return_deterministic=False,
+    batch_ndims=0,
+):
     """
     (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
-    unconstrained parameters `params`. The `transforms` is used to transform these
-    unconstrained parameters to base values of the corresponding priors in `model`.
-    If a prior is a transformed distribution, the corresponding base value lies in
-    the support of base distribution. Otherwise, the base value lies in the support
-    of the distribution.
+    unconstrained parameters `params`. Each unconstrained value is pushed through
+    the inverse bijection of the corresponding prior's support to recover the
+    constrained value. If a prior is a transformed distribution, the corresponding
+    base value lies in the support of the base distribution. Otherwise, the base
+    value lies in the support of the distribution.
+
+    ``batch_ndims`` declares how many leading sample dimensions each leaf of
+    ``params`` carries, so the transforms are ``jax.vmap``-ed the correct number
+    of times. The common layouts are: ``batch_ndims=0`` (a single unconstrained
+    position, the default), ``batch_ndims=1`` (a single chain of samples), and
+    ``batch_ndims=2`` (``num_chains x num_samples``, matching
+    :meth:`MCMC.get_samples(group_by_chain=True)
+    <numpyro.infer.MCMC.get_samples>`). This is useful to map a batch of
+    unconstrained samples produced by an external sampler back to the
+    constrained space.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of unconstrained values keyed by site
-        names.
+        names. Leading dimensions are batch dimensions (see ``batch_ndims``).
     :param bool return_deterministic: whether to return the value of `deterministic`
         sites from the model. Defaults to `False`.
+    :param int batch_ndims: number of leading batch dimensions on each leaf of
+        ``params``. Defaults to ``0`` (a single position).
     :return: `dict` of transformed params.
     """
+    if batch_ndims < 0:
+        raise ValueError(
+            f"batch_ndims must be a non-negative integer, got {batch_ndims}."
+        )
 
-    def substitute_fn(site):
-        if site["name"] in params:
-            if site["type"] == "sample":
-                with helpful_support_errors(site):
-                    return biject_to(site["fn"].support)(params[site["name"]])
-            elif site["type"] == "param":
-                constraint = site["kwargs"].pop("constraint", constraints.real)
-                with helpful_support_errors(site):
-                    return biject_to(constraint)(params[site["name"]])
-            else:
-                return params[site["name"]]
+    def single(position):
+        def substitute_fn(site):
+            if site["name"] in position:
+                if site["type"] == "sample":
+                    with helpful_support_errors(site):
+                        return biject_to(site["fn"].support)(position[site["name"]])
+                elif site["type"] == "param":
+                    constraint = site["kwargs"].pop("constraint", constraints.real)
+                    with helpful_support_errors(site):
+                        return biject_to(constraint)(position[site["name"]])
+                else:
+                    return position[site["name"]]
 
-    substituted_model = substitute(model, substitute_fn=substitute_fn)
-    model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    return {
-        k: v["value"]
-        for k, v in model_trace.items()
-        if (k in params) or (return_deterministic and (v["type"] == "deterministic"))
-    }
+        substituted_model = substitute(model, substitute_fn=substitute_fn)
+        model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
+        return {
+            k: v["value"]
+            for k, v in model_trace.items()
+            if (k in position)
+            or (return_deterministic and (v["type"] == "deterministic"))
+        }
+
+    fn = single
+    for _ in range(batch_ndims):
+        fn = jax.vmap(fn)
+    return fn(params)
 
 
 def get_transforms(model, model_args, model_kwargs, params):
@@ -779,6 +809,10 @@ def initialize_model(
                             site["fn"]._validate_sample(site["value"])
                         if len(ws) > 0:
                             for w in ws:
+                                # `catch_warnings(record=True)` stores `Warning`
+                                # instances; narrow the `Warning | str` type so
+                                # `.args` access type-checks.
+                                assert isinstance(w.message, Warning)
                                 # at site information to the warning message
                                 w.message.args = (
                                     "Site {}: {}".format(

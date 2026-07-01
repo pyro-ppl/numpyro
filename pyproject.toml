@@ -234,6 +234,7 @@ include = [
     "numpyro/examples/datasets.py",
     "numpyro/handlers.py",
     "numpyro/infer/elbo.py",
+    "numpyro/infer/util.py",
     "numpyro/optim.py",
     "numpyro/primitives.py",
     "numpyro/patch.py",

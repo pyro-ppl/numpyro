@@ -27,7 +27,11 @@ from numpyro.infer.mcmc import MCMC
 from numpyro.infer.mixed_hmc import MixedHMC
 from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
-from numpyro.infer.util import Predictive, log_likelihood
+from numpyro.infer.util import (
+    Predictive,
+    initialize_model,
+    log_likelihood,
+)
 
 from . import autoguide, calibration, reparam
 
@@ -41,6 +45,7 @@ __all__ = [
     "init_to_sample",
     "init_to_uniform",
     "init_to_value",
+    "initialize_model",
     "log_likelihood",
     "psis_diagnostic",
     "reparam",
