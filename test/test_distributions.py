@@ -2240,14 +2240,6 @@ def test_mean_var(jax_dist, sp_dist, params):
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
     if jax_dist in (
-        _TruncatedNormal,
-        _TruncatedCauchy,
-        dist.LeftTruncatedDistribution,
-        dist.RightTruncatedDistribution,
-        dist.TwoSidedTruncatedDistribution,
-    ):
-        pytest.skip("Truncated distributions do not has mean/var implemented")
-    if jax_dist in (
         _LeftCensoredHalfNormal,
         _RightCensoredWeibull,
         _LeftCensoredNormal,
@@ -2432,15 +2424,27 @@ def test_mean_var(jax_dist, sp_dist, params):
             sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
             jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
     else:
-        if jnp.all(jnp.isfinite(d_jax.mean)):
-            assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+        # A distribution may implement a closed-form moment only for some base
+        # families (e.g. truncated distributions only for Normal/Cauchy); others
+        # raise NotImplementedError, in which case there is nothing to compare
+        # the samples against.
+        try:
+            mean = d_jax.mean
+        except NotImplementedError:
+            mean = None
+        if mean is not None and jnp.all(jnp.isfinite(mean)):
+            assert_allclose(jnp.mean(samples, 0), mean, rtol=0.05, atol=1e-2)
         if isinstance(d_jax, dist.CAR):
             pytest.skip("CAR distribution does not have `variance` implemented.")
         if isinstance(d_jax, dist.Gompertz):
             pytest.skip("Gompertz distribution does not have `variance` implemented.")
-        if jnp.all(jnp.isfinite(d_jax.variance)):
+        try:
+            variance = d_jax.variance
+        except NotImplementedError:
+            variance = None
+        if variance is not None and jnp.all(jnp.isfinite(variance)):
             assert jnp.allclose(
-                jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=0.05
+                jnp.std(samples, 0), jnp.sqrt(variance), rtol=0.05, atol=0.05
             )
 
 
