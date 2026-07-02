@@ -68,8 +68,8 @@ def linear_approximation(
 
 def hsgp_squared_exponential(
     x: ArrayLike,
-    alpha: float,
-    length: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
     ell: float | int | list[float | int],
     m: int | list[int],
     non_centered: bool = True,
@@ -90,8 +90,8 @@ def hsgp_squared_exponential(
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayLike x: input data
-    :param float alpha: amplitude of the squared exponential kernel
-    :param float length: length scale of the squared exponential kernel
+    :param ArrayLike alpha: amplitude of the squared exponential kernel
+    :param ArrayLike length: length scale of the squared exponential kernel
     :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
         that the input data lies in the interval :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_E]`.
         We expect the approximation to be valid within this interval
@@ -117,8 +117,8 @@ def hsgp_squared_exponential(
 def hsgp_matern(
     x: ArrayLike,
     nu: float,
-    alpha: float,
-    length: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
     ell: float | int | list[float | int],
     m: int | list[int],
     non_centered: bool = True,
@@ -140,8 +140,8 @@ def hsgp_matern(
 
     :param ArrayLike x: input data
     :param float nu: smoothness parameter
-    :param float alpha: amplitude of the squared exponential kernel
-    :param float length: length scale of the squared exponential kernel
+    :param ArrayLike alpha: amplitude of the squared exponential kernel
+    :param ArrayLike length: length scale of the squared exponential kernel
     :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
         that the input data lies in the interval :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
         We expect the approximation to be valid within this interval
@@ -166,9 +166,9 @@ def hsgp_matern(
 
 def hsgp_rational_quadratic(
     x: ArrayLike,
-    alpha: float,
-    length: float,
-    scale_mixture: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
+    scale_mixture: ArrayLike,
     ell: float | int | list[float | int],
     m: int | list[int],
     non_centered: bool = True,
@@ -202,9 +202,9 @@ def hsgp_rational_quadratic(
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayLike x: input data
-    :param float alpha: amplitude of the Rational Quadratic kernel
-    :param float length: length scale of the Rational Quadratic kernel (scalar, isotropic only)
-    :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
+    :param ArrayLike alpha: amplitude of the Rational Quadratic kernel
+    :param ArrayLike length: length scale of the Rational Quadratic kernel (scalar, isotropic only)
+    :param ArrayLike scale_mixture: scale mixture parameter (α in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
     :param float | int | list[float | int] ell: positive value that parametrizes the length of the D-dimensional box so
@@ -235,7 +235,7 @@ def hsgp_rational_quadratic(
 
 
 def hsgp_periodic_non_centered(
-    x: ArrayLike, alpha: float, length: float, w0: float, m: int
+    x: ArrayLike, alpha: ArrayLike, length: ArrayLike, w0: ArrayLike, m: int
 ) -> Array:
     """
     Low rank approximation for the periodic squared exponential kernel in the non-centered parametrization.
@@ -248,9 +248,9 @@ def hsgp_periodic_non_centered(
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayLike x: input data
-    :param float alpha: amplitude
-    :param float length: length scale
-    :param float w0: frequency of the periodic kernel
+    :param ArrayLike alpha: amplitude
+    :param ArrayLike length: length scale
+    :param ArrayLike w0: frequency of the periodic kernel
     :param int m: number of eigenvalues to compute and include in the approximation
     :return: the low-rank approximation linear model
     :rtype: Array
