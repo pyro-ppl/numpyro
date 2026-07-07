@@ -1155,6 +1155,13 @@ CONTINUOUS = [
     T(dist.SchechterMag, 0.7, 10.0, 6.0, 14.0),
     T(dist.SchechterMag, -2.4, -20.0, -25.0, -17.0),
     T(dist.SchechterMag, np.array([-1.3, -0.5]), -20.5, -24.0, -16.0),
+    T(
+        dist.SchechterMag,
+        -1.25,
+        -20.5,
+        np.array([-24.0, -25.0]),
+        np.array([-16.0, -15.0]),
+    ),
     T(dist.HurdleGamma, 0.35, 2.0, 1.0),
     T(
         dist.HurdleGamma,
@@ -2164,6 +2171,38 @@ def test_schechter_mag_alpha_at_integer_pole(alpha):
             values
         )
         assert_allclose(log_prob, log_prob_nearby, rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.parametrize("alpha", [-1.0, -2.0, -3.0])
+def test_schechter_mag_alpha_pole_gradient(alpha):
+    # the incomplete-gamma pole patch is constant in alpha, so without the
+    # custom JVP the normalization contribution to the gradient is dropped
+    m_star, low, high = -20.5, -24.0, -16.0
+    values = np.linspace(-23.0, -17.0, 5)
+
+    def log_prob_sum(a):
+        return dist.SchechterMag(a, m_star, low, high).log_prob(values).sum()
+
+    actual = jax.grad(log_prob_sum)(alpha)
+    eps = 1e-3 if jnp.result_type(float) == jnp.float32 else 1e-5
+    expected = (log_prob_sum(alpha + eps) - log_prob_sum(alpha - eps)) / (2 * eps)
+    assert_allclose(actual, expected, rtol=5e-3)
+
+
+def test_schechter_mag_pytree_structure_is_bound_independent():
+    # _support must be a data field (as in Uniform); keeping the bounds in the
+    # static treedef would force a jit recompile for every distinct interval
+    d1 = dist.SchechterMag(-1.25, -20.5, -24.0, -16.0)
+    d2 = dist.SchechterMag(-1.25, -20.5, -25.0, -15.0)
+    assert jax.tree_util.tree_structure(d1) == jax.tree_util.tree_structure(d2)
+
+
+def test_schechter_mag_bright_truncated_underflow_is_neg_inf():
+    # the normalization underflows when the support is far bright of m_star;
+    # log_prob must return -inf (impossible), not +inf
+    d = dist.SchechterMag(-1.25, -20.5, -32.0, -30.0)
+    log_prob = d.log_prob(jnp.asarray(-31.0))
+    assert np.isneginf(np.asarray(log_prob))
 
 
 @pytest.mark.parametrize("alpha", [-1.7, -1.0, 0.3])
