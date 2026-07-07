@@ -870,9 +870,6 @@ class NUTS(HMC):
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
-        matrix for numerical stability during warmup phase. Defaults to True. This flag
-        does not take effect if ``adapt_mass_matrix == False``.
     :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
         diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
         users can provide a list of tuples of site names. Each tuple represents
@@ -911,6 +908,9 @@ class NUTS(HMC):
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
+        matrix for numerical stability during warmup phase. Defaults to True. This flag
+        does not take effect if ``adapt_mass_matrix == False``.
     """
 
     def __init__(
