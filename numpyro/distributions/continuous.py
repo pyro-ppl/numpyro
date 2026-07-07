@@ -44,6 +44,7 @@ from jax.scipy.special import (
     expi,
     expit,
     gammainc,
+    gammaincc,
     gammaln,
     logit,
     multigammaln,
@@ -4514,6 +4515,221 @@ class Dagum(Distribution):
             - jnp.square(self.mean),
             jnp.inf,
         )
+
+
+def _upper_incomplete_gamma(a: ArrayLike, x: ArrayLike) -> ArrayLike:
+    r"""Upper incomplete gamma function :math:`\Gamma(a, x)` for :math:`x > 0`,
+    extended to negative shape values :math:`a > -3` via the downward recurrence
+
+    .. math::
+        \Gamma(a, x) = \frac{\Gamma(a + 1, x) - x^a e^{-x}}{a}.
+
+    The removable singularities of the recurrence at :math:`a \in \{0, -1, -2\}`
+    are patched with :math:`\Gamma(0, x) = -\mathrm{Ei}(-x)` and its recurrences.
+    At those isolated points the derivative with respect to ``a`` flows through
+    the patch and is therefore not exact.
+    """
+    a_round = jnp.round(a)
+    is_pole = (a == a_round) & (a_round <= 0.0)
+    # keep the recurrence free of divisions by zero so that `jnp.where` does not
+    # propagate NaNs through the gradients of the branch that is not taken
+    a_safe = jnp.where(is_pole, 0.5, a)
+    log_x = jnp.log(x)
+    g = jnp.exp(gammaln(a_safe + 3.0)) * gammaincc(a_safe + 3.0, x)
+    for k in (2.0, 1.0, 0.0):
+        s = a_safe + k
+        g = (g - jnp.exp(s * log_x - x)) / s
+    g_zero = -expi(-x)
+    g_minus_one = jnp.exp(-log_x - x) - g_zero
+    g_minus_two = 0.5 * (jnp.exp(-2.0 * log_x - x) - g_minus_one)
+    g_pole = jnp.where(
+        a_round == 0.0, g_zero, jnp.where(a_round == -1.0, g_minus_one, g_minus_two)
+    )
+    return jnp.where(is_pole, g_pole, g)
+
+
+def _schechter_mag_norm(
+    alpha: ArrayLike, m_star: ArrayLike, low: ArrayLike, high: ArrayLike
+) -> ArrayLike:
+    c = 0.4 * np.log(10.0)
+    concentration = alpha + 1.0
+    x_at_high = jnp.exp(c * (m_star - high))
+    x_at_low = jnp.exp(c * (m_star - low))
+    return _upper_incomplete_gamma(concentration, x_at_high) - _upper_incomplete_gamma(
+        concentration, x_at_low
+    )
+
+
+def _schechter_mag_log_prob(
+    value: ArrayLike,
+    alpha: ArrayLike,
+    m_star: ArrayLike,
+    low: ArrayLike,
+    high: ArrayLike,
+) -> ArrayLike:
+    c = 0.4 * np.log(10.0)
+    return (
+        np.log(c)
+        + (alpha + 1.0) * c * (m_star - value)
+        - jnp.exp(c * (m_star - value))
+        - jnp.log(_schechter_mag_norm(alpha, m_star, low, high))
+    )
+
+
+def _schechter_mag_cdf(
+    value: ArrayLike,
+    alpha: ArrayLike,
+    m_star: ArrayLike,
+    low: ArrayLike,
+    high: ArrayLike,
+) -> ArrayLike:
+    c = 0.4 * np.log(10.0)
+    concentration = alpha + 1.0
+    x = jnp.exp(c * (m_star - value))
+    x_at_low = jnp.exp(c * (m_star - low))
+    cdf = (
+        _upper_incomplete_gamma(concentration, x)
+        - _upper_incomplete_gamma(concentration, x_at_low)
+    ) / _schechter_mag_norm(alpha, m_star, low, high)
+    return jnp.clip(cdf, 0.0, 1.0)
+
+
+@jax.custom_jvp
+def _schechter_mag_icdf(
+    q: ArrayLike,
+    alpha: ArrayLike,
+    m_star: ArrayLike,
+    low: ArrayLike,
+    high: ArrayLike,
+) -> ArrayLike:
+    shape = lax.broadcast_shapes(
+        jnp.shape(q),
+        jnp.shape(alpha),
+        jnp.shape(m_star),
+        jnp.shape(low),
+        jnp.shape(high),
+    )
+    lower = jnp.broadcast_to(low * jnp.ones_like(q), shape)
+    upper = jnp.broadcast_to(high * jnp.ones_like(q), shape)
+
+    def body_fn(_, carry):
+        lower, upper = carry
+        mid = 0.5 * (lower + upper)
+        go_right = _schechter_mag_cdf(mid, alpha, m_star, low, high) < q
+        return jnp.where(go_right, mid, lower), jnp.where(go_right, upper, mid)
+
+    lower, upper = lax.fori_loop(0, 64, body_fn, (lower, upper))
+    return 0.5 * (lower + upper)
+
+
+@_schechter_mag_icdf.defjvp
+def _schechter_mag_icdf_jvp(primals, tangents):
+    q, alpha, m_star, low, high = primals
+    q_dot, alpha_dot, m_star_dot, low_dot, high_dot = tangents
+    value = _schechter_mag_icdf(q, alpha, m_star, low, high)
+    # implicit differentiation of cdf(value, alpha, m_star, low, high) = q
+    density = jnp.exp(_schechter_mag_log_prob(value, alpha, m_star, low, high))
+    _, cdf_dot = jax.jvp(
+        lambda *params: _schechter_mag_cdf(value, *params),
+        (alpha, m_star, low, high),
+        (alpha_dot, m_star_dot, low_dot, high_dot),
+    )
+    return value, (q_dot - cdf_dot) / density
+
+
+class SchechterMag(Distribution):
+    r"""Schechter distribution over absolute magnitudes, i.e. the single Schechter
+    luminosity function [1] expressed in absolute-magnitude space and truncated to
+    the interval :math:`[\mathrm{low}, \mathrm{high}]`. Its probability density
+    function is given by,
+
+    .. math::
+        f(m\mid \alpha, m^*) = \frac{0.4 \ln(10)}{Z}\,
+        x(m)^{\alpha + 1} e^{-x(m)},
+        \qquad x(m) = 10^{-0.4 (m - m^*)},
+
+    for :math:`\mathrm{low} \le m \le \mathrm{high}`, where :math:`\alpha` is the
+    faint-end slope, :math:`m^*` is the characteristic magnitude, and the
+    normalization constant is expressed in terms of the upper incomplete gamma
+    function as
+
+    .. math::
+        Z = \Gamma\left(\alpha + 1, x(\mathrm{high})\right)
+        - \Gamma\left(\alpha + 1, x(\mathrm{low})\right).
+
+    Under the change of variables :math:`x = 10^{-0.4 (m - m^*)}`, this is the
+    distribution of :math:`m^* - 2.5 \log_{10} X` for a Gamma variate
+    :math:`X` with concentration :math:`\alpha + 1` doubly truncated to
+    :math:`[x(\mathrm{high}), x(\mathrm{low})]`. Thanks to the truncation, the
+    density remains normalizable for faint-end slopes :math:`\alpha \le -1`, for
+    which :math:`\Gamma(\alpha + 1, x)` is evaluated with a recurrence-based
+    extension of the upper incomplete gamma function to negative shape values.
+
+    The number-density amplitude :math:`\phi^*` of the luminosity function does
+    not affect the normalized density. To also constrain :math:`\phi^*`, add a
+    Poisson likelihood term on the total number of observed objects.
+
+    :param alpha: faint-end slope :math:`\alpha \in (-4, \infty)`.
+    :param m_star: characteristic magnitude :math:`m^*`.
+    :param low: lower (bright-end) bound of the magnitude interval.
+    :param high: upper (faint-end) bound of the magnitude interval.
+
+    **References:**
+
+    1. Schechter, P. (1976). An analytic expression for the luminosity function
+       for galaxies. *The Astrophysical Journal*, 203, 297-306.
+    """
+
+    arg_constraints = {
+        "alpha": constraints.greater_than(-4.0),
+        "m_star": constraints.real,
+        "low": constraints.dependent(is_discrete=False, event_dim=0),
+        "high": constraints.dependent(is_discrete=False, event_dim=0),
+    }
+    reparametrized_params = ["alpha", "m_star", "low", "high"]
+    pytree_data_fields = ("alpha", "m_star", "low", "high")
+    pytree_aux_fields = ("_support",)
+
+    def __init__(
+        self,
+        alpha: ArrayLike,
+        m_star: ArrayLike,
+        low: ArrayLike,
+        high: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        self.alpha, self.m_star, self.low, self.high = promote_shapes(
+            alpha, m_star, low, high
+        )
+        self._support = constraints.interval(low, high)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(alpha), jnp.shape(m_star), jnp.shape(low), jnp.shape(high)
+        )
+        super(SchechterMag, self).__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> constraints.Constraint:
+        return self._support
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        u = random.uniform(key, shape=sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        return _schechter_mag_log_prob(
+            value, self.alpha, self.m_star, self.low, self.high
+        )
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        return _schechter_mag_cdf(value, self.alpha, self.m_star, self.low, self.high)
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        return _schechter_mag_icdf(q, self.alpha, self.m_star, self.low, self.high)
 
 
 class HurdleGamma(HurdleProbs):

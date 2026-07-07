@@ -14,6 +14,7 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 import scipy
+from scipy.integrate import quad
 from scipy.sparse import csr_matrix
 import scipy.stats as osp
 
@@ -1150,6 +1151,10 @@ CONTINUOUS = [
     T(dist.Dagum, 2.0, np.array([1.0, 2.0, 10.0]), 4.0),
     T(dist.Dagum, 2.0, 3.0, np.array([0.5, 2.0, 1.0])),
     T(dist.Dagum, np.array([5.0, 2.0, 10.0]), 3.0, 5.0),
+    T(dist.SchechterMag, -1.25, -20.5, -24.0, -16.0),
+    T(dist.SchechterMag, 0.7, 10.0, 6.0, 14.0),
+    T(dist.SchechterMag, -2.4, -20.0, -25.0, -17.0),
+    T(dist.SchechterMag, np.array([-1.3, -0.5]), -20.5, -24.0, -16.0),
     T(dist.HurdleGamma, 0.35, 2.0, 1.0),
     T(
         dist.HurdleGamma,
@@ -2115,6 +2120,60 @@ def test_gamma_poisson_log_prob(shape):
     expected = logsumexp(log_probs, 0) - jnp.log(num_samples)
     actual = dist.GammaPoisson(gamma_conc, gamma_rate).log_prob(value)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+def _schechter_mag_unnormalized_pdf(m, alpha, m_star):
+    x = 10.0 ** (0.4 * (m_star - m))
+    return 0.4 * np.log(10.0) * x ** (alpha + 1.0) * np.exp(-x)
+
+
+@pytest.mark.parametrize("alpha", [-2.5, -2.0, -1.25, -1.0, -0.5, 0.7])
+def test_schechter_mag_log_prob_and_cdf(alpha):
+    m_star, low, high = -20.5, -24.0, -16.0
+    d = dist.SchechterMag(alpha, m_star, low, high)
+    normalization, _ = quad(
+        _schechter_mag_unnormalized_pdf, low, high, args=(alpha, m_star)
+    )
+    values = np.linspace(low + 0.5, high - 0.5, 9)
+    expected_log_prob = np.log(
+        _schechter_mag_unnormalized_pdf(values, alpha, m_star) / normalization
+    )
+    expected_cdf = np.array(
+        [
+            quad(_schechter_mag_unnormalized_pdf, low, v, args=(alpha, m_star))[0]
+            / normalization
+            for v in values
+        ]
+    )
+    tol = 1e-4 if jnp.result_type(float) == jnp.float32 else 1e-8
+    assert_allclose(d.log_prob(values), expected_log_prob, rtol=tol, atol=tol)
+    assert_allclose(d.cdf(values), expected_cdf, rtol=tol, atol=tol)
+
+
+@pytest.mark.parametrize("alpha", [-1.0, -2.0, -3.0])
+def test_schechter_mag_alpha_at_integer_pole(alpha):
+    # the normalization at alpha + 1 in {0, -1, -2} hits the removable
+    # singularities of the incomplete gamma recurrence, which are patched via
+    # the exponential integral; check finiteness and continuity in alpha there
+    m_star, low, high = -20.5, -24.0, -16.0
+    values = np.linspace(-23.0, -17.0, 5)
+    log_prob = dist.SchechterMag(alpha, m_star, low, high).log_prob(values)
+    assert np.isfinite(log_prob).all()
+    for eps in (-1e-4, 1e-4):
+        log_prob_nearby = dist.SchechterMag(alpha + eps, m_star, low, high).log_prob(
+            values
+        )
+        assert_allclose(log_prob, log_prob_nearby, rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.parametrize("alpha", [-1.7, -1.0, 0.3])
+def test_schechter_mag_sample_ks(alpha):
+    m_star, low, high = -21.0, -25.5, -17.0
+    d = dist.SchechterMag(alpha, m_star, low, high)
+    samples = d.sample(random.key(1), (10000,))
+    assert (samples >= low).all() and (samples <= high).all()
+    _, p_value = osp.kstest(np.asarray(samples), lambda m: np.asarray(d.cdf(m)))
+    assert p_value > 0.01
 
 
 @pytest.mark.parametrize("conc", [15.0, 20.0, 30.0])

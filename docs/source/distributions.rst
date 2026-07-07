@@ -412,6 +412,14 @@ RelaxedBernoulliLogits
     :show-inheritance:
     :member-order: bysource
 
+SchechterMag
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.SchechterMag
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 SoftLaplace
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.SoftLaplace
