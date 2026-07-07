@@ -2199,10 +2199,14 @@ def test_schechter_mag_pytree_structure_is_bound_independent():
 
 def test_schechter_mag_bright_truncated_underflow_is_neg_inf():
     # the normalization underflows when the support is far bright of m_star;
-    # log_prob must return -inf (impossible), not +inf
+    # log_prob must return -inf (impossible), not +inf, and cdf/sample must
+    # return NaN loudly rather than 0/0 garbage or a silent collapse to `low`
     d = dist.SchechterMag(-1.25, -20.5, -32.0, -30.0)
     log_prob = d.log_prob(jnp.asarray(-31.0))
     assert np.isneginf(np.asarray(log_prob))
+    assert np.isnan(np.asarray(d.cdf(jnp.asarray(-31.0))))
+    samples = d.sample(random.key(0), (3,))
+    assert np.isnan(np.asarray(samples)).all()
 
 
 @pytest.mark.parametrize("alpha", [-1.7, -1.0, 0.3])

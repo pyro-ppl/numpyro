@@ -4625,8 +4625,14 @@ def _schechter_mag_cdf(
     c = 0.4 * np.log(10.0)
     concentration, gamma_at_low, norm = _schechter_mag_parts(alpha, m_star, low, high)
     x = jnp.exp(c * (m_star - value))
-    cdf = (_upper_incomplete_gamma(concentration, x) - gamma_at_low) / norm
-    return jnp.clip(cdf, 0.0, 1.0)
+    # guard the normalization-underflow regime (see _schechter_mag_log_prob):
+    # 0/0 would produce an accidental NaN here; make it a deliberate one
+    norm_ok = norm > 0.0
+    safe_norm = jnp.where(norm_ok, norm, 1.0)
+    cdf = jnp.clip(
+        (_upper_incomplete_gamma(concentration, x) - gamma_at_low) / safe_norm, 0.0, 1.0
+    )
+    return jnp.where(norm_ok, cdf, jnp.nan)
 
 
 @jax.custom_jvp
@@ -4667,7 +4673,9 @@ def _schechter_mag_icdf(
     # already exceed float32 resolution; float64 needs the full 64
     num_iters = 64 if jnp.result_type(float) == jnp.float64 else 32
     lower, upper = lax.fori_loop(0, num_iters, body_fn, (lower, upper))
-    return 0.5 * (lower + upper)
+    # in the normalization-underflow regime the cdf is NaN and the bisection
+    # would silently collapse to `low`; return NaN loudly instead
+    return jnp.where(norm > 0.0, 0.5 * (lower + upper), jnp.nan)
 
 
 @_schechter_mag_icdf.defjvp
@@ -4716,10 +4724,13 @@ class SchechterMag(Distribution):
     .. note:: In single precision, the normalization underflows when the whole
         interval sits several magnitudes bright of :math:`m^*` (roughly
         :math:`m^* - \mathrm{high} \gtrsim 5`), in which case ``log_prob``
-        returns ``-inf``; enable double precision for such bright-truncated
-        configurations. Precision also degrades within a machine-epsilon-sized
+        returns ``-inf`` (``cdf`` and ``sample`` return NaN); enable double
+        precision for such bright-truncated configurations. Precision also degrades within a machine-epsilon-sized
         neighborhood of :math:`\alpha \in \{-1, -2, -3\}` (exact values at the
-        removable singularities are handled).
+        removable singularities are handled). Second-order differentiation with
+        respect to ``alpha`` is unavailable: JAX has no derivative rule for
+        ``igamma_grad_a``, a pre-existing limitation shared by other
+        ``gammaincc``-based code.
 
     The number-density amplitude :math:`\phi^*` of the luminosity function does
     not affect the normalized density. To also constrain :math:`\phi^*`, add a
