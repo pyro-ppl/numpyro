@@ -286,22 +286,24 @@ def param(
         )
         return init_value
 
+    args: tuple
     if callable(init_value):
 
-        def fn(*args, init_value=init_value, **kwargs) -> ArrayLike:
+        def fn(*args, init_value: Callable = init_value, **kwargs) -> ArrayLike:
             return init_value(prng_key())
-        init_value = ()
+
+        args = ()
 
     else:
         fn = cast(Callable, identity)
-        init_value = (init_value,)
+        args = (init_value,)
 
     # Otherwise, we initialize a message...
     initial_msg = {
         "type": "param",
         "name": name,
         "fn": fn,
-        "args": init_value,
+        "args": args,
         "kwargs": kwargs,
         "value": None,
         "scale": None,
