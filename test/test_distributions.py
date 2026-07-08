@@ -2627,6 +2627,36 @@ def test_categorical_log_prob_grad():
     assert_allclose(grad_fx, grad_gx, atol=1e-4)
 
 
+def test_categorical_base_probs_property():
+    from numpyro.distributions.discrete import (
+        CategoricalLogits,
+        CategoricalProbs,
+        _CategoricalBase,
+    )
+
+    assert issubclass(CategoricalProbs, _CategoricalBase)
+    assert issubclass(CategoricalLogits, _CategoricalBase)
+
+    # CategoricalProbs.probs returns the stored weights directly, without ever
+    # routing through the logits (log) round-trip, so exact zeros are preserved.
+    probs = jnp.array([0.0, 0.5, 0.5])
+    cp = dist.Categorical(probs=probs)
+    assert_array_equal(cp.probs, probs)
+
+    # CategoricalLogits.probs is softmax(logits), strictly positive.
+    logits = jnp.array([0.1, 0.2, 0.3])
+    cl = dist.Categorical(logits=logits)
+    assert_allclose(cl.probs, jax.nn.softmax(logits), rtol=1e-6)
+    assert jnp.all(cl.probs > 0)
+
+    # Shared _CategoricalBase behavior on both parameterizations.
+    for d, param in [(cp, probs), (cl, logits)]:
+        assert d.support.upper_bound == jnp.shape(param)[-1] - 1
+        assert_array_equal(d.enumerate_support(expand=False).ravel(), jnp.arange(3))
+        assert jnp.isnan(d.mean)
+        assert jnp.isnan(d.variance)
+
+
 def test_beta_proportion_invalid_mean():
     with (
         dist.distribution.validation_enabled(),

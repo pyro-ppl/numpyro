@@ -638,24 +638,40 @@ def Binomial(
         return BinomialLogits(logits, total_count, validate_args=validate_args)
 
 
-class CategoricalProbs(Distribution):
-    r"""A Categorical discrete random variable over :math:`K` mutually exclusive
-    outcomes, parameterized by a probability vector on the simplex.
+class _CategoricalBase(Distribution):
+    has_enumerate_support = True
 
-    The Probability Mass Function (PMF) of the Categorical distribution is defined as:
+    @property
+    def _param(self) -> ArrayLike:
+        """The raw parameter (``probs`` or ``logits``) stored at construction.
 
-    .. math::
-        P(X = k \mid \mathbf{p}) = p_k, \quad k \in \{0, 1, \dots, K-1\}
+        Used for batch/event-shape and dtype queries so that neither the
+        ``probs`` nor the ``logits`` conversion is triggered.
+        """
+        raise NotImplementedError
 
-    where the probability vector :math:`\mathbf{p} = (p_0, p_1, \dots, p_{K-1})`
-    satisfies :math:`p_k \ge 0` and :math:`\sum_{k=0}^{K-1} p_k = 1`.
+    @property
+    def mean(self) -> ArrayLike:
+        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self._param))
 
-    Where, :math:`\mathbf{p}` represents the category probability vector
-    (:attr:`probs`), :math:`K` is the number of categories (the size of the trailing
-    dimension of :attr:`probs`), and :math:`k` is the observed category index
-    (:attr:`value`). The support domain is :math:`k \in \{0, 1, \dots, K-1\}`.
-    """
+    @property
+    def variance(self) -> ArrayLike:
+        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self._param))
 
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
+    def support(self) -> constraints.Constraint:
+        return constraints.integer_interval(0, jnp.shape(self._param)[-1] - 1)
+
+    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+        values = jnp.arange(jnp.shape(self._param)[-1]).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        if expand:
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
+
+class CategoricalProbs(_CategoricalBase):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
 
@@ -672,18 +688,13 @@ class CategoricalProbs(Distribution):
             batch_shape=jnp.shape(self.probs)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
-        r"""Draw samples from the Categorical distribution.
+    @property
+    def _param(self) -> ArrayLike:
+        return self.probs
 
-        This method delegates to :func:`~numpyro.distributions.util.categorical`, which
-        internally relies on :func:`~jax.random.categorical` over the log-probabilities
-        of :attr:`probs`.
-
-        :param key: A JAX random number generator key (PRNG state).
-        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
-        :return: Integer-valued samples in :math:`\{0, 1, \dots, K-1\}` drawn from the
-            Categorical distribution.
-        """
+    def sample(
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         assert is_prng_key(key)
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
@@ -718,47 +729,6 @@ class CategoricalProbs(Distribution):
         """
         return _to_logits_multinom(self.probs)
 
-    @property
-    def mean(self) -> ArrayLike:
-        r"""The mean of a Categorical distribution over arbitrary unordered categories
-        is not well-defined. This property therefore returns ``NaN``.
-
-        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
-        """
-        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
-
-    @property
-    def variance(self) -> ArrayLike:
-        r"""The variance of a Categorical distribution over arbitrary unordered
-        categories is not well-defined. This property therefore returns ``NaN``.
-
-        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
-        """
-        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
-
-    @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self) -> constraints.Constraint:
-        r"""The support of the Categorical distribution is the set of integers
-        :math:`\{0, 1, \dots, K-1\}`, where :math:`K` is the number of categories
-        inferred from the trailing dimension of :attr:`probs`.
-        """
-        return constraints.integer_interval(0, jnp.shape(self.probs)[-1] - 1)
-
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
-        r"""Enumerate all values in the support of the Categorical distribution.
-
-        :param expand: Whether to broadcast the enumerated values across the batch
-            shape. Default is True.
-        :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
-            optionally broadcast across the batch dimensions.
-        """
-        values = jnp.arange(self.probs.shape[-1]).reshape(
-            (-1,) + (1,) * len(self.batch_shape)
-        )
-        if expand:
-            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
-        return values
-
     def entropy(self) -> ArrayLike:
         r"""The entropy of the Categorical distribution is given by:
 
@@ -770,24 +740,7 @@ class CategoricalProbs(Distribution):
         return -(self.probs * jnp.log(self.probs)).sum(axis=-1)
 
 
-class CategoricalLogits(Distribution):
-    r"""A Categorical discrete random variable over :math:`K` mutually exclusive
-    outcomes, parameterized by unnormalized log-probabilities (logits).
-
-    The Probability Mass Function (PMF) of the Categorical distribution is defined,
-    via the softmax transformation of the logits, as:
-
-    .. math::
-        P(X = k \mid \boldsymbol{\alpha}) = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1}
-        \exp(\alpha_j)}, \quad k \in \{0, 1, \dots, K-1\}
-
-    Where, :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
-    is the real-valued logits vector (:attr:`logits`), :math:`K` is the number of
-    categories (the size of the trailing dimension of :attr:`logits`), and :math:`k`
-    is the observed category index (:attr:`value`). The support domain is
-    :math:`k \in \{0, 1, \dots, K-1\}`.
-    """
-
+class CategoricalLogits(_CategoricalBase):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
 
@@ -805,18 +758,13 @@ class CategoricalLogits(Distribution):
             batch_shape=jnp.shape(logits)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
-        r"""Draw samples from the Categorical distribution.
+    @property
+    def _param(self) -> ArrayLike:
+        return self.logits
 
-        This method invokes :func:`~jax.random.categorical` directly, which samples in
-        logit-space using the Gumbel-max trick and therefore avoids materializing the
-        softmax-normalized probabilities.
-
-        :param key: A JAX random number generator key (PRNG state).
-        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
-        :return: Integer-valued samples in :math:`\{0, 1, \dots, K-1\}` drawn from the
-            Categorical distribution.
-        """
+    def sample(
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
         assert is_prng_key(key)
         return random.categorical(
             key, self.logits, shape=sample_shape + self.batch_shape
@@ -856,47 +804,6 @@ class CategoricalLogits(Distribution):
             \quad k \in \{0, 1, \dots, K-1\}
         """
         return _to_probs_multinom(self.logits)
-
-    @property
-    def mean(self) -> ArrayLike:
-        r"""The mean of a Categorical distribution over arbitrary unordered categories
-        is not well-defined. This property therefore returns ``NaN``.
-
-        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
-        """
-        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
-
-    @property
-    def variance(self) -> ArrayLike:
-        r"""The variance of a Categorical distribution over arbitrary unordered
-        categories is not well-defined. This property therefore returns ``NaN``.
-
-        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
-        """
-        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
-
-    @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self) -> constraints.Constraint:
-        r"""The support of the Categorical distribution is the set of integers
-        :math:`\{0, 1, \dots, K-1\}`, where :math:`K` is the number of categories
-        inferred from the trailing dimension of :attr:`logits`.
-        """
-        return constraints.integer_interval(0, jnp.shape(self.logits)[-1] - 1)
-
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
-        r"""Enumerate all values in the support of the Categorical distribution.
-
-        :param expand: Whether to broadcast the enumerated values across the batch
-            shape. Default is True.
-        :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
-            optionally broadcast across the batch dimensions.
-        """
-        values = jnp.arange(self.logits.shape[-1]).reshape(
-            (-1,) + (1,) * len(self.batch_shape)
-        )
-        if expand:
-            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
-        return values
 
     def entropy(self) -> ArrayLike:
         r"""The entropy of the Categorical distribution is given by:
