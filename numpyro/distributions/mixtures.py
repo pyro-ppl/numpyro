@@ -71,6 +71,15 @@ class _MixtureBase(Distribution):
         raise NotImplementedError
 
     def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+        log_probs = self._bare_component_log_probs(value)
+        return jnp.log(self.mixing_distribution.probs) + log_probs
+
+    def _bare_component_log_probs(self, value: ArrayLike) -> ArrayLike:
+        """The component log-densities ``log p_k(x)`` without the mixing weights.
+
+        Entries for out-of-support components may be ``-inf``. ``component_log_probs``
+        adds the mixing log-weights ``log(mixing_distribution.probs)`` to this.
+        """
         raise NotImplementedError
 
     def component_sample(
@@ -167,15 +176,37 @@ class _MixtureBase(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike, intermediates=None) -> ArrayLike:
         del intermediates
-        sum_log_probs = self.component_log_probs(value)
-        safe_sum_log_probs = jnp.where(
-            jnp.isneginf(sum_log_probs), -jnp.inf, sum_log_probs
-        )
-        return jax.nn.logsumexp(
-            safe_sum_log_probs,
-            where=~jnp.isneginf(sum_log_probs),  # for numerical stability
-            axis=-1,
-        )
+        # Combine the bare component log-densities with the mixing weights via a
+        # numerically stable weighted logsumexp, keeping the weights in linear
+        # space (never taking log(w_k)):
+        #
+        #     log p(x) = log sum_k w_k p_k(x)
+        #              = m + log sum_k w_k exp(log p_k(x) - m),   m = max_k log p_k(x)
+        #
+        # This is exact in both value and gradient: d/dw_k = p_k(x) / sum_j w_j p_j(x)
+        # stays finite at w_k == 0 (unlike log(w_k), whose VJP is 1/0 = inf), and
+        # d/d(log p_k) = w_k p_k(x) / sum_j w_j p_j(x). Using jax.nn.logsumexp's
+        # `b=` argument instead would silently zero the gradient of any exactly-
+        # zero-weight component, so we compute the sum directly. Out-of-support
+        # components (log p_k = -inf) contribute an exact zero with zero gradient.
+        bare_log_probs = self._bare_component_log_probs(value)
+        probs = self.mixing_distribution.probs
+        neginf = jnp.isneginf(bare_log_probs)
+        # Max over in-support components only; fall back to 0.0 when every
+        # component is out of support (avoids -inf - (-inf) = nan under the exp).
+        m = jnp.max(jnp.where(neginf, -jnp.inf, bare_log_probs), axis=-1, keepdims=True)
+        m = lax.stop_gradient(jnp.where(jnp.isneginf(m), 0.0, m))
+        # Double `where` so no -inf reaches exp on either the forward or the
+        # backward pass; out-of-support entries are pinned to an exact 0.
+        shifted = jnp.where(neginf, 0.0, bare_log_probs - m)
+        weighted = probs * jnp.where(neginf, 0.0, jnp.exp(shifted))
+        total = jnp.sum(weighted, axis=-1)
+        # Guard log(0): when no weighted component can produce `value` (all mass
+        # on out-of-support components), the density is 0 and log_prob is -inf.
+        # The `where` keeps that -inf while giving inputs a 0 (not NaN) gradient.
+        safe_total = jnp.where(total > 0, total, 1.0)
+        log_prob = jnp.log(safe_total) + jnp.squeeze(m, axis=-1)
+        return jnp.where(total > 0, log_prob, -jnp.inf)
 
 
 class MixtureSameFamily(_MixtureBase):
@@ -220,12 +251,21 @@ class MixtureSameFamily(_MixtureBase):
         *,
         validate_args: Optional[bool] = None,
     ):
-        assert isinstance(
-            component_distribution.support, constraints.ParameterFreeConstraint
-        ), (
+        # A mixture evaluates every component's density at the *same* value, so
+        # the component support must be identical across components and must not
+        # depend on their parameters. A vectorized (event-wrapped) component such
+        # as ``Normal(...).to_event(1)`` has an ``Independent`` support, which only
+        # reinterprets batch dims as event dims and introduces no parameter
+        # dependence. So unwrap any ``Independent`` layers and require the *base*
+        # support to be parameter-free.
+        base_support = component_distribution.support
+        while isinstance(base_support, constraints._IndependentConstraint):
+            base_support = base_support.base_constraint
+        assert isinstance(base_support, constraints.ParameterFreeConstraint), (
             f"Invalid component distribution: {type(component_distribution).__name__}. "
-            "The mixture components must have a support that does not depend on their parameters "
-            f"(expected ParameterFreeConstraint, but found {component_distribution.support})."
+            "The mixture components must have a support that does not depend on their "
+            "parameters (expected a (possibly Independent-wrapped) "
+            f"ParameterFreeConstraint, but found {component_distribution.support})."
         )
         _check_mixing_distribution(mixing_distribution)
         mixture_size = mixing_distribution.probs.shape[-1]
@@ -290,10 +330,9 @@ class MixtureSameFamily(_MixtureBase):
             sample_shape + self.batch_shape + (self.mixture_size,)
         ).sample(key)
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def _bare_component_log_probs(self, value: ArrayLike) -> ArrayLike:
         value = jnp.expand_dims(value, self.mixture_dim)
-        component_log_probs = self.component_distribution.log_prob(value)
-        return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
+        return self.component_distribution.log_prob(value)
 
 
 class MixtureGeneral(_MixtureBase):
@@ -465,7 +504,7 @@ class MixtureGeneral(_MixtureBase):
             samples.append(d.expand(sample_shape + self.batch_shape).sample(k))
         return jnp.stack(samples, axis=self.mixture_dim)
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def _bare_component_log_probs(self, value: ArrayLike) -> ArrayLike:
         component_log_probs = []
         for d in self.component_distributions:
             log_prob = d.log_prob(value)
@@ -473,8 +512,7 @@ class MixtureGeneral(_MixtureBase):
                 mask = d.support(value)
                 log_prob = jnp.where(mask, log_prob, -jnp.inf)
             component_log_probs.append(log_prob)
-        component_log_probs = jnp.stack(component_log_probs, axis=-1)
-        return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
+        return jnp.stack(component_log_probs, axis=-1)
 
 
 def _check_mixing_distribution(mixing_distribution: Distribution) -> None:
