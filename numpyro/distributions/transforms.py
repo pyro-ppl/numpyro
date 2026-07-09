@@ -448,9 +448,11 @@ class ComposeTransform(Transform[NumLike]):
             return all(
                 p1.eq(p2, static=True) for p1, p2 in zip(self.parts, other.parts)
             )
-        result = jnp.array(True)
+        result = True
         for p1, p2 in zip(self.parts, other.parts):
-            result = result & p1.eq(p2, static=False)
+            # eq is boolean-valued; ArrayLike advertises float/complex members
+            # that don't support `&`, so `&` is safe here in practice.
+            result = result & p1.eq(p2, static=False)  # ty: ignore[unsupported-operator]
         return result
 
 

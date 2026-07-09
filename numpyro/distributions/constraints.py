@@ -70,6 +70,7 @@ from typing import ClassVar, Generic, Optional, cast
 import numpy as np
 
 import jax
+from jax import Array
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
@@ -699,8 +700,8 @@ class _L1Ball(_SingletonConstraint[NumLike]):
 class _OrderedVector(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
-        return (x[..., 1:] > x[..., :-1]).all(axis=-1)
+    def __call__(self, x: NonScalarArray) -> Array:
+        return (x[..., 1:] > x[..., :-1]).all(axis=-1)  # type: ignore
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.broadcast_to(jnp.arange(float(prototype.shape[-1])), prototype.shape)
@@ -757,7 +758,7 @@ class _PositiveOrderedVector(_SingletonConstraint[NonScalarArray]):
 
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         return jnp.logical_and(
             ordered_vector.check(x), jnp.all(positive.check(x), axis=-1)
         )
@@ -783,9 +784,9 @@ class _Complex(_SingletonConstraint[NumLike]):
 
 
 class _Real(_SingletonConstraint[NumLike]):
-    def __call__(self, x: NumLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> Array:
         # XXX: consider to relax this condition to [-inf, inf] interval
-        return (x == x) & (x != float("inf")) & (x != float("-inf"))
+        return (x == x) & (x != float("inf")) & (x != float("-inf"))  # type: ignore
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.zeros_like(prototype)
@@ -794,9 +795,9 @@ class _Real(_SingletonConstraint[NumLike]):
 class _Simplex(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
-    def __call__(self, x: NonScalarArray) -> ArrayLike:
+    def __call__(self, x: NonScalarArray) -> Array:
         x_sum = x.sum(axis=-1)
-        return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
+        return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)  # type: ignore
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.full_like(prototype, 1 / prototype.shape[-1])
@@ -855,6 +856,7 @@ class _ZeroSum(Constraint[NonScalarArray]):
         zerosum_true = True
         for dim in range(-self.event_dim, 0):
             zerosum_true = zerosum_true & xp.allclose(x.sum(dim), 0, atol=tol)
+        # FIXME: shape must match batch shape of `x`, not be a literal boolean.
         return zerosum_true
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:

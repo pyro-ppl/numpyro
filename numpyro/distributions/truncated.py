@@ -5,7 +5,7 @@
 from typing import Optional, Union
 
 import jax
-from jax import lax
+from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
@@ -72,7 +72,7 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -80,7 +80,7 @@ class LeftTruncatedDistribution(Distribution):
         u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.icdf(u)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         ppf = (1 - sign) * loc + sign * self.base_dist.icdf(
@@ -88,7 +88,7 @@ class LeftTruncatedDistribution(Distribution):
         )
         return jnp.where(q < 0, jnp.nan, ppf)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         # For left truncated distribution: CDF(x) = (F(x) - F(low)) / (1 - F(low))
         # where F is the base distribution CDF
         base_cdf_value = self.base_dist.cdf(value)
@@ -103,14 +103,14 @@ class LeftTruncatedDistribution(Distribution):
         return result
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         sign = jnp.where(self.base_dist.loc >= self.low, 1.0, -1.0)
         return self.base_dist.log_prob(value) - jnp.log(
             sign * (self._tail_prob_at_high - self._tail_prob_at_low)
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             return self.base_dist.loc + low_prob * self.base_dist.scale**2
@@ -120,7 +120,7 @@ class LeftTruncatedDistribution(Distribution):
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             return (self.base_dist.scale**2) * (
@@ -164,10 +164,10 @@ class RightTruncatedDistribution(Distribution):
         return self._support
 
     @lazy_property
-    def _cdf_at_high(self) -> ArrayLike:
+    def _cdf_at_high(self) -> Array:
         return self.base_dist.cdf(self.high)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -175,11 +175,11 @@ class RightTruncatedDistribution(Distribution):
         u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.icdf(u)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         ppf = self.base_dist.icdf(q * self._cdf_at_high)
         return jnp.where(q > 1, jnp.nan, ppf)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         # For right truncated distribution: CDF(x) = F(x) / F(high)
         # where F is the base distribution CDF
         base_cdf_value = self.base_dist.cdf(value)
@@ -194,11 +194,11 @@ class RightTruncatedDistribution(Distribution):
         return result
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             high_prob = jnp.exp(self.log_prob(self.high))
             return self.base_dist.loc - high_prob * self.base_dist.scale**2
@@ -208,7 +208,7 @@ class RightTruncatedDistribution(Distribution):
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
             high_prob = jnp.exp(self.log_prob(self.high))
             return (self.base_dist.scale**2) * (
@@ -259,21 +259,21 @@ class TwoSidedTruncatedDistribution(Distribution):
         return self._support
 
     @lazy_property
-    def _tail_prob_at_low(self) -> ArrayLike:
+    def _tail_prob_at_low(self) -> Array:
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return self.base_dist.cdf(loc - sign * (loc - self.low))
 
     @lazy_property
-    def _tail_prob_at_high(self) -> ArrayLike:
+    def _tail_prob_at_high(self) -> Array:
         # if low < loc, returns cdf(high); otherwise returns 1 - cdf(high)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return self.base_dist.cdf(loc - sign * (loc - self.high))
 
     @lazy_property
-    def _log_diff_tail_probs(self) -> ArrayLike:
+    def _log_diff_tail_probs(self) -> Array:
         # use log_cdf method, if available, to avoid inf's in log_prob
         # fall back to cdf, if log_cdf not available
         log_cdf = getattr(self.base_dist, "log_cdf", None)
@@ -289,7 +289,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             sign = jnp.where(loc >= self.low, 1.0, -1.0)
             return jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
@@ -297,7 +297,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
         return self.icdf(u)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         # NB: we use a more numerically stable formula for a symmetric base distribution
         #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * q) = icdf[(1 - q) * cdf(low) + q * cdf(high)]
         # will suffer by precision issues when low is large;
@@ -312,7 +312,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         )
         return jnp.where(jnp.logical_or(q < 0, q > 1), jnp.nan, ppf)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         # For two-sided truncated distribution: CDF(x) = (F(x) - F(low)) / (F(high) - F(low))
         # where F is the base distribution CDF
         base_cdf_value = self.base_dist.cdf(value)
@@ -334,7 +334,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         return result
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # NB: we use a more numerically stable formula for a symmetric base distribution
         # if low < loc
         #   cdf(high) - cdf(low) = as-is
@@ -343,7 +343,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
@@ -354,7 +354,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob = jnp.exp(self.log_prob(self.low))
             high_prob = jnp.exp(self.log_prob(self.high))
@@ -447,7 +447,7 @@ class TruncatedPolyaGamma(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         denom = jnp.square(jnp.arange(0.5, self.num_gamma_variates))
         x = random.gamma(
@@ -457,7 +457,7 @@ class TruncatedPolyaGamma(Distribution):
         return jnp.clip(x * (0.5 / jnp.pi**2), None, self.truncation_point)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         value = value[..., None]
         all_indices = jnp.arange(0, self.num_log_prob_terms)
         two_n_plus_one = 2.0 * all_indices + 1.0
@@ -525,7 +525,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""Logarithmic probability distribution:
 
         Z inequal minus one:
@@ -544,14 +544,12 @@ class DoublyTruncatedPowerLaw(Distribution):
         """
 
         @jax.custom_jvp
-        def f(
-            x: ArrayLike, alpha: ArrayLike, low: ArrayLike, high: ArrayLike
-        ) -> ArrayLike:
+        def f(x: ArrayLike, alpha: ArrayLike, low: ArrayLike, high: ArrayLike) -> Array:
             neq_neg1_mask = jnp.not_equal(alpha, -1.0)
             neq_neg1_alpha = jnp.where(neq_neg1_mask, alpha, 0.0)
             # eq_neg1_alpha = jnp.where(~neq_neg1_mask, alpha, -1.0)
 
-            def neq_neg1_fn() -> ArrayLike:
+            def neq_neg1_fn() -> Array:
                 one_more_alpha = 1.0 + neq_neg1_alpha
                 return jnp.log(
                     jnp.power(x, neq_neg1_alpha)
@@ -559,7 +557,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                     / (jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha))
                 )
 
-            def eq_neg1_fn() -> ArrayLike:
+            def eq_neg1_fn() -> Array:
                 return -jnp.log(x) - jnp.log(jnp.log(high) - jnp.log(low))
 
             return jnp.where(neq_neg1_mask, neq_neg1_fn(), eq_neg1_fn())
@@ -586,7 +584,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
             # Alpha tangent with approximation
             # Variable part for all values alpha unequal -1
-            def alpha_tangent_variable(alpha: ArrayLike) -> ArrayLike:
+            def alpha_tangent_variable(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -649,7 +647,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         return f(value, self.alpha, self.low, self.high)
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""Cumulated probability distribution:
         Z inequal minus one:
 
@@ -667,20 +665,18 @@ class DoublyTruncatedPowerLaw(Distribution):
         """
 
         @jax.custom_jvp
-        def f(
-            x: ArrayLike, alpha: ArrayLike, low: ArrayLike, high: ArrayLike
-        ) -> ArrayLike:
+        def f(x: ArrayLike, alpha: ArrayLike, low: ArrayLike, high: ArrayLike) -> Array:
             neq_neg1_mask = jnp.not_equal(alpha, -1.0)
             neq_neg1_alpha = jnp.where(neq_neg1_mask, alpha, 0.0)
 
-            def cdf_when_alpha_neq_neg1() -> ArrayLike:
+            def cdf_when_alpha_neq_neg1() -> Array:
                 one_more_alpha = 1.0 + neq_neg1_alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 return (jnp.power(x, one_more_alpha) - low_pow_one_more_alpha) / (
                     jnp.power(high, one_more_alpha) - low_pow_one_more_alpha
                 )
 
-            def cdf_when_alpha_eq_neg1() -> ArrayLike:
+            def cdf_when_alpha_eq_neg1() -> Array:
                 return jnp.log(x / low) / jnp.log(high / low)
 
             cdf_val = jnp.where(
@@ -694,7 +690,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         def f_jvp(
             primals: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
             tangents: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
-        ) -> tuple[ArrayLike, ArrayLike]:
+        ) -> tuple[Array, Array]:
             x, alpha, low, high = primals
             x_t, alpha_t, low_t, high_t = tangents
 
@@ -710,13 +706,13 @@ class DoublyTruncatedPowerLaw(Distribution):
             primal_out = f(*primals)
 
             # Tangents for alpha not equals -1
-            def x_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def x_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 return (one_more_alpha * jnp.power(x, alpha)) / (
                     jnp.power(high, one_more_alpha) - jnp.power(low, one_more_alpha)
                 )
 
-            def alpha_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def alpha_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -733,7 +729,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 ) / jnp.square(high_pow_one_more_alpha - low_pow_one_more_alpha)
                 return term1 - term2
 
-            def low_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def low_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -743,7 +739,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 term1 = term2 * (x_pow_one_more_alpha - low_pow_one_more_alpha) / change
                 return term1 - term2
 
-            def high_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def high_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -755,15 +751,15 @@ class DoublyTruncatedPowerLaw(Distribution):
                 ) / jnp.square(high_pow_one_more_alpha - low_pow_one_more_alpha)
 
             # Tangents for alpha equals -1
-            def x_eq_neg1() -> ArrayLike:
+            def x_eq_neg1() -> Array:
                 return jnp.reciprocal(x * (log_high - log_low))
 
-            def low_eq_neg1() -> ArrayLike:
+            def low_eq_neg1() -> Array:
                 return (log_x - log_low) / (
                     jnp.square(log_high - log_low) * low
                 ) - jnp.reciprocal((log_high - log_low) * low)
 
-            def high_eq_neg1() -> ArrayLike:
+            def high_eq_neg1() -> Array:
                 return (log_x - log_low) / (jnp.square(log_high - log_low) * high)
 
             # Including approximation for alpha = -1
@@ -791,7 +787,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         return f(value, self.alpha, self.low, self.high)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulated probability distribution:
         Z inequal minus one:
 
@@ -807,13 +803,11 @@ class DoublyTruncatedPowerLaw(Distribution):
         """
 
         @jax.custom_jvp
-        def f(
-            q: ArrayLike, alpha: ArrayLike, low: ArrayLike, high: ArrayLike
-        ) -> ArrayLike:
+        def f(q: ArrayLike, alpha: ArrayLike, low: ArrayLike, high: ArrayLike) -> Array:
             neq_neg1_mask = jnp.not_equal(alpha, -1.0)
             neq_neg1_alpha = jnp.where(neq_neg1_mask, alpha, 0.0)
 
-            def icdf_alpha_neq_neg1() -> ArrayLike:
+            def icdf_alpha_neq_neg1() -> Array:
                 one_more_alpha = 1.0 + neq_neg1_alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -823,7 +817,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                     jnp.reciprocal(one_more_alpha),
                 )
 
-            def icdf_alpha_eq_neg1() -> ArrayLike:
+            def icdf_alpha_eq_neg1() -> Array:
                 return jnp.power(high / low, q) * low
 
             icdf_val = jnp.where(
@@ -837,7 +831,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         def f_jvp(
             primals: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
             tangents: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
-        ) -> tuple[ArrayLike, ArrayLike]:
+        ) -> tuple[Array, Array]:
             x, alpha, low, high = primals
             x_t, alpha_t, low_t, high_t = tangents
 
@@ -852,7 +846,7 @@ class DoublyTruncatedPowerLaw(Distribution):
             primal_out = f(*primals)
 
             # Tangents for alpha not equal -1
-            def x_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def x_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -865,7 +859,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                     )
                 ) / one_more_alpha
 
-            def alpha_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def alpha_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -884,7 +878,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 term3 = jnp.log(factor0) / jnp.square(one_more_alpha)
                 return term1 * (term2 - term3)
 
-            def low_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def low_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -898,7 +892,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                     )
                 )
 
-            def high_neq_neg1(alpha: ArrayLike) -> ArrayLike:
+            def high_neq_neg1(alpha: ArrayLike) -> Array:
                 one_more_alpha = 1.0 + alpha
                 low_pow_one_more_alpha = jnp.power(low, one_more_alpha)
                 high_pow_one_more_alpha = jnp.power(high, one_more_alpha)
@@ -913,16 +907,16 @@ class DoublyTruncatedPowerLaw(Distribution):
                 )
 
             # Tangents for alpha equals -1
-            def dx_eq_neg1() -> ArrayLike:
+            def dx_eq_neg1() -> Array:
                 return low * jnp.power(high_over_low, x) * (log_high - log_low)
 
-            def low_eq_neg1() -> ArrayLike:
+            def low_eq_neg1() -> Array:
                 return (
                     jnp.power(high_over_low, x)
                     - (high * x * jnp.power(high_over_low, x - 1)) / low
                 )
 
-            def high_eq_neg1() -> ArrayLike:
+            def high_eq_neg1() -> Array:
                 return x * jnp.power(high_over_low, x - 1)
 
             # Including approximation for alpha = -1 \
@@ -950,7 +944,7 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         return f(q, self.alpha, self.low, self.high)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)
@@ -1004,7 +998,7 @@ class LowerTruncatedPowerLaw(Distribution):
         return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         one_more_alpha = 1.0 + self.alpha
         return (
             self.alpha * jnp.log(value)
@@ -1012,7 +1006,7 @@ class LowerTruncatedPowerLaw(Distribution):
             - one_more_alpha * jnp.log(self.low)
         )
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         cdf_val = jnp.where(
             jnp.less_equal(value, self.low),
             jnp.zeros_like(value),
@@ -1020,7 +1014,7 @@ class LowerTruncatedPowerLaw(Distribution):
         )
         return cdf_val
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         nan_mask = jnp.logical_or(jnp.isnan(q), jnp.less(q, 0.0))
         nan_mask = jnp.logical_or(nan_mask, jnp.greater(q, 1.0))
         return jnp.where(
@@ -1029,7 +1023,7 @@ class LowerTruncatedPowerLaw(Distribution):
             self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 + self.alpha)),
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)

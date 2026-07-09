@@ -66,7 +66,7 @@ class GaussianCopula(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
         assert is_prng_key(key)
 
         shape = sample_shape + self.batch_shape
@@ -75,7 +75,7 @@ class GaussianCopula(Distribution):
         return self.marginal_dist.icdf(cdf)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         # Ref: https://en.wikipedia.org/wiki/Copula_(probability_theory)#Gaussian_copula
         # see also https://github.com/pyro-ppl/numpyro/pull/1506#discussion_r1037525015
         marginal_lps = self.marginal_dist.log_prob(value)
@@ -90,11 +90,11 @@ class GaussianCopula(Distribution):
         return copula_lp + marginal_lps.sum(axis=-1)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.marginal_dist.mean, self.shape())
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(self.marginal_dist.variance, self.shape())
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)

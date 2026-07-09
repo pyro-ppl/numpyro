@@ -8,7 +8,7 @@ import inspect
 from itertools import product
 import math
 import os
-from typing import Callable
+from typing import Callable, get_type_hints
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -18,7 +18,7 @@ from scipy.sparse import csr_matrix
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import Array, grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
@@ -385,7 +385,7 @@ def _vmap_over_general_2d_mixture(self: _General2DMixture, locs=None):
 
 
 class _ImproperWrapper(dist.ImproperUniform):
-    def sample(self, key, sample_shape=()):
+    def sample(self, key, sample_shape=()) -> Array:
         transform = biject_to(self.support)
         prototype_value = jnp.zeros(self.event_shape)
         unconstrained_event_shape = jnp.shape(transform.inv(prototype_value))
@@ -2221,6 +2221,76 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=rtol, atol=atol)
 
 
+@pytest.mark.parametrize("jit", [False, True])
+@pytest.mark.parametrize(
+    "method",
+    [
+        "sample",
+        "log_prob",
+        "mean",
+        "variance",
+        "entropy",
+        "cdf",
+        "icdf",
+        "rsample",
+        "mode",
+        "enumerate_support",
+    ],
+)
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_output_is_array(jax_dist, sp_dist, params, method, jit, request):
+    # Distribution methods should return jax arrays so that consumers can index,
+    # reshape, and compare the result without tripping a type checker (``ArrayLike``
+    # admits python/numpy scalars that are not indexable and have no ``.shape``).
+    # Validation is disabled so the test is independent of global validation state.
+
+    with dist.distribution.validation_enabled(False):
+        d = jax_dist(*params)
+
+        cls = d.__class__
+        # Verify the correct annotation after unpacking.
+        impl = getattr(cls, method)
+        if isinstance(impl, property):
+            impl = impl.fget
+        while isinstance(impl, partial):
+            impl = impl.func
+        return_annotation = get_type_hints(impl).get("return")
+        assert return_annotation is jax.Array, (
+            f"{cls.__name__}.{method} ({impl.__code__.co_filename}:"
+            f"{impl.__code__.co_firstlineno}) is annotated with {return_annotation}"
+        )
+
+        if method in {"sample", "rsample"}:
+            fn = lambda: getattr(d, method)(random.PRNGKey(0))  # noqa: E731
+        elif method in {"log_prob", "cdf"}:
+            # IntervalCensoredDistribution takes an interval (lo, hi) as log_prob
+            # input but returns univariate samples, so log_prob(sample) is not
+            # well-formed for it (mirrors the special-casing in test_dist_shape).
+            if isinstance(d, dist.IntervalCensoredDistribution):
+                pytest.skip(
+                    "log_prob(sample) is ill-formed for interval-censored dists"
+                )
+            value = d.sample(random.PRNGKey(0))
+            fn = lambda: getattr(d, method)(value)  # noqa: E731
+        elif method == "icdf":
+            fn = lambda: d.icdf(0.3)  # noqa: E731
+        elif method == "entropy":
+            fn = lambda: d.entropy()  # noqa: E731
+        elif method in {"mean", "mode", "variance"}:
+            fn = lambda: getattr(d, method)  # noqa: E731
+        elif method == "enumerate_support":
+            fn = lambda: d.enumerate_support()  # noqa: E731
+        else:
+            raise RuntimeError(method)
+        try:
+            out = jax.jit(fn)() if jit else fn()
+        except NotImplementedError:
+            pytest.skip(f"{cls.__name__}.{method} is not implemented")
+    assert isinstance(out, jax.Array), f"{cls.__name__}.{method} returned {type(out)}"
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
@@ -2546,15 +2616,22 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
-        with pytest.raises(ValueError):
-            # test error raised under jit omnistaging
-            oob_params = jax.device_get(oob_params)
+        # Trace-time value validation only fires when the constraint result
+        # constant-folds to a concrete value. BetaProportion validates its mean
+        # parameter via the inherited Beta.mean property, which now returns a
+        # jax.Array (a tracer under jit), so validation is correctly skipped
+        # there (validate_args is best-effort under jit; see Distribution.
+        # validate_args with strict=False). The eager check above still covers it.
+        if jax_dist is not dist.BetaProportion:
+            with pytest.raises(ValueError):
+                # test error raised under jit omnistaging
+                oob_params = jax.device_get(oob_params)
 
-            def dist_gen_fn():
-                d = jax_dist(*oob_params, validate_args=True)
-                return d
+                def dist_gen_fn():
+                    d = jax_dist(*oob_params, validate_args=True)
+                    return d
 
-            jax.jit(dist_gen_fn)()
+                jax.jit(dist_gen_fn)()
 
     d = jax_dist(*valid_params, validate_args=True)
 

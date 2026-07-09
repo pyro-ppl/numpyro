@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 
 import jax
-from jax import jit, lax, random, vmap
+from jax import Array, jit, lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import digamma
@@ -455,7 +455,7 @@ def logmatmulexp(x, y):
 
 
 @jax.custom_jvp
-def log1mexp(x: ArrayLike) -> ArrayLike:
+def log1mexp(x: ArrayLike) -> Array:
     """
     Numerically stable calculation of the quantity
     :math:`\\log(1 - \\exp(x))`, following the algorithm
@@ -485,7 +485,7 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
 log1mexp.defjvps(lambda t, ans, x: -t / jnp.expm1(-x))
 
 
-def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
+def logdiffexp(a: ArrayLike, b: ArrayLike) -> Array:
     """
     Numerically stable calculation of the
     quantity :math:`\\log(\\exp(a) - \\exp(b))`,
@@ -511,7 +511,7 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     )
 
 
-def clamp_probs(probs: ArrayLike) -> ArrayLike:
+def clamp_probs(probs: ArrayLike) -> Array:
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
 
