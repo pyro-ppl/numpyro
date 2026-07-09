@@ -69,10 +69,10 @@ def _subs_wrapper(subs_map, i, length, site):
                 # and generate a new sample otherwise
                 return lax.cond(
                     i < shape[0],
+                    lambda val, _: val[0][val[1]],
+                    lambda _, key: site["fn"](rng_key=key, sample_shape=sample_shape),
                     (value, i),
-                    lambda val: val[0][val[1]],
                     rng_key,
-                    lambda val: site["fn"](rng_key=val, sample_shape=sample_shape),
                 )
             else:
                 raise RuntimeError(
