@@ -2173,6 +2173,14 @@ def test_schechter_mag_alpha_at_integer_pole(alpha):
         assert_allclose(log_prob, log_prob_nearby, rtol=1e-3, atol=1e-3)
 
 
+def test_schechter_mag_normalization_matches_quadrature():
+    alpha, m_star, low, high = -1.25, -20.5, -24.0, -16.0
+    expected, _ = quad(_schechter_mag_unnormalized_pdf, low, high, args=(alpha, m_star))
+    actual = dist.SchechterMag(alpha, m_star, low, high).normalization
+    tol = 1e-4 if jnp.result_type(float) == jnp.float32 else 1e-8
+    assert_allclose(actual, expected, rtol=tol)
+
+
 @pytest.mark.parametrize("alpha", [-1.0, -2.0, -3.0])
 def test_schechter_mag_alpha_pole_gradient(alpha):
     # the incomplete-gamma pole patch is constant in alpha, so without the

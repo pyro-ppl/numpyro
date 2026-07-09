@@ -4783,6 +4783,15 @@ class SchechterMag(Distribution):
         u = random.uniform(key, shape=sample_shape + self.batch_shape)
         return self.icdf(u)
 
+    @property
+    def normalization(self) -> ArrayLike:
+        r"""The normalization constant :math:`Z = \Gamma(lpha + 1, x(\mathrm{high}))
+        - \Gamma(lpha + 1, x(\mathrm{low}))`, i.e. the integral of the unnormalized
+        magnitude-space Schechter density over the support. Useful for building
+        number-density likelihoods that infer the amplitude :math:`\phi^*`.
+        """
+        return _schechter_mag_parts(self.alpha, self.m_star, self.low, self.high)[2]
+
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
         return _schechter_mag_log_prob(
