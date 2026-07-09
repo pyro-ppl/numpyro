@@ -15,7 +15,7 @@ repos:
         files: "(.py$)|(.*.ipynb$)"
 
   - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: v0.0.49
+    rev: v0.0.57
     hooks:
       - id: ty
 
