@@ -1664,8 +1664,12 @@ def test_sample_gradient(jax_dist, sp_dist, params):
             continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(repara_params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(repara_params)]
-        fn_lhs = fn(args_lhs)
-        fn_rhs = fn(args_rhs)
+        # the finite-difference reference perturbs parameters off their
+        # constraint manifold (e.g. scale_tril, simplex probs), so disable
+        # validation here; jax.grad above traces and is unaffected.
+        with numpyro.validation_enabled(False):
+            fn_lhs = fn(args_lhs)
+            fn_rhs = fn(args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
@@ -2062,8 +2066,8 @@ def test_beta_binomial_log_prob(total_count, shape):
 @pytest.mark.parametrize("n", [1, 2, 5, 10])
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
 def test_beta_negative_binomial_log_prob(n, shape):
-    concentration0 = np.exp(np.random.normal(size=shape))
-    concentration1 = np.exp(np.random.normal(size=shape))
+    concentration0 = 1 + np.exp(np.random.normal(size=shape))
+    concentration1 = 1 + np.exp(np.random.normal(size=shape))
     value = jnp.arange(15)
 
     num_samples = 300000
@@ -2201,8 +2205,12 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         actual_grad = jax.grad(fn, i)(*params)
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
-        fn_lhs = fn(*args_lhs)
-        fn_rhs = fn(*args_rhs)
+        # the finite-difference reference perturbs parameters off their
+        # constraint manifold (e.g. scale_tril, simplex probs), so disable
+        # validation here; jax.grad above traces and is unaffected.
+        with numpyro.validation_enabled(False):
+            fn_lhs = fn(*args_lhs)
+            fn_rhs = fn(*args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2.0 * eps)
         assert jnp.shape(actual_grad) == jnp.shape(params[i])
@@ -2231,14 +2239,6 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("RelaxedBernoulli distribution does not has mean/var implemented")
     if "SineSkewed" in jax_dist.__name__:
         pytest.skip("Skewed Distribution are not symmetric about location.")
-    if jax_dist in (
-        _TruncatedNormal,
-        _TruncatedCauchy,
-        dist.LeftTruncatedDistribution,
-        dist.RightTruncatedDistribution,
-        dist.TwoSidedTruncatedDistribution,
-    ):
-        pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist in (
         _LeftCensoredHalfNormal,
         _RightCensoredWeibull,
@@ -2279,6 +2279,23 @@ def test_mean_var(jax_dist, sp_dist, params):
         else 200000
     )
     d_jax = jax_dist(*params)
+
+    # `mean` and `variance`, where implemented, must be arrays whose shape is exactly
+    # `batch_shape + event_shape` -- the same contract `test_dist_shape` enforces for
+    # samples. Checked uniformly here (not per scipy/family branch below) so every
+    # distribution is held to it. Distributions without a closed-form moment raise
+    # `NotImplementedError` and are skipped (e.g. CAR/Gompertz have no `variance`).
+    expected_moment_shape = d_jax.batch_shape + d_jax.event_shape
+    for moment in ("mean", "variance"):
+        try:
+            value = getattr(d_jax, moment)
+        except NotImplementedError:
+            continue
+        assert jnp.shape(value) == expected_moment_shape, (
+            f"{jax_dist.__name__}.{moment} has shape {jnp.shape(value)}, "
+            f"expected batch_shape + event_shape = {expected_moment_shape}"
+        )
+
     k = random.key(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
@@ -2407,15 +2424,27 @@ def test_mean_var(jax_dist, sp_dist, params):
             sample_scale_tril = jnp.linalg.cholesky(jnp.cov(samples_mvn.T))
             jnp.allclose(sample_scale_tril, scale_tril, atol=0.5, rtol=1e-2)
     else:
-        if jnp.all(jnp.isfinite(d_jax.mean)):
-            assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+        # A distribution may implement a closed-form moment only for some base
+        # families (e.g. truncated distributions only for Normal/Cauchy); others
+        # raise NotImplementedError, in which case there is nothing to compare
+        # the samples against.
+        try:
+            mean = d_jax.mean
+        except NotImplementedError:
+            mean = None
+        if mean is not None and jnp.all(jnp.isfinite(mean)):
+            assert_allclose(jnp.mean(samples, 0), mean, rtol=0.05, atol=1e-2)
         if isinstance(d_jax, dist.CAR):
             pytest.skip("CAR distribution does not have `variance` implemented.")
         if isinstance(d_jax, dist.Gompertz):
             pytest.skip("Gompertz distribution does not have `variance` implemented.")
-        if jnp.all(jnp.isfinite(d_jax.variance)):
+        try:
+            variance = d_jax.variance
+        except NotImplementedError:
+            variance = None
+        if variance is not None and jnp.all(jnp.isfinite(variance)):
             assert jnp.allclose(
-                jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=0.05
+                jnp.std(samples, 0), jnp.sqrt(variance), rtol=0.05, atol=0.05
             )
 
 
@@ -2503,7 +2532,12 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             # a > 0 and b > 0. Then, make b = a + b.
             valid_params[1] += valid_params[0]
 
-    assert jax_dist(*oob_params)
+    # Out-of-bounds params must still construct when validation is off. Use the
+    # context manager (not the validate_args kwarg) so that compound
+    # distributions, which build internal distributions without forwarding
+    # validate_args, also skip validation.
+    with numpyro.validation_enabled(False):
+        assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
     if not dependent_constraint and (

@@ -654,7 +654,11 @@ class EulerMaruyama(Distribution):
         mu = xtm1 + dt * f
         sigma = jnp.sqrt(dt) * g
 
-        sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
+        # Normal is location-invariant, so evaluate the residual under a
+        # zero-mean Normal. This keeps the loc valid even for out-of-support
+        # ``value`` (where ``mu`` would be NaN); the public log_prob's
+        # @validate_sample still warns about out-of-support values.
+        sde_log_prob = Normal(0.0, sigma).to_event(self.event_dim).log_prob(xt - mu)
         init_log_prob = self.init_dist.log_prob(value0)
 
         return sde_log_prob + init_log_prob
@@ -1045,11 +1049,15 @@ class GaussianStateSpace(TransformedDistribution):
             self.scale_tril,
             jnp.arange(self.num_steps),
         )
-        return (
+        variance = (
             jnp.diagonal(scale_tril @ scale_tril.mT, axis1=-1, axis2=-2)
             .cumsum(axis=0)
             .swapaxes(0, -2)
         )
+        # The variance does not depend on the (deterministic) initial value, but the
+        # batch shape may be contributed by `initial_value`. Broadcast to the full
+        # `batch_shape + event_shape` so the moment shape matches the distribution.
+        return jnp.broadcast_to(variance, self.batch_shape + self.event_shape)
 
     @lazy_property
     def covariance_matrix(self):
@@ -1096,7 +1104,11 @@ class GaussianRandomWalk(Distribution):
     def log_prob(self, value: ArrayLike) -> ArrayLike:
         init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
-        step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
+        # Normal is location-invariant, so evaluate the increments under a
+        # zero-mean Normal. This keeps the loc valid even for out-of-support
+        # ``value``; the public log_prob's @validate_sample still warns about
+        # out-of-support values.
+        step_probs = Normal(0.0, scale).log_prob(value[..., 1:] - value[..., :-1])
         return init_prob + jnp.sum(step_probs, axis=-1)
 
     @property

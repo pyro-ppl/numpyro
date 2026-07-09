@@ -18,7 +18,7 @@ class NonreparameterizedNormal(dist.Normal):
 def test_get_dependencies():
     def model(data):
         a = numpyro.sample("a", dist.Normal(0, 1))
-        b = numpyro.sample("b", NonreparameterizedNormal(a, 0))
+        b = numpyro.sample("b", NonreparameterizedNormal(a, 1))
         c = numpyro.sample("c", dist.Normal(b, 1))
         d = numpyro.sample("d", dist.Normal(a, jnp.exp(c)))
 

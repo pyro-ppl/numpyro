@@ -20,7 +20,7 @@ def align_param(dim, param):
 
 
 def spectral_density_squared_exponential(
-    dim: int, w: ArrayLike, alpha: float, length: float | ArrayLike
+    dim: int, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
 ) -> Array:
     """
     Spectral density of the squared exponential kernel.
@@ -42,20 +42,20 @@ def spectral_density_squared_exponential(
 
     :param int dim: dimension
     :param ArrayLike w: frequency
-    :param float alpha: amplitude
-    :param float length: length scale
+    :param ArrayLike alpha: amplitude
+    :param ArrayLike length: length scale
     :return: spectral density value
     :rtype: Array
     """
     length = align_param(dim, length)
-    c = alpha * jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1)
+    c = jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1) * alpha
     e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
     return c * e
 
 
 def spectral_density_matern(
-    dim: int, nu: float, w: ArrayLike, alpha: float, length: float | ArrayLike
-) -> float:
+    dim: int, nu: float, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
+) -> Array:
     """
     Spectral density of the Matérn kernel.
 
@@ -78,10 +78,10 @@ def spectral_density_matern(
     :param int dim: dimension
     :param float nu: smoothness
     :param ArrayLike w: frequency
-    :param float alpha: amplitude
-    :param float length: length scale
+    :param ArrayLike alpha: amplitude
+    :param ArrayLike length: length scale
     :return: spectral density value
-    :rtype: float
+    :rtype: Array
     """  # noqa: E501
     length = align_param(dim, length)
     c1 = (
@@ -98,8 +98,8 @@ def spectral_density_matern(
 
 
 def diag_spectral_density_squared_exponential(
-    alpha: float,
-    length: float | list[float],
+    alpha: ArrayLike,
+    length: ArrayLike,
     ell: float | int | list[float | int],
     m: int | list[int],
     dim: int,
@@ -108,8 +108,8 @@ def diag_spectral_density_squared_exponential(
     Evaluates the spectral density of the squared exponential kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
 
-    :param float alpha: amplitude of the squared exponential kernel
-    :param float length: length scale of the squared exponential kernel
+    :param ArrayLike alpha: amplitude of the squared exponential kernel
+    :param ArrayLike length: length scale of the squared exponential kernel
     :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
         If a float or int, the same length is used in each dimension.
     :param int | list[int] m: The number of eigenvalues to compute for each dimension.
@@ -122,7 +122,10 @@ def diag_spectral_density_squared_exponential(
 
     def _spectral_density(w):
         return spectral_density_squared_exponential(
-            dim=dim, w=w, alpha=alpha, length=length
+            dim=dim,
+            w=w,
+            alpha=alpha,
+            length=length,
         )
 
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x m
@@ -132,8 +135,8 @@ def diag_spectral_density_squared_exponential(
 # TODO support length-D kernel hyperparameters
 def diag_spectral_density_matern(
     nu: float,
-    alpha: float,
-    length: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
     ell: float | int | list[float | int],
     m: int | list[int],
     dim: int,
@@ -143,8 +146,8 @@ def diag_spectral_density_matern(
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
 
     :param float nu: smoothness parameter
-    :param float alpha: amplitude of the Matérn kernel
-    :param float length: length scale of the Matérn kernel
+    :param ArrayLike alpha: amplitude of the Matérn kernel
+    :param ArrayLike length: length scale of the Matérn kernel
     :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
         If a float or int, the same length is used in each dimension.
     :param int | list[int] m: The number of eigenvalues to compute for each dimension.
@@ -188,9 +191,9 @@ def modified_bessel_second_kind(v, z):
 def spectral_density_rational_quadratic(
     dim: int,
     w: ArrayLike,
-    alpha: float,
-    length: float | ArrayLike,
-    scale_mixture: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
+    scale_mixture: ArrayLike,
 ) -> Array:
     """
     Spectral density of the Rational Quadratic kernel.
@@ -237,9 +240,9 @@ def spectral_density_rational_quadratic(
 
     :param int dim: dimension
     :param ArrayLike w: frequency
-    :param float alpha: amplitude (σ² in the spectral density formula)
-    :param float length: length scale (scalar, isotropic)
-    :param float scale_mixture: scale mixture parameter (α_mix in the RQ kernel formula).
+    :param ArrayLike alpha: amplitude (σ² in the spectral density formula)
+    :param ArrayLike length: length scale (scalar, isotropic)
+    :param ArrayLike scale_mixture: scale mixture parameter (α_mix in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
     :return: spectral density value
@@ -301,9 +304,9 @@ def spectral_density_rational_quadratic(
 
 
 def diag_spectral_density_rational_quadratic(
-    alpha: float,
-    length: float | list[float],
-    scale_mixture: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
+    scale_mixture: ArrayLike,
     ell: float | int | list[float | int],
     m: int | list[int],
     dim: int,
@@ -312,9 +315,9 @@ def diag_spectral_density_rational_quadratic(
     Evaluates the spectral density of the Rational Quadratic kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
 
-    :param float alpha: amplitude of the Rational Quadratic kernel
-    :param float length: length scale of the Rational Quadratic kernel
-    :param float scale_mixture: scale mixture parameter (α in the RQ kernel formula).
+    :param ArrayLike alpha: amplitude of the Rational Quadratic kernel
+    :param ArrayLike length: length scale of the Rational Quadratic kernel
+    :param ArrayLike scale_mixture: scale mixture parameter (α in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
     :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
@@ -329,7 +332,11 @@ def diag_spectral_density_rational_quadratic(
 
     def _spectral_density(w):
         return spectral_density_rational_quadratic(
-            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
+            dim=dim,
+            w=w,
+            alpha=alpha,
+            length=length,
+            scale_mixture=scale_mixture,
         )
 
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
@@ -349,7 +356,9 @@ def modified_bessel_first_kind(v, z):
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
-def diag_spectral_density_periodic(alpha: float, length: float, m: int) -> Array:
+def diag_spectral_density_periodic(
+    alpha: ArrayLike, length: ArrayLike, m: int
+) -> Array:
     """
     Not actually a spectral density but these are used in the same
     way. These are simply the first `m` coefficients of the low rank
@@ -360,8 +369,8 @@ def diag_spectral_density_periodic(alpha: float, length: float, m: int) -> Array
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param float alpha: amplitude
-    :param float length: length scale
+    :param ArrayLike alpha: amplitude
+    :param ArrayLike length: length scale
     :param int m: number of eigenvalues
     :return: "spectral density" vector
     :rtype: Array

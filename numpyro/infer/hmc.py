@@ -908,6 +908,9 @@ class NUTS(HMC):
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
+        matrix for numerical stability during warmup phase. Defaults to True. This flag
+        does not take effect if ``adapt_mass_matrix == False``.
     """
 
     def __init__(

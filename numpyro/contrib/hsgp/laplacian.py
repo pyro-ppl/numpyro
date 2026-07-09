@@ -162,12 +162,12 @@ def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -
     )
 
 
-def eigenfunctions_periodic(x: ArrayLike, w0: float, m: int) -> tuple[Array, Array]:
+def eigenfunctions_periodic(x: ArrayLike, w0: ArrayLike, m: int) -> tuple[Array, Array]:
     """
     Basis functions for the approximation of the periodic kernel.
 
     :param ArrayLike x: The points at which to evaluate the eigenfunctions.
-    :param float w0: The frequency of the periodic kernel.
+    :param ArrayLike w0: The frequency of the periodic kernel.
     :param int m: The number of eigenfunctions to compute.
 
     .. note::

@@ -14,20 +14,10 @@ repos:
         language: system
         files: "(.py$)|(.*.ipynb$)"
 
-      - id: mypy
-        name: mypy
-        language: python
-        entry: mypy --install-types --non-interactive
-        files: ^numpyro/
-
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.49
+    hooks:
       - id: ty
-        name: ty check
-        language: python
-        entry: ty
-        args: [check, --config-file, ty.toml]
-        pass_filenames: false
-        always_run: true
-        additional_dependencies: [ty]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

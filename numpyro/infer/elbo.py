@@ -1119,7 +1119,7 @@ class TraceEnum_ELBO(ELBO):
         self,
         num_particles: int = 1,
         # float("inf") serves as a sentinel to use guess_max_plate_nesting
-        max_plate_nesting: int = float("inf"),  # type: ignore
+        max_plate_nesting: int = float("inf"),  # ty: ignore[invalid-parameter-default]
         vectorize_particles: bool = True,
     ) -> None:
         self.max_plate_nesting = max_plate_nesting

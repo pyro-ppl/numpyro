@@ -1064,9 +1064,25 @@ CorrMatrixCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+DiscreteCosineTransform
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.DiscreteCosineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ExpTransform
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.ExpTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HaarTransform
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.HaarTransform
     :members:
     :undoc-members:
     :show-inheritance:
