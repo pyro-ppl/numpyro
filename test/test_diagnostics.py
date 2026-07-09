@@ -155,8 +155,10 @@ def test_weighted_summary_multivariate():
 
 
 def test_print_summary_log_weights():
+    import io
+    import sys
+
     from numpyro.diagnostics import print_summary
-    import io, sys
 
     np.random.seed(1)
     x = np.random.normal(size=(2, 100))
