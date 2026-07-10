@@ -8,13 +8,14 @@ import jax
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import logsumexp
+from jax.scipy.special import gammainc, logsumexp
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import (
     Cauchy,
+    Gamma,
     Laplace,
     Logistic,
     Normal,
@@ -429,6 +430,125 @@ def TruncatedNormal(
     return TruncatedDistribution(
         Normal(loc, scale), low=low, high=high, validate_args=validate_args
     )
+
+
+class TruncatedGamma(Distribution):
+    r"""Left-truncated Gamma distribution.
+
+    The distribution is defined as:
+
+    .. math::
+        g(x; \alpha, \beta, a) = \frac{f(x; \alpha, \beta)}{1 - F(a; \alpha, \beta)},
+        \quad x \geq a
+
+    where :math:`f` is the Gamma PDF, :math:`F` is the Gamma CDF,
+    :math:`\alpha` is the concentration (shape), :math:`\beta` is the rate,
+    and :math:`a` is the lower bound.
+
+    **Example usage:**
+
+    .. code-block:: python
+
+        import jax.random as random
+        from numpyro.distributions import TruncatedGamma
+
+        # concentration=2, rate=1, truncated from below at 0.5
+        dist = TruncatedGamma(2.0, 1.0, low=0.5)
+        samples = dist.sample(random.PRNGKey(0), sample_shape=(1000,))
+        log_prob = dist.log_prob(samples)
+
+    :param concentration: shape parameter :math:`\alpha > 0`.
+    :param rate: rate parameter :math:`\beta > 0` (default 1.0).
+    :param low: lower bound :math:`a \geq 0` (default 0.0).
+    """
+
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "rate": constraints.positive,
+        "low": constraints.greater_than_eq(0.0),
+    }
+    reparametrized_params = ["concentration", "rate", "low"]
+    pytree_aux_fields = ("_support",)
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        low: ArrayLike = 0.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        self.concentration, self.rate, self.low = promote_shapes(concentration, rate, low)
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration), jnp.shape(rate), jnp.shape(low)
+        )
+        self._support = constraints.greater_than_eq(low)
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> Constraint:
+        return self._support
+
+    @lazy_property
+    def _cdf_at_low(self) -> ArrayLike:
+        return gammainc(self.concentration, self.rate * self.low)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        return Gamma(self.concentration, self.rate).log_prob(value) - jnp.log1p(
+            -self._cdf_at_low
+        )
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        cdf_val = gammainc(self.concentration, self.rate * value)
+        truncated_cdf = (cdf_val - self._cdf_at_low) / (1.0 - self._cdf_at_low)
+        return jnp.where(value < self.low, 0.0, jnp.clip(truncated_cdf, 0.0, 1.0))
+
+    def sample(
+        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        assert is_prng_key(key)
+        dtype = jnp.result_type(float)
+        shape = sample_shape + self.batch_shape
+
+        def body_fn(state):
+            key, samples, accepted = state
+            key, subkey = random.split(key)
+            candidates = random.gamma(subkey, self.concentration, shape=shape) / self.rate
+            new_accepted = candidates >= self.low
+            samples = jnp.where(accepted, samples, jnp.where(new_accepted, candidates, samples))
+            accepted = accepted | new_accepted
+            return key, samples, accepted
+
+        def cond_fn(state):
+            return ~jnp.all(state[2])
+
+        key, init_key = random.split(key)
+        init_samples = jnp.full(shape, jnp.inf, dtype=dtype)
+        init_accepted = jnp.zeros(shape, dtype=bool)
+        _, samples, _ = lax.while_loop(cond_fn, body_fn, (init_key, init_samples, init_accepted))
+        return samples
+
+    @property
+    def mean(self) -> ArrayLike:
+        alpha = self.concentration
+        beta = self.rate
+        a = self.low
+        cdf_alpha_plus_1 = gammainc(alpha + 1, beta * a)
+        return (alpha / beta) * (1.0 - cdf_alpha_plus_1) / (1.0 - self._cdf_at_low)
+
+    @property
+    def variance(self) -> ArrayLike:
+        alpha = self.concentration
+        beta = self.rate
+        a = self.low
+        cdf_alpha_plus_1 = gammainc(alpha + 1, beta * a)
+        cdf_alpha_plus_2 = gammainc(alpha + 2, beta * a)
+        mean = (alpha / beta) * (1.0 - cdf_alpha_plus_1) / (1.0 - self._cdf_at_low)
+        e_x2 = (alpha * (alpha + 1) / beta**2) * (
+            1.0 - cdf_alpha_plus_2
+        ) / (1.0 - self._cdf_at_low)
+        return e_x2 - mean**2
 
 
 class TruncatedPolyaGamma(Distribution):
