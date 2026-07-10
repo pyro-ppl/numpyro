@@ -507,9 +507,15 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         )
 
         itr = hmc_state.i + 1
+        # mean_accept_prob tracks a running average of the acceptance probability.
+        # During warmup the average includes all warmup steps; after warmup we
+        # reset so it reflects only the sampling-phase acceptance rate.
         n = jnp.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
-        mean_accept_prob = (
-            hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
+        mean_accept_prob = jnp.where(
+            hmc_state.i == wa_steps,
+            accept_prob,
+            hmc_state.mean_accept_prob
+            + (accept_prob - hmc_state.mean_accept_prob) / n,
         )
 
         r = vv_state.r if hmc_state.r is not None else None

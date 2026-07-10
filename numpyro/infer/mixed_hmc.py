@@ -292,8 +292,10 @@ class MixedHMC(DiscreteHMCGibbs):
         itr = hmc_state.i + 1
         n = jnp.where(hmc_state.i < self._num_warmup, itr, itr - self._num_warmup)
         mean_accept_prob_prev = state.hmc_state.mean_accept_prob
-        mean_accept_prob = (
-            mean_accept_prob_prev + (accept_prob - mean_accept_prob_prev) / n
+        mean_accept_prob = jnp.where(
+            hmc_state.i == self._num_warmup,
+            accept_prob,
+            mean_accept_prob_prev + (accept_prob - mean_accept_prob_prev) / n,
         )
         hmc_state = hmc_state._replace(
             i=itr,

@@ -281,7 +281,11 @@ class BarkerMH(MCMCKernel):
 
         itr = i + 1
         n = jnp.where(i < self._num_warmup, itr, itr - self._num_warmup)
-        mean_accept_prob = mean_accept_prob + (accept_prob - mean_accept_prob) / n
+        mean_accept_prob = jnp.where(
+            i == self._num_warmup,
+            accept_prob,
+            mean_accept_prob + (accept_prob - mean_accept_prob) / n,
+        )
 
         return BarkerMHState(
             itr, x, pe, x_grad, accept_prob, mean_accept_prob, adapt_state, rng_key

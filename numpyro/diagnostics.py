@@ -203,6 +203,33 @@ def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
     return n_eff
 
 
+def _weighted_mean(x: NDArray, weights: NDArray) -> NDArray:
+    w = weights / weights.sum()
+    return (x * w).sum(axis=0)
+
+
+def _weighted_variance(x: NDArray, weights: NDArray) -> NDArray:
+    w = weights / weights.sum()
+    m = _weighted_mean(x, weights)
+    diff = x - m
+    return (w * diff ** 2).sum(axis=0)
+
+
+def _weighted_quantile(x: NDArray, weights: NDArray, q: float) -> NDArray:
+    idx = np.argsort(x, axis=0)
+    sorted_x = np.take_along_axis(x, idx, axis=0)
+    sorted_w = np.take_along_axis(weights, idx, axis=0)
+    cum_w = np.cumsum(sorted_w, axis=0)
+    cum_w = cum_w / cum_w[-1:]
+    pos = np.argmax(cum_w >= q, axis=0, keepdims=True)
+    return np.take_along_axis(sorted_x, pos, axis=0).squeeze(axis=0)
+
+
+def _ess_weighted(x: NDArray, weights: NDArray) -> NDArray:
+    w = weights / weights.sum()
+    return 1.0 / (w ** 2).sum(axis=0)
+
+
 def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
@@ -233,7 +260,10 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
 
 
 def summary(
-    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
+    samples: Union[dict, np.ndarray],
+    prob: float = 0.90,
+    group_by_chain: bool = True,
+    log_weights: Union[np.ndarray, None] = None,
 ) -> dict:
     """
     Returns a summary table displaying diagnostics of ``samples`` from the
@@ -250,6 +280,11 @@ def summary(
         as having shape `num_chains x num_samples x sample_shape`. Otherwise, the
         corresponding shape will be `num_samples x sample_shape` (i.e. without
         chain dimension).
+    :param log_weights: Optional logarithmic weights for importance / nested sampling.
+        When provided, weighted mean, variance, quantiles, and effective sample
+        size are computed, and ``r_hat`` is skipped. The shape must broadcast
+        with ``(num_chains, num_samples)`` or ``(num_samples,)``.
+    :type log_weights: numpy.ndarray or None
     """
     if not group_by_chain:
         samples = jax.tree.map(lambda x: x[None, ...], samples)
@@ -259,36 +294,52 @@ def summary(
         }
     samples = cast(dict[str, np.ndarray], samples)
 
+    if log_weights is not None:
+        log_weights = device_get(log_weights)
+        weights = np.exp(log_weights - log_weights.max())
+
     summary_dict = {}
     for name, value in samples.items():
         if len(value) == 0:
             continue
         value = device_get(value)
         value_flat = np.reshape(value, (-1,) + value.shape[2:])
-        mean = value_flat.mean(axis=0)
-        std = value_flat.std(axis=0, ddof=1)
-        median = np.median(value_flat, axis=0)
-        hpd = hpdi(value_flat, prob=prob)
-        n_eff = effective_sample_size(value)
-        r_hat = split_gelman_rubin(value)
+        if log_weights is not None:
+            w_flat = np.reshape(weights, (-1,) + (1,) * max(0, value_flat.ndim - 1))
+            mean = _weighted_mean(value_flat, w_flat)
+            std = np.sqrt(_weighted_variance(value_flat, w_flat))
+            median = _weighted_quantile(value_flat, w_flat, 0.5)
+            hpd = hpdi(value_flat, prob=prob)
+            n_eff = _ess_weighted(value_flat, w_flat)
+        else:
+            mean = value_flat.mean(axis=0)
+            std = value_flat.std(axis=0, ddof=1)
+            median = np.median(value_flat, axis=0)
+            hpd = hpdi(value_flat, prob=prob)
+            n_eff = effective_sample_size(value)
+
+        r_hat = None if log_weights is not None else split_gelman_rubin(value)
         hpd_lower = "{:.1f}%".format(50 * (1 - prob))
         hpd_upper = "{:.1f}%".format(50 * (1 + prob))
-        summary_dict[name] = OrderedDict(
-            [
-                ("mean", mean),
-                ("std", std),
-                ("median", median),
-                (hpd_lower, hpd[0]),
-                (hpd_upper, hpd[1]),
-                ("n_eff", n_eff),
-                ("r_hat", r_hat),
-            ]
-        )
+        items = [
+            ("mean", mean),
+            ("std", std),
+            ("median", median),
+            (hpd_lower, hpd[0]),
+            (hpd_upper, hpd[1]),
+            ("n_eff", n_eff),
+        ]
+        if r_hat is not None:
+            items.append(("r_hat", r_hat))
+        summary_dict[name] = OrderedDict(items)
     return summary_dict
 
 
 def print_summary(
-    samples: Union[dict, NDArray], prob: float = 0.90, group_by_chain: bool = True
+    samples: Union[dict, NDArray],
+    prob: float = 0.90,
+    group_by_chain: bool = True,
+    log_weights: Union[np.ndarray, None] = None,
 ) -> None:
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
@@ -305,6 +356,10 @@ def print_summary(
         as having shape `num_chains x num_samples x sample_shape`. Otherwise, the
         corresponding shape will be `num_samples x sample_shape` (i.e. without
         chain dimension).
+    :param log_weights: Optional logarithmic weights for importance / nested
+        sampling. When provided, weighted statistics are computed and ``r_hat``
+        is skipped.
+    :type log_weights: numpy.ndarray or None
     """
     if not group_by_chain:
         samples = jax.tree.map(lambda x: x[None, ...], samples)
@@ -313,7 +368,7 @@ def print_summary(
             "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
     samples = cast(dict[str, np.ndarray], samples)
-    summary_dict = summary(samples, prob, group_by_chain=True)
+    summary_dict = summary(samples, prob, group_by_chain=True, log_weights=log_weights)
     if not summary_dict:
         return
 
@@ -323,13 +378,14 @@ def print_summary(
     }
     max_len = max(max(map(lambda x: len(x), row_names.values())), 10)
     name_format = "{:>" + str(max_len) + "}"
-    header_format = name_format + " {:>9}" * 7
+    ncols = len(summary_dict[next(iter(summary_dict))])
+    header_format = name_format + " {:>9}" * ncols
     columns = [""] + list(list(summary_dict.values())[0].keys())
 
     print()
     print(header_format.format(*columns))
 
-    row_format = name_format + " {:>9.2f}" * 7
+    row_format = name_format + " {:>9.2f}" * ncols
     for name, stats_dict in summary_dict.items():
         shape = stats_dict["mean"].shape
         if len(shape) == 0:

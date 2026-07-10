@@ -5032,3 +5032,64 @@ def test_hurdle_poisson_inference():
     samples = mcmc.get_samples()
     assert abs(float(jnp.mean(samples["gate"])) - true_gate) < 0.05
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.3
+
+
+def test_truncated_gamma_log_prob():
+    conc, rate = 2.0, 1.0
+    low = 0.5
+
+    d = dist.TruncatedGamma(conc, rate, low=low)
+    x = jnp.linspace(low, 10.0, 50)
+    lp = d.log_prob(x)
+
+    # All log probs should be finite
+    assert jnp.all(jnp.isfinite(lp))
+
+    # At low=0, should match Gamma log_prob exactly
+    d0 = dist.TruncatedGamma(conc, rate, low=0.0)
+    g = dist.Gamma(conc, rate)
+    x2 = jnp.linspace(0.1, 10.0, 50)
+    assert_allclose(d0.log_prob(x2), g.log_prob(x2), atol=1e-6)
+
+    # Test vectorized batch shape
+    d_batch = dist.TruncatedGamma(
+        jnp.array([1.0, 2.0, 3.0]), rate, low=jnp.array([0.0, 0.5, 1.0])
+    )
+    lp_batch = d_batch.log_prob(jnp.array([0.6, 1.0, 2.0]))
+    assert lp_batch.shape == (3,)
+
+
+def test_truncated_gamma_cdf():
+    conc, rate, low = 2.0, 1.0, 0.5
+    d = dist.TruncatedGamma(conc, rate, low=low)
+
+    test_values = jnp.array([low - 0.5, low, low + 0.5, low + 1.0, low + 2.0])
+    cdf_values = d.cdf(test_values)
+
+    assert jnp.all(cdf_values >= 0.0) and jnp.all(cdf_values <= 1.0)
+    # Below low should be 0
+    assert_allclose(cdf_values[0], 0.0, atol=1e-6)
+    # At low should be 0 or very close
+    assert_allclose(cdf_values[1], 0.0, atol=1e-6)
+    # Monotonically increasing
+    assert jnp.all(jnp.diff(cdf_values[1:]) >= -1e-6)
+
+
+def test_truncated_gamma_sample():
+    key = random.key(42)
+    conc, rate, low = 2.0, 1.0, 0.5
+
+    d = dist.TruncatedGamma(conc, rate, low=low)
+    samples = d.sample(key, sample_shape=(5000,))
+
+    assert jnp.all(samples >= low - 1e-6)
+    assert jnp.all(jnp.isfinite(samples))
+    # Empirical mean should be close to analytical mean
+    assert abs(float(samples.mean()) - float(d.mean)) < 0.15
+
+    # At low=0, empirical should match Gamma
+    d0 = dist.TruncatedGamma(conc, rate, low=0.0)
+    samples0 = d0.sample(key, sample_shape=(5000,))
+    g = dist.Gamma(conc, rate)
+    g_samples = g.sample(key, sample_shape=(5000,))
+    assert abs(float(samples0.mean()) - float(g_samples.mean())) < 0.2

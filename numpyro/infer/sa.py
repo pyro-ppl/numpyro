@@ -231,8 +231,10 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         accept_prob = 1 - jnp.exp(log_weights_[-1] - logsumexp(log_weights_))
         itr = sa_state.i + 1
         n = jnp.where(sa_state.i < wa_steps, itr, itr - wa_steps)
-        mean_accept_prob = (
-            sa_state.mean_accept_prob + (accept_prob - sa_state.mean_accept_prob) / n
+        mean_accept_prob = jnp.where(
+            sa_state.i == wa_steps,
+            accept_prob,
+            sa_state.mean_accept_prob + (accept_prob - sa_state.mean_accept_prob) / n,
         )
 
         # Note: we make a modification of SA sampler in [1]
