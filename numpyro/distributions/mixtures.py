@@ -251,12 +251,21 @@ class MixtureSameFamily(_MixtureBase):
         *,
         validate_args: Optional[bool] = None,
     ):
-        assert isinstance(
-            component_distribution.support, constraints.ParameterFreeConstraint
-        ), (
+        # A mixture evaluates every component's density at the *same* value, so
+        # the component support must be identical across components and must not
+        # depend on their parameters. A vectorized (event-wrapped) component such
+        # as ``Normal(...).to_event(1)`` has an ``Independent`` support, which only
+        # reinterprets batch dims as event dims and introduces no parameter
+        # dependence. So unwrap any ``Independent`` layers and require the *base*
+        # support to be parameter-free.
+        base_support = component_distribution.support
+        while isinstance(base_support, constraints._IndependentConstraint):
+            base_support = base_support.base_constraint
+        assert isinstance(base_support, constraints.ParameterFreeConstraint), (
             f"Invalid component distribution: {type(component_distribution).__name__}. "
-            "The mixture components must have a support that does not depend on their parameters "
-            f"(expected ParameterFreeConstraint, but found {component_distribution.support})."
+            "The mixture components must have a support that does not depend on their "
+            "parameters (expected a (possibly Independent-wrapped) "
+            f"ParameterFreeConstraint, but found {component_distribution.support})."
         )
         _check_mixing_distribution(mixing_distribution)
         mixture_size = mixing_distribution.probs.shape[-1]
