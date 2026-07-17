@@ -3079,6 +3079,53 @@ def test_transformed_distribution_intermediates(transformed_dist):
     )
 
 
+class _InverseSpyTransform(transforms.ParameterFreeTransform):
+    """Shift transform ``y = x + 1`` that records each inverse evaluation.
+
+    Lets a test observe whether ``TransformedDistribution.log_prob`` recomputed
+    ``transform.inv(value)`` or reused the cached pre-transform value from
+    ``sample_with_intermediates``.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inverse_calls = []
+
+    def __call__(self, x):
+        return x + 1.0
+
+    def _inverse(self, y):
+        self.inverse_calls.append(y)
+        return y - 1.0
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return jnp.zeros_like(x)
+
+
+def test_transformed_distribution_log_prob_reuses_intermediates():
+    # When intermediates are supplied, log_prob must reuse the cached
+    # pre-transform value instead of recomputing transform.inv(value)
+    # (numpyro/distributions/distribution.py, TransformedDistribution.log_prob).
+    transform = _InverseSpyTransform()
+    base = dist.Normal(jnp.array([2.0, 3.0]), 1.0)
+    d = dist.TransformedDistribution(base, transform)
+
+    sample, intermediates = d.sample_with_intermediates(random.key(0))
+    # Sampling only runs the forward transform, never the inverse.
+    assert transform.inverse_calls == []
+
+    # Reuse path: the cached base value is available, inv must not be called.
+    lp_cached = d.log_prob(sample, intermediates)
+    assert transform.inverse_calls == []
+
+    # Recompute path: without intermediates, inv is invoked exactly once.
+    lp_recomputed = d.log_prob(sample)
+    assert len(transform.inverse_calls) == 1
+
+    # Both branches must agree numerically.
+    assert_allclose(lp_cached, lp_recomputed, atol=1e-6)
+
+
 def test_transformed_transformed_distribution():
     loc, scale = -2, 3
     dist1 = dist.TransformedDistribution(

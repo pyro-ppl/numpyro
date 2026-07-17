@@ -397,12 +397,17 @@ class Distribution(metaclass=DistributionMeta):
         """
         return self.sample(key, sample_shape=sample_shape), []
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
         """
         Evaluates the log probability density for a batch of samples given by
         `value`.
 
         :param value: A batch of samples from the distribution.
+        :param intermediates: Optional intermediates computed during sampling
+            (e.g. from :meth:`sample_with_intermediates`) that some
+            distributions can reuse to avoid recomputation.
         :return: an array with shape `value.shape[:-self.event_shape]`
         :rtype: ArrayLike
         """
@@ -797,12 +802,14 @@ class ExpandedDistribution(Distribution):
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
     ) -> ArrayLike:
-        # TODO: utilize `intermediates`
         shape = lax.broadcast_shapes(
             self.batch_shape,
             jnp.shape(value)[: max(jnp.ndim(value) - self.event_dim, 0)],
         )
-        log_prob = self.base_dist.log_prob(value)
+        if intermediates is None:
+            log_prob = self.base_dist.log_prob(value)
+        else:
+            log_prob = self.base_dist.log_prob(value, intermediates)
         return jnp.broadcast_to(log_prob, shape)
 
     def enumerate_support(self, expand: bool = True) -> ArrayLike:
@@ -996,8 +1003,22 @@ class Independent(Distribution):
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
-        log_prob = self.base_dist.log_prob(value)
+    def sample_with_intermediates(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> tuple[ArrayLike, list[Any]]:
+        # Reinterpreting batch dims as event dims does not reshape the sample, so
+        # the base distribution's intermediates carry over unchanged. Forwarding
+        # them lets ``log_prob`` reuse cached intermediates (e.g. the pre-transform
+        # value of a ``TransformedDistribution``) instead of recomputing them.
+        return self.base_dist.sample_with_intermediates(key, sample_shape)
+
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
+        if intermediates is None:
+            log_prob = self.base_dist.log_prob(value)
+        else:
+            log_prob = self.base_dist.log_prob(value, intermediates)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
     def expand(self, batch_shape: Sequence[int]) -> Distribution:
@@ -1066,7 +1087,9 @@ class MaskedDistribution(Distribution):
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
         if self._mask is False:
             shape = lax.broadcast_shapes(
                 tuple(self.base_dist.batch_shape),
@@ -1415,6 +1438,8 @@ class Unit(Distribution):
     ) -> ArrayLike:
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
 
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
         shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value)[:-1])
         return jnp.broadcast_to(self.log_factor, shape)
