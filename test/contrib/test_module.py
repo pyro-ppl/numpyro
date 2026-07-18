@@ -17,6 +17,7 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
+    _copy_structure,
     _update_params,
     eqx_module,
     flax_module,
@@ -76,6 +77,19 @@ def test_flax_module():
         flax_model_by_kwargs(X, Y)
     assert flax_tr["nn$params"]["value"]["kernel"].shape == (100, 100)
     assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
+
+
+def test_copy_structure_shares_leaves():
+    params = {"a": {"b": np.ones(3)}, "c": np.zeros(2)}
+    copied = _copy_structure(params)
+    assert copied is not params
+    assert copied["a"] is not params["a"]
+    # leaves are shared, not copied
+    assert copied["a"]["b"] is params["a"]["b"]
+    assert copied["c"] is params["c"]
+    # replacing entries in the copy leaves the original untouched
+    copied["a"]["b"] = ParamShape((3,))
+    assert isinstance(params["a"]["b"], np.ndarray)
 
 
 def test_update_params():
