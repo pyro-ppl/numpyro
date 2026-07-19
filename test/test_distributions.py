@@ -32,7 +32,7 @@ from numpyro.distributions import (
     kl_divergence,
     transforms,
 )
-from numpyro.distributions.batch_util import vmap_over
+from numpyro.distributions.batch_util import promote_batch_shape, vmap_over
 from numpyro.distributions.censored import (
     IntervalCensoredDistribution,
     LeftCensoredDistribution,
@@ -3819,6 +3819,32 @@ def test_vmap_validate_args():
         in_axes=(0, 0),
     )(jnp.zeros((2,)), jnp.zeros((2,)))
     assert not v_dist._validate_args
+
+
+def test_promote_batch_shape_shares_data_and_preserves_input():
+    loc = jnp.zeros((2, 3))
+    d = jax.vmap(lambda loc: dist.Normal(loc, 1.0))(loc)
+    assert d.batch_shape == (3,)
+
+    promoted = promote_batch_shape(d)
+    assert promoted.batch_shape == (2, 3)
+    # parameter arrays are shared, not copied
+    assert promoted.loc is d.loc
+    # the input distribution is not mutated
+    assert d.batch_shape == (3,)
+
+
+def test_promote_batch_shape_expanded_preserves_input():
+    loc = jnp.zeros((2, 3))
+    d = jax.vmap(lambda loc: dist.Normal(loc, 1.0).expand((4, 3)))(loc)
+    assert d.batch_shape == (4, 3)
+
+    promoted = promote_batch_shape(d)
+    assert promoted.batch_shape == (2, 4, 3)
+    assert promoted.log_prob(jnp.zeros((2, 4, 3))).shape == (2, 4, 3)
+    # the input distribution and its base distribution are not mutated
+    assert d.batch_shape == (4, 3)
+    assert d.base_dist.batch_shape == (3,)
 
 
 def test_explicit_validate_args():

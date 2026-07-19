@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from copy import deepcopy
 from functools import partial
 
 import jax
@@ -296,7 +295,9 @@ def random_flax_module(
         **kwargs,
     )
     params = nn.args[0]
-    new_params = deepcopy(params)
+    # copy the container structure while sharing the (immutable) leaves;
+    # _update_params only replaces entries, so no array data needs to be copied
+    new_params = jax.tree.map(lambda x: x, params)
     with numpyro.handlers.scope(prefix=name):
         _update_params(params, new_params, prior)
     nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
@@ -427,7 +428,9 @@ def random_nnx_module(
     other_args = nn.args[1:]
     keywords = nn.keywords
 
-    new_params = deepcopy(params)
+    # copy the container structure while sharing the (immutable) leaves;
+    # _update_params only replaces entries, so no array data needs to be copied
+    new_params = jax.tree.map(lambda x: x, params)
 
     with numpyro.handlers.scope(prefix=name, divider=scope_divider):
         _update_params(params, new_params, prior)
@@ -543,7 +546,9 @@ def random_eqx_module(name, nn_module, prior, scope_divider="/"):
     nn = eqx_module(name, nn_module)
     params, static = eqx.partition(nn, filter_spec=eqx.is_inexact_array)
     params_dict = eqx_to_dict(params)
-    new_params = deepcopy(params_dict)
+    # copy the container structure while sharing the (immutable) leaves;
+    # _update_params only replaces entries, so no array data needs to be copied
+    new_params = jax.tree.map(lambda x: x, params_dict)
     with numpyro.handlers.scope(prefix=name, divider=scope_divider):
         _update_params(params_dict, new_params, prior)
 
