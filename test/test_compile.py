@@ -53,7 +53,11 @@ def test_mcmc_parallel_chain(deterministic):
     mcmc.get_samples()
 
     if deterministic:
-        assert GLOBAL["count"] == 4
+        # As in test_mcmc_one_chain, we have two extra calls to the model
+        # to get deterministic values:
+        # 1. transform the init state
+        # 2. transform state during the loop
+        assert GLOBAL["count"] == 5
     else:
         assert GLOBAL["count"] == 3
 
