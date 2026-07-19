@@ -17,7 +17,6 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.module import (
     ParamShape,
-    _copy_structure,
     _update_params,
     eqx_module,
     flax_module,
@@ -79,17 +78,24 @@ def test_flax_module():
     assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
-def test_copy_structure_shares_leaves():
-    params = {"a": {"b": np.ones(3)}, "c": np.zeros(2)}
-    copied = _copy_structure(params)
-    assert copied is not params
-    assert copied["a"] is not params["a"]
-    # leaves are shared, not copied
-    assert copied["a"]["b"] is params["a"]["b"]
-    assert copied["c"] is params["c"]
-    # replacing entries in the copy leaves the original untouched
-    copied["a"]["b"] = ParamShape((3,))
-    assert isinstance(params["a"]["b"], np.ndarray)
+def test_random_flax_module_shares_param_leaves():
+    import flax.linen as nn
+
+    with handlers.trace() as tr, handlers.seed(rng_seed=0):
+        net = random_flax_module(
+            "net",
+            nn.Dense(2),
+            prior={"kernel": dist.Normal()},
+            input_shape=(3,),
+        )
+    init_params = tr["net$params"]["value"]
+    new_params = net.args[0]
+    # parameters not covered by the prior are shared, not copied
+    assert new_params["bias"] is init_params["bias"]
+    # parameters covered by the prior are replaced by samples in the copy
+    # while the original entry is reduced to its shape
+    assert init_params["kernel"] == ParamShape((3, 2))
+    assert jnp.shape(new_params["kernel"]) == (3, 2)
 
 
 def test_update_params():

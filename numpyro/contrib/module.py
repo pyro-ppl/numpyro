@@ -137,17 +137,6 @@ jtu.register_pytree_node(
 )
 
 
-def _copy_structure(params):
-    """
-    A helper to copy the nested dict structure of ``params`` while sharing the
-    leaves, so that :func:`_update_params` can replace entries without mutating
-    the input and without copying array data.
-    """
-    return {
-        k: _copy_structure(v) if isinstance(v, dict) else v for k, v in params.items()
-    }
-
-
 def _update_params(params, new_params, prior, prefix=""):
     """
     A helper to recursively set prior to new_params.
@@ -306,7 +295,9 @@ def random_flax_module(
         **kwargs,
     )
     params = nn.args[0]
-    new_params = _copy_structure(params)
+    # copy the container structure while sharing the (immutable) leaves;
+    # _update_params only replaces entries, so no array data needs to be copied
+    new_params = jax.tree.map(lambda x: x, params)
     with numpyro.handlers.scope(prefix=name):
         _update_params(params, new_params, prior)
     nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
@@ -437,7 +428,9 @@ def random_nnx_module(
     other_args = nn.args[1:]
     keywords = nn.keywords
 
-    new_params = _copy_structure(params)
+    # copy the container structure while sharing the (immutable) leaves;
+    # _update_params only replaces entries, so no array data needs to be copied
+    new_params = jax.tree.map(lambda x: x, params)
 
     with numpyro.handlers.scope(prefix=name, divider=scope_divider):
         _update_params(params, new_params, prior)
@@ -553,7 +546,9 @@ def random_eqx_module(name, nn_module, prior, scope_divider="/"):
     nn = eqx_module(name, nn_module)
     params, static = eqx.partition(nn, filter_spec=eqx.is_inexact_array)
     params_dict = eqx_to_dict(params)
-    new_params = _copy_structure(params_dict)
+    # copy the container structure while sharing the (immutable) leaves;
+    # _update_params only replaces entries, so no array data needs to be copied
+    new_params = jax.tree.map(lambda x: x, params_dict)
     with numpyro.handlers.scope(prefix=name, divider=scope_divider):
         _update_params(params_dict, new_params, prior)
 
