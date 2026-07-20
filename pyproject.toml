@@ -49,11 +49,19 @@ dev = [
     "jaxns>=2.6.3,<=2.6.9",
     "matplotlib",
     "optax>=0.0.6",
+    "pandas>=3.0.3",
     "pylab-sdk",                         # jaxns dependency
+    "pyro-api>=0.1.2",
+    "pytest>=9.1.1",
     "pytest-cov",
     "pyyaml",                            # flax dependency
     "requests",                          # pylab dependency
+    "ruff>=0.15.22",
+    "scikit-learn>=1.9.0",
+    "seaborn>=0.13.2",
     "tfp-nightly",
+    "ty>=0.0.57",
+    "wordcloud>=1.9.6",
 ]
 ci = [
     "coverage>=7.13.5",

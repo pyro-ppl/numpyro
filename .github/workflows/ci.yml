@@ -148,6 +148,7 @@ jobs:
           XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/contrib/test_tfp.py -k "chain"
           XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/infer/test_hmc_gibbs.py -k "chain"
           XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/infer/test_mcmc.py -k "chain or pmap or vmap"
+          XLA_FLAGS="--xla_force_host_platform_device_count=2" uv run pytest -vs test/test_compile.py -k "chain"
       - name: Test custom prng
         run: |
           JAX_ENABLE_CUSTOM_PRNG=1 uv run pytest -vs test/infer/test_mcmc.py
