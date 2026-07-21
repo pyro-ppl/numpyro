@@ -456,6 +456,31 @@ class Cauchy(Distribution):
 
 
 class Dirichlet(Distribution):
+    r"""Dirichlet distribution parameterized by concentration (:attr:`concentration`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math:: 
+        f(\mathbf{x}; \boldsymbol{\alpha}) = \frac{\Gamma(\alpha_0)}{\prod_{i=1}^{K}\Gamma(\alpha_i)}
+        \prod_{i=1}^{K}x_i^{\alpha_i-1},
+
+    where :math:`\alpha_0 = \sum_{i=1}^{K}\alpha_i`,
+    each concentration parameter satisfies :math:`\alpha_i > 0`, and
+    :math:`\mathbf{x}` lies on the probability simplex in
+    :math:`\mathbb{R}^{K}`:
+
+    .. math:: 
+        x_i \geq 0, \qquad \sum_{i=1}^{K}x_i = 1.
+
+    :param concentration: Positive concentration parameters. The final
+        dimension determines the event size.
+    :type concentration: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
+
     arg_constraints = {
         "concentration": constraints.independent(constraints.positive, 1)
     }
@@ -481,6 +506,17 @@ class Dirichlet(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples using :func:`~jax.random.dirichlet`.
+
+        :func:`~jax.random.dirichlet` draws sample using gamma distribution.
+        
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Dirichlet distribution of shape ``sample_shape + batch_shape + event_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape
         samples = random.dirichlet(key, self.concentration, shape=shape)
@@ -490,6 +526,18 @@ class Dirichlet(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(\mathbf{x}; \boldsymbol{\alpha}) = \log\Gamma(\alpha_0)
+            - \sum_{i=1}^{K}\log\Gamma(\alpha_i)
+            + \sum_{i=1}^{K}(\alpha_i - 1)\log x_i.
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: ArrayLike
+        """
         normalize_term = jnp.sum(gammaln(self.concentration), axis=-1) - gammaln(
             jnp.sum(self.concentration, axis=-1)
         )
@@ -500,10 +548,25 @@ class Dirichlet(Distribution):
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Calculates the mean of the Dirichlet distribution per element.
+
+        .. math:: 
+            \mathbb{E}[X_i] = \frac{\alpha_i}{\alpha_0},
+        
+        where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`,
+        """
         return self.concentration / jnp.sum(self.concentration, axis=-1, keepdims=True)
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Calculates the variance of the Dirichlet distribution.
+
+        .. math:: 
+            \mathrm{Var}(X_i) = \frac{\alpha_i(\alpha_0-\alpha_i)}
+            {\alpha_0^2(\alpha_0+1)},
+
+        where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`,
+        """
         con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
         return self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
 
@@ -514,6 +577,17 @@ class Dirichlet(Distribution):
         return batch_shape, event_shape
 
     def entropy(self) -> ArrayLike:
+        r"""Entropy of the Dirichlet distribution.
+
+        .. math:: 
+            H(X) = \log B(\boldsymbol{\alpha})
+            + (\alpha_0-K)\psi(\alpha_0)
+            - \sum_{i=1}^{K}(\alpha_i-1)\psi(\alpha_i),
+
+        where :math:`\alpha_0 = \sum_{i=1}^{K}\alpha_i`,
+        :math:`B(\boldsymbol{\alpha})` is the multivariate beta function, and
+        :math:`\psi` is the digamma function.
+        """
         (n,) = self.event_shape
         total = self.concentration.sum(axis=-1)
         return (
