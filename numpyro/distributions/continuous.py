@@ -473,7 +473,7 @@ class Dirichlet(Distribution):
         x_i \geq 0, \qquad \sum_{i=1}^{K}x_i = 1.
 
     :param concentration: Positive concentration parameters. The final
-        dimension determines the event size (:math: `\alpha`)
+        dimension determines the event size (:math:`\alpha`)
     :type concentration: ArrayLike
     :param validate_args: Whether to validate input constraints, defaults to
         ``None``.
@@ -493,7 +493,8 @@ class Dirichlet(Distribution):
         validate_args: Optional[bool] = None,
     ) -> None:
         r"""
-        :param concentration: Positive concentration parameters. The final dimension determines the event size (:math: `\alpha`)
+        :param concentration: Positive concentration parameters. 
+            The final dimension determines the event size (:math:`\alpha`)
         :param validate_args: If True, enforce domain constraints during initialization.
         """
         if jnp.ndim(concentration) < 1:
