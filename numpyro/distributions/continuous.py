@@ -460,7 +460,7 @@ class Dirichlet(Distribution):
 
     The probability density function (PDF) is defined as:
 
-    .. math:: 
+    .. math::
         f(\mathbf{x}; \boldsymbol{\alpha}) = \frac{\Gamma(\alpha_0)}{\prod_{i=1}^{K}\Gamma(\alpha_i)}
         \prod_{i=1}^{K}x_i^{\alpha_i-1},
 
@@ -469,17 +469,16 @@ class Dirichlet(Distribution):
     :math:`\mathbf{x}` lies on the probability simplex in
     :math:`\mathbb{R}^{K}`:
 
-    .. math:: 
+    .. math::
         x_i \geq 0, \qquad \sum_{i=1}^{K}x_i = 1.
 
     :param concentration: Positive concentration parameters. The final
-        dimension determines the event size.
+        dimension determines the event size (:math: `\alpha`)
     :type concentration: ArrayLike
     :param validate_args: Whether to validate input constraints, defaults to
         ``None``.
     :type validate_args: bool, optional
     """
-
 
     arg_constraints = {
         "concentration": constraints.independent(constraints.positive, 1)
@@ -509,7 +508,7 @@ class Dirichlet(Distribution):
         r"""Generates samples using :func:`~jax.random.dirichlet`.
 
         :func:`~jax.random.dirichlet` draws sample using gamma distribution.
-        
+
         :param key: JAX PRNGKey for reproducibility.
         :type key: jax.Array
         :param sample_shape: The shape of the samples to be generated.
@@ -550,9 +549,9 @@ class Dirichlet(Distribution):
     def mean(self) -> ArrayLike:
         r"""Calculates the mean of the Dirichlet distribution per element.
 
-        .. math:: 
+        .. math::
             \mathbb{E}[X_i] = \frac{\alpha_i}{\alpha_0},
-        
+
         where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`,
         """
         return self.concentration / jnp.sum(self.concentration, axis=-1, keepdims=True)
@@ -561,11 +560,11 @@ class Dirichlet(Distribution):
     def variance(self) -> ArrayLike:
         r"""Calculates the variance of the Dirichlet distribution.
 
-        .. math:: 
+        .. math::
             \mathrm{Var}(X_i) = \frac{\alpha_i(\alpha_0-\alpha_i)}
             {\alpha_0^2(\alpha_0+1)},
 
-        where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`,
+        where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`
         """
         con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
         return self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
@@ -579,7 +578,7 @@ class Dirichlet(Distribution):
     def entropy(self) -> ArrayLike:
         r"""Entropy of the Dirichlet distribution.
 
-        .. math:: 
+        .. math::
             H(X) = \log B(\boldsymbol{\alpha})
             + (\alpha_0-K)\psi(\alpha_0)
             - \sum_{i=1}^{K}(\alpha_i-1)\psi(\alpha_i),
