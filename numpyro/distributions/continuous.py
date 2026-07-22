@@ -492,6 +492,10 @@ class Dirichlet(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param concentration: Positive concentration parameters. The final dimension determines the event size (:math: `\alpha`)
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(concentration) < 1:
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."

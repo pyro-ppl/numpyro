@@ -1839,6 +1839,10 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param probs: Probability of success on each trial (:math:`p`).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.probs = probs
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
@@ -1884,7 +1888,7 @@ class GeometricProbs(Distribution):
 
     @lazy_property
     def logits(self) -> ArrayLike:
-        r"""The log-odds corresponding to the success probability.
+        r"""Calculates the logits corresponding to the success probability.
 
         .. math::
             \ell = \log\left(\frac{p}{1-p}\right).
@@ -1931,10 +1935,10 @@ class GeometricLogits(Distribution):
         \left(1-\sigma(\ell)\right)^k,
         \qquad k \in \{0, 1, 2, \ldots\}.
 
-    where :math:`\ell` denote the log-odds parameter,
+    where :math:`\ell` denote the logits parameter,
     :math:`p = \sigma(\ell) = \frac{1}{1+\exp(-\ell)}` is the probability of success.
 
-    :param logits: Log-odds of success on each trial (:math:`logits`).
+    :param logits: Logits of success on each trial (:math:`logits`).
     :type logits: ArrayLike
     :param validate_args: Whether to validate input constraints, defaults to
         ``None``.
@@ -1945,6 +1949,10 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param logits: Logits of success on each trial (:math:`logits`).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.logits = logits
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
