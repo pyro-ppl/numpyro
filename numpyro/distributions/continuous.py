@@ -492,11 +492,6 @@ class Dirichlet(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        r"""
-        :param concentration: Positive concentration parameters.
-            The final dimension determines the event size (:math:`\alpha`)
-        :param validate_args: If True, enforce domain constraints during initialization.
-        """
         if jnp.ndim(concentration) < 1:
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."
@@ -510,10 +505,7 @@ class Dirichlet(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
-        r"""Generates samples using :func:`~jax.random.dirichlet`.
-
-        :func:`~jax.random.dirichlet` draws sample using gamma distribution.
-
+        r"""
         :param key: JAX PRNGKey for reproducibility.
         :type key: jax.Array
         :param sample_shape: The shape of the samples to be generated.
@@ -584,7 +576,8 @@ class Dirichlet(Distribution):
         r"""Entropy of the Dirichlet distribution.
 
         .. math::
-            H(X) = \log B(\boldsymbol{\alpha})
+            H(X) = \sum_{i=1}^{K} \ln \Gamma(\alpha_i)
+            - \ln \Gamma(\alpha_0)
             + (\alpha_0-K)\psi(\alpha_0)
             - \sum_{i=1}^{K}(\alpha_i-1)\psi(\alpha_i),
 

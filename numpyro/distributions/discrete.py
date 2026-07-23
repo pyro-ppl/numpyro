@@ -1839,10 +1839,6 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
-        r"""
-        :param probs: Probability of success on each trial (:math:`p`).
-        :param validate_args: If True, enforce domain constraints during initialization.
-        """
         self.probs = probs
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
@@ -1936,7 +1932,7 @@ class GeometricLogits(Distribution):
         \qquad k \in \{0, 1, 2, \ldots\}.
 
     where :math:`\ell` denote the logits parameter,
-    :math:`p = \sigma(\ell) = \frac{1}{1+\exp(-\ell)}` is the probability of success.
+    :math:`p = \sigma(\ell) = \displaystyle\frac{1}{1+\exp(-\ell)}` is the probability of success.
 
     :param logits: Logits of success on each trial (:math:`logits`).
     :type logits: ArrayLike
@@ -1949,10 +1945,6 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
-        r"""
-        :param logits: Logits of success on each trial (:math:`logits`).
-        :param validate_args: If True, enforce domain constraints during initialization.
-        """
         self.logits = logits
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
@@ -1991,8 +1983,9 @@ class GeometricLogits(Distribution):
         r"""Calculates the log probability mass function.
 
         .. math::
-            \log P(X = k; \ell) = \log\sigma(\ell)
-            + k\log\left(1-\sigma(\ell)\right).
+           \log P(X = k; \ell) = \ell - (k + 1) \operatorname{softplus}(\ell),
+
+        where, :math:`\operatorname{softplus}` is :func:`~jax.nn.softplus`.
 
         :param value: Number of failures before the first success. Values must
             be nonnegative integers.
@@ -2007,7 +2000,7 @@ class GeometricLogits(Distribution):
         r"""Calculates the mean of the Geometric distribution.
 
         .. math::
-            E[X] = \frac{1-p}{p},
+            E[X] = \frac{1}{p}-1,
 
         where :math:`p=\sigma(\ell)`.
         """
@@ -2020,6 +2013,11 @@ class GeometricLogits(Distribution):
         .. math::
             \operatorname{Var}(X) = \frac{1-p}{p^2},
 
+        implemented as,
+
+        .. math::
+            \operatorname{Var}(X) = \frac{1/p-1}{p},
+
         where :math:`p=\sigma(\ell)`.
         """
         return (1.0 / self.probs - 1.0) / self.probs
@@ -2028,9 +2026,12 @@ class GeometricLogits(Distribution):
         r"""Calculates the entropy of the Geometric distribution.
 
         .. math::
-            H(X) = -\log p - \frac{1-p}{p}\log(1-p),
+            H(X) = -\frac{1-p}{p}\ln{q}-\ln{p},
 
-        where :math:`p=\sigma(\ell)`.
+        where, :math:`\ln{p}=-\operatorname{softplus}(-\ell)`, :math:`\ln{q}=-\operatorname{softplus}(\ell)`,
+        and :math:`p=\operatorname{expit}(\ell)`. Implementation uses :func:`~jax.nn.softplus`
+        and :func:`~jax.scipy.special.expit` for :math:`\operatorname{softplus}`
+        and :math:`\operatorname{expit}`, respectively.
 
         :return: Entropy of the Geometric distribution.
         :rtype: ArrayLike
@@ -2062,7 +2063,7 @@ def Geometric(
     :type validate_args: bool, optional
     :return: A probability- or logit-parameterized Geometric distribution.
     :rtype: Union[GeometricProbs, GeometricLogits]
-    :raises ValueError: If both or neither of ``probs`` and ``logits`` are specified.
+    :raises ValueError: If both or neither of :attr:`probs` and :attr:`logits` are specified.
     """
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
