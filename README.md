@@ -296,17 +296,20 @@ conda install -c conda-forge numpyro
 
         ```python
         with handlers.seed(rng_seed=0):  # random.key(0) is used
-            x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNG key split from random.key(0)
-            y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNG key split from the last one
+            x = numpyro.sample("x", dist.Beta(1, 1))  # uses a PRNG key split from random.key(0)
+            y = numpyro.sample(
+                "y", dist.Bernoulli(x)
+            )  # uses different PRNG key split from the last one
         ```
 
      , or as a higher order function:
 
         ```python
         def fn():
-            x = numpyro.sample('x', dist.Beta(1, 1))
-            y = numpyro.sample('y', dist.Bernoulli(x))
+            x = numpyro.sample("x", dist.Beta(1, 1))
+            y = numpyro.sample("y", dist.Bernoulli(x))
             return y
+
 
         print(handlers.seed(fn, rng_seed=0)())
         ```
