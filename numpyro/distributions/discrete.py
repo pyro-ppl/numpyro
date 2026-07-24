@@ -1814,6 +1814,27 @@ class HurdlePoisson(HurdleProbs):
 
 
 class GeometricProbs(Distribution):
+    r"""A Geometric discrete random variable representing the number of failures
+    before the first success, parameterized by the success probability
+    (:attr:`probs`).
+
+    The probability mass function (PMF) is defined as:
+
+    .. math::
+
+        P(X = k; p) = p(1-p)^k
+
+    where :math:`p \in (0,1]` is the probability of success on each independent trial.
+    :math:`k \in \{0, 1, 2, \ldots\}` is the number of failures before first success.
+    Equivalently, the first success occurs on trial :math:`k+1`.
+
+    :param probs: Probability of success on each trial (:math:`p`).
+    :type probs: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
 
@@ -1824,6 +1845,21 @@ class GeometricProbs(Distribution):
         )
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples using inverse CDF method.
+
+        For a uniform random variable :math:`U \sim \mathrm{Uniform}[0, 1)`,
+        a Geometric sample is obtained as:
+
+        .. math::
+            X = \left\lfloor \frac{\log(1-U)}{\log(1-p)} \right\rfloor.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from Geometric distribution of shape ``sample_shape + batch_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         probs = self.probs
         dtype = jnp.result_type(probs)
@@ -1833,28 +1869,78 @@ class GeometricProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log of the probability mass function.
+
+        .. math::
+            \log P(X = k; p) = k\log(1-p) + \log p.
+
+        :param value: Values at which to evaluate the log density. Values must be nonnegative integers.
+        :type value: ArrayLike
+        :return: Log probability mass.
+        :rtype: ArrayLike
+        """
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
         return value * jnp.log1p(-probs) + jnp.log(probs)
 
     @lazy_property
     def logits(self) -> ArrayLike:
+        r"""Calculates the logits corresponding to the success probability.
+
+        .. math::
+            \ell = \log\left(\frac{p}{1-p}\right).
+        """
         return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Calculates the mean of the Geometric distribution.
+
+        .. math::
+            \mathbb{E}[X] = \frac{1-p}{p}.
+        """
         return 1.0 / self.probs - 1.0
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Calculates the variance of the Geometric distribution.
+
+        .. math::
+            \operatorname{Var}(X) = \frac{1-p}{p^2}.
+        """
         return (1.0 / self.probs - 1.0) / self.probs
 
     def entropy(self) -> ArrayLike:
+        r"""Entropy of the Geometric distribution.
+
+        .. math::
+            H(X) = -\log p - \frac{1-p}{p}\log(1-p).
+
+        :return: Entropy of the Geometric distribution.
+        :rtype: ArrayLike
+        """
         return -(1 - self.probs) * jnp.log1p(-self.probs) / self.probs - jnp.log(
             self.probs
         )
 
 
 class GeometricLogits(Distribution):
+    r"""Geometric distribution parameterized by logits (:attr:`logits`).
+
+    .. math::
+        P(X = k \mid \ell) = \sigma(\ell)
+        \left(1-\sigma(\ell)\right)^k,
+        \qquad k \in \{0, 1, 2, \ldots\}.
+
+    where :math:`\ell` denote the logits parameter,
+    :math:`p = \sigma(\ell) = \displaystyle\frac{1}{1+\exp(-\ell)}` is the probability of success.
+
+    :param logits: Logits of success on each trial (:math:`logits`).
+    :type logits: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
 
@@ -1866,9 +1952,25 @@ class GeometricLogits(Distribution):
 
     @lazy_property
     def probs(self) -> ArrayLike:
+        r"""The success probability obtained by applying the sigmoid function
+        to the logits.
+
+        .. math::
+            p = \sigma(\ell) = \frac{1}{1+\exp(-\ell)}.
+        """
         return _to_probs_bernoulli(self.logits)
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        r"""Generates samples using inverse CDF technique in logit space.
+
+        :param key: JAX pseudo-random number generator key.
+        :type key: jax.Array
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Geometric distribution of shape
+            ``sample_shape + batch_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         logits = self.logits
         dtype = jnp.result_type(logits)
@@ -1878,17 +1980,62 @@ class GeometricLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculates the log probability mass function.
+
+        .. math::
+           \log P(X = k; \ell) = \ell - (k + 1) \operatorname{softplus}(\ell),
+
+        where, :math:`\operatorname{softplus}` is :func:`~jax.nn.softplus`.
+
+        :param value: Number of failures before the first success. Values must
+            be nonnegative integers.
+        :type value: ArrayLike
+        :return: Log probability mass.
+        :rtype: ArrayLike
+        """
         return (-value - 1) * softplus(self.logits) + self.logits
 
     @property
     def mean(self) -> ArrayLike:
+        r"""Calculates the mean of the Geometric distribution.
+
+        .. math::
+            E[X] = \frac{1}{p}-1,
+
+        where :math:`p=\sigma(\ell)`.
+        """
         return 1.0 / self.probs - 1.0
 
     @property
     def variance(self) -> ArrayLike:
+        r"""Calculates the variance of the Geometric distribution.
+
+        .. math::
+            \operatorname{Var}(X) = \frac{1-p}{p^2},
+
+        implemented as,
+
+        .. math::
+            \operatorname{Var}(X) = \frac{1/p-1}{p},
+
+        where :math:`p=\sigma(\ell)`.
+        """
         return (1.0 / self.probs - 1.0) / self.probs
 
     def entropy(self) -> ArrayLike:
+        r"""Calculates the entropy of the Geometric distribution.
+
+        .. math::
+            H(X) = -\frac{1-p}{p}\ln{q}-\ln{p},
+
+        where, :math:`\ln{p}=-\operatorname{softplus}(-\ell)`, :math:`\ln{q}=-\operatorname{softplus}(\ell)`,
+        and :math:`p=\operatorname{expit}(\ell)`. Implementation uses :func:`~jax.nn.softplus`
+        and :func:`~jax.scipy.special.expit` for :math:`\operatorname{softplus}`
+        and :math:`\operatorname{expit}`, respectively.
+
+        :return: Entropy of the Geometric distribution.
+        :rtype: ArrayLike
+        """
         logq = -jax.nn.softplus(self.logits)
         logp = -jax.nn.softplus(-self.logits)
         p = jax.scipy.special.expit(self.logits)
@@ -1902,6 +2049,22 @@ def Geometric(
     *,
     validate_args: Optional[bool] = None,
 ) -> Union[GeometricProbs, GeometricLogits]:
+    r"""Geometric distribution parameterized by either probabilities
+    or logits.
+
+    Exactly one of :attr:`probs` or :attr:`logits` must be specified.
+
+    :param probs: Probability of success on each independent trial (:math:`p`).
+    :type probs: ArrayLike, optional
+    :param logits: Logits of success on each independent trial.
+    :type logits: ArrayLike, optional
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    :return: A probability- or logit-parameterized Geometric distribution.
+    :rtype: Union[GeometricProbs, GeometricLogits]
+    :raises ValueError: If both or neither of :attr:`probs` and :attr:`logits` are specified.
+    """
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return GeometricProbs(probs, validate_args=validate_args)
