@@ -578,7 +578,7 @@ class Dirichlet(Distribution):
 
         .. math::
             H(X) = \sum_{i=1}^{K} \ln \Gamma(\alpha_i)
-            - \ln \Gamma(\alpha_0)sample(self, key: jax.Array, sample_shape: tu
+            - \ln \Gamma(\alpha_0)
             + (\alpha_0-K)\psi(\alpha_0)
             - \sum_{i=1}^{K}(\alpha_i-1)\psi(\alpha_i),
 
