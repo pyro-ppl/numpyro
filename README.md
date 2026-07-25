@@ -10,31 +10,15 @@
 
 ### Probabilistic programming powered by [JAX][JAX] for autograd and JIT compilation to GPU/TPU/CPU
 
-<p>
-  <a href="https://num.pyro.ai/en/stable/getting_started.html#installation"><strong>Installation</strong></a>
-  •
-  <a href="https://num.pyro.ai"><strong>Documentation and Tutorials</strong></a>
-  •
-  <a href="https://forum.pyro.ai"><strong>Forum</strong></a>
-</p>
+[**Installation**](https://num.pyro.ai/en/stable/getting_started.html#installation) •
+[**Documentation and Tutorials**](https://num.pyro.ai) •
+[**Forum**](https://forum.pyro.ai)
 
-<p>
-  <a href="https://github.com/pyro-ppl/numpyro/actions">
-    <img src="https://github.com/pyro-ppl/numpyro/workflows/CI/badge.svg" alt="CI">
-  </a>
-  <a href="https://coveralls.io/github/pyro-ppl/numpyro?branch=master">
-    <img src="https://coveralls.io/repos/github/pyro-ppl/numpyro/badge.svg?branch=master&kill_cache=1" alt="Coverage">
-  </a>
-  <a href="https://numpyro.readthedocs.io/en/latest/?badge=latest">
-    <img src="https://readthedocs.org/projects/numpyro/badge/?version=latest" alt="Docs">
-  </a>
-  <a href="https://www.bestpractices.dev/projects/9769">
-    <img src="https://www.bestpractices.dev/projects/9769/badge" alt="OpenSSF">
-  </a>
-  <a href="https://pypi.python.org/pypi/numpyro">
-    <img src="https://badge.fury.io/py/numpyro.svg" alt="PyPI">
-  </a>
-</p>
+[![Build Status](https://github.com/pyro-ppl/numpyro/workflows/CI/badge.svg)](https://github.com/pyro-ppl/numpyro/actions)
+[![Coverage Status](https://coveralls.io/repos/github/pyro-ppl/numpyro/badge.svg?branch=master&kill_cache=1)](https://coveralls.io/github/pyro-ppl/numpyro?branch=master)
+[![Documentation Status](https://readthedocs.org/projects/numpyro/badge/?version=latest)](https://numpyro.readthedocs.io/en/latest/?badge=latest)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9769/badge)](https://www.bestpractices.dev/projects/9769)
+[![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 
 </div>
 
