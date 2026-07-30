@@ -50,6 +50,7 @@ dev = [
     "matplotlib",
     "optax>=0.0.6",
     "pandas>=3.0.3",
+    "pre-commit>=4.6.1",
     "pylab-sdk",                         # jaxns dependency
     "pyro-api>=0.1.2",
     "pytest>=9.1.1",
