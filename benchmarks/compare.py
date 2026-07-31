@@ -28,25 +28,6 @@ FASTER, SLOWER, NEUTRAL, UNAVAILABLE = "faster", "slower", "neutral", "n/a"
 #: stand behind. Reported in parentheses rather than called a change.
 UNRESOLVED = "unresolved"
 
-#: Hex colours for the delta columns. GitHub strips style attributes from
-#: comment HTML, so the only way to colour text is its LaTeX math rendering.
-#: These mid-tones stay legible against both the light and the dark theme,
-#: which the usual GitHub red/green pair does not.
-_COLOR = {
-    SLOWER: "e5534b",
-    FASTER: "3fb950",
-    NEUTRAL: "8b949e",
-    UNRESOLVED: "8b949e",
-    UNAVAILABLE: "8b949e",
-}
-
-
-def colored(text: str, verdict: str) -> str:
-    """Wrap ``text`` in the LaTeX GitHub renders as coloured sans-serif type."""
-    # `%` opens a comment in maths mode, so it has to be escaped.
-    escaped = text.replace("%", r"\%")
-    return f"$\\textcolor{{#{_COLOR[verdict]}}}{{\\textsf{{{escaped}}}}}$"
-
 
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -271,12 +252,14 @@ def fmt_duration(seconds: Optional[float]) -> str:
 
 
 def fmt_delta(pct: Optional[float], verdict: str) -> str:
-    """Render a percentage change, coloured by whether it is a regression."""
+    """Render a percentage change as plain text."""
     if pct is None:
-        return colored("n/a", UNAVAILABLE)
+        return "n/a"
     if verdict == UNRESOLVED:
-        return colored(f"({pct:+.1f}%)", verdict)
-    return colored(f"{pct:+.1f}%", verdict)
+        # Parenthesised: it cleared the threshold, but on a measurement too
+        # small to stand behind.
+        return f"({pct:+.1f}%)"
+    return f"{pct:+.1f}%"
 
 
 def commit_link(sha: str, repo_url: str) -> str:
@@ -289,50 +272,115 @@ def commit_link(sha: str, repo_url: str) -> str:
     return f"[`{short}`]({repo_url.rstrip('/')}/commit/{sha})"
 
 
+def _prefix(row: dict[str, Any]) -> str:
+    """Pick the character that colours a row inside a ``diff`` fence.
+
+    A regression outranks an improvement, so a benchmark that got faster to run
+    but slower to compile still shows up red. Only the line as a whole can be
+    coloured; the per-column direction is carried by the signed percentages.
+    """
+    verdicts = (row["run_verdict"], row["compile_verdict"])
+    if SLOWER in verdicts:
+        return "-"
+    if FASTER in verdicts:
+        return "+"
+    return " "
+
+
 def _table(rows: list[dict[str, Any]], base_label: str, head_label: str) -> list[str]:
-    lines = [
-        f"| Benchmark | Run · {base_label} | Run · {head_label} | Δ run "
-        f"| Compile · {base_label} | Compile · {head_label} | Δ compile |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for row in rows:
-        name = f"`{row['name']}`"
-        if row["note"]:
-            # Flagged rather than dropped; the reason is listed below the table.
-            name += " †"
-        lines.append(
-            "| {name} | {br} | {hr} | {dr} | {bc} | {hc} | {dc} |".format(
-                name=name,
-                br=fmt_duration(row["base_run_s"]),
-                hr=fmt_duration(row["head_run_s"]),
-                dr=fmt_delta(row["run_pct"], row["run_verdict"]),
-                bc=fmt_duration(row["base_compile_s"]),
-                hc=fmt_duration(row["head_compile_s"]),
-                dc=fmt_delta(row["compile_pct"], row["compile_verdict"]),
-            )
-        )
-    return lines
+    """Render rows as an aligned monospace table inside a ``diff`` fence.
 
+    GitHub highlights a ``diff`` block by line: one starting with ``-`` is red
+    and one starting with ``+`` is green. That gives real colour without the
+    LaTeX workaround, and a fixed-width block keeps the numbers in columns
+    instead of letting a Markdown table squeeze them.
+    """
+    if not rows:
+        return []
 
-def _tally(rows: list[dict[str, Any]], field: str, name: str) -> str:
-    slower = sum(1 for r in rows if r[field] == SLOWER)
-    faster = sum(1 for r in rows if r[field] == FASTER)
-    if not slower and not faster:
-        return f"**{name}**: unchanged"
-    counts = [
-        colored(f"{faster} faster", FASTER if faster else NEUTRAL),
-        colored(f"{slower} slower", SLOWER if slower else NEUTRAL),
-    ]
-    return f"**{name}**: " + ", ".join(counts)
-
-
-def _headline(rows: list[dict[str, Any]]) -> str:
-    return " · ".join(
+    body = [
         (
-            _tally(rows, "run_verdict", "run time"),
-            _tally(rows, "compile_verdict", "compile time"),
+            _prefix(row),
+            row["name"] + (" †" if row["note"] else ""),
+            fmt_duration(row["base_run_s"]),
+            fmt_duration(row["head_run_s"]),
+            fmt_delta(row["run_pct"], row["run_verdict"]),
+            fmt_duration(row["base_compile_s"]),
+            fmt_duration(row["head_compile_s"]),
+            fmt_delta(row["compile_pct"], row["compile_verdict"]),
         )
+        for row in rows
+    ]
+    headers = (
+        "benchmark",
+        base_label,
+        head_label,
+        "Δ",
+        base_label,
+        head_label,
+        "Δ",
     )
+    widths = [
+        max(len(header), max(len(cell[i + 1]) for cell in body))
+        for i, header in enumerate(headers)
+    ]
+
+    def line(cells: tuple[str, ...]) -> str:
+        name = cells[1].ljust(widths[0])
+        run = "  ".join(c.rjust(w) for c, w in zip(cells[2:5], widths[1:4]))
+        compile_ = "  ".join(c.rjust(w) for c, w in zip(cells[5:8], widths[4:7]))
+        return f"{cells[0]} {name}   {run}     {compile_}".rstrip()
+
+    run_span = sum(widths[1:4]) + 4
+    compile_span = sum(widths[4:7]) + 4
+    group = (
+        " " * (2 + widths[0] + 3)
+        + " run time ".center(run_span, "─")
+        + "     "
+        + " compile time ".center(compile_span, "─")
+    )
+    header = line((" ",) + headers)
+    # A rule drawn with ASCII hyphens would read as a diff file header, so use
+    # box drawing.
+    rule = "─" * len(header)
+
+    return [
+        "```diff",
+        group,
+        header,
+        rule,
+        *(line(cells) for cells in body),
+        "```",
+    ]
+
+
+def _legend() -> list[str]:
+    return [
+        "<sub>Red is slower, green is faster; a row is coloured by the worse of "
+        "its two columns. A delta in parentheses cleared the threshold on a "
+        "measurement below the resolution floor, so it is shown without being "
+        "called a change. † marks a benchmark that could not be compared — see "
+        "below.</sub>",
+    ]
+
+
+def _headline(rows: list[dict[str, Any]]) -> list[str]:
+    """Render the counts as a small coloured ``diff`` block."""
+    metrics = (("run_verdict", "run time"), ("compile_verdict", "compile time"))
+    width = max(len(name) for _, name in metrics)
+
+    lines = []
+    for field, name in metrics:
+        slower = sum(1 for r in rows if r[field] == SLOWER)
+        faster = sum(1 for r in rows if r[field] == FASTER)
+        label = f"{name}:".ljust(width + 1)
+        if slower:
+            lines.append(f"- {label} {slower} slower, {faster} faster")
+        elif faster:
+            lines.append(f"+ {label} {faster} faster")
+        else:
+            lines.append(f"  {label} unchanged across {len(rows)} benchmarks")
+    return ["```diff", *lines, "```"]
 
 
 def render(
@@ -367,7 +415,7 @@ def render(
             side(args.base_label, args.base_ref, base),
         ),
         "",
-        _headline(rows),
+        *_headline(rows),
         "",
     ]
 
@@ -409,6 +457,8 @@ def render(
             f"±{args.compile_threshold:g}% compile time.",
             "",
         ]
+    # The full results below carry the same notation either way.
+    out += [*_legend(), ""]
 
     suites = sorted({r["suite"] for r in rows})
     out += ["<details>", "<summary>Full results</summary>", ""]

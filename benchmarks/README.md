@@ -82,10 +82,20 @@ neutral unless it clears a threshold:
 | `--min-duration-ms` | 1 ms | Below this, dispatch jitter dominates the measurement. |
 | `--min-compile-ms` | 50 ms | An uncompiled benchmark still shows a small cold/warm gap from warm-up, which is not compilation. |
 
-Deltas are coloured red for a regression and green for an improvement, in grey
-when neutral. A delta **in parentheses** cleared its threshold but sits below
-the resolution floor, so it is shown without being called a change — usually a
-sign the benchmark itself is too small and should be given more work to do.
+Results are rendered as fixed-width tables inside ` ```diff ` fences rather
+than as Markdown tables: the columns stay aligned, and GitHub's diff
+highlighting colours a line red when it starts with `-` and green when it
+starts with `+`. A regression outranks an improvement, so a benchmark that got
+faster to run but slower to compile still shows red — the per-column direction
+is carried by the signed percentages. Colouring is per line, not per cell,
+which is the trade for having it work at all.
+
+A delta **in parentheses** cleared its threshold but sits below the resolution
+floor, so it is shown without being called a change — usually a sign the
+benchmark itself is too small and should be given more work to do.
+
+The environment table stays Markdown, because commit links do not survive
+inside a code block.
 
 Two further defences are applied by the workflow rather than the comparison
 itself: both refs are measured on the same runner, in rounds that alternate
