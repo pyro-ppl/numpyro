@@ -41,7 +41,7 @@ concurrency:
 
 env:
   BENCH_LABEL: run-benchmarks
-  PYTHON_VERSION: "3.13"
+  PYTHON_VERSION: "3.14"
   JAX_PLATFORMS: cpu
 
 jobs:
