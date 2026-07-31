@@ -1,11 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Measures this PR against its merge base and uploads a rendered report.
+# Measures this PR against its merge base and comments the result on the PR.
 #
-# This workflow deliberately holds no write permissions: on a fork PR it runs
-# untrusted code. Posting the report is the job of benchmark-comment.yml, which
-# is triggered by workflow_run and only ever handles the artifact.
+# A pull request from a branch in this repository gets a write token, so the
+# comment is posted from here directly. A pull request from a fork gets a
+# read-only token no matter what the permissions block below asks for; those
+# are handled by benchmark-comment.yml, which picks up the uploaded artifact.
 name: Benchmark
 
 on:
@@ -29,6 +30,10 @@ on:
 
 permissions:
   contents: read
+  # Only actually granted for same-repo pull requests. GitHub caps the token
+  # for a fork's pull_request run at read-only regardless of what is requested
+  # here, which is why the fork path goes through benchmark-comment.yml.
+  pull-requests: write
 
 concurrency:
   group: benchmark-${{ github.event.pull_request.number || github.ref }}
@@ -161,6 +166,29 @@ jobs:
             --output "$RUNNER_TEMP/results/comment.md" \
             --json-output "$RUNNER_TEMP/results/summary.json"
           cat "$RUNNER_TEMP/results/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the PR
+        # Same-repo pull requests have a write token here, so post directly and
+        # skip the workflow_run round trip entirely. Fork pull requests fall
+        # through to benchmark-comment.yml.
+        if: >-
+          github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        env:
+          REPORT: ${{ runner.temp }}/results/comment.md
+        with:
+          script: |
+            const fs = require('fs');
+            // github-script resolves a bare relative require against its own
+            // directory, so the workspace path has to be spelled out.
+            const postStickyComment = require(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/post-sticky-comment.js`);
+            await postStickyComment({ github, context, core }, {
+              issue_number: context.issue.number,
+              body: fs.readFileSync(process.env.REPORT, 'utf8'),
+              runId: context.runId,
+            });
 
       - name: Record the PR number for the commenting workflow
         if: github.event_name == 'pull_request'

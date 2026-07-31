@@ -106,11 +106,28 @@ JAX. Both are then measured with the head revision of `benchmarks/`, so a
 benchmark added by the PR still runs against the base. Where it cannot run
 there, the row is reported as `n/a` with the reason rather than being dropped.
 
-`.github/workflows/benchmark-comment.yml` posts the result as a sticky comment,
-editing its own previous comment in place. It is a separate `workflow_run`
-workflow because a `pull_request` build of a fork gets a read-only token: the
-benchmark job holds no write permission and only uploads an artifact, and the
-privileged job never executes code from the pull request.
+The result is posted as a sticky comment, editing the bot's own previous
+comment in place rather than piling up a new one per run. Which of the two
+paths does the posting depends on where the pull request came from:
+
+- **From a branch in this repository**, the run has a write token, so
+  `benchmark.yml` comments directly at the end of the job.
+- **From a fork**, GitHub caps the run's token at read-only whatever the
+  workflow asks for. `benchmark.yml` can then only upload an artifact, and
+  `.github/workflows/benchmark-comment.yml` posts on its behalf: it is
+  triggered by `workflow_run`, holds the write token itself, and never
+  executes anything out of the pull request — it reads the artifact and
+  validates the PR number and head SHA before commenting.
+
+Both call the same `.github/scripts/post-sticky-comment.js`.
+
+> **`workflow_run` only ever runs the copy of the workflow that is on the
+> default branch.** `benchmark-comment.yml` therefore does nothing at all until
+> it has been merged to `master` — which is fine for same-repo pull requests,
+> since those never reach it, but means fork PRs stay uncommented until then.
+
+The report is also written to the job summary, so it is readable from the
+Actions tab even when no comment was posted.
 
 ## Adding a benchmark
 
