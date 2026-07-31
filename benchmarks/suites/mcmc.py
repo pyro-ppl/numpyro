@@ -54,7 +54,7 @@ def nuts_logistic_regression():
     """NUTS on a dense 1000x10 logistic regression."""
     data = logistic_regression_data()
     mcmc = _mcmc(NUTS(logistic_regression))
-    return _runner(mcmc, random.PRNGKey(0), **data)
+    return _runner(mcmc, random.key(0), **data)
 
 
 @benchmark(suite="mcmc", warm_repeats=3)
@@ -62,7 +62,7 @@ def nuts_eight_schools():
     """NUTS on non-centred eight schools."""
     data = eight_schools_data()
     mcmc = _mcmc(NUTS(eight_schools), num_warmup=500, num_samples=500)
-    return _runner(mcmc, random.PRNGKey(0), **data)
+    return _runner(mcmc, random.key(0), **data)
 
 
 @benchmark(suite="mcmc", warm_repeats=3)
@@ -70,14 +70,14 @@ def nuts_hierarchical_glm():
     """NUTS on a partially pooled regression with 20 groups."""
     data = hierarchical_glm_data()
     mcmc = _mcmc(NUTS(hierarchical_glm))
-    return _runner(mcmc, random.PRNGKey(0), **data)
+    return _runner(mcmc, random.key(0), **data)
 
 
 @benchmark(suite="mcmc", warm_repeats=3)
 def nuts_dense_mass_funnel():
     """NUTS with a dense mass matrix on Neal's funnel."""
     mcmc = _mcmc(NUTS(partial(neals_funnel, dim=10), dense_mass=True))
-    return _runner(mcmc, random.PRNGKey(0))
+    return _runner(mcmc, random.key(0))
 
 
 @benchmark(suite="mcmc", warm_repeats=3)
@@ -85,7 +85,7 @@ def hmc_logistic_regression():
     """HMC with a fixed trajectory length on logistic regression."""
     data = logistic_regression_data()
     mcmc = _mcmc(HMC(logistic_regression, trajectory_length=1.0))
-    return _runner(mcmc, random.PRNGKey(0), **data)
+    return _runner(mcmc, random.key(0), **data)
 
 
 @benchmark(suite="mcmc", warm_repeats=2)
@@ -93,4 +93,4 @@ def nuts_vectorized_chains():
     """Four vmapped NUTS chains on eight schools."""
     data = eight_schools_data()
     mcmc = _mcmc(NUTS(eight_schools), num_chains=4, chain_method="vectorized")
-    return _runner(mcmc, random.PRNGKey(0), **data)
+    return _runner(mcmc, random.key(0), **data)

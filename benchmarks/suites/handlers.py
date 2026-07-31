@@ -30,7 +30,7 @@ from numpyro.infer.util import initialize_model, log_density, potential_energy
 def trace_seeded_model():
     """trace(seed(model)).get_trace on logistic regression -- pure Python."""
     data = logistic_regression_data()
-    key = random.PRNGKey(0)
+    key = random.key(0)
 
     def run():
         return trace(seed(logistic_regression, key)).get_trace(**data)
@@ -42,7 +42,7 @@ def trace_seeded_model():
 def nested_handler_stack():
     """A four-deep substitute/condition/seed/trace stack on the hierarchical GLM."""
     data = hierarchical_glm_data()
-    key = random.PRNGKey(0)
+    key = random.key(0)
     params = {
         site: value["value"]
         for site, value in trace(seed(hierarchical_glm, key)).get_trace(**data).items()
@@ -62,7 +62,7 @@ def nested_handler_stack():
 def log_density_hierarchical():
     """log_density on the hierarchical GLM -- untraced, un-jitted."""
     data = hierarchical_glm_data()
-    key = random.PRNGKey(0)
+    key = random.key(0)
     params = {
         site: value["value"]
         for site, value in trace(seed(hierarchical_glm, key)).get_trace(**data).items()
@@ -79,7 +79,7 @@ def log_density_hierarchical():
 def potential_energy_and_grad():
     """jit(grad(potential_energy)) on logistic regression -- the NUTS inner loop."""
     data = logistic_regression_data()
-    key = random.PRNGKey(0)
+    key = random.key(0)
     # ``initialize_model`` hands back unconstrained values, which is exactly
     # what ``potential_energy`` expects.
     params = initialize_model(key, logistic_regression, model_kwargs=data).param_info.z
@@ -97,7 +97,7 @@ def potential_energy_and_grad():
 def initialize_model_hierarchical():
     """initialize_model on the hierarchical GLM -- tracing plus init strategy."""
     data = hierarchical_glm_data()
-    key = random.PRNGKey(0)
+    key = random.key(0)
 
     def run():
         info = initialize_model(key, hierarchical_glm, model_kwargs=data)
@@ -110,7 +110,7 @@ def initialize_model_hierarchical():
 def predictive_forward_sampling():
     """Predictive with 250 draws from the prior of the hierarchical GLM."""
     data = hierarchical_glm_data()
-    key = random.PRNGKey(0)
+    key = random.key(0)
     model_kwargs = {k: v for k, v in data.items() if k != "y"}
     predictive = Predictive(hierarchical_glm, num_samples=250)
 

@@ -48,7 +48,7 @@ def svi_autonormal_logistic():
         optim.Adam(1e-3),
         Trace_ELBO(),
     )
-    return _runner(svi, random.PRNGKey(0), **data)
+    return _runner(svi, random.key(0), **data)
 
 
 @benchmark(suite="svi", warm_repeats=3)
@@ -61,7 +61,7 @@ def svi_autodiagonalnormal_hierarchical():
         optim.Adam(1e-3),
         Trace_ELBO(),
     )
-    return _runner(svi, random.PRNGKey(0), **data)
+    return _runner(svi, random.key(0), **data)
 
 
 @benchmark(suite="svi", warm_repeats=3)
@@ -74,7 +74,7 @@ def svi_automultivariatenormal_eight_schools():
         optim.Adam(1e-3),
         Trace_ELBO(),
     )
-    return _runner(svi, random.PRNGKey(0), **data)
+    return _runner(svi, random.key(0), **data)
 
 
 @benchmark(suite="svi", warm_repeats=3)
@@ -87,7 +87,7 @@ def svi_autodelta_map_logistic():
         optim.Adam(1e-2),
         Trace_ELBO(),
     )
-    return _runner(svi, random.PRNGKey(0), **data)
+    return _runner(svi, random.key(0), **data)
 
 
 @benchmark(suite="svi", warm_repeats=3)
@@ -100,7 +100,7 @@ def svi_trace_mean_field_elbo():
         optim.Adam(1e-3),
         TraceMeanField_ELBO(),
     )
-    return _runner(svi, random.PRNGKey(0), **data)
+    return _runner(svi, random.key(0), **data)
 
 
 @benchmark(suite="svi", warm_repeats=3)
@@ -113,4 +113,4 @@ def svi_multi_particle_elbo():
         optim.Adam(1e-3),
         Trace_ELBO(num_particles=16),
     )
-    return _runner(svi, random.PRNGKey(0), num_steps=500, **data)
+    return _runner(svi, random.key(0), num_steps=500, **data)

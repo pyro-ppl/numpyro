@@ -49,14 +49,14 @@ def _jit_call(fn, *args):
 @benchmark(suite="distributions", warm_repeats=20)
 def normal_log_prob():
     """Normal.log_prob over a 65536x64 batch."""
-    x = random.normal(random.PRNGKey(0), (BATCH, DIM))
+    x = random.normal(random.key(0), (BATCH, DIM))
     return _jit_call(lambda x: dist.Normal(0.0, 1.0).log_prob(x).sum(), x)
 
 
 @benchmark(suite="distributions", warm_repeats=20)
 def multivariate_normal_log_prob():
     """MultivariateNormal.log_prob -- triangular solve dominated."""
-    key = random.PRNGKey(0)
+    key = random.key(0)
     scale_tril = jnp.linalg.cholesky(
         jnp.eye(MATRIX_DIM) + 0.1 * jnp.ones((MATRIX_DIM, MATRIX_DIM))
     )
@@ -72,7 +72,7 @@ def multivariate_normal_log_prob():
 @benchmark(suite="distributions", warm_repeats=20)
 def dirichlet_log_prob():
     """Dirichlet.log_prob -- lgamma heavy, simplex constrained."""
-    key = random.PRNGKey(0)
+    key = random.key(0)
     conc = jnp.full((DIM,), 2.0)
     x = dist.Dirichlet(conc).sample(key, (DIRICHLET_BATCH,))
     return _jit_call(lambda x, c: dist.Dirichlet(c).log_prob(x).sum(), x, conc)
@@ -81,7 +81,7 @@ def dirichlet_log_prob():
 @benchmark(suite="distributions", warm_repeats=20)
 def categorical_log_prob():
     """Categorical(logits).log_prob -- gather plus log_softmax."""
-    key = random.PRNGKey(0)
+    key = random.key(0)
     logits = random.normal(key, (BATCH, DIM))
     x = random.randint(key, (BATCH,), 0, DIM)
     return _jit_call(
@@ -92,7 +92,7 @@ def categorical_log_prob():
 @benchmark(suite="distributions", warm_repeats=20)
 def gamma_log_prob():
     """Gamma.log_prob over a 65536x64 batch."""
-    key = random.PRNGKey(0)
+    key = random.key(0)
     x = dist.Gamma(2.0, 1.0).sample(key, (BATCH, DIM))
     return _jit_call(lambda x: dist.Gamma(2.0, 1.0).log_prob(x).sum(), x)
 
@@ -100,14 +100,14 @@ def gamma_log_prob():
 @benchmark(suite="distributions", warm_repeats=20)
 def student_t_log_prob():
     """StudentT.log_prob over a 65536x64 batch."""
-    x = random.normal(random.PRNGKey(0), (BATCH, DIM))
+    x = random.normal(random.key(0), (BATCH, DIM))
     return _jit_call(lambda x: dist.StudentT(3.0, 0.0, 1.0).log_prob(x).sum(), x)
 
 
 @benchmark(suite="distributions", warm_repeats=20)
 def truncated_normal_log_prob():
     """TruncatedNormal.log_prob -- CDF normalisation path."""
-    x = jnp.abs(random.normal(random.PRNGKey(0), (BATCH, DIM)))
+    x = jnp.abs(random.normal(random.key(0), (BATCH, DIM)))
     return _jit_call(
         lambda x: dist.TruncatedNormal(0.0, 1.0, low=0.0).log_prob(x).sum(), x
     )
@@ -116,7 +116,7 @@ def truncated_normal_log_prob():
 @benchmark(suite="distributions", warm_repeats=20)
 def mixture_same_family_log_prob():
     """MixtureSameFamily.log_prob with 8 Normal components."""
-    key = random.PRNGKey(0)
+    key = random.key(0)
     locs = random.normal(key, (8,))
     x = random.normal(key, (BATCH,))
 
@@ -137,7 +137,7 @@ def mixture_same_family_log_prob():
 def normal_sample():
     """Normal.sample of a 65536x64 batch."""
     return _jit_call(
-        lambda k: dist.Normal(0.0, 1.0).sample(k, (BATCH, DIM)), random.PRNGKey(0)
+        lambda k: dist.Normal(0.0, 1.0).sample(k, (BATCH, DIM)), random.key(0)
     )
 
 
@@ -146,7 +146,7 @@ def gamma_sample():
     """Gamma.sample -- rejection sampler with custom JVP."""
     return _jit_call(
         lambda k: dist.Gamma(2.0, 1.0).sample(k, (SAMPLE_BATCH, MATRIX_DIM)),
-        random.PRNGKey(0),
+        random.key(0),
     )
 
 
@@ -156,7 +156,7 @@ def dirichlet_sample():
     conc = jnp.full((DIM,), 2.0)
     return _jit_call(
         lambda k, c: dist.Dirichlet(c).sample(k, (SAMPLE_BATCH,)),
-        random.PRNGKey(0),
+        random.key(0),
         conc,
     )
 
@@ -166,7 +166,7 @@ def lkj_cholesky_sample():
     """LKJCholesky.sample -- onion method over 512 draws."""
     return _jit_call(
         lambda k: dist.LKJCholesky(8, concentration=1.0).sample(k, (512,)),
-        random.PRNGKey(0),
+        random.key(0),
     )
 
 
@@ -178,7 +178,7 @@ def lkj_cholesky_sample():
 @benchmark(suite="distributions", warm_repeats=20)
 def stick_breaking_transform():
     """StickBreakingTransform forward, inverse and log-det."""
-    x = random.normal(random.PRNGKey(0), (TRANSFORM_BATCH, MATRIX_DIM - 1))
+    x = random.normal(random.key(0), (TRANSFORM_BATCH, MATRIX_DIM - 1))
     transform = StickBreakingTransform()
 
     def fn(x):
@@ -191,7 +191,7 @@ def stick_breaking_transform():
 @benchmark(suite="distributions", warm_repeats=20)
 def biject_to_constraints():
     """biject_to over the constraints NUTS unconstrains most often."""
-    x = random.normal(random.PRNGKey(0), (TRANSFORM_BATCH, MATRIX_DIM))
+    x = random.normal(random.key(0), (TRANSFORM_BATCH, MATRIX_DIM))
 
     def fn(x):
         total = biject_to(dist.constraints.positive)(x).sum()
