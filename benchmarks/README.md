@@ -1,0 +1,123 @@
+# Benchmarks
+
+Speed benchmarks used to compare a feature branch against its merge base, and
+to report the difference as a pull request comment.
+
+The suites cover MCMC (`HMC`/`NUTS`), SVI with the common autoguides, the
+distributions layer, and effect handlers. Each measurement is reported twice:
+as **run time** and as **compile time**.
+
+## Running locally
+
+The package depends on nothing beyond `numpyro[cpu]` itself.
+
+```sh
+# list what is registered
+python -m benchmarks.runner --list
+
+# measure everything, or just one suite
+python -m benchmarks.runner --output head.json
+python -m benchmarks.runner --suite distributions --output dists.json
+
+# a fast, statistically meaningless pass, for checking the harness works
+NUMPYRO_BENCH_QUICK=1 python -m benchmarks.runner --suite handlers -o smoke.json
+```
+
+To compare two revisions by hand, install each into its own environment and run
+the *same* copy of `benchmarks/` against both, from a directory that has no
+`numpyro/` source tree in it — otherwise `import numpyro` picks up the working
+copy instead of the installed one:
+
+```sh
+mkdir -p /tmp/bench && cp -r benchmarks /tmp/bench/
+cd /tmp/bench
+"$BASE_VENV/bin/python" -m benchmarks.runner --label base -o base-1.json
+"$HEAD_VENV/bin/python" -m benchmarks.runner --label head -o head-1.json
+python -m benchmarks.compare --base base-*.json --head head-*.json
+```
+
+## What the two columns mean
+
+Every benchmark is written as a *setup* function that returns a zero-argument
+*run* callable. Setup is never timed, so data generation and object
+construction stay out of the measurement:
+
+```python
+@benchmark(suite="mcmc", warm_repeats=3)
+def nuts_eight_schools():
+    """NUTS on non-centred eight schools."""
+    data = eight_schools_data()
+    mcmc = MCMC(
+        NUTS(eight_schools), num_warmup=500, num_samples=500, progress_bar=False
+    )
+
+    def run():
+        mcmc.run(random.PRNGKey(0), **data)
+        return mcmc.get_samples()
+
+    return run
+```
+
+The harness then clears the JAX caches, calls `run` once, and calls it
+`warm_repeats` more times.
+
+- **Run** is the fastest warm call — the compiled executable, cache already hot.
+- **Compile** is the cold call minus that — the tracing, lowering and XLA
+  compilation the warm calls did not have to pay for.
+
+Compile time is therefore an estimate rather than a reading off XLA's own
+timer, but it is derived identically on both sides of a comparison, which is
+what a regression report needs. Benchmarks with no jitted work (most of the
+`handlers` suite) report a near-zero compile column by construction.
+
+## Noise
+
+These run on shared GitHub runners, so `benchmarks.compare` calls a result
+neutral unless it clears a threshold:
+
+| | default | why |
+| --- | --- | --- |
+| `--run-threshold` | 5% | An A/A control run — identical code on both sides — stays within ±2%. |
+| `--compile-threshold` | 25% | The same control run swings ~20%: compile time is measured once per round, not best-of-N. |
+| `--min-duration-ms` | 1 ms | Below this, dispatch jitter dominates the measurement. |
+| `--min-compile-ms` | 50 ms | An uncompiled benchmark still shows a small cold/warm gap from warm-up, which is not compilation. |
+
+Two further defences are applied by the workflow rather than the comparison
+itself: both refs are measured on the same runner, in rounds that alternate
+which side goes first, and each benchmark is reduced to its best observation
+across rounds. A run can be slowed down by a noisy neighbour; it cannot be sped
+up past what the machine can do.
+
+**Before believing a regression, re-run it.** A single flagged row on a busy
+runner is weak evidence.
+
+## CI
+
+`.github/workflows/benchmark.yml` is opt-in, because a full comparison takes
+tens of minutes:
+
+- add the **`run-benchmarks`** label to a pull request, or
+- start it from the Actions tab, where `base_ref`, `rounds` and
+  `benchmark_args` can be set.
+
+It builds two virtual environments — the PR head and the merge base — pinning
+the base to the head's JAX version so the report measures NumPyro rather than
+JAX. Both are then measured with the head revision of `benchmarks/`, so a
+benchmark added by the PR still runs against the base. Where it cannot run
+there, the row is reported as `n/a` with the reason rather than being dropped.
+
+`.github/workflows/benchmark-comment.yml` posts the result as a sticky comment,
+editing its own previous comment in place. It is a separate `workflow_run`
+workflow because a `pull_request` build of a fork gets a read-only token: the
+benchmark job holds no write permission and only uploads an artifact, and the
+privileged job never executes code from the pull request.
+
+## Adding a benchmark
+
+Add a setup function to the relevant module under `benchmarks/suites/`. Keep it
+on public API that has been stable for a while — the same code has to run
+against the base branch, and anything freshly added will simply fail there.
+
+Aim for a warm time between roughly 1 ms and a few hundred ms: faster than that
+disappears into the noise floor, slower than that is paid four times over in
+every comparison.

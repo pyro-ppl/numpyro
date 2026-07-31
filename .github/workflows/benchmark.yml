@@ -1,0 +1,175 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Measures this PR against its merge base and uploads a rendered report.
+#
+# This workflow deliberately holds no write permissions: on a fork PR it runs
+# untrusted code. Posting the report is the job of benchmark-comment.yml, which
+# is triggered by workflow_run and only ever handles the artifact.
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Git ref to compare against
+        default: master
+        type: string
+      rounds:
+        description: Interleaved measurement rounds per side
+        default: "2"
+        type: string
+      benchmark_args:
+        description: Extra arguments for benchmarks.runner, e.g. --suite mcmc
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BENCH_LABEL: run-benchmarks
+  PYTHON_VERSION: "3.13"
+  JAX_PLATFORMS: cpu
+
+jobs:
+  benchmark:
+    # Benchmarks take tens of minutes, so they are opt-in: apply the
+    # `run-benchmarks` label to a PR, or start the workflow by hand.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || contains(github.event.pull_request.labels.*.name, 'run-benchmarks')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the head commit
+        uses: actions/checkout@v6
+        with:
+          # The PR head itself, not the merge commit, so that the code measured
+          # is the code under review.
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve the refs to compare
+        id: refs
+        env:
+          BASE_INPUT: ${{ inputs.base_ref || github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          head_sha=$(git rev-parse HEAD)
+          git fetch --no-tags origin "+refs/heads/*:refs/remotes/origin/*"
+          # Compare against the merge base rather than the tip of master, so
+          # unrelated commits landed since the PR opened do not show up as
+          # changes attributable to this branch.
+          base_sha=$(git merge-base "$head_sha" "$BASE_INPUT")
+          {
+            echo "head_sha=$head_sha"
+            echo "base_sha=$base_sha"
+            echo "head_label=${{ github.event.pull_request.head.ref || github.ref_name }}"
+            echo "base_label=$(git rev-parse --short "$base_sha")"
+          } >> "$GITHUB_OUTPUT"
+          echo "head $head_sha vs base $base_sha"
+
+      - name: Materialise the base checkout
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/base" "${{ steps.refs.outputs.base_sha }}"
+
+      - name: Stage the benchmark suite
+        run: |
+          set -euo pipefail
+          # Both sides are measured with the *head* revision of benchmarks/, so
+          # that a benchmark added by this PR still runs against the base.
+          # The staging directory has no numpyro/ in it, which is what lets
+          # `import numpyro` resolve to each venv's installed copy.
+          mkdir -p "$RUNNER_TEMP/bench" "$RUNNER_TEMP/results"
+          cp -r benchmarks "$RUNNER_TEMP/bench/benchmarks"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build the head environment
+        run: |
+          set -euo pipefail
+          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/venv-head"
+          VIRTUAL_ENV="$RUNNER_TEMP/venv-head" uv pip install -e ".[cpu]"
+
+      - name: Build the base environment with the same JAX
+        run: |
+          set -euo pipefail
+          # A different JAX on either side would make the report measure JAX
+          # rather than NumPyro, so the head's resolution is pinned into base.
+          pins=$(VIRTUAL_ENV="$RUNNER_TEMP/venv-head" uv pip freeze \
+            | grep -E '^(jax|jaxlib)==' | tr '\n' ' ')
+          echo "pinning: $pins"
+          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/venv-base"
+          # shellcheck disable=SC2086
+          VIRTUAL_ENV="$RUNNER_TEMP/venv-base" uv pip install \
+            -e "$RUNNER_TEMP/base[cpu]" $pins
+
+      - name: Measure both refs
+        env:
+          ROUNDS: ${{ inputs.rounds || '2' }}
+          EXTRA_ARGS: ${{ inputs.benchmark_args || '' }}
+          HEAD_SHA: ${{ steps.refs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.refs.outputs.base_sha }}
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          set -euo pipefail
+          measure () {
+            local side="$1" round="$2" commit="$3"
+            echo "::group::$side round $round"
+            # shellcheck disable=SC2086
+            "$RUNNER_TEMP/venv-$side/bin/python" -m benchmarks.runner \
+              --label "$side" \
+              --commit "$commit" \
+              --output "$RUNNER_TEMP/results/$side-$round.json" \
+              $EXTRA_ARGS
+            echo "::endgroup::"
+          }
+          for round in $(seq 1 "$ROUNDS"); do
+            # Alternate which side goes first so that a runner that gets slower
+            # (or faster) over time does not bias one side systematically.
+            if [ $((round % 2)) -eq 1 ]; then
+              measure head "$round" "$HEAD_SHA"
+              measure base "$round" "$BASE_SHA"
+            else
+              measure base "$round" "$BASE_SHA"
+              measure head "$round" "$HEAD_SHA"
+            fi
+          done
+
+      - name: Render the report
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/venv-head/bin/python" -m benchmarks.compare \
+            --base "$RUNNER_TEMP"/results/base-*.json \
+            --head "$RUNNER_TEMP"/results/head-*.json \
+            --base-label "${{ steps.refs.outputs.base_label }}" \
+            --head-label "${{ steps.refs.outputs.head_label }}" \
+            --output "$RUNNER_TEMP/results/comment.md" \
+            --json-output "$RUNNER_TEMP/results/summary.json"
+          cat "$RUNNER_TEMP/results/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record the PR number for the commenting workflow
+        if: github.event_name == 'pull_request'
+        run: echo "${{ github.event.pull_request.number }}" > "$RUNNER_TEMP/results/pr-number.txt"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: ${{ runner.temp }}/results
+          retention-days: 14
