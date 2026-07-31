@@ -44,8 +44,7 @@ jobs:
     # Benchmarks take tens of minutes, so they are opt-in: apply the
     # `run-benchmarks` label to a PR, or start the workflow by hand.
     if: >-
-      github.event_name == 'workflow_dispatch'
-      || contains(github.event.pull_request.labels.*.name, 'run-benchmarks')
+      github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-benchmarks')
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
