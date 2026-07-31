@@ -82,6 +82,11 @@ neutral unless it clears a threshold:
 | `--min-duration-ms` | 1 ms | Below this, dispatch jitter dominates the measurement. |
 | `--min-compile-ms` | 50 ms | An uncompiled benchmark still shows a small cold/warm gap from warm-up, which is not compilation. |
 
+Deltas are coloured red for a regression and green for an improvement, in grey
+when neutral. A delta **in parentheses** cleared its threshold but sits below
+the resolution floor, so it is shown without being called a change — usually a
+sign the benchmark itself is too small and should be given more work to do.
+
 Two further defences are applied by the workflow rather than the comparison
 itself: both refs are measured on the same runner, in rounds that alternate
 which side goes first, and each benchmark is reduced to its best observation

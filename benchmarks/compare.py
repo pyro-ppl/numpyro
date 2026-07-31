@@ -24,8 +24,28 @@ from typing import Any, Optional
 COMMENT_MARKER = "<!-- numpyro-benchmark-report -->"
 
 FASTER, SLOWER, NEUTRAL, UNAVAILABLE = "faster", "slower", "neutral", "n/a"
+#: Moved beyond the threshold, but the measurement is too small or too noisy to
+#: stand behind. Reported in parentheses rather than called a change.
+UNRESOLVED = "unresolved"
 
-_ICON = {FASTER: "🟢", SLOWER: "🔴", NEUTRAL: "⚪", UNAVAILABLE: "⚠️"}
+#: Hex colours for the delta columns. GitHub strips style attributes from
+#: comment HTML, so the only way to colour text is its LaTeX math rendering.
+#: These mid-tones stay legible against both the light and the dark theme,
+#: which the usual GitHub red/green pair does not.
+_COLOR = {
+    SLOWER: "e5534b",
+    FASTER: "3fb950",
+    NEUTRAL: "8b949e",
+    UNRESOLVED: "8b949e",
+    UNAVAILABLE: "8b949e",
+}
+
+
+def colored(text: str, verdict: str) -> str:
+    """Wrap ``text`` in the LaTeX GitHub renders as coloured sans-serif type."""
+    # `%` opens a comment in maths mode, so it has to be escaped.
+    escaped = text.replace("%", r"\%")
+    return f"$\\textcolor{{#{_COLOR[verdict]}}}{{\\textsf{{{escaped}}}}}$"
 
 
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -36,8 +56,28 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--json-output", help="path to write a machine-readable summary"
     )
-    parser.add_argument("--base-label", default="master", help="name of the base ref")
-    parser.add_argument("--head-label", default="this PR", help="name of the head ref")
+    parser.add_argument(
+        "--base-label",
+        default="baseline",
+        help="what to call the base side in column headers",
+    )
+    parser.add_argument(
+        "--head-label",
+        default="this PR",
+        help="what to call the head side in column headers",
+    )
+    parser.add_argument(
+        "--base-ref", default="", help="branch or ref name the base side came from"
+    )
+    parser.add_argument(
+        "--head-ref", default="", help="branch or ref name the head side came from"
+    )
+    parser.add_argument(
+        "--repo-url",
+        default="",
+        help="repository URL, e.g. https://github.com/pyro-ppl/numpyro, used to "
+        "turn commit shas into links",
+    )
     parser.add_argument(
         "--run-threshold",
         type=float,
@@ -137,8 +177,9 @@ def _classify(
     if pct is None:
         return UNAVAILABLE, None
     if max(base, head) < min_duration_s:
-        # Too fast to measure reliably on a shared runner.
-        return NEUTRAL, pct
+        # Too fast to measure reliably on a shared runner. Still worth showing
+        # the number when it moved a lot, but not worth calling a regression.
+        return (UNRESOLVED if abs(pct) > threshold else NEUTRAL), pct
     if pct > threshold:
         return SLOWER, pct
     if pct < -threshold:
@@ -230,21 +271,35 @@ def fmt_duration(seconds: Optional[float]) -> str:
 
 
 def fmt_delta(pct: Optional[float], verdict: str) -> str:
+    """Render a percentage change, coloured by whether it is a regression."""
     if pct is None:
-        return f"{_ICON[UNAVAILABLE]} n/a"
-    return f"{_ICON[verdict]} {pct:+.1f}%"
+        return colored("n/a", UNAVAILABLE)
+    if verdict == UNRESOLVED:
+        return colored(f"({pct:+.1f}%)", verdict)
+    return colored(f"{pct:+.1f}%", verdict)
+
+
+def commit_link(sha: str, repo_url: str) -> str:
+    """Render a commit sha, linked to the repository when the URL is known."""
+    if not sha:
+        return "—"
+    short = sha[:8]
+    if not repo_url:
+        return f"`{short}`"
+    return f"[`{short}`]({repo_url.rstrip('/')}/commit/{sha})"
 
 
 def _table(rows: list[dict[str, Any]], base_label: str, head_label: str) -> list[str]:
     lines = [
-        f"| Benchmark | Run ({base_label}) | Run ({head_label}) | Δ run "
-        f"| Compile ({base_label}) | Compile ({head_label}) | Δ compile |",
+        f"| Benchmark | Run · {base_label} | Run · {head_label} | Δ run "
+        f"| Compile · {base_label} | Compile · {head_label} | Δ compile |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         name = f"`{row['name']}`"
         if row["note"]:
-            name += " ⚠️"
+            # Flagged rather than dropped; the reason is listed below the table.
+            name += " †"
         lines.append(
             "| {name} | {br} | {hr} | {dr} | {bc} | {hc} | {dc} |".format(
                 name=name,
@@ -259,22 +314,25 @@ def _table(rows: list[dict[str, Any]], base_label: str, head_label: str) -> list
     return lines
 
 
-def _headline(rows: list[dict[str, Any]]) -> str:
-    slower = sum(1 for r in rows if r["run_verdict"] == SLOWER)
-    faster = sum(1 for r in rows if r["run_verdict"] == FASTER)
-    c_slower = sum(1 for r in rows if r["compile_verdict"] == SLOWER)
-    c_faster = sum(1 for r in rows if r["compile_verdict"] == FASTER)
+def _tally(rows: list[dict[str, Any]], field: str, name: str) -> str:
+    slower = sum(1 for r in rows if r[field] == SLOWER)
+    faster = sum(1 for r in rows if r[field] == FASTER)
+    if not slower and not faster:
+        return f"**{name}**: unchanged"
+    counts = [
+        colored(f"{faster} faster", FASTER if faster else NEUTRAL),
+        colored(f"{slower} slower", SLOWER if slower else NEUTRAL),
+    ]
+    return f"**{name}**: " + ", ".join(counts)
 
-    parts = []
-    if slower or faster:
-        parts.append(f"**run time**: {faster} faster, {slower} slower")
-    else:
-        parts.append("**run time**: no change")
-    if c_slower or c_faster:
-        parts.append(f"**compile time**: {c_faster} faster, {c_slower} slower")
-    else:
-        parts.append("**compile time**: no change")
-    return " · ".join(parts)
+
+def _headline(rows: list[dict[str, Any]]) -> str:
+    return " · ".join(
+        (
+            _tally(rows, "run_verdict", "run time"),
+            _tally(rows, "compile_verdict", "compile time"),
+        )
+    )
 
 
 def render(
@@ -292,11 +350,24 @@ def render(
     ]
     problems = [r for r in rows if r["note"]]
 
+    def side(label: str, ref: str, meta: dict[str, Any]) -> str:
+        parts = [f"**{label}**"]
+        if ref:
+            parts.append(f"`{ref}`")
+        if meta["commit"]:
+            parts.append(f"at {commit_link(meta['commit'], args.repo_url)}")
+        return " ".join(parts)
+
     out = [
         COMMENT_MARKER,
-        "## ⚡ Benchmark report",
+        "## Benchmark report",
         "",
-        f"`{args.head_label}` vs `{args.base_label}` — {_headline(rows)}",
+        "{} vs {}".format(
+            side(args.head_label, args.head_ref, head),
+            side(args.base_label, args.base_ref, base),
+        ),
+        "",
+        _headline(rows),
         "",
     ]
 
@@ -354,7 +425,7 @@ def render(
     if problems:
         out += [
             "<details>",
-            "<summary>⚠️ Benchmarks that did not compare cleanly</summary>",
+            "<summary>† Benchmarks that did not compare cleanly</summary>",
             "",
         ]
         for row in problems:
@@ -378,11 +449,16 @@ def render(
         f"{args.min_compile_ms:g} ms (compile) — a shared CI runner cannot resolve changes "
         "below that. Compile time gets the looser band because it is measured once per "
         "round rather than best-of-N, and swings by roughly 20% even between two runs of "
-        "identical code.",
+        "identical code. A delta shown in parentheses did clear its threshold, but "
+        "on a measurement below the resolution floor, so it is reported without "
+        "being called a change.",
         "",
-        "| | base | head |",
+        f"| | {args.base_label} | {args.head_label} |",
         "| --- | --- | --- |",
-        f"| commit | `{base['commit'][:12] or '—'}` | `{head['commit'][:12] or '—'}` |",
+        f"| ref | {f'`{args.base_ref}`' if args.base_ref else '—'} "
+        f"| {f'`{args.head_ref}`' if args.head_ref else '—'} |",
+        f"| commit | {commit_link(base['commit'], args.repo_url)} "
+        f"| {commit_link(head['commit'], args.repo_url)} |",
         f"| numpyro | {base['metadata'].get('numpyro_version', '—')} "
         f"| {head['metadata'].get('numpyro_version', '—')} |",
         f"| jax | {base['metadata'].get('jax_version', '—')} "
@@ -412,6 +488,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         args.min_duration_ms,
         args.min_compile_ms,
     )
+    # `Δ compile` is the widest header, so keep the label pair from pushing the
+    # table into a horizontal scroll on a narrow screen.
+    for name in ("base_label", "head_label"):
+        if len(getattr(args, name)) > 24:
+            setattr(args, name, getattr(args, name)[:23] + "…")
     body = render(rows, base, head, args)
 
     if args.output:

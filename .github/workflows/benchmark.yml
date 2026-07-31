@@ -156,13 +156,27 @@ jobs:
 
       - name: Render the report
         working-directory: ${{ runner.temp }}/bench
+        env:
+          # On a PR the two sides are best named by their role. A manual run can
+          # compare any two refs, where the ref names are the informative part.
+          # Keep each expression on one line: YAML preserves the newline in a
+          # folded block whose continuation is indented further, which would put
+          # a line break inside the ${{ }}.
+          BASE_LABEL: ${{ github.event_name == 'pull_request' && 'baseline' || steps.refs.outputs.base_label }}
+          HEAD_LABEL: ${{ github.event_name == 'pull_request' && 'this PR' || steps.refs.outputs.head_label }}
+          BASE_REF: ${{ inputs.base_ref || 'master' }}
+          HEAD_REF: ${{ steps.refs.outputs.head_label }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/venv-head/bin/python" -m benchmarks.compare \
             --base "$RUNNER_TEMP"/results/base-*.json \
             --head "$RUNNER_TEMP"/results/head-*.json \
-            --base-label "${{ steps.refs.outputs.base_label }}" \
-            --head-label "${{ steps.refs.outputs.head_label }}" \
+            --base-label "$BASE_LABEL" \
+            --head-label "$HEAD_LABEL" \
+            --base-ref "$BASE_REF" \
+            --head-ref "$HEAD_REF" \
+            --repo-url "$REPO_URL" \
             --output "$RUNNER_TEMP/results/comment.md" \
             --json-output "$RUNNER_TEMP/results/summary.json"
           cat "$RUNNER_TEMP/results/comment.md" >> "$GITHUB_STEP_SUMMARY"
