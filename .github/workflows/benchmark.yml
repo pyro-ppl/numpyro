@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Measures this PR against its merge base and comments the result on the PR.
+# It runs on every update to a pull request, so the comment always describes
+# the current head; a full comparison takes tens of minutes.
 #
 # A pull request from a branch in this repository gets a write token, so the
 # comment is posted from here directly. A pull request from a fork gets a
@@ -12,7 +14,7 @@ name: Benchmark
 on:
   pull_request:
     branches: [master]
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       base_ref:
@@ -45,10 +47,6 @@ env:
 
 jobs:
   benchmark:
-    # Benchmarks take tens of minutes, so they are opt-in: apply the
-    # `run-benchmarks` label to a PR, or start the workflow by hand.
-    if: >-
-      github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-benchmarks')
     runs-on: ubuntu-latest
     timeout-minutes: 120
 

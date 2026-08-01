@@ -108,12 +108,13 @@ runner is weak evidence.
 
 ## CI
 
-`.github/workflows/benchmark.yml` is opt-in, because a full comparison takes
-tens of minutes:
+`.github/workflows/benchmark.yml` runs on every pull request against `master`,
+and again on each push to one, so the comment always describes the current
+head. A full comparison takes tens of minutes; runs for superseded pushes are
+cancelled as new ones start.
 
-- add the **`run-benchmarks`** label to a pull request, or
-- start it from the Actions tab, where `base_ref`, `rounds` and
-  `benchmark_args` can be set.
+It can also be started from the Actions tab, where `base_ref`, `rounds` and
+`benchmark_args` can be set.
 
 It builds two virtual environments — the PR head and the merge base — pinning
 the base to the head's JAX version so the report measures NumPyro rather than

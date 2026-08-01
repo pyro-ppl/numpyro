@@ -37,9 +37,8 @@ jobs:
           sparse-checkout: .github/scripts
           persist-credentials: false
 
-      # The benchmark job is skipped unless the PR carries the label, and a run
-      # whose jobs were all skipped still reports success, so check before
-      # reaching for an artifact that may not exist.
+      # A run whose jobs were all skipped still reports success, so check
+      # before reaching for an artifact that may not exist.
       - name: Look for the report
         id: probe
         uses: actions/github-script@v7
