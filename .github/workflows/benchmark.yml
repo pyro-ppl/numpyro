@@ -40,7 +40,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BENCH_LABEL: run-benchmarks
   PYTHON_VERSION: "3.14"
   JAX_PLATFORMS: cpu
 
