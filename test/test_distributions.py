@@ -5105,3 +5105,67 @@ def test_hurdle_poisson_inference():
     samples = mcmc.get_samples()
     assert abs(float(jnp.mean(samples["gate"])) - true_gate) < 0.05
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.3
+
+
+def test_interval_censored_point_interval_continuous():
+    """Point intervals (lower == upper) must contribute the base log density."""
+    base = dist.Gamma(concentration=2.0, rate=1.0)
+    lower, upper = 0.5, 3.0
+    y = jnp.array([lower, 1.2, upper, 2.0])
+    left_censored = y == lower
+    right_censored = y == upper
+
+    censored_dist = IntervalCensoredDistribution(base, left_censored, right_censored)
+    actual = censored_dist.log_prob(jnp.stack([y, y], axis=-1))
+
+    expected = jnp.where(
+        left_censored,
+        jnp.log(base.cdf(lower)),
+        jnp.where(right_censored, jnp.log1p(-base.cdf(upper)), base.log_prob(y)),
+    )
+    assert_allclose(actual, expected, rtol=1e-6)
+
+    def total_log_prob(params):
+        concentration, rate = params
+        d = IntervalCensoredDistribution(
+            dist.Gamma(concentration=concentration, rate=rate),
+            left_censored,
+            right_censored,
+        )
+        return d.log_prob(jnp.stack([y, y], axis=-1)).sum()
+
+    grads = grad(total_log_prob)((2.0, 1.0))
+    assert all(jnp.isfinite(g) for g in grads)
+
+
+def test_interval_censored_point_interval_discrete():
+    """Discrete point intervals return the PMF; right censoring at `upper` uses
+    lower bound ``upper - 1`` so that log(1 - F(upper - 1)) = log P(Y >= upper)."""
+    base = dist.Poisson(rate=1.0)
+    lower, upper = 0.0, 3.0
+    y = jnp.array([lower, 1.0, upper, 2.0])
+    left_censored = y == lower
+    right_censored = y == upper
+
+    censored_dist = IntervalCensoredDistribution(base, left_censored, right_censored)
+    x1 = jnp.where(right_censored, y - 1, y)
+    actual = censored_dist.log_prob(jnp.stack([x1, y], axis=-1))
+
+    expected = jnp.where(
+        left_censored,
+        jnp.log(base.cdf(lower)),
+        jnp.where(
+            right_censored,
+            jnp.log(1.0 - base.cdf(upper) + jnp.exp(base.log_prob(upper))),
+            base.log_prob(y),
+        ),
+    )
+    assert_allclose(actual, expected, rtol=1e-6)
+
+    def total_log_prob(rate):
+        d = IntervalCensoredDistribution(
+            dist.Poisson(rate=rate), left_censored, right_censored
+        )
+        return d.log_prob(jnp.stack([x1, y], axis=-1)).sum()
+
+    assert jnp.isfinite(grad(total_log_prob)(1.0))
