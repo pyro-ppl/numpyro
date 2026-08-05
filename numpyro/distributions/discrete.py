@@ -68,8 +68,8 @@ def _to_probs_multinom(logits: ArrayLike) -> ArrayLike:
 
 
 def _to_logits_multinom(probs: ArrayLike) -> ArrayLike:
-    minval = jnp.finfo(jnp.result_type(probs)).min
-    return jnp.clip(jnp.log(probs), minval)
+    safe_probs = jnp.where(probs > 0, probs, 1.0)
+    return jnp.where(probs > 0, jnp.log(safe_probs), -jnp.inf)
 
 
 class BernoulliProbs(Distribution):
