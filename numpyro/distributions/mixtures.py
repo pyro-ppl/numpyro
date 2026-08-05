@@ -220,9 +220,10 @@ class MixtureSameFamily(_MixtureBase):
         *,
         validate_args: Optional[bool] = None,
     ):
-        assert isinstance(
-            component_distribution.support, constraints.ParameterFreeConstraint
-        ), (
+        base_support = component_distribution.support
+        while isinstance(base_support, constraints._IndependentConstraint):
+            base_support = base_support.base_constraint
+        assert isinstance(base_support, constraints.ParameterFreeConstraint), (
             f"Invalid component distribution: {type(component_distribution).__name__}. "
             "The mixture components must have a support that does not depend on their parameters "
             f"(expected ParameterFreeConstraint, but found {component_distribution.support})."

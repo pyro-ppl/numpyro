@@ -188,9 +188,7 @@ def _test_mixture(mixing_distribution, component_distribution):
 )
 def test_mixture_rejects_parameter_dependent_components(component_dist):
     mixing_dist = dist.Categorical(probs=np.array([0.5, 0.5]))
-    with pytest.raises(
-        AssertionError, match="expected ParameterFreeConstraint, but found "
-    ):
+    with pytest.raises(AssertionError, match="ParameterFreeConstraint, but found "):
         dist.MixtureSameFamily(mixing_dist, component_dist)
 
 
