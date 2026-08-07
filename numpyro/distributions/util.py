@@ -316,7 +316,7 @@ def cholesky_of_inverse(matrix):
 # TODO: move upstream to jax.nn
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
-    #   = log1p(exp(-|x|)) - yx + max(x,0)
+    #   = log1p(exp(-|x|)) - yx + max(x, 0)
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
     #
     # Handling nans: only the portion (- yx + max(x,0)) can produce them:
@@ -337,11 +337,7 @@ def binary_cross_entropy_with_logits(x, y):
     usual_result = (
         jnp.clip(safe_x, 0) + jnp.log1p(jnp.exp(-jnp.abs(safe_x))) - safe_x * y
     )
-    return jnp.where(
-        condition,
-        usual_result,
-        jnp.inf*jnp.logical_xor(y, x>0)
-    )
+    return jnp.where(condition, usual_result, jnp.inf * jnp.logical_xor(y, x > 0))
 
 
 def _reshape(x, shape):
