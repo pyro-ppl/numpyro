@@ -49,7 +49,72 @@ Non-goals (v1): changing the HMC integrator or adaptation; ensemble kernels as b
 
 ## 4. Scaffolding design
 
-Typing vocabulary used below (matching `numpyro/infer/elbo.py` and `numpyro/_typing.py`): `from collections.abc import Callable, Sequence`; `from typing import Any, NamedTuple, TYPE_CHECKING`; `jax.Array` for arrays and keys; `ModelT`, `TraceT` from `numpyro._typing`; `dict[str, jax.Array]` for site dicts; new state containers are `typing.NamedTuple` classes (typed fields, still pytrees, still `_replace`/`_fields`/`_asdict`, precedent in `numpyro/optim.py:256`).
+#### 4.0 Typing vocabulary
+
+Rule: no bare `Any` in a public signature; every recurring shape gets a named alias so the signature reads as documentation even where the alias itself must be permissive (model inputs are arbitrary by design). Package-wide aliases live in `numpyro/_typing.py` next to the existing `ModelT`, `TraceT`, `PyTree`; Gibbs-specific ones in `numpyro/infer/gibbs_util.py`. New state containers are `typing.NamedTuple` classes (typed fields, still pytrees, still `_replace`/`_fields`/`_asdict`; precedent `numpyro/optim.py:256`). Imports: `from collections.abc import Callable, Sequence`; `from typing import Any, NamedTuple, Protocol, TypeAlias, TypeVar`; `jax.Array` for arrays and PRNG keys.
+
+```python
+# numpyro/_typing.py (additions)
+ModelArgs: TypeAlias = tuple[Any, ...]
+"""Positional arguments of a model, as passed to `MCMC.run(rng_key, *args)`."""
+
+ModelKwargs: TypeAlias = dict[str, Any]
+"""Keyword arguments of a model; may carry reserved keys such as `GIBBS_SITES_KWARG`."""
+
+SiteValues: TypeAlias = dict[str, jax.Array]
+"""Values keyed by site name (a sample, a set of init params, a conditioning set)."""
+
+PotentialFn: TypeAlias = Callable[[SiteValues], jax.Array]
+"""Negative log joint as a function of (unconstrained) site values."""
+
+ConstrainFn: TypeAlias = Callable[[SiteValues], SiteValues]
+"""Maps site values to site values (constrain / postprocess)."""
+
+StateT = TypeVar("StateT")
+"""A kernel state pytree; used where a method returns the same state type it received."""
+```
+
+```python
+# numpyro/infer/gibbs_util.py (aliases)
+ModelWrapper: TypeAlias = Callable[[ModelT], ModelT]
+"""Maps a model to a model with the same call signature (conditioning, likelihood estimation)."""
+
+SiteSelector: TypeAlias = Callable[[TraceT], Sequence[str]]
+"""Picks site names from a prototype trace, e.g. :func:`discrete_latent_sites`."""
+
+SitesSpec: TypeAlias = Sequence[str] | SiteSelector | None
+"""How a block declares its sites: explicit names, a selector, or `None` for the remainder."""
+
+
+class GibbsUpdateFn(Protocol):
+    """
+    Signature of the user callable of :class:`~numpyro.infer.gibbs.CustomGibbs` /
+    :class:`~numpyro.infer.hmc_gibbs.HMCGibbs`. Called with keywords only; `hmc_sites` holds
+    the constrained values of every conditioning site (the name is kept for compatibility).
+    """
+
+    def __call__(self, *, rng_key: jax.Array, gibbs_sites: SiteValues, hmc_sites: SiteValues) -> SiteValues: ...
+
+
+LikelihoodEstimator: TypeAlias = Callable[[dict[str, tuple], SiteValues, PyTree], jax.Array]
+"""`(likelihoods, unconstrained_params, gibbs_state) -> log-likelihood estimate`; see `perturbed_method` in `numpyro/contrib/ecs_proxies.py:23`."""
+
+ProxyConstructor: TypeAlias = Callable[..., tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any]]]
+"""`(prototype_trace, subsample_plate_sizes, model, model_args, model_kwargs, num_blocks) -> (proxy_fn, gibbs_init, gibbs_update)`; the protocol pinned by `test_taylor_proxy_norm`."""
+```
+
+| Alias | Stands for | Residual `Any` |
+|---|---|---|
+| `ModelArgs`, `ModelKwargs` | model inputs | yes, inherent |
+| `SiteValues` | `dict[str, jax.Array]` | no |
+| `PotentialFn`, `ConstrainFn` | the two function shapes every kernel exposes | no |
+| `StateT` | "same state type in and out" (`refresh`) | no (TypeVar) |
+| `ModelWrapper`, `SiteSelector`, `SitesSpec` | Gibbs plumbing | no |
+| `GibbsUpdateFn` | keyword contract of the user callback | no |
+| `LikelihoodEstimator`, `ProxyConstructor` | ECS proxy protocol (existing, untyped today) | inside the proxy triple only |
+| `PyTree` (existing) | opaque block states, proxy state | yes, by definition |
+
+The only remaining bare `Any` below are `*args: Any, **kwargs: Any` in model wrappers (they forward whatever the model takes) and `__getstate__ -> dict[str, Any]`.
 
 ### 4.1 `numpyro/infer/mcmc.py`: two opt-in hooks on `MCMCKernel`
 
@@ -59,10 +124,10 @@ class MCMCKernel(ABC):
 
     def refresh(
         self,
-        state: Any,
-        model_args: tuple[Any, ...],
-        model_kwargs: dict[str, Any] | None,
-    ) -> Any:
+        state: StateT,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> StateT:
         """
         Recompute every value cached in `state` that depends on `(model_args, model_kwargs)`
         without advancing the chain, for example the potential energy and its gradient at the
@@ -82,7 +147,7 @@ class MCMCKernel(ABC):
         """
         ...
 
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "MCMCKernel":
+    def wrap_model(self, wrapper: ModelWrapper) -> "MCMCKernel":
         """
         Return a copy of this kernel whose model is `wrapper(self.model)`. Kernels that hold
         other kernels apply the wrapper recursively; kernels without a model return `self`.
@@ -101,9 +166,9 @@ class MCMCKernel(ABC):
 class HMC(MCMCKernel):
     def get_potential_fn(
         self,
-        model_args: tuple[Any, ...] = (),
-        model_kwargs: dict[str, Any] | None = None,
-    ) -> Callable[[dict[str, jax.Array]], jax.Array]:
+        model_args: ModelArgs = (),
+        model_kwargs: ModelKwargs | None = None,
+    ) -> PotentialFn:
         """
         Return the potential energy function (negative log joint in unconstrained space) for the
         given model arguments; today's private `_potential_fn_gen(*model_args, **model_kwargs)`.
@@ -113,11 +178,11 @@ class HMC(MCMCKernel):
 
     def get_constrain_fn(
         self,
-        model_args: tuple[Any, ...] = (),
-        model_kwargs: dict[str, Any] | None = None,
+        model_args: ModelArgs = (),
+        model_kwargs: ModelKwargs | None = None,
         *,
         return_deterministic: bool = False,
-    ) -> Callable[[dict[str, jax.Array]], dict[str, jax.Array]]:
+    ) -> ConstrainFn:
         """
         Return a function mapping unconstrained sample values to constrained values. When
         `return_deterministic=False` and the model has no value-dependent supports, this is a
@@ -130,8 +195,8 @@ class HMC(MCMCKernel):
     def refresh(
         self,
         state: HMCState,
-        model_args: tuple[Any, ...],
-        model_kwargs: dict[str, Any] | None,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
     ) -> HMCState:
         """
         Recompute `potential_energy` and `z_grad` at `state.z` with the potential for the given
@@ -141,7 +206,7 @@ class HMC(MCMCKernel):
         """
         ...
 
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "HMC":
+    def wrap_model(self, wrapper: ModelWrapper) -> "HMC":
         """
         Shallow copy with `_model = wrapper(self._model)` and `_init_fn`, `_sample_fn`,
         `_potential_fn_gen`, `_postprocess_fn` reset to `None`, so the copy rebuilds its closures
@@ -164,7 +229,7 @@ class _unconstrain_params(substitute):
     `isinstance` instead of inspecting `substitute_fn.func`.
     """
 
-    params: dict[str, jax.Array]
+    params: SiteValues
 
 
 def _prepare_model_for_potential(model: ModelT, model_trace: TraceT) -> ModelT:
@@ -191,7 +256,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
 
 ```python
 # numpyro/util.py
-def _get_nested_attr(obj: Any, field: str) -> Any:
+def _get_nested_attr(obj: PyTree, field: str) -> PyTree:
     """
     As today, plus: when `obj` is a tuple or list and `attr` is a decimal string, index by
     `int(attr)`. Enables `extra_fields=("block_states.1.diverging",)` for composite kernels.
@@ -222,11 +287,11 @@ def _conditioned_model(model: ModelT, *args: Any, **kwargs: Any) -> Any:
 
 
 def with_conditioning(
-    model_kwargs: dict[str, Any] | None,
-    values: dict[str, jax.Array],
+    model_kwargs: ModelKwargs | None,
+    values: SiteValues,
     *,
     allowed: frozenset[str] | None = None,
-) -> dict[str, Any]:
+) -> ModelKwargs:
     """
     Return a copy of `model_kwargs` whose `GIBBS_SITES_KWARG` entry is the existing entry (if
     any) extended by `values`. Extend-not-replace is what makes nested composites correct: at any
@@ -239,8 +304,8 @@ def with_conditioning(
 def prototype_trace(
     model: ModelT,
     rng_key: jax.Array,
-    model_args: tuple[Any, ...],
-    model_kwargs: dict[str, Any] | None,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs | None,
 ) -> TraceT:
     """
     `trace(substitute(seed(model, rng_key), substitute_fn=init_to_sample)).get_trace(...)`,
@@ -275,7 +340,7 @@ def subsample_plate_sizes(trace: TraceT) -> dict[str, tuple[int, int]]:
     ...
 
 
-def any_changed(old: Any, new: Any) -> jax.Array:
+def any_changed(old: PyTree, new: PyTree) -> jax.Array:
     """Scalar boolean: whether any leaf of two pytrees with the same structure differs."""
     ...
 
@@ -284,9 +349,9 @@ def any_changed(old: Any, new: Any) -> jax.Array:
 # use the split key for the permutation (:314-315), and write the current value, not the index,
 # in the modified random-walk stay branch (:300).
 
-ProposalFn = Callable[
-    [jax.Array, dict[str, jax.Array], jax.Array, Callable[[dict[str, jax.Array]], jax.Array], jax.Array, jax.Array],
-    tuple[jax.Array, dict[str, jax.Array], jax.Array, jax.Array],
+ProposalFn: TypeAlias = Callable[
+    [jax.Array, SiteValues, jax.Array, PotentialFn, jax.Array, jax.Array],
+    tuple[jax.Array, SiteValues, jax.Array, jax.Array],
 ]
 """`(rng_key, z, pe, potential_fn, idx, support_size) -> (rng_key, z_new, pe_new, log_accept_ratio)`."""
 
@@ -304,12 +369,12 @@ def select_discrete_proposal(random_walk: bool, modified: bool) -> ProposalFn:
 
 def discrete_gibbs_sweep(
     rng_key: jax.Array,
-    z: dict[str, jax.Array],
+    z: SiteValues,
     potential_energy: jax.Array,
-    potential_fn: Callable[[dict[str, jax.Array]], jax.Array],
+    potential_fn: PotentialFn,
     support_sizes_flat: jax.Array,
     proposal_fn: ProposalFn,
-) -> tuple[dict[str, jax.Array], jax.Array]:
+) -> tuple[SiteValues, jax.Array]:
     """
     One sweep over the flat discrete coordinates in a random permutation, each coordinate updated
     with `proposal_fn` and Metropolis corrected (`fori_loop` + `cond`, today's `_discrete_gibbs_fn`).
@@ -321,8 +386,7 @@ def discrete_gibbs_sweep(
 ### 4.5 New module `numpyro/infer/gibbs.py`: the composite and the two generic block kernels
 
 ```python
-if TYPE_CHECKING:
-    SitesSpec: TypeAlias = Sequence[str] | Callable[[TraceT], Sequence[str]] | None
+from numpyro.infer.gibbs_util import GIBBS_SITES_KWARG, GibbsUpdateFn, ModelWrapper, SitesSpec, conditioned, with_conditioning
 
 
 class GibbsState(NamedTuple):
@@ -336,8 +400,8 @@ class GibbsState(NamedTuple):
     - **rng_key** - random key for the next step.
     """
 
-    z: dict[str, jax.Array]
-    block_states: tuple[Any, ...]
+    z: SiteValues
+    block_states: tuple[PyTree, ...]
     rng_key: jax.Array
 
 
@@ -400,7 +464,7 @@ class Gibbs(MCMCKernel):
     _state_cls: type[GibbsState] = GibbsState
     sample_field: str = "z"
 
-    def __init__(self, blocks: Sequence[tuple[MCMCKernel, "SitesSpec"]]) -> None: ...
+    def __init__(self, blocks: Sequence[tuple[MCMCKernel, SitesSpec]]) -> None: ...
 
     @property
     def model(self) -> ModelT | None:
@@ -416,9 +480,9 @@ class Gibbs(MCMCKernel):
         self,
         rng_key: jax.Array,
         num_warmup: int,
-        init_params: dict[str, jax.Array] | None,
-        model_args: tuple[Any, ...],
-        model_kwargs: dict[str, Any] | None,
+        init_params: SiteValues | None,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
     ) -> GibbsState:
         """
         Single-key only in v1 (`is_prng_key(rng_key)` asserted; use `chain_method="parallel"`,
@@ -435,8 +499,8 @@ class Gibbs(MCMCKernel):
     def sample(
         self,
         state: GibbsState,
-        model_args: tuple[Any, ...],
-        model_kwargs: dict[str, Any] | None,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
     ) -> GibbsState:
         """
         One sweep. Python loop over blocks, unrolled inside the enclosing `jit`. Keeps a local
@@ -450,19 +514,19 @@ class Gibbs(MCMCKernel):
         """
         ...
 
-    def refresh(self, state: GibbsState, model_args, model_kwargs) -> GibbsState:
+    def refresh(self, state: GibbsState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> GibbsState:
         """Identity: :meth:`sample` refreshes each block against the current conditioning."""
         ...
 
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "Gibbs":
+    def wrap_model(self, wrapper: ModelWrapper) -> "Gibbs":
         """New composite with `wrapper` applied to every block (nesting)."""
         ...
 
     def postprocess_fn(
         self,
-        model_args: tuple[Any, ...],
-        model_kwargs: dict[str, Any] | None,
-    ) -> Callable[[dict[str, jax.Array]], dict[str, jax.Array]]:
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> ConstrainFn:
         """
         Two phases: (1) per block, constrain that block's own sites with the block's transform-only
         constrain function; (2) only if the prototype trace has `deterministic` sites, replay the
@@ -482,8 +546,8 @@ class Gibbs(MCMCKernel):
 
     # private helpers
     def _resolve_partition(self, trace: TraceT, conditioned: frozenset[str]) -> tuple[tuple[str, ...], ...]: ...
-    def _split_init_params(self, init_params: dict[str, jax.Array] | None) -> tuple[dict[str, jax.Array] | None, ...]: ...
-    def _sample_one(self, state: GibbsState, model_args: tuple[Any, ...], model_kwargs: dict[str, Any] | None) -> GibbsState: ...
+    def _split_init_params(self, init_params: SiteValues | None) -> tuple[SiteValues | None, ...]: ...
+    def _sample_one(self, state: GibbsState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> GibbsState: ...
 
 
 class CustomGibbsState(NamedTuple):
@@ -492,7 +556,7 @@ class CustomGibbsState(NamedTuple):
     - **rng_key** - random key for the next step.
     """
 
-    z: dict[str, jax.Array]
+    z: SiteValues
     rng_key: jax.Array
 
 
@@ -511,21 +575,21 @@ class CustomGibbs(MCMCKernel):
 
     sample_field: str = "z"
 
-    def __init__(self, gibbs_fn: Callable[..., dict[str, jax.Array]]) -> None: ...
+    def __init__(self, gibbs_fn: GibbsUpdateFn) -> None: ...
 
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs) -> CustomGibbsState:
+    def init(self, rng_key: jax.Array, num_warmup: int, init_params: SiteValues | None, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> CustomGibbsState:
         """`init_params` are the block's initial values (constrained); the composite supplies prototype values when absent."""
         ...
 
-    def sample(self, state: CustomGibbsState, model_args, model_kwargs) -> CustomGibbsState:
+    def sample(self, state: CustomGibbsState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> CustomGibbsState:
         """Reads conditioning values from `model_kwargs[GIBBS_SITES_KWARG]`."""
         ...
 
-    def refresh(self, state: CustomGibbsState, model_args, model_kwargs) -> CustomGibbsState:
+    def refresh(self, state: CustomGibbsState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> CustomGibbsState:
         """Identity: nothing is cached."""
         ...
 
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "CustomGibbs":
+    def wrap_model(self, wrapper: ModelWrapper) -> "CustomGibbs":
         """Returns `self`: there is no model."""
         ...
 
@@ -538,7 +602,7 @@ class DiscreteGibbsState(NamedTuple):
     - **rng_key** - random key for the next step.
     """
 
-    z: dict[str, jax.Array]
+    z: SiteValues
     potential_energy: jax.Array
     rng_key: jax.Array
 
@@ -574,13 +638,13 @@ class DiscreteGibbs(MCMCKernel):
 
     def get_potential_fn(
         self,
-        model_args: tuple[Any, ...] = (),
-        model_kwargs: dict[str, Any] | None = None,
-    ) -> Callable[[dict[str, jax.Array]], jax.Array]:
+        model_args: ModelArgs = (),
+        model_kwargs: ModelKwargs | None = None,
+    ) -> PotentialFn:
         """Potential over the block's discrete values for the given arguments and conditioning."""
         ...
 
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs) -> DiscreteGibbsState:
+    def init(self, rng_key: jax.Array, num_warmup: int, init_params: SiteValues | None, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> DiscreteGibbsState:
         """
         Prototype trace (local); sites = :func:`discrete_latent_sites`; support sizes stored as
         `numpy` (static); raise if unconditioned continuous latents remain (standalone use on a
@@ -588,15 +652,15 @@ class DiscreteGibbs(MCMCKernel):
         """
         ...
 
-    def sample(self, state: DiscreteGibbsState, model_args, model_kwargs) -> DiscreteGibbsState:
+    def sample(self, state: DiscreteGibbsState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> DiscreteGibbsState:
         """:func:`~numpyro.infer.gibbs_util.discrete_gibbs_sweep` with the selected proposal."""
         ...
 
-    def refresh(self, state: DiscreteGibbsState, model_args, model_kwargs) -> DiscreteGibbsState:
+    def refresh(self, state: DiscreteGibbsState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> DiscreteGibbsState:
         """Recompute `potential_energy` at `state.z` (one model evaluation)."""
         ...
 
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "DiscreteGibbs": ...
+    def wrap_model(self, wrapper: ModelWrapper) -> "DiscreteGibbs": ...
 
     def __getstate__(self) -> dict[str, Any]: ...
 ```
@@ -630,7 +694,7 @@ class HMCGibbs(Gibbs):
 
     _state_cls = HMCGibbsState
 
-    def __init__(self, inner_kernel: HMC, gibbs_fn: Callable[..., dict[str, jax.Array]], gibbs_sites: Sequence[str]) -> None: ...
+    def __init__(self, inner_kernel: HMC, gibbs_fn: GibbsUpdateFn, gibbs_sites: Sequence[str]) -> None: ...
 
 
 class DiscreteHMCGibbs(Gibbs):
@@ -664,7 +728,7 @@ class estimate_likelihood(numpyro.primitives.Messenger):
     `isinstance(handler, _unconstrain_params)` instead of inspecting `substitute_fn.func`.
     """
 
-    def __init__(self, fn: ModelT | None = None, method: Callable[..., jax.Array] | None = None) -> None: ...
+    def __init__(self, fn: ModelT | None = None, method: LikelihoodEstimator | None = None) -> None: ...
 
 
 class HMCECS(MCMCKernel):
@@ -686,24 +750,24 @@ class HMCECS(MCMCKernel):
 
     sample_field: str = "z"
 
-    def __init__(self, inner_kernel: HMC, *, num_blocks: int = 1, proxy: Callable[..., Any] | None = None) -> None: ...
+    def __init__(self, inner_kernel: HMC, *, num_blocks: int = 1, proxy: ProxyConstructor | None = None) -> None: ...
 
     @property
     def model(self) -> ModelT: ...
 
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs) -> HMCECSState: ...
-    def sample(self, state: HMCECSState, model_args, model_kwargs) -> HMCECSState: ...
-    def refresh(self, state: HMCECSState, model_args, model_kwargs) -> HMCECSState:
+    def init(self, rng_key: jax.Array, num_warmup: int, init_params: SiteValues | None, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> HMCECSState: ...
+    def sample(self, state: HMCECSState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> HMCECSState: ...
+    def refresh(self, state: HMCECSState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> HMCECSState:
         """Delegates to the inner kernel with the current subsample indices and proxy state in the kwargs."""
         ...
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "HMCECS": ...
-    def postprocess_fn(self, model_args, model_kwargs) -> Callable[[dict[str, jax.Array]], dict[str, jax.Array]]:
+    def wrap_model(self, wrapper: ModelWrapper) -> "HMCECS": ...
+    def postprocess_fn(self, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> ConstrainFn:
         """Inner postprocess on the HMC sites; subsample indices are dropped (as today)."""
         ...
     def get_diagnostics_str(self, state: HMCECSState) -> str: ...
 
     @staticmethod
-    def taylor_proxy(reference_params: dict[str, jax.Array], degree: int = 2) -> Callable[..., Any]: ...
+    def taylor_proxy(reference_params: SiteValues, degree: int = 2) -> ProxyConstructor: ...
 
     def __getstate__(self) -> dict[str, Any]: ...
 ```
@@ -730,11 +794,11 @@ class MixedHMC(MCMCKernel):
     sample_field: str = "z"
 
     def __init__(self, inner_kernel: HMC, *, num_discrete_updates: int | None = None, random_walk: bool = False, modified: bool = False) -> None: ...
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs) -> MixedHMCState: ...
-    def sample(self, state: MixedHMCState, model_args, model_kwargs) -> MixedHMCState: ...
-    def refresh(self, state: MixedHMCState, model_args, model_kwargs) -> MixedHMCState: ...
-    def wrap_model(self, wrapper: Callable[[ModelT], ModelT]) -> "MixedHMC": ...
-    def postprocess_fn(self, model_args, model_kwargs) -> Callable[[dict[str, jax.Array]], dict[str, jax.Array]]: ...
+    def init(self, rng_key: jax.Array, num_warmup: int, init_params: SiteValues | None, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> MixedHMCState: ...
+    def sample(self, state: MixedHMCState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> MixedHMCState: ...
+    def refresh(self, state: MixedHMCState, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> MixedHMCState: ...
+    def wrap_model(self, wrapper: ModelWrapper) -> "MixedHMC": ...
+    def postprocess_fn(self, model_args: ModelArgs, model_kwargs: ModelKwargs | None) -> ConstrainFn: ...
     def get_diagnostics_str(self, state: MixedHMCState) -> str: ...
     def __getstate__(self) -> dict[str, Any]: ...
 ```
