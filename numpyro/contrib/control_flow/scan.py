@@ -192,7 +192,7 @@ def scan_enum(
             # store shape of new_carry at a global variable
             if len(carry_shapes) < (history + 1):
                 carry_shapes.append(
-                    [jnp.shape(x) for x in jax.tree.flatten(new_carry)[0]]  # ty: ignore[invalid-argument-type]
+                    [jnp.shape(x) for x in jax.tree.flatten(new_carry)[0]]
                 )
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?
@@ -225,7 +225,7 @@ def scan_enum(
                 # shape so we don't need to record them here
                 if (i >= history - 1) and (len(carry_shapes) < history + 1):
                     carry_shapes.append(
-                        jnp.shape(x) for x in jax.tree.flatten(wrapped_carry[-1])[0]
+                        [jnp.shape(x) for x in jax.tree.flatten(wrapped_carry[-1])[0]]
                     )
             else:
                 # this is the last rolling step
