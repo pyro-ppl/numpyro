@@ -308,6 +308,13 @@ def test_cat_transform_invalid_shape():
     with pytest.raises(ValueError, match="must equal the sum of lengths 3"):
         transform(jnp.ones(2))
 
+    with pytest.raises(AssertionError, match="tseq cannot be empty"):
+        CatTransform([])
+    with pytest.raises(AssertionError, match="dim must be an integer"):
+        CatTransform([ExpTransform()], dim=0.5)
+    with pytest.raises(AssertionError, match="nonnegative integers"):
+        CatTransform([ExpTransform()], lengths=[-1])
+
 
 @pytest.mark.parametrize(
     "input_shape, shape, ndims",

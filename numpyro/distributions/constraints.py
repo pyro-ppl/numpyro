@@ -444,14 +444,20 @@ class _Cat(Constraint[NonScalarArray]):
         dim: int = 0,
         lengths: Optional[Sequence[int]] = None,
     ) -> None:
-        assert all(isinstance(c, Constraint) for c in cseq)
-        assert cseq
-        assert isinstance(dim, int)
+        assert cseq, "cseq cannot be empty"
+        assert all(isinstance(c, Constraint) for c in cseq), (
+            "cseq must contain only Constraint instances"
+        )
+        assert isinstance(dim, int), "dim must be an integer"
         self.cseq = tuple(cseq)
         if lengths is None:
             lengths = (1,) * len(self.cseq)
-        assert len(lengths) == len(self.cseq)
-        assert all(isinstance(length, int) and length >= 0 for length in lengths)
+        assert len(lengths) == len(self.cseq), (
+            "lengths must have the same number of elements as cseq"
+        )
+        assert all(isinstance(length, int) and length >= 0 for length in lengths), (
+            "lengths must contain only nonnegative integers"
+        )
         self.lengths = tuple(lengths)
         self.dim = dim
 

@@ -471,14 +471,20 @@ class CatTransform(Transform[NonScalarArray]):
         dim: int = 0,
         lengths: Optional[Sequence[int]] = None,
     ) -> None:
-        assert all(isinstance(t, Transform) for t in tseq)
-        assert tseq
-        assert isinstance(dim, int)
+        assert tseq, "tseq cannot be empty"
+        assert all(isinstance(t, Transform) for t in tseq), (
+            "tseq must contain only Transform instances"
+        )
+        assert isinstance(dim, int), "dim must be an integer"
         self.transforms = tuple(tseq)
         if lengths is None:
             lengths = (1,) * len(self.transforms)
-        assert len(lengths) == len(self.transforms)
-        assert all(isinstance(length, int) and length >= 0 for length in lengths)
+        assert len(lengths) == len(self.transforms), (
+            "lengths must have the same number of elements as tseq"
+        )
+        assert all(isinstance(length, int) and length >= 0 for length in lengths), (
+            "lengths must contain only nonnegative integers"
+        )
         self.lengths = tuple(lengths)
         self.dim = dim
 
