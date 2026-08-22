@@ -5,7 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 import warnings
 
 import numpy as np
@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist
-from numpyro._typing import TraceT
+from numpyro._typing import ModelT, SiteValues, TraceT
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -330,6 +330,20 @@ def _unconstrain_reparam(params, site):
         return value
 
 
+class _unconstrain_params(substitute):
+    """
+    The handler :func:`potential_energy` uses to substitute unconstrained `params` through
+    :func:`_unconstrain_reparam`. Exposes `.params` so that model wrappers that need the
+    current unconstrained values (for example
+    :class:`~numpyro.infer.hmc_gibbs.estimate_likelihood`) can find it on the handler stack
+    with `isinstance` instead of inspecting `substitute_fn`.
+    """
+
+    def __init__(self, fn: ModelT, params: SiteValues) -> None:
+        super().__init__(fn, substitute_fn=partial(_unconstrain_reparam, params))
+        self.params = params
+
+
 def potential_energy(model, model_args, model_kwargs, params, enum=False):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
@@ -348,9 +362,7 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False):
     else:
         log_density_ = log_density
 
-    substituted_model = substitute(
-        model, substitute_fn=partial(_unconstrain_reparam, params)
-    )
+    substituted_model = _unconstrain_params(model, params)
     # no param is needed for log_density computation because we already substitute
     log_joint, model_trace = log_density_(
         substituted_model, model_args, model_kwargs, {}
@@ -508,12 +520,30 @@ def find_valid_initial_params(
     return (init_params, pe, z_grad), is_valid
 
 
-def _get_model_transforms(model, model_args=(), model_kwargs=None):
-    model_kwargs = {} if model_kwargs is None else model_kwargs
-    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+class _ModelTransforms(NamedTuple):
+    inv_transforms: dict
+    has_deterministic: bool
+    dynamic_support: bool
+    has_enumerate_support: bool
+
+
+def _transforms_from_trace(
+    model_trace: TraceT, *, raise_warnings: bool = True
+) -> _ModelTransforms:
+    """
+    Inspect a model trace and collect the inverse transforms of its latent sample and param
+    sites together with the flags that decide how samples must be post-processed:
+    `has_deterministic` (the trace has `deterministic` sites, so constraining requires a
+    model replay to recover them), `dynamic_support` (a support depends on other values, so
+    constraining requires a model replay) and `has_enumerate_support` (the model has discrete
+    latent sites to enumerate). Does not mutate the trace.
+
+    :param model_trace: a trace of the model.
+    :param bool raise_warnings: whether to emit the support and enumeration warnings.
+    """
     inv_transforms = {}
-    # model code may need to be replayed in the presence of deterministic sites
-    replay_model = False
+    has_deterministic = False
+    dynamic_support = False
     has_enumerate_support = False
     for k, v in model_trace.items():
         if v["type"] == "sample" and not v["is_observed"]:
@@ -533,7 +563,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                         f" enumerate support. But the {dist_name} distribution at"
                         f" site {k} does not have enumerate support."
                     )
-                if enum_type is None:
+                if enum_type is None and raise_warnings:
                     warnings.warn(
                         "Some algorithms will automatically enumerate the discrete"
                         f" latent site {k} of your model. In the future,"
@@ -544,7 +574,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                     )
             else:
                 support = v["fn"].support
-                with helpful_support_errors(v, raise_warnings=True):
+                with helpful_support_errors(v, raise_warnings=raise_warnings):
                     inv_transforms[k] = biject_to(support)
                 # Note: the following code filters out most situations with dynamic supports
                 args = ()
@@ -554,14 +584,65 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                     args = ("lower_bound", "upper_bound")
                 for arg in args:
                     if not isinstance(getattr(support, arg), (int, float)):
-                        replay_model = True
+                        dynamic_support = True
         elif v["type"] == "param":
-            constraint = v["kwargs"].pop("constraint", constraints.real)
-            with helpful_support_errors(v, raise_warnings=True):
+            constraint = v["kwargs"].get("constraint", constraints.real)
+            with helpful_support_errors(v, raise_warnings=raise_warnings):
                 inv_transforms[k] = biject_to(constraint)
         elif v["type"] == "deterministic":
-            replay_model = True
-    return inv_transforms, replay_model, has_enumerate_support, model_trace
+            has_deterministic = True
+    return _ModelTransforms(
+        inv_transforms, has_deterministic, dynamic_support, has_enumerate_support
+    )
+
+
+def _get_model_transforms(model, model_args=(), model_kwargs=None):
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    info = _transforms_from_trace(model_trace)
+    # model code may need to be replayed in the presence of deterministic sites
+    replay_model = info.has_deterministic or info.dynamic_support
+    return info.inv_transforms, replay_model, info.has_enumerate_support, model_trace
+
+
+def _prepare_model_for_potential(
+    model: ModelT, model_trace: TraceT, *, enum: bool
+) -> ModelT:
+    """
+    The model preparation :func:`initialize_model` performs before building a potential:
+    substitute `param`/`mutable` values from the trace, add a default PRNG key, wrap with
+    `enum(config_enumerate(...))` when `enum` is set, and validate plates. Shared with
+    :class:`~numpyro.infer.gibbs.DiscreteGibbs` so that it builds its potential from the same
+    prepared model as HMC. The wrapper order is relied upon by
+    :func:`find_valid_initial_params`.
+
+    :param model: the model.
+    :param model_trace: a trace of `model`.
+    :param bool enum: whether to marginalize discrete latent sites by enumeration.
+    """
+    # substitute param sites from model_trace to model so
+    # we don't need to generate again parameters of `numpyro.module`
+    model = substitute(
+        model,
+        data={
+            k: site["value"]
+            for k, site in model_trace.items()
+            if site["type"] in ["param", "mutable"]
+        },
+    )
+
+    model = _substitute_default_key(model)
+
+    if enum:
+        from numpyro.contrib.funsor import config_enumerate, enum as enum_handler
+
+        if not isinstance(model, enum_handler):
+            max_plate_nesting = _guess_max_plate_nesting(model_trace)
+            _validate_model(model_trace, plate_warning="error")
+            model = enum_handler(config_enumerate(model), -max_plate_nesting - 1)
+    else:
+        _validate_model(model_trace, plate_warning="loose")
+    return model
 
 
 def _partial_args_kwargs(fn, *args, **kwargs):
@@ -729,18 +810,7 @@ def initialize_model(
                 "`numpyro.deterministic` to add this value to the trace instead."
             )
 
-    # substitute param sites from model_trace to model so
-    # we don't need to generate again parameters of `numpyro.module`
-    model = substitute(
-        model,
-        data={
-            k: site["value"]
-            for k, site in model_trace.items()
-            if site["type"] in ["param", "mutable"]
-        },
-    )
-
-    model = _substitute_default_key(model)
+    model = _prepare_model_for_potential(model, model_trace, enum=has_enumerate_support)
 
     constrained_values = {
         k: v["value"]
@@ -749,16 +819,6 @@ def initialize_model(
         and not v["is_observed"]
         and not v["fn"].support.is_discrete
     }
-
-    if has_enumerate_support:
-        from numpyro.contrib.funsor import config_enumerate, enum
-
-        if not isinstance(model, enum):
-            max_plate_nesting = _guess_max_plate_nesting(model_trace)
-            _validate_model(model_trace, plate_warning="error")
-            model = enum(config_enumerate(model), -max_plate_nesting - 1)
-    else:
-        _validate_model(model_trace, plate_warning="loose")
 
     potential_fn, postprocess_fn = get_potential_fn(
         model,

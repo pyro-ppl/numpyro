@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from functools import partial
 from operator import attrgetter
 import os
@@ -13,6 +14,7 @@ import jax
 from jax import device_get, jit, lax, local_device_count, pmap, random, vmap
 import jax.numpy as jnp
 
+from numpyro._typing import ModelArgs, ModelKwargs, StateT
 from numpyro.diagnostics import print_summary
 from numpyro.util import (
     _is_under_jax_transform,
@@ -157,6 +159,67 @@ class MCMCKernel(ABC):
         be added to progress bar for diagnostics purpose.
         """
         return ""
+
+    def refresh(
+        self,
+        state: StateT,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> StateT:
+        """
+        Recompute every value cached in `state` that depends on `(model_args, model_kwargs)`
+        without advancing the chain, for example the potential energy and its gradient at the
+        current sample. Composite kernels call this before :meth:`sample` whenever the values
+        the target is conditioned on have changed. Kernels that cache nothing return `state`.
+
+        The default raises `NotImplementedError`; only kernels that override it can be used as
+        blocks of :class:`~numpyro.infer.gibbs.Gibbs`. This is deliberate: a kernel that binds
+        its potential at `init` (e.g. :class:`~numpyro.infer.barker.BarkerMH`) would silently
+        target the wrong conditional if the default were the identity.
+
+        :param state: current kernel state.
+        :param tuple model_args: arguments provided to the model.
+        :param dict model_kwargs: keyword arguments provided to the model, including any
+            conditioning values.
+        :return: a state of the same type with refreshed cached values.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement `refresh` and cannot be used "
+            "as a block of a composite kernel."
+        )
+
+    def wrap_model(self, wrapper: Callable) -> "MCMCKernel":
+        """
+        Return a copy of this kernel whose model is `wrapper(self.model)`. Kernels that hold
+        other kernels apply the wrapper recursively; kernels without a model return `self`.
+        Any function built lazily from the old model (potential, postprocess, sampler closures)
+        must be reset in the copy. The default raises `NotImplementedError`.
+
+        :param wrapper: callable mapping a model to a model with the same call signature.
+        :return: a new kernel bound to the wrapped model.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement `wrap_model`."
+        )
+
+    def get_constrain_fn(
+        self,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> Callable:
+        """
+        Return a function mapping the values in `state.<sample_field>` to the constrained
+        values a sibling kernel should be conditioned on. The default delegates to
+        :meth:`postprocess_fn`, which is always correct but may replay the model; kernels that
+        can constrain with transforms alone (for example :class:`~numpyro.infer.hmc.HMC`)
+        override it with a cheaper function. Composite kernels keep only the entries for the
+        sites the block owns.
+
+        :param tuple model_args: arguments provided to the model.
+        :param dict model_kwargs: keyword arguments provided to the model.
+        :return: a callable mapping site values to constrained site values.
+        """
+        return self.postprocess_fn(model_args, model_kwargs)
 
 
 def _get_progbar_desc_str(num_warmup, phase, i):

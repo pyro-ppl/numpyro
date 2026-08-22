@@ -849,9 +849,13 @@ def nested_attrgetter(*collect_fields):
 
 def _get_nested_attr(obj, field):
     """
-    Helper function to recursively access attributes and dictionary keys.
+    Helper function to recursively access attributes, dictionary keys and, for tuples and
+    lists, decimal indices (e.g. ``"block_states.1.diverging"``).
     """
     for attr in field.split("."):
+        if isinstance(obj, (tuple, list)) and attr.isdecimal():
+            obj = obj[int(attr)]
+            continue
         try:
             obj = getattr(obj, attr)
         except AttributeError:
