@@ -168,14 +168,12 @@ class _MixtureBase(Distribution):
     def log_prob(self, value: ArrayLike, intermediates=None) -> ArrayLike:
         del intermediates
         sum_log_probs = self.component_log_probs(value)
+        # the value-preserving where stops gradients from flowing into -inf
+        # component log-probs (e.g. at zero mixing weights); see #1874
         safe_sum_log_probs = jnp.where(
             jnp.isneginf(sum_log_probs), -jnp.inf, sum_log_probs
         )
-        return jax.nn.logsumexp(
-            safe_sum_log_probs,
-            where=~jnp.isneginf(sum_log_probs),  # for numerical stability
-            axis=-1,
-        )
+        return jax.nn.logsumexp(safe_sum_log_probs, axis=-1)
 
 
 class MixtureSameFamily(_MixtureBase):

@@ -203,3 +203,35 @@ def test_mixture_rejects_parameter_dependent_components(component_dist):
 def test_mixture_accepts_parameter_free_components(component_dist):
     mixing_dist = dist.Categorical(probs=np.array([0.3, 0.7]))
     dist.MixtureSameFamily(mixing_dist, component_dist)
+
+
+def test_mixture_log_prob_grad_at_zero_weights():
+    # regression test for #1874: gradients must not become NaN when some
+    # mixing weights are exactly zero
+    def loss(probs):
+        mixture = dist.MixtureSameFamily(
+            dist.Categorical(probs=probs),
+            dist.Normal(jnp.arange(3.0), jnp.ones(3)),
+        )
+        return mixture.log_prob(jnp.array([0.5, 2.0])).sum()
+
+    grad = jax.grad(loss)(jnp.array([0.5, 0.5, 0.0]))
+    assert not jnp.isnan(grad).any()
+
+
+def test_mixture_log_prob_grad_all_components_neg_inf():
+    # if every component assigns -inf to a value, the log_prob is -inf and
+    # gradients must not become NaN
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=jnp.array([0.5, 0.5])),
+        [
+            dist.HalfNormal(1.0, validate_args=False),
+            dist.HalfNormal(2.0, validate_args=False),
+        ],
+        support=dist.constraints.real,
+        validate_args=False,
+    )
+    value = jnp.array([-1.0, 1.0])
+    assert jnp.isneginf(mixture.log_prob(value)[0])
+    grad = jax.grad(lambda x: mixture.log_prob(x).sum())(value)
+    assert not jnp.isnan(grad).any()
