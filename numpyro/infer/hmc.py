@@ -7,8 +7,10 @@ import copy
 from functools import partial
 import math
 import os
+from typing import cast
 import warnings
 
+import jax
 from jax import lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -95,11 +97,14 @@ def _get_num_steps(step_size, trajectory_length):
     return num_steps.astype(jnp.result_type(int))
 
 
-def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
+def momentum_generator(
+    prototype_r, mass_matrix_sqrt: dict[tuple[str, ...], jax.Array] | jax.Array, rng_key
+):
     if isinstance(mass_matrix_sqrt, dict):
-        rng_keys = random.split(rng_key, len(mass_matrix_sqrt))
+        blocks = cast(dict[tuple[str, ...], jax.Array], mass_matrix_sqrt)
+        rng_keys = random.split(rng_key, len(blocks))
         r = {}
-        for (site_names, mm_sqrt), rng_key in zip(mass_matrix_sqrt.items(), rng_keys):
+        for (site_names, mm_sqrt), rng_key in zip(blocks.items(), rng_keys):
             r_block = OrderedDict([(k, prototype_r[k]) for k in site_names])
             r.update(momentum_generator(r_block, mm_sqrt, rng_key))
         return r
@@ -339,7 +344,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         )
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
-        z_info = IntegratorState(z=z, potential_energy=pe, z_grad=z_grad)
+        z_info = IntegratorState(z=z, r=None, potential_energy=pe, z_grad=z_grad)
         wa_state = wa_init(
             z_info, rng_key_wa, step_size, inverse_mass_matrix=inverse_mass_matrix
         )
@@ -380,6 +385,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update_fn = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         else:
+            assert vv_update is not None
             vv_update_fn = vv_update
 
         if fixed_num_steps is not None:
@@ -432,8 +438,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update_fn = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         else:
+            assert vv_update is not None
             vv_update_fn = vv_update
 
+        assert max_treedepth is not None
         binary_tree = build_tree(
             vv_update_fn,
             kinetic_fn,
@@ -491,6 +499,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         if algo == "HMC":
             hmc_length_args = (hmc_state.trajectory_length,)
         else:
+            assert max_treedepth is not None
             hmc_length_args = (
                 jnp.where(hmc_state.i < wa_steps, max_treedepth[0], max_treedepth[1]),
             )
@@ -504,10 +513,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             *hmc_length_args,
         )
         # not update adapt_state after warmup phase
+        wa_update_fn = wa_update
+        assert wa_update_fn is not None
         adapt_state = cond(
             hmc_state.i < wa_steps,
             (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
-            lambda args: wa_update(*args),
+            lambda args: wa_update_fn(*args),
             hmc_state.adapt_state,
             identity,
         )
@@ -538,8 +549,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
     if "SPHINX_BUILD" in os.environ:
-        hmc.init_kernel = init_kernel
-        hmc.sample_kernel = sample_kernel
+        hmc.init_kernel = init_kernel  # ty: ignore[unresolved-attribute]
+        hmc.sample_kernel = sample_kernel  # ty: ignore[unresolved-attribute]
 
     return init_kernel, sample_kernel
 
@@ -798,6 +809,7 @@ class HMC(MCMCKernel):
             )
         if return_deterministic or self._dynamic_support:
             model_kwargs = {} if model_kwargs is None else model_kwargs
+            assert self._postprocess_fn is not None
             return self._postprocess_fn(*model_args, **model_kwargs)
         return partial(transform_fn, self._inv_transforms)
 
@@ -874,7 +886,9 @@ class HMC(MCMCKernel):
                 dense_mass = [tuple(sorted(z))] if dense_mass else []
             assert isinstance(dense_mass, list)
 
-        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
+        init_fn = self._init_fn
+        assert init_fn is not None
+        hmc_init_fn = lambda init_params, rng_key: init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
@@ -900,14 +914,15 @@ class HMC(MCMCKernel):
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
+            assert self._sample_fn is not None
             sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
 
-    def postprocess_fn(self, args, kwargs):
+    def postprocess_fn(self, model_args, model_kwargs):
         if self._postprocess_fn is None:
             return identity
-        return self._postprocess_fn(*args, **kwargs)
+        return self._postprocess_fn(*model_args, **model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         """
@@ -919,6 +934,7 @@ class HMC(MCMCKernel):
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state` after running HMC.
         """
+        assert self._sample_fn is not None, "`init` must be called before `sample`."
         return self._sample_fn(state, model_args, model_kwargs)
 
     def __getstate__(self):

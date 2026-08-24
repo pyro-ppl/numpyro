@@ -142,7 +142,11 @@ def maybe_jit(fn: Callable, *args, **kwargs) -> Callable:
 
 
 def cond(
-    pred: bool, true_operand, true_fun: Callable, false_operand, false_fun: Callable
+    pred: bool | jax.Array,
+    true_operand,
+    true_fun: Callable,
+    false_operand,
+    false_fun: Callable,
 ) -> Any:
     if _DISABLE_CONTROL_FLOW_PRIM:
         if pred:

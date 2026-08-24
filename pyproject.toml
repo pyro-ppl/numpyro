@@ -232,6 +232,7 @@ unresolved-import = "ignore"
 
 [tool.ty.src]
 include = [
+    "numpyro/_typing.py",
     "numpyro/contrib/control_flow",
     "numpyro/contrib/funsor",
     "numpyro/contrib/hsgp",
@@ -243,6 +244,11 @@ include = [
     "numpyro/examples/datasets.py",
     "numpyro/handlers.py",
     "numpyro/infer/elbo.py",
+    "numpyro/infer/gibbs.py",
+    "numpyro/infer/hmc.py",
+    "numpyro/infer/hmc_gibbs.py",
+    "numpyro/infer/mcmc.py",
+    "numpyro/infer/mixed_hmc.py",
     "numpyro/infer/util.py",
     "numpyro/optim.py",
     "numpyro/primitives.py",

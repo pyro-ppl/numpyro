@@ -9,16 +9,15 @@ from typing import Any
 import numpy as np
 
 import jax
-from jax import lax, random
-from jax.flatten_util import ravel_pytree
+from jax import random
 import jax.numpy as jnp
 
 from numpyro._typing import ConstrainFn, ModelArgs, ModelKwargs, ModelT, SiteValues
-from numpyro.infer.gibbs_util import (
+from numpyro.infer.gibbs import (
     ModelWrapper,
+    _flat_support_sizes,
     conditioned,
     discrete_latent_sites,
-    discrete_support_sizes,
     prototype_trace,
     select_discrete_proposal,
     with_conditioning,
@@ -171,9 +170,7 @@ class MixedHMC(MCMCKernel):
             raise ValueError(
                 "Cannot detect any discrete latent variables in the model."
             )
-        self._support_sizes_flat = np.asarray(
-            ravel_pytree(discrete_support_sizes(model_trace, self._gibbs_sites))[0]
-        )
+        self._support_sizes_flat = _flat_support_sizes(model_trace, self._gibbs_sites)
         if self._num_discrete_updates is None:
             self._num_discrete_updates = self._support_sizes_flat.shape[0]
         self._num_warmup = num_warmup
@@ -239,6 +236,9 @@ class MixedHMC(MCMCKernel):
         model_kwargs: ModelKwargs | None,
     ) -> MixedHMCState:
         model_kwargs = {} if model_kwargs is None else model_kwargs
+        assert self._support_sizes_flat is not None, (
+            "`init` must be called before `sample`."
+        )
         num_discretes = self._support_sizes_flat.shape[0]
         support_sizes_flat = jnp.asarray(self._support_sizes_flat)
 
@@ -283,7 +283,7 @@ class MixedHMC(MCMCKernel):
                     refreshed.z_grad,
                 )
 
-            z_discrete, pe, ke_discrete_i, z_grad = lax.cond(
+            z_discrete, pe, ke_discrete_i, z_grad = cond(
                 ke_discrete_i_new > 0,
                 (z_discrete_new, pe_new, ke_discrete_i_new),
                 refract,
@@ -361,9 +361,11 @@ class MixedHMC(MCMCKernel):
         # the same job: the sub-trajectory length eta_t * M_t is the lag between two arrival time.
         arrival_times = random.uniform(rng_time, (num_discretes,))
         # compute the amount of time to make `num_discrete_updates` discrete updates
-        total_time = (self._num_discrete_updates - 1) // num_discretes + jnp.sort(
+        num_discrete_updates = self._num_discrete_updates
+        assert num_discrete_updates is not None
+        total_time = (num_discrete_updates - 1) // num_discretes + jnp.sort(
             arrival_times
-        )[(self._num_discrete_updates - 1) % num_discretes]
+        )[(num_discrete_updates - 1) % num_discretes]
         # NB: total_time can be different from the HMC trajectory length, so we need to scale
         # the time unit so that total_time * time_unit = hmc_trajectory_length
         time_unit = state.hmc_state.trajectory_length / total_time
@@ -416,10 +418,12 @@ class MixedHMC(MCMCKernel):
         )
 
         # perform hmc adapting (similar to the implementation in hmc)
+        wa_update = self._wa_update
+        assert wa_update is not None
         adapt_state = cond(
             hmc_state.i < self._num_warmup,
             (hmc_state.i, accept_prob, (hmc_state.z,), hmc_state.adapt_state),
-            lambda args: self._wa_update(*args),
+            lambda args: wa_update(*args),
             hmc_state.adapt_state,
             identity,
         )

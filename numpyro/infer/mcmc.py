@@ -784,7 +784,7 @@ class MCMC(object):
                 states, last_state = _laxmap(partial_map_fn, map_args)
             elif self.chain_method == "parallel":
                 states, last_state = pmap(partial_map_fn)(map_args)
-            elif callable(self.chain_method):
+            elif not isinstance(self.chain_method, str):
                 states, last_state = self.chain_method(partial_map_fn)(map_args)
             else:
                 assert self.chain_method == "vectorized"
@@ -817,11 +817,9 @@ class MCMC(object):
             samples = predictive(rng_key1, *model_args, **model_kwargs)
 
         """
-        return (
-            self._states[self._sample_field]
-            if group_by_chain
-            else self._get_states_flat()[self._sample_field]
-        )
+        states = self._states if group_by_chain else self._get_states_flat()
+        assert states is not None, "`run` must be called before `get_samples`."
+        return states[self._sample_field]
 
     def get_extra_fields(self, group_by_chain=False):
         """
@@ -833,6 +831,7 @@ class MCMC(object):
             `extra_fields` keyword of :meth:`run`.
         """
         states = self._states if group_by_chain else self._get_states_flat()
+        assert states is not None, "`run` must be called before `get_extra_fields`."
         return {k: v for k, v in states.items() if k != self._sample_field}
 
     def print_summary(self, prob=0.9, exclude_deterministic=True):
@@ -844,7 +843,9 @@ class MCMC(object):
             at deterministic sites.
         """
         # Exclude deterministic sites by default
-        sites = self._states[self._sample_field]
+        states = self._states
+        assert states is not None, "`run` must be called before `print_summary`."
+        sites = states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
             state_sample_field = attrgetter(self._sample_field)(self._last_state)
             # Note: there might be the case that state.z is not a dictionary but
@@ -855,7 +856,7 @@ class MCMC(object):
             if isinstance(state_sample_field, dict):
                 sites = {
                     k: v
-                    for k, v in self._states[self._sample_field].items()
+                    for k, v in states[self._sample_field].items()
                     if k in state_sample_field
                 }
         print_summary(sites, prob=prob)

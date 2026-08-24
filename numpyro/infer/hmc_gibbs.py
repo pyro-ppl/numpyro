@@ -21,9 +21,12 @@ from numpyro._typing import (
     SiteValues,
 )
 from numpyro.contrib.ecs_proxies import block_update, perturbed_method, taylor_proxy
-from numpyro.infer.gibbs import CustomGibbs, DiscreteGibbs, Gibbs, GibbsState
-from numpyro.infer.gibbs_util import (
+from numpyro.infer.gibbs import (
     GIBBS_SITES_KWARG,
+    CustomGibbs,
+    DiscreteGibbs,
+    Gibbs,
+    GibbsState,
     GibbsUpdateFn,
     ModelWrapper,
     conditioned,
@@ -465,6 +468,7 @@ class HMCECS(MCMCKernel):
         rng_key, rng_gibbs, rng_accept = random.split(state.rng_key, 3)
 
         z_gibbs, _ = self._split(state.z)
+        assert self._gibbs_update is not None, "`init` must be called before `sample`."
         z_gibbs_new, gibbs_state_new = self._gibbs_update(
             rng_gibbs, z_gibbs, state.gibbs_state
         )
@@ -515,6 +519,7 @@ class HMCECS(MCMCKernel):
         model_args: ModelArgs,
         model_kwargs: ModelKwargs | None,
     ) -> HMCECSState:
+        assert self._sample_fn is not None, "`init` must be called before `sample`."
         return self._sample_fn(state, model_args, model_kwargs)
 
     def refresh(
@@ -592,6 +597,7 @@ class estimate_likelihood(numpyro.primitives.Messenger):
             return
 
         if numpyro.get_mask() is not False:
+            assert self.method is not None
             numpyro.factor(
                 "_biased_corrected_log_likelihood",
                 self.method(self.likelihoods, self.params, self.gibbs_state),

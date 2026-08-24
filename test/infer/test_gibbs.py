@@ -10,7 +10,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, random, vmap
+from jax import jit, pmap, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
 
@@ -29,9 +29,9 @@ from numpyro.infer import (
     HMCGibbs,
     MixedHMC,
 )
-from numpyro.infer.gibbs import GibbsState
-from numpyro.infer.gibbs_util import (
+from numpyro.infer.gibbs import (
     GIBBS_SITES_KWARG,
+    GibbsState,
     any_changed,
     conditioned,
     discrete_latent_sites,
@@ -77,7 +77,7 @@ def xy_gibbs_fn(rng_key, gibbs_sites, hmc_sites):
     return {"x": dist.Normal(0.8 * (1 - y), jnp.sqrt(0.8)).sample(rng_key)}
 
 
-def test_gibbs_util():
+def test_gibbs_helpers():
     model = conditioned(xy_model)
     assert conditioned(model) is model
     kwargs = with_conditioning({"a": 1, GIBBS_SITES_KWARG: {"x": 0.0}}, {"y": 1.0})
@@ -542,6 +542,43 @@ def test_discrete_gibbs_errors():
         DiscreteGibbs(xy_model).init(random.key(0), 10, None, (), {})
     with pytest.raises(RuntimeError, match="init"):
         DiscreteGibbs(mixed_model).get_potential_fn()
+
+
+def _mixed_discrete_model():
+    c = numpyro.sample("c", dist.Bernoulli(0.7))
+    z = numpyro.sample("z", dist.Normal(0.0, 1.0))
+    numpyro.sample("obs", dist.Normal(z + c, 1.0), obs=jnp.array(1.0))
+
+
+@pytest.mark.parametrize(
+    "make_kernel, sites",
+    [
+        (lambda: DiscreteGibbs(_discrete_model), {"x", "y"}),
+        (
+            lambda: MixedHMC(HMC(_mixed_discrete_model, trajectory_length=1.2)),
+            {"c", "z"},
+        ),
+        (lambda: DiscreteHMCGibbs(NUTS(_mixed_discrete_model)), {"c", "z"}),
+    ],
+    ids=["DiscreteGibbs", "MixedHMC", "DiscreteHMCGibbs"],
+)
+def test_discrete_kernels_init_under_pmap(make_kernel, sites):
+    # regression test for `init` under pmap's staging trace (multi-device CI runs
+    # chains with `chain_method="parallel"`): the flat support sizes stored on the
+    # kernel must stay static numpy, never a leaked tracer
+    kernel = make_kernel()
+    keys = random.split(random.key(0), 1)
+    states = pmap(lambda key: kernel.init(key, 10, None, (), {}))(keys)
+    discrete = (
+        kernel if isinstance(kernel, (DiscreteGibbs, MixedHMC)) else kernel.blocks[0][0]
+    )
+    assert isinstance(discrete._support_sizes_flat, np.ndarray)
+    states = pmap(lambda state: kernel.sample(state, (), {}))(states)
+    z = getattr(states, kernel.sample_field)
+    assert set(z) == sites
+    for value in z.values():
+        assert value.shape[0] == 1
+        assert np.isfinite(np.asarray(value, dtype=float)).all()
 
 
 @pytest.mark.parametrize("num_chains", [1, 2])
