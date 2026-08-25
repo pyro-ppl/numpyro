@@ -1275,10 +1275,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         y = y - jnp.expand_dims(self.anchor_point, -1)
         s = expit(y)
         # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
-        # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (jnp.ndim(s) - 1) + [(1, 1)]
-        s = jnp.pad(s, pad_width, constant_values=(0, 1))
-        x = s[..., 1:] - s[..., :-1]
+        x = jnp.diff(s, prepend=0, append=1)
         return x
 
     def log_abs_det_jacobian(
