@@ -8,7 +8,7 @@ import jax
 from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import logsumexp
+from jax.scipy.special import gammainc, gammaincc, logsumexp
 from jax.typing import ArrayLike
 
 from numpyro._typing import NumLike
@@ -16,6 +16,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import (
     Cauchy,
+    Gamma,
     Laplace,
     Logistic,
     Normal,
@@ -25,6 +26,8 @@ from numpyro.distributions.continuous import (
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     clamp_probs,
+    gammainccinv,
+    gammaincinv,
     lazy_property,
     promote_shapes,
     validate_sample,
@@ -450,6 +453,474 @@ def TruncatedNormal(
     return TruncatedDistribution(
         Normal(loc, scale), low=low, high=high, validate_args=validate_args
     )
+
+
+def _safe_log_normalizer(normalizer: ArrayLike) -> ArrayLike:
+    """Log of a truncation normalizer, kept finite when the normalizer underflows.
+
+    Callers pair this with a ``jnp.where`` selecting ``-inf`` wherever the normalizer
+    is zero; taking the log of the clamped value keeps that branch's gradient finite
+    rather than ``nan``.
+    """
+    return jnp.log(jnp.where(normalizer > 0.0, normalizer, 1.0))
+
+
+def _truncated_log_prob(
+    base_log_prob: ArrayLike, normalizer: ArrayLike, log_normalizer: ArrayLike
+) -> ArrayLike:
+    """Renormalized log density, guarding the underflowed case.
+
+    Once the retained probability underflows to zero, ``jnp.log`` hands back ``-inf``
+    and the subtraction would make ``log_prob`` ``+inf`` — attracting a gradient-based
+    sampler rather than repelling it. Selecting ``-inf`` instead also makes the
+    gradient zero there, which is the honest answer for a density that is
+    identically zero across the region.
+    """
+    return jnp.where(normalizer > 0.0, base_log_prob - log_normalizer, -jnp.inf)
+
+
+def _mask_saturated_icdf(x: ArrayLike, q: ArrayLike) -> ArrayLike:
+    """Report a saturated inverse as ``nan`` rather than a draw outside the support.
+
+    ``tfp``'s inverse incomplete gamma returns ``+inf`` once the tail probability it is
+    asked to invert drops below roughly ``1e-8``, in double precision as well as
+    single. ``q == 1`` is exempt: for a distribution truncated only from below the
+    upper end of the support really is infinite.
+    """
+    return jnp.where(jnp.isfinite(x) | (q >= 1.0), x, jnp.nan)
+
+
+class LeftTruncatedGamma(Distribution):
+    r"""A :class:`~numpyro.distributions.continuous.Gamma` distribution truncated
+    from below at ``low``.
+
+    .. math::
+        f(x \mid \alpha, \lambda, a) = \frac{
+            \mathrm{Gamma}(x \mid \alpha, \lambda)
+        }{
+            Q(\alpha, \lambda a)
+        }, \qquad x \geq a,
+
+    where :math:`Q(\alpha, z)` is the regularized upper incomplete gamma function
+    (:func:`~jax.scipy.special.gammaincc`). Taking the normalizer from the upper tail
+    keeps it accurate however far into the tail ``low`` sits.
+
+    :param base_dist: a :class:`~numpyro.distributions.continuous.Gamma` instance.
+    :param low: the value at which the base distribution is truncated from below.
+
+    .. note::
+        ``log_prob`` returns ``-inf`` once the normalizer underflows, rather than
+        ``+inf``; and ``icdf`` returns ``nan`` below a tail probability of roughly
+        ``1e-8``, where the inverse incomplete gamma saturates — the same limit as
+        :meth:`~numpyro.distributions.continuous.Gamma.icdf`. Enabling
+        ``jax_enable_x64`` helps with the first but not the second.
+    """
+
+    arg_constraints = {"low": constraints.greater_than_eq(0.0)}
+    reparametrized_params = ["low"]
+    supported_types = (Gamma,)
+    pytree_data_fields = ("base_dist", "low", "_support")
+
+    def __init__(
+        self,
+        base_dist: Gamma,
+        low: ArrayLike = 0.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        assert isinstance(base_dist, self.supported_types)
+        batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
+        self.base_dist: Gamma = jax.tree.map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
+        )
+        (self.low,) = promote_shapes(low, shape=batch_shape)
+        self._support = constraints.greater_than_eq(low)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> Constraint:
+        return self._support
+
+    @lazy_property
+    def _normalizer(self) -> ArrayLike:
+        return gammaincc(self.base_dist.concentration, self.base_dist.rate * self.low)
+
+    @lazy_property
+    def _log_normalizer(self) -> ArrayLike:
+        return _safe_log_normalizer(self._normalizer)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
+        return self.icdf(u)
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        # Solve Q(alpha, rate * x) = (1 - q) * Q(alpha, rate * low) for x. Staying in
+        # the upper tail keeps the argument of the inverse away from 1.
+        x = gammainccinv(self.base_dist.concentration, (1 - q) * self._normalizer)
+        invalid = jnp.logical_or(jnp.logical_or(q < 0, q > 1), self._normalizer <= 0.0)
+        x = jnp.where(invalid, jnp.nan, x / self.base_dist.rate)
+        # q == 1 is legitimately infinite here: the support is unbounded above.
+        return _mask_saturated_icdf(x, q)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        sf = gammaincc(self.base_dist.concentration, self.base_dist.rate * value)
+        cdf = jnp.where(
+            value < self.low, 0.0, jnp.clip(1 - sf / self._normalizer, 0.0, 1.0)
+        )
+        return jnp.where(self._normalizer > 0.0, cdf, jnp.nan)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        return _truncated_log_prob(
+            self.base_dist.log_prob(value), self._normalizer, self._log_normalizer
+        )
+
+    @property
+    def mean(self) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        return (concentration / rate) * (
+            gammaincc(concentration + 1, rate * self.low) / self._normalizer
+        )
+
+    @property
+    def variance(self) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        second_moment = (concentration * (concentration + 1) / rate**2) * (
+            gammaincc(concentration + 2, rate * self.low) / self._normalizer
+        )
+        return second_moment - self.mean**2
+
+
+class RightTruncatedGamma(Distribution):
+    r"""A :class:`~numpyro.distributions.continuous.Gamma` distribution truncated
+    from above at ``high``.
+
+    .. math::
+        f(x \mid \alpha, \lambda, b) = \frac{
+            \mathrm{Gamma}(x \mid \alpha, \lambda)
+        }{
+            P(\alpha, \lambda b)
+        }, \qquad 0 < x \leq b,
+
+    where :math:`P(\alpha, z)` is the regularized lower incomplete gamma function
+    (:func:`~jax.scipy.special.gammainc`).
+
+    The support is closed at zero, so — as for :class:`~numpyro.distributions.
+    continuous.Beta` at its endpoints — ``log_prob(0.)`` is ``+inf`` when
+    ``concentration < 1``, where the density genuinely diverges.
+
+    :param base_dist: a :class:`~numpyro.distributions.continuous.Gamma` instance.
+    :param high: the value at which the base distribution is truncated from above.
+
+    .. note::
+        ``log_prob`` returns ``-inf`` once the normalizer underflows, rather than
+        ``+inf``; and ``icdf`` returns ``nan`` below a tail probability of roughly
+        ``1e-8``, where the inverse incomplete gamma saturates — the same limit as
+        :meth:`~numpyro.distributions.continuous.Gamma.icdf`. Enabling
+        ``jax_enable_x64`` helps with the first but not the second.
+    """
+
+    arg_constraints = {"high": constraints.positive}
+    reparametrized_params = ["high"]
+    supported_types = (Gamma,)
+    pytree_data_fields = ("base_dist", "high", "_support")
+
+    def __init__(
+        self,
+        base_dist: Gamma,
+        high: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        assert isinstance(base_dist, self.supported_types)
+        batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
+        self.base_dist: Gamma = jax.tree.map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
+        )
+        (self.high,) = promote_shapes(high, shape=batch_shape)
+        self._support = constraints.interval(0.0, high)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> Constraint:
+        return self._support
+
+    @lazy_property
+    def _normalizer(self) -> ArrayLike:
+        return gammainc(self.base_dist.concentration, self.base_dist.rate * self.high)
+
+    @lazy_property
+    def _log_normalizer(self) -> ArrayLike:
+        return _safe_log_normalizer(self._normalizer)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
+        return self.icdf(u)
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        x = gammaincinv(self.base_dist.concentration, q * self._normalizer)
+        invalid = jnp.logical_or(jnp.logical_or(q < 0, q > 1), self._normalizer <= 0.0)
+        x = jnp.where(invalid, jnp.nan, x / self.base_dist.rate)
+        return _mask_saturated_icdf(x, q)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        cdf = gammainc(self.base_dist.concentration, self.base_dist.rate * value)
+        cdf = jnp.where(
+            value > self.high, 1.0, jnp.clip(cdf / self._normalizer, 0.0, 1.0)
+        )
+        return jnp.where(self._normalizer > 0.0, cdf, jnp.nan)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        return _truncated_log_prob(
+            self.base_dist.log_prob(value), self._normalizer, self._log_normalizer
+        )
+
+    @property
+    def mean(self) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        return (concentration / rate) * (
+            gammainc(concentration + 1, rate * self.high) / self._normalizer
+        )
+
+    @property
+    def variance(self) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        second_moment = (concentration * (concentration + 1) / rate**2) * (
+            gammainc(concentration + 2, rate * self.high) / self._normalizer
+        )
+        return second_moment - self.mean**2
+
+
+class TwoSidedTruncatedGamma(Distribution):
+    r"""A :class:`~numpyro.distributions.continuous.Gamma` distribution truncated to
+    the interval ``[low, high]``.
+
+    .. math::
+        f(x \mid \alpha, \lambda, a, b) = \frac{
+            \mathrm{Gamma}(x \mid \alpha, \lambda)
+        }{
+            Z(\alpha, \lambda, a, b)
+        }, \qquad a \leq x \leq b,
+
+    with normalizer :math:`Z = P(\alpha, \lambda b) - P(\alpha, \lambda a)`.
+
+    Written that way the normalizer loses all of its significant digits when the
+    interval sits far out in the right tail, where both terms are within rounding
+    distance of one; for ``Gamma(2, 1)`` on ``[30, 40]`` in single precision the
+    difference is exactly zero, which would make ``log_prob`` infinite. This class
+    therefore uses the equivalent upper-tail form
+    :math:`Z = Q(\alpha, \lambda a) - Q(\alpha, \lambda b)` whenever the interval lies
+    above the median of the base distribution, and switches ``cdf``, ``icdf``,
+    ``mean`` and ``variance`` to match.
+
+    As for :class:`~numpyro.distributions.continuous.Beta` at its endpoints,
+    ``log_prob(0.)`` is ``+inf`` when ``low`` is zero and ``concentration < 1``, where
+    the density genuinely diverges.
+
+    :param base_dist: a :class:`~numpyro.distributions.continuous.Gamma` instance.
+    :param low: the value at which the base distribution is truncated from below.
+    :param high: the value at which the base distribution is truncated from above.
+
+    .. note::
+        ``log_prob`` returns ``-inf`` once the normalizer underflows, rather than
+        ``+inf``; and ``icdf`` returns ``nan`` below a tail probability of roughly
+        ``1e-8``, where the inverse incomplete gamma saturates — the same limit as
+        :meth:`~numpyro.distributions.continuous.Gamma.icdf`. Enabling
+        ``jax_enable_x64`` helps with the first but not the second.
+    """
+
+    arg_constraints = {
+        "low": constraints.dependent(is_discrete=False, event_dim=0),
+        "high": constraints.dependent(is_discrete=False, event_dim=0),
+    }
+    reparametrized_params = ["low", "high"]
+    supported_types = (Gamma,)
+    pytree_data_fields = ("base_dist", "low", "high", "_support")
+
+    def __init__(
+        self,
+        base_dist: Gamma,
+        low: ArrayLike = 0.0,
+        high: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        assert isinstance(base_dist, self.supported_types)
+        batch_shape = lax.broadcast_shapes(
+            base_dist.batch_shape, jnp.shape(low), jnp.shape(high)
+        )
+        self.base_dist: Gamma = jax.tree.map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
+        )
+        (self.low,) = promote_shapes(low, shape=batch_shape)
+        (self.high,) = promote_shapes(high, shape=batch_shape)
+        self._support = constraints.interval(low, high)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> Constraint:
+        return self._support
+
+    @lazy_property
+    def _cdf_at_low(self) -> ArrayLike:
+        return gammainc(self.base_dist.concentration, self.base_dist.rate * self.low)
+
+    @lazy_property
+    def _cdf_at_high(self) -> ArrayLike:
+        return gammainc(self.base_dist.concentration, self.base_dist.rate * self.high)
+
+    @lazy_property
+    def _sf_at_low(self) -> ArrayLike:
+        return gammaincc(self.base_dist.concentration, self.base_dist.rate * self.low)
+
+    @lazy_property
+    def _sf_at_high(self) -> ArrayLike:
+        return gammaincc(self.base_dist.concentration, self.base_dist.rate * self.high)
+
+    @lazy_property
+    def _use_upper_tail(self) -> ArrayLike:
+        # The interval lies above the median of the base distribution, so both lower
+        # tail probabilities are close to one and their difference cancels.
+        return self._cdf_at_low > 0.5
+
+    @lazy_property
+    def _normalizer(self) -> ArrayLike:
+        return jnp.where(
+            self._use_upper_tail,
+            self._sf_at_low - self._sf_at_high,
+            self._cdf_at_high - self._cdf_at_low,
+        )
+
+    @lazy_property
+    def _log_normalizer(self) -> ArrayLike:
+        return _safe_log_normalizer(self._normalizer)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+        assert is_prng_key(key)
+        dtype = jnp.result_type(float)
+        finfo = jnp.finfo(dtype)
+        minval = finfo.tiny
+        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
+        return self.icdf(u)
+
+    def icdf(self, q: ArrayLike) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        # Upper tail: solve Q(alpha, rate * x) = Q(alpha, rate * low) - q * Z.
+        # Lower tail: solve P(alpha, rate * x) = P(alpha, rate * low) + q * Z.
+        # Both inverses are evaluated because `jnp.where` has no lazy branch, which
+        # costs roughly twice a single solve. Selecting the argument instead and
+        # calling one inverse is not an option: gammainccinv(a, y) == gammaincinv(a,
+        # 1 - y) reintroduces exactly the cancellation the tail switch exists to
+        # avoid, and `lax.cond` needs a scalar predicate so it would not batch.
+        x = jnp.where(
+            self._use_upper_tail,
+            gammainccinv(
+                concentration, clamp_probs(self._sf_at_low - q * self._normalizer)
+            ),
+            gammaincinv(
+                concentration, clamp_probs(self._cdf_at_low + q * self._normalizer)
+            ),
+        )
+        invalid = jnp.logical_or(jnp.logical_or(q < 0, q > 1), self._normalizer <= 0.0)
+        x = jnp.where(invalid, jnp.nan, x / rate)
+        return _mask_saturated_icdf(x, q)
+
+    def cdf(self, value: ArrayLike) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        truncated_cdf = jnp.where(
+            self._use_upper_tail,
+            (self._sf_at_low - gammaincc(concentration, rate * value))
+            / self._normalizer,
+            (gammainc(concentration, rate * value) - self._cdf_at_low)
+            / self._normalizer,
+        )
+        cdf = jnp.where(
+            value < self.low,
+            0.0,
+            jnp.where(value > self.high, 1.0, jnp.clip(truncated_cdf, 0.0, 1.0)),
+        )
+        return jnp.where(self._normalizer > 0.0, cdf, jnp.nan)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        return _truncated_log_prob(
+            self.base_dist.log_prob(value), self._normalizer, self._log_normalizer
+        )
+
+    def _partial_moment(self, order: int) -> ArrayLike:
+        # int_a^b x^k f(x) dx is the same incomplete gamma difference evaluated at
+        # concentration + k, so the tail switch carries over unchanged.
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        shifted = concentration + order
+        return jnp.where(
+            self._use_upper_tail,
+            gammaincc(shifted, rate * self.low) - gammaincc(shifted, rate * self.high),
+            gammainc(shifted, rate * self.high) - gammainc(shifted, rate * self.low),
+        )
+
+    @property
+    def mean(self) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        return (concentration / rate) * (self._partial_moment(1) / self._normalizer)
+
+    @property
+    def variance(self) -> ArrayLike:
+        concentration, rate = self.base_dist.concentration, self.base_dist.rate
+        second_moment = (concentration * (concentration + 1) / rate**2) * (
+            self._partial_moment(2) / self._normalizer
+        )
+        return second_moment - self.mean**2
+
+
+def TruncatedGamma(
+    concentration: ArrayLike = 1.0,
+    rate: ArrayLike = 1.0,
+    *,
+    low: Optional[ArrayLike] = None,
+    high: Optional[ArrayLike] = None,
+    validate_args: Optional[bool] = None,
+):
+    """
+    A function to generate a truncated gamma distribution.
+
+    :param concentration: concentration parameter of the base
+        :class:`~numpyro.distributions.continuous.Gamma` distribution.
+    :param rate: rate parameter of the base distribution.
+    :param low: the value which is used to truncate the base distribution from
+        below. Setting this parameter to None to not truncate from below.
+    :param high: the value which is used to truncate the base distribution from
+        above. Setting this parameter to None to not truncate from above.
+
+    **Example:**
+
+    .. doctest::
+
+            >>> from jax import numpy as jnp
+            >>> from numpyro import distributions as dist
+            >>> d = dist.TruncatedGamma(2.0, 1.0, low=0.5, high=3.0)
+            >>> log_prob = d.log_prob(jnp.array([1.0, 2.0]))
+            >>> lower_bounded = dist.TruncatedGamma(2.0, 1.0, low=0.5)
+    """
+    base_dist = Gamma(concentration, rate)
+    if high is None:
+        if low is None:
+            return base_dist
+        return LeftTruncatedGamma(base_dist, low=low, validate_args=validate_args)
+    elif low is None:
+        return RightTruncatedGamma(base_dist, high=high, validate_args=validate_args)
+    else:
+        return TwoSidedTruncatedGamma(
+            base_dist, low=low, high=high, validate_args=validate_args
+        )
 
 
 class TruncatedPolyaGamma(Distribution):
