@@ -2885,6 +2885,22 @@ def test_beta_proportion_invalid_mean():
             np.array([-5, 0, 0.5, 1, 7]),
             np.array([False, False, True, False, False]),
         ),
+        (
+            constraints.zero_sum(1),
+            np.array([[1.0, -1.0, 0.0], [1.0, 1.0, -1.0]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.zero_sum(2),
+            np.array(
+                [
+                    [[1.0, -1.0], [-1.0, 1.0]],
+                    [[1.0, 0.0], [0.0, -1.0]],
+                    [[1.0, -1.0], [1.0, -1.0]],
+                ]
+            ),
+            np.array([True, False, False]),
+        ),
     ],
 )
 def test_constraints(constraint, x, expected):
